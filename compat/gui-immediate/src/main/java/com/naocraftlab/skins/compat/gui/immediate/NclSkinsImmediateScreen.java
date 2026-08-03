@@ -51,6 +51,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
     private static final String PRESET_EDITOR_SCREEN_ID = "preset_editor";
     private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
+            "edit",
+            "plus",
             "duplicate",
             "delete",
             "cape",
@@ -177,6 +179,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             renderClipped(graphics, view, entry.getKey(), () ->
                     entry.getValue().render(graphics, widgetMouseX, widgetMouseY, partialTick));
         }
+        renderIconDecorations(graphics, view, mouseX, mouseY);
         for (ViewSpec.Text text : view.texts()) {
             renderClipped(graphics, view, text.id(), () -> renderText(graphics, text));
         }
@@ -402,7 +405,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     continue;
                 }
                 nativeWidget.active = widget.enabled();
-                nativeWidget.visible = widget.visible();
+                nativeWidget.visible = widget.visible() || ownsDecoration(view, widget.id());
                 nativeWidget.setX(widget.bounds().x());
                 nativeWidget.setY(widget.bounds().y());
                 nativeWidget.setWidth(widget.bounds().width());
@@ -509,6 +512,15 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             return button;
         }
         if (widget.kind() == ViewSpec.WidgetKind.BUTTON) {
+            if (!widget.visible()) {
+                return new TransparentButtonWidget(
+                        widget.id(),
+                        bounds.x(),
+                        bounds.y(),
+                        bounds.width(),
+                        bounds.height(),
+                        resolve(widget.label()));
+            }
             Button button = Button.builder(
                             resolve(widget.label()),
                             ignored -> runtime.dispatchWidget(widget.id(), hasShiftDown()))
@@ -542,12 +554,55 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private static ResourceLocation actionIconTexture(ViewSpec.Widget widget) {
         String icon = widget.icon().orElseThrow(
                 () -> new IllegalArgumentException("Icon button has no icon: " + widget.id()));
+        return actionIconTexture(icon);
+    }
+
+    private static ResourceLocation actionIconTexture(String icon) {
         if (!APPROVED_ACTION_ICONS.contains(icon)) {
             throw new IllegalArgumentException("Unsupported action icon: " + icon);
         }
         return Objects.requireNonNull(
                 ResourceLocation.tryParse("nclskins:textures/gui/icons/" + icon + ".png"),
                 "actionIconTexture");
+    }
+
+    private void renderIconDecorations(
+            GuiGraphics graphics, ViewSpec view, int mouseX, int mouseY) {
+        for (ViewSpec.IconDecoration decoration : view.iconDecorations()) {
+            boolean hovered = view.widget(decoration.ownerWidgetId())
+                    .filter(widget -> widget.bounds().contains(mouseX, mouseY))
+                    .filter(widget -> pointerInsideClip(view, widget.id(), mouseX, mouseY))
+                    .isPresent();
+            boolean focused = Optional.ofNullable(nativeWidgets.get(decoration.ownerWidgetId()))
+                    .map(AbstractWidget::isFocused)
+                    .orElse(false);
+            float opacity = hovered || focused
+                    ? decoration.activeOpacity()
+                    : decoration.idleOpacity();
+            Bounds bounds = decoration.bounds();
+            renderClipped(graphics, view, decoration.id(), () -> {
+                graphics.setColor(1.0F, 1.0F, 1.0F, opacity);
+                try {
+                    graphics.blit(
+                            actionIconTexture(decoration.icon()),
+                            bounds.x(),
+                            bounds.y(),
+                            0.0F,
+                            0.0F,
+                            bounds.width(),
+                            bounds.height(),
+                            ACTION_ICON_SIZE,
+                            ACTION_ICON_SIZE);
+                } finally {
+                    graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+                }
+            });
+        }
+    }
+
+    private static boolean ownsDecoration(ViewSpec view, String widgetId) {
+        return view.iconDecorations().stream()
+                .anyMatch(decoration -> decoration.ownerWidgetId().equals(widgetId));
     }
 
 
@@ -600,6 +655,38 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
         @Override
         public void renderString(GuiGraphics graphics, Font font, int color) {
+
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput output) {
+            defaultButtonNarrationText(output);
+        }
+    }
+
+
+    private final class TransparentButtonWidget extends AbstractButton {
+        private final String widgetId;
+
+        private TransparentButtonWidget(
+                String widgetId,
+                int x,
+                int y,
+                int width,
+                int height,
+                Component message) {
+            super(x, y, width, height, message);
+            this.widgetId = Objects.requireNonNull(widgetId, "widgetId");
+        }
+
+        @Override
+        public void onPress() {
+            runtime.dispatchWidget(widgetId, hasShiftDown());
+        }
+
+        @Override
+        protected void renderWidget(
+                GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
 
         }
 
@@ -1141,14 +1228,12 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         if (message.severity() == UiMessage.Severity.ERROR) {
             return ERROR_COLOR;
         }
-        if ("gallery.session".equals(id) && "nclskins.session.valid".equals(message.key())
-                || id.endsWith(".state") && "nclskins.gallery.active".equals(message.key())) {
+        if (id.endsWith(".state") && "nclskins.gallery.active".equals(message.key())) {
             return ACTIVE_TEXT_COLOR;
         }
         if ("gallery.title".equals(id)
                 || "editor.title".equals(id)
-                || id.endsWith(".name")
-                || "gallery.add.plus".equals(id)) {
+                || id.endsWith(".name")) {
             return TEXT_COLOR;
         }
         return MUTED_COLOR;

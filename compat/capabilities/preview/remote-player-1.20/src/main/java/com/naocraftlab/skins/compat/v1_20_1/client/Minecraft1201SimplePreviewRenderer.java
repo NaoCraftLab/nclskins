@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.v1_20_1.client;
 
+import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
@@ -23,7 +24,10 @@ import org.joml.Quaternionf;
 
 public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final int FULL_BRIGHT = 0x00F000F0;
-    private static final float GUI_DEPTH = 100.0F;
+    private static final float MODEL_HEIGHT = 2.125F;
+    private static final float FIT_PADDING = 0.97F;
+    private static final float ANCHOR_Y = 0.88F;
+    private static final float GUI_DEPTH = 120.0F;
     private static final VanillaPlayerModelTransform.Operations<PoseStack> POSE_OPERATIONS =
             new VanillaPlayerModelTransform.Operations<>() {
                 @Override
@@ -82,11 +86,10 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
                     request.top(),
                     request.left() + request.width(),
                     request.top() + request.height());
-            float scale = Math.min(request.width() / 2.3F, request.height() / 2.3F)
-                    * request.scale();
+            float scale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
             pose.translate(
                     request.left() + request.width() / 2.0F,
-                    request.top() + request.height() * 0.76F,
+                    request.top() + request.height() * ANCHOR_Y,
                     GUI_DEPTH);
             VanillaPlayerModelTransform.apply(
                     pose,
@@ -95,6 +98,7 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
                     request.pitchDegrees(),
                     POSE_OPERATIONS);
 
+            Lighting.setupForEntityInInventory();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation skin = location(appearance.skin());
             model.renderToBuffer(
@@ -118,6 +122,7 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
         } finally {
             graphics.disableScissor();
             pose.popPose();
+            Lighting.setupFor3DItems();
         }
     }
 

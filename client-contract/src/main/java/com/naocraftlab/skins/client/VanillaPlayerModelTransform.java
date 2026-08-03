@@ -16,6 +16,34 @@ public final class VanillaPlayerModelTransform {
             float yawDegrees,
             float pitchDegrees,
             Operations<C> operations) {
+        validate(context, scale, yawDegrees, pitchDegrees, operations);
+        operations.scale(context, scale, scale, -scale);
+        applyModelTransform(context, yawDegrees, pitchDegrees, operations);
+    }
+
+    public static <C> void applyCentered(
+            C context,
+            float scale,
+            float yawDegrees,
+            float pitchDegrees,
+            Operations<C> operations) {
+        validate(context, scale, yawDegrees, pitchDegrees, operations);
+        operations.scale(context, scale, scale, -scale);
+        operations.translate(
+                context,
+                0.0F,
+                CenteredPlayerPreviewGeometry.modernEntityTranslationY(
+                        CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT),
+                0.0F);
+        applyModelTransform(context, yawDegrees, pitchDegrees, operations);
+    }
+
+    private static <C> void validate(
+            C context,
+            float scale,
+            float yawDegrees,
+            float pitchDegrees,
+            Operations<C> operations) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(operations, "operations");
         if (!Float.isFinite(scale)
@@ -24,10 +52,13 @@ public final class VanillaPlayerModelTransform {
                 || !Float.isFinite(pitchDegrees)) {
             throw new IllegalArgumentException("Player preview transform must be finite and positive");
         }
+    }
 
-
-        operations.scale(context, scale, scale, -scale);
-
+    private static <C> void applyModelTransform(
+            C context,
+            float yawDegrees,
+            float pitchDegrees,
+            Operations<C> operations) {
         operations.rotateZThenX(
                 context,
                 (float) Math.PI,

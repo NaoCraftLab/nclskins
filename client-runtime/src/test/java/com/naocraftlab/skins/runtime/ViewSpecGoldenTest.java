@@ -1,18 +1,20 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
+import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import org.junit.jupiter.api.Test;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class ViewSpecGoldenTest {
     private static final GalleryPresenter GALLERY = new GalleryPresenter();
@@ -42,6 +44,30 @@ final class ViewSpecGoldenTest {
                 editor(1600, 720)).stripTrailing());
     }
 
+    @Test
+    void portrait240OfflineGalleryMatchesGolden() {
+        assertEquals(
+                golden("gallery-view-spec-240.txt"),
+                describe(galleryWithSessionState(240, 360, false, AppearanceSyncStatus.LOCAL_ONLY))
+                        .stripTrailing());
+    }
+
+    @Test
+    void portrait320HealthyGalleryMatchesGolden() {
+        assertEquals(
+                golden("gallery-view-spec-320.txt"),
+                describe(galleryWithSessionState(320, 480, true, AppearanceSyncStatus.LOCAL_ONLY))
+                        .stripTrailing());
+    }
+
+    @Test
+    void portrait427RecoveryGalleryMatchesGolden() {
+        assertEquals(
+                golden("gallery-view-spec-427.txt"),
+                describe(galleryWithSessionState(427, 640, true, AppearanceSyncStatus.UNKNOWN))
+                        .stripTrailing());
+    }
+
     private static ViewSpec gallery(
             int presetCount,
             int activeIndex,
@@ -58,6 +84,41 @@ final class ViewSpecGoldenTest {
                 height,
                 mouseX,
                 mouseY,
+                PreviewRenderer.CapeMode.ELYTRA);
+    }
+
+    private static ViewSpec galleryWithSessionState(
+            int width, int height, boolean validSession, AppearanceSyncStatus syncStatus) {
+        AccountState account = TestFixtures.account(4);
+        UUID active = account.presets().get(3).id();
+        ClientSnapshot base = TestFixtures.ready(account, active, 0);
+        ClientSnapshot snapshot = new ClientSnapshot(
+                base.lifecycle(),
+                base.account(),
+                validSession ? base.session() : Optional.empty(),
+                validSession ? base.remoteProfile() : Optional.empty(),
+                base.lastMutation(),
+                base.selectedSkinId(),
+                base.selectedPresetId(),
+                base.selectedCapeId(),
+                base.currentOfficialSkinId(),
+                base.activePresetId(),
+                base.editor(),
+                base.addSource(),
+                base.status(),
+                false,
+                false,
+                0,
+                base.generation(),
+                base.intentRevision(),
+                syncStatus,
+                false);
+        return GALLERY.present(
+                snapshot,
+                width,
+                height,
+                width / 2,
+                height / 3,
                 PreviewRenderer.CapeMode.ELYTRA);
     }
 
@@ -140,6 +201,15 @@ final class ViewSpecGoldenTest {
             ViewSpec.CapeTexture texture = view.capeTextures().get(index);
             result.append(index).append('|').append(texture.id()).append('|')
                     .append(bounds(texture.bounds())).append("|cape=").append(texture.capeId()).append('\n');
+        }
+        result.append("icon_decorations\n");
+        for (int index = 0; index < view.iconDecorations().size(); index++) {
+            ViewSpec.IconDecoration decoration = view.iconDecorations().get(index);
+            result.append(index).append('|').append(decoration.id()).append('|')
+                    .append(bounds(decoration.bounds())).append("|icon=").append(decoration.icon()).append('|')
+                    .append("owner=").append(decoration.ownerWidgetId()).append('|')
+                    .append("idle=").append(decoration.idleOpacity()).append('|')
+                    .append("active=").append(decoration.activeOpacity()).append('\n');
         }
         result.append("clip_regions\n");
         for (int index = 0; index < view.clipRegions().size(); index++) {

@@ -16,6 +16,10 @@ import java.util.UUID;
 
 public final class GalleryPresenter {
     private static final int CARD_GAP = 12;
+    private static final int CARD_MIN_WIDTH = 136;
+    private static final int CARD_MAX_WIDTH = 190;
+    private static final int DECORATION_ICON_SIZE = 15;
+    private static final int RECOVERY_BUTTON_WIDTH = 112;
     private static final int SCROLLBAR_HEIGHT = 6;
 
     public ViewSpec present(
@@ -88,22 +92,21 @@ public final class GalleryPresenter {
         int offset = Math.min((int) Math.floor(visualOffset), maximum);
         double fraction = visualOffset - offset;
         int cardWidth = cardWidth(width, visibleCount);
-        int viewportCardCount = Math.min(visibleCount, cards.size());
-        int viewportWidth = cardWidth * viewportCardCount
-                + CARD_GAP * Math.max(0, viewportCardCount - 1);
         int anchorTo = Math.min(cards.size(), offset + visibleCount);
         List<GalleryCard> anchorCards = cards.subList(Math.min(offset, cards.size()), anchorTo);
-        int to = Math.min(cards.size(), anchorTo + (fraction > 0.001 ? 1 : 0));
-        List<GalleryCard> visibleCards = cards.subList(Math.min(offset, cards.size()), to);
+        boolean showRestingNeighbors = visibleCount < 3;
+        int from = showRestingNeighbors ? Math.max(0, offset - 1) : offset;
+        int to = Math.min(
+                cards.size(),
+                anchorTo + (showRestingNeighbors || fraction > 0.001 ? 1 : 0));
+        List<GalleryCard> visibleCards = cards.subList(from, to);
+        int cardStep = cardWidth + CARD_GAP;
         int startX = startX(snapshot.activePresetId(), width, cardWidth, offset, anchorCards)
-                - (int) Math.round(fraction * (cardWidth + CARD_GAP));
+                - (offset - from) * cardStep
+                - (int) Math.round(fraction * cardStep);
         int top = 62;
         int bottom = Math.max(top + 112, height - 64);
-        Bounds cardViewport = new Bounds(
-                (width - viewportWidth) / 2,
-                top,
-                Math.max(1, viewportWidth),
-                bottom - top);
+        Bounds cardViewport = new Bounds(0, top, width, bottom - top);
 
         List<ViewSpec.Panel> panels = new ArrayList<>();
         panels.add(new ViewSpec.Panel(
@@ -113,6 +116,7 @@ public final class GalleryPresenter {
         List<ViewSpec.Text> texts = new ArrayList<>();
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Preview> previews = new ArrayList<>();
+        List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
         widgets.add(ViewSpec.Widget.textField(
                 "gallery.search",
                 new Bounds(Math.max(8, width / 2 - 90), 36, Math.min(180, width - 16), 20),
@@ -131,11 +135,15 @@ public final class GalleryPresenter {
             }
             panels.add(new ViewSpec.Panel(card.id(), panelBounds, ViewSpec.Panel.Style.VANILLA_LIST));
             if (card.preset().isEmpty()) {
-                texts.add(new ViewSpec.Text(
-                        "gallery.add.plus",
-                        new Bounds(x, top + Math.max(26, (bottom - top) / 2 - 10), cardWidth, 10),
-                        UiMessage.literal("+", UiMessage.Severity.INFO),
-                        ViewSpec.Text.Alignment.CENTER));
+                int iconX = x + (cardWidth - DECORATION_ICON_SIZE) / 2;
+                int iconY = top + Math.max(24, (bottom - top - DECORATION_ICON_SIZE) / 2 - 10);
+                iconDecorations.add(new ViewSpec.IconDecoration(
+                        "gallery.add.icon",
+                        new Bounds(iconX, iconY, DECORATION_ICON_SIZE, DECORATION_ICON_SIZE),
+                        "plus",
+                        "gallery.add",
+                        0.65F,
+                        1.0F));
                 boolean nameSeed = matchingPresetCount(snapshot, query) == 0 && !query.isBlank();
                 texts.add(new ViewSpec.Text(
                         "gallery.add.hint",
@@ -177,8 +185,8 @@ public final class GalleryPresenter {
             x += cardWidth + CARD_GAP;
         }
 
-        addGlobalWidgets(snapshot, width, height, widgets);
-        addHeaderAndStatus(snapshot, width, height, texts);
+        Optional<RecoveryWidget> recovery = addGlobalWidgets(snapshot, width, height, widgets);
+        addHeader(snapshot, width, recovery, texts);
 
         Optional<ViewSpec.Scrollbar> scrollbar = maximum <= 0
                 ? Optional.empty()
@@ -199,7 +207,8 @@ public final class GalleryPresenter {
                         "gallery.cards",
                         cardViewport,
                         List.of("gallery.card.", "gallery.add", "gallery.preset."))),
-                List.of());
+                List.of(),
+                iconDecorations);
     }
 
     public int maximumScroll(ClientSnapshot snapshot, int width, String query) {
@@ -313,13 +322,13 @@ public final class GalleryPresenter {
                 prefix + ".apply",
                 new Bounds(x + 8, row, applyWidth, 20),
                 active
-                        ? activeAppearanceLabel(snapshot)
+                        ? UiMessage.info("nclskins.gallery.active")
                         : UiMessage.info("nclskins.gallery.apply"),
                 !snapshot.busy() && !active), actionViewport);
-        addIntersectingAction(widgets, compactAction(
+        addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(x + 8 + applyWidth + gap, row, square, 20),
-                "E",
+                "edit",
                 UiMessage.info("nclskins.gallery.edit"),
                 !snapshot.busy()), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
@@ -343,84 +352,78 @@ public final class GalleryPresenter {
         }
     }
 
-    private static UiMessage activeAppearanceLabel(ClientSnapshot snapshot) {
-        if (snapshot.syncInProgress()) {
-            return UiMessage.info("nclskins.gallery.active_syncing");
-        }
-        return UiMessage.info(switch (snapshot.syncStatus()) {
-            case OFFICIAL -> "nclskins.gallery.active_official";
-            case PARTIAL -> "nclskins.gallery.active_partial";
-            case UNKNOWN -> "nclskins.gallery.active_unknown";
-            case LOCAL_ONLY, PENDING, ATTEMPTING -> "nclskins.gallery.active_local";
-        });
-    }
-
-    private static ViewSpec.Widget compactAction(
-            String id, Bounds bounds, String letter, UiMessage hint, boolean enabled) {
-        return new ViewSpec.Widget(
-                id,
-                ViewSpec.WidgetKind.BUTTON,
-                bounds,
-                UiMessage.literal(letter, UiMessage.Severity.INFO),
-                Optional.empty(),
-                Optional.of(hint),
-                enabled,
-                true,
-                0);
-    }
-
     private static ViewSpec.Widget compactIconAction(
             String id, Bounds bounds, String icon, UiMessage accessibleLabel, boolean enabled) {
         return ViewSpec.Widget.iconButton(id, bounds, accessibleLabel, icon, enabled);
     }
 
-    private static void addGlobalWidgets(
+    private static Optional<RecoveryWidget> addGlobalWidgets(
             ClientSnapshot snapshot, int width, int height, List<ViewSpec.Widget> widgets) {
+        int doneWidth = Math.min(200, Math.max(1, width - 32));
         widgets.add(ViewSpec.Widget.button(
                 "gallery.done",
-                new Bounds(width / 2 - 50, height - 28, 100, 20),
+                new Bounds((width - doneWidth) / 2, height - 28, doneWidth, 20),
                 UiMessage.info("gui.done"),
                 !snapshot.busy()));
         boolean retryVisible = snapshot.session().isEmpty()
                 || !snapshot.session().orElseThrow().valid()
-                || snapshot.rateLimited()
                 || snapshot.recoveryActions().contains(RecoveryAction.REFRESH_REMOTE_PROFILE);
         if (retryVisible) {
+            Bounds bounds = recoveryBounds(width);
             widgets.add(ViewSpec.Widget.button(
                     "gallery.retry_session",
-                    new Bounds(Math.max(8, width - 106), 6, 98, 20),
+                    bounds,
                     UiMessage.info("nclskins.session.retry"),
                     !snapshot.busy() && snapshot.account().isPresent() && !snapshot.rateLimited()));
+            return Optional.of(new RecoveryWidget(bounds));
         }
         if (snapshot.recoveryActions().contains(RecoveryAction.RETRY_CAPE)) {
+            Bounds bounds = recoveryBounds(width);
             widgets.add(ViewSpec.Widget.button(
                     "gallery.retry_cape",
-                    new Bounds(8, height - 28, 96, 20),
+                    bounds,
                     UiMessage.info("nclskins.recovery.retry_cape"),
                     !snapshot.busy() && !snapshot.remoteControlsBlocked()));
+            return Optional.of(new RecoveryWidget(bounds));
         }
+        return Optional.empty();
     }
 
-    private static void addHeaderAndStatus(
-            ClientSnapshot snapshot, int width, int height, List<ViewSpec.Text> texts) {
+    private static Bounds recoveryBounds(int width) {
+        int buttonWidth = Math.min(RECOVERY_BUTTON_WIDTH, Math.max(1, width - 16));
+        return new Bounds(Math.max(8, width - buttonWidth - 8), 6, buttonWidth, 20);
+    }
+
+    private static void addHeader(
+            ClientSnapshot snapshot,
+            int width,
+            Optional<RecoveryWidget> recovery,
+            List<ViewSpec.Text> texts) {
+        boolean offline = snapshot.session().isEmpty() || !snapshot.session().orElseThrow().valid();
+        int leftOccupied = offline ? Math.min(60, Math.max(0, width - 1)) : 0;
+        int rightStart = recovery.map(value -> Math.max(0, value.bounds().x() - 4)).orElse(width);
+        int symmetricInset = Math.max(leftOccupied, width - rightStart);
+        int titleLeft;
+        int titleRight;
+        if (width - symmetricInset * 2 >= 1) {
+            titleLeft = symmetricInset;
+            titleRight = width - symmetricInset;
+        } else {
+            titleLeft = Math.min(leftOccupied, Math.max(0, width - 1));
+            titleRight = Math.max(titleLeft + 1, rightStart);
+        }
         texts.add(new ViewSpec.Text(
                 "gallery.title",
-                new Bounds(0, 10, width, 10),
+                new Bounds(titleLeft, 12, Math.max(1, titleRight - titleLeft), 10),
                 UiMessage.info("nclskins.gallery.title"),
                 ViewSpec.Text.Alignment.CENTER));
-        boolean valid = snapshot.session().isPresent()
-                && snapshot.session().orElseThrow().valid()
-                && !snapshot.rateLimited();
-        texts.add(new ViewSpec.Text(
-                "gallery.session",
-                new Bounds(12, 12, Math.max(1, width - 24), 10),
-                UiMessage.info(valid ? "nclskins.session.valid" : "nclskins.session.unavailable"),
-                ViewSpec.Text.Alignment.LEFT));
-        texts.add(new ViewSpec.Text(
-                "gallery.status",
-                new Bounds(12, Math.max(0, height - 47), Math.max(1, width - 24), 10),
-                snapshot.status(),
-                ViewSpec.Text.Alignment.CENTER));
+        if (offline) {
+            texts.add(new ViewSpec.Text(
+                    "gallery.offline",
+                    new Bounds(8, 12, Math.min(48, Math.max(1, width - 16)), 10),
+                    UiMessage.info("nclskins.session.offline"),
+                    ViewSpec.Text.Alignment.LEFT));
+        }
     }
 
     private static ViewSpec.Scrollbar scrollbar(
@@ -471,13 +474,12 @@ public final class GalleryPresenter {
     }
 
     private static int visibleCount(int width) {
-        int available = Math.max(140, width - 80);
-        return Math.max(1, Math.min(3, (available + CARD_GAP) / (152 + CARD_GAP)));
+        return Math.max(1, Math.min(3, (width + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)));
     }
 
     private static int cardWidth(int width, int visible) {
-        int available = Math.max(140, width - 80);
-        return Math.max(136, Math.min(190, (available - CARD_GAP * (visible - 1)) / visible));
+        int fitted = (width - CARD_GAP * (visible - 1)) / visible;
+        return Math.max(CARD_MIN_WIDTH, Math.min(CARD_MAX_WIDTH, fitted));
     }
 
     private static int startX(
@@ -524,6 +526,12 @@ public final class GalleryPresenter {
 
         private String id() {
             return preset.map(value -> "gallery.card." + value.id()).orElse("gallery.card.add");
+        }
+    }
+
+    private record RecoveryWidget(Bounds bounds) {
+        private RecoveryWidget {
+            Objects.requireNonNull(bounds, "bounds");
         }
     }
 }

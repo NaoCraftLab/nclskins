@@ -1,25 +1,28 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.service.SessionStatus;
+import com.naocraftlab.skins.core.service.SessionValidation;
+import org.junit.jupiter.api.Test;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class GalleryPresenterTest {
     private final GalleryPresenter presenter = new GalleryPresenter();
 
     @Test
-    void canonicalSmallLayoutMatches262() {
+    void portraitLayoutsUseTheFullWidthViewportAndContractCardCapacity() {
         AccountState account = TestFixtures.account(4);
-        ViewSpec view = presenter.present(
+        ViewSpec small = presenter.present(
                 TestFixtures.ready(account, null, 0),
                 320,
                 240,
@@ -27,12 +30,34 @@ final class GalleryPresenterTest {
                 100,
                 PreviewRenderer.CapeMode.CAPE);
 
-        assertEquals(new Bounds(65, 62, 190, 114), view.panels().get(2).bounds());
-        assertEquals(new Bounds(110, 212, 100, 20), view.widget("gallery.done").orElseThrow().bounds());
-        assertEquals(new Bounds(40, 182, 240, 6), view.scrollbar().orElseThrow().track());
-        assertEquals(new Bounds(40, 182, 48, 6), view.scrollbar().orElseThrow().thumb());
-        assertTrue(view.widget("gallery.add").isPresent());
-        assertFalse(view.widget("gallery.add").orElseThrow().visible());
+        assertEquals(new Bounds(0, 62, 154, 114), small.panels().get(2).bounds());
+        assertEquals(new Bounds(166, 62, 154, 114), small.panels().get(3).bounds());
+        assertEquals(new Bounds(0, 62, 320, 114), galleryViewport(small));
+        assertEquals(new Bounds(60, 212, 200, 20), small.widget("gallery.done").orElseThrow().bounds());
+        assertEquals(new Bounds(40, 182, 240, 6), small.scrollbar().orElseThrow().track());
+        assertEquals(new Bounds(40, 182, 96, 6), small.scrollbar().orElseThrow().thumb());
+
+        ViewSpec narrow = presenter.present(
+                TestFixtures.ready(account, null, 0),
+                240,
+                240,
+                120,
+                100,
+                PreviewRenderer.CapeMode.CAPE);
+        assertEquals(new Bounds(25, 62, 190, 114), narrow.panels().get(2).bounds());
+        assertEquals(new Bounds(227, 62, 190, 114), narrow.panels().get(3).bounds());
+        assertEquals(new Bounds(0, 62, 240, 114), galleryViewport(narrow));
+
+        ViewSpec medium = presenter.present(
+                TestFixtures.ready(account, null, 0),
+                427,
+                320,
+                213,
+                120,
+                PreviewRenderer.CapeMode.CAPE);
+        assertEquals(new Bounds(17, 62, 190, 194), medium.panels().get(2).bounds());
+        assertEquals(new Bounds(219, 62, 190, 194), medium.panels().get(3).bounds());
+        assertEquals(new Bounds(0, 62, 427, 194), galleryViewport(medium));
     }
 
     @Test
@@ -58,27 +83,63 @@ final class GalleryPresenterTest {
     }
 
     @Test
-    void activePresetLabelMapsEverySyncStatusAndProgressOverridesThemAll() {
+    void activePresetLabelIsGenericForEverySyncStatusAndProgressState() {
         AccountState account = TestFixtures.account(1);
         UUID active = account.presets().get(0).id();
         ClientSnapshot base = TestFixtures.ready(account, active, 0);
 
-        assertActiveLabel(base, active, AppearanceSyncStatus.LOCAL_ONLY, false,
-                "nclskins.gallery.active_local");
-        assertActiveLabel(base, active, AppearanceSyncStatus.PENDING, false,
-                "nclskins.gallery.active_local");
-        assertActiveLabel(base, active, AppearanceSyncStatus.ATTEMPTING, false,
-                "nclskins.gallery.active_local");
-        assertActiveLabel(base, active, AppearanceSyncStatus.OFFICIAL, false,
-                "nclskins.gallery.active_official");
-        assertActiveLabel(base, active, AppearanceSyncStatus.PARTIAL, false,
-                "nclskins.gallery.active_partial");
-        assertActiveLabel(base, active, AppearanceSyncStatus.UNKNOWN, false,
-                "nclskins.gallery.active_unknown");
         for (AppearanceSyncStatus status : AppearanceSyncStatus.values()) {
-            assertActiveLabel(
-                    base, active, status, true, "nclskins.gallery.active_syncing");
+            assertActiveLabel(base, active, status, false);
+            assertActiveLabel(base, active, status, true);
         }
+    }
+
+    @Test
+    void headerShowsOnlyOfflineAndTheApplicableRecoveryAction() {
+        ClientSnapshot valid = TestFixtures.ready(TestFixtures.account(1), null, 0);
+        ViewSpec healthy = presenter.present(valid, 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertTrue(healthy.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+        assertTrue(healthy.texts().stream().noneMatch(text -> text.id().equals("gallery.session")));
+        assertTrue(healthy.texts().stream().noneMatch(text -> text.id().equals("gallery.status")));
+        assertTrue(healthy.widget("gallery.retry_session").isEmpty());
+        assertTrue(healthy.widget("gallery.retry_cape").isEmpty());
+        assertEquals(new Bounds(0, 12, 854, 10), text(healthy, "gallery.title").bounds());
+
+        ViewSpec missing = presenter.present(
+                withState(valid, Optional.empty(), false, false, AppearanceSyncStatus.LOCAL_ONLY),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertEquals(UiMessage.info("nclskins.session.offline"), text(missing, "gallery.offline").message());
+        ViewSpec.Widget missingRetry = missing.widget("gallery.retry_session").orElseThrow();
+        assertTrue(missingRetry.enabled());
+        assertEquals(new Bounds(734, 6, 112, 20), missingRetry.bounds());
+        assertTrue(text(missing, "gallery.offline").bounds().right()
+                <= text(missing, "gallery.title").bounds().x());
+        assertTrue(text(missing, "gallery.title").bounds().right() <= missingRetry.bounds().x());
+
+        SessionValidation invalidSession = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                null,
+                "offline");
+        ViewSpec invalid = presenter.present(
+                withState(valid, Optional.of(invalidSession), false, true, AppearanceSyncStatus.LOCAL_ONLY),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertTrue(invalid.texts().stream().anyMatch(text -> text.id().equals("gallery.offline")));
+        assertFalse(invalid.widget("gallery.retry_session").orElseThrow().enabled());
+
+        ViewSpec rateLimited = presenter.present(
+                withState(valid, valid.session(), true, false, AppearanceSyncStatus.LOCAL_ONLY),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertTrue(rateLimited.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+        assertTrue(rateLimited.widget("gallery.retry_session").isEmpty());
+
+        ViewSpec unverifiedRateLimited = presenter.present(
+                withState(valid, valid.session(), true, false, AppearanceSyncStatus.UNKNOWN),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertTrue(unverifiedRateLimited.texts().stream()
+                .noneMatch(text -> text.id().equals("gallery.offline")));
+        assertFalse(unverifiedRateLimited.widget("gallery.retry_session").orElseThrow().enabled());
     }
 
     @Test
@@ -100,6 +161,10 @@ final class GalleryPresenterTest {
         assertTrue(partial.recoveryActions().contains(
                 com.naocraftlab.skins.core.service.RecoveryAction.RETRY_CAPE));
         assertTrue(partialView.widget("gallery.retry_cape").orElseThrow().enabled());
+        assertEquals(
+                new Bounds(734, 6, 112, 20),
+                partialView.widget("gallery.retry_cape").orElseThrow().bounds());
+        assertTrue(partialView.widget("gallery.retry_session").isEmpty());
 
         ClientSnapshot unknown = withDurableStatus(base, AppearanceSyncStatus.UNKNOWN);
         ViewSpec unknownView = presenter.present(
@@ -165,16 +230,12 @@ final class GalleryPresenterTest {
 
     @Test
     void fractionalCardsRetainClippedActionsWhilePartiallyVisible() {
-        ViewSpec view = presentAt(TestFixtures.ready(TestFixtures.account(4), null, 0), 0.5);
-        Bounds viewport = view.clipRegions().stream()
-                .filter(region -> region.id().equals("gallery.cards"))
-                .findFirst()
-                .orElseThrow()
-                .bounds();
+        ViewSpec view = presentAt(TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 0.5);
+        Bounds viewport = galleryViewport(view);
 
-        assertEquals(new Bounds(130, 62, 594, 354), viewport);
+        assertEquals(new Bounds(0, 62, 320, 114), viewport);
         assertEquals(Optional.of(viewport), view.clipFor("gallery.card.add"));
-        assertEquals(Optional.of(viewport), view.clipFor("gallery.add.plus"));
+        assertEquals(Optional.of(viewport), view.clipFor("gallery.add.icon"));
         ViewSpec.Widget outgoingAdd = view.widget("gallery.add").orElseThrow();
         assertTrue(outgoingAdd.bounds().x() < viewport.x());
         assertEquals(Optional.of(viewport), view.clipFor(outgoingAdd.id()));
@@ -196,7 +257,8 @@ final class GalleryPresenterTest {
             assertTrue(view.widget(prefix + "." + action).isEmpty());
         }
 
-        ViewSpec outgoing = presentAt(TestFixtures.ready(TestFixtures.account(4), null, 0), 1.5);
+        ViewSpec outgoing = presentAt(
+                TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 1.25);
         ViewSpec.Panel outgoingPreset = outgoing.panels().stream()
                 .filter(panel -> panel.id().startsWith("gallery.card."))
                 .filter(panel -> panel.bounds().x() < viewport.x())
@@ -223,12 +285,8 @@ final class GalleryPresenterTest {
     @Test
     void fractionalDeleteConfirmationOmitsOnlyTheFullyClippedButton() {
         ClientSnapshot snapshot = TestFixtures.ready(TestFixtures.account(4), null, 0);
-        ViewSpec ordinary = presentAt(snapshot, 0.5);
-        Bounds viewport = ordinary.clipRegions().stream()
-                .filter(region -> region.id().equals("gallery.cards"))
-                .findFirst()
-                .orElseThrow()
-                .bounds();
+        ViewSpec ordinary = presentAt(snapshot, 320, 240, 0.5);
+        Bounds viewport = galleryViewport(ordinary);
         ViewSpec.Panel incoming = ordinary.panels().stream()
                 .filter(panel -> panel.id().startsWith("gallery.card."))
                 .filter(panel -> panel.bounds().right() > viewport.right())
@@ -239,10 +297,10 @@ final class GalleryPresenterTest {
 
         ViewSpec confirming = presenter.present(
                 snapshot,
-                854,
-                480,
-                427,
-                180,
+                320,
+                240,
+                160,
+                100,
                 PreviewRenderer.CapeMode.CAPE,
                 SkinVariant.CLASSIC,
                 "",
@@ -256,7 +314,7 @@ final class GalleryPresenterTest {
     }
 
     @Test
-    void compactActionsUseApprovedIconsWhileEditAndDeleteConfirmationStayTextButtons() {
+    void compactActionsUseApprovedIconsWhileDeleteConfirmationStaysTextual() {
         AccountState account = TestFixtures.account(4);
         UUID presetId = account.presets().get(3).id();
         String prefix = "gallery.preset." + presetId;
@@ -269,10 +327,10 @@ final class GalleryPresenterTest {
                 PreviewRenderer.CapeMode.ELYTRA);
 
         ViewSpec.Widget edit = view.widget(prefix + ".edit").orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.BUTTON, edit.kind());
-        assertEquals(UiMessage.literal("E", UiMessage.Severity.INFO), edit.label());
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, edit.kind());
+        assertEquals(UiMessage.info("nclskins.gallery.edit"), edit.label());
         assertEquals(Optional.of(UiMessage.info("nclskins.gallery.edit")), edit.hint());
-        assertTrue(edit.icon().isEmpty());
+        assertEquals(Optional.of("edit"), edit.icon());
 
         ViewSpec.Widget duplicate = view.widget(prefix + ".duplicate").orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, duplicate.kind());
@@ -304,13 +362,40 @@ final class GalleryPresenterTest {
                 confirming.widget(prefix + ".delete_cancel").orElseThrow().kind());
     }
 
+    @Test
+    void addCardOwnsOneNonInteractivePlusDecoration() {
+        ViewSpec view = presenter.present(
+                TestFixtures.ready(TestFixtures.account(2), null, 0),
+                320,
+                240,
+                160,
+                100,
+                PreviewRenderer.CapeMode.CAPE);
+
+        ViewSpec.Widget add = view.widget("gallery.add").orElseThrow();
+        assertFalse(add.visible());
+        assertEquals(1, view.iconDecorations().size());
+        ViewSpec.IconDecoration plus = view.iconDecorations().get(0);
+        assertEquals("gallery.add.icon", plus.id());
+        assertEquals("gallery.add", plus.ownerWidgetId());
+        assertEquals("plus", plus.icon());
+        assertEquals(0.65F, plus.idleOpacity());
+        assertEquals(1.0F, plus.activeOpacity());
+        assertEquals(Optional.of(galleryViewport(view)), view.clipFor(plus.id()));
+    }
+
     private ViewSpec presentAt(ClientSnapshot snapshot, double scrollPosition) {
+        return presentAt(snapshot, 854, 480, scrollPosition);
+    }
+
+    private ViewSpec presentAt(
+            ClientSnapshot snapshot, int width, int height, double scrollPosition) {
         return presenter.present(
                 snapshot,
-                854,
-                480,
-                427,
-                180,
+                width,
+                height,
+                width / 2,
+                Math.min(height - 1, 180),
                 PreviewRenderer.CapeMode.CAPE,
                 SkinVariant.CLASSIC,
                 "",
@@ -322,8 +407,7 @@ final class GalleryPresenterTest {
             ClientSnapshot base,
             UUID active,
             AppearanceSyncStatus status,
-            boolean syncInProgress,
-            String expectedKey) {
+            boolean syncInProgress) {
         ClientSnapshot snapshot = new ClientSnapshot(
                 base.lifecycle(),
                 base.account(),
@@ -353,9 +437,38 @@ final class GalleryPresenterTest {
                 180,
                 PreviewRenderer.CapeMode.CAPE);
 
-        assertEquals(
-                UiMessage.info(expectedKey),
-                view.widget("gallery.preset." + active + ".apply").orElseThrow().label());
+        ViewSpec.Widget apply = view.widget("gallery.preset." + active + ".apply").orElseThrow();
+        assertEquals(UiMessage.info("nclskins.gallery.active"), apply.label());
+        assertFalse(apply.enabled());
+    }
+
+    private static ClientSnapshot withState(
+            ClientSnapshot base,
+            Optional<SessionValidation> session,
+            boolean rateLimited,
+            boolean busy,
+            AppearanceSyncStatus syncStatus) {
+        return new ClientSnapshot(
+                base.lifecycle(),
+                base.account(),
+                session,
+                base.remoteProfile(),
+                base.lastMutation(),
+                base.selectedSkinId(),
+                base.selectedPresetId(),
+                base.selectedCapeId(),
+                base.currentOfficialSkinId(),
+                base.activePresetId(),
+                base.editor(),
+                base.addSource(),
+                base.status(),
+                busy,
+                rateLimited,
+                base.galleryOffset(),
+                base.generation(),
+                base.intentRevision(),
+                syncStatus,
+                false);
     }
 
     private static ClientSnapshot withDurableStatus(
@@ -390,6 +503,21 @@ final class GalleryPresenterTest {
                 .orElseThrow()
                 .bounds()
                 .x();
+    }
+
+    private static Bounds galleryViewport(ViewSpec view) {
+        return view.clipRegions().stream()
+                .filter(region -> region.id().equals("gallery.cards"))
+                .findFirst()
+                .orElseThrow()
+                .bounds();
+    }
+
+    private static ViewSpec.Text text(ViewSpec view, String id) {
+        return view.texts().stream()
+                .filter(text -> text.id().equals(id))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static boolean intersects(Bounds candidate, Bounds viewport) {

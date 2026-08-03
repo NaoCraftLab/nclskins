@@ -13,7 +13,7 @@ final class NclSkins1201ImmediateScreen extends NclSkinsImmediateScreen {
     @Override
     protected void renderEpochBackground(
             GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
+        renderDirtBackground(graphics);
     }
 
     @Override

@@ -65,6 +65,8 @@ public final class NclSkinsScreen extends Screen {
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
     private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
+            "edit",
+            "plus",
             "duplicate",
             "delete",
             "cape",
@@ -231,7 +233,7 @@ public final class NclSkinsScreen extends Screen {
 
     private void addNativeWidgets(ViewSpec view) {
         for (ViewSpec.Widget spec : view.widgets()) {
-            if (!spec.visible()) {
+            if (!spec.visible() && !ownsDecoration(view, spec.id())) {
                 continue;
             }
             Bounds bounds = spec.bounds();
@@ -309,15 +311,23 @@ public final class NclSkinsScreen extends Screen {
                         spec.hint().orElse(spec.label()))));
                 widget = infoButton;
             } else {
-                Button button = Button.builder(
-                                Minecraft262Components.resolve(spec.label()),
-                                ignored -> runtime.dispatchWidget(spec.id()))
-                        .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height())
-                        .build();
-                button.active = spec.enabled();
-                spec.hint().ifPresent(hint -> button.setTooltip(
-                        Tooltip.create(Minecraft262Components.resolve(hint))));
-                widget = button;
+                if (!spec.visible()) {
+                    widget = new TransparentButtonWidget(
+                            bounds,
+                            Minecraft262Components.resolve(spec.label()),
+                            input -> runtime.dispatchWidget(spec.id(), input.hasShiftDown()));
+                    widget.active = spec.enabled();
+                } else {
+                    Button button = Button.builder(
+                                    Minecraft262Components.resolve(spec.label()),
+                                    ignored -> runtime.dispatchWidget(spec.id()))
+                            .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height())
+                            .build();
+                    button.active = spec.enabled();
+                    spec.hint().ifPresent(hint -> button.setTooltip(
+                            Tooltip.create(Minecraft262Components.resolve(hint))));
+                    widget = button;
+                }
             }
             nativeWidgets.put(spec.id(), widget);
             addRenderableWidget(widget);
@@ -380,7 +390,7 @@ public final class NclSkinsScreen extends Screen {
                 continue;
             }
             widget.active = spec.enabled();
-            widget.visible = spec.visible();
+            widget.visible = spec.visible() || ownsDecoration(view, spec.id());
             Bounds bounds = spec.bounds();
             widget.setRectangle(bounds.width(), bounds.height(), bounds.x(), bounds.y());
             if (widget instanceof IconButtonWidget iconButton) {
@@ -507,7 +517,43 @@ public final class NclSkinsScreen extends Screen {
         drawScrollbar(graphics, view, mouseX, mouseY);
         graphics.nextStratum();
         extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);
+        drawIconDecorations(graphics, view, mouseX, mouseY);
         drawTexts(graphics, view);
+    }
+
+    private void drawIconDecorations(
+            GuiGraphicsExtractor graphics, ViewSpec view, int mouseX, int mouseY) {
+        for (ViewSpec.IconDecoration decoration : view.iconDecorations()) {
+            boolean hovered = view.widget(decoration.ownerWidgetId())
+                    .filter(widget -> widget.bounds().contains(mouseX, mouseY))
+                    .filter(widget -> pointerInsideClip(view, widget.id(), mouseX, mouseY))
+                    .isPresent();
+            boolean focused = Optional.ofNullable(nativeWidgets.get(decoration.ownerWidgetId()))
+                    .map(AbstractWidget::isFocused)
+                    .orElse(false);
+            float opacity = hovered || focused
+                    ? decoration.activeOpacity()
+                    : decoration.idleOpacity();
+            int color = Math.round(opacity * 255.0F) << 24 | 0x00FFFFFF;
+            Bounds bounds = decoration.bounds();
+            drawClipped(graphics, view, decoration.id(), () -> graphics.blit(
+                    RenderPipelines.GUI_TEXTURED,
+                    actionIconTexture(decoration.icon()),
+                    bounds.x(),
+                    bounds.y(),
+                    0.0F,
+                    0.0F,
+                    bounds.width(),
+                    bounds.height(),
+                    ACTION_ICON_SIZE,
+                    ACTION_ICON_SIZE,
+                    color));
+        }
+    }
+
+    private static boolean ownsDecoration(ViewSpec view, String widgetId) {
+        return view.iconDecorations().stream()
+                .anyMatch(decoration -> decoration.ownerWidgetId().equals(widgetId));
     }
 
     private void extractRenderablesClipped(
@@ -828,14 +874,12 @@ public final class NclSkinsScreen extends Screen {
         if (message.severity() == UiMessage.Severity.ERROR) {
             return ERROR_COLOR;
         }
-        if ("gallery.session".equals(id) && "nclskins.session.valid".equals(message.key())
-                || id.endsWith(".state") && "nclskins.gallery.active".equals(message.key())) {
+        if (id.endsWith(".state") && "nclskins.gallery.active".equals(message.key())) {
             return ACTIVE_TEXT_COLOR;
         }
         if ("gallery.title".equals(id)
                 || "editor.title".equals(id)
-                || id.endsWith(".name")
-                || "gallery.add.plus".equals(id)) {
+                || id.endsWith(".name")) {
             return TEXT_COLOR;
         }
         return MUTED_COLOR;
@@ -1229,6 +1273,33 @@ public final class NclSkinsScreen extends Screen {
                     ACTION_ICON_SIZE,
                     ACTION_ICON_SIZE,
                     ACTION_ICON_SIZE);
+        }
+
+        @Override
+        public void updateWidgetNarration(NarrationElementOutput output) {
+            defaultButtonNarrationText(output);
+        }
+    }
+
+
+    private static final class TransparentButtonWidget extends AbstractButton {
+        private final Consumer<InputWithModifiers> onPress;
+
+        private TransparentButtonWidget(
+                Bounds bounds, Component message, Consumer<InputWithModifiers> onPress) {
+            super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
+            this.onPress = Objects.requireNonNull(onPress, "onPress");
+        }
+
+        @Override
+        public void onPress(InputWithModifiers input) {
+            onPress.accept(input);
+        }
+
+        @Override
+        protected void extractContents(
+                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+
         }
 
         @Override

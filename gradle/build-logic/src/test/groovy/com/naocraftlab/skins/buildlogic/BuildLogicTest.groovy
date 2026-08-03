@@ -27,6 +27,37 @@ final class BuildLogicTest {
     }
 
     @Test
+    void canonicalPlayerFacingTranslationsHaveLocaleParityAndLookTerminology() {
+        Map english = CatalogTools.loadJson(new File(
+                repository,
+                'compat/resources/canonical/src/main/resources/assets/nclskins/lang/en_us.json'))
+        Map russian = CatalogTools.loadJson(new File(
+                repository,
+                'compat/resources/canonical/src/main/resources/assets/nclskins/lang/ru_ru.json'))
+
+        assertEquals(english.keySet(), russian.keySet())
+        [en_us: english, ru_ru: russian].each { String locale, Map translations ->
+            translations.each { String key, Object value ->
+                assertInstanceOf(String, value, "${locale}: ${key}")
+                String normalized = value.toString().toLowerCase(Locale.ROOT)
+                assertFalse(normalized.contains('preset'), "${locale}: ${key}")
+                assertFalse(normalized.contains('пресет'), "${locale}: ${key}")
+            }
+        }
+
+        assertEquals('My looks', english['nclskins.gallery.title'])
+        assertEquals('New look', english['nclskins.gallery.add_hint'])
+        assertEquals('Search', english['nclskins.gallery.search_hint'])
+        assertEquals('Refresh session', english['nclskins.session.retry'])
+        assertEquals('Offline', english['nclskins.session.offline'])
+        assertEquals('Мои образы', russian['nclskins.gallery.title'])
+        assertEquals('Новый образ', russian['nclskins.gallery.add_hint'])
+        assertEquals('Поиск', russian['nclskins.gallery.search_hint'])
+        assertEquals('Обновить сессию', russian['nclskins.session.retry'])
+        assertEquals('Оффлайн', russian['nclskins.session.offline'])
+    }
+
+    @Test
     void dependencyFloorsHaveNoUpperBoundsAndFabricUsesMinimumCompatiblePatches() {
         catalog.targets.each { Map target ->
             if (target.loader.id == 'fabric') {

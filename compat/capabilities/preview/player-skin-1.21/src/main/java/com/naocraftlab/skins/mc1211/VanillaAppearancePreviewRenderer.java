@@ -4,6 +4,7 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.LegacyPreviewDepth;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
@@ -48,7 +49,6 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     private static final PlayerTeam PREVIEW_TEAM = previewTeam();
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
-    private static final float FALLBACK_ANCHOR_Y = 0.88F;
     private static final float ENTITY_Y_OFFSET = 0.0625F;
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
     private static final EquipmentSlot[] PREVIEW_EQUIPMENT = {
@@ -273,12 +273,19 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
                     request.left(), request.top(), request.left() + request.width(), request.top() + request.height());
 
 
-            float modelScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
+            CenteredPlayerPreviewGeometry.Layout layout =
+                    CenteredPlayerPreviewGeometry.fit(
+                            request.left(),
+                            request.top(),
+                            request.width(),
+                            request.height(),
+                            request.scale());
+            float modelScale = layout.scale();
             pose.translate(
-                    request.left() + request.width() / 2.0F,
-                    request.top() + request.height() * FALLBACK_ANCHOR_Y,
+                    layout.centerX(),
+                    layout.centerY(),
                     LegacyPreviewDepth.required(modelScale));
-            VanillaPlayerModelTransform.apply(
+            VanillaPlayerModelTransform.applyCentered(
                     pose,
                     modelScale,
                     request.yawDegrees(),

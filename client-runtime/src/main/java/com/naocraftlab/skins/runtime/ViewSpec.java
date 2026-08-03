@@ -1,10 +1,10 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.OuterLayerVisibility;
-import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -24,7 +24,8 @@ public record ViewSpec(
         List<TabGroup> tabGroups,
         Optional<FocusRequest> focusRequest,
         List<ClipRegion> clipRegions,
-        List<CapeTexture> capeTextures) {
+        List<CapeTexture> capeTextures,
+        List<IconDecoration> iconDecorations) {
     public ViewSpec(
             String screenId,
             UiMessage title,
@@ -47,6 +48,7 @@ public record ViewSpec(
                 scrollbar,
                 List.of(),
                 Optional.empty(),
+                List.of(),
                 List.of(),
                 List.of());
     }
@@ -76,6 +78,38 @@ public record ViewSpec(
                 tabGroups,
                 focusRequest,
                 List.of(),
+                List.of(),
+                List.of());
+    }
+
+    public ViewSpec(
+            String screenId,
+            UiMessage title,
+            int width,
+            int height,
+            List<Panel> panels,
+            List<Text> texts,
+            List<Widget> widgets,
+            List<Preview> previews,
+            Optional<Scrollbar> scrollbar,
+            List<TabGroup> tabGroups,
+            Optional<FocusRequest> focusRequest,
+            List<ClipRegion> clipRegions,
+            List<CapeTexture> capeTextures) {
+        this(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                widgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                focusRequest,
+                clipRegions,
+                capeTextures,
                 List.of());
     }
 
@@ -94,6 +128,7 @@ public record ViewSpec(
         focusRequest = Objects.requireNonNull(focusRequest, "focusRequest");
         clipRegions = List.copyOf(Objects.requireNonNull(clipRegions, "clipRegions"));
         capeTextures = List.copyOf(Objects.requireNonNull(capeTextures, "capeTextures"));
+        iconDecorations = List.copyOf(Objects.requireNonNull(iconDecorations, "iconDecorations"));
     }
 
     public Optional<Widget> widget(String id) {
@@ -179,6 +214,32 @@ public record ViewSpec(
             LEFT,
             CENTER,
             RIGHT
+        }
+    }
+
+
+    public record IconDecoration(
+            String id,
+            Bounds bounds,
+            String icon,
+            String ownerWidgetId,
+            float idleOpacity,
+            float activeOpacity) {
+        public IconDecoration {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(bounds, "bounds");
+            Objects.requireNonNull(icon, "icon");
+            Objects.requireNonNull(ownerWidgetId, "ownerWidgetId");
+            if (id.isBlank() || icon.isBlank() || icon.indexOf(':') >= 0 || ownerWidgetId.isBlank()) {
+                throw new IllegalArgumentException("decoration ids must be non-blank and icon must contain no colon");
+            }
+            if (!Float.isFinite(idleOpacity)
+                    || !Float.isFinite(activeOpacity)
+                    || idleOpacity < 0.0F
+                    || activeOpacity > 1.0F
+                    || idleOpacity > activeOpacity) {
+                throw new IllegalArgumentException("decoration opacity must satisfy 0 <= idle <= active <= 1");
+            }
         }
     }
 

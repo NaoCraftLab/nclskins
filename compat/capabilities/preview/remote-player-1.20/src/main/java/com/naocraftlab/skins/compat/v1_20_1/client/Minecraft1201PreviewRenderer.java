@@ -1,7 +1,9 @@
 package com.naocraftlab.skins.compat.v1_20_1.client;
 
 import com.mojang.authlib.GameProfile;
+import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.LegacyPreviewDepth;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
@@ -43,8 +45,6 @@ import org.joml.Quaternionf;
 public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final AtomicInteger NEXT_PREVIEW_ID = new AtomicInteger(-1);
     private static final int FULL_BRIGHT = 0x00F000F0;
-    private static final float MODEL_HEIGHT = 2.125F;
-    private static final float FIT_PADDING = 0.97F;
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
     private static final EquipmentSlot[] PREVIEW_EQUIPMENT = {
         EquipmentSlot.MAINHAND,
@@ -122,9 +122,19 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
                     request.top(),
                     request.left() + request.width(),
                     request.top() + request.height());
-            int fittedScale = Math.max(
+            CenteredPlayerPreviewGeometry.Layout layout =
+                    CenteredPlayerPreviewGeometry.fit(
+                            request.left(),
+                            request.top(),
+                            request.width(),
+                            request.height(),
+                            request.scale());
+            int fittedScale = Math.max(1, Math.round(layout.scale()));
+            int renderedEntityScale = Math.max(
                     1,
-                    Math.round(FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale()));
+                    Math.round(fittedScale / player.getScale()));
+            int legacyAnchorY = Math.round(CenteredPlayerPreviewGeometry.legacyEntityAnchorY(
+                    layout.centerY(), renderedEntityScale, player.getBbHeight()));
 
 
             pose.translate(0.0F, 0.0F, LegacyPreviewDepth.additional(fittedScale, 50.0F));
@@ -136,9 +146,9 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
 
             InventoryScreen.renderEntityInInventory(
                     graphics,
-                    request.left() + request.width() / 2,
-                    request.top() + Math.round(request.height() * 0.88F),
-                    Math.max(1, Math.round(fittedScale / player.getScale())),
+                    Math.round(layout.centerX()),
+                    legacyAnchorY,
+                    renderedEntityScale,
                     modelRotation,
                     cameraPitch,
                     player);
@@ -250,18 +260,26 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
                     request.top(),
                     request.left() + request.width(),
                     request.top() + request.height());
-            float scale = Math.min(request.width() / 2.3F, request.height() / 2.3F) * request.scale();
+            CenteredPlayerPreviewGeometry.Layout layout =
+                    CenteredPlayerPreviewGeometry.fit(
+                            request.left(),
+                            request.top(),
+                            request.width(),
+                            request.height(),
+                            request.scale());
+            float scale = layout.scale();
             pose.translate(
-                    request.left() + request.width() / 2.0F,
-                    request.top() + request.height() * 0.76F,
+                    layout.centerX(),
+                    layout.centerY(),
                     LegacyPreviewDepth.required(scale));
-            VanillaPlayerModelTransform.apply(
+            VanillaPlayerModelTransform.applyCentered(
                     pose,
                     scale,
                     request.yawDegrees(),
                     request.pitchDegrees(),
                     POSE_OPERATIONS);
 
+            Lighting.setupForEntityInInventory();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation skin = location(appearance.skin());
             model.renderToBuffer(
@@ -285,6 +303,7 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
         } finally {
             graphics.disableScissor();
             pose.popPose();
+            Lighting.setupFor3DItems();
         }
     }
 
