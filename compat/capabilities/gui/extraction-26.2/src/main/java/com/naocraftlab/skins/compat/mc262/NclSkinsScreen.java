@@ -170,15 +170,6 @@ public final class NclSkinsScreen extends Screen {
     }
 
     @Override
-    public void tick() {
-        if (runtime.closed()) {
-            return;
-        }
-        super.tick();
-        runtime.tick();
-    }
-
-    @Override
     protected void setInitialFocus() {
         super.setInitialFocus();
         if (currentView != null) {
@@ -519,6 +510,7 @@ public final class NclSkinsScreen extends Screen {
         extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);
         drawIconDecorations(graphics, view, mouseX, mouseY);
         drawTexts(graphics, view);
+        runtime.acknowledgeViewRendered(view);
     }
 
     private void drawIconDecorations(

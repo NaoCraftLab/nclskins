@@ -3,35 +3,35 @@ screen=gallery size=1600x720 title=key:nclskins.gallery.title:INFO
 panels
 0|header|0,0,1600,33|VANILLA_HEADER
 1|footer|0,687,1600,33|VANILLA_FOOTER
-2|gallery.card.add|503,62,190,594|VANILLA_LIST
-3|gallery.card.00000000-0000-0002-0000-000000000006|705,62,190,594|VANILLA_LIST
-4|gallery.card.00000000-0000-0002-0000-000000000005|907,62,190,594|VANILLA_LIST
+2|gallery.card.add|503,238,190,254|VANILLA_LIST
+3|gallery.card.00000000-0000-0002-0000-000000000006|705,238,190,254|VANILLA_LIST
+4|gallery.card.00000000-0000-0002-0000-000000000005|907,238,190,254|VANILLA_LIST
 texts
-0|gallery.add.hint|503,369,190,10|key:nclskins.gallery.add_hint:INFO|CENTER
-1|gallery.preset.00000000-0000-0002-0000-000000000006.name|713,70,174,10|literal:Preset 6:INFO|CENTER
-2|gallery.preset.00000000-0000-0002-0000-000000000005.name|915,70,174,10|literal:Preset 5:INFO|CENTER
+0|gallery.add.hint|503,375,190,10|key:nclskins.gallery.add_hint:INFO|CENTER
+1|gallery.preset.00000000-0000-0002-0000-000000000006.name|713,246,174,10|literal:Preset 6:INFO|CENTER
+2|gallery.preset.00000000-0000-0002-0000-000000000005.name|915,246,174,10|literal:Preset 5:INFO|CENTER
 3|gallery.title|0,12,1600,10|key:nclskins.gallery.title:INFO|CENTER
 widgets
 0|gallery.search|TEXT_FIELD|710,36,180,20|key:nclskins.gallery.search:INFO|value=|hint=key:nclskins.gallery.search_hint:INFO|enabled=true|visible=true|max=128
-1|gallery.add|BUTTON|503,62,190,594|key:nclskins.gallery.add_hint:INFO|value=-|hint=-|enabled=true|visible=false|max=0
-2|gallery.preset.00000000-0000-0002-0000-000000000006.apply|BUTTON|713,632,108,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
-3|gallery.preset.00000000-0000-0002-0000-000000000006.edit|ICON_BUTTON|823,632,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
-4|gallery.preset.00000000-0000-0002-0000-000000000006.duplicate|ICON_BUTTON|843,632,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
-5|gallery.preset.00000000-0000-0002-0000-000000000006.delete|ICON_BUTTON|865,632,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
-6|gallery.preset.00000000-0000-0002-0000-000000000005.apply|BUTTON|915,632,108,20|key:nclskins.gallery.apply:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-7|gallery.preset.00000000-0000-0002-0000-000000000005.edit|ICON_BUTTON|1025,632,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
-8|gallery.preset.00000000-0000-0002-0000-000000000005.duplicate|ICON_BUTTON|1045,632,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
-9|gallery.preset.00000000-0000-0002-0000-000000000005.delete|ICON_BUTTON|1067,632,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
+1|gallery.add|BUTTON|503,238,190,254|key:nclskins.gallery.add_hint:INFO|value=-|hint=-|enabled=true|visible=false|max=0
+2|gallery.preset.00000000-0000-0002-0000-000000000006.apply|BUTTON|705,470,124,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
+3|gallery.preset.00000000-0000-0002-0000-000000000006.edit|ICON_BUTTON|831,470,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
+4|gallery.preset.00000000-0000-0002-0000-000000000006.duplicate|ICON_BUTTON|853,470,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
+5|gallery.preset.00000000-0000-0002-0000-000000000006.delete|ICON_BUTTON|875,470,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
+6|gallery.preset.00000000-0000-0002-0000-000000000005.apply|BUTTON|907,470,124,20|key:nclskins.gallery.apply:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+7|gallery.preset.00000000-0000-0002-0000-000000000005.edit|ICON_BUTTON|1033,470,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
+8|gallery.preset.00000000-0000-0002-0000-000000000005.duplicate|ICON_BUTTON|1055,470,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
+9|gallery.preset.00000000-0000-0002-0000-000000000005.delete|ICON_BUTTON|1077,470,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
 10|gallery.done|BUTTON|700,692,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
-0|gallery.preset.00000000-0000-0002-0000-000000000006.preview|713,82,174,545|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-5|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=0.0|pitch=14.255996|scale=0.88|preset=00000000-0000-0002-0000-000000000006
-1|gallery.preset.00000000-0000-0002-0000-000000000005.preview|915,82,174,545|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=14.255996|scale=0.88|preset=00000000-0000-0002-0000-000000000005
+0|gallery.preset.00000000-0000-0002-0000-000000000006.preview|713,258,174,208|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-5|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=0.0|pitch=16.0|scale=0.88|preset=00000000-0000-0002-0000-000000000006
+1|gallery.preset.00000000-0000-0002-0000-000000000005.preview|915,258,174,208|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=16.0|scale=0.88|preset=00000000-0000-0002-0000-000000000005
 cape_textures
 icon_decorations
-0|gallery.add.icon|590,341,15,15|icon=plus|owner=gallery.add|idle=0.65|active=1.0
+0|gallery.add.icon|590,347,15,15|icon=plus|owner=gallery.add|idle=0.65|active=1.0
 clip_regions
-0|gallery.cards|0,62,1600,594|prefixes=gallery.card.,gallery.add,gallery.preset.
-scrollbar=40,662,1520,6|40,662,651,6|offset=0|maximum=4
+0|gallery.cards|0,58,1600,615|prefixes=gallery.card.,gallery.add,gallery.preset.
+scrollbar=40,677,1520,6|40,677,651,6|offset=0|maximum=4
 [editor]
 screen=preset_editor size=1600x720 title=key:nclskins.editor.edit_title:INFO
 panels

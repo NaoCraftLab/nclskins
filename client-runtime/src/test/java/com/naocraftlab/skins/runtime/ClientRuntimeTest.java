@@ -186,8 +186,10 @@ final class ClientRuntimeTest {
         assertEquals(0, operations.restoreCalls);
 
         operations.session = session(SessionStatus.EXPIRED);
+        int retriesBeforeStaleDispatch = operations.retrySessionCalls;
         runtime.dispatchWidget("gallery.retry_session");
-        assertEquals(SessionStatus.EXPIRED, runtime.snapshot().session().orElseThrow().status());
+        assertEquals(retriesBeforeStaleDispatch, operations.retrySessionCalls);
+        assertTrue(runtime.snapshot().session().orElseThrow().valid());
         operations.rateLimited = true;
         runtime.tick();
         assertTrue(runtime.snapshot().rateLimited());
@@ -198,6 +200,250 @@ final class ClientRuntimeTest {
         assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
         assertTrue(publications.size() > 15);
         assertTrue(publications.stream().allMatch(snapshot -> snapshot.generation() >= 0));
+    }
+
+    @Test
+    void explicitSessionRetryPublishesConnectingThenReturnsToOfflineOrClearsRecovery() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+
+        runtime.initialize();
+
+        ViewSpec offline = runtime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                offline.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertTrue(offline.widget("gallery.retry_session").orElseThrow().enabled());
+
+        operations.retrySessionFailure = new IOException("session still unavailable");
+        runtime.dispatchWidget("gallery.retry_session");
+
+        assertTrue(runtime.snapshot().busy());
+        assertEquals(UiMessage.info("nclskins.status.checking_session"), runtime.snapshot().status());
+        ViewSpec connectingBeforeFailure = runtime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.connecting"),
+                connectingBeforeFailure.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertFalse(connectingBeforeFailure.widget("gallery.retry_session").orElseThrow().enabled());
+        assertTrue(runtime.snapshot().busy(), "fast failure must wait for a rendered feedback frame");
+
+        runtime.acknowledgeViewRendered(connectingBeforeFailure);
+        assertSessionRetryConnectingForFiveTicks(runtime);
+        runtime.tick();
+
+        assertFalse(runtime.snapshot().busy());
+        ViewSpec failed = runtime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                failed.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertTrue(failed.widget("gallery.retry_session").orElseThrow().enabled());
+
+        operations.retrySessionFailure = null;
+        operations.session = TestFixtures.validSession();
+        runtime.dispatchWidget("gallery.retry_session");
+
+        ViewSpec connectingBeforeSuccess = runtime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.connecting"),
+                connectingBeforeSuccess.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertFalse(connectingBeforeSuccess.widget("gallery.retry_session").orElseThrow().enabled());
+        assertTrue(runtime.snapshot().busy(), "fast success must wait for a rendered feedback frame");
+
+        runtime.acknowledgeViewRendered(connectingBeforeSuccess);
+        assertSessionRetryConnectingForFiveTicks(runtime);
+        runtime.tick();
+
+        assertFalse(runtime.snapshot().busy());
+        ViewSpec connected = runtime.view(854, 480, 427, 180);
+        assertTrue(connected.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+        assertTrue(connected.widget("gallery.retry_session").isEmpty());
+        assertEquals(2, operations.retrySessionCalls);
+    }
+
+    @Test
+    void invalidSessionRetryResultReturnsOfflineWithoutReconciliationAfterSixTicks() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+
+        runtime.dispatchWidget("gallery.retry_session");
+        ViewSpec connecting = runtime.view(854, 480, 427, 180);
+        runtime.acknowledgeViewRendered(connecting);
+
+        assertSessionRetryConnectingForFiveTicks(runtime);
+        assertEquals(0, operations.reconciliationCalls);
+        runtime.tick();
+
+        assertFalse(runtime.snapshot().busy());
+        assertFalse(runtime.snapshot().syncInProgress());
+        assertFalse(runtime.snapshot().session().orElseThrow().valid());
+        assertEquals(0, operations.reconciliationCalls);
+        ViewSpec offline = runtime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                offline.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertTrue(offline.widget("gallery.retry_session").orElseThrow().enabled());
+    }
+
+    @Test
+    void validUnknownRetryShowsConnectingAndDisablesRecoveryDuringReconciliation() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.appearanceSyncStatus = AppearanceSyncStatus.UNKNOWN;
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+
+        runtime.initialize();
+        worker.runFirst();
+        assertTrue(runtime.view(854, 480, 427, 180)
+                .widget("gallery.retry_session")
+                .orElseThrow()
+                .enabled());
+
+        runtime.dispatchWidget("gallery.retry_session");
+
+        ViewSpec connecting = runtime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.connecting"),
+                connecting.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        runtime.acknowledgeViewRendered(connecting);
+        advanceTicks(runtime, 6);
+        assertTrue(runtime.snapshot().busy());
+        worker.runFirst();
+
+        assertTrue(runtime.snapshot().session().orElseThrow().valid());
+        assertTrue(runtime.snapshot().syncInProgress());
+        ViewSpec reconciling = runtime.view(854, 480, 427, 180);
+        assertTrue(reconciling.texts().stream()
+                .noneMatch(text -> text.id().equals("gallery.offline")));
+        assertFalse(reconciling.widget("gallery.retry_session").orElseThrow().enabled());
+
+        runtime.dispatchWidget("gallery.retry_session");
+        assertEquals(1, operations.retrySessionCalls);
+
+        worker.runFirst();
+
+        assertFalse(runtime.snapshot().syncInProgress());
+        assertEquals(
+                List.of(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED),
+                operations.reconciliationTriggers);
+        assertTrue(runtime.view(854, 480, 427, 180)
+                .widget("gallery.retry_session")
+                .orElseThrow()
+                .enabled());
+    }
+
+    @Test
+    void unknownRetryDoesNotLatchSyncWhileLocalRebindHasNotHandedOffToReconciliation() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.appearanceRevision = 3;
+        operations.appearanceSyncStatus = AppearanceSyncStatus.UNKNOWN;
+        CompletableFuture<Optional<SignedProfileResolver.ResolvedProfile<String>>> resolution =
+                new CompletableFuture<>();
+        AppearanceRefreshCoordinator<String> refresh = new AppearanceRefreshCoordinator<>(
+                CLIENT,
+                ignored -> resolution,
+                ignored -> PlayerAppearanceSink.ApplyResult.UPDATED);
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.of(refresh));
+
+        runtime.initialize();
+        worker.runFirst();
+        AppliedAppearance local = AppliedAppearance.localSkin(
+                TestFixtures.ACCOUNT_ID,
+                "a".repeat(64),
+                SkinVariant.CLASSIC,
+                Optional.empty());
+        operations.durable = Optional.of(new ClientOperations.DurableAppearance(
+                TestFixtures.ACCOUNT_ID,
+                operations.appearanceRevision,
+                AppearanceSyncStatus.UNKNOWN,
+                Optional.empty(),
+                Optional.of(local),
+                Optional.empty()));
+
+        runtime.dispatchWidget("gallery.retry_session");
+        ViewSpec connecting = runtime.view(854, 480, 427, 180);
+        runtime.acknowledgeViewRendered(connecting);
+        worker.runFirst();
+        advanceTicks(runtime, 6);
+
+        assertFalse(runtime.snapshot().syncInProgress());
+        assertEquals(0, worker.size(), "reconciliation must wait for the local rebind");
+        assertTrue(runtime.view(854, 480, 427, 180)
+                .widget("gallery.retry_session")
+                .orElseThrow()
+                .enabled());
+        assertEquals(1, operations.retrySessionCalls);
+        assertEquals(0, operations.reconciliationCalls);
+
+        resolution.complete(Optional.empty());
+        assertEquals(1, worker.size());
+        assertTrue(runtime.snapshot().syncInProgress());
+
+        worker.runFirst();
+
+        assertFalse(runtime.snapshot().syncInProgress());
+        assertEquals(
+                List.of(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED),
+                operations.reconciliationTriggers);
+    }
+
+    @Test
+    void retryFailureRefreshesCooldownBeforePublishingAndBlocksDirectRedispatch() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        operations.retrySessionFailure = new IOException("rate limited");
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+
+        runtime.initialize();
+        worker.runFirst();
+        runtime.dispatchWidget("gallery.retry_session");
+        ViewSpec connecting = runtime.view(854, 480, 427, 180);
+        runtime.acknowledgeViewRendered(connecting);
+        operations.rateLimited = true;
+
+        worker.runFirst();
+        advanceTicks(runtime, 6);
+
+        assertTrue(runtime.snapshot().rateLimited());
+        assertFalse(runtime.view(854, 480, 427, 180)
+                .widget("gallery.retry_session")
+                .orElseThrow()
+                .enabled());
+        runtime.dispatchWidget("gallery.retry_session");
+        assertEquals(1, operations.retrySessionCalls);
     }
 
     @Test
@@ -290,6 +536,29 @@ final class ClientRuntimeTest {
 
         assertTrue(runtime.snapshot().editor().isEmpty());
         assertTrue(runtime.snapshot().addSource().isPresent());
+    }
+
+    @Test
+    void offlineCatalogEditorPublishesSelectedDraftPreviewBeforeSave() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+
+        runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
+
+        ViewSpec.Preview preview = runtime.view(854, 480, 0, 0).previews().stream()
+                .filter(candidate -> candidate.id().equals("editor.preview"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(
+                Optional.of(new ViewSpec.CatalogImage("minecraft", "steve")),
+                preview.catalogImage());
+        assertArrayEquals(
+                operations.catalogPng,
+                runtime.loadSkinPreview(preview).join().orElseThrow());
+        assertTrue(runtime.snapshot().selectedPresetId().isEmpty());
     }
 
     @Test
@@ -558,6 +827,30 @@ final class ClientRuntimeTest {
         assertEquals(expandedCapeMaximum,
                 runtime.view(320, 240, 0, 0).scrollbar().orElseThrow().offset(),
                 "restoring the narrow viewport must not resurrect the stale cape target");
+    }
+
+    @Test
+    void galleryScrollRangeReclampsWhenHeightChangesAtTheSameWidth() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.view(320, 360, 0, 0);
+
+        runtime.pointerScrolled(160, 160, 0.0, -100.0);
+        settleScroll(runtime);
+        assertEquals(5, runtime.snapshot().galleryOffset());
+
+        runtime.view(320, 240, 0, 0);
+        runtime.tick();
+        assertEquals(4, runtime.snapshot().galleryOffset());
+
+        runtime.view(320, 360, 0, 0);
+        settleScroll(runtime);
+        assertEquals(
+                4,
+                runtime.snapshot().galleryOffset(),
+                "height growth must not restore a stale out-of-range target");
     }
 
     @Test
@@ -1247,6 +1540,31 @@ final class ClientRuntimeTest {
         assertEquals(0, notifications.get());
     }
 
+    private static void assertSessionRetryConnectingForFiveTicks(ClientRuntime runtime) {
+        for (int tick = 1; tick <= 5; tick++) {
+            runtime.tick();
+            assertTrue(runtime.snapshot().busy(), "session retry settled at tick " + tick);
+            assertEquals(
+                    UiMessage.info("nclskins.status.checking_session"),
+                    runtime.snapshot().status());
+            ViewSpec view = runtime.view(854, 480, 427, 180);
+            assertEquals(
+                    UiMessage.info("nclskins.session.connecting"),
+                    view.texts().stream()
+                            .filter(text -> text.id().equals("gallery.offline"))
+                            .findFirst()
+                            .orElseThrow()
+                            .message());
+            assertFalse(view.widget("gallery.retry_session").orElseThrow().enabled());
+        }
+    }
+
+    private static void advanceTicks(ClientRuntime runtime, int count) {
+        for (int tick = 0; tick < count; tick++) {
+            runtime.tick();
+        }
+    }
+
     private static void settleScroll(ClientRuntime runtime) {
         for (int index = 0; index < 80; index++) {
             runtime.tick();
@@ -1449,6 +1767,7 @@ final class ClientRuntimeTest {
         private boolean reconciliationBeforePrecondition;
         private int storagePreflightCalls;
         private RuntimeException storagePreflightFailure;
+        private Exception retrySessionFailure;
 
         @Override
         public void verifyStorageAccess() {
@@ -1856,8 +2175,11 @@ final class ClientRuntimeTest {
         }
 
         @Override
-        public InitialData retrySession() {
+        public InitialData retrySession() throws Exception {
             retrySessionCalls++;
+            if (retrySessionFailure != null) {
+                throw retrySessionFailure;
+            }
             return initial();
         }
 

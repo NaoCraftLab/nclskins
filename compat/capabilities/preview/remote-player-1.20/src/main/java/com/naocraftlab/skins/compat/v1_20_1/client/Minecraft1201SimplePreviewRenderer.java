@@ -1,9 +1,11 @@
 package com.naocraftlab.skins.compat.v1_20_1.client;
 
 import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PlayerPreviewLighting;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry;
@@ -20,6 +22,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 
 public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer<GuiGraphics> {
@@ -28,6 +31,10 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
     private static final float FIT_PADDING = 0.97F;
     private static final float ANCHOR_Y = 0.88F;
     private static final float GUI_DEPTH = 120.0F;
+    private static final PlayerPreviewLighting.Rig LIGHTING =
+            PlayerPreviewLighting.centeredFront();
+    private static final Vector3f PRIMARY_LIGHT = lightDirection(LIGHTING.primary());
+    private static final Vector3f FILL_LIGHT = lightDirection(LIGHTING.fill());
     private static final VanillaPlayerModelTransform.Operations<PoseStack> POSE_OPERATIONS =
             new VanillaPlayerModelTransform.Operations<>() {
                 @Override
@@ -98,7 +105,7 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
                     request.pitchDegrees(),
                     POSE_OPERATIONS);
 
-            Lighting.setupForEntityInInventory();
+            RenderSystem.setShaderLights(PRIMARY_LIGHT, FILL_LIGHT);
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation skin = location(appearance.skin());
             model.renderToBuffer(
@@ -185,5 +192,9 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
             throw new IllegalArgumentException("Invalid texture location");
         }
         return location;
+    }
+
+    private static Vector3f lightDirection(PlayerPreviewLighting.Direction direction) {
+        return new Vector3f(direction.x(), direction.y(), direction.z());
     }
 }

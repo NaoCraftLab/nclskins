@@ -65,6 +65,7 @@
   "nclskins.session.valid": "Сессия: активна",
   "nclskins.session.unavailable": "Сеть недоступна — локальные образы работают",
   "nclskins.session.offline": "Оффлайн",
+  "nclskins.session.connecting": "Подключение...",
   "nclskins.session.retry": "Обновить сессию",
   "nclskins.session.message.valid": "Сессия Minecraft активна.",
   "nclskins.session.message.expired": "Сессия Minecraft истекла. Перезапустите игру через лицензированный лаунчер.",

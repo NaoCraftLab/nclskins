@@ -183,6 +183,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         for (ViewSpec.Text text : view.texts()) {
             renderClipped(graphics, view, text.id(), () -> renderText(graphics, text));
         }
+        runtime.acknowledgeViewRendered(view);
     }
 
 

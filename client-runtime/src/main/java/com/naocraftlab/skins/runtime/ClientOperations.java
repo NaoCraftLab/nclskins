@@ -9,13 +9,14 @@ import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
+import com.naocraftlab.skins.core.model.OwnedCapeInventory;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
-import com.naocraftlab.skins.core.model.OwnedCapeInventory;
-import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
+import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.SessionValidation;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -392,7 +393,8 @@ public interface ClientOperations extends AutoCloseable {
         PROCESS_START,
         GALLERY_OPEN,
         RECONNECT,
-        EXPLICIT_RETRY
+        EXPLICIT_RETRY,
+        SESSION_REFRESHED
     }
 
     record ReconciliationKey(UUID accountId, long intentRevision) {

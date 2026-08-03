@@ -65,6 +65,7 @@
   "nclskins.session.valid": "Session: valid",
   "nclskins.session.unavailable": "Remote unavailable — local looks work",
   "nclskins.session.offline": "Offline",
+  "nclskins.session.connecting": "Connecting...",
   "nclskins.session.retry": "Refresh session",
   "nclskins.session.message.valid": "Minecraft session is valid.",
   "nclskins.session.message.expired": "Minecraft session expired. Restart the game through a licensed launcher.",

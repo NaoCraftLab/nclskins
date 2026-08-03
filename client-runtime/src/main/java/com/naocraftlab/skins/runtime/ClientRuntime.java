@@ -1,47 +1,45 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.client.SkinCatalogSource;
-import com.naocraftlab.skins.client.SignedTextureVerifier;
-import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.OuterLayerVisibilityController;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.PreviewPreferences;
 import com.naocraftlab.skins.client.PreviewRenderer;
-import com.naocraftlab.skins.client.OuterLayerPart;
-import com.naocraftlab.skins.client.OuterLayerVisibilityController;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
+import com.naocraftlab.skins.client.SignedTextureVerifier;
+import com.naocraftlab.skins.client.SkinCatalogSource;
+import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import com.naocraftlab.skins.core.model.CatalogOrigin;
 import com.naocraftlab.skins.core.model.MutationResult;
+import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinReference;
-import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
-import com.naocraftlab.skins.core.model.CatalogOrigin;
-import com.naocraftlab.skins.core.model.PersonalSkinSource;
-import com.naocraftlab.skins.core.model.OwnedCapeInventory;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.LibraryOperationException;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
-import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
+
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
-import java.util.HashSet;
 import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,18 +48,18 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 
 public final class ClientRuntime implements AutoCloseable {
     private static final double WHEEL_SCROLL_PIXELS = 32.0;
+    private static final int SESSION_RETRY_FEEDBACK_TICKS = 6;
 
     private final ClientOperations operations;
     private final ClientExecutor clientExecutor;
@@ -88,6 +86,10 @@ public final class ClientRuntime implements AutoCloseable {
     private boolean reconciliationRunning;
     private long catalogPreviewEpoch;
     private final State state = new State();
+    private long sessionRetryTicket = -1L;
+    private boolean sessionRetryFeedbackRendered;
+    private int sessionRetryFeedbackTicksRemaining;
+    private SessionRetrySettlement pendingSessionRetrySettlement;
 
     private volatile ClientSnapshot snapshot = ClientSnapshot.initial();
     private volatile boolean disposed;
@@ -447,6 +449,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.generation++;
             state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
             state.busy = false;
+            clearSessionRetryFeedback();
             state.editor = null;
             state.addSource = null;
             if (draggingGalleryScrollbar) {
@@ -466,6 +469,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
                 return;
             }
+            advanceSessionRetryFeedback();
             boolean rateLimited = operations.rateLimited();
             if (rateLimited != state.rateLimited) {
                 state.rateLimited = rateLimited;
@@ -579,6 +583,19 @@ public final class ClientRuntime implements AutoCloseable {
                                     state.personalRenameHash, state.personalRenameValue)));
         }
         return galleryView(width, height, mouseX, mouseY);
+    }
+
+    public void acknowledgeViewRendered(ViewSpec renderedView) {
+        Objects.requireNonNull(renderedView, "renderedView");
+        if (disposed
+                || !"gallery".equals(renderedView.screenId())
+                || renderedView.texts().stream().noneMatch(text ->
+                text.id().equals("gallery.offline")
+                        && text.message().equals(
+                        UiMessage.info("nclskins.session.connecting")))) {
+            return;
+        }
+        onClient(this::acknowledgeSessionRetryFeedbackRendered);
     }
 
 
@@ -708,7 +725,7 @@ public final class ClientRuntime implements AutoCloseable {
                         : scrollbar.thumb().width() / 2.0;
                 if (!grabbedThumb) {
                     setGalleryPosition(galleryPresenter.positionFromScrollbar(
-                            snapshot, viewportWidth, state.galleryQuery,
+                            snapshot, viewportWidth, viewportHeight, state.galleryQuery,
                             mouseX - galleryScrollbarGrabOffset));
                 }
             });
@@ -738,7 +755,7 @@ public final class ClientRuntime implements AutoCloseable {
                         mouseY - addSourceScrollbarGrabOffset));
             } else if (draggingGalleryScrollbar) {
                 setGalleryPosition(galleryPresenter.positionFromScrollbar(
-                        snapshot, viewportWidth, state.galleryQuery,
+                        snapshot, viewportWidth, viewportHeight, state.galleryQuery,
                         mouseX - galleryScrollbarGrabOffset));
             }
         });
@@ -986,6 +1003,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.generation++;
             state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
             state.busy = false;
+            clearSessionRetryFeedback();
             state.editor = null;
             state.addSource = null;
             appearanceRefresh.ifPresent(AppearanceRefreshCoordinator::close);
@@ -2260,14 +2278,130 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void retrySession() {
-        submit(
-                UiMessage.info("nclskins.status.checking_session"),
-                operations::retrySession,
-                data -> {
-                    reconcileAfterLocalRebind(
-                            acceptInitialData(data, false),
-                            ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY);
-                });
+        if (!canRetrySession()) {
+            return;
+        }
+        long ticket = ++state.generation;
+        state.busy = true;
+        state.status = UiMessage.info("nclskins.status.checking_session");
+        sessionRetryTicket = ticket;
+        sessionRetryFeedbackRendered = false;
+        sessionRetryFeedbackTicksRemaining = SESSION_RETRY_FEEDBACK_TICKS;
+        pendingSessionRetrySettlement = null;
+        publish();
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return operations.retrySession();
+                    } catch (Exception failure) {
+                        throw new CompletionException(failure);
+                    }
+                }, worker)
+                .whenComplete((result, failure) -> onClient(() ->
+                        stageSessionRetrySettlement(ticket, result, failure)));
+    }
+
+    private boolean canRetrySession() {
+        if (disposed
+                || state.busy
+                || state.syncInProgress
+                || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
+                || state.account == null) {
+            return false;
+        }
+        if (state.rateLimited || operations.rateLimited()) {
+            if (!state.rateLimited) {
+                state.rateLimited = true;
+                publish();
+            }
+            return false;
+        }
+        boolean offline = state.session == null || !state.session.valid();
+        return offline
+                || snapshot.recoveryActions().contains(RecoveryAction.REFRESH_REMOTE_PROFILE);
+    }
+
+    private void stageSessionRetrySettlement(
+            long ticket, ClientOperations.InitialData result, Throwable failure) {
+        if (!current(ticket)) {
+            clearSessionRetryFeedback(ticket);
+            return;
+        }
+        SessionRetrySettlement settlement = failure == null
+                ? SessionRetrySettlement.success(ticket, Objects.requireNonNull(
+                result, "session retry result"))
+                : SessionRetrySettlement.failure(ticket, failure);
+        if (!sessionRetryFeedbackRendered || sessionRetryFeedbackTicksRemaining > 0) {
+            pendingSessionRetrySettlement = settlement;
+            return;
+        }
+        applySessionRetrySettlement(settlement);
+    }
+
+    private void acknowledgeSessionRetryFeedbackRendered() {
+        if (disposed
+                || sessionRetryTicket < 0
+                || !state.busy
+                || !state.status.equals(UiMessage.info("nclskins.status.checking_session"))) {
+            return;
+        }
+        sessionRetryFeedbackRendered = true;
+    }
+
+    private void advanceSessionRetryFeedback() {
+        if (sessionRetryTicket < 0
+                || !sessionRetryFeedbackRendered
+                || sessionRetryFeedbackTicksRemaining <= 0) {
+            return;
+        }
+        sessionRetryFeedbackTicksRemaining--;
+        if (sessionRetryFeedbackTicksRemaining == 0
+                && pendingSessionRetrySettlement != null) {
+            SessionRetrySettlement settlement = pendingSessionRetrySettlement;
+            pendingSessionRetrySettlement = null;
+            applySessionRetrySettlement(settlement);
+        }
+    }
+
+    private void applySessionRetrySettlement(SessionRetrySettlement settlement) {
+        if (!current(settlement.ticket())) {
+            clearSessionRetryFeedback(settlement.ticket());
+            return;
+        }
+        state.busy = false;
+        if (settlement.failure() != null) {
+            state.lifecycle = state.lifecycle == ClientSnapshot.Lifecycle.INITIALIZING
+                    ? ClientSnapshot.Lifecycle.READY
+                    : state.lifecycle;
+            state.rateLimited = operations.rateLimited();
+            state.status = operationFailure(settlement.failure());
+        } else {
+            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+                    acceptInitialData(settlement.result(), false);
+            if (settlement.result().session().valid()) {
+                reconcileAfterLocalRebind(
+                        localRebind,
+                        ClientOperations.ReconciliationTrigger.SESSION_REFRESHED);
+            }
+        }
+        clearSessionRetryFeedback(settlement.ticket());
+        publish();
+    }
+
+    private void clearSessionRetryFeedback(long ticket) {
+        if (sessionRetryTicket != ticket) {
+            return;
+        }
+        sessionRetryTicket = -1L;
+        sessionRetryFeedbackRendered = false;
+        sessionRetryFeedbackTicksRemaining = 0;
+        pendingSessionRetrySettlement = null;
+    }
+
+    private void clearSessionRetryFeedback() {
+        sessionRetryTicket = -1L;
+        sessionRetryFeedbackRendered = false;
+        sessionRetryFeedbackTicksRemaining = 0;
+        pendingSessionRetrySettlement = null;
     }
 
     private void acceptRemoteResult(
@@ -2365,7 +2499,8 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         setGalleryPosition(state.galleryScrollPosition
-                + galleryPresenter.scrollPositionDelta(viewportWidth, pixelDelta));
+                + galleryPresenter.scrollPositionDelta(
+                viewportWidth, viewportHeight, pixelDelta));
     }
 
     private void setGalleryOffset(int offset) {
@@ -2412,7 +2547,8 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private int galleryMaximum() {
-        return galleryPresenter.maximumScroll(snapshot, viewportWidth, state.galleryQuery);
+        return galleryPresenter.maximumScroll(
+                snapshot, viewportWidth, viewportHeight, state.galleryQuery);
     }
 
     private void queueEditorCapeScroll(double pixelDelta) {
@@ -2949,6 +3085,26 @@ public final class ClientRuntime implements AutoCloseable {
         private ReconciliationRequest {
             Objects.requireNonNull(key, "key");
             Objects.requireNonNull(trigger, "trigger");
+        }
+    }
+
+    private record SessionRetrySettlement(
+            long ticket, ClientOperations.InitialData result, Throwable failure) {
+        private SessionRetrySettlement {
+            if (ticket < 0 || (result == null) == (failure == null)) {
+                throw new IllegalArgumentException("session retry settlement must have one outcome");
+            }
+        }
+
+        private static SessionRetrySettlement success(
+                long ticket, ClientOperations.InitialData result) {
+            return new SessionRetrySettlement(
+                    ticket, Objects.requireNonNull(result, "result"), null);
+        }
+
+        private static SessionRetrySettlement failure(long ticket, Throwable failure) {
+            return new SessionRetrySettlement(
+                    ticket, null, Objects.requireNonNull(failure, "failure"));
         }
     }
 

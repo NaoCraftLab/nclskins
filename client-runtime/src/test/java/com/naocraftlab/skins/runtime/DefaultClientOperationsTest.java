@@ -1,19 +1,11 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.client.ClientExecutor;
-import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.ExpectedAppearance;
+import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.MinecraftSkinCatalog;
-import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
+import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.ResourcePackSkinCatalog;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
@@ -21,11 +13,10 @@ import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApiException;
 import com.naocraftlab.skins.core.model.AccountState;
-import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.AddSourceTab;
+import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
 import com.naocraftlab.skins.core.model.MutationResult;
-import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
@@ -34,12 +25,16 @@ import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
-import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
+import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.LibraryService;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RemoteAppearanceImpact;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -61,9 +56,14 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.imageio.ImageIO;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class DefaultClientOperationsTest {
     @TempDir
@@ -269,7 +269,7 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void explicitRetryKeepsPendingBWhenApiStillReportsOfficialAAndMutatesOnce() throws Exception {
+    void sessionRefreshKeepsPendingBWithOneFreshValidationAndMutatesOnce() throws Exception {
         byte[] skin = skinPng(0xFF47637D);
         URI officialUri = URI.create("https://textures.minecraft.net/texture/official-a");
         StubProfileApi api = new StubProfileApi();
@@ -295,16 +295,20 @@ final class DefaultClientOperationsTest {
         ClientOperations.PresetUse selected = operations.usePreset(pendingB.presetId());
         assertNotEquals(officialPreset, selected.activePresetId());
         assertEquals(0, api.skinUploads.get());
+        int profileGetsBeforeRefresh = api.profileGets.get();
 
         ClientOperations.InitialData refreshed = operations.retrySession();
         assertEquals(Optional.of(pendingB.presetId()), refreshed.activePresetId());
         assertEquals(AppearanceSyncStatus.PENDING, refreshed.syncStatus());
+        assertTrue(refreshed.session().valid());
+        assertEquals(profileGetsBeforeRefresh + 1, api.profileGets.get());
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
                 .orElseThrow();
 
         assertEquals(Optional.of(pendingB.presetId()), reconciled.appearance().activePresetId());
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
+        assertEquals(profileGetsBeforeRefresh + 1, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
     }
 
@@ -385,8 +389,9 @@ final class DefaultClientOperationsTest {
         assertEquals(1, api.profileGets.get());
         assertTrue(operations.acknowledgedAppearance().isPresent());
 
+        int profileGetsBeforeRefresh = api.profileGets.get();
         operations.retrySession();
-        assertEquals(1, api.profileGets.get());
+        assertEquals(profileGetsBeforeRefresh + 1, api.profileGets.get());
     }
 
     @Test
@@ -1477,7 +1482,7 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void uuidMismatchSettlesUnknownAcrossAutomaticCheckpointsAndExplicitRetryCanRecover()
+    void uuidMismatchSettlesUnknownAndSessionRefreshedCanRecoverWithoutSecondValidation()
             throws Exception {
         byte[] skin = skinPng(0xFF7A4C91);
         StubProfileApi api = new StubProfileApi();
@@ -1509,11 +1514,14 @@ final class DefaultClientOperationsTest {
 
         api.profile = new RemoteProfile(
                 TestFixtures.ACCOUNT_ID, "Player", List.of(), List.of(), Set.of());
-        ClientOperations.ReconciliationResult explicit = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+        ClientOperations.InitialData refreshed = operations.retrySession();
+        assertTrue(refreshed.session().valid());
+        assertEquals(2, api.profileGets.get());
+        ClientOperations.ReconciliationResult recovered = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
                 .orElseThrow();
 
-        assertEquals(AppearanceSyncStatus.OFFICIAL, explicit.appearance().syncStatus());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
     }
@@ -1693,7 +1701,7 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void partialIntentWaitsForExplicitCapeOnlyRecoveryAndKeepsItsRevision() throws Exception {
+    void partialIntentWaitsForSessionRefreshedCapeOnlyRecoveryAndKeepsItsRevision() throws Exception {
         byte[] skin = skinPng(0xFF395D7B);
         URI skinUri = URI.create("https://textures.minecraft.net/texture/partial-matching-skin");
         URI capeUri = URI.create("https://textures.minecraft.net/texture/partial-owned-cape");
@@ -1760,8 +1768,11 @@ final class DefaultClientOperationsTest {
                         "cape-owned", RemoteAssetState.INACTIVE, capeUri, "Owned cape")),
                 Set.of());
 
+        ClientOperations.InitialData refreshed = operations.retrySession();
+        assertTrue(refreshed.session().valid());
+        assertEquals(2, api.profileGets.get());
         ClientOperations.ReconciliationResult recovered = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());

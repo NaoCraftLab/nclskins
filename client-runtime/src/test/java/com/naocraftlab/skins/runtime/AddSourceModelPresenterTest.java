@@ -1,9 +1,5 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.MinecraftSkinCatalog;
@@ -14,13 +10,18 @@ import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import org.junit.jupiter.api.Test;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AddSourceModelPresenterTest {
     private final AddSourcePresenter presenter = new AddSourcePresenter();
@@ -103,6 +104,96 @@ final class AddSourceModelPresenterTest {
                         .toList());
         assertTrue(restored.widget("add.catalog.collection:forest").isPresent());
         assertTrue(restored.widget("add.catalog.collection:ocean").isPresent());
+    }
+
+    @Test
+    void explicitVariantFilterHidesEmptyCollectionsAndReflowsThe262Contract() {
+        SkinCatalogSource.CollectionDescriptor classic = new SkinCatalogSource.CollectionDescriptor(
+                "classic_only",
+                "Classic only",
+                Optional.of("Classic collection description"),
+                Optional.of("Classic collection authors"),
+                List.of(new SkinCatalogSource.SkinDescriptor(
+                        "classic_skin",
+                        "Classic skin",
+                        Optional.of("Classic skin description"),
+                        Optional.of("Classic skin authors"),
+                        List.of(SkinModel.CLASSIC))));
+        SkinCatalogSource.CollectionDescriptor slim = new SkinCatalogSource.CollectionDescriptor(
+                "slim_only",
+                "Slim only",
+                Optional.of("Slim collection description"),
+                Optional.of("Slim collection authors"),
+                List.of(new SkinCatalogSource.SkinDescriptor(
+                        "slim_skin",
+                        "Slim skin",
+                        Optional.of("Slim skin description"),
+                        Optional.of("Slim skin authors"),
+                        List.of(SkinModel.SLIM))));
+
+        AddSourceModel classicFilter = openCatalog(List.of(classic, slim)).cycleFilter();
+        ViewSpec classicView = presenter.present(classicFilter, false, 320, 240);
+
+        assertEquals(
+                List.of("classic_only"),
+                classicFilter.visibleCollections().stream()
+                        .map(SkinCatalogSource.CollectionDescriptor::id)
+                        .toList());
+        assertTrue(classicView.widget("add.catalog.collection:classic_only").isPresent());
+        assertTrue(classicView.widget("add.catalog.collection_info:classic_only").isPresent());
+        assertTrue(classicView.widget("add.catalog.skin:classic_only:classic_skin").isPresent());
+        assertTrue(classicView.widget("add.catalog.collection:slim_only").isEmpty());
+        assertTrue(classicView.widget("add.catalog.collection_info:slim_only").isEmpty());
+        assertTrue(classicView.widget("add.catalog.skin:slim_only:slim_skin").isEmpty());
+        assertTrue(classicView.widget("add.catalog.skin_info:slim_only:slim_skin").isEmpty());
+
+        AddSourceModel slimFilter = classicFilter.cycleFilter();
+        ViewSpec slimView = presenter.present(slimFilter, false, 320, 240);
+        assertEquals(
+                List.of("slim_only"),
+                slimFilter.visibleCollections().stream()
+                        .map(SkinCatalogSource.CollectionDescriptor::id)
+                        .toList());
+        assertTrue(slimView.widget("add.catalog.collection:classic_only").isEmpty());
+        assertTrue(slimView.widget("add.catalog.collection_info:classic_only").isEmpty());
+        assertTrue(slimView.widget("add.catalog.collection:slim_only").isPresent());
+        assertTrue(slimView.widget("add.catalog.collection_info:slim_only").isPresent());
+
+        AddSourceModel noClassic = openCatalog(slim).cycleFilter();
+        ViewSpec emptyView = presenter.present(noClassic, false, 320, 240);
+        assertTrue(noClassic.visibleCollections().isEmpty());
+        assertTrue(emptyView.widget("add.catalog.collection:slim_only").isEmpty());
+        assertTrue(emptyView.widget("add.catalog.collection_info:slim_only").isEmpty());
+        assertTrue(emptyView.texts().stream().anyMatch(text -> text.id().equals("add.catalog.empty")));
+        assertEquals(0, presenter.maximumScroll(noClassic, 320, 240));
+        assertTrue(emptyView.scrollbar().isEmpty());
+
+        SkinCatalogSource.CollectionDescriptor manyClassic = collection(
+                "many_classic",
+                IntStream.range(0, 16)
+                        .mapToObj(index -> skin(
+                                "classic-" + index,
+                                "Classic " + index,
+                                SkinModel.CLASSIC))
+                        .toArray(SkinCatalogSource.SkinDescriptor[]::new));
+        SkinCatalogSource.CollectionDescriptor manySlim = collection(
+                "many_slim",
+                IntStream.range(0, 16)
+                        .mapToObj(index -> skin(
+                                "slim-" + index,
+                                "Slim " + index,
+                                SkinModel.SLIM))
+                        .toArray(SkinCatalogSource.SkinDescriptor[]::new));
+        AddSourceModel mixedFilter = openCatalog(List.of(manyClassic, manySlim)).cycleFilter();
+        AddSourceModel matchingOnly = openCatalog(manyClassic).cycleFilter();
+
+        assertEquals(
+                presenter.maximumScroll(matchingOnly, 320, 240),
+                presenter.maximumScroll(mixedFilter, 320, 240),
+                "hidden collections must not reserve header, metadata or scroll space");
+        assertEquals(
+                presenter.present(matchingOnly, false, 320, 240).scrollbar(),
+                presenter.present(mixedFilter, false, 320, 240).scrollbar());
     }
 
     @Test

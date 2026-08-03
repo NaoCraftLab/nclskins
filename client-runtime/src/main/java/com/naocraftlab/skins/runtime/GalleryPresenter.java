@@ -16,11 +16,20 @@ import java.util.UUID;
 
 public final class GalleryPresenter {
     private static final int CARD_GAP = 12;
-    private static final int CARD_MIN_WIDTH = 136;
     private static final int CARD_MAX_WIDTH = 190;
+    private static final int CARD_ACTION_GAP = 2;
+    private static final int CARD_ACTION_BOTTOM_INSET = 2;
+    private static final int PREVIEW_ACTION_GAP = 4;
+    private static final int VIEWPORT_SCROLLBAR_GAP = 4;
+    private static final int ONE_ROW_ACTION_MIN_WIDTH = 122;
+    private static final int ACTION_HEIGHT = 20;
     private static final int DECORATION_ICON_SIZE = 15;
     private static final int RECOVERY_BUTTON_WIDTH = 112;
     private static final int SCROLLBAR_HEIGHT = 6;
+    private static final int FOOTER_HEIGHT = 33;
+    private static final int SESSION_STATE_TEXT_WIDTH = 84;
+    private static final int VIEWPORT_TOP = 58;
+    private static final int SCROLLBAR_BOTTOM_OFFSET = 43;
 
     public ViewSpec present(
             ClientSnapshot snapshot,
@@ -85,13 +94,14 @@ public final class GalleryPresenter {
 
         query = Objects.requireNonNull(query, "query");
         pendingDeleteId = Objects.requireNonNull(pendingDeleteId, "pendingDeleteId");
+        GalleryLayout layout = layout(width, height);
         List<GalleryCard> cards = cards(snapshot, query);
-        int visibleCount = visibleCount(width);
+        int visibleCount = layout.visibleCount();
         int maximum = Math.max(0, cards.size() - visibleCount);
         double visualOffset = Math.max(0.0, Math.min(scrollPosition, maximum));
         int offset = Math.min((int) Math.floor(visualOffset), maximum);
         double fraction = visualOffset - offset;
-        int cardWidth = cardWidth(width, visibleCount);
+        int cardWidth = layout.cardWidth();
         int anchorTo = Math.min(cards.size(), offset + visibleCount);
         List<GalleryCard> anchorCards = cards.subList(Math.min(offset, cards.size()), anchorTo);
         boolean showRestingNeighbors = visibleCount < 3;
@@ -104,15 +114,15 @@ public final class GalleryPresenter {
         int startX = startX(snapshot.activePresetId(), width, cardWidth, offset, anchorCards)
                 - (offset - from) * cardStep
                 - (int) Math.round(fraction * cardStep);
-        int top = 62;
-        int bottom = Math.max(top + 112, height - 64);
-        Bounds cardViewport = new Bounds(0, top, width, bottom - top);
+        Bounds cardViewport = layout.viewport();
 
         List<ViewSpec.Panel> panels = new ArrayList<>();
         panels.add(new ViewSpec.Panel(
                 "header", new Bounds(0, 0, width, 33), ViewSpec.Panel.Style.VANILLA_HEADER));
         panels.add(new ViewSpec.Panel(
-                "footer", new Bounds(0, Math.max(0, height - 33), width, 33), ViewSpec.Panel.Style.VANILLA_FOOTER));
+                "footer",
+                new Bounds(0, Math.max(0, height - FOOTER_HEIGHT), width, FOOTER_HEIGHT),
+                ViewSpec.Panel.Style.VANILLA_FOOTER));
         List<ViewSpec.Text> texts = new ArrayList<>();
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Preview> previews = new ArrayList<>();
@@ -128,7 +138,11 @@ public final class GalleryPresenter {
 
         int x = startX;
         for (GalleryCard card : visibleCards) {
-            Bounds panelBounds = new Bounds(x, top, cardWidth, bottom - top);
+            Bounds panelBounds = new Bounds(
+                    x,
+                    layout.cardTop(),
+                    cardWidth,
+                    layout.cardHeight());
             if (!intersects(panelBounds, cardViewport)) {
                 x += cardWidth + CARD_GAP;
                 continue;
@@ -136,7 +150,10 @@ public final class GalleryPresenter {
             panels.add(new ViewSpec.Panel(card.id(), panelBounds, ViewSpec.Panel.Style.VANILLA_LIST));
             if (card.preset().isEmpty()) {
                 int iconX = x + (cardWidth - DECORATION_ICON_SIZE) / 2;
-                int iconY = top + Math.max(24, (bottom - top - DECORATION_ICON_SIZE) / 2 - 10);
+                int iconY = layout.cardTop()
+                        + Math.max(
+                        24,
+                        (layout.cardHeight() - DECORATION_ICON_SIZE) / 2 - 10);
                 iconDecorations.add(new ViewSpec.IconDecoration(
                         "gallery.add.icon",
                         new Bounds(iconX, iconY, DECORATION_ICON_SIZE, DECORATION_ICON_SIZE),
@@ -147,7 +164,11 @@ public final class GalleryPresenter {
                 boolean nameSeed = matchingPresetCount(snapshot, query) == 0 && !query.isBlank();
                 texts.add(new ViewSpec.Text(
                         "gallery.add.hint",
-                        new Bounds(x, top + Math.max(44, (bottom - top) / 2 + 10), cardWidth, 10),
+                        new Bounds(
+                                x,
+                                layout.cardTop() + Math.max(44, layout.cardHeight() / 2 + 10),
+                                cardWidth,
+                                10),
                         nameSeed
                                 ? UiMessage.info(
                                         "nclskins.gallery.create_named",
@@ -169,8 +190,8 @@ public final class GalleryPresenter {
                         snapshot,
                         card.preset().orElseThrow(),
                         x,
-                        top,
-                        bottom,
+                        layout.cardTop(),
+                        layout.cardTop() + layout.cardHeight(),
                         cardWidth,
                         mouseX,
                         mouseY,
@@ -190,7 +211,13 @@ public final class GalleryPresenter {
 
         Optional<ViewSpec.Scrollbar> scrollbar = maximum <= 0
                 ? Optional.empty()
-                : Optional.of(scrollbar(width, bottom, cards.size(), visibleCount, visualOffset, maximum));
+                : Optional.of(scrollbar(
+                width,
+                layout.scrollbarY(),
+                cards.size(),
+                visibleCount,
+                visualOffset,
+                maximum));
         return new ViewSpec(
                 "gallery",
                 UiMessage.info("nclskins.gallery.title"),
@@ -211,35 +238,43 @@ public final class GalleryPresenter {
                 iconDecorations);
     }
 
-    public int maximumScroll(ClientSnapshot snapshot, int width, String query) {
+    public int maximumScroll(ClientSnapshot snapshot, int width, int height, String query) {
         Objects.requireNonNull(snapshot, "snapshot");
         int cardCount = cards(snapshot, Objects.requireNonNull(query, "query")).size();
-        return Math.max(0, cardCount - visibleCount(width));
+        return Math.max(0, cardCount - layout(width, height).visibleCount());
     }
 
-    public double scrollPositionDelta(int width, double pixelDelta) {
+    public double scrollPositionDelta(int width, int height, double pixelDelta) {
         if (!Double.isFinite(pixelDelta)) {
             throw new IllegalArgumentException("gallery scroll delta must be finite");
         }
-        int visible = visibleCount(width);
-        return pixelDelta / (cardWidth(width, visible) + CARD_GAP);
+        return pixelDelta / (layout(width, height).cardWidth() + CARD_GAP);
     }
 
     public int offsetFromScrollbar(
-            ClientSnapshot snapshot, int width, double desiredThumbLeft) {
-        return offsetFromScrollbar(snapshot, width, "", desiredThumbLeft);
+            ClientSnapshot snapshot, int width, int height, double desiredThumbLeft) {
+        return offsetFromScrollbar(snapshot, width, height, "", desiredThumbLeft);
     }
 
     public int offsetFromScrollbar(
-            ClientSnapshot snapshot, int width, String query, double desiredThumbLeft) {
-        return (int) Math.round(positionFromScrollbar(snapshot, width, query, desiredThumbLeft));
+            ClientSnapshot snapshot,
+            int width,
+            int height,
+            String query,
+            double desiredThumbLeft) {
+        return (int) Math.round(positionFromScrollbar(
+                snapshot, width, height, query, desiredThumbLeft));
     }
 
     public double positionFromScrollbar(
-            ClientSnapshot snapshot, int width, String query, double desiredThumbLeft) {
+            ClientSnapshot snapshot,
+            int width,
+            int height,
+            String query,
+            double desiredThumbLeft) {
         Objects.requireNonNull(snapshot, "snapshot");
         int cardCount = cards(snapshot, query).size();
-        int visibleCount = visibleCount(width);
+        int visibleCount = layout(width, height).visibleCount();
         int maximum = Math.max(0, cardCount - visibleCount);
         if (maximum == 0) {
             return 0.0;
@@ -275,8 +310,13 @@ public final class GalleryPresenter {
                 new Bounds(x + 8, top + 8, cardWidth - 16, 10),
                 UiMessage.literal(preset.name(), UiMessage.Severity.INFO),
                 ViewSpec.Text.Alignment.CENTER));
+        int innerWidth = cardWidth;
+        int applyRow = bottom - CARD_ACTION_BOTTOM_INSET - ACTION_HEIGHT;
+        int secondaryRow = !confirmingDelete && cardWidth < ONE_ROW_ACTION_MIN_WIDTH
+                ? applyRow - CARD_ACTION_GAP - ACTION_HEIGHT
+                : applyRow;
         int previewTop = top + 20;
-        int previewBottom = bottom - 29;
+        int previewBottom = (confirmingDelete ? applyRow : secondaryRow) - PREVIEW_ACTION_GAP;
         float centerX = x + cardWidth / 2.0F;
         float centerY = previewTop + (previewBottom - previewTop) * 0.38F;
         float yaw = Math.max(-28.0F, Math.min(28.0F, (mouseX - centerX) * 0.22F));
@@ -299,47 +339,112 @@ public final class GalleryPresenter {
                 0.88F,
                 Optional.of(preset.id())));
 
-        int innerWidth = cardWidth - 16;
-        int row = bottom - 24;
         if (confirmingDelete) {
-            int half = Math.max(1, (innerWidth - 4) / 2);
+            int leftWidth = Math.max(1, (innerWidth - CARD_ACTION_GAP) / 2);
             addIntersectingAction(widgets, ViewSpec.Widget.button(
                     prefix + ".delete_confirm",
-                    new Bounds(x + 8, row, half, 20),
+                    new Bounds(x, applyRow, leftWidth, ACTION_HEIGHT),
                     UiMessage.info("nclskins.gallery.delete"),
                     !snapshot.busy()), actionViewport);
             addIntersectingAction(widgets, ViewSpec.Widget.button(
                     prefix + ".delete_cancel",
-                    new Bounds(x + 12 + half, row, innerWidth - half - 4, 20),
+                    new Bounds(
+                            x + leftWidth + CARD_ACTION_GAP,
+                            applyRow,
+                            innerWidth - leftWidth - CARD_ACTION_GAP,
+                            ACTION_HEIGHT),
                     UiMessage.info("gui.cancel"),
                     !snapshot.busy()), actionViewport);
             return;
         }
-        int square = 20;
-        int gap = 2;
-        int applyWidth = Math.max(42, innerWidth - square * 3 - gap * 3);
+        if (cardWidth < ONE_ROW_ACTION_MIN_WIDTH) {
+            addTwoRowActions(
+                    snapshot,
+                    prefix,
+                    active,
+                    x,
+                    innerWidth,
+                    secondaryRow,
+                    applyRow,
+                    actionViewport,
+                    widgets);
+            return;
+        }
+        int applyWidth = innerWidth - ACTION_HEIGHT * 3 - CARD_ACTION_GAP * 3;
         addIntersectingAction(widgets, ViewSpec.Widget.button(
                 prefix + ".apply",
-                new Bounds(x + 8, row, applyWidth, 20),
+                new Bounds(x, applyRow, applyWidth, ACTION_HEIGHT),
+                active
+                        ? UiMessage.info("nclskins.gallery.active")
+                        : UiMessage.info("nclskins.gallery.apply"),
+                !snapshot.busy() && !active), actionViewport);
+        int editX = x + applyWidth + CARD_ACTION_GAP;
+        addIntersectingAction(widgets, compactIconAction(
+                prefix + ".edit",
+                new Bounds(editX, applyRow, ACTION_HEIGHT, ACTION_HEIGHT),
+                "edit",
+                UiMessage.info("nclskins.gallery.edit"),
+                !snapshot.busy()), actionViewport);
+        addIntersectingAction(widgets, compactIconAction(
+                prefix + ".duplicate",
+                new Bounds(
+                        editX + ACTION_HEIGHT + CARD_ACTION_GAP,
+                        applyRow,
+                        ACTION_HEIGHT,
+                        ACTION_HEIGHT),
+                "duplicate",
+                UiMessage.info("nclskins.gallery.duplicate"),
+                !snapshot.busy()), actionViewport);
+        addIntersectingAction(widgets, compactIconAction(
+                prefix + ".delete",
+                new Bounds(
+                        editX + (ACTION_HEIGHT + CARD_ACTION_GAP) * 2,
+                        applyRow,
+                        ACTION_HEIGHT,
+                        ACTION_HEIGHT),
+                "delete",
+                UiMessage.info("nclskins.gallery.delete"),
+                !snapshot.busy()), actionViewport);
+    }
+
+    private static void addTwoRowActions(
+            ClientSnapshot snapshot,
+            String prefix,
+            boolean active,
+            int x,
+            int innerWidth,
+            int secondaryRow,
+            int applyRow,
+            Bounds actionViewport,
+            List<ViewSpec.Widget> widgets) {
+        int availableSecondaryWidth = innerWidth - CARD_ACTION_GAP * 2;
+        int outerWidth = availableSecondaryWidth / 3;
+        int middleWidth = availableSecondaryWidth - outerWidth * 2;
+        int editX = x;
+        int duplicateX = editX + outerWidth + CARD_ACTION_GAP;
+        int deleteX = duplicateX + middleWidth + CARD_ACTION_GAP;
+        addIntersectingAction(widgets, ViewSpec.Widget.button(
+                prefix + ".apply",
+                new Bounds(x, applyRow, innerWidth, ACTION_HEIGHT),
                 active
                         ? UiMessage.info("nclskins.gallery.active")
                         : UiMessage.info("nclskins.gallery.apply"),
                 !snapshot.busy() && !active), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
-                new Bounds(x + 8 + applyWidth + gap, row, square, 20),
+                new Bounds(editX, secondaryRow, outerWidth, ACTION_HEIGHT),
                 "edit",
                 UiMessage.info("nclskins.gallery.edit"),
                 !snapshot.busy()), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".duplicate",
-                new Bounds(x + 8 + applyWidth + (square + gap), row, square, 20),
+                new Bounds(duplicateX, secondaryRow, middleWidth, ACTION_HEIGHT),
                 "duplicate",
                 UiMessage.info("nclskins.gallery.duplicate"),
                 !snapshot.busy()), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".delete",
-                new Bounds(x + 8 + applyWidth + (square + gap) * 2, row, square, 20),
+                new Bounds(deleteX, secondaryRow, outerWidth, ACTION_HEIGHT),
                 "delete",
                 UiMessage.info("nclskins.gallery.delete"),
                 !snapshot.busy()), actionViewport);
@@ -374,7 +479,10 @@ public final class GalleryPresenter {
                     "gallery.retry_session",
                     bounds,
                     UiMessage.info("nclskins.session.retry"),
-                    !snapshot.busy() && snapshot.account().isPresent() && !snapshot.rateLimited()));
+                    !snapshot.busy()
+                            && !snapshot.syncInProgress()
+                            && snapshot.account().isPresent()
+                            && !snapshot.rateLimited()));
             return Optional.of(new RecoveryWidget(bounds));
         }
         if (snapshot.recoveryActions().contains(RecoveryAction.RETRY_CAPE)) {
@@ -400,7 +508,12 @@ public final class GalleryPresenter {
             Optional<RecoveryWidget> recovery,
             List<ViewSpec.Text> texts) {
         boolean offline = snapshot.session().isEmpty() || !snapshot.session().orElseThrow().valid();
-        int leftOccupied = offline ? Math.min(60, Math.max(0, width - 1)) : 0;
+        boolean connecting = snapshot.busy()
+                && snapshot.status().equals(UiMessage.info("nclskins.status.checking_session"));
+        boolean showSessionState = offline || connecting;
+        int leftOccupied = showSessionState
+                ? Math.min(SESSION_STATE_TEXT_WIDTH + 12, Math.max(0, width - 1))
+                : 0;
         int rightStart = recovery.map(value -> Math.max(0, value.bounds().x() - 4)).orElse(width);
         int symmetricInset = Math.max(leftOccupied, width - rightStart);
         int titleLeft;
@@ -417,24 +530,29 @@ public final class GalleryPresenter {
                 new Bounds(titleLeft, 12, Math.max(1, titleRight - titleLeft), 10),
                 UiMessage.info("nclskins.gallery.title"),
                 ViewSpec.Text.Alignment.CENTER));
-        if (offline) {
+        if (showSessionState) {
             texts.add(new ViewSpec.Text(
                     "gallery.offline",
-                    new Bounds(8, 12, Math.min(48, Math.max(1, width - 16)), 10),
-                    UiMessage.info("nclskins.session.offline"),
+                    new Bounds(
+                            8,
+                            12,
+                            Math.min(SESSION_STATE_TEXT_WIDTH, Math.max(1, width - 16)),
+                            10),
+                    UiMessage.info(connecting
+                            ? "nclskins.session.connecting"
+                            : "nclskins.session.offline"),
                     ViewSpec.Text.Alignment.LEFT));
         }
     }
 
     private static ViewSpec.Scrollbar scrollbar(
-            int width, int bottom, int cardCount, int visibleCount, double offset, int maximum) {
+            int width, int y, int cardCount, int visibleCount, double offset, int maximum) {
         int trackLeft = 40;
         int trackRight = Math.max(trackLeft + 1, width - 40);
         int trackWidth = trackRight - trackLeft;
         int thumbWidth = thumbWidth(trackWidth, cardCount, visibleCount);
         int travel = Math.max(0, trackWidth - thumbWidth);
         int thumbLeft = trackLeft + (int) Math.round(travel * offset / maximum);
-        int y = bottom + 6;
         return new ViewSpec.Scrollbar(
                 new Bounds(trackLeft, y, trackWidth, SCROLLBAR_HEIGHT),
                 new Bounds(thumbLeft, y, thumbWidth, SCROLLBAR_HEIGHT),
@@ -473,13 +591,31 @@ public final class GalleryPresenter {
         return List.copyOf(cards);
     }
 
-    private static int visibleCount(int width) {
-        return Math.max(1, Math.min(3, (width + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)));
-    }
-
-    private static int cardWidth(int width, int visible) {
-        int fitted = (width - CARD_GAP * (visible - 1)) / visible;
-        return Math.max(CARD_MIN_WIDTH, Math.min(CARD_MAX_WIDTH, fitted));
+    private static GalleryLayout layout(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("view dimensions must be positive");
+        }
+        int scrollbarY = height - SCROLLBAR_BOTTOM_OFFSET;
+        int viewportBottom = scrollbarY - VIEWPORT_SCROLLBAR_GAP;
+        int viewportHeight = viewportBottom - VIEWPORT_TOP;
+        if (viewportHeight < 2) {
+            throw new IllegalArgumentException("gallery viewport is too short");
+        }
+        int cardWidth = Math.min(
+                CARD_MAX_WIDTH,
+                (int) ((long) viewportHeight * 3L / 4L));
+        int cardHeight = (cardWidth * 4 + 2) / 3;
+        int cardTop = VIEWPORT_TOP + (viewportHeight - cardHeight) / 2;
+        int visibleCount = (int) Math.max(
+                1L,
+                Math.min(3L, ((long) width + CARD_GAP) / (cardWidth + CARD_GAP)));
+        return new GalleryLayout(
+                new Bounds(0, VIEWPORT_TOP, width, viewportHeight),
+                cardWidth,
+                cardHeight,
+                cardTop,
+                visibleCount,
+                scrollbarY);
     }
 
     private static int startX(
@@ -526,6 +662,26 @@ public final class GalleryPresenter {
 
         private String id() {
             return preset.map(value -> "gallery.card." + value.id()).orElse("gallery.card.add");
+        }
+    }
+
+    private record GalleryLayout(
+            Bounds viewport,
+            int cardWidth,
+            int cardHeight,
+            int cardTop,
+            int visibleCount,
+            int scrollbarY) {
+        private GalleryLayout {
+            Objects.requireNonNull(viewport, "viewport");
+            if (cardWidth <= 0
+                    || cardHeight <= 0
+                    || cardTop < viewport.y()
+                    || cardTop + cardHeight > viewport.bottom()
+                    || visibleCount < 1
+                    || visibleCount > 3) {
+                throw new IllegalArgumentException("invalid gallery layout");
+            }
         }
     }
 

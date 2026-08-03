@@ -1,12 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
+import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
@@ -14,10 +9,16 @@ import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
-import java.util.Map;
-import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PresetEditorModelTest {
     private static final TextResolver ENGLISH = message -> switch (message.key()) {
@@ -321,6 +322,26 @@ final class PresetEditorModelTest {
         assertEquals(14, info.bounds().height());
         assertTrue(info.icon().isEmpty());
         assertTrue(info.hint().isPresent());
+    }
+
+    @Test
+    void catalogDraftRetainsDedicatedPreviewIdentityBeforeSave() {
+        PresetEditorModel model = PresetEditorModel.openCatalog(
+                "Catalog skin",
+                new CatalogOrigin("pack", "heroes", "hero"),
+                Map.of(SkinVariant.CLASSIC, new byte[]{1, 2, 3}),
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                240,
+                PreviewRenderer.CapeMode.OFF);
+
+        ViewSpec.Preview preview = model.present(320, 240).previews().get(0);
+
+        assertTrue(preview.skin().optionalAssetId().isEmpty());
+        assertTrue(preview.imageRevision().startsWith("draft:"));
+        assertEquals(
+                Optional.of(new ViewSpec.CatalogImage("heroes", "hero")),
+                preview.catalogImage());
     }
 
     private static void assertCycleButton(

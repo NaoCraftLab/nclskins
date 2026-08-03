@@ -53,6 +53,20 @@ final class ViewSpecGoldenTest {
     }
 
     @Test
+    void portrait240ConnectingGalleryMatchesGolden() {
+        assertEquals(
+                golden("gallery-view-spec-240-connecting.txt"),
+                describe(galleryWithSessionState(
+                        240,
+                        360,
+                        false,
+                        AppearanceSyncStatus.LOCAL_ONLY,
+                        true,
+                        UiMessage.info("nclskins.status.checking_session")))
+                        .stripTrailing());
+    }
+
+    @Test
     void portrait320HealthyGalleryMatchesGolden() {
         assertEquals(
                 golden("gallery-view-spec-320.txt"),
@@ -89,6 +103,22 @@ final class ViewSpecGoldenTest {
 
     private static ViewSpec galleryWithSessionState(
             int width, int height, boolean validSession, AppearanceSyncStatus syncStatus) {
+        return galleryWithSessionState(
+                width,
+                height,
+                validSession,
+                syncStatus,
+                false,
+                UiMessage.info("nclskins.status.profile_loaded"));
+    }
+
+    private static ViewSpec galleryWithSessionState(
+            int width,
+            int height,
+            boolean validSession,
+            AppearanceSyncStatus syncStatus,
+            boolean busy,
+            UiMessage status) {
         AccountState account = TestFixtures.account(4);
         UUID active = account.presets().get(3).id();
         ClientSnapshot base = TestFixtures.ready(account, active, 0);
@@ -105,8 +135,8 @@ final class ViewSpecGoldenTest {
                 base.activePresetId(),
                 base.editor(),
                 base.addSource(),
-                base.status(),
-                false,
+                status,
+                busy,
                 false,
                 0,
                 base.generation(),

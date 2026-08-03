@@ -1,28 +1,28 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.client.GameSessionTokenSource;
-import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.BundledSkinSource;
-import com.naocraftlab.skins.client.SkinCatalogSource;
-import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
-import com.naocraftlab.skins.client.PersonalSkinCatalog;
+import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PersonalSkinCatalog;
+import com.naocraftlab.skins.client.SignedTextureVerifier;
+import com.naocraftlab.skins.client.SkinCatalogSource;
+import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.MinecraftProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApi;
+import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
-import com.naocraftlab.skins.core.model.AccountAppearanceState;
-import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.AppearancePreset;
+import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.MutationResult;
-import com.naocraftlab.skins.core.model.PersonalSkinEntry;
-import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.PersonalSkinEntry;
+import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.RemoteSkin;
 import com.naocraftlab.skins.core.model.SkinAsset;
@@ -32,34 +32,34 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.AppearanceMutationService;
-import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
+import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.DuplicatedPreset;
 import com.naocraftlab.skins.core.service.ImportedSkin;
 import com.naocraftlab.skins.core.service.LibraryService;
-import com.naocraftlab.skins.core.service.SavedPersonalSkinPreset;
-import com.naocraftlab.skins.core.service.SavedImportedPreset;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.PresetApplicationRequest;
 import com.naocraftlab.skins.core.service.RemoteAppearanceImpact;
 import com.naocraftlab.skins.core.service.RemoteSessionGate;
 import com.naocraftlab.skins.core.service.ResolvedSkinAsset;
+import com.naocraftlab.skins.core.service.SavedImportedPreset;
+import com.naocraftlab.skins.core.service.SavedPersonalSkinPreset;
 import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
 import com.naocraftlab.skins.core.service.SessionValidationService;
-import com.naocraftlab.skins.core.storage.CachedTexture;
 import com.naocraftlab.skins.core.storage.AccountUiPreferencesResult;
+import com.naocraftlab.skins.core.storage.CachedTexture;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.StorageInitialization;
 import com.naocraftlab.skins.core.storage.TextureCache;
+
 import java.io.IOException;
-import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -988,7 +988,8 @@ public final class DefaultClientOperations implements ClientOperations {
                             || checkpointAppearance.intentRevision() != expected.intentRevision())) {
                 return Optional.empty();
             }
-            boolean explicitRecovery = trigger == ReconciliationTrigger.EXPLICIT_RETRY;
+            boolean explicitRecovery = trigger == ReconciliationTrigger.EXPLICIT_RETRY
+                    || trigger == ReconciliationTrigger.SESSION_REFRESHED;
 
 
             if (profileApi.rateLimitRemaining().isPresent()) {
@@ -1041,7 +1042,8 @@ public final class DefaultClientOperations implements ClientOperations {
 
 
             SessionValidation explicitValidation = explicitRecovery
-                    ? sessions.manualRetry(scopedContext.tokens())
+                    ? checkpointValidation(
+                    scopedContext, trigger, checkpointAppearance.syncStatus())
                     : null;
             if (checkpointAppearance.hasIntent()
                     && (checkpointAppearance.syncStatus() == AppearanceSyncStatus.OFFICIAL
@@ -1131,7 +1133,7 @@ public final class DefaultClientOperations implements ClientOperations {
             }
 
             if (appearance.syncStatus() == AppearanceSyncStatus.UNKNOWN) {
-                if (trigger != ReconciliationTrigger.EXPLICIT_RETRY) {
+                if (!explicitRecovery) {
                     return Optional.of(reconciliationResult(
                             context, appearance, validation, observed, Optional.empty()));
                 }
@@ -1159,7 +1161,7 @@ public final class DefaultClientOperations implements ClientOperations {
             }
 
             if (appearance.syncStatus() == AppearanceSyncStatus.PARTIAL) {
-                if (trigger != ReconciliationTrigger.EXPLICIT_RETRY) {
+                if (!explicitRecovery) {
                     return Optional.of(reconciliationResult(
                             context, appearance, validation, observed, Optional.empty()));
                 }
@@ -1393,13 +1395,13 @@ public final class DefaultClientOperations implements ClientOperations {
             OperationContext context,
             ReconciliationTrigger trigger,
             AppearanceSyncStatus status) {
-        if (trigger == ReconciliationTrigger.EXPLICIT_RETRY) {
-            return sessions.manualRetry(context.tokens());
-        }
-        if (status == AppearanceSyncStatus.ATTEMPTING) {
-            return sessions.observeFreshAtCheckpoint(context.tokens());
-        }
-        return sessions.retryTransientAtCheckpoint(context.tokens());
+        return switch (trigger) {
+            case EXPLICIT_RETRY -> sessions.manualRetry(context.tokens());
+            case SESSION_REFRESHED -> sessions.cachedStatus(context.identity());
+            default -> status == AppearanceSyncStatus.ATTEMPTING
+                    ? sessions.observeFreshAtCheckpoint(context.tokens())
+                    : sessions.retryTransientAtCheckpoint(context.tokens());
+        };
     }
 
     private ReconciliationResult reconciliationResult(
@@ -1622,7 +1624,7 @@ public final class DefaultClientOperations implements ClientOperations {
     public InitialData retrySession() throws IOException, PngValidationException {
 
 
-        return initializeFresh(pinCurrentSession(), false);
+        return initializeFresh(pinCurrentSession(), true);
     }
 
     @Override

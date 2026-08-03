@@ -1,27 +1,27 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
-import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 
 
 public final class PresetEditorModel {
@@ -632,6 +632,8 @@ public final class PresetEditorModel {
         PreviewRenderer.CapeMode effectiveCapeMode = capeId.isPresent()
                 ? preview.capeMode()
                 : PreviewRenderer.CapeMode.OFF;
+        Optional<ViewSpec.CatalogImage> previewCatalogImage = catalogOrigin.map(origin ->
+                new ViewSpec.CatalogImage(origin.collectionId(), origin.skinId()));
         ViewSpec.Preview previewSpec = new ViewSpec.Preview(
                 "editor.preview",
                 previewBounds,
@@ -646,7 +648,8 @@ public final class PresetEditorModel {
                 preview.yawDegrees(),
                 preview.pitchDegrees(),
                 preview.scale(),
-                originalPresetId);
+                originalPresetId,
+                previewCatalogImage);
         return new ViewSpec(
                 "preset_editor",
                 UiMessage.info(originalPresetId.isPresent()

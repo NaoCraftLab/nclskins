@@ -148,7 +148,7 @@ public final class AddSourceModel {
 
     public List<SkinCatalogSource.CollectionDescriptor> visibleCollections() {
         return collections().stream()
-                .filter(collection -> query.isEmpty() || !visibleSkins(collection).isEmpty())
+                .filter(collection -> !visibleSkins(collection).isEmpty())
                 .toList();
     }
 
