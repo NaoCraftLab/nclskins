@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonSlurper
+
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.security.MessageDigest
@@ -50,6 +51,7 @@ final class ArtifactVerifier {
             verifyResources(root, archive, catalog, target, names, errors)
             verifyManifest(archive, target, errors)
             verifyForgeRefmap(archive, target, names, errors)
+            verifyMenuPreviewCompatibility(archive, target, errors)
             names.findAll { !it.endsWith('/') }.each { String name ->
                 byte[] bytes = read(archive, name)
                 String content = new String(bytes, StandardCharsets.ISO_8859_1)
@@ -191,6 +193,20 @@ final class ArtifactVerifier {
         if (declared != (baseline.mappings as Map).keySet() as Set) errors.add("${target.id}: Forge Mixin declarations differ from refmap baseline")
         if (refmap.mappings != baseline.mappings) errors.add("${target.id}: Forge Mixin production mapping baseline differs")
         if (!(refmap.data instanceof Map) || refmap.data.searge != baseline.mappings) errors.add("${target.id}: Forge Mixin searge mapping baseline differs")
+    }
+
+    static void verifyMenuPreviewCompatibility(ZipFile archive, Map target, List<String> errors) {
+        if (target.minecraft.epoch != '1.20.1') return
+        String layoutElement = target.loader.id == 'fabric'
+                ? 'net/minecraft/class_8021'
+                : 'net/minecraft/client/gui/layouts/LayoutElement'
+        verifyBytecodeMarker(
+                archive,
+                'com/naocraftlab/skins/compat/v1_20_1/client/NclSkinsMenuPreview.class',
+                target,
+                [layoutElement],
+                [],
+                errors)
     }
 
     static Map json(ZipFile archive, String path, Map target, List<String> errors) {

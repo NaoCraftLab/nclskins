@@ -16,13 +16,14 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Renderable;
+import net.minecraft.client.gui.layouts.LayoutElement;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import org.lwjgl.opengl.GL11;
 
 
-public final class NclSkinsMenuPreview implements Renderable {
+public final class NclSkinsMenuPreview implements Renderable, LayoutElement {
     private static final MenuPanelPresenter PRESENTER = new MenuPanelPresenter();
     private static final Map<Screen, NclSkinsMenuPreview> STATES = new WeakHashMap<>();
 
@@ -98,6 +99,41 @@ public final class NclSkinsMenuPreview implements Renderable {
 
     public static void clear() {
         STATES.clear();
+    }
+
+    @Override
+    public void setX(int x) {
+        action.setX(x);
+    }
+
+    @Override
+    public void setY(int y) {
+        action.setY(y);
+    }
+
+    @Override
+    public int getX() {
+        return action.getX();
+    }
+
+    @Override
+    public int getY() {
+        return action.getY();
+    }
+
+    @Override
+    public int getWidth() {
+        return action.getWidth();
+    }
+
+    @Override
+    public int getHeight() {
+        return action.getHeight();
+    }
+
+    @Override
+    public void visitWidgets(Consumer<AbstractWidget> visitor) {
+        visitor.accept(action);
     }
 
     private Optional<MenuPanelPresenter.Layout> updateLayout(int mouseX, int mouseY) {
