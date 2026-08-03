@@ -1,0 +1,44 @@
+plugins {
+    id 'java-library'
+}
+
+def targetCatalog = rootProject.extensions.extraProperties.get('nclskinsTargetCatalog')
+def gsonCompatibility = targetCatalog.gsonCompatibility
+def gsonMinimum = gsonCompatibility?.minimum?.toString()
+def gsonMaximum = gsonCompatibility?.maximum?.toString()
+
+if (!gsonMinimum || !gsonMaximum) {
+    throw new GradleException(
+        'gradle/targets.json must define non-empty gsonCompatibility minimum and maximum')
+}
+
+dependencies {
+    api project(':client-contract')
+
+
+    implementation "com.google.code.gson:gson:${gsonMinimum}"
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+def gsonMaximumTestRuntimeClasspath = configurations.testRuntimeClasspath.copyRecursive()
+gsonMaximumTestRuntimeClasspath.resolutionStrategy.force(
+    "com.google.code.gson:gson:${gsonMaximum}")
+
+tasks.withType(Test).configureEach {
+    jvmArgs '--add-modules', 'jdk.httpserver'
+}
+
+tasks.register('testGsonMaximum', Test) {
+    group = 'verification'
+    description = "Runs the core suite with the maximum game-provided Gson version (${gsonMaximum})."
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.output + sourceSets.main.output + gsonMaximumTestRuntimeClasspath
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('testGsonMaximum')
+}

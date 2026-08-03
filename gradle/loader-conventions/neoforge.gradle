@@ -1,0 +1,29 @@
+if (targetSpec.loader.id != 'neoforge') {
+    throw new GradleException("NeoForge conventions cannot configure ${targetSpec.loader.id}")
+}
+
+def serverPort = providers.gradleProperty('nclskinsServerPort')
+
+neoForge {
+    accessTransformers.from('src/main/resources/META-INF/accesstransformer.cfg')
+
+    runs {
+        client {
+            client()
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            if (serverPort.isPresent()) {
+                programArgument '--port'
+                programArgument serverPort.get()
+            }
+        }
+    }
+
+    mods {
+        nclskins {
+            sourceSet sourceSets.main
+        }
+    }
+}

@@ -1,0 +1,355 @@
+import groovy.json.JsonSlurper
+import java.nio.charset.StandardCharsets
+import org.gradle.api.publish.maven.MavenPublication
+
+def repositoryRoot = project.layout.projectDirectory.dir('../../..')
+def catalogFile = repositoryRoot.file('gradle/targets.json').asFile
+def versionFile = repositoryRoot.file('gradle/version.properties').asFile
+def catalog = new JsonSlurper().parse(catalogFile)
+def abiFile = repositoryRoot.file('gradle/abi-fingerprints.json').asFile
+def versionProperties = new Properties()
+versionFile.withInputStream { versionProperties.load(it) }
+def configuredVersion = versionProperties.getProperty('modVersion')
+def releaseNumber = '(?:0|[1-9][0-9]*)'
+def supportedVersion = ~"${releaseNumber}\\.${releaseNumber}\\.${releaseNumber}(?:-(?:alpha|beta)\\.[1-9][0-9]*)?"
+if (configuredVersion == null || !(configuredVersion ==~ supportedVersion)) {
+    throw new GradleException("gradle/version.properties contains unsupported modVersion: ${configuredVersion}")
+}
+
+def projectRelativePath = repositoryRoot.asFile.toPath()
+    .relativize(project.layout.projectDirectory.asFile.toPath())
+    .toString()
+    .replace(File.separatorChar, '/' as char)
+def matches = catalog.targets.findAll { it.path.toString() == projectRelativePath }
+
+if (matches.size() != 1) {
+    throw new GradleException(
+        "Target catalog must contain exactly one entry for path ${projectRelativePath}")
+}
+
+def spec = matches[0]
+def targetId = spec.id.toString()
+def currentTargetId = targetId
+def productionJarName = providers.provider {
+    spec.artifact.file.toString().replace('{modVersion}', configuredVersion)
+}
+def sourcesJarName = providers.provider {
+    productionJarName.get().replace('.jar', '-sources.jar')
+}
+def devSourcesJarName = providers.provider {
+    productionJarName.get().replace('.jar', '-dev-sources.jar')
+}
+
+extensions.extraProperties.set('targetCatalog', catalog)
+extensions.extraProperties.set('targetSpec', spec)
+
+group = catalog.mod.group
+version = configuredVersion
+
+base {
+    archivesName = spec.artifact.mavenArtifactId
+}
+
+repositories {
+    mavenCentral()
+}
+
+def rootBundleIds = catalog.baseBundles.collect { it.toString() }
+rootBundleIds += spec.capabilities.values().collect { implementationId ->
+    def implementation = catalog.capabilityImplementations[implementationId]
+    if (implementation == null) {
+        throw new GradleException(
+            "Capability ${implementationId} has no implementation declaration")
+    }
+    implementation.bundle.toString()
+}
+def resolvedBundleIds = []
+def visitedBundleIds = [] as Set
+def visitingBundleIds = []
+Closure resolveBundle
+resolveBundle = { String bundleId ->
+    if (visitedBundleIds.contains(bundleId)) {
+        return
+    }
+    if (visitingBundleIds.contains(bundleId)) {
+        def cycle = visitingBundleIds.dropWhile { it != bundleId } + bundleId
+        throw new GradleException("Source bundle dependency cycle: ${cycle.join(' -> ')}")
+    }
+    def bundle = catalog.sourceBundles[bundleId]
+    if (bundle == null) {
+        throw new GradleException("Missing source bundle ${bundleId}")
+    }
+    if (!['common', 'client'].contains(bundle.side.toString())) {
+        throw new GradleException("Source bundle ${bundleId} has unsupported side ${bundle.side}")
+    }
+    visitingBundleIds += bundleId
+    bundle.requires.each { requiredId ->
+        def required = catalog.sourceBundles[requiredId.toString()]
+        if (required != null && bundle.side == 'common' && required.side == 'client') {
+            throw new GradleException(
+                "Common source bundle ${bundleId} cannot require client bundle ${requiredId}")
+        }
+        resolveBundle(requiredId.toString())
+    }
+    visitingBundleIds.remove(visitingBundleIds.size() - 1)
+    visitedBundleIds += bundleId
+    resolvedBundleIds += bundleId
+}
+rootBundleIds.each { resolveBundle(it) }
+
+def resolvedBundles = resolvedBundleIds.collect { catalog.sourceBundles[it] }
+def commonMinecraftFragments = resolvedBundles.findAll { it.side.toString() == 'common' }
+def clientMinecraftFragments = resolvedBundles.findAll { it.side.toString() == 'client' }
+def repositoryFile = { rawPath -> repositoryRoot.file(rawPath.toString()).asFile }
+def commonMinecraftJava = commonMinecraftFragments.collectMany { it.java }.collect {
+    repositoryFile(it)
+}.unique()
+def clientMinecraftJava = clientMinecraftFragments.collectMany { it.java }.collect {
+    repositoryFile(it)
+}.unique()
+def minecraftJava = (commonMinecraftJava + clientMinecraftJava).unique()
+def minecraftResources = resolvedBundles.collectMany { it.resources }.collect {
+    repositoryFile(it)
+}.unique()
+def generatedMetadataDirectory = layout.buildDirectory.dir('generated/nclskins/metadata')
+
+def abiSourceSet
+
+if (spec.sourceLayout == 'fabricSplit') {
+    sourceSets.main.java.srcDirs += commonMinecraftJava
+    sourceSets.client.java.srcDirs += clientMinecraftJava
+    abiSourceSet = sourceSets.client
+} else {
+    sourceSets.main.java.srcDirs += minecraftJava
+    abiSourceSet = sourceSets.main
+}
+
+sourceSets.main.resources.srcDirs += minecraftResources
+sourceSets.main.resources.srcDir generatedMetadataDirectory
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(spec.java.release as int)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = spec.java.release as int
+    if ((spec.java.release as int) >= 25) {
+        options.compilerArgs += ['-Xlint:all,-classfile,-try', '-Werror']
+    }
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events 'failed', 'skipped'
+        exceptionFormat = 'full'
+    }
+}
+
+tasks.withType(Jar).configureEach {
+    reproducibleFileOrder = true
+    preserveFileTimestamps = false
+    from(repositoryRoot.file('LICENSE')) {
+        into 'META-INF'
+    }
+    from(repositoryRoot.file('NOTICE')) {
+        into 'META-INF'
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    if (spec.artifact.remapJar) {
+        archiveFileName = productionJarName.map { it.replace('.jar', '-dev.jar') }
+    } else {
+        archiveFileName = productionJarName
+    }
+    manifest.attributes('Automatic-Module-Name': spec.artifact.automaticModuleName)
+    if (spec.loader.id == 'forge') {
+        def mixinConfigs = (spec.metadata.serverMixins + spec.metadata.mixins).join(',')
+        if (!mixinConfigs.isEmpty()) {
+            manifest.attributes('MixinConfigs': mixinConfigs)
+        }
+    }
+}
+
+tasks.matching { it.name == 'remapJar' }.configureEach {
+    archiveFileName = productionJarName
+}
+
+tasks.matching { it.name == 'sourcesJar' }.configureEach {
+    archiveFileName = spec.artifact.remapJar ? devSourcesJarName : sourcesJarName
+}
+
+tasks.matching { it.name == 'remapSourcesJar' }.configureEach {
+    archiveFileName = sourcesJarName
+    onlyIf { spec.artifact.remapJar }
+}
+
+def generateTargetMetadata = tasks.register('generateTargetMetadata', nclskinsGenerateMetadataTaskType) {
+    group = 'build setup'
+    description = 'Generates loader metadata from gradle/targets.json.'
+    delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
+    delegate.versionFile.set(repositoryRoot.file('gradle/version.properties'))
+    delegate.targetId.set(currentTargetId)
+    delegate.outputDirectory.set(generatedMetadataDirectory)
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    dependsOn generateTargetMetadata
+    inputs.file(catalogFile)
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    exclude '**/*.pixel.json'
+}
+
+tasks.named('sourcesJar', Jar).configure {
+    dependsOn generateTargetMetadata
+}
+
+tasks.register('verifyTargetCatalog', nclskinsVerifyCatalogTaskType) {
+    group = 'verification'
+    description = 'Verifies this build against the canonical target catalog.'
+    delegate.repositoryDirectory.set(repositoryRoot)
+    delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
+    delegate.versionFile.set(repositoryRoot.file('gradle/version.properties'))
+    delegate.abiFile.set(repositoryRoot.file('gradle/abi-fingerprints.json'))
+}
+
+tasks.register('captureCapabilityAbi', nclskinsCapabilityAbiTaskType) {
+    group = 'verification'
+    description = 'Prints the resolved target-specific capability ABI baseline as JSON.'
+    delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
+    delegate.abiFile.set(repositoryRoot.file('gradle/abi-fingerprints.json'))
+    delegate.targetId.set(currentTargetId)
+    delegate.mode.set('capture')
+    delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
+}
+
+def capabilityAbiTask = tasks.register('verifyCapabilityAbi', nclskinsCapabilityAbiTaskType) {
+    group = 'verification'
+    description = 'Verifies exact declared Minecraft and loader ABI surfaces against committed baselines.'
+    delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
+    delegate.abiFile.set(repositoryRoot.file('gradle/abi-fingerprints.json'))
+    delegate.targetId.set(currentTargetId)
+    delegate.mode.set('verify')
+    delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
+}
+
+def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
+    group = 'verification'
+    description = 'Verifies universal metadata and side-safe common/client entrypoints.'
+    dependsOn tasks.named('processResources')
+    dependsOn tasks.named('classes')
+    inputs.files(commonMinecraftJava.collect { rawRoot ->
+        project.fileTree(rawRoot) { include '**/*.java' }
+    })
+    doLast {
+        commonMinecraftJava.each { rawRoot ->
+            project.fileTree(rawRoot) { include '**/*.java' }.files.each { source ->
+                if (source.getText('UTF-8').contains('net.minecraft.client')) {
+                    throw new GradleException(
+                        "Common/server source links Minecraft client classes: ${source}")
+                }
+            }
+        }
+        if (spec.loader.id == 'fabric') {
+            def metadata = new JsonSlurper().parse(
+                layout.buildDirectory.file('resources/main/fabric.mod.json').get().asFile)
+            if (metadata.environment != '*' ||
+                    metadata.entrypoints.keySet() != ['main', 'client'] as Set) {
+                throw new GradleException('Fabric metadata must expose universal main/client entrypoints')
+            }
+            if (metadata.entrypoints.client != [spec.metadata.entrypoint]) {
+                throw new GradleException('Fabric client entrypoint differs from the target catalog')
+            }
+            if (metadata.entrypoints.main != [spec.metadata.serverEntrypoint]) {
+                throw new GradleException('Fabric common entrypoint differs from the target catalog')
+            }
+            if (metadata.depends.minecraft != spec.minecraft.predicate) {
+                throw new GradleException('Fabric Minecraft predicate differs from the target catalog')
+            }
+            def serverEntrypoint = layout.buildDirectory.file(
+                "classes/java/main/${spec.metadata.serverEntrypoint.replace('.', '/')}.class"
+            ).get().asFile
+            if (!serverEntrypoint.isFile()) {
+                throw new GradleException("Missing Fabric common entrypoint: ${serverEntrypoint}")
+            }
+            def serverPool = new String(
+                serverEntrypoint.bytes, StandardCharsets.ISO_8859_1)
+            if (!serverPool.contains('net/fabricmc/api/ModInitializer') ||
+                    serverPool.contains('net/minecraft/client')) {
+                throw new GradleException(
+                    'Fabric common entrypoint must implement ModInitializer and be client-free')
+            }
+            return
+        }
+
+        def entrypoint = layout.buildDirectory.file(
+            "classes/java/main/${spec.metadata.entrypointClass}").get().asFile
+        if (!entrypoint.isFile()) {
+            throw new GradleException("Missing loader entrypoint: ${entrypoint}")
+        }
+        def constantPool = new String(entrypoint.bytes, StandardCharsets.ISO_8859_1)
+        if (spec.loader.id == 'forge') {
+            def forgeMetadata = layout.buildDirectory.file(
+                'resources/main/META-INF/mods.toml').get().asFile.getText('UTF-8')
+            if (!forgeMetadata.readLines().contains('displayTest="IGNORE_SERVER_VERSION"')) {
+                throw new GradleException(
+                    'Forge metadata must allow vanilla clients without NCL Skins')
+            }
+            if (constantPool.contains('net/minecraft/client')) {
+                throw new GradleException('Forge common entrypoint links Minecraft client classes')
+            }
+            def clientEntrypoint = layout.buildDirectory.file(
+                "classes/java/main/${spec.metadata.clientEntrypointClass}").get().asFile
+            if (!clientEntrypoint.isFile()) {
+                throw new GradleException("Missing Forge client entrypoint: ${clientEntrypoint}")
+            }
+            def clientPool = new String(
+                clientEntrypoint.bytes, StandardCharsets.ISO_8859_1)
+            if (!clientPool.contains('Lnet/minecraftforge/fml/common/Mod$EventBusSubscriber;') ||
+                    !clientPool.contains('net/minecraftforge/api/distmarker/Dist') ||
+                    !clientPool.contains('CLIENT')) {
+                throw new GradleException(
+                    'Forge client subscriber must retain @Mod.EventBusSubscriber(value = Dist.CLIENT)')
+            }
+        } else {
+            if (!constantPool.contains('Lnet/neoforged/fml/common/Mod;') ||
+                    constantPool.contains('net/minecraft/client')) {
+                throw new GradleException('NeoForge common entrypoint must be @Mod and client-free')
+            }
+            def clientEntrypoint = layout.buildDirectory.file(
+                "classes/java/main/${spec.metadata.clientEntrypointClass}").get().asFile
+            if (!clientEntrypoint.isFile()) {
+                throw new GradleException("Missing NeoForge client entrypoint: ${clientEntrypoint}")
+            }
+            def clientPool = new String(
+                clientEntrypoint.bytes, StandardCharsets.ISO_8859_1)
+            if (!clientPool.contains('net/neoforged/api/distmarker/Dist') ||
+                    !clientPool.contains('CLIENT')) {
+                throw new GradleException('NeoForge client entrypoint must retain a Dist.CLIENT guard')
+            }
+        }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('verifyTargetCatalog')
+    dependsOn capabilityAbiTask
+    dependsOn isolationTask
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifactId = spec.artifact.mavenArtifactId
+            if (spec.loader.id == 'forge') {
+                artifact tasks.named('jar')
+                artifact tasks.named('sourcesJar')
+            } else {
+                from components.java
+            }
+        }
+    }
+}

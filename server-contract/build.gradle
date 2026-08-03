@@ -1,0 +1,42 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+def verifyPortableBoundary = tasks.register('verifyPortableBoundary') {
+    group = 'verification'
+    description = 'Rejects game, loader, plugin-platform, and JSON imports in server-contract.'
+    inputs.files(fileTree('src/main/java') { include '**/*.java' })
+    doLast {
+        def forbidden = [
+            'net.minecraft.',
+            'com.mojang.authlib.',
+            'net.fabricmc.',
+            'net.minecraftforge.',
+            'net.neoforged.',
+            'org.bukkit.',
+            'io.papermc.',
+            'com.google.gson.'
+        ]
+        inputs.files.files.each { source ->
+            source.eachLine('UTF-8') { line ->
+                def trimmed = line.trim()
+                forbidden.each { prefix ->
+                    if (trimmed.startsWith("import ${prefix}")) {
+                        throw new GradleException(
+                            "server-contract portable boundary imports ${prefix} in ${source.name}")
+                    }
+                }
+            }
+        }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn verifyPortableBoundary
+}

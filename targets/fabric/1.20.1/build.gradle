@@ -1,0 +1,8 @@
+plugins {
+    id 'com.naocraftlab.skins.build-tools'
+    id 'fabric-loom' version '1.17.17'
+    id 'maven-publish'
+}
+
+apply from: '../../../gradle/target-conventions.gradle'
+apply from: '../../../gradle/loader-conventions/fabric.gradle'

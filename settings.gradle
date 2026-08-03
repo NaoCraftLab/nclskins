@@ -1,0 +1,16 @@
+pluginManagement {
+    includeBuild('gradle/build-logic')
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'nclskins'
+
+include 'client-contract'
+include 'client-runtime'
+include 'core'
+include 'server-contract'
+include 'server-runtime'
+include 'server-vanilla-publication'

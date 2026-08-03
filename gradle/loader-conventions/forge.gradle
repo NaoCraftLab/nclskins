@@ -1,0 +1,108 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+if (targetSpec.loader.id != 'forge') {
+    throw new GradleException("Forge conventions cannot configure ${targetSpec.loader.id}")
+}
+
+def forgeMixinConfigs = targetSpec.metadata.serverMixins + targetSpec.metadata.mixins
+def forgeMixinRefmap =
+    "nclskins.mc${targetSpec.minecraft.epoch.toString().replaceAll('[^0-9]', '')}.refmap.json"
+def forgeCompileJava = tasks.named(sourceSets.main.compileJavaTaskName, JavaCompile)
+def forgeMixinRefmapFile = forgeCompileJava.map {
+    new File(it.temporaryDir, forgeMixinRefmap)
+}
+
+repositories {
+    maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+}
+
+mixin {
+    add sourceSets.main, forgeMixinRefmap
+    quiet()
+}
+
+forgeCompileJava.configure {
+    inputs.property('nclskinsMixinRefmap', forgeMixinRefmap)
+    outputs.file(new File(temporaryDir, forgeMixinRefmap))
+    outputs.file(new File(temporaryDir, "${name}-mappings.tsrg"))
+}
+
+def forgeMixinRuntime = sourceSets.create('forgeMixinRuntime') {
+    java.setSrcDirs([])
+    resources.setSrcDirs([])
+    resources.srcDir(forgeCompileJava.map { it.temporaryDir })
+}
+
+tasks.named(forgeMixinRuntime.processResourcesTaskName, ProcessResources).configure {
+    dependsOn forgeCompileJava
+    inputs.file(forgeMixinRefmapFile)
+    include forgeMixinRefmap
+}
+
+minecraft {
+    mappings channel: 'official', version: targetSpec.minecraft.version
+    copyIdeResources = true
+    accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
+
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'info'
+            (targetSpec.metadata.serverMixins + targetSpec.metadata.mixins).each { configName ->
+                args '--mixin.config', configName.toString()
+            }
+            mods {
+                nclskins {
+                    source sourceSets.main
+                    source forgeMixinRuntime
+                }
+            }
+        }
+
+        client {}
+        server {
+            args '--nogui'
+        }
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${targetSpec.minecraft.version}-${targetSpec.loader.version}"
+    annotationProcessor(
+        "org.spongepowered:mixin:${targetCatalog.plugins.mixinProcessor}:processor")
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    inputs.property('nclskinsForgeMixinRefmap', forgeMixinRefmap)
+    doLast {
+        forgeMixinConfigs.each { configName ->
+            def configFile = new File(destinationDir, configName.toString())
+            if (!configFile.isFile()) {
+                throw new GradleException("Missing processed Mixin config ${configName}")
+            }
+            def config = new JsonSlurper().parse(configFile)
+            if (config.containsKey('refmap') && config.refmap != forgeMixinRefmap) {
+                throw new GradleException(
+                    "Mixin config ${configName} declares unexpected refmap ${config.refmap}")
+            }
+            config.refmap = forgeMixinRefmap
+            configFile.setText(
+                JsonOutput.prettyPrint(JsonOutput.toJson(config)) + System.lineSeparator(),
+                'UTF-8')
+        }
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest.attributes(
+        'Specification-Title': 'NCL Skins',
+        'Specification-Vendor': 'NaoCraftLab',
+        'Specification-Version': '1',
+        'Implementation-Title': project.name,
+        'Implementation-Version': project.version,
+        'Implementation-Vendor': 'NaoCraftLab'
+    )
+    finalizedBy tasks.named('reobfJar')
+}

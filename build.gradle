@@ -1,0 +1,221 @@
+plugins {
+    id 'com.naocraftlab.skins.build-tools'
+}
+
+import com.naocraftlab.skins.buildlogic.AffectedTargetBuildTask
+import com.naocraftlab.skins.buildlogic.AffectedTargetsTask
+import com.naocraftlab.skins.buildlogic.GenerateIdeaRunConfigurationsTask
+import com.naocraftlab.skins.buildlogic.IdeaRunConfigurations
+import com.naocraftlab.skins.buildlogic.TargetBuildTask
+import com.naocraftlab.skins.buildlogic.TargetRunLock
+import com.naocraftlab.skins.buildlogic.TargetRunTask
+import com.naocraftlab.skins.buildlogic.VerifyArtifactsTask
+import com.naocraftlab.skins.buildlogic.VerifyCatalogTask
+import com.naocraftlab.skins.buildlogic.VerifySemanticsTask
+import com.naocraftlab.skins.buildlogic.VerifyPublicationTreeTask
+import java.nio.charset.StandardCharsets
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+def catalogFile = file('gradle/targets.json')
+def versionFile = file('gradle/version.properties')
+def abiFile = file('gradle/abi-fingerprints.json')
+def coverageFile = file('gradle/capability-semantic-coverage.json')
+def targetCatalog = nclskinsCatalogTools.loadCatalog(rootDir.toPath())
+def modVersion = nclskinsCatalogTools.loadVersion(versionFile.toPath())
+extensions.extraProperties.set('nclskinsTargetCatalog', targetCatalog)
+def requestedNewVersion = providers.gradleProperty('newVersion').orNull
+def targetIds = targetCatalog.targets.collect { it.id.toString() }
+def requestedTargetId = providers.gradleProperty('targetId').orNull
+def requestedFromRef = providers.gradleProperty('fromRef').orNull
+def requestedToRef = providers.gradleProperty('toRef').orNull
+def workerText = providers.environmentVariable('NCLSKINS_BUILD_JOBS').getOrElse('3')
+if (!(workerText ==~ /[1-9][0-9]*/)) {
+    throw new GradleException("NCLSKINS_BUILD_JOBS must be a positive integer, got ${workerText}")
+}
+def buildWorkers = workerText.toInteger()
+def runDryRunText = providers.gradleProperty('nclskinsRunDryRun').getOrElse('false')
+if (!(runDryRunText in ['true', 'false'])) {
+    throw new GradleException("nclskinsRunDryRun must be true or false, got ${runDryRunText}")
+}
+def runDryRun = runDryRunText.toBoolean()
+def targetRunLock = gradle.sharedServices.registerIfAbsent('nclskinsTargetRunLock', TargetRunLock) {
+    maxParallelUsages.set(1)
+}
+
+allprojects {
+    group = targetCatalog.mod.group
+    version = modVersion
+    repositories {
+        mavenCentral()
+    }
+}
+
+tasks.register('setVersion') {
+    group = 'release setup'
+    description = 'Sets the tracked NCL Skins development version.'
+    doLast {
+        if (requestedNewVersion == null || !(requestedNewVersion ==~ nclskinsCatalogTools.VERSION_PATTERN)) {
+            throw new GradleException('Use -PnewVersion=<major.minor.patch[-alpha.N|-beta.N]> with strict SemVer')
+        }
+        if (requestedNewVersion == modVersion) {
+            logger.lifecycle("NCL Skins version is already ${requestedNewVersion}")
+            return
+        }
+        def temporary = versionFile.toPath().resolveSibling('version.properties.tmp')
+        Files.writeString(temporary, "modVersion=${requestedNewVersion}\n", StandardCharsets.UTF_8)
+        try {
+            Files.move(temporary, versionFile.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temporary, versionFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        logger.lifecycle("NCL Skins version changed from ${modVersion} to ${requestedNewVersion}")
+    }
+}
+
+subprojects {
+    apply plugin: 'java-library'
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+        withSourcesJar()
+    }
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.release = 17
+        options.compilerArgs += ['-Xlint:all', '-Werror']
+    }
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        testLogging {
+            events 'failed', 'skipped'
+            exceptionFormat = 'full'
+        }
+    }
+    tasks.withType(Jar).configureEach {
+        from(rootProject.file('LICENSE')) {
+            into 'META-INF'
+        }
+        from(rootProject.file('NOTICE')) {
+            into 'META-INF'
+        }
+    }
+}
+
+def verifyTargetCatalog = tasks.register('verifyTargetCatalog', VerifyCatalogTask) {
+    group = 'verification'
+    description = 'Validates gradle/targets.json and the two wrapper families.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
+    delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
+}
+
+def verifyCapabilitySemantics = tasks.register('verifyCapabilitySemantics', VerifySemanticsTask) {
+    group = 'verification'
+    description = 'Verifies shared semantic suites and every selected native capability leaf.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
+    delegate.coverageFile.set(layout.projectDirectory.file('gradle/capability-semantic-coverage.json'))
+}
+
+def verifyPublicationTree = tasks.register('verifyPublicationTree', VerifyPublicationTreeTask) {
+    group = 'verification'
+    description = 'Verifies the clean publication boundary and source privacy constraints.'
+    repositoryDirectory.set(layout.projectDirectory)
+}
+
+tasks.register('affectedTargets', AffectedTargetsTask) {
+    group = 'build'
+    description = 'Explains which catalog targets are affected by a Git range or worktree.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    if (requestedFromRef != null) fromRef.set(requestedFromRef)
+    if (requestedToRef != null) toRef.set(requestedToRef)
+}
+
+tasks.register('generateIdeaRunConfigurations', GenerateIdeaRunConfigurationsTask) {
+    group = 'ide'
+    description = 'Generates catalog-driven IntelliJ client and server Gradle run configurations.'
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    outputDirectory.set(layout.projectDirectory.dir('.idea/runConfigurations'))
+}
+
+targetCatalog.targets.each { Map target ->
+    ['Client', 'Server'].each { String runKind ->
+        tasks.register(IdeaRunConfigurations.taskName(target, runKind), TargetRunTask) {
+            group = 'application'
+            description = "Runs the ${target.id} ${runKind.toLowerCase()} with its catalog wrapper and JDK."
+            repositoryDirectory.set(layout.projectDirectory)
+            delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+            targetId.set(target.id.toString())
+            delegate.runKind.set(runKind)
+            dryRun.set(runDryRun)
+            usesService(targetRunLock)
+        }
+    }
+}
+
+def configureTargetBuild = { TargetBuildTask task, List<String> ids, List<String> targetTasks, boolean verify, boolean collect ->
+    task.repositoryDirectory.set(layout.projectDirectory)
+    task.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    task.targetIds.set(ids)
+    task.targetTasks.set(targetTasks)
+    task.maximumWorkers.set(buildWorkers)
+    task.verifyArtifacts.set(verify)
+    task.collectArtifacts.set(collect)
+}
+
+tasks.register('buildTarget', TargetBuildTask) {
+    group = 'build'
+    description = 'Clean-builds and collects one catalog target.'
+    doFirst {
+        if (requestedTargetId == null || !targetIds.contains(requestedTargetId)) {
+            throw new GradleException("Use -PtargetId=<catalog target>; available=${targetIds.sort()}")
+        }
+    }
+    configureTargetBuild(delegate, requestedTargetId == null ? [] : [requestedTargetId], ['clean', 'build'], true, true)
+}
+
+tasks.register('buildAllTargets', TargetBuildTask) {
+    group = 'build'
+    description = 'Clean-builds and collects every catalog target.'
+    configureTargetBuild(delegate, targetIds, ['clean', 'build'], true, true)
+}
+
+tasks.register('buildAffectedTargets', AffectedTargetBuildTask) {
+    group = 'build'
+    description = 'Clean-builds and collects targets affected by a Git range or worktree.'
+    configureTargetBuild(delegate, [], ['clean', 'build'], true, true)
+    if (requestedFromRef != null) fromRef.set(requestedFromRef)
+    if (requestedToRef != null) toRef.set(requestedToRef)
+}
+
+tasks.register('verifyTargetArtifacts', VerifyArtifactsTask) {
+    group = 'verification'
+    description = 'Verifies production artifacts against the canonical catalog.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
+    if (requestedTargetId != null) targetId.set(requestedTargetId)
+}
+
+def checkAll = tasks.register('checkAll') {
+    group = 'verification'
+    description = 'Runs the platform-independent verification suite.'
+    dependsOn subprojects.collect { it.tasks.named('check') }
+    dependsOn verifyTargetCatalog
+    dependsOn verifyCapabilitySemantics
+    dependsOn verifyPublicationTree
+    dependsOn gradle.includedBuild('build-logic').task(':test')
+}
+
+tasks.register('fullCheck', TargetBuildTask) {
+    group = 'verification'
+    description = 'Runs common checks, every target build, artifact verification, and repository secret checks.'
+    dependsOn checkAll
+    configureTargetBuild(delegate, targetIds, ['clean', 'build'], true, false)
+}

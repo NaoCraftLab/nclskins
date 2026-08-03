@@ -1,0 +1,10 @@
+pluginManagement {
+    includeBuild('../../../gradle/build-logic')
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.neoforged.net/releases' }
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'nclskins-neoforge-26.2'

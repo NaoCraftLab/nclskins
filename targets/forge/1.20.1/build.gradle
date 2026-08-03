@@ -1,0 +1,11 @@
+plugins {
+    id 'com.naocraftlab.skins.build-tools'
+    id 'eclipse'
+    id 'idea'
+    id 'maven-publish'
+    id 'net.minecraftforge.gradle' version '6.0.54'
+    id 'org.spongepowered.mixin' version '0.7.38'
+}
+
+apply from: '../../../gradle/target-conventions.gradle'
+apply from: '../../../gradle/loader-conventions/forge.gradle'

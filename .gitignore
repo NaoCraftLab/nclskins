@@ -1,0 +1,86 @@
+### Apple macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+### Microsoft Windows ###
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.stackdump
+
+### Linux ###
+.directory
+.Trash-*
+.fuse_hidden*
+.nfs*
+
+### Java ###
+*.class
+*.jar
+*.war
+*.ear
+*.hprof
+*.jfr
+hs_err_pid*
+replay_pid*
+
+### Gradle ###
+**/.gradle/
+**/build/
+**/out/
+**/bin/
+**/target/
+**/dist/
+**/.cache/
+**/coverage/
+!**/gradle/wrapper/gradle-wrapper.jar
+
+### JetBrains IntelliJ IDEA ###
+**/.idea/*
+!/.idea/icon.png
+*.iml
+*.ipr
+*.iws
+**/.ijwb/
+
+### Minecraft Development ###
+**/run/
+**/runs/
+**/logs/
+**/crash-reports/
+*.log
+*.log.*
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+**/tmp/
+**/temp/
+
+### Agents ###
+docs/
+scripts/
+**/.codex/
+**/.codex-*/
+**/.agents/
+**/.codexignore
+AGENTS.md
+AGENTS.override.md

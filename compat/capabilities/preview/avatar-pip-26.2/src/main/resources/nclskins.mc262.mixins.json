@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.mc262.mixin",
+  "client": [
+    "AccessibilityOptionsScreenMixin",
+    "AvatarRenderStateMixin",
+    "OptionsScreenMixin",
+    "PictureInPictureRendererMixin",
+    "ScreenRenderablesAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

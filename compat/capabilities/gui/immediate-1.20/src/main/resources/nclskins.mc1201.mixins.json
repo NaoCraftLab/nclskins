@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.v1_20_1.client.mixin",
+  "client": [
+    "AccessibilityOptionsScreenMixin",
+    "OptionsScreenMixin",
+    "ScreenRenderablesAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

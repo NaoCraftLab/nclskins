@@ -1,0 +1,10 @@
+pluginManagement {
+    includeBuild('../../../gradle/build-logic')
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'nclskins-fabric-1.21.1'

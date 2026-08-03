@@ -1,0 +1,13 @@
+plugins {
+    id 'java-test-fixtures'
+}
+
+dependencies {
+    testFixturesApi platform('org.junit:junit-bom:5.11.4')
+    testFixturesApi 'org.junit.jupiter:junit-jupiter-api'
+
+    testImplementation(testFixtures(project()))
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}

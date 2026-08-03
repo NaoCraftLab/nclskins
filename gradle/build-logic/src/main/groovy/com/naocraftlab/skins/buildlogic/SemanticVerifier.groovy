@@ -1,0 +1,197 @@
+package com.naocraftlab.skins.buildlogic
+
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.regex.Pattern
+
+final class SemanticVerifier {
+    static final Set<String> REQUIRED_KEYS = [
+        'textures', 'appearance', 'session', 'filePicker', 'serverSignal', 'serverCommand',
+        'serverProfileVerification', 'serverProfileMutation', 'serverTracking',
+        'serverPlayerInfoPublication', 'serverLoader'
+    ] as Set
+    static final Set<String> TOP_LEVEL_KEYS = ['schemaVersion', 'capabilityKeys', 'sharedSuites', 'implementations'] as Set
+    static final Set<String> IMPLEMENTATION_KEYS = ['capabilityKey', 'sharedSuite', 'leafSource'] as Set
+    static final Set<String> SUITE_KEYS = ['tests', 'supportSources', 'semantics'] as Set
+    static final Map<String, String> EXPECTED_SUITE_BY_KEY = [
+        textures: 'texture-ownership-and-normalization', appearance: 'appearance-orchestration',
+        session: 'session-boundary', filePicker: 'picker-coordination',
+        serverSignal: 'server-refresh-notification', serverCommand: 'server-command-registration',
+        serverProfileVerification: 'official-server-profile',
+        serverProfileMutation: 'vanilla-observer-republication',
+        serverTracking: 'vanilla-observer-republication',
+        serverPlayerInfoPublication: 'vanilla-observer-republication',
+        serverLoader: 'server-loader-lifecycle'
+    ]
+    static final Map<String, List<String>> SUITE_MARKERS = [
+        'texture-ownership-and-normalization': ['TextureRegistryTck', 'PlayerSkinTextureNormalizer'],
+        'appearance-orchestration': ['AppearanceRefreshCoordinator', 'AppearanceReconnectTracker', 'SUPERSEDED', 'DEFERRED'],
+        'session-boundary': ['SessionValidationService', 'withSession', 'SECRET'],
+        'picker-coordination': ['FilePickerCoordinator', 'concurrent'],
+        'server-refresh-notification': ['ServerAppearanceRefreshNotifier', 'RemoteAppearanceImpact', 'CONFIRMED_CHANGED', 'confirmedReconciliationStillNotifiesAfterGalleryCloses', 'postMutationLocalFailureStillNotifiesServerWithoutPublishingOutcomeData', 'confirmedPartialReconciliationSignalsExactlyOnce', 'disconnectedConfirmedSignalIsDroppedAndNeverReplayedAfterReconnect', 'readerOrConcurrentLoserWithoutOwnedOutcomeNeverSignals'],
+        'official-server-profile': ['OfficialSessionProfileClient', 'OfficialTextureAppearanceParser', 'timestampTransportAndSignatureChangesDoNotChangeTheSemanticKey', 'parsesRetryAfterDeltaAndHttpDateWithSafeFallback', 'mismatchedOfficialIdentityIsRejectedBeforePublication'],
+        'vanilla-observer-republication': ['VanillaBatchAppearancePublisher', 'continuesAcrossTicksAndNeverExceedsDeliveryBudget', 'reportsTotalAndMaximumPlatformThreadTimeSeparatelyAcrossTicks', 'semanticCompletionResumesOnFollowingLogicalTickWithoutFreshSameTickBudget', 'retriesFailedRetrackBeforeCompletingAndRestoresExactPair', 'cancelledHeadRetainsRetrackBarrierUntilRecoveryBeforeNextInstall', 'sixtyFourActorBatchKeepsOneRecipientFanoutAcrossOneThousandPlayers', 'watcherChannelRetracksBeforeLargeTabOnlyTail', 'explicitSupersedeFencesAdmittedIntentAndDoesNotPoisonFutureIntent', 'concurrentIntentCannotEnterBetweenLatestCheckAndProfileInstall', 'visibilityPortPreventsProfileDisclosureToHiddenRecipient', 'oneThousandDistinctSignalsAreAdmittedAndDrainWithoutLocalDrops', 'oneFiveTenAndFiftyChangesPerSecondAllConvergeAfterTheBurst', 'reconciliationAttemptsAreBoundedToOnePerFollowingTick', 'successfulWatcherRetryRefreshesWorldPairAfterInitializeFailure'],
+        'server-loader-lifecycle': ['eligibilityRequiresOnlineIdentityOrExplicitAttestedProxyOptIn', 'trustedProxyForwarding', 'defaultsMatchThePortableScaleContract', 'sameListenerRegistrationIsIdempotentAndIdentityBound', 'changedAssuranceRotatesGenerationAndSupersedesInFlightTrust', 'reconnectSupersedesOldGenerationAndLateDisconnectCannotRemoveNewBinding'],
+        'server-command-registration': ['ServerRefreshCommandProtocol', 'commandNameIsExactVersionedAndCarriesNoAccountPayload', 'eligibilityRequiresAPlayerLiveServiceAndPolicyApproval', 'onlyAcceptedAndCoalescedAdmissionsSucceed']
+    ]
+    static final Pattern PLATFORM_IMPORT = Pattern.compile('(?m)^\\s*import\\s+(?:com\\.mojang\\.authlib(?:\\.|;)|net\\.minecraft(?:\\.|;)|net\\.fabricmc(?:\\.|;)|net\\.neoforged(?:\\.|;)|net\\.minecraftforge(?:\\.|;)|org\\.bukkit(?:\\.|;)|org\\.spongepowered\\.asm(?:\\.|;))')
+
+    static List<String> verify(Path root, Map catalog, Map abi, Map coverage) {
+        List<String> errors = []
+        if (coverage.schemaVersion != 1) errors.add('capability semantic coverage schemaVersion must be 1')
+        if ((coverage.keySet() as Set) != TOP_LEVEL_KEYS) errors.add("capability semantic coverage must contain exactly ${TOP_LEVEL_KEYS.sort()}")
+        if (!(coverage.capabilityKeys instanceof List) || (coverage.capabilityKeys as Set) != REQUIRED_KEYS || coverage.capabilityKeys.size() != REQUIRED_KEYS.size()) errors.add("capabilityKeys must contain exactly ${REQUIRED_KEYS.sort()}")
+        Map<String, String> selected = [:]
+        Map<String, List<Map>> targetsByImplementation = [:].withDefault { [] }
+        catalog.targets.each { Map target ->
+            REQUIRED_KEYS.each { String key ->
+                String implementation = target.capabilities[key]?.toString()
+                if (implementation == null || implementation.isBlank()) {
+                    errors.add("${target.id}: missing ${key} implementation")
+                } else {
+                    if (selected.containsKey(implementation) && selected[implementation] != key) errors.add("${implementation}: selected as both ${selected[implementation]} and ${key}")
+                    selected.putIfAbsent(implementation, key)
+                    targetsByImplementation[implementation].add(target)
+                }
+            }
+        }
+        Map implementations = coverage.implementations instanceof Map ? coverage.implementations as Map : [:]
+        if ((implementations.keySet() as Set) != (selected.keySet() as Set)) errors.add("semantic manifest must exactly cover selected native implementation IDs; missing=${(selected.keySet() - implementations.keySet()).sort()}, unused=${(implementations.keySet() - selected.keySet()).sort()}")
+        Map abiImplementations = abi.implementations instanceof Map ? abi.implementations as Map : [:]
+        Map declarations = catalog.capabilityImplementations as Map
+        Set<String> usedSuites = [] as Set
+        Map<Path, String> leafBundles = [:]
+        implementations.each { Object rawId, Object rawEntry ->
+            String implementation = rawId.toString()
+            if (!(rawEntry instanceof Map) || (rawEntry.keySet() as Set) != IMPLEMENTATION_KEYS) {
+                errors.add("${implementation}: implementation must contain exactly ${IMPLEMENTATION_KEYS.sort()}")
+                return
+            }
+            Map entry = rawEntry as Map
+            String key = entry.capabilityKey?.toString()
+            if (key != selected[implementation]) errors.add("${implementation}: manifest kind ${key} does not match catalog kind ${selected[implementation]}")
+            Map declaration = declarations[implementation] instanceof Map ? declarations[implementation] as Map : [:]
+            String abiId = declaration.abiImplementation?.toString()
+            String abiKind = abiImplementations[abiId] instanceof Map ? abiImplementations[abiId].kind?.toString() : null
+            if (abiKind != selected[implementation]) errors.add("${implementation}: ABI kind ${abiKind} does not match catalog kind ${selected[implementation]}")
+            String suite = entry.sharedSuite?.toString()
+            if (suite == null || suite.isBlank()) errors.add("${implementation}: sharedSuite must be non-empty")
+            else {
+                usedSuites.add(suite)
+                if (suite != EXPECTED_SUITE_BY_KEY[key]) errors.add("${implementation}: ${key} leaves must use ${EXPECTED_SUITE_BY_KEY[key]}, got ${suite}")
+            }
+            Path source = repositoryFile(root, entry.leafSource, "${implementation}.leafSource", errors)
+            if (source == null) return
+            String bundle = declaration.bundle?.toString()
+            Set<Path> roots = bundleRoots(root, catalog.sourceBundles as Map, bundle)
+            String previous = leafBundles.putIfAbsent(source, bundle)
+            if (previous != null && previous != bundle) errors.add("${implementation}: shared leaf source ${root.relativize(source)} must be selected through one intentional bundle")
+            if (roots.isEmpty() || !roots.any { source.startsWith(it) }) errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
+            verifyLeaf(implementation, key, Files.readString(source), errors)
+        }
+        verifySuites(root, coverage.sharedSuites, usedSuites, errors)
+        verifyRuntimeBoundary(root, errors)
+        verifyPublicationBoundary(root, errors)
+        errors
+    }
+
+    static void verifySuites(Path root, Object rawSuites, Set<String> used, List<String> errors) {
+        if (!(rawSuites instanceof Map)) { errors.add('sharedSuites must be an object'); return }
+        Map suites = rawSuites as Map
+        if ((suites.keySet() as Set) != used) errors.add("sharedSuites must exactly cover referenced suite IDs; missing=${(used - suites.keySet()).sort()}, unused=${(suites.keySet() - used).sort()}")
+        suites.each { Object rawId, Object rawSuite ->
+            String id = rawId.toString()
+            if (!(rawSuite instanceof Map) || (rawSuite.keySet() as Set) != SUITE_KEYS) { errors.add("${id}: suite must contain exactly ${SUITE_KEYS.sort()}"); return }
+            Map suite = rawSuite as Map
+            List tests = suite.tests instanceof List ? suite.tests as List : []
+            List support = suite.supportSources instanceof List ? suite.supportSources as List : []
+            List semantics = suite.semantics instanceof List ? suite.semantics as List : []
+            if (tests.isEmpty()) errors.add("${id}: tests must be a non-empty array")
+            if (!(suite.supportSources instanceof List)) errors.add("${id}: supportSources must be an array")
+            if (semantics.isEmpty() || semantics.any { !(it instanceof String) || it.isBlank() } || semantics.size() != (semantics as Set).size()) errors.add("${id}: semantics must be unique non-empty strings")
+            if ((tests + support).size() != ((tests + support) as Set).size()) errors.add("${id}: test/support paths must be unique")
+            StringBuilder sources = new StringBuilder()
+            tests.eachWithIndex { Object path, int index ->
+                Path source = repositoryFile(root, path, "${id}.tests[${index}]", errors)
+                if (source != null) {
+                    String normalized = source.toString().replace(File.separatorChar, '/' as char)
+                    String text = Files.readString(source)
+                    if (!normalized.contains('/src/test/') || !source.fileName.toString().endsWith('Test.java')) errors.add("${id}: behavioral test is not a *Test.java source: ${path}")
+                    else if (!text.contains('@Test') && !(text =~ /\bimplements\s+\w*Tck\b/).find()) errors.add("${id}: test source declares no behavioral tests: ${path}")
+                    sources.append(text).append('\n')
+                }
+            }
+            support.eachWithIndex { Object path, int index ->
+                Path source = repositoryFile(root, path, "${id}.supportSources[${index}]", errors)
+                if (source != null) sources.append(Files.readString(source)).append('\n')
+            }
+            SUITE_MARKERS.getOrDefault(id, []).each { String marker -> if (!sources.toString().contains(marker)) errors.add("${id}: behavioral sources lack required marker '${marker}'") }
+        }
+    }
+
+    static void verifyLeaf(String implementation, String key, String text, List<String> errors) {
+        String compact = text.replaceAll('\\s+', ' ')
+        Map<String, List<String>> markers = [
+            textures: ['extends AbstractTextureRegistry'], appearance: ['implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>'], session: ['implements GameSessionTokenSource'],
+            filePicker: ['implements FilePicker', 'FilePickerCoordinator', 'new FilePickerCoordinator(', 'COORDINATOR.choose('],
+            serverSignal: ['implements ServerAppearanceRefreshNotifier', 'getConnection()', 'if (connection == null)', 'getChild(ServerRefreshCommandProtocol.ROOT_COMMAND)', 'root.getChild(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'ServerAppearanceRefreshCommandPath.isExactExecutableLeaf', 'sendCommand(ServerRefreshCommandProtocol.COMMAND)'],
+            serverCommand: ['Commands.literal(ServerRefreshCommandProtocol.ROOT_COMMAND)', '.requires(MinecraftServerRefreshCommand::canRefresh)', 'Commands.literal(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'source.getEntity() instanceof ServerPlayer player', 'MinecraftServerAppearanceService.registered(source.getServer())', 'ServerRefreshCommandProtocol.eligible(', 'registered.eligible(player)', 'service.request(source.getPlayerOrException()).admission()', 'ServerRefreshCommandProtocol.result(admission)'],
+            serverProfileVerification: ['implements OfficialTextureSignatureVerifier', 'MinecraftSessionService', 'getSecurePropertyValue(property)', 'OfficialTextureAppearanceParser', 'Optional.empty()'],
+            serverProfileMutation: ['implements ProfilePropertyAccess', 'currentTextures(ServerPlayer player)', 'installTextures(', 'SignedTexturesProperty', 'CurrentProfileTextures'],
+            serverTracking: ['implements ServerTrackingAccess', 'tracked.seenBy', 'tracked.removePlayer(observer)', 'tracked.updatePlayer(observer)', 'scheduleNextTick('],
+            serverPlayerInfoPublication: ['implements NativePlayerInfoTransport', 'ClientboundPlayerInfoRemovePacket', 'ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(actors)', 'actors.stream().map(ServerPlayer::getUUID).toList()'],
+            serverLoader: ['MinecraftServerLifecycle', 'MinecraftServerRefreshCommand.register']
+        ]
+        markers.getOrDefault(key, []).each { String marker -> if (!compact.contains(marker)) errors.add("${implementation}: ${key} leaf lacks required marker '${marker}'") }
+        if (key == 'serverSignal' && compact.count('instanceof LiteralCommandNode') != 2) errors.add("${implementation}: server-signal leaf must validate both exact path nodes as LiteralCommandNode")
+        if (implementation == 'fabric-server-v1') {
+            if (!compact.contains('ServerLifecycleEvents.SERVER_STARTED.register')) errors.add("${implementation}: Fabric service must start after server setup")
+            if (compact.contains('ServerLifecycleEvents.SERVER_STARTING.register')) errors.add("${implementation}: Fabric service must not read server services before setup")
+        }
+    }
+
+    static void verifyRuntimeBoundary(Path root, List<String> errors) {
+        ['client-runtime', 'server-contract', 'server-runtime', 'server-vanilla-publication'].each { String module ->
+            Path sourceRoot = root.resolve("${module}/src/main/java")
+            if (!Files.isDirectory(sourceRoot)) { errors.add("${module} main Java source directory is missing"); return }
+            Files.walk(sourceRoot).withCloseable { stream -> stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.java') }.forEach { Path source -> if (PLATFORM_IMPORT.matcher(Files.readString(source)).find()) errors.add("${root.relativize(source)} imports a native platform namespace") } }
+        }
+    }
+
+    static void verifyPublicationBoundary(Path root, List<String> errors) {
+        Map<String, List<String>> sources = [
+            'compat/server-common/src/main/java/com/naocraftlab/skins/compat/server/MinecraftServerAppearancePublisher.java': ['new VanillaBatchAppearancePublisher(', 'MinecraftServerConnectionRegistry', 'MinecraftProfilePropertyAccess', 'MinecraftServerTrackingAccess', 'MinecraftPlayerInfoTransport'],
+            'compat/capabilities/server/profile-mutation-authlib-v9/src/main/java/com/naocraftlab/skins/compat/server/mixin/GameProfilePropertiesAccessor.java': ['@Mixin(value = GameProfile.class, remap = false)', '@Accessor(value = "properties", remap = false)', '@Mutable']
+        ]
+        sources.each { String path, List<String> markers ->
+            Path file = root.resolve(path)
+            if (!Files.isRegularFile(file)) { errors.add("required publication boundary source is missing: ${path}"); return }
+            String text = Files.readString(file).replaceAll('\\s+', ' ')
+            markers.each { String marker -> if (!text.contains(marker)) errors.add("${path} lacks narrow boundary marker '${marker}'") }
+        }
+    }
+
+    static Path repositoryFile(Path root, Object raw, String label, List<String> errors) {
+        if (!(raw instanceof String) || raw.isBlank()) { errors.add("${label} must be a non-empty repository-relative path"); return null }
+        Path candidate = root.resolve(raw).normalize()
+        if (!candidate.startsWith(root)) { errors.add("${label} escapes the repository: ${raw}"); return null }
+        if (!Files.isRegularFile(candidate)) { errors.add("${label} does not exist: ${raw}"); return null }
+        candidate
+    }
+
+    static Set<Path> bundleRoots(Path root, Map bundles, String bundleId) {
+        Set<Path> roots = [] as Set
+        Set<String> visited = [] as Set
+        Closure collect
+        collect = { String id ->
+            if (id == null || !visited.add(id)) return
+            Map bundle = bundles[id] instanceof Map ? bundles[id] as Map : [:]
+            (bundle.requires ?: []).each { collect(it.toString()) }
+            (bundle.java ?: []).each { roots.add(root.resolve(it.toString()).normalize()) }
+        }
+        collect(bundleId)
+        roots
+    }
+
+    private SemanticVerifier() {}
+}

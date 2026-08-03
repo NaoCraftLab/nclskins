@@ -1,0 +1,27 @@
+if (targetSpec.loader.id != 'fabric') {
+    throw new GradleException("Fabric conventions cannot configure ${targetSpec.loader.id}")
+}
+
+def dependencyConfiguration = project.ext.has('nclskinsFabricDependencyConfiguration')
+    ? project.ext.nclskinsFabricDependencyConfiguration.toString()
+    : 'modImplementation'
+
+loom {
+    accessWidenerPath = file('src/main/resources/nclskins.accesswidener')
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${targetSpec.minecraft.version}"
+    if (dependencyConfiguration == 'modImplementation') {
+        mappings loom.officialMojangMappings()
+    } else if (dependencyConfiguration != 'implementation') {
+        throw new GradleException(
+            "Unsupported Fabric dependency configuration: ${dependencyConfiguration}")
+    }
+    add(
+        dependencyConfiguration,
+        "net.fabricmc:fabric-loader:${targetSpec.loader.version}")
+    add(
+        dependencyConfiguration,
+        "net.fabricmc.fabric-api:fabric-api:${targetSpec.loader.apiVersion}")
+}

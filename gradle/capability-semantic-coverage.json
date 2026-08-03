@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "capabilityKeys": [
+    "textures",
+    "appearance",
+    "session",
+    "filePicker",
+    "serverSignal",
+    "serverCommand",
+    "serverProfileVerification",
+    "serverProfileMutation",
+    "serverTracking",
+    "serverPlayerInfoPublication",
+    "serverLoader"
+  ],
+  "sharedSuites": {
+    "texture-ownership-and-normalization": {
+      "tests": [
+        "client-contract/src/test/java/com/naocraftlab/skins/client/AbstractTextureRegistryTest.java",
+        "client-contract/src/test/java/com/naocraftlab/skins/client/PlayerSkinTextureNormalizerTest.java"
+      ],
+      "supportSources": [
+        "client-contract/src/testFixtures/java/com/naocraftlab/skins/client/tck/TextureRegistryTck.java"
+      ],
+      "semantics": [
+        "path-bytes-parity",
+        "player-skin-normalization",
+        "reference-counting",
+        "release-and-close"
+      ]
+    },
+    "appearance-orchestration": {
+      "tests": [
+        "client-contract/src/test/java/com/naocraftlab/skins/client/ExpectedAppearanceTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceRefreshCoordinatorTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceReconnectTrackerTest.java"
+      ],
+      "supportSources": [],
+      "semantics": [
+        "profile-identity",
+        "updated-deferred-superseded",
+        "client-thread-publication",
+        "invalidate-and-reattach",
+        "reconnect-bounds"
+      ]
+    },
+    "session-boundary": {
+      "tests": [
+        "core/src/test/java/com/naocraftlab/skins/core/service/SessionValidationServiceTest.java",
+        "core/src/test/java/com/naocraftlab/skins/core/service/AppearanceMutationServiceTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/DefaultClientOperationsTest.java"
+      ],
+      "supportSources": [],
+      "semantics": [
+        "scoped-token-use",
+        "atomic-identity-pinning",
+        "fresh-manual-retry",
+        "credential-redaction"
+      ]
+    },
+    "picker-coordination": {
+      "tests": [
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/FilePickerCoordinatorTest.java"
+      ],
+      "supportSources": [],
+      "semantics": [
+        "cancel",
+        "regular-png-validation",
+        "single-dialog",
+        "unspecified-worker-completion"
+      ]
+    },
+    "server-refresh-notification": {
+      "tests": [
+        "client-contract/src/test/java/com/naocraftlab/skins/client/ClientCapabilityContractsTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ClientRuntimeTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ClientRuntimeServerSignalBoundaryTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/DefaultClientOperationsTest.java"
+      ],
+      "supportSources": [],
+      "semantics": [
+        "no-account-payload",
+        "exact-command-discovery",
+        "connected-client-only",
+        "remote-impact-gating",
+        "latest-generation-only"
+      ]
+    },
+    "official-server-profile": {
+      "tests": [
+        "server-contract/src/test/java/com/naocraftlab/skins/server/ServerContractTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/OfficialSessionProfileClientTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/OfficialTextureAppearanceParserTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ServerAppearanceRefreshCoordinatorTest.java"
+      ],
+      "supportSources": [],
+      "semantics": [
+        "exact-profile-identity",
+        "signed-property-verification",
+        "stable-semantic-appearance",
+        "account-default-and-cape-only",
+        "bounded-official-http",
+        "retry-after",
+        "profile-data-redaction"
+      ]
+    },
+    "vanilla-observer-republication": {
+      "tests": [
+        "server-vanilla-publication/src/test/java/com/naocraftlab/skins/server/vanilla/VanillaBatchAppearancePublisherTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ServerAppearanceRefreshCoordinatorTest.java"
+      ],
+      "supportSources": [],
+      "semantics": [
+        "actor-exclusion",
+        "batched-untrack-profile-remove-add-retrack-order",
+        "bounded-player-info-chunking",
+        "bounded-platform-thread-work",
+        "logical-tick-max-duration-telemetry",
+        "single-slice-64-actor-fanout",
+        "failure-isolated-recipient-publication",
+        "visibility-filtered-tab-publication",
+        "watcher-first-split-channel-publication",
+        "latest-connection-generation",
+        "linearized-latest-wins-install",
+        "rapid-double-settle-window",
+        "bounded-following-tick-reconciliation",
+        "persistent-cancellation-retrack-barrier",
+        "failure-safe-retracking"
+      ]
+    },
+    "server-command-registration": {
+      "tests": [
+        "server-contract/src/test/java/com/naocraftlab/skins/server/ServerRefreshCommandProtocolTest.java"
+      ],
+      "supportSources": [
+        "server-contract/src/main/java/com/naocraftlab/skins/server/ServerRefreshCommandProtocol.java"
+      ],
+      "semantics": [
+        "exact-payload-free-command-path",
+        "player-service-policy-eligibility",
+        "accepted-and-coalesced-success"
+      ]
+    },
+    "server-loader-lifecycle": {
+      "tests": [
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ServerAppearanceRefreshServiceTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ServerRefreshPolicyTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ConnectionGenerationRegistryTest.java"
+      ],
+      "supportSources": [
+        "server-runtime/src/main/java/com/naocraftlab/skins/server/runtime/ServerAppearanceRefreshService.java"
+      ],
+      "semantics": [
+        "online-mode-default",
+        "explicit-trusted-proxy-opt-in",
+        "offline-mode-rejection",
+        "validated-portable-policy",
+        "coordinator-close",
+        "early-join-native-listener-capture",
+        "strict-current-player-generation-barrier",
+        "late-disconnect-reconnect-safety",
+        "identity-assurance-generation-rotation"
+      ]
+    }
+  },
+  "implementations": {
+    "resource-location-legacy": {
+      "capabilityKey": "textures",
+      "sharedSuite": "texture-ownership-and-normalization",
+      "leafSource": "compat/capabilities/textures/resource-location-legacy/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201TextureRegistry.java"
+    },
+    "resource-location-modern": {
+      "capabilityKey": "textures",
+      "sharedSuite": "texture-ownership-and-normalization",
+      "leafSource": "compat/capabilities/textures/resource-location-modern/src/main/java/com/naocraftlab/skins/mc1211/MinecraftTextureRegistry.java"
+    },
+    "identifier-26.2": {
+      "capabilityKey": "textures",
+      "sharedSuite": "texture-ownership-and-normalization",
+      "leafSource": "compat/capabilities/textures/identifier-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262TextureRegistry.java"
+    },
+    "player-info-cache-1.20": {
+      "capabilityKey": "appearance",
+      "sharedSuite": "appearance-orchestration",
+      "leafSource": "compat/capabilities/appearance/player-info-cache-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201AppearanceCapability.java"
+    },
+    "skin-lookup-1.21": {
+      "capabilityKey": "appearance",
+      "sharedSuite": "appearance-orchestration",
+      "leafSource": "compat/capabilities/appearance/skin-lookup-1.21/src/main/java/com/naocraftlab/skins/mc1211/Minecraft1211AppearanceCapability.java"
+    },
+    "local-player-skin-26.2": {
+      "capabilityKey": "appearance",
+      "sharedSuite": "appearance-orchestration",
+      "leafSource": "compat/capabilities/appearance/local-player-skin-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262AppearanceSink.java"
+    },
+    "minecraft-user-v1": {
+      "capabilityKey": "session",
+      "sharedSuite": "session-boundary",
+      "leafSource": "compat/capabilities/session/minecraft-user-v1/src/main/java/com/naocraftlab/skins/compat/client/MinecraftGameSessionTokenSource.java"
+    },
+    "tinyfd-safe-v1": {
+      "capabilityKey": "filePicker",
+      "sharedSuite": "picker-coordination",
+      "leafSource": "compat/capabilities/file-picker/tinyfd-v1/src/main/java/com/naocraftlab/skins/compat/client/MinecraftFilePicker.java"
+    },
+    "command-v1": {
+      "capabilityKey": "serverSignal",
+      "sharedSuite": "server-refresh-notification",
+      "leafSource": "compat/capabilities/server-signal/command-v1/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
+    },
+    "server-command-v1": {
+      "capabilityKey": "serverCommand",
+      "sharedSuite": "server-command-registration",
+      "leafSource": "compat/capabilities/server/server-command-v1/src/main/java/com/naocraftlab/skins/compat/server/MinecraftServerRefreshCommand.java"
+    },
+    "profile-verification-authlib-v4": {
+      "capabilityKey": "serverProfileVerification",
+      "sharedSuite": "official-server-profile",
+      "leafSource": "compat/capabilities/server/profile-verification-authlib-v4-v6/src/main/java/com/naocraftlab/skins/compat/server/MinecraftOfficialTextureSignatureVerifier.java"
+    },
+    "profile-verification-authlib-v6": {
+      "capabilityKey": "serverProfileVerification",
+      "sharedSuite": "official-server-profile",
+      "leafSource": "compat/capabilities/server/profile-verification-authlib-v4-v6/src/main/java/com/naocraftlab/skins/compat/server/MinecraftOfficialTextureSignatureVerifier.java"
+    },
+    "profile-verification-authlib-v9": {
+      "capabilityKey": "serverProfileVerification",
+      "sharedSuite": "official-server-profile",
+      "leafSource": "compat/capabilities/server/profile-verification-authlib-v9/src/main/java/com/naocraftlab/skins/compat/server/MinecraftOfficialTextureSignatureVerifier.java"
+    },
+    "profile-mutation-authlib-v4": {
+      "capabilityKey": "serverProfileMutation",
+      "sharedSuite": "vanilla-observer-republication",
+      "leafSource": "compat/capabilities/server/profile-mutation-authlib-v4/src/main/java/com/naocraftlab/skins/compat/server/MinecraftProfilePropertyAccess.java"
+    },
+    "profile-mutation-authlib-v6": {
+      "capabilityKey": "serverProfileMutation",
+      "sharedSuite": "vanilla-observer-republication",
+      "leafSource": "compat/capabilities/server/profile-mutation-authlib-v6/src/main/java/com/naocraftlab/skins/compat/server/MinecraftProfilePropertyAccess.java"
+    },
+    "profile-mutation-authlib-v9": {
+      "capabilityKey": "serverProfileMutation",
+      "sharedSuite": "vanilla-observer-republication",
+      "leafSource": "compat/capabilities/server/profile-mutation-authlib-v9/src/main/java/com/naocraftlab/skins/compat/server/MinecraftProfilePropertyAccess.java"
+    },
+    "tracking-chunkmap-serverlevel-v1": {
+      "capabilityKey": "serverTracking",
+      "sharedSuite": "vanilla-observer-republication",
+      "leafSource": "compat/capabilities/server/tracking-chunkmap-serverlevel-v1/src/main/java/com/naocraftlab/skins/compat/server/MinecraftServerTrackingAccess.java"
+    },
+    "tracking-chunkmap-level-v2": {
+      "capabilityKey": "serverTracking",
+      "sharedSuite": "vanilla-observer-republication",
+      "leafSource": "compat/capabilities/server/tracking-chunkmap-level-v2/src/main/java/com/naocraftlab/skins/compat/server/MinecraftServerTrackingAccess.java"
+    },
+    "player-info-initialize-v1": {
+      "capabilityKey": "serverPlayerInfoPublication",
+      "sharedSuite": "vanilla-observer-republication",
+      "leafSource": "compat/capabilities/server/player-info-initialize-v1/src/main/java/com/naocraftlab/skins/compat/server/MinecraftPlayerInfoTransport.java"
+    },
+    "fabric-server-v1": {
+      "capabilityKey": "serverLoader",
+      "sharedSuite": "server-loader-lifecycle",
+      "leafSource": "loader/fabric/server/src/main/java/com/naocraftlab/skins/loader/fabric/FabricServerBridge.java"
+    },
+    "forge47-server": {
+      "capabilityKey": "serverLoader",
+      "sharedSuite": "server-loader-lifecycle",
+      "leafSource": "loader/forge/server/src/main/java/com/naocraftlab/skins/forge/v1_20_1/NclSkinsForgeMod.java"
+    },
+    "neoforge-server-v1": {
+      "capabilityKey": "serverLoader",
+      "sharedSuite": "server-loader-lifecycle",
+      "leafSource": "loader/neoforge/server/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgeServerBridge.java"
+    }
+  }
+}

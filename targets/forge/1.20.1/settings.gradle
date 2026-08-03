@@ -1,0 +1,10 @@
+pluginManagement {
+    includeBuild('../../../gradle/build-logic')
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.minecraftforge.net' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    }
+}
+
+rootProject.name = 'nclskins-forge-1.20.1'

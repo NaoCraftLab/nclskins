@@ -1,0 +1,54 @@
+plugins {
+    id 'java-library'
+}
+
+def targetCatalog = rootProject.extensions.extraProperties.get('nclskinsTargetCatalog')
+def gsonMinimum = targetCatalog.gsonCompatibility?.minimum?.toString()
+if (!gsonMinimum) {
+    throw new GradleException('gradle/targets.json must define gsonCompatibility minimum')
+}
+
+dependencies {
+    api project(':server-contract')
+    implementation "com.google.code.gson:gson:${gsonMinimum}"
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(Test).configureEach {
+    jvmArgs '--add-modules', 'jdk.httpserver'
+}
+
+def verifyPortableBoundary = tasks.register('verifyPortableBoundary') {
+    group = 'verification'
+    description = 'Rejects game, loader, and plugin-platform imports in server-runtime.'
+    inputs.files(fileTree('src/main/java') { include '**/*.java' })
+    doLast {
+        def forbidden = [
+            'net.minecraft.',
+            'com.mojang.authlib.',
+            'net.fabricmc.',
+            'net.minecraftforge.',
+            'net.neoforged.',
+            'org.bukkit.',
+            'io.papermc.'
+        ]
+        inputs.files.files.each { source ->
+            source.eachLine('UTF-8') { line ->
+                def trimmed = line.trim()
+                forbidden.each { prefix ->
+                    if (trimmed.startsWith("import ${prefix}")) {
+                        throw new GradleException(
+                            "server-runtime portable boundary imports ${prefix} in ${source.name}")
+                    }
+                }
+            }
+        }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn verifyPortableBoundary
+}
