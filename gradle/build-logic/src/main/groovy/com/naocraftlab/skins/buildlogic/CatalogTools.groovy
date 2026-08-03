@@ -3,6 +3,7 @@ package com.naocraftlab.skins.buildlogic
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 
+import javax.imageio.ImageIO
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -22,8 +23,8 @@ final class CatalogTools {
         'sourceLayout', 'capabilities', 'metadata', 'artifact'
     ] as Set
     static final Set<String> MOD_KEYS = [
-        'id', 'name', 'group', 'license', 'description', 'homepage', 'authors',
-        'icon', 'iconBlur'
+            'id', 'name', 'group', 'license', 'descriptions', 'contact', 'platforms',
+            'authors', 'icon', 'iconBlur'
     ] as Set
     static final Pattern VERSION_PATTERN = Pattern.compile(
         '^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)' +
@@ -34,7 +35,7 @@ final class CatalogTools {
         if (!(value instanceof Map)) {
             throw new IllegalArgumentException('gradle/targets.json must contain an object')
         }
-        value as Map
+        materialize(value) as Map
     }
 
     static Map loadCatalog(Path repositoryRoot) {
@@ -46,11 +47,23 @@ final class CatalogTools {
         if (!(value instanceof Map)) {
             throw new IllegalArgumentException("${file} must contain an object")
         }
-        value as Map
+        materialize(value) as Map
     }
 
     static Map loadJson(Path file) {
         loadJson(file.toFile())
+    }
+
+    static Object materialize(Object value) {
+        if (value instanceof Map) {
+            Map copy = new LinkedHashMap()
+            (value as Map).each { Object key, Object entry -> copy[key] = materialize(entry) }
+            return copy
+        }
+        if (value instanceof List) {
+            return (value as List).collect { materialize(it) }
+        }
+        value
     }
 
     static String loadVersion(File repositoryRoot) {
@@ -197,7 +210,7 @@ final class CatalogTools {
             'schemaVersion', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
             'baseBundles', 'sourceBundles', 'capabilityImplementations', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 3) {
+        if (catalog.schemaVersion != 4) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -207,13 +220,28 @@ final class CatalogTools {
         if ((mod.keySet() as Set) != MOD_KEYS) {
             errors.add('mod identity keys differ from schema')
         }
-        ['id', 'name', 'group', 'license', 'description', 'homepage'].each {
+        ['id', 'name', 'group', 'license'].each {
             if (!(mod[it] instanceof String) || !mod[it]) {
                 errors.add("mod.${it} must be non-empty")
             }
         }
         if (mod.license != 'GPL-3.0-only') {
             errors.add('mod.license must be GPL-3.0-only')
+        }
+        Map descriptions = mod.descriptions instanceof Map ? mod.descriptions as Map : [:]
+        if ((descriptions.keySet() as Set) != ['en_us', 'ru_ru'] as Set ||
+                descriptions.values().any { !(it instanceof String) || it.isBlank() || it.contains('—') }) {
+            errors.add('mod.descriptions must define non-empty en_us and ru_ru strings without em dashes')
+        }
+        Map contact = mod.contact instanceof Map ? mod.contact as Map : [:]
+        if ((contact.keySet() as Set) != ['homepage', 'sources', 'issues'] as Set ||
+                contact.values().any { !(it instanceof String) || !(it ==~ /https:\/\/[^\s]+/) }) {
+            errors.add('mod.contact must define HTTPS homepage, sources and issues URLs')
+        }
+        Map platforms = mod.platforms instanceof Map ? mod.platforms as Map : [:]
+        if ((platforms.keySet() as Set) != ['modrinth', 'curseforge'] as Set ||
+                platforms.values().any { !(it instanceof Map) || ((it as Map).keySet() as Set) != ['slug'] as Set || !((it as Map).slug ==~ /[a-z0-9][a-z0-9_-]*/) }) {
+            errors.add('mod.platforms must define valid Modrinth and CurseForge slugs')
         }
         if (!(mod.authors instanceof List) || !(mod.authors as List) ||
             (mod.authors as List).any { !(it instanceof String) || !it }) {
@@ -225,6 +253,30 @@ final class CatalogTools {
         }
         if (!(mod.iconBlur instanceof Boolean)) {
             errors.add('mod.iconBlur must be a boolean')
+        } else if (!mod.iconBlur) {
+            errors.add('mod.iconBlur must remain true for the smooth 320x320 artwork')
+        }
+        if (mod.icon instanceof String) {
+            File icon = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/${mod.icon}")
+            try {
+                def image = ImageIO.read(icon)
+                if (image == null || image.width != 320 || image.height != 320) {
+                    errors.add('mod.icon must resolve to the canonical 320x320 PNG')
+                }
+            } catch (Exception error) {
+                errors.add("cannot read mod.icon: ${error.message}")
+            }
+        }
+        ['en_us', 'ru_ru'].each { String locale ->
+            File language = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/assets/nclskins/lang/${locale}.json")
+            try {
+                Map values = loadJson(language)
+                ['modmenu.descriptionTranslation.nclskins', 'fml.menu.mods.info.description.nclskins'].each { String key ->
+                    if (values[key] != '@NCLSKINS_DESCRIPTION@') errors.add("${locale}: ${key} must use the catalog description template token")
+                }
+            } catch (Exception error) {
+                errors.add("cannot read ${locale} translations: ${error.message}")
+            }
         }
         Map gson = catalog.gsonCompatibility instanceof Map ? catalog.gsonCompatibility as Map : [:]
         if ((gson.keySet() as Set) != ['minimum', 'maximum'] as Set || gson.values().any { !(it instanceof String) || it.isBlank() }) {
@@ -350,13 +402,18 @@ final class CatalogTools {
                 errors.add("${target.id}: invalid Minecraft declaration")
             }
             Map loaderDeclaration = target.loader instanceof Map ? target.loader as Map : [:]
-            if ((loaderDeclaration.keySet() as Set) != ['id', 'version', 'predicate', 'apiVersion', 'apiPredicate'] as Set || !(loader in ['fabric', 'forge', 'neoforge']) || !(loaderDeclaration.version instanceof String) || loaderDeclaration.version.isBlank() || !(loaderDeclaration.predicate instanceof String) || loaderDeclaration.predicate.isBlank()) {
+            if ((loaderDeclaration.keySet() as Set) != ['id', 'version', 'predicate', 'apiVersion', 'apiPredicate', 'modMenuVersion'] as Set || !(loader in ['fabric', 'forge', 'neoforge']) || !(loaderDeclaration.version instanceof String) || loaderDeclaration.version.isBlank() || !(loaderDeclaration.predicate instanceof String) || loaderDeclaration.predicate.isBlank()) {
                 errors.add("${target.id}: invalid loader declaration")
             }
             if (loader == 'fabric') {
-                if (!(loaderDeclaration.apiVersion instanceof String) || loaderDeclaration.apiVersion.isBlank() || !(loaderDeclaration.apiPredicate instanceof String) || loaderDeclaration.apiPredicate.isBlank()) errors.add("${target.id}: Fabric API versions must be explicit")
-            } else if (loaderDeclaration.apiVersion != null || loaderDeclaration.apiPredicate != null) {
-                errors.add("${target.id}: non-Fabric target must not declare a Fabric API")
+                if (!(loaderDeclaration.version ==~ /[0-9]+\.[0-9]+\.[0-9]+/) || loaderDeclaration.predicate != ">=${loaderDeclaration.version}") errors.add("${target.id}: Fabric Loader must use a semantic version and an identical lower-only predicate")
+                if (!(loaderDeclaration.apiVersion instanceof String) || loaderDeclaration.apiVersion.isBlank() || loaderDeclaration.apiPredicate != ">=${loaderDeclaration.apiVersion}") errors.add("${target.id}: Fabric API version and lower-only predicate must be explicit and identical")
+                if (!(loaderDeclaration.modMenuVersion instanceof String) || !(loaderDeclaration.modMenuVersion ==~ /[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?/)) errors.add("${target.id}: Fabric Mod Menu version must be explicit")
+                if (minecraftDeclaration.predicate != ">=${minecraftDeclaration.version}") errors.add("${target.id}: Fabric Minecraft predicate must contain only the target lower bound")
+            } else {
+                if (loaderDeclaration.apiVersion != null || loaderDeclaration.apiPredicate != null || loaderDeclaration.modMenuVersion != null) errors.add("${target.id}: non-Fabric target must not declare Fabric API or Mod Menu")
+                if (loaderDeclaration.predicate != "[${loaderDeclaration.version},)") errors.add("${target.id}: loader predicate must contain only the build-version lower bound")
+                if (minecraftDeclaration.predicate != "[${minecraftDeclaration.version},)") errors.add("${target.id}: Minecraft predicate must contain only the target lower bound")
             }
             if (!(target.capabilities instanceof Map) || ((target.capabilities as Map).keySet() as Set) != REQUIRED_CAPABILITIES) {
                 errors.add("${target.id}: capability map differs from schema")
@@ -387,6 +444,16 @@ final class CatalogTools {
             if (!(target.sourceLayout in ['single', 'fabricSplit']) ||
                 (target.sourceLayout == 'fabricSplit' && loader != 'fabric')) {
                 errors.add("${target.id}: invalid source layout")
+            }
+            Map metadata = target.metadata instanceof Map ? target.metadata as Map : [:]
+            Set<String> expectedMetadataKeys = loader == 'fabric'
+                    ? ['files', 'entrypoint', 'serverEntrypoint', 'accessWidener', 'packFormat', 'mixins', 'serverMixins'] as Set
+                    : ['files', 'modLoader', 'loaderVersion', 'entrypointClass', 'clientEntrypointClass', 'accessTransformer', 'packFormat', 'mixins', 'serverMixins'] as Set
+            if ((metadata.keySet() as Set) != expectedMetadataKeys) {
+                errors.add("${target.id}: metadata keys differ from loader schema")
+            }
+            if (loader != 'fabric' && !(metadata.loaderVersion ==~ /\[[1-9][0-9]*,\)/)) {
+                errors.add("${target.id}: language loader range must contain only a major lower bound")
             }
             Map artifact = target.artifact instanceof Map ? target.artifact as Map : [:]
             if ((artifact.keySet() as Set) != ['file', 'remapJar', 'mavenArtifactId', 'automaticModuleName'] as Set) {
@@ -424,6 +491,10 @@ final class CatalogTools {
             artifacts.add(artifact.file)
             coordinates.add(artifact.mavenArtifactId)
             modules.add(artifact.automaticModuleName)
+        }
+        Set<String> fabricLoaderVersions = targets.findAll { it instanceof Map && it.loader?.id == 'fabric' }.collect { it.loader.version.toString() } as Set
+        if (fabricLoaderVersions.size() != 1) {
+            errors.add("Fabric targets must share one dependency-tree-compatible loader floor: ${fabricLoaderVersions.sort()}")
         }
         [ids, paths, ports, artifacts, coordinates, modules].each { List values ->
             if (values.contains(null) || values.size() != values.toSet().size()) {

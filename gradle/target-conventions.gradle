@@ -1,11 +1,17 @@
+import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+
 import java.nio.charset.StandardCharsets
-import org.gradle.api.publish.maven.MavenPublication
 
 def repositoryRoot = project.layout.projectDirectory.dir('../../..')
 def catalogFile = repositoryRoot.file('gradle/targets.json').asFile
 def versionFile = repositoryRoot.file('gradle/version.properties').asFile
 def catalog = new JsonSlurper().parse(catalogFile)
+def descriptionToken = '@NCLSKINS_DESCRIPTION@'
+def escapedDescription = { String locale ->
+    String encoded = JsonOutput.toJson(catalog.mod.descriptions[locale].toString())
+    encoded.substring(1, encoded.length() - 1)
+}
 def abiFile = repositoryRoot.file('gradle/abi-fingerprints.json').asFile
 def versionProperties = new Properties()
 versionFile.withInputStream { versionProperties.load(it) }
@@ -199,6 +205,14 @@ def generateTargetMetadata = tasks.register('generateTargetMetadata', nclskinsGe
 tasks.named('processResources', ProcessResources).configure {
     dependsOn generateTargetMetadata
     inputs.file(catalogFile)
+    inputs.property('nclskinsDescriptionEnUs', catalog.mod.descriptions.en_us.toString())
+    inputs.property('nclskinsDescriptionRuRu', catalog.mod.descriptions.ru_ru.toString())
+    filesMatching('assets/nclskins/lang/en_us.json') {
+        filter { String line -> line.replace(descriptionToken, escapedDescription('en_us')) }
+    }
+    filesMatching('assets/nclskins/lang/ru_ru.json') {
+        filter { String line -> line.replace(descriptionToken, escapedDescription('ru_ru')) }
+    }
     duplicatesStrategy = DuplicatesStrategy.FAIL
     exclude '**/*.pixel.json'
 }

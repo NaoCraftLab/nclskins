@@ -2,6 +2,8 @@
   "nclskins.menu.button": "Skin",
   "nclskins.menu.preview": "Current player appearance",
   "nclskins.title": "NCL Skins",
+  "modmenu.descriptionTranslation.nclskins": "@NCLSKINS_DESCRIPTION@",
+  "fml.menu.mods.info.description.nclskins": "@NCLSKINS_DESCRIPTION@",
   "nclskins.gallery.title": "Appearance presets",
   "nclskins.gallery.add": "Add preset",
   "nclskins.gallery.add_hint": "New preset",

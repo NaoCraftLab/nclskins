@@ -11,6 +11,7 @@ import java.util.zip.ZipFile
 
 final class ArtifactVerifier {
     static final List<String> FORBIDDEN_PREFIXES = ['com/microsoft/aad', 'com/nimbusds/', 'com/sun/jna/', 'com/fasterxml/jackson/', 'com/google/gson/']
+    static final List<String> FORBIDDEN_DEV_RUNTIME_PREFIXES = ['com/terraformersmc/modmenu/', 'META-INF/jars/modmenu']
     static final Pattern FORBIDDEN_CONTENT = Pattern.compile('login' + '\\.microsoftonline\\.com|refresh' + '_token|launcher' + '_accounts\\.json|accounts\\.json')
     static final Pattern FORBIDDEN_MIXIN = Pattern.compile('(?:User|Session|Authlib).*Mixin\\.class$')
     static final Pattern TOKEN = Pattern.compile('Bearer\\s+[A-Za-z0-9._~+/=-]{20,}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}')
@@ -44,6 +45,7 @@ final class ArtifactVerifier {
             List<String> names = archive.entries().collect { it.name }
             if (names.size() != (names as Set).size()) errors.add("${target.id}: artifact contains duplicate ZIP entries")
             if (names.any { String name -> FORBIDDEN_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds a forbidden auth/native/JSON dependency")
+            if (names.any { String name -> FORBIDDEN_DEV_RUNTIME_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds the dev-only Mod Menu dependency")
             if (names.any { FORBIDDEN_MIXIN.matcher(it).find() }) errors.add("${target.id}: artifact contains a forbidden session/auth mixin candidate")
             verifyClassfiles(archive, target, names, errors)
             verifyLegal(root, archive, target, errors)
@@ -88,11 +90,13 @@ final class ArtifactVerifier {
         if (loader == 'fabric') {
             Map metadata = json(archive, 'fabric.mod.json', target, errors)
             if (metadata == null) return
-            Map expected = [schemaVersion: 1, id: catalog.mod.id, version: version, name: catalog.mod.name, description: catalog.mod.description, authors: catalog.mod.authors, contact: [homepage: catalog.mod.homepage], license: catalog.mod.license, icon: catalog.mod.icon]
+            Map expected = [schemaVersion: 1, id: catalog.mod.id, version: version, name: catalog.mod.name, description: catalog.mod.descriptions.en_us, authors: catalog.mod.authors, contact: catalog.mod.contact, license: catalog.mod.license, icon: catalog.mod.icon]
             expected.each { key, value -> if (metadata[key] != value) errors.add("${target.id}: Fabric ${key} differs from catalog") }
             if (metadata.environment != '*') errors.add("${target.id}: Fabric environment must be universal")
             if (metadata.entrypoints != [main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint]]) errors.add("${target.id}: Fabric entrypoints differ from catalog")
             if (metadata.depends != ['fabricloader': target.loader.predicate, 'fabric-api': target.loader.apiPredicate, minecraft: target.minecraft.predicate, java: ">=${target.java.release}"]) errors.add("${target.id}: Fabric dependencies differ from catalog")
+            if (metadata.suggests != [modmenu: ">=${target.loader.modMenuVersion}".toString()]) errors.add("${target.id}: Fabric Mod Menu suggestion differs from catalog")
+            if (metadata.custom != [modmenu: [links: ['modmenu.modrinth': MetadataRenderer.modrinthUrl(catalog.mod as Map), 'modmenu.curseforge': MetadataRenderer.curseForgeUrl(catalog.mod as Map)], update_checker: true]]) errors.add("${target.id}: Fabric Mod Menu card metadata differs from catalog")
             if (metadata.accessWidener != target.metadata.accessWidener) errors.add("${target.id}: Fabric access widener differs from catalog")
             List expectedMixins = (target.metadata.serverMixins ?: []).collect { [config: it] } + (target.metadata.mixins ?: []).collect { [config: it, environment: 'client'] }
             if ((metadata.mixins ?: []) != expectedMixins) errors.add("${target.id}: Fabric mixin list differs from catalog")
@@ -102,7 +106,8 @@ final class ArtifactVerifier {
             ZipEntry entry = archive.getEntry(path)
             if (entry == null) { errors.add("${target.id}: missing ${path}"); return }
             String text = new String(read(archive, path), StandardCharsets.UTF_8)
-            ["modLoader=\"${target.metadata.modLoader}\"", "loaderVersion=\"${target.metadata.loaderVersion}\"", "license=\"${catalog.mod.license}\"", "modId=\"${catalog.mod.id}\"", "version=\"${version}\"", "displayName=\"${catalog.mod.name}\"", "displayURL=\"${catalog.mod.homepage}\""].each { String marker -> if (!text.contains(marker)) errors.add("${target.id}: ${path} lacks ${marker}") }
+            String expectedText = MetadataRenderer.render(catalog, target, version)[path]
+            if (text != expectedText) errors.add("${target.id}: ${path} differs from catalog-generated metadata")
             if (loader == 'neoforge') {
                 ((target.metadata.serverMixins ?: []) + (target.metadata.mixins ?: [])).each { String mixin -> if (!text.contains("config=\"${mixin}\"")) errors.add("${target.id}: ${path} lacks Mixin config ${mixin}") }
             }
@@ -128,6 +133,15 @@ final class ArtifactVerifier {
         expected.addAll(target.metadata.serverMixins ?: [])
         expected.addAll(target.metadata.mixins ?: [])
         expected.findAll { !names.contains(it) }.each { errors.add("${target.id}: missing required resource ${it}") }
+        ['en_us', 'ru_ru'].each { String locale ->
+            Map language = json(archive, "assets/nclskins/lang/${locale}.json", target, errors)
+            if (language != null) {
+                String description = catalog.mod.descriptions[locale].toString()
+                ['modmenu.descriptionTranslation.nclskins', 'fml.menu.mods.info.description.nclskins'].each { String key ->
+                    if (language[key] != description) errors.add("${target.id}: ${locale} ${key} differs from catalog")
+                }
+            }
+        }
         if (names.any { it.endsWith('.pixel.json') }) errors.add("${target.id}: artifact contains pixel-grid agent data")
         List<String> archiveButtons = names.findAll { it.startsWith(BUTTONS) && it.endsWith('.png') }.sort()
         File canonicalResources = new File(root, 'compat/resources/canonical/src/main/resources')

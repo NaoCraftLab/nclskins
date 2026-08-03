@@ -2,6 +2,8 @@
   "nclskins.menu.button": "Скин",
   "nclskins.menu.preview": "Текущий облик игрока",
   "nclskins.title": "NCL Skins",
+  "modmenu.descriptionTranslation.nclskins": "@NCLSKINS_DESCRIPTION@",
+  "fml.menu.mods.info.description.nclskins": "@NCLSKINS_DESCRIPTION@",
   "nclskins.gallery.title": "Пресеты внешности",
   "nclskins.gallery.add": "Добавить пресет",
   "nclskins.gallery.add_hint": "Новый пресет",

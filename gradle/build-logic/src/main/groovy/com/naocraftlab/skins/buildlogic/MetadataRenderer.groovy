@@ -26,14 +26,15 @@ final class MetadataRenderer {
     static String fabric(Map catalog, Map target, String version) {
         Map mod = catalog.mod as Map
         Map metadata = target.metadata as Map
+        Map contact = mod.contact as Map
         Map result = [
             schemaVersion: 1,
             id: mod.id,
             version: version,
             name: mod.name,
-            description: mod.description,
+            description: mod.descriptions.en_us,
             authors: mod.authors,
-            contact: [homepage: mod.homepage],
+            contact    : contact,
             license: mod.license,
             icon: mod.icon,
             environment: '*'
@@ -54,29 +55,41 @@ final class MetadataRenderer {
             minecraft: target.minecraft.predicate,
             java: ">=${target.java.release}"
         ]
+        result.suggests = [modmenu: ">=${target.loader.modMenuVersion}"]
+        result.custom = [modmenu: [
+                links         : [
+                        'modmenu.modrinth'  : modrinthUrl(mod),
+                        'modmenu.curseforge': curseForgeUrl(mod)
+                ],
+                update_checker: true
+        ]]
         CatalogTools.json(result)
     }
 
     static String forge(Map catalog, Map target, String version) {
         Map mod = catalog.mod as Map
         Map metadata = target.metadata as Map
+        Map contact = mod.contact as Map
         String id = mod.id
         [
             "modLoader=${quote(metadata.modLoader)}",
             "loaderVersion=${quote(metadata.loaderVersion)}",
             "license=${quote(mod.license)}",
-            "issueTrackerURL=${quote(mod.homepage)}",
+            "issueTrackerURL=${quote(contact.issues)}",
+            'showAsResourcePack=false',
             '',
             '[[mods]]',
             "modId=${quote(id)}",
             "version=${quote(version)}",
             "displayName=${quote(mod.name)}",
-            "displayURL=${quote(mod.homepage)}",
+            "displayURL=${quote(contact.homepage)}",
+            "updateJSONURL=${quote(forgeUpdatesUrl(mod, false))}",
             "authors=${quote((mod.authors as List).join(', '))}",
             "logoFile=${quote(mod.icon)}",
             "logoBlur=${booleanValue(mod.iconBlur)}",
             'displayTest="IGNORE_SERVER_VERSION"',
-            "description=${quote(mod.description)}",
+            "features={java_version=${quote("[${target.java.release},)")}}",
+            "description=${quote(mod.descriptions.en_us)}",
             '',
             "[[dependencies.${id}]]",
             'modId="forge"',
@@ -98,25 +111,33 @@ final class MetadataRenderer {
     static String neoforge(Map catalog, Map target, String version) {
         Map mod = catalog.mod as Map
         Map metadata = target.metadata as Map
+        Map contact = mod.contact as Map
         String id = mod.id
         List<String> lines = [
             "modLoader=${quote(metadata.modLoader)}",
             "loaderVersion=${quote(metadata.loaderVersion)}",
             "license=${quote(mod.license)}",
+            "issueTrackerURL=${quote(contact.issues)}",
+            'showAsResourcePack=false',
+            'showAsDataPack=false',
             '',
             '[[mods]]',
             "modId=${quote(id)}",
             "version=${quote(version)}",
             "displayName=${quote(mod.name)}",
-            "displayURL=${quote(mod.homepage)}",
+            "displayURL=${quote(contact.homepage)}",
+            "updateJSONURL=${quote(forgeUpdatesUrl(mod, true))}",
             "authors=${quote((mod.authors as List).join(', '))}",
             "logoFile=${quote(mod.icon)}",
             "logoBlur=${booleanValue(mod.iconBlur)}",
-            "description=${quote(mod.description)}",
+            "description=${quote(mod.descriptions.en_us)}",
             ''
         ]
         ((metadata.serverMixins as List) + (metadata.mixins as List)).each {
             lines.addAll(['[[mixins]]', "config=${quote(it)}", ''])
+        }
+        if (metadata.accessTransformer) {
+            lines.addAll(['[[accessTransformers]]', "file=${quote(metadata.accessTransformer)}", ''])
         }
         lines.addAll([
             "[[dependencies.${id}]]",
@@ -171,5 +192,18 @@ final class MetadataRenderer {
             throw new IllegalArgumentException('value must be a boolean')
         }
         value ? 'true' : 'false'
+    }
+
+    static String modrinthUrl(Map mod) {
+        "https://modrinth.com/mod/${mod.platforms.modrinth.slug}"
+    }
+
+    static String curseForgeUrl(Map mod) {
+        "https://www.curseforge.com/minecraft/mc-mods/${mod.platforms.curseforge.slug}"
+    }
+
+    static String forgeUpdatesUrl(Map mod, boolean neoForge) {
+        String base = "https://api.modrinth.com/updates/${mod.platforms.modrinth.slug}/forge_updates.json"
+        neoForge ? base + '?neoforge=only' : base
     }
 }

@@ -2,17 +2,15 @@ package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import org.junit.jupiter.api.Test
+
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
-import org.junit.jupiter.api.Test
 
-import static org.junit.jupiter.api.Assertions.assertEquals
-import static org.junit.jupiter.api.Assertions.assertFalse
-import static org.junit.jupiter.api.Assertions.assertThrows
-import static org.junit.jupiter.api.Assertions.assertTrue
+import static org.junit.jupiter.api.Assertions.*
 
 final class BuildLogicTest {
     private final File repository = new File('../..').canonicalFile
@@ -21,8 +19,37 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(3, catalog.schemaVersion)
+        assertEquals(4, catalog.schemaVersion)
+        assertEquals(LinkedHashMap, catalog.getClass())
+        assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
+        assertEquals(LinkedHashMap, catalog.targets.first().getClass())
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void dependencyFloorsHaveNoUpperBoundsAndFabricUsesMinimumCompatiblePatches() {
+        catalog.targets.each { Map target ->
+            if (target.loader.id == 'fabric') {
+                assertTrue(target.loader.version ==~ /[0-9]+\.[0-9]+\.[0-9]+/)
+                assertEquals(">=${target.loader.version}".toString(), target.loader.predicate)
+                assertEquals(">=${target.loader.apiVersion}".toString(), target.loader.apiPredicate)
+                assertEquals(">=${target.minecraft.version}".toString(), target.minecraft.predicate)
+            } else {
+                assertEquals("[${target.loader.version},)".toString(), target.loader.predicate)
+                assertEquals("[${target.minecraft.version},)".toString(), target.minecraft.predicate)
+            }
+        }
+        assertEquals(['0.19.2'] as Set, catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
+    }
+
+    @Test
+    void upperBoundAndMismatchedFabricFloorAreRejected() {
+        Map upperBound = cloneMap(catalog)
+        upperBound.targets.find { it.id == 'forge-1.20.1' }.loader.predicate = '[47.4.10,48)'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, upperBound) }
+        Map mismatchedLoader = cloneMap(catalog)
+        mismatchedLoader.targets.find { it.id == 'fabric-26.2' }.loader.predicate = '>=0.19.0'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedLoader) }
     }
 
     @Test
@@ -69,11 +96,23 @@ final class BuildLogicTest {
                 Map metadata = new JsonSlurper().parseText(resources['fabric.mod.json']) as Map
                 assertEquals('*', metadata.environment)
                 assertEquals([main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint]], metadata.entrypoints)
+                assertEquals(catalog.mod.descriptions.en_us, metadata.description)
+                assertEquals(catalog.mod.contact, metadata.contact)
+                assertEquals([modmenu: ">=${target.loader.modMenuVersion}".toString()], metadata.suggests)
+                assertEquals(true, metadata.custom.modmenu.update_checker)
+                assertEquals(['modmenu.modrinth': 'https://modrinth.com/mod/nclskins', 'modmenu.curseforge': 'https://www.curseforge.com/minecraft/mc-mods/nclskins'], metadata.custom.modmenu.links)
             } else if (target.loader.id == 'forge') {
                 assertTrue(resources['META-INF/mods.toml'].contains('displayTest="IGNORE_SERVER_VERSION"'))
+                assertTrue(resources['META-INF/mods.toml'].contains('showAsResourcePack=false'))
+                assertTrue(resources['META-INF/mods.toml'].contains('features={java_version="[17,)"}'))
+                assertTrue(resources['META-INF/mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json"'))
                 assertFalse(resources['META-INF/mods.toml'].contains('[[mixins]]'))
             } else {
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains("javaVersion=\"[${target.java.release},)\""))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsResourcePack=false'))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsDataPack=false'))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json?neoforge=only"'))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains("file=\"${target.metadata.accessTransformer}\""))
                 assertEquals((target.metadata.serverMixins ?: []) + target.metadata.mixins, resources['META-INF/neoforge.mods.toml'].readLines().findAll { it.startsWith('config=') }.collect { it.substring('config="'.length(), it.length() - 1) })
             }
         }
