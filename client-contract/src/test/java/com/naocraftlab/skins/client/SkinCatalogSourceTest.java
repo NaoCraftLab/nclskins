@@ -25,6 +25,10 @@ class SkinCatalogSourceTest {
         assertEquals(MinecraftSkinCatalog.COLLECTION_ID, collections.get(0).id());
         assertEquals(CatalogCollectionOrder.Kind.VANILLA, collections.get(0).order().kind());
         assertEquals(MinecraftSkinCatalog.SOURCE_ID, collections.get(0).sourceId());
+        assertTrue(collections.get(0).descriptionText().isPresent());
+        assertTrue(collections.get(0).authorsText().isPresent());
+        assertTrue(collections.get(0).skins().stream().allMatch(skin ->
+                skin.descriptionText().isEmpty() && skin.authorsText().isEmpty()));
         assertEquals(
                 List.of("Steve", "Alex", "Ari", "Efe", "Kai", "Makena", "Noor", "Sunny", "Zuri"),
                 collections.get(0).skins().stream().map(SkinDescriptor::name).toList());

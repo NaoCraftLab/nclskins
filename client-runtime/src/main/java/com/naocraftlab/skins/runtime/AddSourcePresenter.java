@@ -18,7 +18,6 @@ public final class AddSourcePresenter {
     private static final int CONTROLS_TOP = 31;
     private static final int CONTENT_TOP = 58;
     private static final int ADD_SOURCE_FOOTER_HEIGHT = 36;
-    private static final int DIALOG_FOOTER_HEIGHT = 33;
     private static final int CARD_GAP = 6;
     private static final int MAX_CARD_HEIGHT = 132;
     private static final int MIN_CARD_HEIGHT = 72;
@@ -50,15 +49,12 @@ public final class AddSourcePresenter {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("view dimensions must be positive");
         }
-        if (model.personalSkinDeletion().isPresent()) {
-            return presentPersonalSkinDeletion(model, busy, operationStatus, width, height);
-        }
-
         List<ViewSpec.Panel> panels = new ArrayList<>();
         List<ViewSpec.Text> texts = new ArrayList<>();
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Preview> previews = new ArrayList<>();
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
+        List<ViewSpec.TooltipRegion> tooltipRegions = new ArrayList<>();
         List<ViewSpec.Tab> tabs = List.of(
                 new ViewSpec.Tab(
                         "add.tab.catalog",
@@ -152,18 +148,26 @@ public final class AddSourcePresenter {
                     !busy));
 
             CatalogLayout layout = catalogLayout(model, width, height);
-            addCatalogContent(model, busy, layout, panels, texts, widgets, previews, personalRename);
+            addCatalogContent(
+                    model,
+                    busy,
+                    layout,
+                    panels,
+                    texts,
+                    widgets,
+                    previews,
+                    tooltipRegions,
+                    personalRename);
             clipRegions.add(new ViewSpec.ClipRegion(
                     "add.catalog.viewport",
                     new Bounds(0, CONTENT_TOP, width, Math.max(1, layout.contentBottom() - CONTENT_TOP)),
                     List.of(
                             "add.catalog.collection:",
-                            "add.catalog.collection_info:",
                             "add.catalog.skin:",
-                            "add.catalog.skin_info:",
                             "add.catalog.rename:",
                             "add.catalog.rename.",
-                            "add.catalog.delete:")));
+                            "add.catalog.delete:",
+                            "add.catalog.tooltip:")));
             scrollbar = layout.scrollbar();
             if (layout.maximum() > 0) {
                 scrollSurfaces = List.of(new ViewSpec.ScrollSurface(
@@ -180,6 +184,11 @@ public final class AddSourcePresenter {
                         UiMessage.info("nclskins.add_source.no_results"),
                         ViewSpec.Text.Alignment.CENTER));
             }
+            operationStatus.ifPresent(status -> texts.add(new ViewSpec.Text(
+                    "add.catalog.status",
+                    new Bounds(16, Math.max(CONTENT_TOP, height - 39), Math.max(1, width - 32), 10),
+                    status,
+                    ViewSpec.Text.Alignment.CENTER)));
         }
 
         int cancelWidth = Math.min(200, Math.max(100, width - 32));
@@ -205,79 +214,8 @@ public final class AddSourcePresenter {
                 clipRegions,
                 List.of(),
                 List.of(),
-                scrollSurfaces);
-    }
-
-    private static ViewSpec presentPersonalSkinDeletion(
-            AddSourceModel model,
-            boolean busy,
-            Optional<UiMessage> operationStatus,
-            int width,
-            int height) {
-        AddSourceModel.PersonalSkinDeletion deletion =
-                model.personalSkinDeletion().orElseThrow();
-        int dialogWidth = Math.min(300, Math.max(220, width - 32));
-        int dialogX = (width - dialogWidth) / 2;
-        int buttonWidth = Math.max(90, (dialogWidth - 6) / 2);
-        int buttonY = Math.max(0, height - 28);
-        List<ViewSpec.Panel> panels = List.of(
-                new ViewSpec.Panel(
-                        "personal_delete.header",
-                        new Bounds(0, 0, width, 33),
-                        ViewSpec.Panel.Style.VANILLA_HEADER),
-                new ViewSpec.Panel(
-                        "personal_delete.footer",
-                        new Bounds(
-                                0,
-                                Math.max(0, height - DIALOG_FOOTER_HEIGHT),
-                                width,
-                                DIALOG_FOOTER_HEIGHT),
-                        ViewSpec.Panel.Style.VANILLA_FOOTER));
-        List<ViewSpec.Text> texts = new ArrayList<>();
-        texts.add(new ViewSpec.Text(
-                        "personal_delete.title",
-                        new Bounds(0, 8, width, 12),
-                        UiMessage.info("nclskins.your_skins.delete_title"),
-                        ViewSpec.Text.Alignment.CENTER));
-        texts.add(new ViewSpec.Text(
-                        "personal_delete.question",
-                        new Bounds(dialogX, Math.max(48, height / 2 - 16), dialogWidth, 10),
-                        UiMessage.info("nclskins.your_skins.delete_question", deletion.displayName()),
-                        ViewSpec.Text.Alignment.CENTER));
-        texts.add(new ViewSpec.Text(
-                        "personal_delete.note",
-                        new Bounds(dialogX, Math.max(61, height / 2), dialogWidth, 10),
-                        UiMessage.info("nclskins.your_skins.delete_note"),
-                        ViewSpec.Text.Alignment.CENTER));
-        operationStatus.filter(status -> status.severity() == UiMessage.Severity.ERROR)
-                .ifPresent(status -> texts.add(new ViewSpec.Text(
-                        "personal_delete.status",
-                        new Bounds(dialogX, Math.max(74, height / 2 + 16), dialogWidth, 10),
-                        status,
-                        ViewSpec.Text.Alignment.CENTER)));
-        List<ViewSpec.Widget> widgets = List.of(
-                ViewSpec.Widget.button(
-                        "add.catalog.delete.confirm",
-                        new Bounds(dialogX, buttonY, buttonWidth, 20),
-                        UiMessage.info("nclskins.your_skins.delete_confirm"),
-                        !busy),
-                ViewSpec.Widget.button(
-                        "add.catalog.delete.cancel",
-                        new Bounds(dialogX + dialogWidth - buttonWidth, buttonY, buttonWidth, 20),
-                        UiMessage.info("gui.cancel"),
-                        !busy));
-        return new ViewSpec(
-                "personal_skin_delete",
-                UiMessage.info("nclskins.your_skins.delete_title"),
-                width,
-                height,
-                panels,
-                texts,
-                widgets,
-                List.of(),
-                Optional.empty(),
-                List.of(),
-                focusRequest(model));
+                scrollSurfaces,
+                tooltipRegions);
     }
 
     private static Optional<ViewSpec.FocusRequest> focusRequest(AddSourceModel model) {
@@ -328,6 +266,7 @@ public final class AddSourcePresenter {
             List<ViewSpec.Text> texts,
             List<ViewSpec.Widget> widgets,
             List<ViewSpec.Preview> previews,
+            List<ViewSpec.TooltipRegion> tooltipRegions,
             Optional<PersonalSkinRename> personalRename) {
         int contentBottom = layout.contentBottom();
         int y = CONTENT_TOP - Math.min(model.scrollOffset(), layout.maximum());
@@ -344,15 +283,17 @@ public final class AddSourcePresenter {
                                 (collapsed ? "▶ " : "▼ ") + model.collectionName(collection),
                                 UiMessage.Severity.INFO),
                         !busy,
-                        collectionInfo.isPresent()));
-                collectionInfo.ifPresent(info -> addIntersectingWidget(
-                        widgets,
-                        infoButton(
-                                "add.catalog.collection_info:" + collection.id(),
-                                new Bounds(header.right() - 16, header.y() + 1, 14, 14),
-                                info,
-                                !busy),
-                        contentBottom));
+                        false));
+                collectionInfo.ifPresent(info -> tooltipRegions.add(new ViewSpec.TooltipRegion(
+                        "add.catalog.tooltip:collection:" + collection.id(),
+                        new Bounds(
+                                header.x() + 12,
+                                header.y() + 3,
+                                Math.max(1, header.width() - 12),
+                                10),
+                        UiMessage.literal(model.collectionName(collection), UiMessage.Severity.INFO),
+                        ViewSpec.Text.Alignment.LEFT,
+                        UiMessage.literal(info, UiMessage.Severity.INFO))));
             }
             y += COLLECTION_HEADER_HEIGHT + 4;
             if (collapsed) {
@@ -382,43 +323,9 @@ public final class AddSourcePresenter {
                         !busy,
                         true,
                         0));
-                if (collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL) {
-                    addIntersectingWidget(
-                            widgets,
-                            new ViewSpec.Widget(
-                                    "add.catalog.rename:" + skin.id(),
-                                    ViewSpec.WidgetKind.BUTTON,
-                                    new Bounds(card.right() - 33, card.y() + 3, 14, 14),
-                                    UiMessage.literal("E", UiMessage.Severity.INFO),
-                                    Optional.empty(),
-                                    Optional.of(UiMessage.info("nclskins.your_skins.rename")),
-                                    !busy,
-                                    true,
-                                    0),
-                            contentBottom);
-                    addIntersectingWidget(
-                            widgets,
-                            ViewSpec.Widget.catalogDelete(
-                                    "add.catalog.delete:" + skin.id(),
-                                    new Bounds(card.right() - 17, card.y() + 3, 14, 14),
-                                    UiMessage.info("nclskins.your_skins.delete", model.skinName(skin)),
-                                    !busy),
-                            contentBottom);
-                }
                 Optional<String> skinInfo = model.skinInfo(collection, skin);
-                skinInfo.ifPresent(info -> addIntersectingWidget(
-                        widgets,
-                        infoButton(
-                                "add.catalog.skin_info:" + collection.id() + ":" + skin.id(),
-                                new Bounds(card.x() + 3, card.y() + 3, 14, 14),
-                                info,
-                                !busy),
-                        contentBottom));
-                int nameX = card.x() + (skinInfo.isPresent() ? 20 : 4);
-                int nameRight = card.right()
-                        - (collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL
-                                ? 23
-                                : 4);
+                int nameX = card.x() + 4;
+                int nameRight = card.right() - 4;
                 Bounds nameBounds = new Bounds(
                         nameX,
                         card.y() + 7,
@@ -432,13 +339,20 @@ public final class AddSourcePresenter {
                             ViewSpec.Text.Alignment.CENTER,
                             Optional.of(new ViewSpec.MarqueeActivation(
                                     card,
-                                    catalogMarqueeFocusIds(collection, skin, skinInfo.isPresent(), prefix)))));
+                                    catalogMarqueeFocusIds(collection, skin, prefix)))));
+                    skinInfo.ifPresent(info -> tooltipRegions.add(new ViewSpec.TooltipRegion(
+                            "add.catalog.tooltip:skin:" + collection.id() + ":" + skin.id(),
+                            nameBounds,
+                            UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO),
+                            ViewSpec.Text.Alignment.CENTER,
+                            UiMessage.literal(info, UiMessage.Severity.INFO))));
                 }
+                boolean personal = collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL;
                 Bounds previewBounds = new Bounds(
                         card.x() + 5,
                         card.y() + 20,
                         Math.max(1, card.width() - 10),
-                        Math.max(1, layout.cardHeight() - 25));
+                        Math.max(1, layout.cardHeight() - (personal ? 48 : 25)));
                 if (intersectsViewport(previewBounds, contentBottom)) {
                     previews.add(new ViewSpec.Preview(
                         prefix + ".preview",
@@ -485,6 +399,58 @@ public final class AddSourcePresenter {
                                     UiMessage.info("gui.cancel"),
                                     !busy),
                             contentBottom);
+                } else if (personal) {
+                    int half = Math.max(1, (card.width() - 6) / 2);
+                    Bounds leftAction = new Bounds(
+                            card.x() + 2, card.bottom() - 22, half, 20);
+                    Bounds rightAction = new Bounds(
+                            card.x() + 4 + half,
+                            card.bottom() - 22,
+                            Math.max(1, card.width() - half - 6),
+                            20);
+                    boolean pendingDelete = model.personalSkinDeletion()
+                            .filter(deletion -> deletion.collectionId().equals(collection.id()))
+                            .filter(deletion -> deletion.sha256().equals(skin.id()))
+                            .isPresent();
+                    if (pendingDelete) {
+                        addIntersectingWidget(
+                                widgets,
+                                ViewSpec.Widget.button(
+                                        "add.catalog.delete.confirm",
+                                        leftAction,
+                                        UiMessage.info("nclskins.your_skins.delete_confirm"),
+                                        !busy),
+                                contentBottom);
+                        addIntersectingWidget(
+                                widgets,
+                                ViewSpec.Widget.button(
+                                        "add.catalog.delete.cancel",
+                                        rightAction,
+                                        UiMessage.info("gui.cancel"),
+                                        !busy),
+                                contentBottom);
+                    } else {
+                        addIntersectingWidget(
+                                widgets,
+                                ViewSpec.Widget.iconButton(
+                                        "add.catalog.rename:" + skin.id(),
+                                        leftAction,
+                                        UiMessage.info("nclskins.your_skins.rename"),
+                                        "edit",
+                                        !busy && model.personalSkinDeletion().isEmpty()),
+                                contentBottom);
+                        addIntersectingWidget(
+                                widgets,
+                                ViewSpec.Widget.iconButton(
+                                        "add.catalog.delete:" + skin.id(),
+                                        rightAction,
+                                        UiMessage.info(
+                                                "nclskins.your_skins.delete",
+                                                model.skinName(skin)),
+                                        "delete",
+                                        !busy && model.personalSkinDeletion().isEmpty()),
+                                contentBottom);
+                    }
                 }
             }
             int rows = (skins.size() + layout.columns() - 1) / layout.columns();
@@ -492,22 +458,12 @@ public final class AddSourcePresenter {
         }
     }
 
-    private static ViewSpec.Widget infoButton(
-            String id, Bounds bounds, String info, boolean enabled) {
-        return ViewSpec.Widget.infoButton(
-                id, bounds, UiMessage.literal(info, UiMessage.Severity.INFO), enabled);
-    }
-
     private static List<String> catalogMarqueeFocusIds(
             SkinCatalogSource.CollectionDescriptor collection,
             SkinCatalogSource.SkinDescriptor skin,
-            boolean hasInfo,
             String cardId) {
         List<String> ids = new ArrayList<>();
         ids.add(cardId);
-        if (hasInfo) {
-            ids.add("add.catalog.skin_info:" + collection.id() + ":" + skin.id());
-        }
         if (collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL) {
             ids.add("add.catalog.rename:" + skin.id());
             ids.add("add.catalog.delete:" + skin.id());

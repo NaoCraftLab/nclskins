@@ -251,8 +251,8 @@ final class CatalogTools {
         }
         Map descriptions = mod.descriptions instanceof Map ? mod.descriptions as Map : [:]
         if ((descriptions.keySet() as Set) != ['en_us', 'ru_ru'] as Set ||
-                descriptions.values().any { !(it instanceof String) || it.isBlank() || it.contains('—') }) {
-            errors.add('mod.descriptions must define non-empty en_us and ru_ru strings without em dashes')
+                descriptions.values().any { !(it instanceof String) || it.isBlank() || it.contains('\u2014') || it.contains('\u2013') }) {
+            errors.add('mod.descriptions must define non-empty en_us and ru_ru strings without long dashes')
         }
         Map contact = mod.contact instanceof Map ? mod.contact as Map : [:]
         if ((contact.keySet() as Set) != ['homepage', 'sources', 'issues'] as Set ||
@@ -292,11 +292,25 @@ final class CatalogTools {
             File language = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/assets/nclskins/lang/${locale}.json")
             try {
                 Map values = loadJson(language)
+                values.findAll { key, value -> value instanceof String && (value.contains('\u2014') || value.contains('\u2013')) }
+                        .keySet()
+                        .each { String key -> errors.add("${locale}: ${key} must not use long dashes") }
                 ['modmenu.descriptionTranslation.nclskins', 'fml.menu.mods.info.description.nclskins'].each { String key ->
                     if (values[key] != '@NCLSKINS_DESCRIPTION@') errors.add("${locale}: ${key} must use the catalog description template token")
                 }
             } catch (Exception error) {
                 errors.add("cannot read ${locale} translations: ${error.message}")
+            }
+        }
+        ['en_us', 'ru_ru'].each { String locale ->
+            File language = new File(repositoryRoot, "compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections/assets/nclskins/lang/${locale}.json")
+            try {
+                Map values = loadJson(language)
+                values.findAll { key, value -> value instanceof String && (value.contains('\u2014') || value.contains('\u2013')) }
+                        .keySet()
+                        .each { String key -> errors.add("mojang-collections ${locale}: ${key} must not use long dashes") }
+            } catch (Exception error) {
+                errors.add("cannot read mojang-collections ${locale} translations: ${error.message}")
             }
         }
         Map gson = catalog.gsonCompatibility instanceof Map ? catalog.gsonCompatibility as Map : [:]

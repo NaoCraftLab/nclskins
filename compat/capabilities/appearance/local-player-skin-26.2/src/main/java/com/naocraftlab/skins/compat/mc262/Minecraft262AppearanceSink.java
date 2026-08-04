@@ -91,7 +91,10 @@ final class Minecraft262AppearanceSink
             PlayerModelType model = fallback.model();
             if (payload.skin().isPresent()) {
                 Asset skin = payload.skin().orElseThrow();
-                skinHandle = textures.registerSkin(skin.sha256(), skin.path());
+                skinHandle = textures.register(
+                        TextureKind.PLAYER_SKIN_FEATURE_PRESERVING,
+                        skin.sha256(),
+                        skin.path());
                 body = resourceTexture(skinHandle);
                 model = expected.skinModel().orElseThrow() == SkinModel.SLIM
                         ? PlayerModelType.SLIM

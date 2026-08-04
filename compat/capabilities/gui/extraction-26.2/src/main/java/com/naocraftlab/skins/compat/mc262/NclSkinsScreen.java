@@ -17,6 +17,7 @@ import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
+import com.naocraftlab.skins.runtime.MarqueeText;
 import com.naocraftlab.skins.runtime.PreviewAssetCache;
 import com.naocraftlab.skins.runtime.PointerRouting;
 import com.naocraftlab.skins.runtime.UiMessage;
@@ -105,6 +106,7 @@ public final class NclSkinsScreen extends Screen {
 
     private Minecraft262TextureRegistry textureRegistry;
     private PreviewAssetCache<SkinKey> skinTextures;
+    private PreviewAssetCache<SkinKey> featureSkinTextures;
     private PreviewAssetCache<String> capeTextures;
     private Minecraft262PreviewRenderer editorRenderer;
     private Minecraft262SimplePreviewRenderer backEquipmentRenderer;
@@ -120,6 +122,7 @@ public final class NclSkinsScreen extends Screen {
     private long consumedFocusToken;
     private int lastMouseX;
     private int lastMouseY;
+    private boolean dispatchShiftDown;
 
     public NclSkinsScreen(Screen parent) {
         super(Component.translatable("nclskins.title"));
@@ -155,6 +158,8 @@ public final class NclSkinsScreen extends Screen {
         if (textureRegistry == null) {
             textureRegistry = new Minecraft262TextureRegistry();
             skinTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.PLAYER_SKIN);
+            featureSkinTextures = new PreviewAssetCache<>(
+                    textureRegistry, TextureKind.PLAYER_SKIN_FEATURE_PRESERVING);
             capeTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.IMAGE);
         }
         if (editorRenderer == null) {
@@ -329,7 +334,7 @@ public final class NclSkinsScreen extends Screen {
                 } else {
                     Button button = Button.builder(
                                     Minecraft262Components.resolve(spec.label()),
-                                    ignored -> runtime.dispatchWidget(spec.id()))
+                                    ignored -> runtime.dispatchWidget(spec.id(), dispatchShiftDown))
                             .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height())
                             .build();
                     button.active = spec.enabled();
@@ -544,6 +549,7 @@ public final class NclSkinsScreen extends Screen {
         extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);
         drawIconDecorations(graphics, view, mouseX, mouseY);
         drawTexts(graphics, view, mouseX, mouseY);
+        drawPreciseTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
     }
 
@@ -616,8 +622,11 @@ public final class NclSkinsScreen extends Screen {
         Set<String> visibleIds = new HashSet<>();
         for (ViewSpec.Preview preview : view.previews()) {
             visibleIds.add(preview.id());
+            PreviewAssetCache<SkinKey> cache = "preset_editor".equals(view.screenId())
+                    ? featureSkinTextures
+                    : skinTextures;
             Optional<TextureHandle> loadedSkin = Optional.ofNullable(previewSkinKeys.get(preview.id()))
-                    .flatMap(skinTextures::handle);
+                    .flatMap(cache::handle);
             if (preview.catalogImage().isPresent() && loadedSkin.isEmpty()) {
                 continue;
             }
@@ -830,13 +839,25 @@ public final class NclSkinsScreen extends Screen {
             int color = textColor(text);
             if (font.width(component) > text.bounds().width()
                     && marqueeActive(view, text, mouseX, mouseY)) {
-                Component colored = component.copy().withColor(color & 0xFFFFFF);
-                graphics.textRenderer().acceptScrollingWithDefaultCenter(
-                        colored,
+                int offset = MarqueeText.offset(
+                        font.width(component),
+                        text.bounds().width(),
+                        System.currentTimeMillis());
+                graphics.enableScissor(
                         text.bounds().x(),
-                        text.bounds().right(),
                         text.bounds().y(),
+                        text.bounds().right(),
                         text.bounds().bottom());
+                try {
+                    graphics.text(
+                            font,
+                            component,
+                            text.bounds().x() - offset,
+                            text.bounds().y(),
+                            color);
+                } finally {
+                    graphics.disableScissor();
+                }
                 return;
             }
             String fitted = font.plainSubstrByWidth(component.getString(), text.bounds().width());
@@ -853,6 +874,23 @@ public final class NclSkinsScreen extends Screen {
             } else {
                 graphics.text(font, visible, x, text.bounds().y(), color);
             }
+    }
+
+    private void drawPreciseTooltip(
+            GuiGraphicsExtractor graphics, ViewSpec view, int mouseX, int mouseY) {
+        for (ViewSpec.TooltipRegion region : view.tooltipRegions()) {
+            Bounds hit = region.hitBounds(
+                    font.width(Minecraft262Components.resolve(region.text())));
+            if (!hit.contains(mouseX, mouseY)
+                    || view.clipFor(region.id())
+                            .filter(clip -> !clip.contains(mouseX, mouseY))
+                            .isPresent()) {
+                continue;
+            }
+            graphics.setTooltipForNextFrame(
+                    Minecraft262Components.resolve(region.tooltip()), mouseX, mouseY);
+            return;
+        }
     }
 
     private boolean marqueeActive(
@@ -983,7 +1021,14 @@ public final class NclSkinsScreen extends Screen {
                 return true;
             }
         }
-        boolean consumed = super.keyPressed(event);
+        boolean priorShift = dispatchShiftDown;
+        dispatchShiftDown = event.hasShiftDown();
+        boolean consumed;
+        try {
+            consumed = super.keyPressed(event);
+        } finally {
+            dispatchShiftDown = priorShift;
+        }
         dispatchPendingTabSelection();
         return consumed;
     }
@@ -1012,18 +1057,6 @@ public final class NclSkinsScreen extends Screen {
             }
             return true;
         }
-        if (event.button() == LEFT_MOUSE_BUTTON && event.hasShiftDown()) {
-            Optional<ViewSpec.Widget> cape = view.widget("editor.cape");
-            if (cape.isPresent()
-                    && pointerOwner.filter(widget -> "editor.cape".equals(widget.id())).isPresent()
-                    && cape.orElseThrow().visible()
-                    && cape.orElseThrow().enabled()
-                    && cape.orElseThrow().bounds().contains(event.x(), event.y())
-                    && pointerInsideClip(view, "editor.cape", event.x(), event.y())) {
-                runtime.dispatchWidget("editor.cape", true);
-                return true;
-            }
-        }
         if (event.button() == LEFT_MOUSE_BUTTON && pointerOwner.isEmpty()) {
             for (ViewSpec.Widget widget : view.widgets()) {
                 if (!widget.visible()
@@ -1038,9 +1071,12 @@ public final class NclSkinsScreen extends Screen {
         List<MaskedNativeWidget> maskedWidgets =
                 maskWidgetsOutsideClip(view, event.x(), event.y());
         boolean nativeConsumed;
+        boolean priorShift = dispatchShiftDown;
+        dispatchShiftDown = event.hasShiftDown();
         try {
             nativeConsumed = super.mouseClicked(event, doubleClick);
         } finally {
+            dispatchShiftDown = priorShift;
             ViewSpec latestView = runtime.closed()
                     ? view
                     : runtime.view(width, height, (int) event.x(), (int) event.y());
@@ -1210,7 +1246,9 @@ public final class NclSkinsScreen extends Screen {
             return;
         }
         Set<SkinKey> desiredSkins = new HashSet<>();
+        Set<SkinKey> desiredFeatureSkins = new HashSet<>();
         Set<String> desiredCapes = new HashSet<>();
+        boolean editor = "preset_editor".equals(view.screenId());
         previewSkinKeys.clear();
         for (ViewSpec.Preview preview : view.previews()) {
             SkinKey key = new SkinKey(
@@ -1219,8 +1257,8 @@ public final class NclSkinsScreen extends Screen {
                     preview.catalogImage(),
                     preview.variant());
             previewSkinKeys.put(preview.id(), key);
-            desiredSkins.add(key);
-            ensureSkin(preview, key);
+            (editor ? desiredFeatureSkins : desiredSkins).add(key);
+            ensureSkin(preview, key, editor ? featureSkinTextures : skinTextures);
             preview.capeId().ifPresent(capeId -> {
                 desiredCapes.add(capeId);
                 ensureCape(preview, capeId);
@@ -1234,11 +1272,15 @@ public final class NclSkinsScreen extends Screen {
                     () -> {});
         }
         skinTextures.retain(desiredSkins);
+        featureSkinTextures.retain(desiredFeatureSkins);
         capeTextures.retain(desiredCapes);
     }
 
-    private void ensureSkin(ViewSpec.Preview preview, SkinKey key) {
-        skinTextures.request(
+    private void ensureSkin(
+            ViewSpec.Preview preview,
+            SkinKey key,
+            PreviewAssetCache<SkinKey> cache) {
+        cache.request(
                 key,
                 () -> runtime.loadSkinPreview(preview),
                 () -> runtime.reportSkinPreviewFailure(preview));
@@ -1265,9 +1307,11 @@ public final class NclSkinsScreen extends Screen {
         pointerCaptured = false;
         Minecraft262TextureRegistry registry = textureRegistry;
         PreviewAssetCache<SkinKey> skins = skinTextures;
+        PreviewAssetCache<SkinKey> featureSkins = featureSkinTextures;
         PreviewAssetCache<String> capes = capeTextures;
         textureRegistry = null;
         skinTextures = null;
+        featureSkinTextures = null;
         capeTextures = null;
         try {
             if (subscription != null) {
@@ -1281,24 +1325,30 @@ public final class NclSkinsScreen extends Screen {
                 }
             } finally {
                 try {
-                    if (capes != null) {
-                        capes.close();
+                    if (featureSkins != null) {
+                        featureSkins.close();
                     }
                 } finally {
                     try {
-                        if (registry != null) {
-                            registry.close();
+                        if (capes != null) {
+                            capes.close();
                         }
                     } finally {
-                        previewSkinKeys.clear();
-                        galleryRenderers.clear();
-                        backEquipmentRenderer = null;
-                        nativeWidgets.clear();
-                        nativeTabGroups.clear();
                         try {
-                            runtime.closeScreen();
+                            if (registry != null) {
+                                registry.close();
+                            }
                         } finally {
-                            super.removed();
+                            previewSkinKeys.clear();
+                            galleryRenderers.clear();
+                            backEquipmentRenderer = null;
+                            nativeWidgets.clear();
+                            nativeTabGroups.clear();
+                            try {
+                                runtime.closeScreen();
+                            } finally {
+                                super.removed();
+                            }
                         }
                     }
                 }

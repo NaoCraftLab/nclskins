@@ -500,6 +500,15 @@ final class ClientRuntimeTest {
         assertEquals(
                 Optional.of(SkinVariant.CLASSIC),
                 operations.uiPreferences.preferredSkinVariant());
+        runtime.dispatchWidget("add.catalog.filter", true);
+        assertEquals(AddSourceModel.CatalogFilter.ALL,
+                runtime.snapshot().addSource().orElseThrow().filter());
+        runtime.dispatchWidget("add.catalog.filter", true);
+        assertEquals(AddSourceModel.CatalogFilter.SLIM,
+                runtime.snapshot().addSource().orElseThrow().filter());
+        assertEquals(
+                Optional.of(SkinVariant.SLIM),
+                operations.uiPreferences.preferredSkinVariant());
     }
 
     @Test
@@ -643,7 +652,7 @@ final class ClientRuntimeTest {
         ViewSpec catalog = runtime.view(854, 480, 0, 0);
         assertTrue(catalog.widgets().stream().anyMatch(widget ->
                 widget.id().equals("add.catalog.delete:" + hash)
-                        && widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE));
+                        && widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON));
 
         int assetsBeforeReuse = operations.account.skinAssets().size();
         runtime.dispatchWidget("add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ":" + hash);
@@ -665,7 +674,7 @@ final class ClientRuntimeTest {
         int presetsBeforeRemoval = operations.account.presets().size();
         runtime.dispatchWidget("add.catalog.delete:" + hash);
 
-        assertEquals("personal_skin_delete", runtime.view(854, 480, 0, 0).screenId());
+        assertEquals("add_source", runtime.view(854, 480, 0, 0).screenId());
         assertEquals(0, operations.removePersonalCalls);
         runtime.dispatchWidget("add.cancel");
         ViewSpec restored = runtime.view(854, 480, 0, 0);
@@ -679,9 +688,9 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("add.catalog.delete.confirm");
 
         ViewSpec failed = runtime.view(854, 480, 0, 0);
-        assertEquals("personal_skin_delete", failed.screenId());
+        assertEquals("add_source", failed.screenId());
         assertTrue(failed.texts().stream().anyMatch(text ->
-                text.id().equals("personal_delete.status")
+                text.id().equals("add.catalog.status")
                         && text.message().severity() == UiMessage.Severity.ERROR));
         assertTrue(operations.account.personalSkins().get(0).visible());
 

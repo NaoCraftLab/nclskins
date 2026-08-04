@@ -64,6 +64,23 @@ public record PersonalSkinEntry(
     }
 
 
+    public PersonalSkinEntry withSourcePriority(
+            PersonalSkinSource candidateSource,
+            Instant now) {
+        Objects.requireNonNull(candidateSource, "candidateSource");
+        Objects.requireNonNull(now, "now");
+        PersonalSkinSource promoted = source == PersonalSkinSource.PLAYER_NAME
+                || candidateSource != PersonalSkinSource.PLAYER_NAME
+                ? source
+                : PersonalSkinSource.PLAYER_NAME;
+        if (promoted == source) {
+            return this;
+        }
+        return new PersonalSkinEntry(
+                sha256, displayName, promoted, addedAt, now, variantAssetIds, visible);
+    }
+
+
     public PersonalSkinEntry hidden(Instant now) {
         Objects.requireNonNull(now, "now");
         if (!visible) {

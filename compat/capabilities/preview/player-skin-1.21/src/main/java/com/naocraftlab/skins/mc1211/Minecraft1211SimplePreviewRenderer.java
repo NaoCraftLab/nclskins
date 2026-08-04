@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
+import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
@@ -27,9 +28,6 @@ import org.joml.Quaternionf;
 
 public final class Minecraft1211SimplePreviewRenderer
         implements PreviewRenderer<GuiGraphics>, BackEquipmentPreviewRenderer<GuiGraphics> {
-    private static final float MODEL_HEIGHT = 2.125F;
-    private static final float FIT_PADDING = 0.97F;
-    private static final float ANCHOR_Y = 0.88F;
     private static final float GUI_DEPTH = 120.0F;
     private static final VanillaPlayerModelTransform.Operations<PoseStack> POSE_OPERATIONS =
             new VanillaPlayerModelTransform.Operations<>() {
@@ -117,14 +115,20 @@ public final class Minecraft1211SimplePreviewRenderer
         PoseStack pose = graphics.pose();
         pose.pushPose();
         try {
-            float modelScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
+            CenteredPlayerPreviewGeometry.Layout layout =
+                    CenteredPlayerPreviewGeometry.fit(
+                            request.left(),
+                            request.top(),
+                            request.width(),
+                            request.height(),
+                            request.scale());
             pose.translate(
-                    request.left() + request.width() / 2.0F,
-                    request.top() + request.height() * ANCHOR_Y,
+                    layout.centerX(),
+                    layout.centerY(),
                     GUI_DEPTH);
-            VanillaPlayerModelTransform.apply(
+            VanillaPlayerModelTransform.applyCentered(
                     pose,
-                    modelScale,
+                    layout.scale(),
                     request.yawDegrees(),
                     request.pitchDegrees(),
                     POSE_OPERATIONS);

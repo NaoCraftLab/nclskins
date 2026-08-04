@@ -1307,7 +1307,7 @@ public final class ClientRuntime implements AutoCloseable {
             case "add.file.choose" -> chooseAddSourcePng();
             case "add.player.load" -> loadRemoteImport(true);
             case "add.url.load" -> loadRemoteImport(false);
-            case "add.catalog.filter" -> cycleCatalogFilter();
+            case "add.catalog.filter" -> cycleCatalogFilter(reverse);
             case "add.catalog.delete.confirm" -> confirmPersonalSkinDeletion();
             case "add.catalog.delete.cancel" -> cancelPersonalSkinDeletion();
             case "add.catalog.rename.save" -> savePersonalSkinRename();
@@ -1435,14 +1435,14 @@ public final class ClientRuntime implements AutoCloseable {
         });
     }
 
-    private void cycleCatalogFilter() {
+    private void cycleCatalogFilter(boolean reverse) {
         if (state.busy
                 || state.addSource == null
                 || state.addSource.personalSkinDeletion().isPresent()
                 || state.addSource.selectedTab() != AddSourceTab.CATALOG) {
             return;
         }
-        state.addSource = state.addSource.cycleFilter();
+        state.addSource = state.addSource.cycleFilter(reverse);
         resetAddSourceScroll();
         if (state.addSource.filter() != AddSourceModel.CatalogFilter.ALL) {
             rememberPreferredSkinVariant(state.addSource.preferredVariant());
@@ -1588,9 +1588,7 @@ public final class ClientRuntime implements AutoCloseable {
                                 collection.id(),
                                 skin.id(),
                                 resolvedCatalogText(skin.descriptionText()),
-                                resolvedCatalogText(skin.authorsText().isPresent()
-                                        ? skin.authorsText()
-                                        : collection.authorsText()))),
+                        resolvedCatalogText(skin.authorsText()))),
                 Map.copyOf(variants),
                 Map.copyOf(reusableVariants),
                 resolvedInitial);

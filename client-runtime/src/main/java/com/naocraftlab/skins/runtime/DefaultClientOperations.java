@@ -22,6 +22,7 @@ import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
 import com.naocraftlab.skins.core.model.PersonalSkinEntry;
+import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.RemoteSkin;
@@ -419,13 +420,20 @@ public final class DefaultClientOperations implements ClientOperations {
         List<SkinCatalogSource.CollectionDescriptor> collections = new ArrayList<>();
         Map<CatalogVariantKey, String> variantHashes = new HashMap<>();
         Map<CatalogVariantKey, UUID> personalAssets = new HashMap<>();
-        List<SkinCatalogSource.SkinDescriptor> personalSkins = account.personalSkins().stream()
+        List<PersonalSkinEntry> visiblePersonalSkins = account.personalSkins().stream()
                 .filter(PersonalSkinEntry::visible)
                 .sorted(Comparator.comparing(PersonalSkinEntry::addedAt)
                         .reversed()
                         .thenComparing(PersonalSkinEntry::sha256))
-                .map(entry -> personalSkinDescriptor(accountId, entry, variantHashes, personalAssets))
                 .toList();
+        List<SkinCatalogSource.SkinDescriptor> personalSkins = personalSkinDescriptors(
+                accountId,
+                visiblePersonalSkins.stream()
+                        .filter(entry -> entry.source() != PersonalSkinSource.PLAYER_NAME)
+                        .toList(),
+                PersonalSkinCatalog.COLLECTION_ID,
+                variantHashes,
+                personalAssets);
         if (!personalSkins.isEmpty()) {
             collections.add(new SkinCatalogSource.CollectionDescriptor(
                     PersonalSkinCatalog.COLLECTION_ID,
@@ -434,6 +442,25 @@ public final class DefaultClientOperations implements ClientOperations {
                     Optional.empty(),
                     personalSkins,
                     CatalogCollectionOrder.personal(PersonalSkinCatalog.SOURCE_ID)));
+        }
+        List<SkinCatalogSource.SkinDescriptor> otherPlayerSkins = personalSkinDescriptors(
+                accountId,
+                visiblePersonalSkins.stream()
+                        .filter(entry -> entry.source() == PersonalSkinSource.PLAYER_NAME)
+                        .toList(),
+                PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
+                variantHashes,
+                personalAssets);
+        if (!otherPlayerSkins.isEmpty()) {
+            collections.add(new SkinCatalogSource.CollectionDescriptor(
+                    PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
+                    CatalogText.translated(
+                            "nclskins.other_players.name", "Other players' skins"),
+                    Optional.empty(),
+                    Optional.empty(),
+                    otherPlayerSkins,
+                    CatalogCollectionOrder.personal(
+                            PersonalSkinCatalog.OTHER_PLAYERS_SOURCE_ID)));
         }
         for (SkinCatalogSource.CollectionDescriptor collection : bundledSkins.collections()) {
             if (PersonalSkinCatalog.isCollection(collection.id())) {
@@ -476,9 +503,22 @@ public final class DefaultClientOperations implements ClientOperations {
         return new CatalogDiscovery(collections, variantHashes, personalAssets);
     }
 
+    private List<SkinCatalogSource.SkinDescriptor> personalSkinDescriptors(
+            UUID accountId,
+            List<PersonalSkinEntry> entries,
+            String collectionId,
+            Map<CatalogVariantKey, String> variantHashes,
+            Map<CatalogVariantKey, UUID> personalAssets) {
+        return entries.stream()
+                .map(entry -> personalSkinDescriptor(
+                        accountId, entry, collectionId, variantHashes, personalAssets))
+                .toList();
+    }
+
     private SkinCatalogSource.SkinDescriptor personalSkinDescriptor(
             UUID accountId,
             PersonalSkinEntry entry,
+            String collectionId,
             Map<CatalogVariantKey, String> variantHashes,
             Map<CatalogVariantKey, UUID> personalAssets) {
         List<SkinModel> models = new ArrayList<>(2);
@@ -487,6 +527,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 entry,
                 SkinVariant.CLASSIC,
                 SkinModel.CLASSIC,
+                collectionId,
                 models,
                 variantHashes,
                 personalAssets);
@@ -495,6 +536,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 entry,
                 SkinVariant.SLIM,
                 SkinModel.SLIM,
+                collectionId,
                 models,
                 variantHashes,
                 personalAssets);
@@ -514,12 +556,13 @@ public final class DefaultClientOperations implements ClientOperations {
             PersonalSkinEntry entry,
             SkinVariant variant,
             SkinModel model,
+            String collectionId,
             List<SkinModel> models,
             Map<CatalogVariantKey, String> variantHashes,
             Map<CatalogVariantKey, UUID> personalAssets) {
         entry.optionalAssetId(variant).ifPresent(assetId -> {
             CatalogVariantKey key = new CatalogVariantKey(
-                    PersonalSkinCatalog.COLLECTION_ID, entry.sha256(), model);
+                    collectionId, entry.sha256(), model);
             models.add(model);
             variantHashes.put(key, entry.sha256());
             personalAssets.put(key, assetId);

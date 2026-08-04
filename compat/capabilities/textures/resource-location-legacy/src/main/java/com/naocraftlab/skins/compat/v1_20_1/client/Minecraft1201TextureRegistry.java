@@ -43,7 +43,11 @@ public final class Minecraft1201TextureRegistry extends AbstractTextureRegistry<
         try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {
             image = NativeImage.read(input);
         }
-        String kindPath = kind == TextureKind.PLAYER_SKIN ? "skin" : "image";
+        String kindPath = switch (kind) {
+            case PLAYER_SKIN -> "skin";
+            case PLAYER_SKIN_FEATURE_PRESERVING -> "feature_skin";
+            case IMAGE -> "image";
+        };
         DynamicTexture texture = new DynamicTexture(image);
         ResourceLocation location;
         try {

@@ -23,6 +23,8 @@ public interface TextureRegistry extends AutoCloseable {
 
         PLAYER_SKIN,
 
+        PLAYER_SKIN_FEATURE_PRESERVING,
+
         IMAGE
     }
 

@@ -16,6 +16,7 @@ import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
+import com.naocraftlab.skins.runtime.MarqueeText;
 import com.naocraftlab.skins.runtime.PreviewAssetCache;
 import com.naocraftlab.skins.runtime.PointerRouting;
 import com.naocraftlab.skins.runtime.UiMessage;
@@ -84,6 +85,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private final TextureRegistry textures;
     private final NativeScrollController scrollController;
     private final PreviewAssetCache<PreviewAssetKey> skinTextures;
+    private final PreviewAssetCache<PreviewAssetKey> featureSkinTextures;
     private final PreviewAssetCache<String> capeTextures;
     private final BackEquipmentPreviewRenderer<GuiGraphics> backEquipmentRenderer;
     private final Map<String, AbstractWidget> nativeWidgets = new LinkedHashMap<>();
@@ -112,6 +114,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         this.scrollController = Objects.requireNonNull(
                 capabilities.createScrollController(), "scrollController");
         this.skinTextures = new PreviewAssetCache<>(textures, TextureKind.PLAYER_SKIN);
+        this.featureSkinTextures = new PreviewAssetCache<>(
+                textures, TextureKind.PLAYER_SKIN_FEATURE_PRESERVING);
         this.capeTextures = new PreviewAssetCache<>(textures, TextureKind.IMAGE);
         this.backEquipmentRenderer = Objects.requireNonNull(
                 capabilities.createBackEquipmentPreviewRenderer(), "backEquipmentPreviewRenderer");
@@ -206,6 +210,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             renderClipped(graphics, view, text.id(), () ->
                     renderText(graphics, view, text, mouseX, mouseY));
         }
+        renderPreciseTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
     }
 
@@ -649,31 +654,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private static boolean ownsDecoration(ViewSpec view, String widgetId) {
         return view.iconDecorations().stream()
                 .anyMatch(decoration -> decoration.ownerWidgetId().equals(widgetId));
-    }
-
-
-    private static final class ScrollingTextWidget extends AbstractWidget {
-        private ScrollingTextWidget(Component message, Bounds bounds) {
-            super(
-                    bounds.x(),
-                    bounds.y(),
-                    bounds.width(),
-                    bounds.height(),
-                    message);
-        }
-
-        private void renderScrolling(GuiGraphics graphics, Font font, int color) {
-            renderScrollingString(graphics, font, 0, color);
-        }
-
-        @Override
-        protected void renderWidget(
-                GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        }
-
-        @Override
-        protected void updateWidgetNarration(NarrationElementOutput output) {
-        }
     }
 
 
@@ -1143,7 +1123,15 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         int color = textColor(text);
         if (font.width(message) > bounds.width()
                 && marqueeActive(view, text, mouseX, mouseY)) {
-            new ScrollingTextWidget(message, bounds).renderScrolling(graphics, font, color);
+            int offset = MarqueeText.offset(
+                    font.width(message), bounds.width(), System.currentTimeMillis());
+            graphics.enableScissor(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
+            try {
+                graphics.drawString(
+                        font, message, bounds.x() - offset, bounds.y(), color, false);
+            } finally {
+                graphics.disableScissor();
+            }
             return;
         }
         String clipped = font.plainSubstrByWidth(message.getString(), bounds.width());
@@ -1154,6 +1142,21 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             case RIGHT -> bounds.right() - font.width(visible);
         };
         graphics.drawString(font, visible, x, bounds.y(), color, false);
+    }
+
+    private void renderPreciseTooltip(
+            GuiGraphics graphics, ViewSpec view, int mouseX, int mouseY) {
+        for (ViewSpec.TooltipRegion region : view.tooltipRegions()) {
+            Bounds hit = region.hitBounds(font.width(resolve(region.text())));
+            if (!hit.contains(mouseX, mouseY)
+                    || view.clipFor(region.id())
+                            .filter(clip -> !clip.contains(mouseX, mouseY))
+                            .isPresent()) {
+                continue;
+            }
+            graphics.renderTooltip(font, resolve(region.tooltip()), mouseX, mouseY);
+            return;
+        }
     }
 
     private boolean marqueeActive(
@@ -1171,6 +1174,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private void synchronizePreviews(ViewSpec view) {
         Set<String> requested = new HashSet<>();
         Set<PreviewAssetKey> desiredSkins = new HashSet<>();
+        Set<PreviewAssetKey> desiredFeatureSkins = new HashSet<>();
         Set<String> desiredCapes = new HashSet<>();
         boolean editor = PRESET_EDITOR_SCREEN_ID.equals(view.screenId());
         for (ViewSpec.Preview preview : view.previews()) {
@@ -1182,8 +1186,11 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                             : new PreviewSlot(editor));
             PreviewAssetKey key = previewAssetKey(preview);
             if (preview.skin().optionalAssetId().isPresent() || preview.catalogImage().isPresent()) {
-                desiredSkins.add(key);
-                skinTextures.request(
+                Set<PreviewAssetKey> desired = editor ? desiredFeatureSkins : desiredSkins;
+                PreviewAssetCache<PreviewAssetKey> cache =
+                        editor ? featureSkinTextures : skinTextures;
+                desired.add(key);
+                cache.request(
                         key,
                         () -> runtime.loadSkinPreview(preview),
                         () -> runtime.reportSkinPreviewFailure(preview));
@@ -1205,6 +1212,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         }
         previewSlots.keySet().removeIf(id -> !requested.contains(id));
         skinTextures.retain(desiredSkins);
+        featureSkinTextures.retain(desiredFeatureSkins);
         capeTextures.retain(desiredCapes);
     }
 
@@ -1222,8 +1230,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             skin = borrowed.skin();
             model = borrowed.model();
         } else {
-            Optional<TextureHandle> loaded = skinTextures.handle(
-                    previewAssetKey(preview));
+            PreviewAssetCache<PreviewAssetKey> cache =
+                    slot.editor ? featureSkinTextures : skinTextures;
+            Optional<TextureHandle> loaded = cache.handle(previewAssetKey(preview));
             if (loaded.isEmpty()) {
                 return;
             }
@@ -1259,9 +1268,13 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             skinTextures.close();
         } finally {
             try {
-                capeTextures.close();
+                featureSkinTextures.close();
             } finally {
-                previewSlots.clear();
+                try {
+                    capeTextures.close();
+                } finally {
+                    previewSlots.clear();
+                }
             }
         }
     }

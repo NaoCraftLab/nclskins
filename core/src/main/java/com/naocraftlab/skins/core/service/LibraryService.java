@@ -265,10 +265,16 @@ public final class LibraryService {
                         Map.of(variant, asset.id()),
                         true);
             } else if (existingEntry.visible()) {
-                personalSkin = existingEntry.withVariant(variant, asset.id(), mutationTime);
+                personalSkin = existingEntry
+                        .withVariant(variant, asset.id(), mutationTime)
+                        .withSourcePriority(source, mutationTime);
             } else {
+                PersonalSkinSource restoredSource = existingEntry.source()
+                        == PersonalSkinSource.PLAYER_NAME
+                        ? PersonalSkinSource.PLAYER_NAME
+                        : source;
                 personalSkin = existingEntry.restored(
-                        displayName, source, variant, asset.id(), mutationTime);
+                        displayName, restoredSource, variant, asset.id(), mutationTime);
             }
             List<PersonalSkinEntry> personalSkins = replacePersonalSkin(
                     current.personalSkins(), existingEntry, personalSkin);

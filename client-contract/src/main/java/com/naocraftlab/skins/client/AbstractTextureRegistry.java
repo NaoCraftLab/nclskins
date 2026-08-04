@@ -109,7 +109,9 @@ public abstract class AbstractTextureRegistry<R> implements TextureRegistry {
     }
 
     private static int maximumBytes(TextureKind kind) {
-        return Objects.requireNonNull(kind, "kind") == TextureKind.PLAYER_SKIN
+        TextureKind requiredKind = Objects.requireNonNull(kind, "kind");
+        return requiredKind == TextureKind.PLAYER_SKIN
+                || requiredKind == TextureKind.PLAYER_SKIN_FEATURE_PRESERVING
                 ? MAX_PLAYER_SKIN_BYTES
                 : MAX_IMAGE_BYTES;
     }
@@ -155,9 +157,11 @@ public abstract class AbstractTextureRegistry<R> implements TextureRegistry {
         }
 
         byte[] sourceBytes = source.read();
-        byte[] uploadBytes = kind == TextureKind.PLAYER_SKIN
-                ? PlayerSkinTextureNormalizer.normalizePng(sourceBytes)
-                : sourceBytes;
+        byte[] uploadBytes = switch (kind) {
+            case PLAYER_SKIN -> PlayerSkinTextureNormalizer.normalizePng(sourceBytes);
+            case PLAYER_SKIN_FEATURE_PRESERVING -> PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(sourceBytes);
+            case IMAGE -> sourceBytes;
+        };
         LoadedTexture<R> loaded = Objects.requireNonNull(
                 load(kind, sha256, uploadBytes), "loadedTexture");
         TextureKey collision = handles.get(loaded.handle());

@@ -37,7 +37,8 @@ public final class MinecraftSkinCatalog {
             COLLECTION_ID,
             CatalogText.translated("nclskins.standard_skins.name", "Standard"),
             Optional.of(CatalogText.translated(
-                    "nclskins.standard_skins.description", "Standard Minecraft Java skins.")),
+                    "nclskins.standard_skins.description",
+                    "Standard Minecraft Java Edition skins")),
             Optional.of(CatalogText.translated(
                     "nclskins.standard_skins.authors", "Mojang Studios")),
             SKINS,
@@ -69,11 +70,8 @@ public final class MinecraftSkinCatalog {
         return new SkinDescriptor(
                 id,
                 CatalogText.literal(name),
-                Optional.of(CatalogText.translated(
-                        "nclskins.standard_skins.skin.description",
-                        "Standard Minecraft Java skin.")),
-                Optional.of(CatalogText.translated(
-                        "nclskins.standard_skins.authors", "Mojang Studios")),
+                Optional.empty(),
+                Optional.empty(),
                 BOTH_MODELS);
     }
 

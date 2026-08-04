@@ -36,6 +36,23 @@ class PlayerSkinTextureNormalizerTest {
     }
 
     @Test
+    void featurePreservingPolicyKeepsAlphaInsideVanillaBaseUvs() throws IOException {
+        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        source.setRGB(8, 0, 0x12123456);
+
+        BufferedImage safe = PlayerSkinTextureNormalizer.normalize(source);
+        BufferedImage featurePreserving =
+                PlayerSkinTextureNormalizer.normalizeFeaturePreserving(source);
+        byte[] roundTrip = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
+                writePng(source));
+
+        assertEquals(0xFF123456, safe.getRGB(8, 0));
+        assertEquals(0x12123456, featurePreserving.getRGB(8, 0));
+        assertEquals(0x12123456,
+                ImageIO.read(new ByteArrayInputStream(roundTrip)).getRGB(8, 0));
+    }
+
+    @Test
     void expandsLegacyLimbsWithTheCanonicalMirroredCopies() throws IOException {
         BufferedImage legacy = coordinateImage(64, 32, 0x40);
 

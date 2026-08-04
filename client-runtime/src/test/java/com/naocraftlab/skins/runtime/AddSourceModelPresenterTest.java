@@ -73,6 +73,9 @@ final class AddSourceModelPresenterTest {
         AddSourceModel slim = classic.cycleFilter();
         assertEquals(List.of("Sunny Day"), names(slim.visibleSkins(collection)));
         assertEquals(SkinVariant.SLIM, slim.selectedVariant(slim.visibleSkins(collection).get(0)));
+        assertEquals(AddSourceModel.CatalogFilter.SLIM, opened.cycleFilter(true).filter());
+        assertEquals(AddSourceModel.CatalogFilter.ALL,
+                opened.cycleFilter().cycleFilter(true).filter());
 
         ViewSpec noResults = presenter.present(opened.withQuery("missing"), false, 320, 240);
         ViewSpec.Widget catalogSearch = noResults.widget("add.catalog.search").orElseThrow();
@@ -152,12 +155,13 @@ final class AddSourceModelPresenterTest {
                         .map(SkinCatalogSource.CollectionDescriptor::id)
                         .toList());
         assertTrue(classicView.widget("add.catalog.collection:classic_only").isPresent());
-        assertTrue(classicView.widget("add.catalog.collection_info:classic_only").isPresent());
+        assertTrue(classicView.tooltipRegions().stream().anyMatch(region ->
+                region.id().equals("add.catalog.tooltip:collection:classic_only")));
         assertTrue(classicView.widget("add.catalog.skin:classic_only:classic_skin").isPresent());
         assertTrue(classicView.widget("add.catalog.collection:slim_only").isEmpty());
-        assertTrue(classicView.widget("add.catalog.collection_info:slim_only").isEmpty());
+        assertTrue(classicView.tooltipRegions().stream().noneMatch(region ->
+                region.id().contains("slim_only")));
         assertTrue(classicView.widget("add.catalog.skin:slim_only:slim_skin").isEmpty());
-        assertTrue(classicView.widget("add.catalog.skin_info:slim_only:slim_skin").isEmpty());
 
         AddSourceModel slimFilter = classicFilter.cycleFilter();
         ViewSpec slimView = presenter.present(slimFilter, false, 320, 240);
@@ -167,15 +171,17 @@ final class AddSourceModelPresenterTest {
                         .map(SkinCatalogSource.CollectionDescriptor::id)
                         .toList());
         assertTrue(slimView.widget("add.catalog.collection:classic_only").isEmpty());
-        assertTrue(slimView.widget("add.catalog.collection_info:classic_only").isEmpty());
+        assertTrue(slimView.tooltipRegions().stream().noneMatch(region ->
+                region.id().contains("classic_only")));
         assertTrue(slimView.widget("add.catalog.collection:slim_only").isPresent());
-        assertTrue(slimView.widget("add.catalog.collection_info:slim_only").isPresent());
+        assertTrue(slimView.tooltipRegions().stream().anyMatch(region ->
+                region.id().equals("add.catalog.tooltip:collection:slim_only")));
 
         AddSourceModel noClassic = openCatalog(slim).cycleFilter();
         ViewSpec emptyView = presenter.present(noClassic, false, 320, 240);
         assertTrue(noClassic.visibleCollections().isEmpty());
         assertTrue(emptyView.widget("add.catalog.collection:slim_only").isEmpty());
-        assertTrue(emptyView.widget("add.catalog.collection_info:slim_only").isEmpty());
+        assertTrue(emptyView.tooltipRegions().isEmpty());
         assertTrue(emptyView.texts().stream().anyMatch(text -> text.id().equals("add.catalog.empty")));
         assertEquals(0, presenter.maximumScroll(noClassic, 320, 240));
         assertTrue(emptyView.scrollbar().isEmpty());
@@ -337,7 +343,7 @@ final class AddSourceModelPresenterTest {
     }
 
     @Test
-    void catalogMetadataUsesFramelessInfoButtonsReservedByCollectionHeaders() {
+    void catalogMetadataUsesTooltipsOnlyOverTheRenderedNames() {
         SkinCatalogSource.SkinDescriptor skin = new SkinCatalogSource.SkinDescriptor(
                 "steve",
                 "Steve",
@@ -358,18 +364,27 @@ final class AddSourceModelPresenterTest {
                 .bounds();
 
         ViewSpec.Widget header = view.widget("add.catalog.collection:minecraft").orElseThrow();
-        assertTrue(header.collectionHeaderHasTrailingInfo());
-        assertInfoButton(view, "add.catalog.collection_info:minecraft", viewport);
-        assertInfoButton(view, "add.catalog.skin_info:minecraft:steve", viewport);
-        Bounds skinInfo = view.widget("add.catalog.skin_info:minecraft:steve")
-                .orElseThrow()
-                .bounds();
+        assertFalse(header.collectionHeaderHasTrailingInfo());
+        assertTrue(view.widgets().stream().noneMatch(widget ->
+                widget.kind() == ViewSpec.WidgetKind.INFO_BUTTON));
+        ViewSpec.TooltipRegion collectionTooltip = view.tooltipRegions().stream()
+                .filter(region -> region.id().equals("add.catalog.tooltip:collection:minecraft"))
+                .findFirst()
+                .orElseThrow();
+        ViewSpec.TooltipRegion skinTooltip = view.tooltipRegions().stream()
+                .filter(region -> region.id().equals("add.catalog.tooltip:skin:minecraft:steve"))
+                .findFirst()
+                .orElseThrow();
         Bounds skinName = view.texts().stream()
                 .filter(text -> text.id().equals("add.catalog.skin:minecraft:steve.name"))
                 .findFirst()
                 .orElseThrow()
                 .bounds();
-        assertEquals(3, skinName.x() - skinInfo.right());
+        assertEquals(skinName, skinTooltip.textBounds());
+        assertEquals(new Bounds(skinName.x() + (skinName.width() - 30) / 2,
+                skinName.y(), 30, skinName.height()), skinTooltip.hitBounds(30));
+        assertEquals(Optional.of(viewport), view.clipFor(collectionTooltip.id()));
+        assertEquals(Optional.of(viewport), view.clipFor(skinTooltip.id()));
     }
 
     @Test
@@ -473,7 +488,7 @@ final class AddSourceModelPresenterTest {
     }
 
     @Test
-    void partiallyVisibleCatalogHeadersCardsAndInfoActionsRemainClippedAndInteractive() {
+    void partiallyVisibleCatalogHeadersCardsAndNameTooltipsRemainClippedAndInteractive() {
         List<SkinCatalogSource.SkinDescriptor> skins = IntStream.range(0, 20)
                 .mapToObj(index -> new SkinCatalogSource.SkinDescriptor(
                         "skin-" + index,
@@ -496,32 +511,38 @@ final class AddSourceModelPresenterTest {
                 .findFirst()
                 .orElseThrow()
                 .bounds();
-        for (String id : List.of(
-                "add.catalog.collection:minecraft",
-                "add.catalog.collection_info:minecraft")) {
+        for (String id : List.of("add.catalog.collection:minecraft")) {
             ViewSpec.Widget widget = partialHeader.widget(id).orElseThrow();
             assertTrue(widget.bounds().y() < viewport.y());
             assertTrue(intersects(widget.bounds(), viewport));
             assertEquals(Optional.of(viewport), partialHeader.clipFor(id));
         }
+        ViewSpec.TooltipRegion headerTooltip = partialHeader.tooltipRegions().stream()
+                .filter(region -> region.id().equals("add.catalog.tooltip:collection:minecraft"))
+                .findFirst().orElseThrow();
+        assertEquals(Optional.of(viewport), partialHeader.clipFor(headerTooltip.id()));
 
         ViewSpec headerSliver = presenter.present(model.withScrollOffset(15), false, 320, 240);
         assertTrue(headerSliver.widget("add.catalog.collection:minecraft").isPresent());
-        assertTrue(headerSliver.widget("add.catalog.collection_info:minecraft").isEmpty());
+        assertTrue(headerSliver.tooltipRegions().stream().anyMatch(region ->
+                region.id().equals("add.catalog.tooltip:collection:minecraft")));
 
         ViewSpec partialCard = presenter.present(model.withScrollOffset(24), false, 320, 240);
-        for (String id : List.of(
-                "add.catalog.skin:minecraft:skin-0",
-                "add.catalog.skin_info:minecraft:skin-0")) {
+        for (String id : List.of("add.catalog.skin:minecraft:skin-0")) {
             ViewSpec.Widget widget = partialCard.widget(id).orElseThrow();
             assertTrue(widget.bounds().y() < viewport.y());
             assertTrue(intersects(widget.bounds(), viewport));
             assertEquals(Optional.of(viewport), partialCard.clipFor(id));
         }
+        ViewSpec.TooltipRegion skinTooltip = partialCard.tooltipRegions().stream()
+                .filter(region -> region.id().equals("add.catalog.tooltip:skin:minecraft:skin-0"))
+                .findFirst().orElseThrow();
+        assertEquals(Optional.of(viewport), partialCard.clipFor(skinTooltip.id()));
 
         ViewSpec cardSliver = presenter.present(model.withScrollOffset(37), false, 320, 240);
         assertTrue(cardSliver.widget("add.catalog.skin:minecraft:skin-0").isPresent());
-        assertTrue(cardSliver.widget("add.catalog.skin_info:minecraft:skin-0").isEmpty());
+        assertTrue(cardSliver.tooltipRegions().stream().noneMatch(region ->
+                region.id().equals("add.catalog.tooltip:skin:minecraft:skin-0")));
     }
 
     @Test
@@ -656,17 +677,15 @@ final class AddSourceModelPresenterTest {
 
         ViewSpec view = presenter.present(model, false, 1600, 720);
         ViewSpec.Widget delete = view.widget("add.catalog.delete:" + personalHash).orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.CATALOG_DELETE, delete.kind());
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, delete.kind());
         assertEquals("nclskins.your_skins.delete", delete.label().key());
         assertEquals(List.of("Local hero"), delete.label().arguments());
         assertTrue(delete.visible());
         assertTrue(delete.enabled());
-        assertEquals(
-                List.of("add.catalog.delete:" + personalHash),
-                view.widgets().stream()
-                        .filter(widget -> widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE)
-                        .map(ViewSpec.Widget::id)
-                        .toList());
+        ViewSpec.Widget rename = view.widget("add.catalog.rename:" + personalHash).orElseThrow();
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, rename.kind());
+        assertEquals(Optional.of("edit"), rename.icon());
+        assertEquals(Optional.of("delete"), delete.icon());
         assertTrue(view.widget("add.catalog.skin:alpha:external").isPresent());
         assertTrue(view.widget("add.catalog.delete:external").isEmpty());
 
@@ -678,6 +697,9 @@ final class AddSourceModelPresenterTest {
                 .bounds();
         assertTrue(card.contains(delete.bounds().x(), delete.bounds().y()));
         assertTrue(card.contains(delete.bounds().right() - 1, delete.bounds().bottom() - 1));
+        assertEquals(2, rename.bounds().x() - card.x());
+        assertEquals(2, delete.bounds().x() - rename.bounds().right());
+        assertEquals(2, card.right() - delete.bounds().right());
     }
 
     @Test
@@ -759,38 +781,19 @@ final class AddSourceModelPresenterTest {
         AddSourceModel confirmation = catalog.requestPersonalSkinDeletion(personal, personalSkin);
         ViewSpec confirmationView = presenter.present(confirmation, false, 320, 240);
 
-        assertEquals("personal_skin_delete", confirmationView.screenId());
-        assertTrue(confirmationView.tabGroups().isEmpty());
-        assertEquals(
-                new Bounds(0, 0, 320, 33),
-                confirmationView.panels().stream()
-                        .filter(panel -> panel.id().equals("personal_delete.header"))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds());
-        assertEquals(
-                new Bounds(0, 207, 320, 33),
-                confirmationView.panels().stream()
-                        .filter(panel -> panel.id().equals("personal_delete.footer"))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds());
-        assertTrue(confirmationView.previews().isEmpty());
-        assertTrue(confirmationView.scrollbar().isEmpty());
+        assertEquals("add_source", confirmationView.screenId());
+        assertFalse(confirmationView.tabGroups().isEmpty());
+        assertFalse(confirmationView.previews().isEmpty());
+        assertEquals(catalog.query(), confirmation.query());
+        assertEquals(catalog.filter(), confirmation.filter());
         assertTrue(confirmationView.widget("add.catalog.delete.confirm").orElseThrow().enabled());
         assertTrue(confirmationView.widget("add.catalog.delete.cancel").orElseThrow().enabled());
         assertEquals(
                 "add.catalog.delete.cancel",
                 confirmationView.focusRequest().orElseThrow().widgetId());
         assertTrue(confirmation.focusToken().orElseThrow() > catalog.focusToken().orElseThrow());
-        assertEquals(
-                List.of("Your hero"),
-                confirmationView.texts().stream()
-                        .filter(text -> text.id().equals("personal_delete.question"))
-                        .findFirst()
-                        .orElseThrow()
-                        .message()
-                        .arguments());
+        assertTrue(confirmationView.widget("add.catalog.rename:" + personalHash).isEmpty());
+        assertTrue(confirmationView.widget("add.catalog.delete:" + personalHash).isEmpty());
 
         ViewSpec busyView = presenter.present(confirmation, true, 320, 240);
         assertFalse(busyView.widget("add.catalog.delete.confirm").orElseThrow().enabled());

@@ -5,6 +5,7 @@ import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
+import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
@@ -293,12 +294,38 @@ class LibraryServiceTest {
         assertEquals(3, stored.presets().size());
         var personal = stored.personalSkins().get(0);
         assertEquals("First file", personal.displayName());
-        assertEquals(PersonalSkinSource.FILE, personal.source());
+        assertEquals(PersonalSkinSource.PLAYER_NAME, personal.source());
         assertEquals(first.asset().id(), personal.optionalAssetId(SkinVariant.CLASSIC).orElseThrow());
         assertEquals(second.asset().id(), personal.optionalAssetId(SkinVariant.SLIM).orElseThrow());
         assertEquals(first.asset().id(), repeated.asset().id());
         assertTrue(personal.updatedAt().isAfter(personal.addedAt()));
         assertEquals(stored, repeated.state());
+    }
+
+    @Test
+    void playerLookupSourcePromotesExistingHashAndNeverDemotesIt() throws Exception {
+        LibraryService library = library();
+        UUID accountId = UUID.randomUUID();
+        byte[] png = TestPng.create(64, 64);
+
+        library.createPresetFromPersonalSkin(
+                accountId, "File", "File", SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE, png, null);
+        library.createPresetFromPersonalSkin(
+                accountId, "Player", "Player", SkinVariant.CLASSIC,
+                PersonalSkinSource.PLAYER_NAME, png, null);
+        library.createPresetFromPersonalSkin(
+                accountId, "URL", "URL", SkinVariant.CLASSIC,
+                PersonalSkinSource.URL, png, null);
+
+        PersonalSkinEntry promoted = library.load(accountId).personalSkins().get(0);
+        assertEquals(PersonalSkinSource.PLAYER_NAME, promoted.source());
+
+        library.hidePersonalSkin(accountId, promoted.sha256());
+        SavedPersonalSkinPreset restored = library.createPresetFromPersonalSkin(
+                accountId, "Restored", "Restored", SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE, png, null);
+        assertEquals(PersonalSkinSource.PLAYER_NAME, restored.personalSkin().source());
     }
 
     @Test

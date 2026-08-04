@@ -18,6 +18,17 @@ public final class PlayerSkinTextureNormalizer {
 
 
     public static byte[] normalizePng(byte[] pngBytes) throws IOException {
+        return normalizePng(pngBytes, false);
+    }
+
+
+    public static byte[] normalizeFeaturePreservingPng(byte[] pngBytes) throws IOException {
+        return normalizePng(pngBytes, true);
+    }
+
+
+    private static byte[] normalizePng(byte[] pngBytes, boolean preserveFeatureAlpha)
+            throws IOException {
         Objects.requireNonNull(pngBytes, "pngBytes");
         BufferedImage decoded;
         try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {
@@ -27,7 +38,7 @@ public final class PlayerSkinTextureNormalizer {
             throw new IOException("Player skin is not a decodable PNG image");
         }
 
-        BufferedImage normalized = normalize(decoded);
+        BufferedImage normalized = normalize(decoded, preserveFeatureAlpha);
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         if (!ImageIO.write(normalized, "png", output)) {
             throw new IOException("No PNG writer is available");
@@ -37,6 +48,18 @@ public final class PlayerSkinTextureNormalizer {
 
 
     public static BufferedImage normalize(BufferedImage source) throws IOException {
+        return normalize(source, false);
+    }
+
+
+    public static BufferedImage normalizeFeaturePreserving(BufferedImage source)
+            throws IOException {
+        return normalize(source, true);
+    }
+
+
+    private static BufferedImage normalize(
+            BufferedImage source, boolean preserveFeatureAlpha) throws IOException {
         Objects.requireNonNull(source, "source");
         int width = source.getWidth();
         int height = source.getHeight();
@@ -65,18 +88,20 @@ public final class PlayerSkinTextureNormalizer {
             copyRect(image, 52, 20, -8, 32, 4, 12, true, false);
         }
 
-        setOpaque(image, 8, 0, 24, 8);
-        setOpaque(image, 0, 8, 32, 16);
         if (legacy) {
             clearFullyOpaqueLegacyOverlay(image, 32, 0, 64, 32);
         }
-        setOpaque(image, 4, 16, 12, 20);
-        setOpaque(image, 20, 16, 36, 20);
-        setOpaque(image, 44, 16, 52, 20);
-        setOpaque(image, 0, 20, 64, 32);
-        setOpaque(image, 20, 48, 28, 52);
-        setOpaque(image, 36, 48, 44, 52);
-        setOpaque(image, 16, 52, 48, 64);
+        if (!preserveFeatureAlpha) {
+            setOpaque(image, 8, 0, 24, 8);
+            setOpaque(image, 0, 8, 32, 16);
+            setOpaque(image, 4, 16, 12, 20);
+            setOpaque(image, 20, 16, 36, 20);
+            setOpaque(image, 44, 16, 52, 20);
+            setOpaque(image, 0, 20, 64, 32);
+            setOpaque(image, 20, 48, 28, 52);
+            setOpaque(image, 36, 48, 44, 52);
+            setOpaque(image, 16, 52, 48, 64);
+        }
         return image;
     }
 

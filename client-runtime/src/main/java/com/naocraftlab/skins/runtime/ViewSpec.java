@@ -27,7 +27,8 @@ public record ViewSpec(
         List<ClipRegion> clipRegions,
         List<BackEquipmentPreview> backEquipmentPreviews,
         List<IconDecoration> iconDecorations,
-        List<ScrollSurface> scrollSurfaces) {
+        List<ScrollSurface> scrollSurfaces,
+        List<TooltipRegion> tooltipRegions) {
     public ViewSpec(
             String screenId,
             UiMessage title,
@@ -50,6 +51,7 @@ public record ViewSpec(
                 scrollbar,
                 List.of(),
                 Optional.empty(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -80,6 +82,7 @@ public record ViewSpec(
                 scrollbar,
                 tabGroups,
                 focusRequest,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -115,6 +118,7 @@ public record ViewSpec(
                 clipRegions,
                 backEquipmentPreviews,
                 List.of(),
+                List.of(),
                 List.of());
     }
 
@@ -148,6 +152,42 @@ public record ViewSpec(
                 clipRegions,
                 backEquipmentPreviews,
                 iconDecorations,
+                List.of(),
+                List.of());
+    }
+
+    public ViewSpec(
+            String screenId,
+            UiMessage title,
+            int width,
+            int height,
+            List<Panel> panels,
+            List<Text> texts,
+            List<Widget> widgets,
+            List<Preview> previews,
+            Optional<Scrollbar> scrollbar,
+            List<TabGroup> tabGroups,
+            Optional<FocusRequest> focusRequest,
+            List<ClipRegion> clipRegions,
+            List<BackEquipmentPreview> backEquipmentPreviews,
+            List<IconDecoration> iconDecorations,
+            List<ScrollSurface> scrollSurfaces) {
+        this(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                widgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                focusRequest,
+                clipRegions,
+                backEquipmentPreviews,
+                iconDecorations,
+                scrollSurfaces,
                 List.of());
     }
 
@@ -169,8 +209,37 @@ public record ViewSpec(
                 backEquipmentPreviews, "backEquipmentPreviews"));
         iconDecorations = List.copyOf(Objects.requireNonNull(iconDecorations, "iconDecorations"));
         scrollSurfaces = List.copyOf(Objects.requireNonNull(scrollSurfaces, "scrollSurfaces"));
+        tooltipRegions = List.copyOf(Objects.requireNonNull(tooltipRegions, "tooltipRegions"));
         if (scrollSurfaces.stream().map(ScrollSurface::id).distinct().count() != scrollSurfaces.size()) {
             throw new IllegalArgumentException("scroll surface ids must be unique");
+        }
+    }
+
+    public record TooltipRegion(
+            String id,
+            Bounds textBounds,
+            UiMessage text,
+            Text.Alignment alignment,
+            UiMessage tooltip) {
+        public TooltipRegion {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(textBounds, "textBounds");
+            Objects.requireNonNull(text, "text");
+            Objects.requireNonNull(alignment, "alignment");
+            Objects.requireNonNull(tooltip, "tooltip");
+            if (id.isBlank()) {
+                throw new IllegalArgumentException("tooltip region id must not be blank");
+            }
+        }
+
+        public Bounds hitBounds(int textPixelWidth) {
+            int width = Math.max(1, Math.min(textBounds.width(), textPixelWidth));
+            int x = switch (alignment) {
+                case LEFT -> textBounds.x();
+                case CENTER -> textBounds.x() + (textBounds.width() - width) / 2;
+                case RIGHT -> textBounds.right() - width;
+            };
+            return new Bounds(x, textBounds.y(), width, textBounds.height());
         }
     }
 

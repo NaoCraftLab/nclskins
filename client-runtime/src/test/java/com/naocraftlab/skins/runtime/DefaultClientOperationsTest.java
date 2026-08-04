@@ -4,6 +4,7 @@ import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.ExpectedAppearance;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.MinecraftSkinCatalog;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.ResourcePackSkinCatalog;
@@ -17,6 +18,7 @@ import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
 import com.naocraftlab.skins.core.model.MutationResult;
+import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
@@ -575,6 +577,42 @@ final class DefaultClientOperationsTest {
         assertEquals(4, restored.account().presets().size());
         assertEquals(PersonalSkinCatalog.COLLECTION_ID, operations.catalogCollections().get(0).id());
         assertNotEquals(classic.presetId(), slim.presetId());
+    }
+
+    @Test
+    void playerImportsUseTheirOwnCollectionAndPermanentlyPromoteMatchingContent()
+            throws Exception {
+        byte[] localPng = skinPng(0xFF285A7C);
+        byte[] playerPng = skinPng(0xFF7C5A28);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), storage(), ignored -> localPng.clone(), fixedClock());
+        operations.initialize();
+
+        savePersonal(operations, localPng, "Local", PersonalSkinSource.FILE);
+        savePersonal(operations, playerPng, "Player", PersonalSkinSource.PLAYER_NAME);
+
+        assertEquals(
+                List.of(
+                        PersonalSkinCatalog.COLLECTION_ID,
+                        PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID),
+                operations.catalogCollections().stream()
+                        .filter(collection -> PersonalSkinCatalog.isCollection(collection.id()))
+                        .map(SkinCatalogSource.CollectionDescriptor::id)
+                        .toList());
+
+        savePersonal(operations, localPng, "Promoted", PersonalSkinSource.PLAYER_NAME);
+        assertEquals(
+                List.of(PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID),
+                operations.catalogCollections().stream()
+                        .filter(collection -> PersonalSkinCatalog.isCollection(collection.id()))
+                        .map(SkinCatalogSource.CollectionDescriptor::id)
+                        .toList());
+
+        savePersonal(operations, localPng, "Still player", PersonalSkinSource.FILE);
+        assertTrue(operations.catalogCollections().stream()
+                .filter(collection -> PersonalSkinCatalog.isCollection(collection.id()))
+                .allMatch(collection ->
+                        collection.id().equals(PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID)));
     }
 
     @Test
@@ -2893,6 +2931,25 @@ final class DefaultClientOperationsTest {
         assertEquals(key, resolved.platformProfile().cape().orElseThrow().sha256());
         assertEquals(cache.cachePath(key), resolved.platformProfile().cape().orElseThrow().path());
         assertEquals(0, remoteCalls.get());
+    }
+
+    private static void savePersonal(
+            DefaultClientOperations operations,
+            byte[] png,
+            String name,
+            PersonalSkinSource source) throws Exception {
+        operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                name,
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                OuterLayerVisibility.allVisible(),
+                Optional.of(png),
+                Optional.empty(),
+                Optional.of(name),
+                source));
     }
 
     private static GameSessionTokenSource tokens() {

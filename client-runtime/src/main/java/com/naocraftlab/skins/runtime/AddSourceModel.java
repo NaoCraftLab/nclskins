@@ -2,6 +2,7 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
+import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
@@ -29,6 +30,14 @@ public final class AddSourceModel {
                 case ALL -> CLASSIC;
                 case CLASSIC -> SLIM;
                 case SLIM -> ALL;
+            };
+        }
+
+        public CatalogFilter previous() {
+            return switch (this) {
+                case ALL -> SLIM;
+                case CLASSIC -> ALL;
+                case SLIM -> CLASSIC;
             };
         }
     }
@@ -242,7 +251,11 @@ public final class AddSourceModel {
     }
 
     public AddSourceModel cycleFilter() {
-        CatalogFilter nextFilter = filter.next();
+        return cycleFilter(false);
+    }
+
+    public AddSourceModel cycleFilter(boolean reverse) {
+        CatalogFilter nextFilter = reverse ? filter.previous() : filter.next();
         SkinVariant nextPreferred = switch (nextFilter) {
             case CLASSIC -> SkinVariant.CLASSIC;
             case SLIM -> SkinVariant.SLIM;
@@ -324,7 +337,10 @@ public final class AddSourceModel {
                 nextFocus,
                 Optional.of("add.catalog.delete.cancel"),
                 Optional.of(new PersonalSkinDeletion(
-                        skin.id(), skinName(skin), "add.catalog.delete:" + skin.id())),
+                        collection.id(),
+                        skin.id(),
+                        skinName(skin),
+                        "add.catalog.delete:" + skin.id())),
                 textResolver);
     }
 
@@ -354,7 +370,7 @@ public final class AddSourceModel {
                 () -> new IllegalStateException("no personal skin deletion is pending"));
         List<SkinCatalogSource.CollectionDescriptor> sortedCollections = collections();
         SkinCatalogSource.CollectionDescriptor personal = sortedCollections.stream()
-                .filter(collection -> collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL)
+                .filter(collection -> collection.id().equals(deletion.collectionId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("personal collection is unavailable"));
         List<SkinCatalogSource.SkinDescriptor> visible = visibleSkins(personal);
@@ -472,10 +488,8 @@ public final class AddSourceModel {
     public Optional<String> skinInfo(
             SkinCatalogSource.CollectionDescriptor collection,
             SkinCatalogSource.SkinDescriptor skin) {
-        Optional<CatalogText> authors = skin.authorsText().isPresent()
-                ? skin.authorsText()
-                : collection.authorsText();
-        return metadata(skin.descriptionText(), authors);
+        Objects.requireNonNull(collection, "collection");
+        return metadata(skin.descriptionText(), skin.authorsText());
     }
 
     private Optional<String> metadata(
@@ -609,6 +623,7 @@ public final class AddSourceModel {
             Map<String, String> names) {
         return Comparator
                 .comparingInt(AddSourceModel::collectionGroup)
+                .thenComparingInt(AddSourceModel::personalCollectionOrder)
                 .thenComparingInt(collection -> collection.order().sourceOrderKnown()
                         ? collection.order().sourceOrder()
                         : Integer.MAX_VALUE)
@@ -628,6 +643,18 @@ public final class AddSourceModel {
         return collection.order().sourceOrderKnown() ? 1 : 2;
     }
 
+    private static int personalCollectionOrder(
+            SkinCatalogSource.CollectionDescriptor collection) {
+        if (PersonalSkinCatalog.COLLECTION_ID.equals(collection.id())) {
+            return 0;
+        }
+        if (PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID
+                .equals(collection.id())) {
+            return 1;
+        }
+        return 2;
+    }
+
     private String resolve(CatalogText text) {
         String resolved = Objects.requireNonNull(
                 textResolver.resolve(text), "resolved catalog text");
@@ -635,12 +662,17 @@ public final class AddSourceModel {
     }
 
     public record PersonalSkinDeletion(
-            String sha256, String displayName, String returnFocusWidgetId) {
+            String collectionId,
+            String sha256,
+            String displayName,
+            String returnFocusWidgetId) {
         public PersonalSkinDeletion {
+            Objects.requireNonNull(collectionId, "collectionId");
             Objects.requireNonNull(sha256, "sha256");
             Objects.requireNonNull(displayName, "displayName");
             Objects.requireNonNull(returnFocusWidgetId, "returnFocusWidgetId");
-            if (!sha256.matches("[0-9a-f]{64}")
+            if (collectionId.isBlank()
+                    || !sha256.matches("[0-9a-f]{64}")
                     || displayName.isBlank()
                     || returnFocusWidgetId.isBlank()) {
                 throw new IllegalArgumentException("invalid personal skin deletion");
