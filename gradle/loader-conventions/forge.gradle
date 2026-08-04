@@ -61,7 +61,11 @@ minecraft {
             }
         }
 
-        client {}
+        client {
+            nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
+                args argument
+            }
+        }
         server {
             args '--nogui'
         }

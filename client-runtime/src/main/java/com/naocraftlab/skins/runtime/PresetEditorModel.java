@@ -182,6 +182,46 @@ public final class PresetEditorModel {
                                 .orElseGet(OuterLayerVisibility::allVisible)));
     }
 
+    public static PresetEditorModel openDuplicate(
+            AccountState state,
+            AppearancePreset source,
+            String duplicateName,
+            Optional<RemoteProfile> profile,
+            Optional<UUID> activePresetId,
+            TextResolver textResolver,
+            int viewportHeight,
+            PreviewRenderer.CapeMode preferredCapeMode,
+            SkinVariant accountDefaultVariant,
+            List<OwnedCapeEntry> cachedCapes) {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(duplicateName, "duplicateName");
+        PresetEditorModel sourceSnapshot = open(
+                state,
+                Optional.of(source),
+                profile,
+                activePresetId,
+                textResolver,
+                viewportHeight,
+                preferredCapeMode,
+                accountDefaultVariant,
+                cachedCapes);
+        return new PresetEditorModel(
+                Optional.empty(),
+                duplicateName,
+                sourceSnapshot.skin,
+                sourceSnapshot.initialVariant,
+                sourceSnapshot.variant,
+                sourceSnapshot.capeId,
+                sourceSnapshot.capeChoices,
+                sourceSnapshot.png,
+                sourceSnapshot.catalogOrigin,
+                sourceSnapshot.catalogVariants,
+                sourceSnapshot.reusableCatalogVariants,
+                false,
+                Optional.empty(),
+                sourceSnapshot.preview);
+    }
+
     public static PresetEditorModel openCatalog(
             String name,
             CatalogOrigin origin,
@@ -665,7 +705,16 @@ public final class PresetEditorModel {
                 List.of(),
                 Optional.empty(),
                 clipRegions,
-                capeTextures);
+                capeTextures,
+                List.of(),
+                capeGallery.maximum() <= 0
+                        ? List.of()
+                        : List.of(new ViewSpec.ScrollSurface(
+                        "editor.capes",
+                        capeGallery.viewport(),
+                        ViewSpec.Scrollbar.Orientation.VERTICAL,
+                        capeGallery.position(),
+                        capeGallery.maximum())));
     }
 
     public int maximumCapeScroll(int width, int height) {

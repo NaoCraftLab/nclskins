@@ -1,12 +1,13 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.client.PreviewRenderer;
-import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -77,6 +78,7 @@ public final class AddSourcePresenter {
                         !busy));
 
         Optional<ViewSpec.Scrollbar> scrollbar = Optional.empty();
+        List<ViewSpec.ScrollSurface> scrollSurfaces = List.of();
         if (model.selectedTab() == AddSourceTab.FILE) {
             int contentWidth = Math.min(520, Math.max(220, width - 32));
             int contentX = (width - contentWidth) / 2;
@@ -163,6 +165,14 @@ public final class AddSourcePresenter {
                             "add.catalog.rename.",
                             "add.catalog.delete:")));
             scrollbar = layout.scrollbar();
+            if (layout.maximum() > 0) {
+                scrollSurfaces = List.of(new ViewSpec.ScrollSurface(
+                        "add.catalog",
+                        new Bounds(0, CONTENT_TOP, width, Math.max(1, layout.contentBottom() - CONTENT_TOP)),
+                        ViewSpec.Scrollbar.Orientation.VERTICAL,
+                        Math.min(model.scrollOffset(), layout.maximum()),
+                        layout.maximum()));
+            }
             if (layout.matchingSkinCount() == 0) {
                 texts.add(new ViewSpec.Text(
                         "add.catalog.empty",
@@ -193,7 +203,9 @@ public final class AddSourcePresenter {
                 List.of(new ViewSpec.TabGroup("add.tabs", new Bounds(0, 0, width, 24), tabs)),
                 focus,
                 clipRegions,
-                List.of());
+                List.of(),
+                List.of(),
+                scrollSurfaces);
     }
 
     private static ViewSpec presentPersonalSkinDeletion(
@@ -413,7 +425,10 @@ public final class AddSourcePresenter {
                         prefix + ".name",
                         nameBounds,
                         UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO),
-                        ViewSpec.Text.Alignment.CENTER));
+                            ViewSpec.Text.Alignment.CENTER,
+                            Optional.of(new ViewSpec.MarqueeActivation(
+                                    card,
+                                    catalogMarqueeFocusIds(collection, skin, skinInfo.isPresent(), prefix)))));
                 }
                 Bounds previewBounds = new Bounds(
                         card.x() + 5,
@@ -477,6 +492,23 @@ public final class AddSourcePresenter {
             String id, Bounds bounds, String info, boolean enabled) {
         return ViewSpec.Widget.infoButton(
                 id, bounds, UiMessage.literal(info, UiMessage.Severity.INFO), enabled);
+    }
+
+    private static List<String> catalogMarqueeFocusIds(
+            SkinCatalogSource.CollectionDescriptor collection,
+            SkinCatalogSource.SkinDescriptor skin,
+            boolean hasInfo,
+            String cardId) {
+        List<String> ids = new ArrayList<>();
+        ids.add(cardId);
+        if (hasInfo) {
+            ids.add("add.catalog.skin_info:" + collection.id() + ":" + skin.id());
+        }
+        if (collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL) {
+            ids.add("add.catalog.rename:" + skin.id());
+            ids.add("add.catalog.delete:" + skin.id());
+        }
+        return List.copyOf(ids);
     }
 
     public record PersonalSkinRename(String sha256, String value) {

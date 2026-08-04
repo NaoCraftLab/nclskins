@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.regex.Pattern
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -19,11 +20,79 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(5, catalog.schemaVersion)
+        assertEquals(6, catalog.schemaVersion)
+        assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
         assertEquals(LinkedHashMap, catalog.targets.first().getClass())
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void clientUuidIsCanonicalCatalogOwnedAndUsedByEveryClientRun() {
+        List<String> expected = ['--uuid', '00000000-0000-0000-0000-000000000001']
+        assertEquals(expected, CatalogTools.clientArguments(catalog))
+        catalog.targets.each { Map target ->
+            assertEquals(expected, CatalogTools.clientArguments(catalog), target.id.toString())
+        }
+
+        Map missing = cloneMap(catalog)
+        missing.remove('development')
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, missing) }
+        assertThrows(IllegalArgumentException) { CatalogTools.clientArguments(missing) }
+
+        Map extra = cloneMap(catalog)
+        extra.development.unexpected = true
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, extra) }
+        assertThrows(IllegalArgumentException) { CatalogTools.clientArguments(extra) }
+
+        ['00000000-0000-0000-0000-00000000001',
+         'AAAAAAAA-0000-0000-0000-000000000001',
+         'not-a-uuid'].each { String invalidUuid ->
+            Map invalid = cloneMap(catalog)
+            invalid.development.clientUuid = invalidUuid
+            assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, invalid) }
+            assertThrows(IllegalArgumentException) { CatalogTools.clientArguments(invalid) }
+        }
+    }
+
+    @Test
+    void loaderAndCompatibilityClientRunsReceiveUuidWithoutServerLeakage() {
+        Map<String, String> loaderScripts = [
+                fabric  : new File(repository, 'gradle/loader-conventions/fabric.gradle').text,
+                forge   : new File(repository, 'gradle/loader-conventions/forge.gradle').text,
+                neoforge: new File(repository, 'gradle/loader-conventions/neoforge.gradle').text
+        ]
+        loaderScripts.each { String loader, String script ->
+            String helperCall = 'nclskinsCatalogTools.clientArguments(targetCatalog)'
+            assertEquals(1, occurrences(script, helperCall), loader)
+            int clientStart = script.indexOf('client {')
+            int serverStart = script.indexOf('server {', clientStart)
+            int helperStart = script.indexOf(helperCall)
+            assertTrue(clientStart >= 0 && helperStart > clientStart, loader)
+            if (serverStart >= 0) {
+                assertTrue(helperStart < serverStart, loader)
+                assertFalse(script.substring(serverStart).contains(helperCall), loader)
+            } else {
+                assertEquals('fabric', loader)
+            }
+        }
+
+        File fixtureJar = new File(repository, 'build/compatibility-runs/test-fixture.jar')
+        catalog.targets.findAll { it.containsKey('compatibility') }.each { Map target ->
+            Map runtime = CatalogTools.compatibilityRuntime(target, target.minecraft.version.toString())
+            String script = CompatibilityHarness.buildFile(repository, catalog, target, runtime, fixtureJar)
+            assertEquals(1, occurrences(script, "'--uuid'"), target.id.toString())
+            assertEquals(1, occurrences(script, "'00000000-0000-0000-0000-000000000001'"), target.id.toString())
+            int serverStart = script.indexOf('        server {')
+            if (serverStart < 0) {
+                serverStart = script.indexOf("tasks.named('runServer'")
+            }
+            assertTrue(serverStart >= 0, target.id.toString())
+            String serverRun = script.substring(serverStart)
+            assertFalse(serverRun.contains('--uuid'), target.id.toString())
+            assertFalse(serverRun.contains('00000000-0000-0000-0000-000000000001'), target.id.toString())
+        }
     }
 
     @Test
@@ -33,7 +102,7 @@ final class BuildLogicTest {
         Map family = catalog.targets.find { it.id == 'fabric-26.1' } as Map
         assertEquals(['26.1', '26.1.1', '26.1.2'], family.compatibility.minecraftVersions)
         assertEquals(
-                [minecraftVersion: '26.1.2', loaderVersion: '0.19.2'],
+                [minecraftVersion: '26.1.2', loaderVersion: '0.19.3'],
                 CatalogTools.compatibilityRuntime(family, '26.1.2'))
         assertThrows(IllegalArgumentException) {
             CatalogTools.compatibilityRuntime(family, '26.1.3')
@@ -95,7 +164,7 @@ final class BuildLogicTest {
                 assertEquals("[${target.minecraft.version},)".toString(), target.minecraft.predicate)
             }
         }
-        assertEquals(['0.19.2'] as Set, catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
+        assertEquals(['0.19.3'] as Set, catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
     }
 
     @Test
@@ -302,5 +371,9 @@ final class BuildLogicTest {
 
     private static Map cloneMap(Map value) {
         new JsonSlurper().parseText(JsonOutput.toJson(value)) as Map
+    }
+
+    private static int occurrences(String value, String needle) {
+        value.split(Pattern.quote(needle), -1).length - 1
     }
 }

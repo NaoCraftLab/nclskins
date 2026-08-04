@@ -1,15 +1,16 @@
 package com.naocraftlab.skins.core.storage;
 
 import com.naocraftlab.skins.core.model.AccountAppearanceState;
-import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
-import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngInfo;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -377,6 +378,130 @@ public final class NclSkinsStorage {
             Objects.requireNonNull(account, "account");
             Objects.requireNonNull(state, "state");
             if (!account.accountId().equals(state.accountId())) {
+                throw new IllegalArgumentException("Account and appearance UUIDs differ");
+            }
+        }
+    }
+
+
+    @SuppressWarnings("try")
+    public AccountAppearanceMutationResult mutateAccountAndAppearance(
+            UUID accountId,
+            AccountAppearanceMutation mutation) throws IOException {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(mutation, "mutation");
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            Path statePath = layout.accountState(accountId);
+            Path backupPath = layout.accountBackup(accountId);
+            AccountState currentAccount = !Files.exists(statePath) && !Files.exists(backupPath)
+                    ? AccountState.empty(accountId, clock.instant())
+                    : loadAccountLocked(accountId);
+            AccountAppearanceState currentAppearance = loadAppearanceLocked(accountId);
+            long nextRevision = currentAppearance.intentRevision() == Long.MAX_VALUE
+                    ? Long.MAX_VALUE
+                    : currentAppearance.intentRevision() + 1;
+            AccountAppearanceMutationPlan plan = Objects.requireNonNull(
+                    mutation.apply(currentAccount, currentAppearance, nextRevision),
+                    "mutation result");
+            validateAccountAppearanceMutation(
+                    accountId, currentAccount, currentAppearance, nextRevision, plan);
+
+            if (plan.appearanceUpdated()) {
+                AtomicFileWriter.replace(
+                        layout.accountAppearance(accountId),
+                        appearanceStateJson.encode(plan.appearance()));
+            }
+            if (plan.accountUpdated()) {
+                saveAccountLocked(plan.account());
+            }
+            return new AccountAppearanceMutationResult(
+                    plan.account(),
+                    plan.appearance(),
+                    plan.accountUpdated(),
+                    plan.appearanceUpdated());
+        }
+    }
+
+
+    private static void validateAccountAppearanceMutation(
+            UUID accountId,
+            AccountState currentAccount,
+            AccountAppearanceState currentAppearance,
+            long nextRevision,
+            AccountAppearanceMutationPlan plan) throws StorageException {
+        if (!accountId.equals(plan.account().accountId())
+                || !accountId.equals(plan.appearance().accountId())) {
+            throw new IllegalArgumentException("Account/appearance mutation changed the account UUID");
+        }
+        if (!plan.accountUpdated() && !plan.account().equals(currentAccount)) {
+            throw new IllegalArgumentException("Account mutation changed state without requesting persistence");
+        }
+        if (!plan.appearanceUpdated() && !plan.appearance().equals(currentAppearance)) {
+            throw new IllegalArgumentException("Appearance mutation changed state without requesting persistence");
+        }
+        if (plan.appearanceUpdated()) {
+            if (currentAppearance.intentRevision() == Long.MAX_VALUE) {
+                throw new StorageException(
+                        StorageException.Code.INVALID_STATE,
+                        "Appearance intent revision is exhausted");
+            }
+            if (plan.appearance().intentRevision() != nextRevision) {
+                throw new IllegalArgumentException(
+                        "Appearance mutation did not use the allocated revision");
+            }
+        }
+    }
+
+
+    @FunctionalInterface
+    public interface AccountAppearanceMutation {
+        AccountAppearanceMutationPlan apply(
+                AccountState account,
+                AccountAppearanceState appearance,
+                long nextIntentRevision);
+    }
+
+
+    public record AccountAppearanceMutationPlan(
+            AccountState account,
+            AccountAppearanceState appearance,
+            boolean accountUpdated,
+            boolean appearanceUpdated) {
+        public AccountAppearanceMutationPlan {
+            Objects.requireNonNull(account, "account");
+            Objects.requireNonNull(appearance, "appearance");
+        }
+
+        public static AccountAppearanceMutationPlan accountOnly(
+                AccountState account,
+                AccountAppearanceState appearance) {
+            return new AccountAppearanceMutationPlan(account, appearance, true, false);
+        }
+
+        public static AccountAppearanceMutationPlan appearanceOnly(
+                AccountState account,
+                AccountAppearanceState appearance) {
+            return new AccountAppearanceMutationPlan(account, appearance, false, true);
+        }
+
+        public static AccountAppearanceMutationPlan both(
+                AccountState account,
+                AccountAppearanceState appearance) {
+            return new AccountAppearanceMutationPlan(account, appearance, true, true);
+        }
+    }
+
+
+    public record AccountAppearanceMutationResult(
+            AccountState account,
+            AccountAppearanceState appearance,
+            boolean accountUpdated,
+            boolean appearanceUpdated) {
+        public AccountAppearanceMutationResult {
+            Objects.requireNonNull(account, "account");
+            Objects.requireNonNull(appearance, "appearance");
+            if (!account.accountId().equals(appearance.accountId())) {
                 throw new IllegalArgumentException("Account and appearance UUIDs differ");
             }
         }

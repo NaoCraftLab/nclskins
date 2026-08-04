@@ -25,7 +25,8 @@ public record ViewSpec(
         Optional<FocusRequest> focusRequest,
         List<ClipRegion> clipRegions,
         List<CapeTexture> capeTextures,
-        List<IconDecoration> iconDecorations) {
+        List<IconDecoration> iconDecorations,
+        List<ScrollSurface> scrollSurfaces) {
     public ViewSpec(
             String screenId,
             UiMessage title,
@@ -48,6 +49,7 @@ public record ViewSpec(
                 scrollbar,
                 List.of(),
                 Optional.empty(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of());
@@ -77,6 +79,7 @@ public record ViewSpec(
                 scrollbar,
                 tabGroups,
                 focusRequest,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of());
@@ -110,6 +113,40 @@ public record ViewSpec(
                 focusRequest,
                 clipRegions,
                 capeTextures,
+                List.of(),
+                List.of());
+    }
+
+    public ViewSpec(
+            String screenId,
+            UiMessage title,
+            int width,
+            int height,
+            List<Panel> panels,
+            List<Text> texts,
+            List<Widget> widgets,
+            List<Preview> previews,
+            Optional<Scrollbar> scrollbar,
+            List<TabGroup> tabGroups,
+            Optional<FocusRequest> focusRequest,
+            List<ClipRegion> clipRegions,
+            List<CapeTexture> capeTextures,
+            List<IconDecoration> iconDecorations) {
+        this(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                widgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                focusRequest,
+                clipRegions,
+                capeTextures,
+                iconDecorations,
                 List.of());
     }
 
@@ -129,6 +166,10 @@ public record ViewSpec(
         clipRegions = List.copyOf(Objects.requireNonNull(clipRegions, "clipRegions"));
         capeTextures = List.copyOf(Objects.requireNonNull(capeTextures, "capeTextures"));
         iconDecorations = List.copyOf(Objects.requireNonNull(iconDecorations, "iconDecorations"));
+        scrollSurfaces = List.copyOf(Objects.requireNonNull(scrollSurfaces, "scrollSurfaces"));
+        if (scrollSurfaces.stream().map(ScrollSurface::id).distinct().count() != scrollSurfaces.size()) {
+            throw new IllegalArgumentException("scroll surface ids must be unique");
+        }
     }
 
     public Optional<Widget> widget(String id) {
@@ -141,6 +182,17 @@ public record ViewSpec(
         return clipRegions.stream()
                 .filter(region -> region.matches(elementId))
                 .map(ClipRegion::bounds)
+                .findFirst();
+    }
+
+    public Optional<ScrollSurface> scrollSurface(String id) {
+        Objects.requireNonNull(id, "id");
+        return scrollSurfaces.stream().filter(surface -> surface.id().equals(id)).findFirst();
+    }
+
+    public Optional<ScrollSurface> scrollSurfaceAt(double x, double y) {
+        return scrollSurfaces.stream()
+                .filter(surface -> surface.viewport().contains(x, y))
                 .findFirst();
     }
 
@@ -202,18 +254,38 @@ public record ViewSpec(
         }
     }
 
-    public record Text(String id, Bounds bounds, UiMessage message, Alignment alignment) {
+    public record Text(
+            String id,
+            Bounds bounds,
+            UiMessage message,
+            Alignment alignment,
+            Optional<MarqueeActivation> marqueeActivation) {
+        public Text(String id, Bounds bounds, UiMessage message, Alignment alignment) {
+            this(id, bounds, message, alignment, Optional.empty());
+        }
+
         public Text {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");
             Objects.requireNonNull(message, "message");
             Objects.requireNonNull(alignment, "alignment");
+            marqueeActivation = Objects.requireNonNull(marqueeActivation, "marqueeActivation");
         }
 
         public enum Alignment {
             LEFT,
             CENTER,
             RIGHT
+        }
+    }
+
+    public record MarqueeActivation(Bounds hoverBounds, List<String> focusWidgetIds) {
+        public MarqueeActivation {
+            Objects.requireNonNull(hoverBounds, "hoverBounds");
+            focusWidgetIds = List.copyOf(Objects.requireNonNull(focusWidgetIds, "focusWidgetIds"));
+            if (focusWidgetIds.isEmpty() || focusWidgetIds.stream().anyMatch(String::isBlank)) {
+                throw new IllegalArgumentException("marquee focus widget ids must not be empty or blank");
+            }
         }
     }
 
@@ -544,6 +616,41 @@ public record ViewSpec(
         public enum Orientation {
             HORIZONTAL,
             VERTICAL
+        }
+    }
+
+    public record ScrollSurface(
+            String id,
+            Bounds viewport,
+            Scrollbar.Orientation orientation,
+            double offsetPixels,
+            double maximumPixels,
+            double wheelStepPixels) {
+        public ScrollSurface(
+                String id,
+                Bounds viewport,
+                Scrollbar.Orientation orientation,
+                double offsetPixels,
+                double maximumPixels) {
+            this(id, viewport, orientation, offsetPixels, maximumPixels, 32.0);
+        }
+
+        public ScrollSurface {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(viewport, "viewport");
+            Objects.requireNonNull(orientation, "orientation");
+            if (id.isBlank()) {
+                throw new IllegalArgumentException("scroll surface id must not be blank");
+            }
+            if (!Double.isFinite(offsetPixels)
+                    || !Double.isFinite(maximumPixels)
+                    || !Double.isFinite(wheelStepPixels)
+                    || offsetPixels < 0.0
+                    || maximumPixels < 0.0
+                    || offsetPixels > maximumPixels
+                    || wheelStepPixels <= 0.0) {
+                throw new IllegalArgumentException("invalid scroll surface range");
+            }
         }
     }
 }

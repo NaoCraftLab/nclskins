@@ -34,7 +34,6 @@ import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.AppearanceMutationService;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
-import com.naocraftlab.skins.core.service.DuplicatedPreset;
 import com.naocraftlab.skins.core.service.ImportedSkin;
 import com.naocraftlab.skins.core.service.LibraryService;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -771,7 +770,11 @@ public final class DefaultClientOperations implements ClientOperations {
                         pngBytes.orElseThrow(),
                         request.outerLayerVisibility(),
                         request.capeId().orElse(null));
-                return finishEditorSave(context, saved.preset().id());
+                return finishEditorSave(
+                        context,
+                        request.originalPresetId(),
+                        saved.state(),
+                        saved.preset().id());
             }
             if (request.catalogOrigin().isPresent()) {
                 SavedImportedPreset saved = library.savePresetWithImportedSkin(
@@ -785,7 +788,11 @@ public final class DefaultClientOperations implements ClientOperations {
                         request.catalogOrigin().orElseThrow(),
                         request.outerLayerVisibility(),
                         request.capeId().orElse(null));
-                return finishEditorSave(context, saved.preset().id());
+                return finishEditorSave(
+                        context,
+                        request.originalPresetId(),
+                        saved.state(),
+                        saved.preset().id());
             }
             ImportedSkin imported = library.importSkin(
                     accountId,
@@ -831,11 +838,26 @@ public final class DefaultClientOperations implements ClientOperations {
                     .filter(id -> !beforeIds.contains(id))
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException("Created preset was not returned"));
-            return finishEditorSave(context, presetId);
+            return finishEditorSave(
+                    context,
+                    request.originalPresetId(),
+                    saved,
+                    presetId);
         }
         UUID presetId = request.originalPresetId().orElseThrow();
         library.updatePreset(
                 accountId, presetId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId);
+        return finishEditorSave(context, presetId);
+    }
+
+    private EditorSave finishEditorSave(
+            OperationContext context,
+            Optional<UUID> originalPresetId,
+            AccountState saved,
+            UUID presetId) throws IOException {
+        if (originalPresetId.isEmpty()) {
+            return new EditorSave(observeLocal(saved), presetId);
+        }
         return finishEditorSave(context, presetId);
     }
 
@@ -883,38 +905,21 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public AccountState duplicatePreset(UUID presetId, String newName) throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        DuplicatedPreset duplicated = library.duplicatePreset(accountId, presetId, newName);
-        return observeLocal(duplicated.state());
-    }
-
-    @Override
     public PresetDelete deletePreset(UUID presetId) throws IOException, PngValidationException {
         OperationContext context = pinCurrentSession();
         UUID accountId = resolveAccountId(context.identity());
-        AccountAppearanceState beforeAppearance = storage.loadAppearance(accountId);
-        boolean active = beforeAppearance.optionalActivePresetId()
-                .filter(presetId::equals)
-                .isPresent();
-        LibraryService.PresetDeletion prepared = library.preparePresetDeletion(
-                accountId, Objects.requireNonNull(presetId, "presetId"));
-        AccountState deleted = prepared.deleted()
-                ? prepared.state()
-                : library.completeAcknowledgedFinalPresetDeletion(accountId, presetId);
-        deleted = observeLocal(deleted);
-        if (!active) {
-            return PresetDelete.local(deleted);
-        }
-        AccountAppearanceState appearance = recordAccountDefaultAppearanceIfCurrent(
-                accountId, beforeAppearance, AppearanceSyncStatus.PENDING);
-        if (appearance.intentRevision() == beforeAppearance.intentRevision()) {
-
+        LibraryService.PresetDeletion deletion = library.deletePreset(
+                accountId,
+                Objects.requireNonNull(presetId, "presetId"),
+                (ignoredAccount, ignoredAppearance, revision) -> accountDefaultAppearance(
+                        accountId, revision, AppearanceSyncStatus.PENDING));
+        AccountState deleted = observeLocal(deletion.state());
+        if (!deletion.resetsAppearance()) {
             return PresetDelete.local(deleted);
         }
         SessionValidation validation = sessions.cachedStatus(context.identity());
         DurableAppearance durable = durableAppearance(
-                accountId, context.identity(), appearance, validation);
+                accountId, context.identity(), deletion.appearance(), validation);
         return PresetDelete.local(deleted, durable);
     }
 
@@ -933,10 +938,15 @@ public final class DefaultClientOperations implements ClientOperations {
     public PresetUse usePreset(UUID presetId) throws IOException, PngValidationException {
         OperationContext context = pinCurrentSession();
         UUID accountId = resolveAccountId(context.identity());
-        AccountState state = library.load(accountId);
-        AppearancePreset selected = library.findPreset(state, Objects.requireNonNull(presetId, "presetId"));
-        AccountAppearanceState appearance = recordAppearance(
-                accountId, state, selected, AppearanceSyncStatus.PENDING);
+        UUID selectedPresetId = Objects.requireNonNull(presetId, "presetId");
+        NclSkinsStorage.AccountAppearanceMutationResult selected =
+                storage.mutateAccountAndAppearance(accountId, (account, ignored, revision) ->
+                        NclSkinsStorage.AccountAppearanceMutationPlan.appearanceOnly(
+                                account,
+                                pendingAppearanceForPreset(
+                                        accountId, account, selectedPresetId, revision)));
+        AccountState state = observeLocal(selected.account());
+        AccountAppearanceState appearance = selected.appearance();
         SessionValidation validation = sessions.cachedStatus(context.identity());
         Optional<AppliedAppearance> local = materializeLocalAppearance(
                 accountId, context.identity().profileId(), appearance, validation);
@@ -1886,40 +1896,25 @@ public final class DefaultClientOperations implements ClientOperations {
     private AccountAppearanceState recordAccountDefaultAppearance(
             UUID accountId, AppearanceSyncStatus status) throws IOException {
         return storage.updateAppearanceIntent(accountId, (ignored, revision) ->
-                new AccountAppearanceState(
-                        AccountAppearanceState.CURRENT_SCHEMA_VERSION,
-                        accountId,
-                        revision,
-                        null,
-                        null,
-                        null,
-                        null,
-                        OuterLayerVisibility.allVisible(),
-                        status,
-                        status == AppearanceSyncStatus.OFFICIAL ? revision : 0,
-                        clock.instant()));
+                accountDefaultAppearance(accountId, revision, status));
     }
 
-    private AccountAppearanceState recordAccountDefaultAppearanceIfCurrent(
+    private AccountAppearanceState accountDefaultAppearance(
             UUID accountId,
-            AccountAppearanceState expected,
-            AppearanceSyncStatus status) throws IOException {
-        return storage.updateAppearanceIntentIfRevisionAndPreset(
+            long revision,
+            AppearanceSyncStatus status) {
+        return new AccountAppearanceState(
+                AccountAppearanceState.CURRENT_SCHEMA_VERSION,
                 accountId,
-                expected.intentRevision(),
-                Objects.requireNonNull(expected.activePresetId(), "expected active preset"),
-                (ignored, revision) -> new AccountAppearanceState(
-                        AccountAppearanceState.CURRENT_SCHEMA_VERSION,
-                        accountId,
-                        revision,
-                        null,
-                        null,
-                        null,
-                        null,
-                        OuterLayerVisibility.allVisible(),
-                        status,
-                        status == AppearanceSyncStatus.OFFICIAL ? revision : 0,
-                        clock.instant()));
+                revision,
+                null,
+                null,
+                null,
+                null,
+                OuterLayerVisibility.allVisible(),
+                status,
+                status == AppearanceSyncStatus.OFFICIAL ? revision : 0,
+                clock.instant());
     }
 
     private AccountAppearanceState settleAppearance(

@@ -105,17 +105,30 @@ public final class GalleryPresenter {
         int cardWidth = layout.cardWidth();
         int anchorTo = Math.min(cards.size(), offset + visibleCount);
         List<GalleryCard> anchorCards = cards.subList(Math.min(offset, cards.size()), anchorTo);
+        int cardStep = cardWidth + CARD_GAP;
+        Bounds cardViewport = layout.viewport();
+        int anchorStartX = startX(
+                snapshot.activePresetId(), width, cardWidth, offset, anchorCards);
+        int visualAnchorStartX = anchorStartX - (int) Math.round(fraction * cardStep);
+        int previousX = visualAnchorStartX - cardStep;
+        int nextX = visualAnchorStartX + anchorCards.size() * cardStep;
+        boolean previousCrossesViewport = previousX < cardViewport.x()
+                && previousX + cardWidth > cardViewport.x();
+        boolean nextCrossesViewport = nextX < cardViewport.right()
+                && nextX + cardWidth > cardViewport.right();
         boolean showRestingNeighbors = visibleCount < 3;
-        int from = showRestingNeighbors ? Math.max(0, offset - 1) : offset;
+        int from = showRestingNeighbors || previousCrossesViewport
+                ? Math.max(0, offset - 1)
+                : offset;
         int to = Math.min(
                 cards.size(),
-                anchorTo + (showRestingNeighbors || fraction > 0.001 ? 1 : 0));
+                anchorTo + (showRestingNeighbors
+                        || fraction > 0.001
+                        || nextCrossesViewport ? 1 : 0));
         List<GalleryCard> visibleCards = cards.subList(from, to);
-        int cardStep = cardWidth + CARD_GAP;
-        int startX = startX(snapshot.activePresetId(), width, cardWidth, offset, anchorCards)
+        int startX = anchorStartX
                 - (offset - from) * cardStep
                 - (int) Math.round(fraction * cardStep);
-        Bounds cardViewport = layout.viewport();
 
         List<ViewSpec.Panel> panels = new ArrayList<>();
         panels.add(new ViewSpec.Panel(
@@ -236,7 +249,15 @@ public final class GalleryPresenter {
                         cardViewport,
                         List.of("gallery.card.", "gallery.add", "gallery.preset."))),
                 List.of(),
-                iconDecorations);
+                iconDecorations,
+                maximum <= 0
+                        ? List.of()
+                        : List.of(new ViewSpec.ScrollSurface(
+                        "gallery.cards",
+                        cardViewport,
+                        ViewSpec.Scrollbar.Orientation.HORIZONTAL,
+                        visualOffset * cardStep,
+                        maximum * (double) cardStep)));
     }
 
     public int maximumScroll(ClientSnapshot snapshot, int width, int height, String query) {
@@ -310,7 +331,16 @@ public final class GalleryPresenter {
                 prefix + ".name",
                 new Bounds(x + 8, top + 8, cardWidth - 16, 10),
                 UiMessage.literal(preset.name(), UiMessage.Severity.INFO),
-                ViewSpec.Text.Alignment.CENTER));
+                ViewSpec.Text.Alignment.CENTER,
+                Optional.of(new ViewSpec.MarqueeActivation(
+                        new Bounds(x, top, cardWidth, Math.max(1, bottom - top)),
+                        List.of(
+                                prefix + ".apply",
+                                prefix + ".edit",
+                                prefix + ".duplicate",
+                                prefix + ".delete",
+                                prefix + ".delete_confirm",
+                                prefix + ".delete_cancel")))));
         int innerWidth = cardWidth;
         int applyRow = bottom - CARD_ACTION_BOTTOM_INSET - ACTION_HEIGHT;
         int secondaryRow = !confirmingDelete && cardWidth < ONE_ROW_ACTION_MIN_WIDTH

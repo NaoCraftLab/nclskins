@@ -19,6 +19,12 @@ public final class PointerRouting {
         return new Hit(previewId, scrollbar);
     }
 
+    public static Optional<ViewSpec.ScrollSurface> scrollSurface(
+            ViewSpec view, double x, double y) {
+        Objects.requireNonNull(view, "view");
+        return view.scrollSurfaceAt(x, y);
+    }
+
 
     public static boolean galleryScrollRegion(ViewSpec view, int viewportHeight, double y) {
         Objects.requireNonNull(view, "view");

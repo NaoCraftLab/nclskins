@@ -26,6 +26,13 @@ if (modMenuConfiguration == null) {
 
 loom {
     accessWidenerPath = file('src/main/resources/nclskins.accesswidener')
+    runs {
+        client {
+            nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
+                programArg argument
+            }
+        }
+    }
 }
 
 dependencies {

@@ -50,6 +50,167 @@
           ]
         },
         {
+          "name": "net.minecraft.client.gui.components.AbstractSelectionList",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "(Lnet/minecraft/client/Minecraft;IIIII)V",
+              "access": "public",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "setRenderSelection",
+              "descriptor": "(Z)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "setRenderBackground",
+              "descriptor": "(Z)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "setRenderTopAndBottom",
+              "descriptor": "(Z)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "updateSize",
+              "descriptor": "(IIII)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "setLeftPos",
+              "descriptor": "(I)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "render",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getScrollAmount",
+              "descriptor": "()D",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "setScrollAmount",
+              "descriptor": "(D)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getMaxScroll",
+              "descriptor": "()I",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getScrollbarPosition",
+              "descriptor": "()I",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "mouseScrolled",
+              "descriptor": "(DDD)Z",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.narration.NarrationSupplier",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "updateNarration",
+              "descriptor": "(Lnet/minecraft/client/gui/narration/NarrationElementOutput;)V",
+              "access": "public abstract",
+              "finality": "abstract"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractWidget",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "(IIIILnet/minecraft/network/chat/Component;)V",
+              "access": "public",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "renderScrollingString",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;II)V",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "renderWidget",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+              "access": "protected abstract",
+              "finality": "abstract"
+            },
+            {
+              "kind": "method",
+              "name": "updateWidgetNarration",
+              "descriptor": "(Lnet/minecraft/client/gui/narration/NarrationElementOutput;)V",
+              "access": "protected abstract",
+              "finality": "abstract"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractSelectionList$Entry",
+          "access": "protected static",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "()V",
+              "access": "protected",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "render",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIIIIIIZF)V",
+              "access": "public abstract",
+              "finality": "abstract"
+            }
+          ]
+        },
+        {
           "name": "net.minecraft.client.gui.screens.OptionsScreen",
           "access": "public",
           "finality": "concrete",
@@ -166,6 +327,153 @@
               "descriptor": "(IIIII)V",
               "access": "public",
               "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractSelectionList",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "(Lnet/minecraft/client/Minecraft;IIII)V",
+              "access": "public",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "updateSizeAndPosition",
+              "descriptor": "(III)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "renderWidget",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "scrollbarVisible",
+              "descriptor": "()Z",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "renderListBackground",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;)V",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "renderListSeparators",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;)V",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getScrollAmount",
+              "descriptor": "()D",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getMaxScroll",
+              "descriptor": "()I",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "setScrollAmount",
+              "descriptor": "(D)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "mouseScrolled",
+              "descriptor": "(DDDD)Z",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractWidget",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "(IIIILnet/minecraft/network/chat/Component;)V",
+              "access": "public",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "render",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+              "access": "public final",
+              "finality": "final"
+            },
+            {
+              "kind": "method",
+              "name": "renderScrollingString",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;II)V",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "renderWidget",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+              "access": "protected abstract",
+              "finality": "abstract"
+            },
+            {
+              "kind": "method",
+              "name": "updateWidgetNarration",
+              "descriptor": "(Lnet/minecraft/client/gui/narration/NarrationElementOutput;)V",
+              "access": "protected abstract",
+              "finality": "abstract"
+            },
+            {
+              "kind": "method",
+              "name": "setX",
+              "descriptor": "(I)V",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractSelectionList$Entry",
+          "access": "protected static",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "()V",
+              "access": "protected",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "render",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIIIIIIZF)V",
+              "access": "public abstract",
+              "finality": "abstract"
             }
           ]
         },
@@ -299,6 +607,195 @@
               "kind": "method",
               "name": "fill",
               "descriptor": "(Lcom/mojang/blaze3d/pipeline/RenderPipeline;IIIII)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "textRenderer",
+              "descriptor": "()Lnet/minecraft/client/gui/ActiveTextCollector;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.ActiveTextCollector",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "acceptScrollingWithDefaultCenter",
+              "descriptor": "(Lnet/minecraft/network/chat/Component;IIII)V",
+              "access": "public default",
+              "finality": "default"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractScrollArea",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "(IIIILnet/minecraft/network/chat/Component;Lnet/minecraft/client/gui/components/AbstractScrollArea$ScrollbarSettings;)V",
+              "access": "public",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "mouseScrolled",
+              "descriptor": "(DDDD)Z",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "scrollAmount",
+              "descriptor": "()D",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "setScrollAmount",
+              "descriptor": "(D)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "extractScrollbar",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphicsExtractor;II)V",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "maxScrollAmount",
+              "descriptor": "()I",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "scrollable",
+              "descriptor": "()Z",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "contentHeight",
+              "descriptor": "()I",
+              "access": "protected abstract",
+              "finality": "abstract"
+            },
+            {
+              "kind": "method",
+              "name": "scrollRate",
+              "descriptor": "()D",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "defaultSettings",
+              "descriptor": "(I)Lnet/minecraft/client/gui/components/AbstractScrollArea$ScrollbarSettings;",
+              "access": "public static",
+              "finality": "static"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractWidget",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "constructor",
+              "name": "<init>",
+              "descriptor": "(IIIILnet/minecraft/network/chat/Component;)V",
+              "access": "public",
+              "finality": "n/a"
+            },
+            {
+              "kind": "method",
+              "name": "getHeight",
+              "descriptor": "()I",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "extractRenderState",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V",
+              "access": "public final",
+              "finality": "final"
+            },
+            {
+              "kind": "method",
+              "name": "handleCursor",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphicsExtractor;)V",
+              "access": "protected",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "extractWidgetRenderState",
+              "descriptor": "(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V",
+              "access": "protected abstract",
+              "finality": "abstract"
+            },
+            {
+              "kind": "method",
+              "name": "setMessage",
+              "descriptor": "(Lnet/minecraft/network/chat/Component;)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "setRectangle",
+              "descriptor": "(IIII)V",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "updateWidgetNarration",
+              "descriptor": "(Lnet/minecraft/client/gui/narration/NarrationElementOutput;)V",
+              "access": "protected abstract",
+              "finality": "abstract"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.network.chat.Component",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "copy",
+              "descriptor": "()Lnet/minecraft/network/chat/MutableComponent;",
+              "access": "public default",
+              "finality": "default"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.network.chat.MutableComponent",
+          "access": "public",
+          "finality": "final",
+          "members": [
+            {
+              "kind": "method",
+              "name": "withColor",
+              "descriptor": "(I)Lnet/minecraft/network/chat/MutableComponent;",
               "access": "public",
               "finality": "virtual"
             }
@@ -3433,7 +3930,11 @@
       "immediate-1.20": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
         "net.minecraft.client.gui.GuiGraphics": "7c5001e01cf271f3d09c4a33b428fc2d4e09f03f9adf49d1795178662f2cce5b",
+        "net.minecraft.client.gui.components.AbstractSelectionList": "e4e4c07a072036062fe0d9f4bf6db8ae77365bba8779236a2c0cc01cac2ad36c",
+        "net.minecraft.client.gui.components.AbstractSelectionList$Entry": "18c14b8932a07be56bf371ff2f6110a32583e975aa107a637a78c1cf5d64ea67",
+        "net.minecraft.client.gui.components.AbstractWidget": "dcaa08514f892a79e28b94d9d6d830dc96ca1591af5fb0af9562315e1069fe7a",
         "net.minecraft.client.gui.components.events.GuiEventListener": "1e465d43b84222a363086a31e0340369732b768fac3c7b12a8adf9d802a465e5",
+        "net.minecraft.client.gui.narration.NarrationSupplier": "6c71b3297447caf36e621eda3780492d9f5b055f308ae879aaa0a3034b68614b",
         "net.minecraft.client.gui.screens.AccessibilityOptionsScreen": "c004f0ef94247f666bb376bd9e44ce6de646ef506301bbbc2e692e05c5092707",
         "net.minecraft.client.gui.screens.OptionsScreen": "6a574000080983404322d1f8839952e0aa816970b3829201a519a066a5fc56c1",
         "net.minecraft.client.gui.screens.Screen": "8222a2bb66230686ff4b0226967fa580f943b6fee7246e538dc8b8bded77da74"
@@ -3551,6 +4052,9 @@
       "immediate-1.21": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
         "net.minecraft.client.gui.GuiGraphics": "7c5001e01cf271f3d09c4a33b428fc2d4e09f03f9adf49d1795178662f2cce5b",
+        "net.minecraft.client.gui.components.AbstractSelectionList": "95dedb8d168c95385890116a71f9d12bfd97ec9884ff794e74ebb82cb2b909ee",
+        "net.minecraft.client.gui.components.AbstractSelectionList$Entry": "18c14b8932a07be56bf371ff2f6110a32583e975aa107a637a78c1cf5d64ea67",
+        "net.minecraft.client.gui.components.AbstractWidget": "da352fec4bd274f1c5a7e6e8b6acc81a8e978bf1cb511900fc96819033a7995a",
         "net.minecraft.client.gui.components.events.GuiEventListener": "751f965876e345af1139caca8d6def5b8f5950c0ae990284f91dfe9f62326f43",
         "net.minecraft.client.gui.screens.Screen": "8222a2bb66230686ff4b0226967fa580f943b6fee7246e538dc8b8bded77da74",
         "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "0613433db154bf9cb36eb94e9694b831034c13e97af115c71df2a3639854e9e8",
@@ -3678,11 +4182,16 @@
       },
       "extraction-26.2": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
-        "net.minecraft.client.gui.GuiGraphicsExtractor": "0298a987f1990adbe8cbca932a9f5e298a9975471bd2d4143f5e11e313daddda",
+        "net.minecraft.client.gui.ActiveTextCollector": "26406cec219761d8182d1c0ab44103a8213c2a176eaed18f0dabda595db89f6d",
+        "net.minecraft.client.gui.GuiGraphicsExtractor": "d0ca804477b604942493b7462116cf5106333937cf4434acebee624dc443eabf",
+        "net.minecraft.client.gui.components.AbstractScrollArea": "20978c337ce7bd1e233716b49ff06a9a7325f29ab22395a6e5df0e743fb023e5",
+        "net.minecraft.client.gui.components.AbstractWidget": "80e89e28e51bc0658911eac13d0fd213fa0254bad6def07b7cdf7aec7bff8dd2",
         "net.minecraft.client.gui.components.events.GuiEventListener": "3a41702262744bc0340b24f2139a8854f349011667f294a216bc636fbb000de8",
         "net.minecraft.client.gui.screens.Screen": "62e3a2a141bb69725992dfa37e87fa732c686a11b06535ef3bdbabe861dbd804",
         "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "0613433db154bf9cb36eb94e9694b831034c13e97af115c71df2a3639854e9e8",
-        "net.minecraft.client.gui.screens.options.OptionsScreen": "de9519bdb43d6f69cf0b4d05711d118816810abc8059d8b0808690f7668ab180"
+        "net.minecraft.client.gui.screens.options.OptionsScreen": "de9519bdb43d6f69cf0b4d05711d118816810abc8059d8b0808690f7668ab180",
+        "net.minecraft.network.chat.Component": "55c6542bb098da054c187bcaabf4226f9caa0883bdb4a7e91c95e632e02acd72",
+        "net.minecraft.network.chat.MutableComponent": "59572d3bfc2305523fefe2dafc5b5421651a03a5059af60cd6cd3295dd93d90d"
       },
       "fabric-extraction": {
         "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
@@ -3783,11 +4292,16 @@
     "26.2": {
       "extraction-26.2": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
-        "net.minecraft.client.gui.GuiGraphicsExtractor": "0298a987f1990adbe8cbca932a9f5e298a9975471bd2d4143f5e11e313daddda",
+        "net.minecraft.client.gui.ActiveTextCollector": "26406cec219761d8182d1c0ab44103a8213c2a176eaed18f0dabda595db89f6d",
+        "net.minecraft.client.gui.GuiGraphicsExtractor": "d0ca804477b604942493b7462116cf5106333937cf4434acebee624dc443eabf",
+        "net.minecraft.client.gui.components.AbstractScrollArea": "20978c337ce7bd1e233716b49ff06a9a7325f29ab22395a6e5df0e743fb023e5",
+        "net.minecraft.client.gui.components.AbstractWidget": "80e89e28e51bc0658911eac13d0fd213fa0254bad6def07b7cdf7aec7bff8dd2",
         "net.minecraft.client.gui.components.events.GuiEventListener": "3a41702262744bc0340b24f2139a8854f349011667f294a216bc636fbb000de8",
         "net.minecraft.client.gui.screens.Screen": "62e3a2a141bb69725992dfa37e87fa732c686a11b06535ef3bdbabe861dbd804",
         "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "0613433db154bf9cb36eb94e9694b831034c13e97af115c71df2a3639854e9e8",
-        "net.minecraft.client.gui.screens.options.OptionsScreen": "de9519bdb43d6f69cf0b4d05711d118816810abc8059d8b0808690f7668ab180"
+        "net.minecraft.client.gui.screens.options.OptionsScreen": "de9519bdb43d6f69cf0b4d05711d118816810abc8059d8b0808690f7668ab180",
+        "net.minecraft.network.chat.Component": "55c6542bb098da054c187bcaabf4226f9caa0883bdb4a7e91c95e632e02acd72",
+        "net.minecraft.network.chat.MutableComponent": "59572d3bfc2305523fefe2dafc5b5421651a03a5059af60cd6cd3295dd93d90d"
       },
       "identifier-26.2": {
         "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",

@@ -30,6 +30,8 @@ final class CatalogTools {
     static final Pattern VERSION_PATTERN = Pattern.compile(
         '^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)' +
         '(?:-(?:alpha|beta)\\.[1-9][0-9]*)?$')
+    static final Pattern UUID_PATTERN = Pattern.compile(
+            '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 
     static Map loadCatalog(File repositoryRoot) {
         def value = new JsonSlurper().parse(new File(repositoryRoot, 'gradle/targets.json'))
@@ -97,6 +99,19 @@ final class CatalogTools {
             throw new IllegalArgumentException("unknown target: ${targetId}")
         }
         selected[0] as Map
+    }
+
+    static List<String> clientArguments(Map catalog) {
+        if (!(catalog.development instanceof Map) ||
+                ((catalog.development as Map).keySet() as Set) != ['clientUuid'] as Set) {
+            throw new IllegalArgumentException('development must define exactly clientUuid')
+        }
+        Map development = catalog.development as Map
+        Object rawUuid = development.clientUuid
+        if (!(rawUuid instanceof String) || !UUID_PATTERN.matcher(rawUuid as String).matches()) {
+            throw new IllegalArgumentException('development.clientUuid must be a canonical lowercase UUID')
+        }
+        ['--uuid', rawUuid as String]
     }
 
     static String repositoryRelative(File repositoryRoot, Object rawPath, String label) {
@@ -208,14 +223,19 @@ final class CatalogTools {
     static void validate(File repositoryRoot, Map catalog) {
         List<String> errors = []
         Set expectedTop = [
-            'schemaVersion', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
+                'schemaVersion', 'development', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
             'baseBundles', 'sourceBundles', 'capabilityImplementations', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 5) {
+        if (catalog.schemaVersion != 6) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
             errors.add('catalog top-level keys differ from schema')
+        }
+        try {
+            clientArguments(catalog)
+        } catch (IllegalArgumentException error) {
+            errors.add(error.message)
         }
         Map mod = catalog.mod instanceof Map ? catalog.mod as Map : [:]
         if ((mod.keySet() as Set) != MOD_KEYS) {

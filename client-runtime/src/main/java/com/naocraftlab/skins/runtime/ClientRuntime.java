@@ -442,26 +442,60 @@ public final class ClientRuntime implements AutoCloseable {
 
 
     public void closeScreen() {
+        onClient(this::closeScreenOnClient);
+    }
+
+    public void escapePressed() {
         onClient(() -> {
-            if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
+            if (disposed
+                    || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
+                    || state.busy) {
                 return;
             }
-            state.generation++;
-            state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
-            state.busy = false;
-            clearSessionRetryFeedback();
-            state.editor = null;
-            state.addSource = null;
-            if (draggingGalleryScrollbar) {
-                state.galleryScrollTarget = state.galleryScrollPosition;
+            if (state.pendingPresetDeleteId != null) {
+                cancelPresetDeletion(state.pendingPresetDeleteId);
+                return;
             }
-            draggingGalleryScrollbar = false;
-            draggingEditorCapeScrollbar = false;
-            draggingAddSourceScrollbar = false;
-            addSourceScrollPosition = 0.0;
-            addSourceScrollTarget = 0.0;
-            publish();
+            if (state.personalRenameHash != null) {
+                cancelPersonalSkinRename();
+                return;
+            }
+            if (state.addSource != null
+                    && state.addSource.personalSkinDeletion().isPresent()) {
+                cancelPersonalSkinDeletion();
+                return;
+            }
+            if (state.editor != null) {
+                cancelEditor();
+                return;
+            }
+            if (state.addSource != null) {
+                cancelAddSource();
+                return;
+            }
+            closeScreenOnClient();
         });
+    }
+
+    private void closeScreenOnClient() {
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
+            return;
+        }
+        state.generation++;
+        state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
+        state.busy = false;
+        clearSessionRetryFeedback();
+        state.editor = null;
+        state.addSource = null;
+        if (draggingGalleryScrollbar) {
+            state.galleryScrollTarget = state.galleryScrollPosition;
+        }
+        draggingGalleryScrollbar = false;
+        draggingEditorCapeScrollbar = false;
+        draggingAddSourceScrollbar = false;
+        addSourceScrollPosition = 0.0;
+        addSourceScrollTarget = 0.0;
+        publish();
     }
 
     public void tick() {
@@ -829,6 +863,42 @@ public final class ClientRuntime implements AutoCloseable {
             double amount = dominantScrollAmount(horizontalAmount, verticalAmount);
             if (mouseY >= 38 && mouseY <= bottom && amount != 0.0) {
                 queueGalleryScroll(-amount * WHEEL_SCROLL_PIXELS);
+            }
+        });
+    }
+
+
+    public void nativeScrollPositionChanged(String surfaceId, double offsetPixels) {
+        Objects.requireNonNull(surfaceId, "surfaceId");
+        if (!Double.isFinite(offsetPixels)) {
+            throw new IllegalArgumentException("native scroll position must be finite");
+        }
+        onClient(() -> {
+            switch (surfaceId) {
+                case "gallery.cards" -> {
+                    if (state.editor != null || state.addSource != null) {
+                        return;
+                    }
+                    setGalleryPosition(galleryPresenter.scrollPositionDelta(
+                            viewportWidth, viewportHeight, offsetPixels));
+                }
+                case "add.catalog" -> {
+                    if (state.addSource == null
+                            || state.addSource.selectedTab() != AddSourceTab.CATALOG
+                            || state.addSource.personalSkinDeletion().isPresent()) {
+                        return;
+                    }
+                    setAddSourceOffset((int) Math.round(offsetPixels));
+                }
+                case "editor.capes" -> {
+                    if (state.editor == null) {
+                        return;
+                    }
+                    setEditorCapePosition(offsetPixels);
+                }
+                default -> {
+
+                }
             }
         });
     }
@@ -1890,33 +1960,34 @@ public final class ClientRuntime implements AutoCloseable {
 
     private void duplicatePreset(UUID presetId) {
         AppearancePreset source = findPreset(presetId);
-        if (source == null) {
+        if (source == null || state.busy || state.account == null) {
             return;
         }
-        int preservedOffset = state.galleryOffset;
-        Set<UUID> before = ids(state.account == null ? List.of() : state.account.presets());
         String name = textResolver.resolve(UiMessage.info("nclskins.gallery.copy_name", source.name())).trim();
         if (name.length() > 128) {
             name = name.substring(0, 128).trim();
         }
         String copyName = name.isEmpty() ? source.name() : name;
-        submit(
-                UiMessage.info("nclskins.status.duplicating"),
-                () -> operations.duplicatePreset(presetId, copyName),
-                account -> {
-                    state.account = account;
-                    state.galleryOffset = preservedOffset;
-                    UUID duplicateId = account.presets().stream()
-                            .map(AppearancePreset::id)
-                            .filter(id -> !before.contains(id))
-                            .findFirst()
-                            .orElse(null);
-                    state.selectedPresetId = duplicateId;
-                    state.status = UiMessage.success("nclskins.status.duplicated");
-                    if (duplicateId != null) {
-                        openEditor(duplicateId);
-                    }
-                });
+        try {
+            state.addSource = null;
+            state.editor = PresetEditorModel.openDuplicate(
+                    state.account,
+                    source,
+                    copyName,
+                    Optional.ofNullable(state.remoteProfile),
+                    Optional.ofNullable(state.activePresetId),
+                    textResolver,
+                    viewportHeight,
+                    preferredCapeMode,
+                    preferredSkinVariant(),
+                    state.ownedCapes == null ? List.of() : state.ownedCapes.capes());
+            resetEditorCapeScroll();
+            state.selectedPresetId = presetId;
+            publish();
+        } catch (IllegalStateException missingBundledSkin) {
+            state.status = UiMessage.error("nclskins.gallery.prepare_failed");
+            publish();
+        }
     }
 
     private void deletePreset(UUID presetId) {

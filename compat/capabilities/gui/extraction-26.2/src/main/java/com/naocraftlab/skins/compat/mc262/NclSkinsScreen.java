@@ -15,6 +15,7 @@ import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
+import com.naocraftlab.skins.runtime.MarqueeRouting;
 import com.naocraftlab.skins.runtime.PreviewAssetCache;
 import com.naocraftlab.skins.runtime.PointerRouting;
 import com.naocraftlab.skins.runtime.UiMessage;
@@ -91,6 +92,7 @@ public final class NclSkinsScreen extends Screen {
 
     private final Screen parent;
     private final ClientRuntime runtime;
+    private final Minecraft262ScrollController scrollController = new Minecraft262ScrollController();
     private final Map<String, AbstractWidget> nativeWidgets = new HashMap<>();
     private final Map<String, NativeTabGroup> nativeTabGroups = new HashMap<>();
     private final Map<String, Minecraft262SimplePreviewRenderer> galleryRenderers = new HashMap<>();
@@ -487,6 +489,10 @@ public final class NclSkinsScreen extends Screen {
         }
         lastMouseX = mouseX;
         lastMouseY = mouseY;
+        ViewSpec initialView = runtime.view(width, height, mouseX, mouseY);
+        scrollController.synchronize(initialView.scrollSurfaces().stream().findFirst());
+        scrollController.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        publishNativeScroll(initialView);
         ViewSpec view = runtime.view(width, height, mouseX, mouseY);
         currentView = view;
 
@@ -507,7 +513,7 @@ public final class NclSkinsScreen extends Screen {
         graphics.nextStratum();
         extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);
         drawIconDecorations(graphics, view, mouseX, mouseY);
-        drawTexts(graphics, view);
+        drawTexts(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
     }
 
@@ -745,17 +751,35 @@ public final class NclSkinsScreen extends Screen {
         });
     }
 
-    private void drawTexts(GuiGraphicsExtractor graphics, ViewSpec view) {
+    private void drawTexts(
+            GuiGraphicsExtractor graphics, ViewSpec view, int mouseX, int mouseY) {
         for (ViewSpec.Text text : view.texts()) {
-            drawClipped(graphics, view, text.id(), () -> drawText(graphics, text));
+            drawClipped(graphics, view, text.id(), () ->
+                    drawText(graphics, view, text, mouseX, mouseY));
         }
     }
 
-    private void drawText(GuiGraphicsExtractor graphics, ViewSpec.Text text) {
+    private void drawText(
+            GuiGraphicsExtractor graphics,
+            ViewSpec view,
+            ViewSpec.Text text,
+            int mouseX,
+            int mouseY) {
             Component component = Minecraft262Components.resolve(text.message());
+            int color = textColor(text);
+            if (font.width(component) > text.bounds().width()
+                    && marqueeActive(view, text, mouseX, mouseY)) {
+                Component colored = component.copy().withColor(color & 0xFFFFFF);
+                graphics.textRenderer().acceptScrollingWithDefaultCenter(
+                        colored,
+                        text.bounds().x(),
+                        text.bounds().right(),
+                        text.bounds().y(),
+                        text.bounds().bottom());
+                return;
+            }
             String fitted = font.plainSubstrByWidth(component.getString(), text.bounds().width());
             Component visible = Component.literal(fitted);
-            int color = textColor(text);
             int x = switch (text.alignment()) {
                 case LEFT -> text.bounds().x();
                 case CENTER -> text.bounds().x() + text.bounds().width() / 2;
@@ -768,6 +792,18 @@ public final class NclSkinsScreen extends Screen {
             } else {
                 graphics.text(font, visible, x, text.bounds().y(), color);
             }
+    }
+
+    private boolean marqueeActive(
+            ViewSpec view, ViewSpec.Text text, int mouseX, int mouseY) {
+        return MarqueeRouting.active(
+                view,
+                text,
+                mouseX,
+                mouseY,
+                id -> Optional.ofNullable(nativeWidgets.get(id))
+                        .map(AbstractWidget::isFocused)
+                        .orElse(false));
     }
 
     private void drawCapeTextures(GuiGraphicsExtractor graphics, ViewSpec view) {
@@ -1003,23 +1039,37 @@ public final class NclSkinsScreen extends Screen {
         }
         ViewSpec view = runtime.view(width, height, (int) mouseX, (int) mouseY);
         PointerRouting.Hit hit = PointerRouting.hit(view, mouseX, mouseY);
-        boolean editorPreview = hit.preview("editor.preview");
-        boolean gallery = PointerRouting.galleryScrollRegion(view, height, mouseY);
-        boolean verticalScrollable = isVerticalScrollSurface(view, mouseX, mouseY);
-        boolean catalog = PointerRouting.clipRegion(
-                view, "add.catalog.viewport", mouseX, mouseY);
-        boolean capeGallery = PointerRouting.clipRegion(
-                view, "editor.capes", mouseX, mouseY);
-        if (editorPreview
-                || gallery
-                || verticalScrollable
-                || catalog
-                || capeGallery
-                || hit.scrollbar()) {
+        Optional<ViewSpec.ScrollSurface> nativeSurface = PointerRouting.scrollSurface(
+                view, mouseX, mouseY);
+        if (nativeSurface.isEmpty() && hit.scrollbar()) {
+            nativeSurface = view.scrollSurfaces().stream().findFirst();
+        }
+        if (nativeSurface.isPresent()) {
+            scrollController.synchronize(nativeSurface);
+            boolean consumed = scrollController.forwardScroll(
+                    mouseX, mouseY, horizontalAmount, verticalAmount);
+            publishNativeScroll(view);
+            return consumed;
+        }
+        if (hit.preview("editor.preview")) {
             runtime.pointerScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    private void publishNativeScroll(ViewSpec view) {
+        Optional<String> surfaceId = scrollController.surfaceId();
+        if (surfaceId.isEmpty()) {
+            return;
+        }
+        view.scrollSurface(surfaceId.orElseThrow()).ifPresent(surface -> {
+            double offset = scrollController.offsetPixels();
+            if (Math.abs(offset - surface.offsetPixels()) > 0.001) {
+                runtime.nativeScrollPositionChanged(surface.id(), offset);
+                scrollController.acceptedRuntimeOffset(offset);
+            }
+        });
     }
 
     private static boolean capturesPointer(ViewSpec view, double mouseX, double mouseY) {
@@ -1141,26 +1191,9 @@ public final class NclSkinsScreen extends Screen {
         if (runtime.closed()) {
             return;
         }
-        ClientSnapshot snapshot = runtime.snapshot();
-        if (snapshot.busy()) {
-            return;
-        }
-        Optional<String> transientCancel = (currentView == null ? java.util.stream.Stream.<ViewSpec.Widget>empty()
-                        : currentView.widgets().stream())
-                .map(ViewSpec.Widget::id)
-                .filter(id -> id.endsWith(".delete_cancel")
-                        || id.equals("add.catalog.rename.cancel"))
-                .findFirst();
-        if (transientCancel.isPresent()) {
-            runtime.dispatchWidget(transientCancel.orElseThrow());
-            return;
-        }
-        if (snapshot.editor().isPresent()) {
-            runtime.dispatchWidget("editor.cancel");
-        } else if (snapshot.addSource().isPresent()) {
-            runtime.dispatchWidget("add.cancel");
-        } else {
-            runtime.closeScreen();
+        runtime.escapePressed();
+        if (runtime.closed() && minecraft != null) {
+            Minecraft26Api.setScreen(minecraft, parent);
         }
     }
 

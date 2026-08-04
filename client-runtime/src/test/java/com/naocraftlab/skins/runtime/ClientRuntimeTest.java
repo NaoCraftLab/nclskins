@@ -161,14 +161,25 @@ final class ClientRuntimeTest {
         assertEquals("Active changed", findPreset(runtime.snapshot(), createdPreset).name());
 
         int presetsBeforeCopy = runtime.snapshot().account().orElseThrow().presets().size();
+        AppearancePreset sourceBeforeCopy = findPreset(runtime.snapshot(), createdPreset);
         runtime.dispatchWidget("gallery.preset." + createdPreset + ".duplicate");
-        assertEquals(presetsBeforeCopy + 1, runtime.snapshot().account().orElseThrow().presets().size());
+        PresetEditorModel duplicateDraft = runtime.snapshot().editor().orElseThrow();
+        assertEquals(presetsBeforeCopy, runtime.snapshot().account().orElseThrow().presets().size());
+        assertTrue(duplicateDraft.originalPresetId().isEmpty());
+        assertEquals("Copy of " + sourceBeforeCopy.name(), duplicateDraft.name());
+        assertEquals(sourceBeforeCopy.skin(), duplicateDraft.skin());
+        assertEquals(sourceBeforeCopy.optionalCapeId(), duplicateDraft.capeId());
+        assertEquals(sourceBeforeCopy.outerLayerVisibility(), duplicateDraft.preview().outerLayerVisibility());
+        runtime.dispatchWidget("editor.cancel");
+        assertEquals(presetsBeforeCopy, runtime.snapshot().account().orElseThrow().presets().size());
+
+        runtime.dispatchWidget("gallery.preset." + createdPreset + ".duplicate");
+        runtime.dispatchWidget("editor.save");
         UUID duplicated = runtime.snapshot().selectedPresetId().orElseThrow();
         assertNotEquals(createdPreset, duplicated);
-        runtime.dispatchWidget("editor.cancel");
-        runtime.dispatchWidget("gallery.preset." + duplicated + ".delete");
-        runtime.dispatchWidget("gallery.preset." + duplicated + ".delete_confirm");
-        assertEquals(presetsBeforeCopy, runtime.snapshot().account().orElseThrow().presets().size());
+        assertEquals(presetsBeforeCopy + 1, runtime.snapshot().account().orElseThrow().presets().size());
+        assertEquals(sourceBeforeCopy, findPreset(runtime.snapshot(), createdPreset));
+        assertEquals(Optional.of(createdPreset), runtime.snapshot().activePresetId());
 
         operations.result = MutationResult.PARTIAL;
         operations.recovery = Set.of(
@@ -200,6 +211,25 @@ final class ClientRuntimeTest {
         assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
         assertTrue(publications.size() > 15);
         assertTrue(publications.stream().allMatch(snapshot -> snapshot.generation() >= 0));
+    }
+
+    @Test
+    void duplicateSaveFailureKeepsTheUnsavedDraftAndOriginalLibrary() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        AppearancePreset source = operations.account.presets().get(0);
+
+        runtime.dispatchWidget("gallery.preset." + source.id() + ".duplicate");
+        operations.failEditorSave = true;
+        runtime.dispatchWidget("editor.save");
+
+        PresetEditorModel draft = runtime.snapshot().editor().orElseThrow();
+        assertTrue(draft.originalPresetId().isEmpty());
+        assertEquals("Copy of " + source.name(), draft.name());
+        assertFalse(draft.busy());
+        assertEquals(List.of(source), runtime.snapshot().account().orElseThrow().presets());
     }
 
     @Test
@@ -692,6 +722,30 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void duplicateDraftEscapePreservesFractionalGalleryPositionAndQuery() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        UUID sourceId = operations.account.presets().get(0).id();
+
+        runtime.dispatchText("gallery.search", "Preset");
+        runtime.view(320, 240, 0, 0);
+        runtime.pointerScrolled(160, 100, 0.0, -0.5);
+        ViewSpec before = runtime.view(320, 240, 0, 0);
+        int fractionalX = panelX(before, "gallery.card.add");
+        assertEquals("Preset", before.widget("gallery.search").orElseThrow().value().orElseThrow());
+
+        runtime.dispatchWidget("gallery.preset." + sourceId + ".duplicate");
+        runtime.escapePressed();
+
+        ViewSpec restored = runtime.view(320, 240, 0, 0);
+        assertEquals(fractionalX, panelX(restored, "gallery.card.add"));
+        assertEquals("Preset", restored.widget("gallery.search").orElseThrow().value().orElseThrow());
+        assertEquals(5, runtime.snapshot().account().orElseThrow().presets().size());
+    }
+
+    @Test
     void galleryWheelPreservesMagnitudeAndAppliesFractionalBoundedPositionsImmediately() {
         FakeOperations halfOperations = new FakeOperations();
         halfOperations.account = TestFixtures.account(5);
@@ -713,6 +767,93 @@ final class ClientRuntimeTest {
         full.pointerScrolled(160, 100, 0.0, -1.0);
 
         assertEquals(startX - 32, panelX(full.view(320, 240, 0, 0), "gallery.card.add"));
+    }
+
+    @Test
+    void nativeScrollFeedbackUsesAbsolutePixelsAndRejectsStaleSurfaceIds() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        int startX = panelX(runtime.view(320, 240, 0, 0), "gallery.card.add");
+
+        runtime.nativeScrollPositionChanged("gallery.cards", 16.0);
+        assertEquals(startX - 16, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        runtime.nativeScrollPositionChanged("gallery.cards", 32.0);
+        assertEquals(startX - 32, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"),
+                "native feedback is an absolute pixel offset, not another wheel delta");
+
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        runtime.view(320, 240, 160, 100);
+        runtime.nativeScrollPositionChanged("gallery.cards", 96.0);
+        assertEquals(0, runtime.snapshot().addSource().orElseThrow().scrollOffset(),
+                "feedback from the previous screen must be ignored");
+        runtime.nativeScrollPositionChanged("add.catalog", 16.0);
+        assertEquals(16, runtime.snapshot().addSource().orElseThrow().scrollOffset());
+        runtime.nativeScrollPositionChanged("add.catalog", 48.0);
+        assertEquals(48, runtime.snapshot().addSource().orElseThrow().scrollOffset());
+
+        runtime.nativeScrollPositionChanged("unknown.surface", 100.0);
+        assertEquals(48, runtime.snapshot().addSource().orElseThrow().scrollOffset());
+        assertThrows(IllegalArgumentException.class,
+                () -> runtime.nativeScrollPositionChanged("add.catalog", Double.NaN));
+    }
+
+    @Test
+    void nativeGalleryScrollKeepsPartialNeighborsWhenSmoothScrollingSettlesOnACardBoundary() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+
+        ViewSpec initial = runtime.view(854, 480, 0, 0);
+        ViewSpec.ScrollSurface surface = initial.scrollSurface("gallery.cards").orElseThrow();
+        double cardStride = surface.maximumPixels()
+                / initial.scrollbar().orElseThrow().maximum();
+        runtime.nativeScrollPositionChanged("gallery.cards", cardStride);
+
+        ViewSpec settled = runtime.view(854, 480, 0, 0);
+        Bounds viewport = settled.scrollSurface("gallery.cards").orElseThrow().viewport();
+        assertTrue(settled.panels().stream()
+                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
+                .map(ViewSpec.Panel::bounds)
+                .anyMatch(bounds -> bounds.x() < viewport.x()
+                        && bounds.right() > viewport.x()));
+        assertTrue(settled.panels().stream()
+                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
+                .map(ViewSpec.Panel::bounds)
+                .anyMatch(bounds -> bounds.x() < viewport.right()
+                        && bounds.right() > viewport.right()));
+    }
+
+    @Test
+    void nativeCapeScrollFeedbackIsBoundedAndOnlyAppliesInsideTheEditor() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.ownedCapes = capeInventory(5);
+        operations.session = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                (SessionFailureContext) null,
+                "offline");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.view(320, 240, 0, 0);
+        UUID presetId = operations.account.presets().get(0).id();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        int maximum = runtime.snapshot().editor().orElseThrow().maximumCapeScroll(320, 240);
+        assertTrue(maximum > 16);
+
+        runtime.nativeScrollPositionChanged("editor.capes", 16.0);
+        assertEquals(16, runtime.view(320, 240, 0, 0).scrollbar().orElseThrow().offset());
+        runtime.nativeScrollPositionChanged("editor.capes", maximum + 100.0);
+        assertEquals(maximum, runtime.view(320, 240, 0, 0).scrollbar().orElseThrow().offset());
+
+        runtime.dispatchWidget("editor.cancel");
+        runtime.nativeScrollPositionChanged("editor.capes", 0.0);
+        assertTrue(runtime.snapshot().editor().isEmpty());
     }
 
     @Test
@@ -1768,6 +1909,7 @@ final class ClientRuntimeTest {
         private int storagePreflightCalls;
         private RuntimeException storagePreflightFailure;
         private Exception retrySessionFailure;
+        private boolean failEditorSave;
 
         @Override
         public void verifyStorageAccess() {
@@ -1932,7 +2074,10 @@ final class ClientRuntimeTest {
         }
 
         @Override
-        public EditorSave saveEditor(EditorSaveRequest request) {
+        public EditorSave saveEditor(EditorSaveRequest request) throws IOException {
+            if (failEditorSave) {
+                throw new IOException("editor save failed");
+            }
             UUID presetId = request.originalPresetId().orElseGet(this::nextId);
             SkinReference skin = request.skin();
             if (request.pngBytes().isPresent()) {
@@ -1996,19 +2141,6 @@ final class ClientRuntimeTest {
                     Optional.of(local),
                     Optional.of(request.outerLayerVisibility())));
             return new EditorSave(account, presetId, durable);
-        }
-
-        @Override
-        public AccountState duplicatePreset(UUID presetId, String newName) {
-            AppearancePreset source = account.presets().stream()
-                    .filter(preset -> preset.id().equals(presetId))
-                    .findFirst()
-                    .orElseThrow();
-            Instant now = nextTime();
-            AppearancePreset duplicate = new AppearancePreset(
-                    nextId(), newName, source.skin(), source.capeId(), now, now);
-            account = copy(account.skinAssets(), append(account.presets(), duplicate));
-            return account;
         }
 
         @Override

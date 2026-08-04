@@ -27,6 +27,7 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
+import com.naocraftlab.skins.core.service.LibraryOperationException;
 import com.naocraftlab.skins.core.service.LibraryService;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RemoteAppearanceImpact;
@@ -123,6 +124,39 @@ final class DefaultClientOperationsTest {
         assertEquals(Optional.of(saved.presetId()), synchronizedOnline.appearance().activePresetId());
         assertEquals(AppearanceSyncStatus.OFFICIAL, synchronizedOnline.appearance().syncStatus());
         assertEquals(1, onlineApi.skinUploads.get());
+    }
+
+    @Test
+    void newInactivePresetSaveHasNoFallibleAppearanceFollowUp() throws Exception {
+        byte[] skin = skinPng(0xFF315C73);
+        NclSkinsStorage storage = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(),
+                new StubProfileApi(),
+                storage,
+                ignored -> skin.clone(),
+                fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        Files.createDirectory(storage.layout().accountAppearance(TestFixtures.ACCOUNT_ID));
+
+        ClientOperations.EditorSave saved = operations.saveEditor(
+                new ClientOperations.EditorSaveRequest(
+                        Optional.empty(),
+                        "Duplicate draft",
+                        SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                        SkinVariant.CLASSIC,
+                        SkinVariant.CLASSIC,
+                        Optional.empty(),
+                        Optional.empty()));
+
+        assertTrue(saved.reappliedAppearance().isEmpty());
+        assertEquals(1, saved.account().presets().size());
+        assertEquals(saved.presetId(), saved.account().presets().get(0).id());
+        assertEquals(
+                saved.account().presets(),
+                new LibraryService(storage, fixedClock())
+                        .load(TestFixtures.ACCOUNT_ID)
+                        .presets());
     }
 
     @Test
@@ -940,8 +974,9 @@ final class DefaultClientOperationsTest {
                 SkinReference.asset(classicId),
                 null);
         UUID transientPreset = created.presets().get(0).id();
-        AccountState externallyEmpty = otherClient.completeAcknowledgedFinalPresetDeletion(
-                TestFixtures.ACCOUNT_ID, transientPreset);
+        DefaultClientOperations otherOperations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        AccountState externallyEmpty = otherOperations.deletePreset(transientPreset).account();
         assertTrue(externallyEmpty.presets().isEmpty());
         assertNotEquals(initial.account().updatedAt(), externallyEmpty.updatedAt());
 
@@ -992,6 +1027,228 @@ final class DefaultClientOperationsTest {
         assertEquals(AppearanceSyncStatus.PENDING, durable.syncStatus());
         assertEquals(0, api.skinUploads.get());
         assertEquals(0, api.skinResets.get());
+    }
+
+    @Test
+    void deletingLastInactivePresetPublishesAFreshAccountDefaultIntent() throws Exception {
+        byte[] skin = skinPng(0xFF284F69);
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave active = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Active",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.EditorSave inactive = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Inactive",
+                SkinReference.asset(initial.account().skinAssets().get(1).id()),
+                SkinVariant.SLIM,
+                SkinVariant.SLIM,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(active.presetId());
+
+        ClientOperations.DurableAppearance firstDefault = operations
+                .deletePreset(active.presetId())
+                .appearance()
+                .orElseThrow();
+        ClientOperations.PresetDelete finalDeletion = operations.deletePreset(inactive.presetId());
+        ClientOperations.DurableAppearance finalDefault = finalDeletion.appearance().orElseThrow();
+
+        assertTrue(finalDeletion.account().presets().isEmpty());
+        assertTrue(finalDefault.activePresetId().isEmpty());
+        assertTrue(finalDefault.localAppearance().orElseThrow().usesAccountDefaultSkin());
+        assertEquals(AppearanceSyncStatus.PENDING, finalDefault.syncStatus());
+        assertTrue(finalDefault.intentRevision() > firstDefault.intentRevision());
+        assertEquals(0, api.profileGets.get());
+        assertEquals(0, api.skinResets.get());
+    }
+
+    @Test
+    void failedAccountReplaceLeavesPendingDefaultAndRetryCompletesDeletionWithAFreshIntent()
+            throws Exception {
+        byte[] skin = skinPng(0xFF2A4F6B);
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Final",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        Path blockedBackup = shared.layout().accountBackup(TestFixtures.ACCOUNT_ID);
+        Files.deleteIfExists(blockedBackup);
+        Files.createDirectories(blockedBackup);
+
+        assertThrows(IOException.class, () -> operations.deletePreset(saved.presetId()));
+
+        assertEquals(List.of(saved.presetId()), shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID)
+                .presets()
+                .stream()
+                .map(preset -> preset.id())
+                .toList());
+        var pendingDefault = shared.loadAppearance(TestFixtures.ACCOUNT_ID);
+        assertEquals(AppearanceSyncStatus.PENDING, pendingDefault.syncStatus());
+        assertNull(pendingDefault.activePresetId());
+        assertNull(pendingDefault.skinSha256());
+        Files.delete(blockedBackup);
+
+        ClientOperations.PresetDelete retry = operations.deletePreset(saved.presetId());
+
+        assertTrue(retry.account().presets().isEmpty());
+        assertTrue(retry.appearance().orElseThrow().intentRevision()
+                > pendingDefault.intentRevision());
+        assertEquals(0, api.profileGets.get());
+        assertEquals(0, api.skinResets.get());
+    }
+
+    @Test
+    void failedAppearanceReplaceDoesNotRemoveTheFinalPresetAndRetryIsSafe() throws Exception {
+        byte[] skin = skinPng(0xFF2C4F6D);
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Final",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        Path blockedAppearance = shared.layout().accountAppearance(TestFixtures.ACCOUNT_ID);
+        Files.delete(blockedAppearance);
+        Files.createDirectories(blockedAppearance);
+
+        assertThrows(IOException.class, () -> operations.deletePreset(saved.presetId()));
+
+        assertEquals(List.of(saved.presetId()), shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID)
+                .presets()
+                .stream()
+                .map(preset -> preset.id())
+                .toList());
+        Files.delete(blockedAppearance);
+
+        ClientOperations.PresetDelete retry = operations.deletePreset(saved.presetId());
+
+        assertTrue(retry.account().presets().isEmpty());
+        assertTrue(retry.appearance().orElseThrow().activePresetId().isEmpty());
+        assertEquals(AppearanceSyncStatus.PENDING, retry.appearance().orElseThrow().syncStatus());
+        assertEquals(0, api.profileGets.get());
+        assertEquals(0, api.skinResets.get());
+    }
+
+    @Test
+    void deletedPresetCannotPublishANewAppearanceIntent() throws Exception {
+        byte[] skin = skinPng(0xFF294F6A);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave kept = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Kept",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.EditorSave removed = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Removed",
+                SkinReference.asset(initial.account().skinAssets().get(1).id()),
+                SkinVariant.SLIM,
+                SkinVariant.SLIM,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.PresetUse selected = operations.usePreset(kept.presetId());
+        operations.deletePreset(removed.presetId());
+
+        LibraryOperationException failure = assertThrows(
+                LibraryOperationException.class,
+                () -> operations.usePreset(removed.presetId()));
+
+        assertEquals(LibraryOperationException.Code.PRESET_NOT_FOUND, failure.code());
+        assertEquals(selected.intentRevision(), operations.durableAppearance().orElseThrow().intentRevision());
+        assertEquals(Optional.of(kept.presetId()), operations.durableAppearance().orElseThrow().activePresetId());
+    }
+
+    @Test
+    void concurrentDeleteAndApplyNeverLeaveTheDeletedPresetAsDurableActive() throws Exception {
+        byte[] skin = skinPng(0xFF2B4F6C);
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations first = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = first.initialize();
+        ClientOperations.EditorSave kept = first.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Kept",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.EditorSave raced = first.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Raced",
+                SkinReference.asset(initial.account().skinAssets().get(1).id()),
+                SkinVariant.SLIM,
+                SkinVariant.SLIM,
+                Optional.empty(),
+                Optional.empty()));
+        first.usePreset(kept.presetId());
+        DefaultClientOperations second = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<ClientOperations.PresetDelete> deletion = executor.submit(() -> {
+                start.await();
+                return first.deletePreset(raced.presetId());
+            });
+            Future<Boolean> selection = executor.submit(() -> {
+                start.await();
+                try {
+                    second.usePreset(raced.presetId());
+                    return true;
+                } catch (LibraryOperationException deletedFirst) {
+                    return false;
+                }
+            });
+            start.countDown();
+
+            assertTrue(deletion.get(2, TimeUnit.SECONDS).account().presets().stream()
+                    .noneMatch(preset -> preset.id().equals(raced.presetId())));
+            selection.get(2, TimeUnit.SECONDS);
+            AccountState stored = shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
+            var appearance = shared.loadAppearance(TestFixtures.ACCOUNT_ID);
+            assertTrue(stored.presets().stream()
+                    .noneMatch(preset -> preset.id().equals(raced.presetId())));
+            assertFalse(raced.presetId().equals(appearance.activePresetId()));
+            assertTrue(appearance.activePresetId() == null
+                    || kept.presetId().equals(appearance.activePresetId()));
+            assertEquals(AppearanceSyncStatus.PENDING, appearance.syncStatus());
+            assertEquals(0, api.profileGets.get());
+            assertEquals(0, api.skinResets.get());
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

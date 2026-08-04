@@ -1,12 +1,9 @@
 package com.naocraftlab.skins.core.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
+import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
+import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinReference;
@@ -15,6 +12,9 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.test.TestPng;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -26,8 +26,11 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LibraryServiceTest {
     private static final Instant NOW = Instant.parse("2026-07-29T00:00:00Z");
@@ -73,10 +76,12 @@ class LibraryServiceTest {
                 SkinReference.accountDefault(),
                 null);
         assertTrue(library.findPreset(updated, presetId).skin().optionalAssetId().isEmpty());
-        LibraryService.PresetDeletion prepared = library.preparePresetDeletion(accountId, presetId);
-        assertTrue(prepared.requiresReset());
-        AccountState withoutPreset =
-                library.completeAcknowledgedFinalPresetDeletion(accountId, presetId);
+        LibraryService.PresetDeletion deletion = library.deletePreset(
+                accountId,
+                presetId,
+                (account, appearance, revision) -> pendingDefault(accountId, revision));
+        assertTrue(deletion.appearanceUpdated());
+        AccountState withoutPreset = deletion.state();
         assertTrue(withoutPreset.presets().isEmpty());
         AccountState withoutSkin = library.deleteSkin(accountId, skinId);
         assertEquals(1, withoutSkin.skinAssets().size());
@@ -92,10 +97,12 @@ class LibraryServiceTest {
         AccountState created = library.createPreset(
                 accountId, "Transient", SkinReference.accountDefault(), null);
         UUID presetId = created.presets().get(0).id();
-        LibraryService.PresetDeletion prepared = library.preparePresetDeletion(accountId, presetId);
-        assertTrue(prepared.requiresReset());
-        AccountState emptyAgain =
-                library.completeAcknowledgedFinalPresetDeletion(accountId, presetId);
+        LibraryService.PresetDeletion deletion = library.deletePreset(
+                accountId,
+                presetId,
+                (account, appearance, revision) -> pendingDefault(accountId, revision));
+        assertTrue(deletion.appearanceUpdated());
+        AccountState emptyAgain = deletion.state();
 
         assertTrue(created.updatedAt().isAfter(initial.updatedAt()));
         assertTrue(emptyAgain.updatedAt().isAfter(created.updatedAt()));
@@ -173,7 +180,7 @@ class LibraryServiceTest {
     }
 
     @Test
-    void concurrentDeletesCannotRemoveTheLastPresetWithoutAResetDecision() throws Exception {
+    void concurrentDeletesReachEmptyOnlyAfterPublishingAccountDefault() throws Exception {
         UUID accountId = UUID.randomUUID();
         UUID skinId = library().importSkin(
                         accountId,
@@ -196,11 +203,17 @@ class LibraryServiceTest {
         CountDownLatch start = new CountDownLatch(1);
         Callable<LibraryService.PresetDeletion> deleteFirst = () -> {
             start.await();
-            return library().preparePresetDeletion(accountId, firstId);
+            return library().deletePreset(
+                    accountId,
+                    firstId,
+                    (account, appearance, revision) -> pendingDefault(accountId, revision));
         };
         Callable<LibraryService.PresetDeletion> deleteSecond = () -> {
             start.await();
-            return library().preparePresetDeletion(accountId, secondId);
+            return library().deletePreset(
+                    accountId,
+                    secondId,
+                    (account, appearance, revision) -> pendingDefault(accountId, revision));
         };
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -212,61 +225,15 @@ class LibraryServiceTest {
             LibraryService.PresetDeletion secondResult = secondFuture.get();
 
             assertEquals(1, List.of(firstResult, secondResult).stream()
-                    .filter(LibraryService.PresetDeletion::deleted)
+                    .filter(LibraryService.PresetDeletion::appearanceUpdated)
                     .count());
-            assertEquals(1, List.of(firstResult, secondResult).stream()
-                    .filter(LibraryService.PresetDeletion::requiresReset)
-                    .count());
-            AccountState beforeReset = library().load(accountId);
-            assertEquals(1, beforeReset.presets().size());
-            UUID finalId = beforeReset.presets().get(0).id();
-            assertTrue(finalId.equals(firstId) || finalId.equals(secondId));
-
-            AccountState afterAcknowledgedReset = library()
-                    .completeAcknowledgedFinalPresetDeletion(accountId, finalId);
-            assertTrue(afterAcknowledgedReset.presets().isEmpty());
+            assertTrue(library().load(accountId).presets().isEmpty());
+            AccountAppearanceState appearance = storage().loadAppearance(accountId);
+            assertEquals(AppearanceSyncStatus.PENDING, appearance.syncStatus());
+            assertTrue(appearance.activePresetId() == null);
         } finally {
             executor.shutdownNow();
         }
-    }
-
-    @Test
-    void duplicatesLatestStoredPresetAtomicallyAndReturnsItsExactIdentity() throws Exception {
-        LibraryService library = library();
-        UUID accountId = UUID.randomUUID();
-        ImportedSkin firstSkin = library.importSkin(
-                accountId,
-                "First",
-                SkinVariant.CLASSIC,
-                SkinSource.IMPORTED,
-                TestPng.create(64, 64));
-        ImportedSkin latestSkin = library.importSkin(
-                accountId,
-                "Latest",
-                SkinVariant.SLIM,
-                SkinSource.IMPORTED,
-                TestPng.create(128, 128));
-        AccountState created = library.createPreset(
-                accountId,
-                "Source",
-                SkinReference.asset(firstSkin.asset().id()),
-                "old-cape");
-        UUID sourceId = created.presets().get(0).id();
-
-        library.updatePreset(
-                accountId,
-                sourceId,
-                "Source edited elsewhere",
-                SkinReference.asset(latestSkin.asset().id()),
-                "latest-cape");
-        DuplicatedPreset duplicated = library.duplicatePreset(accountId, sourceId, "Source (copy)");
-
-        assertNotEquals(sourceId, duplicated.preset().id());
-        assertEquals("Source (copy)", duplicated.preset().name());
-        assertEquals(SkinReference.asset(latestSkin.asset().id()), duplicated.preset().skin());
-        assertEquals("latest-cape", duplicated.preset().capeId());
-        assertEquals(duplicated.preset(), library.findPreset(duplicated.state(), duplicated.preset().id()));
-        assertEquals(2, duplicated.state().presets().size());
     }
 
     @Test
@@ -565,10 +532,28 @@ class LibraryServiceTest {
 
     private LibraryService library() {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        NclSkinsStorage storage = new NclSkinsStorage(
+        return new LibraryService(storage(), clock);
+    }
+
+    private NclSkinsStorage storage() {
+        return new NclSkinsStorage(
                 temporaryDirectory.resolve("nclskins"),
                 new PngValidator(),
-                clock);
-        return new LibraryService(storage, clock);
+                Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private static AccountAppearanceState pendingDefault(UUID accountId, long revision) {
+        return new AccountAppearanceState(
+                AccountAppearanceState.CURRENT_SCHEMA_VERSION,
+                accountId,
+                revision,
+                null,
+                null,
+                null,
+                null,
+                OuterLayerVisibility.allVisible(),
+                AppearanceSyncStatus.PENDING,
+                0,
+                NOW);
     }
 }

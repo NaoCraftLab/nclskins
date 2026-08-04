@@ -10,6 +10,9 @@ neoForge {
     runs {
         client {
             client()
+            nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
+                programArgument argument
+            }
         }
         server {
             server()

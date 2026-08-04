@@ -431,6 +431,17 @@ final class AddSourceModelPresenterTest {
         ViewSpec.Scrollbar scrollbar = canonical.scrollbar().orElseThrow();
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL, scrollbar.orientation());
         assertTrue(scrollbar.maximum() > 0);
+        ViewSpec.ScrollSurface scrollSurface = canonical.scrollSurface("add.catalog").orElseThrow();
+        assertEquals(clip, scrollSurface.viewport());
+        assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL, scrollSurface.orientation());
+        assertEquals(0.0, scrollSurface.offsetPixels());
+        assertEquals(scrollbar.maximum(), scrollSurface.maximumPixels());
+        ViewSpec.Text firstName = canonical.texts().stream()
+                .filter(text -> text.id().endsWith(".name"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(firstName.marqueeActivation().orElseThrow().focusWidgetIds().stream()
+                .anyMatch(id -> id.startsWith("add.catalog.skin:")));
         int nextOffset = presenter.nextScrollOffset(model, 320, 240, 1);
         assertTrue(nextOffset > 0);
         ViewSpec afterNext = presenter.present(model.withScrollOffset(nextOffset), false, 320, 240);
@@ -439,6 +450,9 @@ final class AddSourceModelPresenterTest {
 
         AddSourceModel scrolled = model.withScrollOffset(scrollbar.maximum());
         ViewSpec atEnd = presenter.present(scrolled, false, 854, 480);
+        assertEquals(
+                scrollbar.maximum(),
+                atEnd.scrollSurface("add.catalog").orElseThrow().offsetPixels());
         assertFalse(atEnd.previews().isEmpty());
         assertTrue(
                 atEnd.previews().get(0).bounds().y() < canonical.previews().get(0).bounds().y(),

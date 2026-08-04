@@ -18,6 +18,8 @@ public interface ImmediateScreenCapabilities {
 
     PreviewRenderer<GuiGraphics> createEditorPreviewRenderer();
 
+    NativeScrollController createScrollController();
+
     void renderPanel(GuiGraphics graphics, ViewSpec.Panel panel);
 
     void renderScrollbar(GuiGraphics graphics, ViewSpec.Scrollbar scrollbar);

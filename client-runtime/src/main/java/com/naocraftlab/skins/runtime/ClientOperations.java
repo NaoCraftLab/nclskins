@@ -139,8 +139,6 @@ public interface ClientOperations extends AutoCloseable {
 
     EditorSave saveEditor(EditorSaveRequest request) throws Exception;
 
-    AccountState duplicatePreset(UUID presetId, String newName) throws Exception;
-
     PresetDelete deletePreset(UUID presetId) throws Exception;
 
     RemoteResult applyPreset(UUID presetId) throws Exception;

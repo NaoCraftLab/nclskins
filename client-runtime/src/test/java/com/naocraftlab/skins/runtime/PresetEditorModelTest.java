@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.OuterLayerPart;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
@@ -56,6 +57,52 @@ final class PresetEditorModelTest {
         assertEquals(changed.preview().outerLayerVisibility(), changed.saveRequest().outerLayerVisibility());
         assertArrayEquals(new byte[] {1, 2, 3}, changed.saveRequest().pngBytes().orElseThrow());
         assertEquals(original.name(), account.presets().get(0).name());
+    }
+
+    @Test
+    void duplicateDraftCopiesTheSourceSnapshotButHasNoOriginalPresetIdentity() {
+        AccountState originalAccount = TestFixtures.account(2);
+        AppearancePreset original = originalAccount.presets().get(1);
+        OuterLayerVisibility visibility = OuterLayerVisibility.allVisible()
+                .with(OuterLayerPart.HEAD, false)
+                .with(OuterLayerPart.LEFT_LEG, false);
+        AppearancePreset source = new AppearancePreset(
+                original.id(),
+                original.name(),
+                original.skin(),
+                original.capeId(),
+                visibility,
+                original.createdAt(),
+                original.updatedAt());
+        AccountState account = new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
+                originalAccount.accountId(),
+                originalAccount.skinAssets(),
+                originalAccount.personalSkins(),
+                List.of(originalAccount.presets().get(0), source),
+                originalAccount.updatedAt());
+
+        PresetEditorModel duplicate = PresetEditorModel.openDuplicate(
+                account,
+                source,
+                "Copy of " + source.name(),
+                Optional.of(TestFixtures.validSession().profile()),
+                Optional.of(source.id()),
+                ENGLISH,
+                480,
+                PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC,
+                List.of());
+
+        assertTrue(duplicate.originalPresetId().isEmpty());
+        assertEquals("Copy of " + source.name(), duplicate.name());
+        assertEquals(source.skin(), duplicate.skin());
+        assertEquals(SkinVariant.SLIM, duplicate.variant());
+        assertEquals(source.optionalCapeId(), duplicate.capeId());
+        assertEquals(visibility, duplicate.preview().outerLayerVisibility());
+        assertTrue(duplicate.saveRequest().originalPresetId().isEmpty());
+        assertEquals(visibility, duplicate.saveRequest().outerLayerVisibility());
+        assertEquals(2, account.presets().size());
     }
 
     @Test
@@ -269,6 +316,10 @@ final class PresetEditorModelTest {
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL,
                 start.scrollbar().orElseThrow().orientation());
         assertTrue(model.maximumCapeScroll(320, 240) > 0);
+        ViewSpec.ScrollSurface surface = start.scrollSurface("editor.capes").orElseThrow();
+        assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL, surface.orientation());
+        assertEquals(0.0, surface.offsetPixels());
+        assertEquals(model.maximumCapeScroll(320, 240), surface.maximumPixels());
 
         PresetEditorModel roomy = PresetEditorModel.open(
                 TestFixtures.account(0),
@@ -283,6 +334,9 @@ final class PresetEditorModelTest {
         assertEquals(3, distinctCapeCardColumns(roomy.present(854, 480, 0.0)));
 
         ViewSpec end = model.present(320, 240, model.maximumCapeScroll(320, 240));
+        assertEquals(
+                model.maximumCapeScroll(320, 240),
+                end.scrollSurface("editor.capes").orElseThrow().offsetPixels());
         assertTrue(end.capeTextures().stream().anyMatch(texture -> texture.capeId().equals("cape-4")));
 
         ViewSpec partial = model.present(320, 240, 1.0);

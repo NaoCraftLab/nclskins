@@ -166,9 +166,69 @@ final class GalleryPresenterTest {
         assertEquals(new Bounds(534, 118, 190, 254), view.panels().get(4).bounds());
         assertEquals(2, view.scrollbar().orElseThrow().maximum());
         assertEquals(new Bounds(40, 437, 774, 6), view.scrollbar().orElseThrow().track());
+        ViewSpec.ScrollSurface surface = view.scrollSurface("gallery.cards").orElseThrow();
+        assertEquals(galleryViewport(view), surface.viewport());
+        assertEquals(ViewSpec.Scrollbar.Orientation.HORIZONTAL, surface.orientation());
+        assertEquals(0.0, surface.offsetPixels());
+        assertEquals(404.0, surface.maximumPixels());
         assertTrue(view.widget("gallery.preset." + active + ".apply").isPresent());
         assertFalse(view.widget("gallery.preset." + active + ".apply").orElseThrow().enabled());
         assertTrue(view.previews().stream().allMatch(preview -> preview.scale() == 0.88F));
+
+        ViewSpec.Text activeName = view.texts().stream()
+                .filter(text -> text.id().equals("gallery.preset." + active + ".name"))
+                .findFirst()
+                .orElseThrow();
+        ViewSpec.MarqueeActivation marquee = activeName.marqueeActivation().orElseThrow();
+        assertTrue(marquee.focusWidgetIds().contains("gallery.preset." + active + ".apply"));
+        assertTrue(marquee.focusWidgetIds().contains("gallery.preset." + active + ".delete"));
+    }
+
+    @Test
+    void restingIntegerOffsetsKeepIntersectingNeighborCardsInsideTheClip() {
+        AccountState account = TestFixtures.account(5);
+        ClientSnapshot snapshot = TestFixtures.ready(account, null, 0);
+
+        ViewSpec start = presenter.present(
+                snapshot,
+                854,
+                480,
+                0,
+                0,
+                PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC,
+                "",
+                Optional.empty(),
+                0.0);
+        Bounds startViewport = galleryViewport(start);
+        assertTrue(start.panels().stream()
+                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
+                .map(ViewSpec.Panel::bounds)
+                .anyMatch(bounds -> bounds.x() < startViewport.right()
+                        && bounds.right() > startViewport.right()));
+
+        ViewSpec settled = presenter.present(
+                snapshot,
+                854,
+                480,
+                0,
+                0,
+                PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC,
+                "",
+                Optional.empty(),
+                1.0);
+        Bounds settledViewport = galleryViewport(settled);
+        assertTrue(settled.panels().stream()
+                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
+                .map(ViewSpec.Panel::bounds)
+                .anyMatch(bounds -> bounds.x() < settledViewport.x()
+                        && bounds.right() > settledViewport.x()));
+        assertTrue(settled.panels().stream()
+                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
+                .map(ViewSpec.Panel::bounds)
+                .anyMatch(bounds -> bounds.x() < settledViewport.right()
+                        && bounds.right() > settledViewport.right()));
     }
 
     @Test

@@ -1,8 +1,9 @@
 package com.naocraftlab.skins.core.service;
 
+import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
-import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
 import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
@@ -13,6 +14,7 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.StoredAsset;
+
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
@@ -539,27 +541,6 @@ public final class LibraryService {
     }
 
 
-    public DuplicatedPreset duplicatePreset(UUID accountId, UUID sourcePresetId, String name)
-            throws IOException {
-        Objects.requireNonNull(accountId, "accountId");
-        Objects.requireNonNull(sourcePresetId, "sourcePresetId");
-        UUID duplicateId = UUID.randomUUID();
-        Instant now = clock.instant();
-        AccountState state = storage.updateAccount(accountId, current -> {
-            AppearancePreset source = findPreset(current, sourcePresetId);
-            AppearancePreset duplicate = new AppearancePreset(
-                    duplicateId,
-                    name,
-                    source.skin(),
-                    source.capeId(),
-                    source.outerLayerVisibility(),
-                    now,
-                    now);
-            return copy(current, current.skinAssets(), appended(current.presets(), duplicate), now);
-        });
-        return new DuplicatedPreset(state, findPreset(state, duplicateId));
-    }
-
     public AccountState updatePreset(
             UUID accountId,
             UUID presetId,
@@ -591,42 +572,38 @@ public final class LibraryService {
     }
 
 
-    public PresetDeletion preparePresetDeletion(UUID accountId, UUID presetId) throws IOException {
+    public PresetDeletion deletePreset(
+            UUID accountId,
+            UUID presetId,
+            NclSkinsStorage.AppearanceIntentFromAccount accountDefaultIntent) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(presetId, "presetId");
-        boolean[] requiresReset = {false};
-        boolean[] deleted = {false};
+        Objects.requireNonNull(accountDefaultIntent, "accountDefaultIntent");
         Instant now = clock.instant();
-        AccountState state = storage.updateAccount(accountId, current -> {
-            int index = indexOfPreset(current.presets(), presetId);
-            if (current.presets().size() == 1) {
-                requiresReset[0] = true;
-                return current;
-            }
-            List<AppearancePreset> presets = new ArrayList<>(current.presets());
-            presets.remove(index);
-            deleted[0] = true;
-            return copy(current, current.skinAssets(), presets, now);
-        });
-        return new PresetDeletion(state, deleted[0], requiresReset[0]);
-    }
-
-
-    public AccountState completeAcknowledgedFinalPresetDeletion(UUID accountId, UUID presetId)
-            throws IOException {
-        Objects.requireNonNull(accountId, "accountId");
-        Objects.requireNonNull(presetId, "presetId");
-        Instant now = clock.instant();
-        return storage.updateAccount(accountId, current -> {
-            boolean present = current.presets().stream().anyMatch(preset -> preset.id().equals(presetId));
-            if (!present) {
-                return current;
-            }
-            List<AppearancePreset> presets = current.presets().stream()
-                    .filter(preset -> !preset.id().equals(presetId))
-                    .toList();
-            return copy(current, current.skinAssets(), presets, now);
-        });
+        boolean[] resetAppearance = {false};
+        NclSkinsStorage.AccountAppearanceMutationResult result =
+                storage.mutateAccountAndAppearance(accountId, (current, appearance, nextRevision) -> {
+                    List<AppearancePreset> presets = new ArrayList<>(current.presets());
+                    int index = indexOfPreset(presets, presetId);
+                    resetAppearance[0] = presets.size() == 1
+                            || presetId.equals(appearance.activePresetId());
+                    presets.remove(index);
+                    AccountState deleted = copy(current, current.skinAssets(), presets, now);
+                    if (!resetAppearance[0]) {
+                        return NclSkinsStorage.AccountAppearanceMutationPlan.accountOnly(
+                                deleted, appearance);
+                    }
+                    AccountAppearanceState accountDefault = Objects.requireNonNull(
+                            accountDefaultIntent.apply(current, appearance, nextRevision),
+                            "account default intent");
+                    return NclSkinsStorage.AccountAppearanceMutationPlan.both(
+                            deleted, accountDefault);
+                });
+        return new PresetDeletion(
+                result.account(),
+                result.appearance(),
+                resetAppearance[0],
+                result.appearanceUpdated());
     }
 
 
@@ -759,12 +736,15 @@ public final class LibraryService {
     }
 
     public record PresetDeletion(
-            AccountState state, boolean deleted, boolean requiresReset) {
+            AccountState state,
+            AccountAppearanceState appearance,
+            boolean resetsAppearance,
+            boolean appearanceUpdated) {
         public PresetDeletion {
             Objects.requireNonNull(state, "state");
-            if (deleted == requiresReset) {
-                throw new IllegalArgumentException(
-                        "preset deletion must either delete locally or require reset");
+            Objects.requireNonNull(appearance, "appearance");
+            if (!state.accountId().equals(appearance.accountId())) {
+                throw new IllegalArgumentException("Account and appearance UUIDs differ");
             }
         }
     }

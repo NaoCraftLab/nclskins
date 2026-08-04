@@ -1,14 +1,15 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.client.PreviewRenderer.CapeMode;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import org.junit.jupiter.api.Test;
+
 import java.util.List;
 import java.util.Optional;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PointerRoutingTest {
     @Test
@@ -61,6 +62,40 @@ final class PointerRoutingTest {
         assertTrue(PointerRouting.clipRegion(clipped, "add.catalog.viewport", 199, 206));
         assertFalse(PointerRouting.clipRegion(clipped, "add.catalog.viewport", 100, 207));
         assertFalse(PointerRouting.clipRegion(clipped, "missing", 100, 100));
+    }
+
+    @Test
+    void routesOnlyPointsInsideTheDeclaredNativeScrollViewport() {
+        ViewSpec.ScrollSurface surface = new ViewSpec.ScrollSurface(
+                "gallery.cards",
+                new Bounds(8, 40, 184, 120),
+                ViewSpec.Scrollbar.Orientation.HORIZONTAL,
+                16.5,
+                96.0);
+        ViewSpec base = view("gallery");
+        ViewSpec routed = new ViewSpec(
+                base.screenId(),
+                base.title(),
+                base.width(),
+                base.height(),
+                base.panels(),
+                base.texts(),
+                base.widgets(),
+                base.previews(),
+                base.scrollbar(),
+                base.tabGroups(),
+                base.focusRequest(),
+                base.clipRegions(),
+                base.capeTextures(),
+                base.iconDecorations(),
+                List.of(surface));
+
+        assertTrue(PointerRouting.scrollSurface(routed, 8, 40)
+                .filter(candidate -> candidate.id().equals("gallery.cards"))
+                .isPresent());
+        assertTrue(PointerRouting.scrollSurface(routed, 191, 159).isPresent());
+        assertFalse(PointerRouting.scrollSurface(routed, 192, 159).isPresent());
+        assertFalse(PointerRouting.scrollSurface(routed, 191, 160).isPresent());
     }
 
     private static ViewSpec view(String screenId) {

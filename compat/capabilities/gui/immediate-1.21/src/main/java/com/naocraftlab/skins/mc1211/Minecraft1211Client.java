@@ -10,6 +10,7 @@ import com.naocraftlab.skins.compat.client.MinecraftServerAppearanceRefreshNotif
 import com.naocraftlab.skins.compat.gui.immediate.ImmediateScreenCapabilities;
 import com.naocraftlab.skins.compat.gui.immediate.NclSkinsImmediateScreen;
 import com.naocraftlab.skins.compat.gui.immediate.MinecraftSignedTextureVerifier;
+import com.naocraftlab.skins.compat.gui.immediate.NativeScrollController;
 import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ClientProcessHost;
 import com.naocraftlab.skins.runtime.TextResolver;
@@ -120,6 +121,11 @@ public final class Minecraft1211Client implements ImmediateScreenCapabilities {
     @Override
     public PreviewRenderer<GuiGraphics> createEditorPreviewRenderer() {
         return new VanillaAppearancePreviewRenderer(Minecraft.getInstance());
+    }
+
+    @Override
+    public NativeScrollController createScrollController() {
+        return new Minecraft1211ScrollController(Minecraft.getInstance());
     }
 
     @Override

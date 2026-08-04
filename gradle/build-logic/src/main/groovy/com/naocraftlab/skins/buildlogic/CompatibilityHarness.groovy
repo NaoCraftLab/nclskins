@@ -63,7 +63,7 @@ final class CompatibilityHarness {
         extractAccessRules(production, harness, target)
         new File(harness, 'settings.gradle').setText(settings(target), StandardCharsets.UTF_8.name())
         new File(harness, 'build.gradle').setText(
-                buildFile(root, target, runtime, production), StandardCharsets.UTF_8.name())
+                buildFile(root, catalog, target, runtime, production), StandardCharsets.UTF_8.name())
         new File(harness, 'gradle.properties').setText(
                 'org.gradle.jvmargs=-Xmx2G -Dfile.encoding=UTF-8\norg.gradle.configuration-cache=false\n',
                 StandardCharsets.UTF_8.name())
@@ -103,14 +103,20 @@ rootProject.name = 'nclskins-${target.id}-compatibility'
 """
     }
 
-    private static String buildFile(File root, Map target, Map runtime, File production) {
+    static String buildFile(File root, Map catalog, Map target, Map runtime, File production) {
         String escapedJar = production.canonicalPath.replace('\\', '\\\\').replace("'", "\\'")
+        List<String> clientArguments = CatalogTools.clientArguments(catalog)
         if (target.loader.id == 'fabric') {
             return """plugins {
     id 'net.fabricmc.fabric-loom' version '${targetCatalogPlugin(root, 'loom')}'
 }
 loom {
     accessWidenerPath = file('src/main/resources/${target.metadata.accessWidener}')
+    runs {
+        client {
+            programArgs ${groovyStringList(clientArguments)}
+        }
+    }
 }
 repositories {
     maven { url = 'https://maven.fabricmc.net/' }
@@ -149,7 +155,10 @@ neoForge {
         disableRecompilation = true
     }
     runs {
-        client { client() }
+        client {
+            client()
+            ${clientArguments.collect { "programArgument '${it}'" }.join('\n            ')}
+        }
         server {
             server()
             programArgument '--nogui'
@@ -210,6 +219,10 @@ tasks.named('runServer', JavaExec) {
 
     private static String targetCatalogPlugin(File root, String key) {
         CatalogTools.loadCatalog(root).plugins[key].toString()
+    }
+
+    private static String groovyStringList(List<String> values) {
+        values.collect { "'${it}'" }.join(', ')
     }
 
     private static File artifact(File root, Map target, String modVersion) {
