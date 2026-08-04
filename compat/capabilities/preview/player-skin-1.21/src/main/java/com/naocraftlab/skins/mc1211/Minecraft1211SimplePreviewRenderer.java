@@ -84,13 +84,19 @@ public final class Minecraft1211SimplePreviewRenderer
 
     private final PlayerModel<?> classic;
     private final PlayerModel<?> slim;
+    private final ModelPart classicCloak;
+    private final ModelPart slimCloak;
     private final ModelPart elytraRoot;
     private final ElytraModel<?> elytra;
 
     public Minecraft1211SimplePreviewRenderer(Minecraft minecraft) {
         Objects.requireNonNull(minecraft, "minecraft");
-        classic = new PlayerModel<>(minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER), false);
-        slim = new PlayerModel<>(minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER_SLIM), true);
+        ModelPart classicRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER);
+        ModelPart slimRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER_SLIM);
+        classic = new PlayerModel<>(classicRoot, false);
+        slim = new PlayerModel<>(slimRoot, true);
+        classicCloak = classicRoot.getChild("cloak");
+        slimCloak = slimRoot.getChild("cloak");
         elytraRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA);
         elytra = new ElytraModel<>(elytraRoot);
     }
@@ -103,7 +109,9 @@ public final class Minecraft1211SimplePreviewRenderer
         ResourceLocation cape = request.appearance().cape()
                 .map(handle -> parseTexture(handle.location()))
                 .orElse(null);
-        PlayerModel<?> player = request.appearance().model() == SkinModel.SLIM ? slim : classic;
+        boolean slimModel = request.appearance().model() == SkinModel.SLIM;
+        PlayerModel<?> player = slimModel ? slim : classic;
+        ModelPart cloak = slimModel ? slimCloak : classicCloak;
 
         configurePlayerModel(player, request.appearance().outerLayerVisibility());
         PoseStack pose = graphics.pose();
@@ -135,9 +143,10 @@ public final class Minecraft1211SimplePreviewRenderer
                 renderBackEquipment(
                         pose,
                         buffers,
-                        player,
+                        cloak,
                         request.appearance().capeMode(),
-                        cape);
+                        cape,
+                        false);
             }
             graphics.flush();
         } finally {
@@ -168,11 +177,12 @@ public final class Minecraft1211SimplePreviewRenderer
             renderBackEquipment(
                     pose,
                     buffers,
-                    classic,
+                    classicCloak,
                     request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE
                             ? CapeMode.CAPE
                             : CapeMode.ELYTRA,
-                    texture);
+                    texture,
+                    true);
             graphics.flush();
         } finally {
             pose.popPose();
@@ -183,19 +193,28 @@ public final class Minecraft1211SimplePreviewRenderer
     private void renderBackEquipment(
             PoseStack pose,
             MultiBufferSource.BufferSource buffers,
-            PlayerModel<?> player,
+            ModelPart cloak,
             CapeMode capeMode,
-            ResourceLocation texture) {
+            ResourceLocation texture,
+            boolean standalone) {
         if (capeMode == CapeMode.CAPE) {
             pose.pushPose();
             try {
-                VanillaBackEquipmentTransform.applyCapeAttachment(
-                        pose, BACK_EQUIPMENT_OPERATIONS);
-                player.renderCloak(
+                if (standalone) {
+                    VanillaBackEquipmentTransform.applyStandaloneCapeAttachment(
+                            pose, BACK_EQUIPMENT_OPERATIONS);
+                } else {
+                    VanillaBackEquipmentTransform.applyCapeAttachment(
+                            pose, BACK_EQUIPMENT_OPERATIONS);
+                }
+                cloak.resetPose();
+                cloak.visible = true;
+                cloak.render(
                         pose,
                         buffers.getBuffer(RenderType.entitySolid(texture)),
                         LightTexture.FULL_BRIGHT,
                         OverlayTexture.NO_OVERLAY);
+                cloak.visible = false;
             } finally {
                 pose.popPose();
             }

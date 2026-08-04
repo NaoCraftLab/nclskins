@@ -50,6 +50,20 @@ final class VanillaBackEquipmentTransformTest {
     }
 
     @Test
+    void standaloneRearViewCapeDoesNotApplyASecondHalfTurn() {
+        RecordingOperations operations = new RecordingOperations();
+
+        VanillaBackEquipmentTransform.applyStandaloneCapeAttachment(
+                new Object(), operations);
+
+        assertEquals(List.of("translate", "rotateX"), operations.names);
+        assertArrayEquals(
+                new float[]{0.0F, 0.0F, 0.125F}, operations.values.get(0), EPSILON);
+        assertArrayEquals(
+                new float[]{(float) Math.toRadians(6.0)}, operations.values.get(1), EPSILON);
+    }
+
+    @Test
     void capeAttachmentCanClearInflatedWorldlessPlayerLayersWithoutChangingRotations() {
         RecordingOperations operations = new RecordingOperations();
 

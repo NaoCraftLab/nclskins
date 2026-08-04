@@ -36,6 +36,14 @@ public final class VanillaBackEquipmentTransform {
         applyCapeAttachment(context, 0.125F, operations);
     }
 
+    public static <C> void applyStandaloneCapeAttachment(
+            C context,
+            Operations<C> operations) {
+        validate(context, operations);
+        operations.translate(context, 0.0F, 0.0F, 0.125F);
+        operations.rotateX(context, 6.0F * DEGREES_TO_RADIANS);
+    }
+
     public static <C> void applyCapeAttachment(
             C context,
             float zOffset,
