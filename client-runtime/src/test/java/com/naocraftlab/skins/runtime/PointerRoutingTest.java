@@ -86,7 +86,7 @@ final class PointerRoutingTest {
                 base.tabGroups(),
                 base.focusRequest(),
                 base.clipRegions(),
-                base.capeTextures(),
+                base.backEquipmentPreviews(),
                 base.iconDecorations(),
                 List.of(surface));
 

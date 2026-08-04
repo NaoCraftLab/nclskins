@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
@@ -604,7 +605,9 @@ public final class PresetEditorModel {
                 name,
                 UiMessage.info("nclskins.editor.name_hint"),
                 !busy,
-                128));
+                128,
+                true,
+                Optional.empty()));
         catalogOrigin.flatMap(PresetEditorModel::catalogInfo).ifPresent(info -> widgets.add(
                 ViewSpec.Widget.infoButton(
                         "editor.catalog_info",
@@ -615,18 +618,24 @@ public final class PresetEditorModel {
                 ? "nclskins.editor.arms_classic"
                 : "nclskins.editor.arms_slim");
         int modelWidth = controlsWidth;
-        if (modelVariantSelectable()) {
-            widgets.add(ViewSpec.Widget.button(
-                    "editor.model",
-                    new Bounds(controlsX, 82, modelWidth, 20),
-                    modelLabel,
-                    !busy));
-        }
-        List<ViewSpec.CapeTexture> capeTextures = new ArrayList<>();
+        widgets.add(ViewSpec.Widget.button(
+                "editor.model",
+                new Bounds(controlsX, 82, modelWidth, 20),
+                modelLabel,
+                !busy && modelVariantSelectable()));
+        List<ViewSpec.BackEquipmentPreview> backEquipmentPreviews = new ArrayList<>();
+        List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
         CapeGalleryLayout capeGallery = capeGalleryLayout(
                 controlsX, controlsWidth, height, capeScrollPosition);
-        addCapeGallery(widgets, panels, texts, capeTextures, clipRegions, capeGallery);
+        addCapeGallery(
+                widgets,
+                panels,
+                texts,
+                backEquipmentPreviews,
+                iconDecorations,
+                clipRegions,
+                capeGallery);
         addPreviewCycleControls(widgets, previewBounds, height);
         widgets.add(ViewSpec.Widget.button(
                 "editor.save",
@@ -651,18 +660,6 @@ public final class PresetEditorModel {
                 new Bounds(controlsX, 43, controlsWidth, 10),
                 UiMessage.info("nclskins.editor.name"),
                 ViewSpec.Text.Alignment.LEFT));
-        if (!modelVariantSelectable()) {
-            texts.add(new ViewSpec.Text(
-                    "editor.model.fixed",
-                    new Bounds(controlsX, 88, modelWidth, 10),
-                    modelLabel,
-                    ViewSpec.Text.Alignment.CENTER));
-        }
-        texts.add(new ViewSpec.Text(
-                "editor.preview_hint",
-                new Bounds(previewBounds.x(), Math.max(0, previewBounds.bottom() - 12), previewBounds.width(), 10),
-                UiMessage.info("nclskins.editor.preview_controls"),
-                ViewSpec.Text.Alignment.CENTER));
         status.ifPresent(message -> texts.add(new ViewSpec.Text(
                 "editor.status",
                 new Bounds(controlsX, 21, controlsWidth, 10),
@@ -705,8 +702,8 @@ public final class PresetEditorModel {
                 List.of(),
                 Optional.empty(),
                 clipRegions,
-                capeTextures,
-                List.of(),
+                backEquipmentPreviews,
+                iconDecorations,
                 capeGallery.maximum() <= 0
                         ? List.of()
                         : List.of(new ViewSpec.ScrollSurface(
@@ -785,7 +782,8 @@ public final class PresetEditorModel {
             List<ViewSpec.Widget> widgets,
             List<ViewSpec.Panel> panels,
             List<ViewSpec.Text> texts,
-            List<ViewSpec.CapeTexture> capeTextures,
+            List<ViewSpec.BackEquipmentPreview> backEquipmentPreviews,
+            List<ViewSpec.IconDecoration> iconDecorations,
             List<ViewSpec.ClipRegion> clipRegions,
             CapeGalleryLayout layout) {
         clipRegions.add(new ViewSpec.ClipRegion(
@@ -806,6 +804,7 @@ public final class PresetEditorModel {
                 continue;
             }
             String prefix = "editor.cape_card." + index;
+            String choiceWidgetId = "editor.cape_choice." + index;
             panels.add(new ViewSpec.Panel(prefix, card, ViewSpec.Panel.Style.VANILLA_LIST));
             texts.add(new ViewSpec.Text(
                     prefix + ".name",
@@ -813,27 +812,30 @@ public final class PresetEditorModel {
                     choice.label(),
                     ViewSpec.Text.Alignment.CENTER));
             if (choice.id().isPresent()) {
-                int availableHeight = Math.max(1, card.height() - 22);
-                int textureHeight = Math.min(availableHeight, 48);
-                int textureWidth = Math.max(1, Math.min(card.width() - 12,
-                        Math.round(textureHeight * 10.0F / 16.0F)));
-                capeTextures.add(new ViewSpec.CapeTexture(
-                        prefix + ".texture",
+                backEquipmentPreviews.add(new ViewSpec.BackEquipmentPreview(
+                        prefix + ".equipment",
                         new Bounds(
-                                card.x() + (card.width() - textureWidth) / 2,
-                                card.y() + 18,
-                                textureWidth,
-                                textureHeight),
-                        choice.id().orElseThrow()));
+                                card.x() + 6,
+                                card.y() + 17,
+                                Math.max(1, card.width() - 12),
+                                Math.max(1, card.height() - 21)),
+                        choice.id().orElseThrow(),
+                        backEquipmentMode()));
             } else {
-                texts.add(new ViewSpec.Text(
+                iconDecorations.add(new ViewSpec.IconDecoration(
                         prefix + ".empty",
-                        new Bounds(card.x(), card.y() + Math.max(20, card.height() / 2), card.width(), 10),
-                        UiMessage.literal("—", UiMessage.Severity.INFO),
-                        ViewSpec.Text.Alignment.CENTER));
+                        new Bounds(
+                                card.x() + (card.width() - 15) / 2,
+                                card.y() + (card.height() - 15) / 2,
+                                15,
+                                15),
+                        "no_cape",
+                        choiceWidgetId,
+                        1.0F,
+                        1.0F));
             }
             widgets.add(new ViewSpec.Widget(
-                    "editor.cape_choice." + index,
+                    choiceWidgetId,
                     ViewSpec.WidgetKind.CAPE_CARD,
                     card,
                     choice.label(),
@@ -936,16 +938,7 @@ public final class PresetEditorModel {
             int size) {
         EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(
                 id, preview.outerLayerVisibility());
-        String partKey = switch (id) {
-            case "head" -> "nclskins.editor.outer_head";
-            case "body" -> "nclskins.editor.outer_body_arms";
-            case "legs" -> "nclskins.editor.outer_legs";
-            default -> throw new IllegalArgumentException("unknown outer-layer control: " + id);
-        };
-        UiMessage accessibleLabel = UiMessage.info(
-                "nclskins.editor.outer_toggle",
-                UiMessage.info(partKey),
-                UiMessage.info(state.stateKey()));
+        UiMessage accessibleLabel = UiMessage.info(state.stateKey());
         widgets.add(ViewSpec.Widget.iconButton(
                 "editor.outer_layer." + id,
                 new Bounds(x, y, size, size),
@@ -985,6 +978,12 @@ public final class PresetEditorModel {
         return UiMessage.info(preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA
                 ? "nclskins.editor.preview_elytra"
                 : "nclskins.editor.preview_cape");
+    }
+
+    private BackEquipmentPreviewRenderer.Mode backEquipmentMode() {
+        return preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA
+                ? BackEquipmentPreviewRenderer.Mode.ELYTRA
+                : BackEquipmentPreviewRenderer.Mode.CAPE;
     }
 
     private PresetEditorModel copy(

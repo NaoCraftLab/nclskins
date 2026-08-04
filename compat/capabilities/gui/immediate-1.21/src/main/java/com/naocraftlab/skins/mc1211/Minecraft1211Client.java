@@ -1,5 +1,7 @@
 package com.naocraftlab.skins.mc1211;
 
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.TextureRegistry;
@@ -22,6 +24,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.opengl.GL11;
 
 
 public final class Minecraft1211Client implements ImmediateScreenCapabilities {
@@ -121,6 +124,17 @@ public final class Minecraft1211Client implements ImmediateScreenCapabilities {
     @Override
     public PreviewRenderer<GuiGraphics> createEditorPreviewRenderer() {
         return new VanillaAppearancePreviewRenderer(Minecraft.getInstance());
+    }
+
+    @Override
+    public BackEquipmentPreviewRenderer<GuiGraphics> createBackEquipmentPreviewRenderer() {
+        return new Minecraft1211SimplePreviewRenderer(Minecraft.getInstance());
+    }
+
+    @Override
+    public void finishPreviewPass(GuiGraphics graphics) {
+        graphics.flush();
+        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
     }
 
     @Override

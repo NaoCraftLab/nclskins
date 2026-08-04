@@ -1,5 +1,9 @@
 package com.naocraftlab.skins.core.api;
 
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -18,10 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import javax.net.ssl.SNIHostName;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
+import java.util.function.LongSupplier;
 
 
 class PinnedHttpsTransport {
@@ -32,14 +33,23 @@ class PinnedHttpsTransport {
 
     private final SSLSocketFactory sslSockets;
     private final SocketConnector connector;
+    private final LongSupplier nanoTime;
 
     PinnedHttpsTransport() {
-        this((SSLSocketFactory) SSLSocketFactory.getDefault(), SocketConnector.SYSTEM);
+        this((SSLSocketFactory) SSLSocketFactory.getDefault(),
+                SocketConnector.SYSTEM,
+                System::nanoTime);
     }
 
     PinnedHttpsTransport(SSLSocketFactory sslSockets, SocketConnector connector) {
+        this(sslSockets, connector, System::nanoTime);
+    }
+
+    PinnedHttpsTransport(
+            SSLSocketFactory sslSockets, SocketConnector connector, LongSupplier nanoTime) {
         this.sslSockets = Objects.requireNonNull(sslSockets, "sslSockets");
         this.connector = Objects.requireNonNull(connector, "connector");
+        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     }
 
     Response get(
@@ -52,10 +62,15 @@ class PinnedHttpsTransport {
         Objects.requireNonNull(asciiHost, "asciiHost");
         Objects.requireNonNull(addresses, "addresses");
         Objects.requireNonNull(timeout, "timeout");
-        if (addresses.isEmpty() || timeout.isZero() || timeout.isNegative() || maxBodyBytes <= 0) {
-            throw new IllegalArgumentException("Pinned HTTPS request bounds are invalid");
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        boolean validPort = "https".equals(scheme)
+                ? uri.getPort() == -1 || uri.getPort() == 443
+                : "http".equals(scheme) && (uri.getPort() == -1 || uri.getPort() == 80);
+        if (!validPort || addresses.isEmpty() || timeout.isZero() || timeout.isNegative()
+                || maxBodyBytes <= 0) {
+            throw new IllegalArgumentException("Pinned HTTP request bounds are invalid");
         }
-        long deadline = saturatedAdd(System.nanoTime(), timeout.toNanos());
+        long deadline = saturatedAdd(nanoTime.getAsLong(), timeout.toNanos());
         IOException failure = null;
         int attempts = Math.min(addresses.size(), MAX_ADDRESS_ATTEMPTS);
         for (int index = 0; index < attempts; index++) {
@@ -72,7 +87,7 @@ class PinnedHttpsTransport {
                 }
             }
         }
-        throw failure == null ? new IOException("Pinned HTTPS connection failed") : failure;
+        throw failure == null ? new IOException("Pinned HTTP connection failed") : failure;
     }
 
     private Response exchange(
@@ -81,34 +96,53 @@ class PinnedHttpsTransport {
             InetAddress address,
             long deadline,
             int maxBodyBytes) throws IOException {
+        boolean secure = "https".equalsIgnoreCase(uri.getScheme());
+        int port = secure ? 443 : 80;
         int connectMillis = remainingMillis(deadline, CONNECT_TIMEOUT);
-        try (Socket plain = connector.connect(address, 443, connectMillis)) {
-            if (!address.equals(((InetSocketAddress) plain.getRemoteSocketAddress()).getAddress())) {
-                throw new IOException("Pinned HTTPS socket connected to an unexpected address");
+        try (Socket plain = connector.connect(address, port, connectMillis)) {
+            if (!(plain.getRemoteSocketAddress() instanceof InetSocketAddress remote)
+                    || !address.equals(remote.getAddress())) {
+                throw new IOException("Pinned HTTP socket connected to an unexpected address");
             }
-            try (SSLSocket tls = (SSLSocket) sslSockets.createSocket(plain, asciiHost, 443, true)) {
-                SSLParameters parameters = tls.getSSLParameters();
-                parameters.setEndpointIdentificationAlgorithm("HTTPS");
-                if (!isIpLiteral(asciiHost)) {
-                    parameters.setServerNames(List.of(new SNIHostName(asciiHost)));
-                }
-                tls.setSSLParameters(parameters);
-                tls.setSoTimeout(remainingMillis(deadline, null));
-                tls.startHandshake();
-                tls.setSoTimeout(remainingMillis(deadline, null));
-                try (BufferedOutputStream output = new BufferedOutputStream(tls.getOutputStream());
-                        BufferedInputStream input = new BufferedInputStream(tls.getInputStream())) {
-                    writeRequest(output, uri, asciiHost);
-                    output.flush();
-                    try {
-                        return readResponse(input, uri, maxBodyBytes);
-                    } catch (ResponseObservedException observed) {
-                        throw observed;
-                    } catch (IOException responseFailure) {
-                        throw new ResponseObservedException(
-                                "Pinned HTTPS response could not be read", responseFailure);
+            if (secure) {
+                try (SSLSocket tls = (SSLSocket) sslSockets.createSocket(
+                        plain, asciiHost, port, true)) {
+                    SSLParameters parameters = tls.getSSLParameters();
+                    parameters.setEndpointIdentificationAlgorithm("HTTPS");
+                    if (!isIpLiteral(asciiHost)) {
+                        parameters.setServerNames(List.of(new SNIHostName(asciiHost)));
                     }
+                    tls.setSSLParameters(parameters);
+                    tls.setSoTimeout(remainingMillis(deadline, null));
+                    tls.startHandshake();
+                    tls.setSoTimeout(remainingMillis(deadline, null));
+                    return exchangeStreams(tls, uri, asciiHost, deadline, maxBodyBytes);
                 }
+            }
+            plain.setSoTimeout(remainingMillis(deadline, null));
+            return exchangeStreams(plain, uri, asciiHost, deadline, maxBodyBytes);
+        }
+    }
+
+    private Response exchangeStreams(
+            Socket socket, URI uri, String asciiHost, long deadline, int maxBodyBytes)
+            throws IOException {
+        try (BufferedOutputStream output = new BufferedOutputStream(socket.getOutputStream());
+             BufferedInputStream input = new BufferedInputStream(
+                     new DeadlineInputStream(socket, socket.getInputStream(), deadline))) {
+            remainingMillis(deadline, null);
+            writeRequest(output, uri, asciiHost);
+            output.flush();
+            remainingMillis(deadline, null);
+            try {
+                Response response = readResponse(input, uri, maxBodyBytes);
+                remainingMillis(deadline, null);
+                return response;
+            } catch (ResponseObservedException observed) {
+                throw observed;
+            } catch (IOException responseFailure) {
+                throw new ResponseObservedException(
+                        "Pinned HTTP response could not be read", responseFailure);
             }
         }
     }
@@ -123,7 +157,7 @@ class PinnedHttpsTransport {
             path += '?' + uri.getRawQuery();
         }
         if (containsControl(path) || containsControl(asciiHost)) {
-            throw new IOException("Pinned HTTPS request target is invalid");
+            throw new IOException("Pinned HTTP request target is invalid");
         }
         String hostHeader = asciiHost.indexOf(':') >= 0 ? '[' + asciiHost + ']' : asciiHost;
         String request = "GET " + path + " HTTP/1.1\r\n"
@@ -140,7 +174,7 @@ class PinnedHttpsTransport {
         HeaderReader reader = new HeaderReader(input);
         String statusLine = reader.line();
         if (statusLine == null || !statusLine.matches("HTTP/1\\.[01] [0-9]{3}(?: .*)?")) {
-            throw new IOException("Pinned HTTPS response status is invalid");
+            throw new IOException("Pinned HTTP response status is invalid");
         }
         int status = Integer.parseInt(statusLine.substring(9, 12));
         Map<String, List<String>> headers = new LinkedHashMap<>();
@@ -148,29 +182,29 @@ class PinnedHttpsTransport {
         while (true) {
             String line = reader.line();
             if (line == null) {
-                throw new EOFException("Pinned HTTPS response headers are incomplete");
+                throw new EOFException("Pinned HTTP response headers are incomplete");
             }
             if (line.isEmpty()) {
                 break;
             }
             if (++count > MAX_HEADER_COUNT || Character.isWhitespace(line.charAt(0))) {
-                throw new IOException("Pinned HTTPS response headers are invalid");
+                throw new IOException("Pinned HTTP response headers are invalid");
             }
             int separator = line.indexOf(':');
             if (separator <= 0) {
-                throw new IOException("Pinned HTTPS response header is invalid");
+                throw new IOException("Pinned HTTP response header is invalid");
             }
             String name = line.substring(0, separator).trim().toLowerCase(Locale.ROOT);
             String value = line.substring(separator + 1).trim();
             if (!name.matches("[a-z0-9!#$%&'*+.^_`|~-]+") || containsControl(value)) {
-                throw new IOException("Pinned HTTPS response header is invalid");
+                throw new IOException("Pinned HTTP response header is invalid");
             }
             headers.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value);
         }
         if (status >= 100 && status < 200) {
-            throw new ResponseObservedException("Informational HTTPS responses are unsupported");
+            throw new ResponseObservedException("Informational HTTP responses are unsupported");
         }
-        byte[] body = readBody(input, headers, maxBodyBytes);
+        byte[] body = status == 200 ? readBody(input, headers, maxBodyBytes) : new byte[0];
         return new Response(status, requestUri, immutableHeaders(headers), body);
     }
 
@@ -181,25 +215,25 @@ class PinnedHttpsTransport {
         if (!transferEncoding.isEmpty()) {
             if (transferEncoding.size() != 1
                     || !"chunked".equalsIgnoreCase(transferEncoding.get(0))) {
-                throw new ResponseObservedException("HTTPS transfer encoding is unsupported");
+                throw new ResponseObservedException("HTTP transfer encoding is unsupported");
             }
             if (!contentLength.isEmpty()) {
-                throw new ResponseObservedException("HTTPS response framing is ambiguous");
+                throw new ResponseObservedException("HTTP response framing is ambiguous");
             }
             return readChunked(input, maxBodyBytes);
         }
         if (!contentLength.isEmpty()) {
             if (contentLength.size() != 1) {
-                throw new ResponseObservedException("HTTPS response length is ambiguous");
+                throw new ResponseObservedException("HTTP response length is ambiguous");
             }
             final long length;
             try {
                 length = Long.parseLong(contentLength.get(0));
             } catch (NumberFormatException invalid) {
-                throw new ResponseObservedException("HTTPS response length is invalid", invalid);
+                throw new ResponseObservedException("HTTP response length is invalid", invalid);
             }
             if (length < 0 || length > maxBodyBytes) {
-                throw new ResponseObservedException("HTTPS response exceeds size limit");
+                throw new BodyTooLargeException();
             }
             return readExact(input, (int) length);
         }
@@ -212,7 +246,7 @@ class PinnedHttpsTransport {
         while (true) {
             String sizeLine = reader.line();
             if (sizeLine == null) {
-                throw new EOFException("Chunked HTTPS response is incomplete");
+                throw new EOFException("Chunked HTTP response is incomplete");
             }
             int extension = sizeLine.indexOf(';');
             String token = (extension >= 0 ? sizeLine.substring(0, extension) : sizeLine).trim();
@@ -220,28 +254,28 @@ class PinnedHttpsTransport {
             try {
                 size = Long.parseLong(token, 16);
             } catch (NumberFormatException invalid) {
-                throw new ResponseObservedException("Chunked HTTPS response is invalid", invalid);
+                throw new ResponseObservedException("Chunked HTTP response is invalid", invalid);
             }
             if (size < 0 || size > maxBodyBytes - output.size()) {
-                throw new ResponseObservedException("HTTPS response exceeds size limit");
+                throw new BodyTooLargeException();
             }
             if (size == 0) {
                 while (true) {
                     String trailer = reader.line();
                     if (trailer == null) {
-                        throw new EOFException("Chunked HTTPS trailers are incomplete");
+                        throw new EOFException("Chunked HTTP trailers are incomplete");
                     }
                     if (trailer.isEmpty()) {
                         return output.toByteArray();
                     }
                     if (trailer.indexOf(':') <= 0 || Character.isWhitespace(trailer.charAt(0))) {
-                        throw new ResponseObservedException("Chunked HTTPS trailer is invalid");
+                        throw new ResponseObservedException("Chunked HTTP trailer is invalid");
                     }
                 }
             }
             output.writeBytes(readExact(input, (int) size));
             if (input.read() != '\r' || input.read() != '\n') {
-                throw new ResponseObservedException("Chunked HTTPS delimiter is invalid");
+                throw new ResponseObservedException("Chunked HTTP delimiter is invalid");
             }
         }
     }
@@ -249,7 +283,7 @@ class PinnedHttpsTransport {
     private static byte[] readExact(InputStream input, int length) throws IOException {
         byte[] bytes = input.readNBytes(length);
         if (bytes.length != length) {
-            throw new EOFException("HTTPS response body is incomplete");
+            throw new EOFException("HTTP response body is incomplete");
         }
         return bytes;
     }
@@ -257,15 +291,15 @@ class PinnedHttpsTransport {
     private static byte[] readUntilEof(InputStream input, int maxBodyBytes) throws IOException {
         byte[] bytes = input.readNBytes(maxBodyBytes + 1);
         if (bytes.length > maxBodyBytes) {
-            throw new ResponseObservedException("HTTPS response exceeds size limit");
+            throw new BodyTooLargeException();
         }
         return bytes;
     }
 
-    private static int remainingMillis(long deadline, Duration maximum) throws IOException {
-        long remaining = deadline - System.nanoTime();
+    private int remainingMillis(long deadline, Duration maximum) throws IOException {
+        long remaining = deadline - nanoTime.getAsLong();
         if (remaining <= 0) {
-            throw new IOException("Pinned HTTPS request timed out");
+            throw new IOException("Pinned HTTP request timed out");
         }
         long millis = Math.max(1L, (remaining + 999_999L) / 1_000_000L);
         if (maximum != null) {
@@ -354,17 +388,17 @@ class PinnedHttpsTransport {
                     return null;
                 }
                 if (++total > MAX_HEADER_BYTES) {
-                    throw new IOException("Pinned HTTPS response headers exceed size limit");
+                    throw new IOException("Pinned HTTP response headers exceed size limit");
                 }
                 if (previous == '\r' && value == '\n') {
                     byte[] bytes = output.toByteArray();
                     return new String(bytes, 0, bytes.length - 1, StandardCharsets.US_ASCII);
                 }
                 if (previous == '\r') {
-                    throw new IOException("Pinned HTTPS response line ending is invalid");
+                    throw new IOException("Pinned HTTP response line ending is invalid");
                 }
                 if (value == 0 || value > 0x7f) {
-                    throw new IOException("Pinned HTTPS response headers are not ASCII");
+                    throw new IOException("Pinned HTTP response headers are not ASCII");
                 }
                 output.write(value);
                 previous = value;
@@ -372,7 +406,48 @@ class PinnedHttpsTransport {
         }
     }
 
-    private static final class ResponseObservedException extends IOException {
+    private final class DeadlineInputStream extends InputStream {
+        private final Socket socket;
+        private final InputStream delegate;
+        private final long deadline;
+
+        private DeadlineInputStream(Socket socket, InputStream delegate, long deadline) {
+            this.socket = Objects.requireNonNull(socket, "socket");
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+            this.deadline = deadline;
+        }
+
+        @Override
+        public int read() throws IOException {
+            prepare();
+            int value = delegate.read();
+            verify();
+            return value;
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            prepare();
+            int count = delegate.read(bytes, offset, length);
+            verify();
+            return count;
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
+        }
+
+        private void prepare() throws IOException {
+            socket.setSoTimeout(remainingMillis(deadline, null));
+        }
+
+        private void verify() throws IOException {
+            remainingMillis(deadline, null);
+        }
+    }
+
+    private static class ResponseObservedException extends IOException {
         private static final long serialVersionUID = 1L;
 
         private ResponseObservedException(String message) {
@@ -381,6 +456,14 @@ class PinnedHttpsTransport {
 
         private ResponseObservedException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    static final class BodyTooLargeException extends ResponseObservedException {
+        private static final long serialVersionUID = 1L;
+
+        private BodyTooLargeException() {
+            super("HTTP response exceeds size limit");
         }
     }
 }

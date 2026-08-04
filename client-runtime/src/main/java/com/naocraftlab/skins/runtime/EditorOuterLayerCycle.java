@@ -48,8 +48,8 @@ final class EditorOuterLayerCycle {
             case "head" -> new Cycle(
                     HEAD,
                     List.of(
-                            step(Set.of(OuterLayerPart.HEAD), "head_on", "nclskins.editor.outer_state_on"),
-                            step(Set.of(), "head_off", "nclskins.editor.outer_state_off")),
+                            step(Set.of(OuterLayerPart.HEAD), "head_on", "nclskins.editor.outer_head_on"),
+                            step(Set.of(), "head_off", "nclskins.editor.outer_head_off")),
                     null);
             case "body" -> bodyCycle();
             case "legs" -> legCycle();
@@ -66,21 +66,21 @@ final class EditorOuterLayerCycle {
                                         OuterLayerPart.LEFT_ARM,
                                         OuterLayerPart.RIGHT_ARM),
                                 "body_all_on",
-                                "nclskins.editor.outer_state_on"),
-                        step(Set.of(), "body_all_off", "nclskins.editor.outer_state_off"),
+                                "nclskins.editor.outer_body_all_on"),
+                        step(Set.of(), "body_all_off", "nclskins.editor.outer_body_all_off"),
                         step(Set.of(OuterLayerPart.BODY),
                                 "body_both_arms_off",
-                                "nclskins.editor.outer_state_no_arms"),
+                                "nclskins.editor.outer_body_no_arms"),
                         step(Set.of(OuterLayerPart.BODY, OuterLayerPart.RIGHT_ARM),
                                 "body_left_arm_off",
-                                "nclskins.editor.outer_state_no_left_arm"),
+                                "nclskins.editor.outer_body_no_left_arm"),
                         step(Set.of(OuterLayerPart.BODY, OuterLayerPart.LEFT_ARM),
                                 "body_right_arm_off",
-                                "nclskins.editor.outer_state_no_right_arm"),
+                                "nclskins.editor.outer_body_no_right_arm"),
                         step(Set.of(OuterLayerPart.LEFT_ARM, OuterLayerPart.RIGHT_ARM),
                                 "body_only_arms_on",
-                                "nclskins.editor.outer_state_arms_without_body")),
-                new State("body_only_arms_on", "nclskins.editor.outer_state_custom"));
+                                "nclskins.editor.outer_body_arms_without_body")),
+                new State("body_only_arms_on", "nclskins.editor.outer_body_custom"));
     }
 
     private static Cycle legCycle() {
@@ -89,14 +89,14 @@ final class EditorOuterLayerCycle {
                 List.of(
                         step(Set.of(OuterLayerPart.LEFT_LEG, OuterLayerPart.RIGHT_LEG),
                                 "legs_all_on",
-                                "nclskins.editor.outer_state_on"),
-                        step(Set.of(), "legs_all_off", "nclskins.editor.outer_state_off"),
+                                "nclskins.editor.outer_legs_all_on"),
+                        step(Set.of(), "legs_all_off", "nclskins.editor.outer_legs_all_off"),
                         step(Set.of(OuterLayerPart.RIGHT_LEG),
                                 "legs_left_off",
-                                "nclskins.editor.outer_state_no_left_leg"),
+                                "nclskins.editor.outer_legs_no_left_leg"),
                         step(Set.of(OuterLayerPart.LEFT_LEG),
                                 "legs_right_off",
-                                "nclskins.editor.outer_state_no_right_leg")),
+                                "nclskins.editor.outer_legs_no_right_leg")),
                 null);
     }
 

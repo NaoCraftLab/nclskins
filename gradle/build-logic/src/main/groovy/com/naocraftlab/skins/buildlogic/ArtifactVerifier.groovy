@@ -190,15 +190,35 @@ final class ArtifactVerifier {
         if ((archiveButtons as Set) != expectedButtons) errors.add("${target.id}: button icon manifest differs")
         sourceButtons.each { File source -> compareResource(archive, BUTTONS + source.name, source, target, 15, 15, errors) }
         compareResource(archive, catalog.mod.icon.toString(), new File(canonicalResources, catalog.mod.icon.toString()), target, 320, 320, errors)
+        verifyNestedPackIcon(root, archive, catalog, target, errors)
         File collections = new File(root, 'compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections')
         List<File> skins = []
-        Files.walk(collections.toPath()).withCloseable { stream -> stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') && it.toString().contains('/assets/') }.forEach { skins.add(it.toFile()) } }
+        Files.walk(collections.toPath()).withCloseable { stream ->
+            stream.filter {
+                def relative = collections.toPath().relativize(it)
+                Files.isRegularFile(it) && it.toString().endsWith('.png') &&
+                        relative.nameCount > 0 && relative.getName(0).toString() == 'assets'
+            }.forEach { skins.add(it.toFile()) }
+        }
         Set<String> expectedSkins = skins.collect { COLLECTIONS + collections.toPath().relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char) } as Set
         Set<String> actualSkins = names.findAll { it.startsWith(COLLECTIONS + 'assets/') && it.endsWith('.png') } as Set
         if (actualSkins != expectedSkins) errors.add("${target.id}: Mojang collection skin manifest differs")
         skins.each { File source -> compareResource(archive, COLLECTIONS + collections.toPath().relativize(source.toPath()).toString().replace(File.separatorChar, '/' as char), source, target, 64, 64, errors) }
         Set<String> collectionsIds = skins.collect { File skin -> collections.toPath().relativize(skin.toPath()).getName(1).toString() } as Set
         collectionsIds.each { String id -> if (!names.contains(COLLECTIONS + "assets/${id}/notice-mojang.md")) errors.add("${target.id}: missing collection provenance notice for ${id}") }
+    }
+
+    static void verifyNestedPackIcon(
+            File root, ZipFile archive, Map catalog, Map target, List<String> errors) {
+        String path = COLLECTIONS + 'pack.png'
+        if (archive.getEntry(path) == null) {
+            errors.add("${target.id}: missing required resource ${path}")
+            return
+        }
+        File canonical = new File(
+                root,
+                'compat/resources/canonical/src/main/resources/' + catalog.mod.icon.toString())
+        compareResource(archive, path, canonical, target, 320, 320, errors)
     }
 
     static void compareResource(ZipFile archive, String path, File source, Map target, int width, int height, List<String> errors) {

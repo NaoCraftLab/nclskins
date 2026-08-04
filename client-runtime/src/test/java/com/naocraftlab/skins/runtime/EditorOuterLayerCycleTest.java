@@ -1,23 +1,24 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.OuterLayerPart;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import com.naocraftlab.skins.client.OuterLayerPart;
-import com.naocraftlab.skins.client.OuterLayerVisibility;
-import java.util.List;
-import org.junit.jupiter.api.Test;
 
 final class EditorOuterLayerCycleTest {
     @Test
     void headCyclesForwardAndBackwardWithWrap() {
         OuterLayerVisibility all = OuterLayerVisibility.allVisible();
-        assertState("head", all, "head_on", "nclskins.editor.outer_state_on");
+        assertState("head", all, "head_on", "nclskins.editor.outer_head_on");
 
         OuterLayerVisibility off = EditorOuterLayerCycle.cycle("head", all, 1);
         assertFalse(off.visible(OuterLayerPart.HEAD));
-        assertState("head", off, "head_off", "nclskins.editor.outer_state_off");
+        assertState("head", off, "head_off", "nclskins.editor.outer_head_off");
         assertEquals(all, EditorOuterLayerCycle.cycle("head", off, 1));
         assertEquals(off, EditorOuterLayerCycle.cycle("head", all, -1));
     }
@@ -25,13 +26,13 @@ final class EditorOuterLayerCycleTest {
     @Test
     void bodyCycleUsesLiteralLeftThenRightOrderInBothDirections() {
         List<ExpectedStep> expected = List.of(
-                step(true, true, true, "body_all_on", "nclskins.editor.outer_state_on"),
-                step(false, false, false, "body_all_off", "nclskins.editor.outer_state_off"),
-                step(true, false, false, "body_both_arms_off", "nclskins.editor.outer_state_no_arms"),
-                step(true, false, true, "body_left_arm_off", "nclskins.editor.outer_state_no_left_arm"),
-                step(true, true, false, "body_right_arm_off", "nclskins.editor.outer_state_no_right_arm"),
+                step(true, true, true, "body_all_on", "nclskins.editor.outer_body_all_on"),
+                step(false, false, false, "body_all_off", "nclskins.editor.outer_body_all_off"),
+                step(true, false, false, "body_both_arms_off", "nclskins.editor.outer_body_no_arms"),
+                step(true, false, true, "body_left_arm_off", "nclskins.editor.outer_body_no_left_arm"),
+                step(true, true, false, "body_right_arm_off", "nclskins.editor.outer_body_no_right_arm"),
                 step(false, true, true, "body_only_arms_on",
-                        "nclskins.editor.outer_state_arms_without_body"));
+                        "nclskins.editor.outer_body_arms_without_body"));
         OuterLayerVisibility visibility = OuterLayerVisibility.allVisible()
                 .with(OuterLayerPart.HEAD, false)
                 .with(OuterLayerPart.LEFT_LEG, false);
@@ -59,10 +60,10 @@ final class EditorOuterLayerCycleTest {
     @Test
     void legCycleUsesLiteralLeftThenRightOrderAndPreservesOtherParts() {
         List<ExpectedStep> expected = List.of(
-                legStep(true, true, "legs_all_on", "nclskins.editor.outer_state_on"),
-                legStep(false, false, "legs_all_off", "nclskins.editor.outer_state_off"),
-                legStep(false, true, "legs_left_off", "nclskins.editor.outer_state_no_left_leg"),
-                legStep(true, false, "legs_right_off", "nclskins.editor.outer_state_no_right_leg"));
+                legStep(true, true, "legs_all_on", "nclskins.editor.outer_legs_all_on"),
+                legStep(false, false, "legs_all_off", "nclskins.editor.outer_legs_all_off"),
+                legStep(false, true, "legs_left_off", "nclskins.editor.outer_legs_no_left_leg"),
+                legStep(true, false, "legs_right_off", "nclskins.editor.outer_legs_no_right_leg"));
         OuterLayerVisibility visibility = OuterLayerVisibility.allVisible()
                 .with(OuterLayerPart.HEAD, false)
                 .with(OuterLayerPart.BODY, false);
@@ -98,7 +99,7 @@ final class EditorOuterLayerCycleTest {
                 "body",
                 custom,
                 "body_only_arms_on",
-                "nclskins.editor.outer_state_custom");
+                "nclskins.editor.outer_body_custom");
 
         OuterLayerVisibility forward = EditorOuterLayerCycle.cycle("body", custom, 1);
         assertBody(forward, true, true, true);
@@ -118,7 +119,7 @@ final class EditorOuterLayerCycleTest {
                 "body",
                 mirroredCustom,
                 "body_only_arms_on",
-                "nclskins.editor.outer_state_custom");
+                "nclskins.editor.outer_body_custom");
         assertBody(EditorOuterLayerCycle.cycle("body", mirroredCustom, 1), true, true, true);
         assertBody(EditorOuterLayerCycle.cycle("body", mirroredCustom, -1), false, true, true);
     }

@@ -14,6 +14,7 @@ import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedProfileResolver;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.core.api.PublicSkinImportException;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
@@ -696,7 +697,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void addEditorCancelPreservesTheGalleryPosition() {
+    void addCancelPreservesTheFractionalGalleryPositionAndQuery() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
@@ -704,10 +705,8 @@ final class ClientRuntimeTest {
         runtime.initialize();
         ViewSpec before = runtime.view(320, 240, 0, 0);
         int initialX = panelX(before, "gallery.card.add");
-        runtime.dispatchWidget("gallery.next");
-        assertEquals(0, runtime.snapshot().galleryOffset());
-        runtime.pointerScrolled(160, 100, 0.0, -1.0);
-        settleScroll(runtime);
+        runtime.dispatchText("gallery.search", "Preset");
+        runtime.pointerScrolled(160, 100, 0.0, -0.5);
         int preservedX = panelX(runtime.view(320, 240, 0, 0), "gallery.card.add");
         assertTrue(preservedX < initialX);
 
@@ -717,7 +716,9 @@ final class ClientRuntimeTest {
 
         assertTrue(runtime.snapshot().editor().isEmpty());
         assertTrue(runtime.snapshot().addSource().isEmpty());
-        assertEquals(preservedX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        ViewSpec restored = runtime.view(320, 240, 0, 0);
+        assertEquals(preservedX, panelX(restored, "gallery.card.add"));
+        assertEquals("Preset", restored.widget("gallery.search").orElseThrow().value().orElseThrow());
         assertEquals(5, runtime.snapshot().account().orElseThrow().presets().size());
     }
 
@@ -811,7 +812,7 @@ final class ClientRuntimeTest {
         ViewSpec.ScrollSurface surface = initial.scrollSurface("gallery.cards").orElseThrow();
         double cardStride = surface.maximumPixels()
                 / initial.scrollbar().orElseThrow().maximum();
-        runtime.nativeScrollPositionChanged("gallery.cards", cardStride);
+        runtime.nativeScrollPositionChanged("gallery.cards", cardStride * 2.0);
 
         ViewSpec settled = runtime.view(854, 480, 0, 0);
         Bounds viewport = settled.scrollSurface("gallery.cards").orElseThrow().viewport();
@@ -882,7 +883,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void applyingAnotherPresetResetsFractionalGalleryPositionAndTarget() {
+    void applyingAnotherPresetCentersItAndDiscardsTheFractionalGalleryTarget() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
@@ -894,14 +895,119 @@ final class ClientRuntimeTest {
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".apply");
 
-        assertEquals(initialX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        ViewSpec centered = runtime.view(320, 240, 0, 0);
+        assertHorizontallyCentered(
+                centered.panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card." + presetId))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds(),
+                320);
+        int centeredAddX = panelX(centered, "gallery.card.add");
         settleScroll(runtime);
-        assertEquals(initialX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"),
+        assertEquals(centeredAddX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"),
                 "the stale fractional target must not restore the previous scroll position");
     }
 
     @Test
-    void galleryAndCapeRangesReclampPositionAndTargetAfterViewportExpansion() {
+    void externalOpenAndReopenCenterTheActivePresetAtEverySupportedViewport() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        UUID active = operations.account.presets().get(4).id();
+        operations.activePresetId = Optional.of(active);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+
+        runtime.initialize();
+        for (int[] viewport : List.of(
+                new int[]{240, 240},
+                new int[]{320, 240},
+                new int[]{427, 240},
+                new int[]{854, 480})) {
+            ViewSpec view = runtime.view(viewport[0], viewport[1], 0, 0);
+            assertHorizontallyCentered(
+                    view.panels().stream()
+                            .filter(panel -> panel.id().equals("gallery.card." + active))
+                            .findFirst()
+                            .orElseThrow()
+                            .bounds(),
+                    viewport[0]);
+        }
+
+        runtime.view(320, 240, 0, 0);
+        runtime.pointerScrolled(160, 100, 0.0, -0.5);
+        runtime.closeScreen();
+        runtime.reopen();
+        ViewSpec reopened = runtime.view(320, 240, 0, 0);
+        assertHorizontallyCentered(
+                reopened.panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card." + active))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds(),
+                320);
+    }
+
+    @Test
+    void typedPublicImportFailuresExposeOnlySafeLocalizationKeys() {
+        Map<PublicSkinImportException.Code, String> playerFailures = Map.of(
+                PublicSkinImportException.Code.INVALID_IDENTIFIER,
+                "nclskins.add_source.player_invalid_identifier",
+                PublicSkinImportException.Code.PROFILE_NOT_FOUND,
+                "nclskins.add_source.player_not_found",
+                PublicSkinImportException.Code.RATE_LIMITED,
+                "nclskins.add_source.player_rate_limited",
+                PublicSkinImportException.Code.SERVICE_UNAVAILABLE,
+                "nclskins.add_source.player_service_unavailable",
+                PublicSkinImportException.Code.NETWORK_FAILURE,
+                "nclskins.add_source.player_service_unavailable",
+                PublicSkinImportException.Code.PROFILE_REJECTED,
+                "nclskins.add_source.player_rejected",
+                PublicSkinImportException.Code.OVERSIZED,
+                "nclskins.add_source.player_oversized");
+        playerFailures.forEach((code, key) -> assertImportFailure(true, code, key));
+
+        Map<PublicSkinImportException.Code, String> urlFailures = Map.of(
+                PublicSkinImportException.Code.UNSAFE_URL,
+                "nclskins.add_source.url_unsafe",
+                PublicSkinImportException.Code.REDIRECT_REJECTED,
+                "nclskins.add_source.url_redirect_rejected",
+                PublicSkinImportException.Code.NETWORK_FAILURE,
+                "nclskins.add_source.url_network_failure",
+                PublicSkinImportException.Code.SERVICE_UNAVAILABLE,
+                "nclskins.add_source.url_network_failure",
+                PublicSkinImportException.Code.RATE_LIMITED,
+                "nclskins.add_source.url_rate_limited",
+                PublicSkinImportException.Code.OVERSIZED,
+                "nclskins.add_source.url_oversized",
+                PublicSkinImportException.Code.INVALID_PNG,
+                "nclskins.add_source.url_invalid_file");
+        urlFailures.forEach((code, key) -> assertImportFailure(false, code, key));
+    }
+
+    @Test
+    void publicPlayerLookupRemainsAvailableForAnOfflineCurrentSession() {
+        FakeOperations operations = new FakeOperations();
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchText("add.player.input", "Notch");
+
+        ViewSpec importView = runtime.view(320, 240, 0, 0);
+        assertTrue(importView.widget("add.player.input").orElseThrow().enabled());
+        assertTrue(importView.widget("add.player.load").orElseThrow().enabled());
+
+        runtime.dispatchWidget("add.player.load");
+
+        assertEquals(1, operations.playerImportCalls);
+        assertTrue(runtime.snapshot().editor().isPresent());
+        assertFalse(runtime.snapshot().session().orElseThrow().valid());
+    }
+
+    @Test
+    void centerAnchoredGalleryRangeSurvivesViewportExpansionWhileCapeRangeReclamps() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         operations.ownedCapes = capeInventory(5);
@@ -917,15 +1023,15 @@ final class ClientRuntimeTest {
 
         runtime.pointerScrolled(160, 100, 0.0, -100.0);
         settleScroll(runtime);
-        assertEquals(4, runtime.snapshot().galleryOffset());
+        assertEquals(5, runtime.snapshot().galleryOffset());
 
         runtime.view(854, 480, 0, 0);
         runtime.tick();
-        assertEquals(3, runtime.snapshot().galleryOffset());
+        assertEquals(5, runtime.snapshot().galleryOffset());
         runtime.view(320, 240, 0, 0);
         settleScroll(runtime);
-        assertEquals(3, runtime.snapshot().galleryOffset(),
-                "restoring the narrow viewport must not resurrect the stale gallery target");
+        assertEquals(5, runtime.snapshot().galleryOffset(),
+                "the last centered card is independent of viewport geometry");
 
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
@@ -971,7 +1077,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void galleryScrollRangeReclampsWhenHeightChangesAtTheSameWidth() {
+    void centerAnchoredGalleryRangeIsIndependentOfHeightAtTheSameWidth() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
@@ -984,14 +1090,14 @@ final class ClientRuntimeTest {
 
         runtime.view(320, 240, 0, 0);
         runtime.tick();
-        assertEquals(4, runtime.snapshot().galleryOffset());
+        assertEquals(5, runtime.snapshot().galleryOffset());
 
         runtime.view(320, 360, 0, 0);
         settleScroll(runtime);
         assertEquals(
-                4,
+                5,
                 runtime.snapshot().galleryOffset(),
-                "height growth must not restore a stale out-of-range target");
+                "the last centered card must not depend on card height");
     }
 
     @Test
@@ -1679,6 +1785,13 @@ final class ClientRuntimeTest {
         assertEquals(0, operations.applyCalls);
         assertEquals(2, operations.reconciliationCalls);
         assertEquals(0, notifications.get());
+        assertHorizontallyCentered(
+                runtime.view(320, 240, 0, 0).panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card.add"))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds(),
+                320);
     }
 
     private static void assertSessionRetryConnectingForFiveTicks(ClientRuntime runtime) {
@@ -1719,6 +1832,38 @@ final class ClientRuntimeTest {
                 .orElseThrow()
                 .bounds()
                 .x();
+    }
+
+    private static void assertHorizontallyCentered(Bounds bounds, int viewportWidth) {
+        assertTrue(
+                Math.abs(bounds.x() + bounds.width() / 2.0 - viewportWidth / 2.0) <= 0.5,
+                () -> bounds + " is not horizontally centered in " + viewportWidth);
+    }
+
+    private static void assertImportFailure(
+            boolean player,
+            PublicSkinImportException.Code code,
+            String expectedKey) {
+        FakeOperations operations = new FakeOperations();
+        PublicSkinImportException failure = new PublicSkinImportException(
+                code, "sensitive source detail must not reach the view");
+        if (player) {
+            operations.playerImportFailure = failure;
+        } else {
+            operations.urlImportFailure = failure;
+        }
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchText(player ? "add.player.input" : "add.url.input", player
+                ? "Player"
+                : "https://example.test/skin.png");
+        runtime.dispatchWidget(player ? "add.player.load" : "add.url.load");
+
+        assertEquals(UiMessage.error(expectedKey), runtime.snapshot().status());
+        assertFalse(runtime.snapshot().status().literal());
+        assertFalse(runtime.snapshot().status().key().contains("sensitive"));
     }
 
     private static OwnedCapeInventory capeInventory(int count) {
@@ -1910,6 +2055,9 @@ final class ClientRuntimeTest {
         private RuntimeException storagePreflightFailure;
         private Exception retrySessionFailure;
         private boolean failEditorSave;
+        private Exception playerImportFailure;
+        private Exception urlImportFailure;
+        private int playerImportCalls;
 
         @Override
         public void verifyStorageAccess() {
@@ -2005,6 +2153,25 @@ final class ClientRuntimeTest {
                     now);
             account = copy(append(account.skinAssets(), asset), account.presets());
             return account;
+        }
+
+        @Override
+        public ImportDraft loadPlayerSkin(String playerNameOrUuid) throws Exception {
+            playerImportCalls++;
+            if (playerImportFailure != null) {
+                throw playerImportFailure;
+            }
+            return new ImportDraft(
+                    "Player", SkinVariant.CLASSIC, skinPng(), PersonalSkinSource.PLAYER_NAME);
+        }
+
+        @Override
+        public ImportDraft loadUrlSkin(String url) throws Exception {
+            if (urlImportFailure != null) {
+                throw urlImportFailure;
+            }
+            return new ImportDraft(
+                    "Remote skin", SkinVariant.CLASSIC, skinPng(), PersonalSkinSource.URL);
         }
 
         @Override

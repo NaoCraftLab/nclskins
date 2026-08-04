@@ -358,6 +358,38 @@ final class BuildLogicTest {
     }
 
     @Test
+    void nestedEventPackIconIsCanonicalAndExcludedFromSkinInventory() {
+        File canonical = new File(
+                repository, 'compat/resources/canonical/src/main/resources/icon.png')
+        File collections = new File(
+                repository,
+                'compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections')
+        File packIcon = new File(collections, 'pack.png')
+        assertArrayEquals(canonical.bytes, packIcon.bytes)
+
+        List<Path> pngs = []
+        Files.walk(collections.toPath()).withCloseable { stream ->
+            stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }
+                    .forEach { pngs.add(it) }
+        }
+        assertEquals(36, pngs.size())
+        assertEquals(35, pngs.count { it.toString().contains(File.separator + 'assets' + File.separator) })
+        assertEquals(['pack.png'], pngs.findAll {
+            !it.toString().contains(File.separator + 'assets' + File.separator)
+        }.collect { collections.toPath().relativize(it).toString() })
+
+        assertEquals([], nestedPackIconErrors(repository, catalog, canonical.bytes))
+        byte[] corrupted = canonical.bytes.clone()
+        corrupted[corrupted.length - 1] = (byte) (corrupted[corrupted.length - 1] ^ 1)
+        assertTrue(nestedPackIconErrors(repository, catalog, corrupted).any {
+            it.contains('resource hash differs')
+        })
+        assertTrue(nestedPackIconErrors(repository, catalog, null).any {
+            it.contains('missing required resource')
+        })
+    }
+
+    @Test
     void commentScannerPreservesCommentLikeLiterals() {
         assertFalse(PublicationTreeVerifier.containsComment('String value = "https://example.invalid/a//b";\n', false))
         assertFalse(PublicationTreeVerifier.containsComment("def value = /a\\/\\/b/\n", true))
@@ -375,5 +407,27 @@ final class BuildLogicTest {
 
     private static int occurrences(String value, String needle) {
         value.split(Pattern.quote(needle), -1).length - 1
+    }
+
+    private static List<String> nestedPackIconErrors(
+            File repository, Map catalog, byte[] bytes) {
+        Path jar = Files.createTempFile('nclskins-pack-icon-', '.jar')
+        try {
+            new ZipOutputStream(Files.newOutputStream(jar)).withCloseable { output ->
+                if (bytes != null) {
+                    output.putNextEntry(new ZipEntry(ArtifactVerifier.COLLECTIONS + 'pack.png'))
+                    output.write(bytes)
+                    output.closeEntry()
+                }
+            }
+            List<String> errors = []
+            new ZipFile(jar.toFile()).withCloseable { archive ->
+                ArtifactVerifier.verifyNestedPackIcon(
+                        repository, archive, catalog, [id: 'fixture'], errors)
+            }
+            return errors
+        } finally {
+            Files.deleteIfExists(jar)
+        }
     }
 }

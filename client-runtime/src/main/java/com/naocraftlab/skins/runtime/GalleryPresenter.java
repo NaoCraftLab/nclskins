@@ -98,37 +98,35 @@ public final class GalleryPresenter {
         GalleryLayout layout = layout(width, height);
         List<GalleryCard> cards = cards(snapshot, query);
         int visibleCount = layout.visibleCount();
-        int maximum = Math.max(0, cards.size() - visibleCount);
+        int maximum = Math.max(0, cards.size() - 1);
         double visualOffset = Math.max(0.0, Math.min(scrollPosition, maximum));
-        int offset = Math.min((int) Math.floor(visualOffset), maximum);
-        double fraction = visualOffset - offset;
         int cardWidth = layout.cardWidth();
-        int anchorTo = Math.min(cards.size(), offset + visibleCount);
-        List<GalleryCard> anchorCards = cards.subList(Math.min(offset, cards.size()), anchorTo);
         int cardStep = cardWidth + CARD_GAP;
         Bounds cardViewport = layout.viewport();
-        int anchorStartX = startX(
-                snapshot.activePresetId(), width, cardWidth, offset, anchorCards);
-        int visualAnchorStartX = anchorStartX - (int) Math.round(fraction * cardStep);
-        int previousX = visualAnchorStartX - cardStep;
-        int nextX = visualAnchorStartX + anchorCards.size() * cardStep;
-        boolean previousCrossesViewport = previousX < cardViewport.x()
-                && previousX + cardWidth > cardViewport.x();
-        boolean nextCrossesViewport = nextX < cardViewport.right()
-                && nextX + cardWidth > cardViewport.right();
-        boolean showRestingNeighbors = visibleCount < 3;
-        int from = showRestingNeighbors || previousCrossesViewport
-                ? Math.max(0, offset - 1)
-                : offset;
-        int to = Math.min(
-                cards.size(),
-                anchorTo + (showRestingNeighbors
-                        || fraction > 0.001
-                        || nextCrossesViewport ? 1 : 0));
+        int centeredCardX = (width - cardWidth) / 2;
+        int lowerCenter = (int) Math.floor(visualOffset);
+        int upperCenter = (int) Math.ceil(visualOffset);
+        IndexRange lowerRange = restingRange(cards.size(), lowerCenter);
+        IndexRange upperRange = restingRange(cards.size(), upperCenter);
+        int from = Math.min(lowerRange.from(), upperRange.from());
+        int to = Math.max(lowerRange.to(), upperRange.to());
+        if (from > 0) {
+            int candidateX = centeredCardX
+                    + (int) Math.round((from - 1 - visualOffset) * cardStep);
+            if (partiallyIntersectsHorizontally(candidateX, cardWidth, width)) {
+                from--;
+            }
+        }
+        if (to < cards.size()) {
+            int candidateX = centeredCardX
+                    + (int) Math.round((to - visualOffset) * cardStep);
+            if (partiallyIntersectsHorizontally(candidateX, cardWidth, width)) {
+                to++;
+            }
+        }
         List<GalleryCard> visibleCards = cards.subList(from, to);
-        int startX = anchorStartX
-                - (offset - from) * cardStep
-                - (int) Math.round(fraction * cardStep);
+        int startX = centeredCardX
+                + (int) Math.round((from - visualOffset) * cardStep);
 
         List<ViewSpec.Panel> panels = new ArrayList<>();
         panels.add(new ViewSpec.Panel(
@@ -148,7 +146,9 @@ public final class GalleryPresenter {
                 query,
                 UiMessage.info("nclskins.gallery.search_hint"),
                 !snapshot.busy(),
-                128));
+                128,
+                true,
+                Optional.empty()));
 
         int x = startX;
         for (GalleryCard card : visibleCards) {
@@ -263,7 +263,27 @@ public final class GalleryPresenter {
     public int maximumScroll(ClientSnapshot snapshot, int width, int height, String query) {
         Objects.requireNonNull(snapshot, "snapshot");
         int cardCount = cards(snapshot, Objects.requireNonNull(query, "query")).size();
-        return Math.max(0, cardCount - layout(width, height).visibleCount());
+        layout(width, height);
+        return Math.max(0, cardCount - 1);
+    }
+
+    double centeredScrollPosition(
+            Optional<AccountState> account,
+            Optional<UUID> activePresetId,
+            String query) {
+        List<GalleryCard> cards = cards(
+                Objects.requireNonNull(account, "account"),
+                Objects.requireNonNull(activePresetId, "activePresetId"),
+                Objects.requireNonNull(query, "query"));
+        for (int index = 0; index < cards.size(); index++) {
+            if (cards.get(index).preset()
+                    .map(AppearancePreset::id)
+                    .filter(id -> activePresetId.filter(id::equals).isPresent())
+                    .isPresent()) {
+                return index;
+            }
+        }
+        return 0.0;
     }
 
     public double scrollPositionDelta(int width, int height, double pixelDelta) {
@@ -297,7 +317,7 @@ public final class GalleryPresenter {
         Objects.requireNonNull(snapshot, "snapshot");
         int cardCount = cards(snapshot, query).size();
         int visibleCount = layout(width, height).visibleCount();
-        int maximum = Math.max(0, cardCount - visibleCount);
+        int maximum = Math.max(0, cardCount - 1);
         if (maximum == 0) {
             return 0.0;
         }
@@ -611,15 +631,22 @@ public final class GalleryPresenter {
     }
 
     private static List<GalleryCard> cards(ClientSnapshot snapshot, String query) {
+        return cards(snapshot.account(), snapshot.activePresetId(), query);
+    }
+
+    private static List<GalleryCard> cards(
+            Optional<AccountState> account,
+            Optional<UUID> activePresetId,
+            String query) {
         List<GalleryCard> cards = new ArrayList<>();
         cards.add(new GalleryCard(Optional.empty()));
         String normalized = query.trim().toLowerCase(java.util.Locale.ROOT);
-        snapshot.account().ifPresent(account -> PresetGalleryOrder.arrange(
-                        account.presets().stream()
+        account.ifPresent(value -> PresetGalleryOrder.arrange(
+                        value.presets().stream()
                                 .filter(preset -> normalized.isEmpty()
                                         || preset.name().toLowerCase(java.util.Locale.ROOT).contains(normalized))
                                 .toList(),
-                        snapshot.activePresetId().orElse(null))
+                        activePresetId.orElse(null))
                 .forEach(preset -> cards.add(new GalleryCard(Optional.of(preset)))));
         return List.copyOf(cards);
     }
@@ -651,28 +678,6 @@ public final class GalleryPresenter {
                 scrollbarY);
     }
 
-    private static int startX(
-            Optional<UUID> activePresetId,
-            int width,
-            int cardWidth,
-            int offset,
-            List<GalleryCard> visibleCards) {
-        int count = visibleCards.size();
-        int rowWidth = cardWidth * count + CARD_GAP * Math.max(0, count - 1);
-        int centered = (width - rowWidth) / 2;
-        if (offset == 0
-                && activePresetId.isPresent()
-                && count >= 2
-                && visibleCards.get(0).preset().isEmpty()
-                && visibleCards.get(1).preset().map(preset -> preset.id().equals(activePresetId.orElseThrow())).orElse(false)) {
-            int activeCentered = width / 2 - cardWidth / 2 - cardWidth - CARD_GAP;
-            if (activeCentered >= 36 && activeCentered + rowWidth <= width - 36) {
-                return activeCentered;
-            }
-        }
-        return centered;
-    }
-
     private static SkinVariant variantFor(
             AccountState account, AppearancePreset preset, SkinVariant currentPlayerVariant) {
         return preset.skin().optionalAssetId()
@@ -688,6 +693,19 @@ public final class GalleryPresenter {
                 && candidate.y() < viewport.bottom();
     }
 
+    private static IndexRange restingRange(int cardCount, int centerIndex) {
+        int count = Math.min(3, cardCount);
+        int from = Math.max(0, Math.min(cardCount - count, centerIndex - 1));
+        return new IndexRange(from, from + count);
+    }
+
+    private static boolean partiallyIntersectsHorizontally(
+            int x, int cardWidth, int viewportWidth) {
+        boolean intersects = x < viewportWidth && x + cardWidth > 0;
+        boolean fullyVisible = x >= 0 && x + cardWidth <= viewportWidth;
+        return intersects && !fullyVisible;
+    }
+
     private record GalleryCard(Optional<AppearancePreset> preset) {
         private GalleryCard {
             preset = Objects.requireNonNull(preset, "preset");
@@ -696,6 +714,9 @@ public final class GalleryPresenter {
         private String id() {
             return preset.map(value -> "gallery.card." + value.id()).orElse("gallery.card.add");
         }
+    }
+
+    private record IndexRange(int from, int to) {
     }
 
     private record GalleryLayout(

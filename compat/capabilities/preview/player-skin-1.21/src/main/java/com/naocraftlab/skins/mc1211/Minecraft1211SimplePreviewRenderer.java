@@ -3,6 +3,7 @@ package com.naocraftlab.skins.mc1211;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
@@ -14,6 +15,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.model.ElytraModel;
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.model.geom.ModelLayers;
+import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
@@ -22,11 +24,16 @@ import net.minecraft.resources.ResourceLocation;
 import org.joml.Quaternionf;
 
 
-public final class Minecraft1211SimplePreviewRenderer implements PreviewRenderer<GuiGraphics> {
+public final class Minecraft1211SimplePreviewRenderer
+        implements PreviewRenderer<GuiGraphics>, BackEquipmentPreviewRenderer<GuiGraphics> {
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
     private static final float ANCHOR_Y = 0.88F;
     private static final float GUI_DEPTH = 120.0F;
+    private static final float EQUIPMENT_MODEL_WIDTH = 1.5F;
+    private static final float EQUIPMENT_MODEL_HEIGHT = 1.25F;
+    private static final float EQUIPMENT_CENTER_Y = EQUIPMENT_MODEL_HEIGHT / 2.0F;
+    private static final float EQUIPMENT_FIT_PADDING = 0.88F;
     private static final VanillaPlayerModelTransform.Operations<PoseStack> POSE_OPERATIONS =
             new VanillaPlayerModelTransform.Operations<>() {
                 @Override
@@ -52,13 +59,15 @@ public final class Minecraft1211SimplePreviewRenderer implements PreviewRenderer
 
     private final PlayerModel<?> classic;
     private final PlayerModel<?> slim;
+    private final ModelPart elytraRoot;
     private final ElytraModel<?> elytra;
 
     public Minecraft1211SimplePreviewRenderer(Minecraft minecraft) {
         Objects.requireNonNull(minecraft, "minecraft");
         classic = new PlayerModel<>(minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER), false);
         slim = new PlayerModel<>(minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER_SLIM), true);
-        elytra = new ElytraModel<>(minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA));
+        elytraRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA);
+        elytra = new ElytraModel<>(elytraRoot);
     }
 
     @Override
@@ -122,6 +131,60 @@ public final class Minecraft1211SimplePreviewRenderer implements PreviewRenderer
             pose.popPose();
             Lighting.setupFor3DItems();
         }
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, BackEquipmentPreviewRenderer.Request request) {
+        Objects.requireNonNull(graphics, "graphics");
+        Objects.requireNonNull(request, "request");
+        PoseStack pose = graphics.pose();
+        pose.pushPose();
+        try {
+            graphics.enableScissor(
+                    request.left(),
+                    request.top(),
+                    request.left() + request.width(),
+                    request.top() + request.height());
+            float scale = EQUIPMENT_FIT_PADDING * Math.min(
+                    request.width() / EQUIPMENT_MODEL_WIDTH,
+                    request.height() / EQUIPMENT_MODEL_HEIGHT);
+            pose.translate(
+                    request.left() + request.width() / 2.0F,
+                    request.top() + request.height() / 2.0F,
+                    GUI_DEPTH);
+            applyBackEquipmentTransform(pose, scale);
+
+            Lighting.setupForEntityInInventory();
+            MultiBufferSource.BufferSource buffers = graphics.bufferSource();
+            ResourceLocation texture = parseTexture(request.texture().location());
+            if (request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE) {
+                classic.renderCloak(
+                        pose,
+                        buffers.getBuffer(RenderType.entitySolid(texture)),
+                        LightTexture.FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY);
+            } else {
+                elytraRoot.resetPose();
+                elytra.renderToBuffer(
+                        pose,
+                        buffers.getBuffer(RenderType.entitySolid(texture)),
+                        LightTexture.FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY,
+                        0xFFFFFFFF);
+            }
+            graphics.flush();
+        } finally {
+            graphics.disableScissor();
+            pose.popPose();
+            Lighting.setupFor3DItems();
+        }
+    }
+
+    private static void applyBackEquipmentTransform(PoseStack pose, float scale) {
+        pose.scale(scale, scale, -scale);
+        pose.mulPose(new Quaternionf().rotateZ((float) Math.PI).rotateY((float) Math.PI));
+        pose.scale(-1.0F, -1.0F, 1.0F);
+        pose.translate(0.0F, -EQUIPMENT_CENTER_Y, 0.0F);
     }
 
     private static void configurePlayerModel(

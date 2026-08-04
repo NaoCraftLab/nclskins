@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.gui.immediate;
 
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.runtime.ClientRuntime;
@@ -17,6 +18,10 @@ public interface ImmediateScreenCapabilities {
 
 
     PreviewRenderer<GuiGraphics> createEditorPreviewRenderer();
+
+    BackEquipmentPreviewRenderer<GuiGraphics> createBackEquipmentPreviewRenderer();
+
+    void finishPreviewPass(GuiGraphics graphics);
 
     NativeScrollController createScrollController();
 

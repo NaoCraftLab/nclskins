@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.mc262;
 
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
@@ -21,10 +22,15 @@ import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.resources.Identifier;
 
 
-final class Minecraft262SimplePreviewRenderer implements PreviewRenderer<GuiGraphicsExtractor> {
+final class Minecraft262SimplePreviewRenderer
+        implements PreviewRenderer<GuiGraphicsExtractor>, BackEquipmentPreviewRenderer<GuiGraphicsExtractor> {
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
     private static final float PIVOT_Y = -MODEL_HEIGHT / 2.0F;
+    private static final float EQUIPMENT_MODEL_WIDTH = 1.5F;
+    private static final float EQUIPMENT_MODEL_HEIGHT = 1.25F;
+    private static final float EQUIPMENT_PIVOT_Y = -EQUIPMENT_MODEL_HEIGHT / 2.0F;
+    private static final float EQUIPMENT_FIT_PADDING = 0.88F;
     private static final Method SKIN_METHOD = skinMethod();
     private static final boolean PLAYER_MODEL_SKIN =
             SKIN_METHOD.getParameterTypes()[0] == PlayerModel.class;
@@ -82,25 +88,74 @@ final class Minecraft262SimplePreviewRenderer implements PreviewRenderer<GuiGrap
                 request);
     }
 
+    @Override
+    public void render(
+            GuiGraphicsExtractor graphics,
+            BackEquipmentPreviewRenderer.Request request) {
+        Object attachment = attachment(request.mode());
+        ((Model<?>) attachment).resetPose();
+        float scale = EQUIPMENT_FIT_PADDING * Math.min(
+                request.width() / EQUIPMENT_MODEL_WIDTH,
+                request.height() / EQUIPMENT_MODEL_HEIGHT);
+        submit(
+                graphics,
+                attachment,
+                Identifier.parse(request.texture().location()),
+                scale,
+                0.0F,
+                180.0F,
+                EQUIPMENT_PIVOT_Y,
+                request.left(),
+                request.top(),
+                request.left() + request.width(),
+                request.top() + request.height());
+    }
+
     private static void submit(
             GuiGraphicsExtractor graphics,
             Object model,
             Identifier texture,
             float scale,
             PreviewRequest request) {
+        submit(
+                graphics,
+                model,
+                texture,
+                scale,
+                request.pitchDegrees(),
+                request.yawDegrees(),
+                PIVOT_Y,
+                request.left(),
+                request.top(),
+                request.left() + request.width(),
+                request.top() + request.height());
+    }
+
+    private static void submit(
+            GuiGraphicsExtractor graphics,
+            Object model,
+            Identifier texture,
+            float scale,
+            float pitchDegrees,
+            float yawDegrees,
+            float pivotY,
+            int left,
+            int top,
+            int right,
+            int bottom) {
         try {
             SKIN_METHOD.invoke(
                     graphics,
                     model,
                     texture,
                     scale,
-                    request.pitchDegrees(),
-                    request.yawDegrees(),
-                    PIVOT_Y,
-                    request.left(),
-                    request.top(),
-                    request.left() + request.width(),
-                    request.top() + request.height());
+                    pitchDegrees,
+                    yawDegrees,
+                    pivotY,
+                    left,
+                    top,
+                    right,
+                    bottom);
         } catch (IllegalAccessException | InvocationTargetException error) {
             throw new IllegalStateException("Cannot submit 26.x simple player preview", error);
         }
@@ -135,6 +190,17 @@ final class Minecraft262SimplePreviewRenderer implements PreviewRenderer<GuiGrap
             return mode == CapeMode.ELYTRA ? playerElytraModel : playerCapeModel;
         }
         return mode == CapeMode.ELYTRA ? simpleElytraModel : simpleCapeModel;
+    }
+
+    private Object attachment(BackEquipmentPreviewRenderer.Mode mode) {
+        if (PLAYER_MODEL_SKIN) {
+            return mode == BackEquipmentPreviewRenderer.Mode.ELYTRA
+                    ? playerElytraModel
+                    : playerCapeModel;
+        }
+        return mode == BackEquipmentPreviewRenderer.Mode.ELYTRA
+                ? simpleElytraModel
+                : simpleCapeModel;
     }
 
     private static ModelPart playerElytraRoot() {

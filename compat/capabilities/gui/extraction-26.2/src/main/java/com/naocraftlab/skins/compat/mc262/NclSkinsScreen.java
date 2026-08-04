@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.compat.mc262;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource.PlayerAppearance;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
@@ -51,6 +52,7 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import org.lwjgl.glfw.GLFW;
 
 
 public final class NclSkinsScreen extends Screen {
@@ -70,6 +72,7 @@ public final class NclSkinsScreen extends Screen {
             "plus",
             "duplicate",
             "delete",
+            "no_cape",
             "cape",
             "elytra",
             "head_on",
@@ -102,6 +105,7 @@ public final class NclSkinsScreen extends Screen {
     private PreviewAssetCache<SkinKey> skinTextures;
     private PreviewAssetCache<String> capeTextures;
     private Minecraft262PreviewRenderer editorRenderer;
+    private Minecraft262SimplePreviewRenderer backEquipmentRenderer;
     private ClientRuntime.Subscription subscription;
     private ViewSpec currentView;
     private List<WidgetSignature> widgetSignature = List.of();
@@ -153,6 +157,9 @@ public final class NclSkinsScreen extends Screen {
         }
         if (editorRenderer == null) {
             editorRenderer = new Minecraft262PreviewRenderer();
+        }
+        if (backEquipmentRenderer == null) {
+            backEquipmentRenderer = new Minecraft262SimplePreviewRenderer();
         }
 
         runtime.reopen();
@@ -503,7 +510,7 @@ public final class NclSkinsScreen extends Screen {
             }
         }
         drawPreviews(graphics, view);
-        drawCapeTextures(graphics, view);
+        drawBackEquipmentPreviews(graphics, view);
 
 
         graphics.nextStratum();
@@ -806,27 +813,22 @@ public final class NclSkinsScreen extends Screen {
                         .orElse(false));
     }
 
-    private void drawCapeTextures(GuiGraphicsExtractor graphics, ViewSpec view) {
-        for (ViewSpec.CapeTexture capeTexture : view.capeTextures()) {
-            Optional<TextureHandle> loaded = capeTextures.handle(capeTexture.capeId());
+    private void drawBackEquipmentPreviews(GuiGraphicsExtractor graphics, ViewSpec view) {
+        for (ViewSpec.BackEquipmentPreview backEquipment : view.backEquipmentPreviews()) {
+            Optional<TextureHandle> loaded = capeTextures.handle(backEquipment.capeId());
             if (loaded.isEmpty()) {
                 continue;
             }
-            TextureHandle handle = loaded.orElseThrow();
-            Bounds bounds = capeTexture.bounds();
-            drawClipped(graphics, view, capeTexture.id(), () -> graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
-                    Identifier.parse(handle.location()),
-                    bounds.x(),
-                    bounds.y(),
-                    1.0F,
-                    1.0F,
-                    bounds.width(),
-                    bounds.height(),
-                    10,
-                    16,
-                    handle.width(),
-                    handle.height()));
+            Bounds bounds = backEquipment.bounds();
+            drawClipped(graphics, view, backEquipment.id(), () -> backEquipmentRenderer.render(
+                    graphics,
+                    new BackEquipmentPreviewRenderer.Request(
+                            loaded.orElseThrow(),
+                            backEquipment.mode(),
+                            bounds.x(),
+                            bounds.y(),
+                            bounds.width(),
+                            bounds.height())));
         }
     }
 
@@ -916,6 +918,11 @@ public final class NclSkinsScreen extends Screen {
         if (runtime.closed()) {
             return false;
         }
+        ViewSpec view = runtime.view(width, height, lastMouseX, lastMouseY);
+        currentView = view;
+        if (isEnterKey(event.key()) && dispatchFocusedSubmit(view)) {
+            return true;
+        }
         for (NativeTabGroup group : nativeTabGroups.values()) {
             if (group.bar().keyPressed(event)) {
                 dispatchPendingTabSelection();
@@ -935,6 +942,12 @@ public final class NclSkinsScreen extends Screen {
         ViewSpec view = runtime.view(width, height, (int) event.x(), (int) event.y());
         currentView = view;
         Optional<ViewSpec.Widget> pointerOwner = pointerOwnerAt(view, event.x(), event.y());
+        Optional<String> selectAllField = pointerOwner
+                .filter(widget -> event.button() == LEFT_MOUSE_BUTTON)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
+                .filter(ViewSpec.Widget::selectAllOnPrimaryClick)
+                .filter(ViewSpec.Widget::enabled)
+                .map(ViewSpec.Widget::id);
         Optional<ViewSpec.Widget> priorityAction = pointerOwner.filter(widget ->
                 widget.kind() == ViewSpec.WidgetKind.INFO_BUTTON
                         || widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE);
@@ -981,6 +994,7 @@ public final class NclSkinsScreen extends Screen {
             restoreMaskedWidgets(maskedWidgets, latestView);
         }
         dispatchPendingTabSelection();
+        selectAllField.ifPresent(id -> selectAllTextField(currentView, id));
         if (nativeConsumed) {
             return true;
         }
@@ -1003,6 +1017,57 @@ public final class NclSkinsScreen extends Screen {
         if (selectedId != null) {
             runtime.dispatchWidget(selectedId);
         }
+    }
+
+    private boolean dispatchFocusedSubmit(ViewSpec view) {
+        String focusedId = currentFocusedWidgetId();
+        if (focusedId == null) {
+            return false;
+        }
+        Optional<ViewSpec.Widget> source = view.widget(focusedId)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
+                .filter(ViewSpec.Widget::enabled)
+                .filter(ViewSpec.Widget::visible)
+                .filter(widget -> widget.submitActionId().isPresent());
+        if (source.isEmpty()) {
+            return false;
+        }
+        AbstractWidget nativeSource = nativeWidgets.get(focusedId);
+        if (!(nativeSource instanceof EditBox editBox)
+                || !editBox.isFocused()
+                || editBox.getValue().trim().isEmpty()) {
+            return false;
+        }
+        String actionId = source.orElseThrow().submitActionId().orElseThrow();
+        Optional<ViewSpec.Widget> action = view.widget(actionId)
+                .filter(ViewSpec.Widget::visible)
+                .filter(ViewSpec.Widget::enabled);
+        if (action.isEmpty()) {
+            return false;
+        }
+        runtime.dispatchWidget(actionId);
+        return true;
+    }
+
+    private void selectAllTextField(ViewSpec view, String widgetId) {
+        Optional<ViewSpec.Widget> source = view.widget(widgetId)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
+                .filter(ViewSpec.Widget::selectAllOnPrimaryClick)
+                .filter(ViewSpec.Widget::enabled)
+                .filter(ViewSpec.Widget::visible);
+        AbstractWidget nativeSource = nativeWidgets.get(widgetId);
+        if (source.isEmpty()
+                || !(nativeSource instanceof EditBox editBox)
+                || !editBox.isFocused()
+                || editBox.getValue().isEmpty()) {
+            return;
+        }
+        editBox.setCursorPosition(editBox.getValue().length());
+        editBox.setHighlightPos(0);
+    }
+
+    private static boolean isEnterKey(int keyCode) {
+        return keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER;
     }
 
     @Override
@@ -1107,11 +1172,11 @@ public final class NclSkinsScreen extends Screen {
                 ensureCape(preview, capeId);
             });
         }
-        for (ViewSpec.CapeTexture capeTexture : view.capeTextures()) {
-            desiredCapes.add(capeTexture.capeId());
+        for (ViewSpec.BackEquipmentPreview backEquipment : view.backEquipmentPreviews()) {
+            desiredCapes.add(backEquipment.capeId());
             capeTextures.request(
-                    capeTexture.capeId(),
-                    () -> runtime.loadCapePreview(capeTexture.capeId()),
+                    backEquipment.capeId(),
+                    () -> runtime.loadCapePreview(backEquipment.capeId()),
                     () -> {});
         }
         skinTextures.retain(desiredSkins);
@@ -1173,6 +1238,7 @@ public final class NclSkinsScreen extends Screen {
                     } finally {
                         previewSkinKeys.clear();
                         galleryRenderers.clear();
+                        backEquipmentRenderer = null;
                         nativeWidgets.clear();
                         nativeTabGroups.clear();
                         try {

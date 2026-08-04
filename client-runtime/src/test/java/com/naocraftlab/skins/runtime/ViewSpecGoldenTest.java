@@ -33,14 +33,14 @@ final class ViewSpecGoldenTest {
     @Test
     void completeDefaultViewSpecMatches262Golden() {
         assertEquals(golden("view-spec-854.txt"), describePair(
-                gallery(4, 3, 0, 854, 480, 427, 180),
+                gallery(4, 3, 1, 854, 480, 427, 180),
                 editor(854, 480)).stripTrailing());
     }
 
     @Test
     void completeWideViewSpecMatches262Golden() {
         assertEquals(golden("view-spec-wide.txt"), describePair(
-                gallery(6, 5, 0, 1600, 720, 800, 200),
+                gallery(6, 5, 1, 1600, 720, 800, 200),
                 editor(1600, 720)).stripTrailing());
     }
 
@@ -121,7 +121,7 @@ final class ViewSpecGoldenTest {
             UiMessage status) {
         AccountState account = TestFixtures.account(4);
         UUID active = account.presets().get(3).id();
-        ClientSnapshot base = TestFixtures.ready(account, active, 0);
+        ClientSnapshot base = TestFixtures.ready(account, active, 1);
         ClientSnapshot snapshot = new ClientSnapshot(
                 base.lifecycle(),
                 base.account(),
@@ -226,11 +226,12 @@ final class ViewSpecGoldenTest {
                     .append("scale=").append(preview.scale()).append('|')
                     .append("preset=").append(preview.presetId().map(UUID::toString).orElse("-")).append('\n');
         }
-        result.append("cape_textures\n");
-        for (int index = 0; index < view.capeTextures().size(); index++) {
-            ViewSpec.CapeTexture texture = view.capeTextures().get(index);
-            result.append(index).append('|').append(texture.id()).append('|')
-                    .append(bounds(texture.bounds())).append("|cape=").append(texture.capeId()).append('\n');
+        result.append("back_equipment_previews\n");
+        for (int index = 0; index < view.backEquipmentPreviews().size(); index++) {
+            ViewSpec.BackEquipmentPreview preview = view.backEquipmentPreviews().get(index);
+            result.append(index).append('|').append(preview.id()).append('|')
+                    .append(bounds(preview.bounds())).append("|cape=").append(preview.capeId()).append('|')
+                    .append("mode=").append(preview.mode()).append('\n');
         }
         result.append("icon_decorations\n");
         for (int index = 0; index < view.iconDecorations().size(); index++) {

@@ -17,7 +17,7 @@ widgets
 4|gallery.retry_session|BUTTON|120,6,112,20|key:nclskins.session.retry:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
 0|gallery.preset.00000000-0000-0002-0000-000000000004.preview|235,78,174,208|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=5.926401|scale=0.88|preset=00000000-0000-0002-0000-000000000004
-cape_textures
+back_equipment_previews
 icon_decorations
 0|gallery.add.icon|112,167,15,15|icon=plus|owner=gallery.add|idle=0.65|active=1.0
 clip_regions

@@ -59,7 +59,7 @@ public final class AddSourcePresenter {
         List<ViewSpec.Preview> previews = new ArrayList<>();
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
         panels.add(new ViewSpec.Panel(
-                "add.header", new Bounds(0, 0, width, 33), ViewSpec.Panel.Style.VANILLA_HEADER));
+                "add.header", new Bounds(0, 0, width, 24), ViewSpec.Panel.Style.VANILLA_HEADER));
         panels.add(new ViewSpec.Panel(
                 "add.footer",
                 new Bounds(0, Math.max(0, height - FOOTER_HEIGHT), width, FOOTER_HEIGHT),
@@ -100,7 +100,9 @@ public final class AddSourcePresenter {
                     model.playerInput(),
                     UiMessage.info("nclskins.add_source.player_hint"),
                     !busy,
-                    36));
+                    36,
+                    true,
+                    Optional.of("add.player.load")));
             widgets.add(ViewSpec.Widget.button(
                     "add.player.load",
                     new Bounds(contentX + contentWidth - actionWidth, 84, actionWidth, 20),
@@ -118,7 +120,9 @@ public final class AddSourcePresenter {
                     model.urlInput(),
                     UiMessage.info("nclskins.add_source.url_hint"),
                     !busy,
-                    2048));
+                    2048,
+                    true,
+                    Optional.of("add.url.load")));
             widgets.add(ViewSpec.Widget.button(
                     "add.url.load",
                     new Bounds(contentX + contentWidth - actionWidth, 126, actionWidth, 20),
@@ -144,7 +148,9 @@ public final class AddSourcePresenter {
                     model.query(),
                     UiMessage.info("nclskins.add_source.search_hint"),
                     !busy,
-                    128));
+                    128,
+                    true,
+                    Optional.empty()));
             widgets.add(ViewSpec.Widget.button(
                     "add.catalog.filter",
                     new Bounds(width - 16 - filterWidth, CONTROLS_TOP, filterWidth, 20),

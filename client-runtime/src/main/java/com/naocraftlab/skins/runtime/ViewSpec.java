@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.SkinReference;
@@ -24,7 +25,7 @@ public record ViewSpec(
         List<TabGroup> tabGroups,
         Optional<FocusRequest> focusRequest,
         List<ClipRegion> clipRegions,
-        List<CapeTexture> capeTextures,
+        List<BackEquipmentPreview> backEquipmentPreviews,
         List<IconDecoration> iconDecorations,
         List<ScrollSurface> scrollSurfaces) {
     public ViewSpec(
@@ -98,7 +99,7 @@ public record ViewSpec(
             List<TabGroup> tabGroups,
             Optional<FocusRequest> focusRequest,
             List<ClipRegion> clipRegions,
-            List<CapeTexture> capeTextures) {
+            List<BackEquipmentPreview> backEquipmentPreviews) {
         this(
                 screenId,
                 title,
@@ -112,7 +113,7 @@ public record ViewSpec(
                 tabGroups,
                 focusRequest,
                 clipRegions,
-                capeTextures,
+                backEquipmentPreviews,
                 List.of(),
                 List.of());
     }
@@ -130,7 +131,7 @@ public record ViewSpec(
             List<TabGroup> tabGroups,
             Optional<FocusRequest> focusRequest,
             List<ClipRegion> clipRegions,
-            List<CapeTexture> capeTextures,
+            List<BackEquipmentPreview> backEquipmentPreviews,
             List<IconDecoration> iconDecorations) {
         this(
                 screenId,
@@ -145,7 +146,7 @@ public record ViewSpec(
                 tabGroups,
                 focusRequest,
                 clipRegions,
-                capeTextures,
+                backEquipmentPreviews,
                 iconDecorations,
                 List.of());
     }
@@ -164,7 +165,8 @@ public record ViewSpec(
         tabGroups = List.copyOf(Objects.requireNonNull(tabGroups, "tabGroups"));
         focusRequest = Objects.requireNonNull(focusRequest, "focusRequest");
         clipRegions = List.copyOf(Objects.requireNonNull(clipRegions, "clipRegions"));
-        capeTextures = List.copyOf(Objects.requireNonNull(capeTextures, "capeTextures"));
+        backEquipmentPreviews = List.copyOf(Objects.requireNonNull(
+                backEquipmentPreviews, "backEquipmentPreviews"));
         iconDecorations = List.copyOf(Objects.requireNonNull(iconDecorations, "iconDecorations"));
         scrollSurfaces = List.copyOf(Objects.requireNonNull(scrollSurfaces, "scrollSurfaces"));
         if (scrollSurfaces.stream().map(ScrollSurface::id).distinct().count() != scrollSurfaces.size()) {
@@ -324,7 +326,33 @@ public record ViewSpec(
             Optional<UiMessage> hint,
             boolean enabled,
             boolean visible,
-            int maxLength) {
+            int maxLength,
+            boolean selectAllOnPrimaryClick,
+            Optional<String> submitActionId) {
+        public Widget(
+                String id,
+                WidgetKind kind,
+                Bounds bounds,
+                UiMessage label,
+                Optional<String> value,
+                Optional<UiMessage> hint,
+                boolean enabled,
+                boolean visible,
+                int maxLength) {
+            this(
+                    id,
+                    kind,
+                    bounds,
+                    label,
+                    value,
+                    hint,
+                    enabled,
+                    visible,
+                    maxLength,
+                    false,
+                    Optional.empty());
+        }
+
         public Widget {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(kind, "kind");
@@ -332,8 +360,16 @@ public record ViewSpec(
             Objects.requireNonNull(label, "label");
             value = Objects.requireNonNull(value, "value");
             hint = Objects.requireNonNull(hint, "hint");
+            submitActionId = Objects.requireNonNull(submitActionId, "submitActionId");
             if (maxLength < 0) {
                 throw new IllegalArgumentException("maxLength must not be negative");
+            }
+            if (kind != WidgetKind.TEXT_FIELD
+                    && (selectAllOnPrimaryClick || submitActionId.isPresent())) {
+                throw new IllegalArgumentException("text-field interaction belongs only to text fields");
+            }
+            if (submitActionId.filter(String::isBlank).isPresent()) {
+                throw new IllegalArgumentException("submit action id must not be blank");
             }
         }
 
@@ -426,6 +462,20 @@ public record ViewSpec(
                 UiMessage hint,
                 boolean enabled,
                 int maxLength) {
+            return textField(
+                    id, bounds, label, value, hint, enabled, maxLength, false, Optional.empty());
+        }
+
+        public static Widget textField(
+                String id,
+                Bounds bounds,
+                UiMessage label,
+                String value,
+                UiMessage hint,
+                boolean enabled,
+                int maxLength,
+                boolean selectAllOnPrimaryClick,
+                Optional<String> submitActionId) {
             return new Widget(
                     id,
                     WidgetKind.TEXT_FIELD,
@@ -435,7 +485,9 @@ public record ViewSpec(
                     Optional.of(Objects.requireNonNull(hint, "hint")),
                     enabled,
                     true,
-                    maxLength);
+                    maxLength,
+                    selectAllOnPrimaryClick,
+                    submitActionId);
         }
 
         public static Widget catalogDelete(
@@ -588,13 +640,18 @@ public record ViewSpec(
     }
 
 
-    public record CapeTexture(String id, Bounds bounds, String capeId) {
-        public CapeTexture {
+    public record BackEquipmentPreview(
+            String id,
+            Bounds bounds,
+            String capeId,
+            BackEquipmentPreviewRenderer.Mode mode) {
+        public BackEquipmentPreview {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");
             Objects.requireNonNull(capeId, "capeId");
+            Objects.requireNonNull(mode, "mode");
             if (id.isBlank() || capeId.isBlank()) {
-                throw new IllegalArgumentException("cape texture ids must not be blank");
+                throw new IllegalArgumentException("back-equipment preview ids must not be blank");
             }
         }
     }

@@ -5,6 +5,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.PlayerPreviewLighting;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
@@ -25,12 +26,17 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 
-public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer<GuiGraphics> {
+public final class Minecraft1201SimplePreviewRenderer
+        implements PreviewRenderer<GuiGraphics>, BackEquipmentPreviewRenderer<GuiGraphics> {
     private static final int FULL_BRIGHT = 0x00F000F0;
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
     private static final float ANCHOR_Y = 0.88F;
     private static final float GUI_DEPTH = 120.0F;
+    private static final float EQUIPMENT_MODEL_WIDTH = 1.5F;
+    private static final float EQUIPMENT_MODEL_HEIGHT = 1.25F;
+    private static final float EQUIPMENT_CENTER_Y = EQUIPMENT_MODEL_HEIGHT / 2.0F;
+    private static final float EQUIPMENT_FIT_PADDING = 0.88F;
     private static final PlayerPreviewLighting.Rig LIGHTING =
             PlayerPreviewLighting.centeredFront();
     private static final Vector3f PRIMARY_LIGHT = lightDirection(LIGHTING.primary());
@@ -62,6 +68,7 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
     private final PlayerModel<LivingEntity> slimModel;
     private final ModelPart classicCloak;
     private final ModelPart slimCloak;
+    private final ModelPart elytraRoot;
     private final ElytraModel<LivingEntity> elytraModel;
 
     public Minecraft1201SimplePreviewRenderer() {
@@ -72,7 +79,8 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
         slimModel = new PlayerModel<>(slimRoot, true);
         classicCloak = classicRoot.getChild("cloak");
         slimCloak = slimRoot.getChild("cloak");
-        elytraModel = new ElytraModel<>(minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA));
+        elytraRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA);
+        elytraModel = new ElytraModel<>(elytraRoot);
     }
 
     @Override
@@ -131,6 +139,66 @@ public final class Minecraft1201SimplePreviewRenderer implements PreviewRenderer
             pose.popPose();
             Lighting.setupFor3DItems();
         }
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, BackEquipmentPreviewRenderer.Request request) {
+        Objects.requireNonNull(graphics, "graphics");
+        Objects.requireNonNull(request, "request");
+        PoseStack pose = graphics.pose();
+        pose.pushPose();
+        try {
+            graphics.enableScissor(
+                    request.left(),
+                    request.top(),
+                    request.left() + request.width(),
+                    request.top() + request.height());
+            float scale = EQUIPMENT_FIT_PADDING * Math.min(
+                    request.width() / EQUIPMENT_MODEL_WIDTH,
+                    request.height() / EQUIPMENT_MODEL_HEIGHT);
+            pose.translate(
+                    request.left() + request.width() / 2.0F,
+                    request.top() + request.height() / 2.0F,
+                    GUI_DEPTH);
+            applyBackEquipmentTransform(pose, scale);
+
+            RenderSystem.setShaderLights(PRIMARY_LIGHT, FILL_LIGHT);
+            MultiBufferSource.BufferSource buffers = graphics.bufferSource();
+            ResourceLocation texture = location(request.texture());
+            if (request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE) {
+                classicCloak.resetPose();
+                classicCloak.visible = true;
+                classicCloak.render(
+                        pose,
+                        buffers.getBuffer(classicModel.renderType(texture)),
+                        FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY);
+                classicCloak.visible = false;
+            } else {
+                elytraRoot.resetPose();
+                elytraModel.renderToBuffer(
+                        pose,
+                        buffers.getBuffer(elytraModel.renderType(texture)),
+                        FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY,
+                        1.0F,
+                        1.0F,
+                        1.0F,
+                        1.0F);
+            }
+            buffers.endBatch();
+        } finally {
+            graphics.disableScissor();
+            pose.popPose();
+            Lighting.setupFor3DItems();
+        }
+    }
+
+    private static void applyBackEquipmentTransform(PoseStack pose, float scale) {
+        pose.scale(scale, scale, -scale);
+        pose.mulPose(new Quaternionf().rotateZ((float) Math.PI).rotateY((float) Math.PI));
+        pose.scale(-1.0F, -1.0F, 1.0F);
+        pose.translate(0.0F, -EQUIPMENT_CENTER_Y, 0.0F);
     }
 
     private void renderBackEquipment(

@@ -36,10 +36,24 @@ final class AddSourceModelPresenterTest {
 
         ViewSpec view = presenter.present(model, false, 320, 240);
 
+        assertEquals(
+                new Bounds(0, 0, 320, 24),
+                view.panels().stream()
+                        .filter(panel -> panel.id().equals("add.header"))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds());
+        assertEquals(new Bounds(0, 0, 320, 24), view.tabGroups().get(0).bounds());
         assertEquals(List.of("add.tab.catalog", "add.tab.file"),
                 view.tabGroups().get(0).tabs().stream().map(ViewSpec.Tab::id).toList());
         assertTrue(view.widget("add.file.choose").orElseThrow().enabled());
-        assertEquals("jeb_", view.widget("add.player.input").orElseThrow().value().orElseThrow());
+        ViewSpec.Widget playerInput = view.widget("add.player.input").orElseThrow();
+        assertEquals("jeb_", playerInput.value().orElseThrow());
+        assertTrue(playerInput.selectAllOnPrimaryClick());
+        assertEquals(Optional.of("add.player.load"), playerInput.submitActionId());
+        ViewSpec.Widget urlInput = view.widget("add.url.input").orElseThrow();
+        assertTrue(urlInput.selectAllOnPrimaryClick());
+        assertEquals(Optional.of("add.url.load"), urlInput.submitActionId());
         assertTrue(view.widget("add.player.load").orElseThrow().enabled());
         assertTrue(view.widget("add.url.load").orElseThrow().enabled());
         assertTrue(view.texts().stream().anyMatch(text -> text.id().equals("add.url.privacy")));
@@ -66,6 +80,9 @@ final class AddSourceModelPresenterTest {
         assertEquals(SkinVariant.SLIM, slim.selectedVariant(slim.visibleSkins(collection).get(0)));
 
         ViewSpec noResults = presenter.present(opened.withQuery("missing"), false, 320, 240);
+        ViewSpec.Widget catalogSearch = noResults.widget("add.catalog.search").orElseThrow();
+        assertTrue(catalogSearch.selectAllOnPrimaryClick());
+        assertEquals(Optional.empty(), catalogSearch.submitActionId());
         assertTrue(noResults.texts().stream().anyMatch(text -> text.id().equals("add.catalog.empty")));
     }
 
@@ -748,6 +765,13 @@ final class AddSourceModelPresenterTest {
 
         assertEquals("personal_skin_delete", confirmationView.screenId());
         assertTrue(confirmationView.tabGroups().isEmpty());
+        assertEquals(
+                new Bounds(0, 0, 320, 33),
+                confirmationView.panels().stream()
+                        .filter(panel -> panel.id().equals("personal_delete.header"))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds());
         assertTrue(confirmationView.previews().isEmpty());
         assertTrue(confirmationView.scrollbar().isEmpty());
         assertTrue(confirmationView.widget("add.catalog.delete.confirm").orElseThrow().enabled());

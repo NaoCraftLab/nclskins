@@ -14,6 +14,7 @@ import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
+import com.naocraftlab.skins.core.api.PublicSkinImportException;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
@@ -1123,12 +1124,16 @@ public final class ClientRuntime implements AutoCloseable {
 
     private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptInitialData(
             ClientOperations.InitialData data, boolean initialized) {
+        UUID previousActivePresetId = state.activePresetId;
         state.lifecycle = ClientSnapshot.Lifecycle.READY;
         state.account = data.account();
         state.session = data.session();
         state.remoteProfile = data.session().profile();
         state.currentOfficialSkinId = data.currentOfficialSkinId().orElse(null);
         state.activePresetId = data.activePresetId().orElse(null);
+        if (initialized || !Objects.equals(previousActivePresetId, state.activePresetId)) {
+            centerGalleryOnActive();
+        }
         state.intentRevision = data.intentRevision();
         state.syncStatus = data.syncStatus();
         state.uiPreferences = data.uiPreferences();
@@ -1610,8 +1615,8 @@ public final class ClientRuntime implements AutoCloseable {
                     state.status = UiMessage.success("nclskins.status.png_ready");
                 },
                 failure -> state.status = UiMessage.error(player
-                        ? "nclskins.add_source.player_failed"
-                        : "nclskins.add_source.url_failed"));
+                        ? publicImportFailureKey(failure, true)
+                        : publicImportFailureKey(failure, false)));
     }
 
     private void finishAddSourcePicker(long ticket, byte[] ignored, Throwable failure) {
@@ -1895,6 +1900,7 @@ public final class ClientRuntime implements AutoCloseable {
                             personalSource));
                 },
                 saved -> {
+                    UUID previousActivePresetId = state.activePresetId;
                     state.account = saved.account();
                     state.selectedPresetId = saved.presetId();
                     AppearancePreset preset = findPreset(saved.presetId());
@@ -1920,6 +1926,7 @@ public final class ClientRuntime implements AutoCloseable {
                                     ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
                         }
                     });
+                    centerGalleryIfActiveChanged(previousActivePresetId);
                 },
                 failure -> {
                     if (state.editor != null) {
@@ -1998,6 +2005,7 @@ public final class ClientRuntime implements AutoCloseable {
                 UiMessage.info("nclskins.status.deleting"),
                 () -> operations.deletePreset(presetId),
                 deletion -> {
+                    UUID previousActivePresetId = state.activePresetId;
                     state.account = deletion.account();
                     state.pendingPresetDeleteId = null;
                     boolean deleted = state.account.presets().stream()
@@ -2030,6 +2038,7 @@ public final class ClientRuntime implements AutoCloseable {
                             ? UiMessage.success("nclskins.status.deleted")
                             : UiMessage.literal(
                                     deletion.cleanupWarnings().get(0), UiMessage.Severity.ERROR);
+                    centerGalleryIfActiveChanged(previousActivePresetId);
                 });
     }
 
@@ -2056,14 +2065,10 @@ public final class ClientRuntime implements AutoCloseable {
         CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
                 refreshLocalAppearance(use.localAppearance());
         use.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
-        if (!preserveGalleryOffset && !use.activePresetId().equals(previous)) {
-            resetGalleryScroll();
-        }
         if (use.remoteResult().isPresent()) {
             acceptRemoteResult(
                     use.remoteResult().orElseThrow(),
-                    use.activePresetId(),
-                    true);
+                    use.activePresetId());
         } else {
             state.remoteProfile = use.session().profile();
             state.rateLimited = operations.rateLimited();
@@ -2073,6 +2078,9 @@ public final class ClientRuntime implements AutoCloseable {
                         localRebind,
                         ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
             }
+        }
+        if (!preserveGalleryOffset) {
+            centerGalleryIfActiveChanged(previous);
         }
     }
 
@@ -2278,6 +2286,7 @@ public final class ClientRuntime implements AutoCloseable {
                                 || state.intentRevision > appearance.intentRevision())) {
             return;
         }
+        UUID previousActivePresetId = state.activePresetId;
         state.account = reconciled.account();
         state.session = reconciled.session();
         state.remoteProfile = reconciled.session().profile();
@@ -2297,6 +2306,7 @@ public final class ClientRuntime implements AutoCloseable {
                 && state.lifecycle != ClientSnapshot.Lifecycle.INITIALIZING) {
             state.status = UiMessage.info("nclskins.status.local_only");
         }
+        centerGalleryIfActiveChanged(previousActivePresetId);
         publish();
     }
 
@@ -2313,11 +2323,13 @@ public final class ClientRuntime implements AutoCloseable {
                                 && state.intentRevision > appearance.intentRevision())) {
             return;
         }
+        UUID previousActivePresetId = state.activePresetId;
         state.activePresetId = appearance.activePresetId().orElse(null);
         state.intentRevision = appearance.intentRevision();
         state.syncStatus = appearance.syncStatus();
         appearance.localAppearance().ifPresent(this::refreshLocalAppearance);
         appearance.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
+        centerGalleryIfActiveChanged(previousActivePresetId);
         publish();
     }
 
@@ -2476,7 +2488,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void acceptRemoteResult(
-            ClientOperations.RemoteResult result, UUID presetToActivate, boolean preserveGalleryOffset) {
+            ClientOperations.RemoteResult result, UUID presetToActivate) {
         PresetApplicationOutcome outcome = withoutLegacyRestore(result.outcome());
         state.lastMutation = outcome;
         state.account = result.account();
@@ -2490,11 +2502,7 @@ public final class ClientRuntime implements AutoCloseable {
         state.status = outcomeStatus;
         if (outcome.result() == MutationResult.APPLIED) {
             if (presetToActivate != null) {
-                UUID previous = state.activePresetId;
                 state.activePresetId = presetToActivate;
-                if (!preserveGalleryOffset && !presetToActivate.equals(previous)) {
-                    resetGalleryScroll();
-                }
             } else {
                 clearActivePreset();
             }
@@ -2600,6 +2608,23 @@ public final class ClientRuntime implements AutoCloseable {
         state.galleryOffset = 0;
         state.galleryScrollPosition = 0.0;
         state.galleryScrollTarget = 0.0;
+    }
+
+    private void centerGalleryIfActiveChanged(UUID previousActivePresetId) {
+        if (!Objects.equals(previousActivePresetId, state.activePresetId)) {
+            centerGalleryOnActive();
+        }
+    }
+
+    private void centerGalleryOnActive() {
+        draggingGalleryScrollbar = false;
+        double centered = galleryPresenter.centeredScrollPosition(
+                Optional.ofNullable(state.account),
+                Optional.ofNullable(state.activePresetId),
+                state.galleryQuery);
+        state.galleryOffset = (int) Math.round(centered);
+        state.galleryScrollPosition = centered;
+        state.galleryScrollTarget = centered;
     }
 
     private ViewSpec galleryView(
@@ -3079,6 +3104,35 @@ public final class ClientRuntime implements AutoCloseable {
                     UiMessage.Severity.ERROR);
         }
         return UiMessage.error("nclskins.error.save");
+    }
+
+    private static String publicImportFailureKey(Throwable failure, boolean player) {
+        Throwable cause = unwrap(failure);
+        if (!(cause instanceof PublicSkinImportException importFailure)) {
+            return player
+                    ? "nclskins.add_source.player_failed"
+                    : "nclskins.add_source.url_failed";
+        }
+        if (player) {
+            return switch (importFailure.code()) {
+                case INVALID_IDENTIFIER -> "nclskins.add_source.player_invalid_identifier";
+                case PROFILE_NOT_FOUND -> "nclskins.add_source.player_not_found";
+                case RATE_LIMITED -> "nclskins.add_source.player_rate_limited";
+                case SERVICE_UNAVAILABLE, NETWORK_FAILURE -> "nclskins.add_source.player_service_unavailable";
+                case PROFILE_REJECTED -> "nclskins.add_source.player_rejected";
+                case OVERSIZED -> "nclskins.add_source.player_oversized";
+                default -> "nclskins.add_source.player_failed";
+            };
+        }
+        return switch (importFailure.code()) {
+            case UNSAFE_URL -> "nclskins.add_source.url_unsafe";
+            case REDIRECT_REJECTED -> "nclskins.add_source.url_redirect_rejected";
+            case RATE_LIMITED -> "nclskins.add_source.url_rate_limited";
+            case NETWORK_FAILURE, SERVICE_UNAVAILABLE -> "nclskins.add_source.url_network_failure";
+            case OVERSIZED -> "nclskins.add_source.url_oversized";
+            case INVALID_PNG -> "nclskins.add_source.url_invalid_file";
+            default -> "nclskins.add_source.url_failed";
+        };
     }
 
     private static Throwable unwrap(Throwable failure) {

@@ -2,30 +2,23 @@ screen=gallery size=427x640 title=key:nclskins.gallery.title:INFO
 panels
 0|header|0,0,427,33|VANILLA_HEADER
 1|footer|0,607,427,33|VANILLA_FOOTER
-2|gallery.card.add|17,198,190,254|VANILLA_LIST
-3|gallery.card.00000000-0000-0002-0000-000000000004|219,198,190,254|VANILLA_LIST
-4|gallery.card.00000000-0000-0002-0000-000000000003|421,198,190,254|VANILLA_LIST
+2|gallery.card.add|118,198,190,254|VANILLA_LIST
+3|gallery.card.00000000-0000-0002-0000-000000000004|320,198,190,254|VANILLA_LIST
 texts
-0|gallery.add.hint|17,335,190,10|key:nclskins.gallery.add_hint:INFO|CENTER
-1|gallery.preset.00000000-0000-0002-0000-000000000004.name|227,206,174,10|literal:Preset 4:INFO|CENTER
-2|gallery.preset.00000000-0000-0002-0000-000000000003.name|429,206,174,10|literal:Preset 3:INFO|CENTER
-3|gallery.title|124,12,179,10|key:nclskins.gallery.title:INFO|CENTER
+0|gallery.add.hint|118,335,190,10|key:nclskins.gallery.add_hint:INFO|CENTER
+1|gallery.preset.00000000-0000-0002-0000-000000000004.name|328,206,174,10|literal:Preset 4:INFO|CENTER
+2|gallery.title|124,12,179,10|key:nclskins.gallery.title:INFO|CENTER
 widgets
 0|gallery.search|TEXT_FIELD|123,36,180,20|key:nclskins.gallery.search:INFO|value=|hint=key:nclskins.gallery.search_hint:INFO|enabled=true|visible=true|max=128
-1|gallery.add|BUTTON|17,198,190,254|key:nclskins.gallery.add_hint:INFO|value=-|hint=-|enabled=true|visible=false|max=0
-2|gallery.preset.00000000-0000-0002-0000-000000000004.apply|BUTTON|221,430,120,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
-3|gallery.preset.00000000-0000-0002-0000-000000000004.edit|ICON_BUTTON|343,430,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
-4|gallery.preset.00000000-0000-0002-0000-000000000004.duplicate|ICON_BUTTON|365,430,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
-5|gallery.preset.00000000-0000-0002-0000-000000000004.delete|ICON_BUTTON|387,430,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
-6|gallery.preset.00000000-0000-0002-0000-000000000003.apply|BUTTON|423,430,120,20|key:nclskins.gallery.apply:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-7|gallery.done|BUTTON|113,612,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-8|gallery.retry_session|BUTTON|307,6,112,20|key:nclskins.session.retry:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+1|gallery.add|BUTTON|118,198,190,254|key:nclskins.gallery.add_hint:INFO|value=-|hint=-|enabled=true|visible=false|max=0
+2|gallery.preset.00000000-0000-0002-0000-000000000004.apply|BUTTON|322,430,120,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
+3|gallery.done|BUTTON|113,612,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+4|gallery.retry_session|BUTTON|307,6,112,20|key:nclskins.session.retry:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
-0|gallery.preset.00000000-0000-0002-0000-000000000004.preview|227,218,174,208|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-22.22|pitch=13.446401|scale=0.88|preset=00000000-0000-0002-0000-000000000004
-1|gallery.preset.00000000-0000-0002-0000-000000000003.preview|429,218,174,208|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=13.446401|scale=0.88|preset=00000000-0000-0002-0000-000000000003
-cape_textures
+0|gallery.preset.00000000-0000-0002-0000-000000000004.preview|328,218,174,208|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=13.446401|scale=0.88|preset=00000000-0000-0002-0000-000000000004
+back_equipment_previews
 icon_decorations
-0|gallery.add.icon|104,307,15,15|icon=plus|owner=gallery.add|idle=0.65|active=1.0
+0|gallery.add.icon|205,307,15,15|icon=plus|owner=gallery.add|idle=0.65|active=1.0
 clip_regions
 0|gallery.cards|0,58,427,535|prefixes=gallery.card.,gallery.add,gallery.preset.
-scrollbar=40,597,347,6|40,597,139,6|offset=0|maximum=3
+scrollbar=40,597,347,6|40,597,139,6|offset=0|maximum=4

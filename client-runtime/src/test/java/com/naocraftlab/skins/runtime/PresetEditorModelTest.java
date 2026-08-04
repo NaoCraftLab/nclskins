@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
@@ -181,7 +182,10 @@ final class PresetEditorModelTest {
                 PreviewRenderer.CapeMode.CAPE);
         ViewSpec view = model.present(320, 240);
 
-        assertEquals(new Bounds(150, 55, 154, 20), view.widget("editor.name").orElseThrow().bounds());
+        ViewSpec.Widget name = view.widget("editor.name").orElseThrow();
+        assertEquals(new Bounds(150, 55, 154, 20), name.bounds());
+        assertTrue(name.selectAllOnPrimaryClick());
+        assertEquals(Optional.empty(), name.submitActionId());
         assertEquals(new Bounds(150, 212, 75, 20), view.widget("editor.save").orElseThrow().bounds());
         assertEquals(new Bounds(229, 212, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
         assertEquals(new Bounds(0, 0, 150, 240), view.previews().get(0).bounds());
@@ -229,11 +233,11 @@ final class PresetEditorModelTest {
 
         ViewSpec enabled = model.present(854, 480, 0.0);
         assertCycleButton(enabled, "head", new Bounds(2, 208, 20, 20), "head_on",
-                "nclskins.editor.outer_head", "nclskins.editor.outer_state_on");
+                "nclskins.editor.outer_head_on");
         assertCycleButton(enabled, "body", new Bounds(2, 230, 20, 20), "body_all_on",
-                "nclskins.editor.outer_body_arms", "nclskins.editor.outer_state_on");
+                "nclskins.editor.outer_body_all_on");
         assertCycleButton(enabled, "legs", new Bounds(2, 252, 20, 20), "legs_all_on",
-                "nclskins.editor.outer_legs", "nclskins.editor.outer_state_on");
+                "nclskins.editor.outer_legs_all_on");
         assertEquals(3, enabled.widgets().stream()
                 .filter(widget -> widget.id().startsWith("editor.outer_layer."))
                 .count());
@@ -247,12 +251,11 @@ final class PresetEditorModelTest {
                 .cycleOuterLayer("legs", -1);
         ViewSpec changedView = changed.present(854, 480, 0.0);
         assertCycleButton(changedView, "head", new Bounds(2, 208, 20, 20), "head_off",
-                "nclskins.editor.outer_head", "nclskins.editor.outer_state_off");
+                "nclskins.editor.outer_head_off");
         assertCycleButton(changedView, "body", new Bounds(2, 230, 20, 20), "body_only_arms_on",
-                "nclskins.editor.outer_body_arms",
-                "nclskins.editor.outer_state_arms_without_body");
+                "nclskins.editor.outer_body_arms_without_body");
         assertCycleButton(changedView, "legs", new Bounds(2, 252, 20, 20), "legs_right_off",
-                "nclskins.editor.outer_legs", "nclskins.editor.outer_state_no_right_leg");
+                "nclskins.editor.outer_legs_no_right_leg");
     }
 
     @Test
@@ -293,7 +296,7 @@ final class PresetEditorModelTest {
     }
 
     @Test
-    void ownedCapesUseScrollableTextureCardsAndSelectionUpdatesPreviewMode() {
+    void ownedCapesUseScrollableModelCardsAndSelectionUpdatesEveryPreviewMode() {
         List<OwnedCapeEntry> capes = capes(5);
         PresetEditorModel model = PresetEditorModel.open(
                 TestFixtures.account(0),
@@ -311,7 +314,17 @@ final class PresetEditorModelTest {
                 widget.id().equals("editor.cape_previous") || widget.id().equals("editor.cape_next")));
         assertEquals(ViewSpec.WidgetKind.CAPE_CARD,
                 start.widget("editor.cape_choice.0").orElseThrow().kind());
-        assertFalse(start.capeTextures().isEmpty());
+        assertFalse(start.backEquipmentPreviews().isEmpty());
+        assertTrue(start.backEquipmentPreviews().stream()
+                .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.CAPE));
+        ViewSpec.IconDecoration noCape = start.iconDecorations().stream()
+                .filter(decoration -> decoration.icon().equals("no_cape"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("editor.cape_choice.0", noCape.ownerWidgetId());
+        Bounds noCapeCard = start.widget("editor.cape_choice.0").orElseThrow().bounds();
+        assertEquals(noCapeCard.y() + (noCapeCard.height() - noCape.bounds().height()) / 2,
+                noCape.bounds().y());
         assertEquals(2, distinctCapeCardColumns(start));
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL,
                 start.scrollbar().orElseThrow().orientation());
@@ -337,7 +350,8 @@ final class PresetEditorModelTest {
         assertEquals(
                 model.maximumCapeScroll(320, 240),
                 end.scrollSurface("editor.capes").orElseThrow().offsetPixels());
-        assertTrue(end.capeTextures().stream().anyMatch(texture -> texture.capeId().equals("cape-4")));
+        assertTrue(end.backEquipmentPreviews().stream()
+                .anyMatch(preview -> preview.capeId().equals("cape-4")));
 
         ViewSpec partial = model.present(320, 240, 1.0);
         Bounds capeViewport = partial.clipRegions().stream()
@@ -353,6 +367,8 @@ final class PresetEditorModelTest {
         ViewSpec.Preview preview = selected.present(320, 240).previews().get(0);
         assertEquals(Optional.of("cape-1"), preview.capeId());
         assertEquals(PreviewRenderer.CapeMode.ELYTRA, preview.capeMode());
+        assertTrue(selected.present(320, 240).backEquipmentPreviews().stream()
+                .allMatch(equipment -> equipment.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA));
     }
 
     @Test
@@ -371,11 +387,15 @@ final class PresetEditorModelTest {
                 240,
                 PreviewRenderer.CapeMode.OFF);
 
-        ViewSpec.Widget info = model.present(320, 240).widget("editor.catalog_info").orElseThrow();
+        ViewSpec view = model.present(320, 240);
+        ViewSpec.Widget info = view.widget("editor.catalog_info").orElseThrow();
         assertEquals(ViewSpec.WidgetKind.INFO_BUTTON, info.kind());
         assertEquals(14, info.bounds().height());
         assertTrue(info.icon().isEmpty());
         assertTrue(info.hint().isPresent());
+        assertFalse(view.widget("editor.model").orElseThrow().enabled());
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("editor.model.fixed")));
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("editor.preview_hint")));
     }
 
     @Test
@@ -403,14 +423,12 @@ final class PresetEditorModelTest {
             String id,
             Bounds bounds,
             String icon,
-            String labelKey,
             String stateKey) {
         ViewSpec.Widget widget = view.widget("editor.outer_layer." + id).orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, widget.kind());
         assertEquals(bounds, widget.bounds());
         assertEquals(Optional.of(icon), widget.icon());
-        UiMessage accessibleLabel = UiMessage.info(
-                "nclskins.editor.outer_toggle", UiMessage.info(labelKey), UiMessage.info(stateKey));
+        UiMessage accessibleLabel = UiMessage.info(stateKey);
         assertEquals(accessibleLabel, widget.label());
         assertEquals(Optional.of(accessibleLabel), widget.hint());
     }
