@@ -259,6 +259,43 @@ final class PresetEditorModelTest {
     }
 
     @Test
+    void selectedCapeKeepsPreviewModeWhenOwnershipCannotBeRefreshed() {
+        AccountState originalAccount = TestFixtures.account(1);
+        AppearancePreset original = originalAccount.presets().get(0);
+        AppearancePreset staleCape = new AppearancePreset(
+                original.id(),
+                original.name(),
+                original.skin(),
+                "stale-cape",
+                original.outerLayerVisibility(),
+                original.createdAt(),
+                original.updatedAt());
+        AccountState account = new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
+                originalAccount.accountId(),
+                originalAccount.skinAssets(),
+                originalAccount.personalSkins(),
+                List.of(staleCape),
+                originalAccount.updatedAt());
+
+        PresetEditorModel model = PresetEditorModel.open(
+                account,
+                Optional.of(staleCape),
+                Optional.empty(),
+                Optional.of(staleCape.id()),
+                ENGLISH,
+                480,
+                PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC,
+                List.of());
+
+        assertEquals(Optional.of("stale-cape"), model.capeId());
+        assertEquals(2, model.capeChoices().size());
+        assertTrue(model.present(854, 480).widget("editor.preview_mode").isPresent());
+        assertEquals(PreviewRenderer.CapeMode.ELYTRA, model.cyclePreviewMode().preview().capeMode());
+    }
+
+    @Test
     void previewCycleButtonsStayInsideTheVisiblePreviewAtMinimumSize() {
         List<OwnedCapeEntry> capes = capes(5);
         PresetEditorModel model = PresetEditorModel.open(
@@ -317,6 +354,19 @@ final class PresetEditorModelTest {
         assertFalse(start.backEquipmentPreviews().isEmpty());
         assertTrue(start.backEquipmentPreviews().stream()
                 .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.CAPE));
+        ViewSpec.Widget noCapePreviewMode = start.widget("editor.preview_mode").orElseThrow();
+        assertEquals(Optional.of("cape"), noCapePreviewMode.icon());
+        assertEquals(UiMessage.info("nclskins.editor.preview_cape"), noCapePreviewMode.label());
+
+        PresetEditorModel noCapeElytra = model.cyclePreviewMode();
+        ViewSpec noCapeElytraView = noCapeElytra.present(320, 240, 0.0);
+        assertTrue(noCapeElytraView.previews().get(0).capeId().isEmpty());
+        assertEquals(PreviewRenderer.CapeMode.OFF,
+                noCapeElytraView.previews().get(0).capeMode());
+        assertEquals(Optional.of("elytra"),
+                noCapeElytraView.widget("editor.preview_mode").orElseThrow().icon());
+        assertTrue(noCapeElytraView.backEquipmentPreviews().stream()
+                .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA));
         ViewSpec.IconDecoration noCape = start.iconDecorations().stream()
                 .filter(decoration -> decoration.icon().equals("no_cape"))
                 .findFirst()

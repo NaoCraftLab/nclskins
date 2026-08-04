@@ -49,6 +49,7 @@ import org.joml.Vector3f;
 public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final AtomicInteger NEXT_PREVIEW_ENTITY_ID = new AtomicInteger(-1);
     private static final PlayerTeam PREVIEW_TEAM = previewTeam();
+    private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
     private static final float ENTITY_Y_OFFSET = 0.0625F;
@@ -345,7 +346,9 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             pose.pushPose();
             try {
                 VanillaBackEquipmentTransform.applyCapeAttachment(
-                        pose, BACK_EQUIPMENT_OPERATIONS);
+                        pose,
+                        WORLDLESS_CAPE_ATTACHMENT_Z,
+                        BACK_EQUIPMENT_OPERATIONS);
                 player.renderCloak(
                         pose,
                         buffers.getBuffer(RenderType.entitySolid(texture)),

@@ -47,6 +47,7 @@ import org.joml.Quaternionf;
 public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final AtomicInteger NEXT_PREVIEW_ID = new AtomicInteger(-1);
     private static final int FULL_BRIGHT = 0x00F000F0;
+    private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
     private static final EquipmentSlot[] PREVIEW_EQUIPMENT = {
         EquipmentSlot.MAINHAND,
@@ -338,7 +339,9 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
             pose.pushPose();
             try {
                 VanillaBackEquipmentTransform.applyCapeAttachment(
-                        pose, BACK_EQUIPMENT_OPERATIONS);
+                        pose,
+                        WORLDLESS_CAPE_ATTACHMENT_Z,
+                        BACK_EQUIPMENT_OPERATIONS);
                 cloak.resetPose();
                 cloak.visible = true;
                 cloak.render(

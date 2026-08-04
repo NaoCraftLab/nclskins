@@ -50,6 +50,26 @@ final class VanillaBackEquipmentTransformTest {
     }
 
     @Test
+    void capeAttachmentCanClearInflatedWorldlessPlayerLayersWithoutChangingRotations() {
+        RecordingOperations operations = new RecordingOperations();
+
+        VanillaBackEquipmentTransform.applyCapeAttachment(
+                new Object(), 0.15625F, operations);
+
+        assertEquals(List.of("translate", "rotateX", "rotateY"), operations.names);
+        assertArrayEquals(
+                new float[]{0.0F, 0.0F, 0.15625F}, operations.values.get(0), EPSILON);
+        assertArrayEquals(
+                new float[]{(float) Math.toRadians(6.0)}, operations.values.get(1), EPSILON);
+        assertArrayEquals(
+                new float[]{(float) Math.PI}, operations.values.get(2), EPSILON);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> VanillaBackEquipmentTransform.applyCapeAttachment(
+                        new Object(), 0.0F, operations));
+    }
+
+    @Test
     void elytraAttachmentMatchesVanillaElytraLayerTranslation() {
         RecordingOperations operations = new RecordingOperations();
 

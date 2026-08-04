@@ -40,6 +40,7 @@ public final class PresetEditorModel {
     private final SkinVariant variant;
     private final Optional<String> capeId;
     private final List<CapeChoice> capeChoices;
+    private final boolean hasOwnedCapePreview;
     private final Optional<DraftPng> png;
     private final Optional<CatalogOrigin> catalogOrigin;
     private final Map<SkinVariant, DraftPng> catalogVariants;
@@ -56,6 +57,7 @@ public final class PresetEditorModel {
             SkinVariant variant,
             Optional<String> capeId,
             List<CapeChoice> capeChoices,
+            boolean hasOwnedCapePreview,
             Optional<DraftPng> png,
             Optional<CatalogOrigin> catalogOrigin,
             Map<SkinVariant, DraftPng> catalogVariants,
@@ -70,6 +72,7 @@ public final class PresetEditorModel {
         this.variant = Objects.requireNonNull(variant, "variant");
         this.capeId = Objects.requireNonNull(capeId, "capeId");
         this.capeChoices = List.copyOf(Objects.requireNonNull(capeChoices, "capeChoices"));
+        this.hasOwnedCapePreview = hasOwnedCapePreview;
         this.png = Objects.requireNonNull(png, "png");
         this.catalogOrigin = Objects.requireNonNull(catalogOrigin, "catalogOrigin");
         this.catalogVariants = Map.copyOf(Objects.requireNonNull(catalogVariants, "catalogVariants"));
@@ -171,6 +174,7 @@ public final class PresetEditorModel {
                 initialVariant,
                 initialCape,
                 choices,
+                hasOwnedCapePreview(profile, cachedCapes),
                 Optional.empty(),
                 Optional.empty(),
                 Map.of(),
@@ -214,6 +218,7 @@ public final class PresetEditorModel {
                 sourceSnapshot.variant,
                 sourceSnapshot.capeId,
                 sourceSnapshot.capeChoices,
+                sourceSnapshot.hasOwnedCapePreview,
                 sourceSnapshot.png,
                 sourceSnapshot.catalogOrigin,
                 sourceSnapshot.catalogVariants,
@@ -266,6 +271,7 @@ public final class PresetEditorModel {
                 initialVariant,
                 Optional.empty(),
                 capeChoices(profile, cachedCapes, Optional.empty()),
+                hasOwnedCapePreview(profile, cachedCapes),
                 Optional.of(selected),
                 Optional.of(origin),
                 drafts,
@@ -325,6 +331,7 @@ public final class PresetEditorModel {
                 initialVariant,
                 Optional.empty(),
                 capeChoices(profile, cachedCapes, Optional.empty()),
+                hasOwnedCapePreview(profile, cachedCapes),
                 Optional.of(selected),
                 Optional.empty(),
                 drafts,
@@ -445,7 +452,7 @@ public final class PresetEditorModel {
                 png,
                 false,
                 status,
-                preview.cycleCapeMode(capeId.isPresent()));
+                preview.cycleCapeMode(hasCapePreview()));
     }
 
     public PresetEditorModel cycleOuterLayer(String control, int direction) {
@@ -510,6 +517,7 @@ public final class PresetEditorModel {
                 variant,
                 capeId,
                 capeChoices,
+                hasOwnedCapePreview,
                 Optional.of(draft),
                 Optional.empty(),
                 Map.of(),
@@ -769,7 +777,7 @@ public final class PresetEditorModel {
         int gap = 2;
         int inset = gap;
         int x = previewBounds.x() + inset;
-        if (capeId.isPresent()) {
+        if (hasCapePreview()) {
             widgets.add(ViewSpec.Widget.iconButton(
                     "editor.preview_mode",
                     new Bounds(x, 33 + inset, size, size),
@@ -980,12 +988,13 @@ public final class PresetEditorModel {
     }
 
     private UiMessage previewModeLabel() {
-        if (capeId.isEmpty()) {
-            return UiMessage.info("nclskins.editor.no_cape");
-        }
         return UiMessage.info(preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA
                 ? "nclskins.editor.preview_elytra"
                 : "nclskins.editor.preview_cape");
+    }
+
+    private boolean hasCapePreview() {
+        return capeId.isPresent() || hasOwnedCapePreview;
     }
 
     private BackEquipmentPreviewRenderer.Mode backEquipmentMode() {
@@ -1011,6 +1020,7 @@ public final class PresetEditorModel {
                 nextVariant,
                 nextCapeId,
                 capeChoices,
+                hasOwnedCapePreview,
                 nextPng,
                 catalogOrigin,
                 catalogVariants,
@@ -1060,6 +1070,14 @@ public final class PresetEditorModel {
                     Optional.of(id), UiMessage.info("nclskins.editor.cape", shortId(id))));
         }
         return List.copyOf(choices);
+    }
+
+    private static boolean hasOwnedCapePreview(
+            Optional<RemoteProfile> profile,
+            List<OwnedCapeEntry> cachedCapes) {
+        return profile
+                .map(remote -> !remote.capes().isEmpty())
+                .orElseGet(() -> !cachedCapes.isEmpty());
     }
 
     private static String shortId(String value) {
