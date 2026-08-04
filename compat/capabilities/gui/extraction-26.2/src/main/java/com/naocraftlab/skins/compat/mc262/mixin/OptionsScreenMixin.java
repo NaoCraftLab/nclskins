@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.compat.mc262.mixin;
 
 import com.naocraftlab.skins.compat.mc262.NclSkinsScreen;
+import com.naocraftlab.skins.compat.mc262.Minecraft26Api;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.layouts.LayoutElement;
@@ -24,7 +25,8 @@ abstract class OptionsScreenMixin {
         Screen parent = (Screen) (Object) this;
         return Button.builder(
                         ((Button) vanillaButton).getMessage(),
-                        ignored -> Minecraft.getInstance().gui.setScreen(new NclSkinsScreen(parent)))
+                        ignored -> Minecraft26Api.setScreen(
+                                Minecraft.getInstance(), new NclSkinsScreen(parent)))
                 .build();
     }
 }

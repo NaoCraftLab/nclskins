@@ -22,13 +22,33 @@ abstract class PictureInPictureRendererMixin {
     @Unique
     private boolean nclskins$wideDepth;
 
-    @Inject(method = "prepare", at = @At("HEAD"))
-    private void nclskins$captureDepthMode(
+    @Inject(
+            method = "prepare(Lnet/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;I)V",
+            at = @At("HEAD"),
+            require = 0)
+    private void nclskins$captureDepthMode261(
+            PictureInPictureRenderState state,
+            GuiRenderState guiRenderState,
+            int guiScale,
+            CallbackInfo callbackInfo) {
+        nclskins$captureDepthMode(state);
+    }
+
+    @Inject(
+            method = "prepare(Lnet/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;I)V",
+            at = @At("HEAD"),
+            require = 0)
+    private void nclskins$captureDepthMode262(
             PictureInPictureRenderState state,
             GuiRenderState guiRenderState,
             FeatureRenderDispatcher featureRenderDispatcher,
             int guiScale,
             CallbackInfo callbackInfo) {
+        nclskins$captureDepthMode(state);
+    }
+
+    @Unique
+    private void nclskins$captureDepthMode(PictureInPictureRenderState state) {
         nclskins$wideDepth = state instanceof GuiEntityRenderState entityState
                 && entityState.renderState() instanceof NclSkinsWideDepthState depthState
                 && depthState.nclskins$usesWideDepth();

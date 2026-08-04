@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "mod": {
     "id": "nclskins",
     "name": "NCL Skins",
@@ -345,6 +345,10 @@
     "remote-player-1.20": {"bundle": "remote-player-1.20", "abiImplementation": "remote-player-1.20"},
     "player-skin-1.21": {"bundle": "player-skin-1.21", "abiImplementation": "player-skin-1.21"},
     "avatar-pip-26.2": {"bundle": "avatar-pip-26.2", "abiImplementation": "avatar-pip-26.2"},
+    "avatar-pip-26.1": {
+      "bundle": "avatar-pip-26.2",
+      "abiImplementation": "avatar-pip-26.1"
+    },
     "player-info-cache-1.20": {"bundle": "player-info-cache-1.20", "abiImplementation": "player-info-cache-1.20"},
     "skin-lookup-1.21": {"bundle": "skin-lookup-1.21", "abiImplementation": "skin-lookup-1.21"},
     "local-player-skin-26.2": {"bundle": "local-player-skin-26.2", "abiImplementation": "local-player-skin-26.2"},
@@ -366,9 +370,17 @@
     "profile-verification-authlib-v4": {"bundle": "profile-verification-authlib-v4-v6", "abiImplementation": "profile-verification-authlib-v4"},
     "profile-verification-authlib-v6": {"bundle": "profile-verification-authlib-v4-v6", "abiImplementation": "profile-verification-authlib-v6"},
     "profile-verification-authlib-v9": {"bundle": "profile-verification-authlib-v9", "abiImplementation": "profile-verification-authlib-v9"},
+    "profile-verification-authlib-v7": {
+      "bundle": "profile-verification-authlib-v9",
+      "abiImplementation": "profile-verification-authlib-v7"
+    },
     "profile-mutation-authlib-v4": {"bundle": "profile-mutation-authlib-v4", "abiImplementation": "profile-mutation-authlib-v4"},
     "profile-mutation-authlib-v6": {"bundle": "profile-mutation-authlib-v6", "abiImplementation": "profile-mutation-authlib-v6"},
     "profile-mutation-authlib-v9": {"bundle": "profile-mutation-authlib-v9", "abiImplementation": "profile-mutation-authlib-v9"},
+    "profile-mutation-authlib-v7": {
+      "bundle": "profile-mutation-authlib-v9",
+      "abiImplementation": "profile-mutation-authlib-v7"
+    },
     "tracking-chunkmap-serverlevel-v1": {"bundle": "tracking-chunkmap-serverlevel-v1", "abiImplementation": "tracking-chunkmap-serverlevel-v1"},
     "tracking-chunkmap-level-v2": {"bundle": "tracking-chunkmap-level-v2", "abiImplementation": "tracking-chunkmap-level-v2"},
     "player-info-initialize-v1": {"bundle": "player-info-initialize-v1", "abiImplementation": "player-info-initialize-v1"},
@@ -627,6 +639,174 @@
       }
     },
     {
+      "id": "fabric-26.1",
+      "path": "targets/fabric/26.1",
+      "minecraft": {
+        "version": "26.1",
+        "predicate": ">=26.1",
+        "epoch": "26.1"
+      },
+      "loader": {
+        "id": "fabric",
+        "version": "0.19.2",
+        "predicate": ">=0.19.2",
+        "apiVersion": "0.145.1+26.1",
+        "apiPredicate": ">=0.145.1+26.1",
+        "modMenuVersion": "18.0.0"
+      },
+      "java": {
+        "release": 25,
+        "classfileMajor": 69,
+        "buildJdk": 25
+      },
+      "development": {
+        "serverPort": 25569
+      },
+      "gradleFamily": "modern",
+      "sourceLayout": "single",
+      "capabilities": {
+        "gui": "extraction-26.2",
+        "textures": "identifier-26.2",
+        "preview": "avatar-pip-26.1",
+        "appearance": "local-player-skin-26.2",
+        "loaderScreen": "fabric-extraction",
+        "session": "minecraft-user-v1",
+        "clientExecutor": "minecraft-client-executor-v1",
+        "filePicker": "tinyfd-safe-v1",
+        "bundledSkin": "vanilla-pack-bundled-26.2",
+        "currentAppearance": "player-skin-current-26.2",
+        "serverSignal": "command-v1",
+        "serverCommand": "server-command-v1",
+        "serverProfileVerification": "profile-verification-authlib-v7",
+        "serverProfileMutation": "profile-mutation-authlib-v7",
+        "serverTracking": "tracking-chunkmap-level-v2",
+        "serverPlayerInfoPublication": "player-info-initialize-v1",
+        "serverLoader": "fabric-server-v1"
+      },
+      "metadata": {
+        "files": [
+          "fabric.mod.json",
+          "resourcepacks/mojang_collections/pack.mcmeta"
+        ],
+        "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
+        "accessWidener": "nclskins.accesswidener",
+        "packFormat": [
+          84,
+          0
+        ],
+        "mixins": [
+          "nclskins.mc262.mixins.json"
+        ],
+        "serverMixins": [
+          "nclskins.authlib9.mixins.json"
+        ]
+      },
+      "artifact": {
+        "file": "nclskins-{modVersion}+26.1-fabric.jar",
+        "remapJar": false,
+        "mavenArtifactId": "nclskins-fabric-26.1",
+        "automaticModuleName": "com.naocraftlab.skins.fabric.mc261"
+      },
+      "compatibility": {
+        "minecraftVersions": [
+          "26.1",
+          "26.1.1",
+          "26.1.2"
+        ],
+        "loaderVersions": {
+          "26.1": "0.19.2",
+          "26.1.1": "0.19.2",
+          "26.1.2": "0.19.2"
+        }
+      }
+    },
+    {
+      "id": "neoforge-26.1",
+      "path": "targets/neoforge/26.1",
+      "minecraft": {
+        "version": "26.1",
+        "predicate": "[26.1,)",
+        "epoch": "26.1"
+      },
+      "loader": {
+        "id": "neoforge",
+        "version": "26.1.0.19-beta",
+        "predicate": "[26.1.0.19-beta,)",
+        "apiVersion": null,
+        "apiPredicate": null,
+        "modMenuVersion": null
+      },
+      "java": {
+        "release": 25,
+        "classfileMajor": 69,
+        "buildJdk": 25
+      },
+      "development": {
+        "serverPort": 25570
+      },
+      "gradleFamily": "modern",
+      "sourceLayout": "single",
+      "capabilities": {
+        "gui": "extraction-26.2",
+        "textures": "identifier-26.2",
+        "preview": "avatar-pip-26.1",
+        "appearance": "local-player-skin-26.2",
+        "loaderScreen": "neoforge-extraction",
+        "session": "minecraft-user-v1",
+        "clientExecutor": "minecraft-client-executor-v1",
+        "filePicker": "tinyfd-safe-v1",
+        "bundledSkin": "vanilla-pack-bundled-26.2",
+        "currentAppearance": "player-skin-current-26.2",
+        "serverSignal": "command-v1",
+        "serverCommand": "server-command-v1",
+        "serverProfileVerification": "profile-verification-authlib-v7",
+        "serverProfileMutation": "profile-mutation-authlib-v7",
+        "serverTracking": "tracking-chunkmap-level-v2",
+        "serverPlayerInfoPublication": "player-info-initialize-v1",
+        "serverLoader": "neoforge-server-v1"
+      },
+      "metadata": {
+        "files": [
+          "META-INF/neoforge.mods.toml",
+          "resourcepacks/mojang_collections/pack.mcmeta"
+        ],
+        "modLoader": "javafml",
+        "loaderVersion": "[11,)",
+        "entrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeMod.class",
+        "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
+        "accessTransformer": "META-INF/accesstransformer.cfg",
+        "packFormat": [
+          84,
+          0
+        ],
+        "mixins": [
+          "nclskins.mc262.mixins.json"
+        ],
+        "serverMixins": [
+          "nclskins.authlib9.mixins.json"
+        ]
+      },
+      "artifact": {
+        "file": "nclskins-{modVersion}+26.1-neoforge.jar",
+        "remapJar": false,
+        "mavenArtifactId": "nclskins-neoforge-26.1",
+        "automaticModuleName": "com.naocraftlab.skins.neoforge.mc261"
+      },
+      "compatibility": {
+        "minecraftVersions": [
+          "26.1",
+          "26.1.1",
+          "26.1.2"
+        ],
+        "loaderVersions": {
+          "26.1": "26.1.0.19-beta",
+          "26.1.1": "26.1.1.15-beta",
+          "26.1.2": "26.1.2.94"
+        }
+      }
+    },
+    {
       "id": "fabric-26.2",
       "path": "targets/fabric/26.2",
       "minecraft": {
@@ -648,7 +828,7 @@
         "buildJdk": 25
       },
       "development": {
-        "serverPort": 25569
+        "serverPort": 25571
       },
       "gradleFamily": "modern",
       "sourceLayout": "single",
@@ -709,7 +889,7 @@
         "buildJdk": 25
       },
       "development": {
-        "serverPort": 25570
+        "serverPort": 25572
       },
       "gradleFamily": "modern",
       "sourceLayout": "single",

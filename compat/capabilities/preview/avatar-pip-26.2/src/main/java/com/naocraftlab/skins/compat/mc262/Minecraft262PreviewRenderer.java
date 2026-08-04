@@ -25,7 +25,6 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.PlayerModelPart;
@@ -175,7 +174,7 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
 
     private static int nextPreviewEntityId() {
         int candidate = NEXT_PREVIEW_ENTITY_ID.getAndDecrement();
-        if (candidate == Entity.INVALID_ENTITY_ID) {
+        if (candidate == 0) {
             candidate = NEXT_PREVIEW_ENTITY_ID.getAndDecrement();
         }
         return candidate;
@@ -191,7 +190,7 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
 
     private static AvatarRenderState fallbackRenderState() {
         AvatarRenderState state = new AvatarRenderState();
-        state.entityType = EntityTypes.MANNEQUIN;
+        state.entityType = Minecraft26Api.mannequin();
         state.boundingBoxWidth = 0.6F;
         state.boundingBoxHeight = 1.8F;
         state.eyeHeight = 1.62F;

@@ -2,17 +2,9 @@ plugins {
     id 'com.naocraftlab.skins.build-tools'
 }
 
-import com.naocraftlab.skins.buildlogic.AffectedTargetBuildTask
-import com.naocraftlab.skins.buildlogic.AffectedTargetsTask
-import com.naocraftlab.skins.buildlogic.GenerateIdeaRunConfigurationsTask
-import com.naocraftlab.skins.buildlogic.IdeaRunConfigurations
-import com.naocraftlab.skins.buildlogic.TargetBuildTask
-import com.naocraftlab.skins.buildlogic.TargetRunLock
-import com.naocraftlab.skins.buildlogic.TargetRunTask
-import com.naocraftlab.skins.buildlogic.VerifyArtifactsTask
-import com.naocraftlab.skins.buildlogic.VerifyCatalogTask
-import com.naocraftlab.skins.buildlogic.VerifySemanticsTask
-import com.naocraftlab.skins.buildlogic.VerifyPublicationTreeTask
+
+import com.naocraftlab.skins.buildlogic.*
+
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -28,6 +20,7 @@ extensions.extraProperties.set('nclskinsTargetCatalog', targetCatalog)
 def requestedNewVersion = providers.gradleProperty('newVersion').orNull
 def targetIds = targetCatalog.targets.collect { it.id.toString() }
 def requestedTargetId = providers.gradleProperty('targetId').orNull
+def requestedMinecraftVersion = providers.gradleProperty('mcVersion').orNull
 def requestedFromRef = providers.gradleProperty('fromRef').orNull
 def requestedToRef = providers.gradleProperty('toRef').orNull
 def workerText = providers.environmentVariable('NCLSKINS_BUILD_JOBS').getOrElse('3')
@@ -167,6 +160,7 @@ def configureTargetBuild = { TargetBuildTask task, List<String> ids, List<String
     task.maximumWorkers.set(buildWorkers)
     task.verifyArtifacts.set(verify)
     task.collectArtifacts.set(collect)
+    task.verifyCompatibility.set(false)
 }
 
 tasks.register('buildTarget', TargetBuildTask) {
@@ -203,6 +197,55 @@ tasks.register('verifyTargetArtifacts', VerifyArtifactsTask) {
     if (requestedTargetId != null) targetId.set(requestedTargetId)
 }
 
+def compatibilityTargetIds = targetCatalog.targets
+        .findAll { it.compatibility instanceof Map }
+        .collect { it.id.toString() }
+
+def buildCompatibilityTarget = tasks.register('buildCompatibilityTarget', TargetBuildTask) {
+    group = 'verification'
+    description = 'Builds the compile-baseline production JAR for a compatibility-family target.'
+    doFirst {
+        if (requestedTargetId == null || !compatibilityTargetIds.contains(requestedTargetId)) {
+            throw new GradleException(
+                    "Use -PtargetId=<compatibility target>; available=${compatibilityTargetIds.sort()}")
+        }
+    }
+    configureTargetBuild(
+            delegate,
+            requestedTargetId == null ? [] : [requestedTargetId],
+            ['clean', 'build'],
+            true,
+            false)
+}
+
+tasks.register('verifyRuntimeCompatibility', CompatibilityVerifyTask) {
+    group = 'verification'
+    description = 'Resolves every declared patch runtime against one unchanged production JAR.'
+    dependsOn buildCompatibilityTarget
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    targetId.set(requestedTargetId ?: '')
+}
+
+['Client', 'Server'].each { String runKind ->
+    tasks.register("runCompatibility${runKind}", CompatibilityRunTask) {
+        group = 'application'
+        description = "Runs one production JAR in an isolated declared compatibility ${runKind.toLowerCase()}."
+        dependsOn buildCompatibilityTarget
+        doFirst {
+            if (requestedMinecraftVersion == null) {
+                throw new GradleException('Use -PmcVersion=<declared compatibility Minecraft version>')
+            }
+        }
+        repositoryDirectory.set(layout.projectDirectory)
+        delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+        targetId.set(requestedTargetId ?: '')
+        minecraftVersion.set(requestedMinecraftVersion ?: '')
+        delegate.runKind.set(runKind)
+        usesService(targetRunLock)
+    }
+}
+
 def checkAll = tasks.register('checkAll') {
     group = 'verification'
     description = 'Runs the platform-independent verification suite.'
@@ -218,4 +261,5 @@ tasks.register('fullCheck', TargetBuildTask) {
     description = 'Runs common checks, every target build, artifact verification, and repository secret checks.'
     dependsOn checkAll
     configureTargetBuild(delegate, targetIds, ['clean', 'build'], true, false)
+    verifyCompatibility.set(true)
 }

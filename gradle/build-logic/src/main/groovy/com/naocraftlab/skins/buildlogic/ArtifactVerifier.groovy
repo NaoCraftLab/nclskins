@@ -63,6 +63,46 @@ final class ArtifactVerifier {
         }
     }
 
+    static void verifyCompatibilityReport(
+            File root, Map target, String version, List<String> errors) {
+        if (!(target.compatibility instanceof Map)) return
+        File reportFile = new File(root, "build/compatibility-runs/${target.id}/verification.json")
+        if (!reportFile.isFile()) {
+            errors.add("${target.id}: missing runtime compatibility verification report")
+            return
+        }
+        Map report
+        try {
+            report = CatalogTools.loadJson(reportFile)
+        } catch (Exception error) {
+            errors.add("${target.id}: invalid runtime compatibility report: ${error.message}")
+            return
+        }
+        String name = target.artifact.file.toString().replace('{modVersion}', version)
+        File artifact = new File(root, "${target.path}/build/libs/${name}")
+        String digest = sha256(artifact)
+        List expectedRuntimes = (target.compatibility.minecraftVersions as List).collect { Object mc ->
+            [minecraftVersion: mc, loaderVersion: target.compatibility.loaderVersions[mc]]
+        }
+        if (report.target != target.id || report.artifact != artifact.canonicalPath ||
+                report.sha256 != digest || report.runtimes != expectedRuntimes) {
+            errors.add("${target.id}: runtime compatibility report differs from the current production JAR or catalog")
+        }
+    }
+
+    private static String sha256(File file) {
+        if (!file.isFile()) return ''
+        MessageDigest digest = MessageDigest.getInstance('SHA-256')
+        file.withInputStream { input ->
+            byte[] buffer = new byte[8192]
+            int count
+            while ((count = input.read(buffer)) >= 0) {
+                if (count > 0) digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+    }
+
     static void verifyClassfiles(ZipFile archive, Map target, List<String> names, List<String> errors) {
         List<String> classes = names.findAll { it.endsWith('.class') }
         if (classes.isEmpty()) { errors.add("${target.id}: artifact contains no classfiles"); return }

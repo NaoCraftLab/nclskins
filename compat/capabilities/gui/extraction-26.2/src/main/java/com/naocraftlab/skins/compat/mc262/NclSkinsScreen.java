@@ -39,9 +39,9 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.tabs.GridLayoutTab;
-import net.minecraft.client.gui.components.tabs.MenuTabBar;
 import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.components.tabs.TabManager;
+import net.minecraft.client.gui.components.tabs.TabNavigationBar;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.InputWithModifiers;
@@ -192,11 +192,11 @@ public final class NclSkinsScreen extends Screen {
         if (runtime.closed()
                 || !activeScreen
                 || minecraft == null
-                || minecraft.gui.screen() != this) {
+                || Minecraft26Api.currentScreen(minecraft) != this) {
             return;
         }
         if (snapshot.lifecycle() == ClientSnapshot.Lifecycle.CLOSED) {
-            minecraft.gui.setScreen(parent);
+            Minecraft26Api.setScreen(minecraft, parent);
             return;
         }
         ViewSpec next = runtime.view(width, height, lastMouseX, lastMouseY);
@@ -349,20 +349,18 @@ public final class NclSkinsScreen extends Screen {
                         }
                     },
                     ignored -> {});
-            MenuTabBar.Builder builder = MenuTabBar.builder(manager, group.bounds().width());
             int selectedIndex = -1;
             for (int index = 0; index < group.tabs().size(); index++) {
                 ViewSpec.Tab spec = group.tabs().get(index);
                 Tab tab = new GridLayoutTab(Minecraft262Components.resolve(spec.label()));
                 idsByTab.put(tab, spec.id());
                 tabs.add(tab);
-                builder.addTab(tab);
                 if (spec.selected()) {
                     selectedIndex = index;
                 }
             }
-            MenuTabBar bar = builder.build();
-            bar.arrangeElements(group.bounds().width());
+            TabNavigationBar bar = Minecraft26Api.buildTabBar(manager, group.bounds().width(), tabs);
+            Minecraft26Api.arrange(bar, group.bounds().width());
             for (int index = 0; index < group.tabs().size(); index++) {
                 bar.setTabActiveState(index, group.tabs().get(index).enabled());
             }
@@ -440,7 +438,7 @@ public final class NclSkinsScreen extends Screen {
         }
         syncingTabSelection = true;
         try {
-            group.manager().setCurrentTab(group.tabs().get(selectedIndex), false, false);
+            Minecraft26Api.select(group.manager(), group.tabs().get(selectedIndex));
         } finally {
             syncingTabSelection = false;
         }
@@ -1179,7 +1177,7 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private record NativeTabGroup(TabManager manager, MenuTabBar bar, List<Tab> tabs) {}
+    private record NativeTabGroup(TabManager manager, TabNavigationBar bar, List<Tab> tabs) {}
 
     private record MaskedNativeWidget(String id, AbstractWidget widget, boolean active) {}
 

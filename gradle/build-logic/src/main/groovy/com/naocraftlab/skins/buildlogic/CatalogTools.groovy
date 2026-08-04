@@ -18,10 +18,11 @@ final class CatalogTools {
         'serverProfileMutation', 'serverTracking', 'serverPlayerInfoPublication',
         'serverLoader'
     ] as Set
-    static final Set<String> TARGET_KEYS = [
+    static final Set<String> REQUIRED_TARGET_KEYS = [
         'id', 'path', 'minecraft', 'loader', 'java', 'development', 'gradleFamily',
         'sourceLayout', 'capabilities', 'metadata', 'artifact'
     ] as Set
+    static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility'] as Set
     static final Set<String> MOD_KEYS = [
             'id', 'name', 'group', 'license', 'descriptions', 'contact', 'platforms',
             'authors', 'icon', 'iconBlur'
@@ -210,7 +211,7 @@ final class CatalogTools {
             'schemaVersion', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
             'baseBundles', 'sourceBundles', 'capabilityImplementations', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 4) {
+        if (catalog.schemaVersion != 5) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -387,7 +388,8 @@ final class CatalogTools {
                 return
             }
             Map target = raw as Map
-            if ((target.keySet() as Set) != TARGET_KEYS) {
+            Set targetKeys = target.keySet() as Set
+            if (!targetKeys.containsAll(REQUIRED_TARGET_KEYS) || !TARGET_KEYS.containsAll(targetKeys)) {
                 errors.add("${target.id}: target keys differ from schema")
             }
             String loader = target.loader instanceof Map ? target.loader.id?.toString() : null
@@ -415,6 +417,7 @@ final class CatalogTools {
                 if (loaderDeclaration.predicate != "[${loaderDeclaration.version},)") errors.add("${target.id}: loader predicate must contain only the build-version lower bound")
                 if (minecraftDeclaration.predicate != "[${minecraftDeclaration.version},)") errors.add("${target.id}: Minecraft predicate must contain only the target lower bound")
             }
+            validateCompatibility(target, loader, minecraft, loaderDeclaration, errors)
             if (!(target.capabilities instanceof Map) || ((target.capabilities as Map).keySet() as Set) != REQUIRED_CAPABILITIES) {
                 errors.add("${target.id}: capability map differs from schema")
             } else {
@@ -505,6 +508,60 @@ final class CatalogTools {
         if (errors) {
             throw new IllegalArgumentException(errors.collect { "- ${it}" }.join('\n'))
         }
+    }
+
+    static void validateCompatibility(
+            Map target,
+            String loader,
+            String minecraft,
+            Map loaderDeclaration,
+            List<String> errors) {
+        if (!target.containsKey('compatibility')) {
+            return
+        }
+        Object raw = target.compatibility
+        if (!(raw instanceof Map)) {
+            errors.add("${target.id}: compatibility must be an object")
+            return
+        }
+        Map compatibility = raw as Map
+        if ((compatibility.keySet() as Set) != ['minecraftVersions', 'loaderVersions'] as Set ||
+                !(compatibility.minecraftVersions instanceof List) ||
+                !(compatibility.loaderVersions instanceof Map)) {
+            errors.add("${target.id}: invalid compatibility declaration")
+            return
+        }
+        List versions = compatibility.minecraftVersions as List
+        Map loaderVersions = compatibility.loaderVersions as Map
+        if (!versions || versions.any { !(it instanceof String) || it.isBlank() } ||
+                versions.size() != versions.toSet().size()) {
+            errors.add("${target.id}: compatibility Minecraft versions must be unique non-empty strings")
+        }
+        if (versions && versions.first() != minecraft) {
+            errors.add("${target.id}: compatibility must start with the compile-baseline Minecraft version")
+        }
+        if ((loaderVersions.keySet() as List) != versions ||
+                loaderVersions.values().any { !(it instanceof String) || it.isBlank() }) {
+            errors.add("${target.id}: compatibility loader versions must exactly follow Minecraft versions")
+        }
+        if (loaderVersions[minecraft] != loaderDeclaration.version) {
+            errors.add("${target.id}: compatibility baseline loader must equal the build dependency")
+        }
+        if (!(loader in ['fabric', 'neoforge'])) {
+            errors.add("${target.id}: compatibility is supported only for Fabric and NeoForge")
+        }
+    }
+
+    static Map compatibilityRuntime(Map target, String minecraftVersion) {
+        if (!(target.compatibility instanceof Map)) {
+            throw new IllegalArgumentException("${target.id}: target has no runtime compatibility matrix")
+        }
+        Map compatibility = target.compatibility as Map
+        if (!(minecraftVersion in (compatibility.minecraftVersions as List))) {
+            throw new IllegalArgumentException(
+                    "${target.id}: unsupported compatibility Minecraft version ${minecraftVersion}")
+        }
+        [minecraftVersion: minecraftVersion, loaderVersion: compatibility.loaderVersions[minecraftVersion]]
     }
 
     static void validateAbi(File repositoryRoot, Map catalog, List<String> errors) {

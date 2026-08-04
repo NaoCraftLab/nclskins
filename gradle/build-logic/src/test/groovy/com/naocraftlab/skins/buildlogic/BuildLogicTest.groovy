@@ -19,11 +19,36 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(4, catalog.schemaVersion)
+        assertEquals(5, catalog.schemaVersion)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
         assertEquals(LinkedHashMap, catalog.targets.first().getClass())
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void compatibilityMatricesAreOptionalExactAndBaselineFirst() {
+        Map ordinary = catalog.targets.find { !it.containsKey('compatibility') } as Map
+        assertNotNull(ordinary)
+        Map family = catalog.targets.find { it.id == 'fabric-26.1' } as Map
+        assertEquals(['26.1', '26.1.1', '26.1.2'], family.compatibility.minecraftVersions)
+        assertEquals(
+                [minecraftVersion: '26.1.2', loaderVersion: '0.19.2'],
+                CatalogTools.compatibilityRuntime(family, '26.1.2'))
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.compatibilityRuntime(family, '26.1.3')
+        }
+
+        Map invalid = cloneMap(family)
+        invalid.compatibility.minecraftVersions = ['26.1.1', '26.1']
+        List<String> errors = []
+        CatalogTools.validateCompatibility(
+                invalid,
+                invalid.loader.id.toString(),
+                invalid.minecraft.version.toString(),
+                invalid.loader as Map,
+                errors)
+        assertTrue(errors.any { it.contains('compile-baseline') })
     }
 
     @Test
@@ -166,7 +191,7 @@ final class BuildLogicTest {
                 assertFalse(rendered.contains('scr' + 'ipts/'))
             }
         }
-        assertEquals(12, taskNames.size())
+        assertEquals(16, taskNames.size())
     }
 
     @Test

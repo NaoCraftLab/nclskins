@@ -47,7 +47,7 @@ public final class NclSkinsMenuPanel {
 
         PlayerPreviewUnderlay preview = new PlayerPreviewUnderlay(
                 screen,
-                () -> Minecraft.getInstance().gui.setScreen(new NclSkinsScreen(screen)));
+                () -> Minecraft26Api.setScreen(Minecraft.getInstance(), new NclSkinsScreen(screen)));
         widgetConsumer.accept(preview.action());
         preview.updateLayout(0, 0);
         var renderables = ((ScreenRenderablesAccessor) screen).nclskins$renderables();

@@ -1,8 +1,5 @@
 package com.naocraftlab.skins.buildlogic
 
-import java.util.concurrent.Callable
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
@@ -12,6 +9,10 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
+
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 abstract class TargetBuildTask extends DefaultTask {
     @Internal
@@ -32,6 +33,9 @@ abstract class TargetBuildTask extends DefaultTask {
     @Input
     abstract Property<Boolean> getCollectArtifacts()
 
+    @Input
+    abstract Property<Boolean> getVerifyCompatibility()
+
     @Internal
     abstract Property<Integer> getMaximumWorkers()
 
@@ -46,6 +50,13 @@ abstract class TargetBuildTask extends DefaultTask {
                 executor.submit({ runTarget(catalog, target) } as Callable<String>)
             }
             futures.each { logger.lifecycle(it.get()) }
+            if (verifyCompatibility.get()) {
+                String modVersion = CatalogTools.loadVersion(repositoryDirectory.get().asFile)
+                targets.findAll { it.compatibility instanceof Map }.each { Map target ->
+                    CompatibilityHarness.verify(
+                            repositoryDirectory.get().asFile, catalog, target, modVersion)
+                }
+            }
         } finally {
             executor.shutdownNow()
         }

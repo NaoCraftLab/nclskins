@@ -1,0 +1,9 @@
+plugins {
+    id 'com.naocraftlab.skins.build-tools'
+    id 'net.fabricmc.fabric-loom' version '1.17.17'
+    id 'maven-publish'
+}
+
+apply from: '../../../gradle/target-conventions.gradle'
+ext.nclskinsFabricDependencyConfiguration = 'implementation'
+apply from: '../../../gradle/loader-conventions/fabric.gradle'
