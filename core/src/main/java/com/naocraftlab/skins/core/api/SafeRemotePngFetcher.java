@@ -421,6 +421,11 @@ public final class SafeRemotePngFetcher {
     }
 
     private static PublicSkinImportException statusFailure(int status) {
+        if (status == 401 || status == 403) {
+            return new PublicSkinImportException(
+                    PublicSkinImportException.Code.SITE_BLOCKED,
+                    "Remote skin file host rejected automatic downloading.");
+        }
         if (status == 429) {
             return new PublicSkinImportException(
                     PublicSkinImportException.Code.RATE_LIMITED,

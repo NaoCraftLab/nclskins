@@ -23,6 +23,7 @@ public final class PublicSkinImportException extends IOException {
         PROFILE_REJECTED,
         RATE_LIMITED,
         SERVICE_UNAVAILABLE,
+        SITE_BLOCKED,
         UNSAFE_URL,
         REDIRECT_REJECTED,
         NETWORK_FAILURE,

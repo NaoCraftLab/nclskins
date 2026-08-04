@@ -149,6 +149,20 @@ final class BuildLogicTest {
         assertEquals('Поиск', russian['nclskins.gallery.search_hint'])
         assertEquals('Обновить сессию', russian['nclskins.session.retry'])
         assertEquals('Оффлайн', russian['nclskins.session.offline'])
+        assertEquals(
+                'The site did not allow automatic downloading',
+                english['nclskins.add_source.url_site_blocked'])
+        assertEquals(
+                'Сайт не разрешил автоматическое скачивание',
+                russian['nclskins.add_source.url_site_blocked'])
+        assertEquals('Minecraft Event Skins', english['pack.nclskins.mojang_collections.name'])
+        assertEquals(
+                'Officially published skins by Mojang',
+                english['pack.nclskins.mojang_collections.description'])
+        assertEquals('Скины событий Minecraft', russian['pack.nclskins.mojang_collections.name'])
+        assertEquals(
+                'Официально опубликованные скины от Mojang',
+                russian['pack.nclskins.mojang_collections.description'])
     }
 
     @Test

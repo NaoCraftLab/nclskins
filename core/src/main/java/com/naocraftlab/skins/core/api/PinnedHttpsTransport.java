@@ -109,6 +109,7 @@ class PinnedHttpsTransport {
                         plain, asciiHost, port, true)) {
                     SSLParameters parameters = tls.getSSLParameters();
                     parameters.setEndpointIdentificationAlgorithm("HTTPS");
+                    parameters.setApplicationProtocols(new String[]{"http/1.1"});
                     if (!isIpLiteral(asciiHost)) {
                         parameters.setServerNames(List.of(new SNIHostName(asciiHost)));
                     }

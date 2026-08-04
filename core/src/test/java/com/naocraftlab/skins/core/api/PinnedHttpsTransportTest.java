@@ -87,6 +87,32 @@ final class PinnedHttpsTransportTest {
     }
 
     @Test
+    void doesNotReadAuthenticationFailureBodies() throws Exception {
+        for (int status : List.of(401, 403)) {
+            byte[] headers = ("HTTP/1.1 " + status + " Rejected\r\n"
+                    + "Content-Length: 1000000\r\n\r\n")
+                    .getBytes(StandardCharsets.US_ASCII);
+            InputStream failOnBody = new InputStream() {
+                private int offset;
+
+                @Override
+                public int read() throws IOException {
+                    if (offset == headers.length) {
+                        throw new IOException("authentication failure body was read");
+                    }
+                    return headers[offset++] & 0xff;
+                }
+            };
+
+            PinnedHttpsTransport.Response response = PinnedHttpsTransport.readResponse(
+                    failOnBody, REQUEST, 1);
+
+            assertEquals(status, response.statusCode());
+            assertArrayEquals(new byte[0], response.body());
+        }
+    }
+
+    @Test
     void plainHttpUsesPinnedPortAndCredentialFreeRequest() throws Exception {
         InetAddress address = InetAddress.getByName("8.8.8.8");
         AtomicInteger connectedPort = new AtomicInteger();
@@ -140,6 +166,8 @@ final class PinnedHttpsTransportTest {
         assertTrue(sslFactory.autoClose);
         assertTrue(tls.handshakeStarted);
         assertEquals("HTTPS", tls.parameters.getEndpointIdentificationAlgorithm());
+        assertArrayEquals(new String[]{"http/1.1"}, tls.parameters.getApplicationProtocols());
+        assertArrayEquals(new String[]{"http/1.1"}, tls.applicationProtocolsAtHandshake);
         assertEquals(1, tls.parameters.getServerNames().size());
         assertEquals("example.com",
                 ((SNIHostName) tls.parameters.getServerNames().get(0)).getAsciiName());
@@ -277,6 +305,7 @@ final class PinnedHttpsTransportTest {
         private final ByteArrayOutputStream output = new ByteArrayOutputStream();
         private SSLParameters parameters = new SSLParameters();
         private boolean handshakeStarted;
+        private String[] applicationProtocolsAtHandshake = new String[0];
         private String[] enabledCipherSuites = new String[0];
         private String[] enabledProtocols = new String[0];
         private boolean clientMode;
@@ -344,6 +373,7 @@ final class PinnedHttpsTransportTest {
         @Override
         public void startHandshake() {
             handshakeStarted = true;
+            applicationProtocolsAtHandshake = parameters.getApplicationProtocols();
         }
 
         @Override

@@ -87,17 +87,22 @@ public final class NclSkinsMenuPreview implements Renderable {
                     layout.panelBounds().bottom(),
                     0x28FFFFFF);
         }
-        renderer.render(
-                graphics,
-                new PreviewRenderer.PreviewRequest(
-                        appearance,
-                        preview.x(),
-                        preview.y(),
-                        preview.width(),
-                        preview.height(),
-                        layout.yawDegrees(),
-                        layout.pitchDegrees(),
-                        layout.scale()));
+        graphics.enableScissor(preview.x(), preview.y(), preview.right(), preview.bottom());
+        try {
+            renderer.render(
+                    graphics,
+                    new PreviewRenderer.PreviewRequest(
+                            appearance,
+                            preview.x(),
+                            preview.y(),
+                            preview.width(),
+                            preview.height(),
+                            layout.yawDegrees(),
+                            layout.pitchDegrees(),
+                            layout.scale()));
+        } finally {
+            graphics.disableScissor();
+        }
 
 
         RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);

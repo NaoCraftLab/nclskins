@@ -53,6 +53,7 @@
   "nclskins.add_source.url_failed": "The skin file could not be loaded",
   "nclskins.add_source.url_unsafe": "The URL points to a disallowed address",
   "nclskins.add_source.url_redirect_rejected": "The URL uses an unsafe redirect",
+  "nclskins.add_source.url_site_blocked": "The site did not allow automatic downloading",
   "nclskins.add_source.url_network_failure": "The file could not be downloaded",
   "nclskins.add_source.url_rate_limited": "The site temporarily limited the file download",
   "nclskins.add_source.url_oversized": "The linked file exceeds 1 MiB",
@@ -167,6 +168,6 @@
   "nclskins.mutation.partial": "The skin was applied, but the cape needs attention.",
   "nclskins.mutation.unknown": "The result is uncertain; the official profile could not be verified.",
   "nclskins.mutation.failed": "The official appearance was not changed.",
-  "pack.nclskins.mojang_collections.name": "Mojang event skins",
-  "pack.nclskins.mojang_collections.description": "Officially published skins from Minecraft events"
+  "pack.nclskins.mojang_collections.name": "Minecraft Event Skins",
+  "pack.nclskins.mojang_collections.description": "Officially published skins by Mojang"
 }

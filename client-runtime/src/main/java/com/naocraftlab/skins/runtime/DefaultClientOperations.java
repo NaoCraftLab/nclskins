@@ -93,7 +93,7 @@ public final class DefaultClientOperations implements ClientOperations {
 
     private volatile CatalogDiscoveryCache catalogDiscoveryCache;
 
-    private InitialData preparedInitialData;
+    private volatile InitialData preparedInitialData;
 
     public DefaultClientOperations(
             GameSessionTokenSource tokenSource,
@@ -216,6 +216,11 @@ public final class DefaultClientOperations implements ClientOperations {
                 preparedInitialData.activePresetId(),
                 preparedInitialData.localAppearance(),
                 preparedInitialData.outerLayerVisibility()));
+    }
+
+    @Override
+    public Optional<InitialData> warmedInitialData() {
+        return Optional.ofNullable(preparedInitialData);
     }
 
     @Override

@@ -1,0 +1,13 @@
+screen=gallery size=320x240 title=key:nclskins.gallery.title:INFO
+panels
+0|header|0,0,320,33|VANILLA_HEADER
+1|footer|0,207,320,33|VANILLA_FOOTER
+texts
+0|gallery.title|0,12,320,10|key:nclskins.gallery.title:INFO|CENTER
+1|gallery.loading|8,115,304,10|key:nclskins.status.loading:INFO|CENTER
+widgets
+previews
+back_equipment_previews
+icon_decorations
+clip_regions
+scrollbar=-

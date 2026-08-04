@@ -333,8 +333,16 @@ final class SafeRemotePngFetcherTest {
     }
 
     @Test
-    void mapsRateLimitAndServerFailuresToTypedCodes() throws Exception {
+    void mapsBlockedRateLimitAndServerFailuresToTypedCodes() throws Exception {
         URI uri = URI.create("https://one.example/skin.png");
+        for (int status : List.of(401, 403)) {
+            assertEquals(PublicSkinImportException.Code.SITE_BLOCKED,
+                    assertThrows(PublicSkinImportException.class,
+                            () -> fetcher(Map.of(uri,
+                                    new PinnedHttpsTransport.Response(
+                                            status, uri, Map.of(), new byte[0])), publicResolver())
+                                    .fetch(uri.toString())).code());
+        }
         assertEquals(PublicSkinImportException.Code.RATE_LIMITED,
                 assertThrows(PublicSkinImportException.class,
                         () -> fetcher(Map.of(uri,

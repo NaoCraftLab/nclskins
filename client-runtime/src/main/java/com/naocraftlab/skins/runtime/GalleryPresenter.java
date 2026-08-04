@@ -95,6 +95,10 @@ public final class GalleryPresenter {
 
         query = Objects.requireNonNull(query, "query");
         pendingDeleteId = Objects.requireNonNull(pendingDeleteId, "pendingDeleteId");
+        if (snapshot.lifecycle() == ClientSnapshot.Lifecycle.INITIALIZING
+                && snapshot.account().isEmpty()) {
+            return coldLoadingView(width, height);
+        }
         GalleryLayout layout = layout(width, height);
         List<GalleryCard> cards = cards(snapshot, query);
         int visibleCount = layout.visibleCount();
@@ -523,6 +527,9 @@ public final class GalleryPresenter {
                 new Bounds((width - doneWidth) / 2, height - 28, doneWidth, 20),
                 UiMessage.info("gui.done"),
                 !snapshot.busy()));
+        if (snapshot.lifecycle() == ClientSnapshot.Lifecycle.INITIALIZING) {
+            return Optional.empty();
+        }
         boolean retryVisible = snapshot.session().isEmpty()
                 || !snapshot.session().orElseThrow().valid()
                 || snapshot.recoveryActions().contains(RecoveryAction.REFRESH_REMOTE_PROFILE);
@@ -560,7 +567,8 @@ public final class GalleryPresenter {
             int width,
             Optional<RecoveryWidget> recovery,
             List<ViewSpec.Text> texts) {
-        boolean offline = snapshot.session().isEmpty() || !snapshot.session().orElseThrow().valid();
+        boolean offline = snapshot.lifecycle() != ClientSnapshot.Lifecycle.INITIALIZING
+                && (snapshot.session().isEmpty() || !snapshot.session().orElseThrow().valid());
         boolean connecting = snapshot.busy()
                 && snapshot.status().equals(UiMessage.info("nclskins.status.checking_session"));
         boolean showSessionState = offline || connecting;
@@ -596,6 +604,50 @@ public final class GalleryPresenter {
                             : "nclskins.session.offline"),
                     ViewSpec.Text.Alignment.LEFT));
         }
+    }
+
+    private static ViewSpec coldLoadingView(int width, int height) {
+        int contentTop = 33;
+        int contentBottom = Math.max(contentTop + 10, height - FOOTER_HEIGHT);
+        int loadingY = contentTop + Math.max(0, (contentBottom - contentTop - 10) / 2);
+        return new ViewSpec(
+                "gallery",
+                UiMessage.info("nclskins.gallery.title"),
+                width,
+                height,
+                List.of(
+                        new ViewSpec.Panel(
+                                "header",
+                                new Bounds(0, 0, width, 33),
+                                ViewSpec.Panel.Style.VANILLA_HEADER),
+                        new ViewSpec.Panel(
+                                "footer",
+                                new Bounds(
+                                        0,
+                                        Math.max(0, height - FOOTER_HEIGHT),
+                                        width,
+                                        FOOTER_HEIGHT),
+                                ViewSpec.Panel.Style.VANILLA_FOOTER)),
+                List.of(
+                        new ViewSpec.Text(
+                                "gallery.title",
+                                new Bounds(0, 12, width, 10),
+                                UiMessage.info("nclskins.gallery.title"),
+                                ViewSpec.Text.Alignment.CENTER),
+                        new ViewSpec.Text(
+                                "gallery.loading",
+                                new Bounds(8, loadingY, Math.max(1, width - 16), 10),
+                                UiMessage.info("nclskins.status.loading"),
+                                ViewSpec.Text.Alignment.CENTER)),
+                List.of(),
+                List.of(),
+                Optional.empty(),
+                List.of(),
+                Optional.empty(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of());
     }
 
     private static ViewSpec.Scrollbar scrollbar(

@@ -20,6 +20,53 @@ final class GalleryPresenterTest {
     private final GalleryPresenter presenter = new GalleryPresenter();
 
     @Test
+    void coldInitializationIsNeutralUntilAccountDataExists() {
+        ClientSnapshot cold = initializingSnapshot(Optional.empty(), Optional.empty());
+
+        ViewSpec view = presenter.present(
+                cold, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE);
+
+        assertTrue(view.texts().stream().anyMatch(text -> text.id().equals("gallery.loading")));
+        assertTrue(view.widgets().isEmpty());
+        assertTrue(view.previews().isEmpty());
+        assertTrue(view.panels().stream().noneMatch(panel ->
+                panel.id().startsWith("gallery.card.")));
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+    }
+
+    @Test
+    void warmedInitializationShowsCenteredDisabledCardsWithoutStaleSessionChrome() {
+        AccountState account = TestFixtures.account(5);
+        UUID active = account.presets().get(4).id();
+        ClientSnapshot seeded = initializingSnapshot(Optional.of(account), Optional.of(active));
+
+        ViewSpec view = presenter.present(
+                seeded,
+                320,
+                240,
+                0,
+                0,
+                PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC,
+                "",
+                Optional.empty(),
+                presenter.centeredScrollPosition(
+                        seeded.account(), seeded.activePresetId(), ""));
+
+        assertHorizontallyCentered(
+                view.panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card." + active))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds(),
+                320);
+        assertFalse(view.widget("gallery.search").orElseThrow().enabled());
+        assertFalse(view.widget("gallery.done").orElseThrow().enabled());
+        assertTrue(view.widget("gallery.retry_session").isEmpty());
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+    }
+
+    @Test
     void centerAnchorTargetsActiveOrAddAndKeepsEdgeCardsFullyReachable() {
         AccountState account = TestFixtures.account(5);
         UUID active = account.presets().get(4).id();
@@ -929,5 +976,30 @@ final class GalleryPresenterTest {
         assertTrue(
                 Math.abs(bounds.x() + bounds.width() / 2.0 - viewportWidth / 2.0) <= 0.5,
                 () -> bounds + " is not horizontally centered in " + viewportWidth);
+    }
+
+    private static ClientSnapshot initializingSnapshot(
+            Optional<AccountState> account, Optional<UUID> activePresetId) {
+        return new ClientSnapshot(
+                ClientSnapshot.Lifecycle.INITIALIZING,
+                account,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                activePresetId,
+                Optional.empty(),
+                Optional.empty(),
+                UiMessage.info("nclskins.status.loading"),
+                true,
+                false,
+                0,
+                1,
+                0,
+                AppearanceSyncStatus.LOCAL_ONLY,
+                false);
     }
 }

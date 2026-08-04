@@ -1,7 +1,5 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
@@ -12,12 +10,14 @@ import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
-import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
+import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.RemoteAppearanceImpact;
 import com.naocraftlab.skins.core.service.SessionValidation;
+import org.junit.jupiter.api.Test;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -29,7 +29,8 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class ClientRuntimeServerSignalBoundaryTest {
     private static final ClientExecutor CLIENT = new ClientExecutor() {
@@ -192,6 +193,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
         public Object invoke(Object proxy, Method method, Object[] arguments) {
             return switch (method.getName()) {
                 case "initialize" -> initialData();
+                case "warmedInitialData" -> Optional.empty();
                 case "reconciliationRecommended", "rateLimited" -> false;
                 case "usePreset" -> selectPreset((UUID) arguments[0]);
                 case "reconcileAppearance" -> reconcile();

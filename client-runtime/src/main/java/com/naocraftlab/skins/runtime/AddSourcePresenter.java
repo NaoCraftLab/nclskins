@@ -17,7 +17,8 @@ import java.util.Optional;
 public final class AddSourcePresenter {
     private static final int CONTROLS_TOP = 31;
     private static final int CONTENT_TOP = 58;
-    private static final int FOOTER_HEIGHT = 33;
+    private static final int ADD_SOURCE_FOOTER_HEIGHT = 36;
+    private static final int DIALOG_FOOTER_HEIGHT = 33;
     private static final int CARD_GAP = 6;
     private static final int MAX_CARD_HEIGHT = 132;
     private static final int MIN_CARD_HEIGHT = 72;
@@ -58,13 +59,6 @@ public final class AddSourcePresenter {
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Preview> previews = new ArrayList<>();
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
-        panels.add(new ViewSpec.Panel(
-                "add.header", new Bounds(0, 0, width, 24), ViewSpec.Panel.Style.VANILLA_HEADER));
-        panels.add(new ViewSpec.Panel(
-                "add.footer",
-                new Bounds(0, Math.max(0, height - FOOTER_HEIGHT), width, FOOTER_HEIGHT),
-                ViewSpec.Panel.Style.VANILLA_FOOTER));
-
         List<ViewSpec.Tab> tabs = List.of(
                 new ViewSpec.Tab(
                         "add.tab.catalog",
@@ -233,7 +227,11 @@ public final class AddSourcePresenter {
                         ViewSpec.Panel.Style.VANILLA_HEADER),
                 new ViewSpec.Panel(
                         "personal_delete.footer",
-                        new Bounds(0, Math.max(0, height - FOOTER_HEIGHT), width, FOOTER_HEIGHT),
+                        new Bounds(
+                                0,
+                                Math.max(0, height - DIALOG_FOOTER_HEIGHT),
+                                width,
+                                DIALOG_FOOTER_HEIGHT),
                         ViewSpec.Panel.Style.VANILLA_FOOTER));
         List<ViewSpec.Text> texts = new ArrayList<>();
         texts.add(new ViewSpec.Text(
@@ -525,7 +523,9 @@ public final class AddSourcePresenter {
     }
 
     private static CatalogLayout catalogLayout(AddSourceModel model, int width, int height) {
-        int contentBottom = Math.max(CONTENT_TOP + 1, height - FOOTER_HEIGHT - 4);
+        int contentBottom = Math.max(
+                CONTENT_TOP + 1,
+                height - ADD_SOURCE_FOOTER_HEIGHT - 4);
         int contentRight = Math.max(17, width - 14);
         int available = Math.max(1, contentRight - 16);
         int columns = Math.max(2, Math.min(9, (available + CARD_GAP) / (68 + CARD_GAP)));

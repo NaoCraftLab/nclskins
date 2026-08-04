@@ -60,6 +60,8 @@ public final class NclSkinsScreen extends Screen {
             Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
     private static final Identifier INWORLD_MENU_LIST_BACKGROUND =
             Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
+    private static final Identifier TAB_HEADER_BACKGROUND =
+            Identifier.withDefaultNamespace("textures/gui/tab_header_background.png");
     private static final Identifier SCROLLER_SPRITE =
             Identifier.withDefaultNamespace("widget/scroller");
     private static final Identifier SCROLLER_BACKGROUND_SPRITE =
@@ -247,11 +249,18 @@ public final class NclSkinsScreen extends Screen {
                         bounds.height(),
                         Minecraft262Components.resolve(spec.label()));
                 field.setMaxLength(spec.maxLength());
-                field.setValue(spec.value().orElse(""));
+                String initialValue = spec.value().orElse("");
+                field.setValue(initialValue);
                 spec.hint().ifPresent(hint -> field.setHint(Minecraft262Components.resolve(hint)));
                 field.setEditable(spec.enabled());
                 field.active = spec.enabled();
-                field.setResponder(value -> runtime.dispatchText(spec.id(), value));
+                String[] responderValue = {initialValue};
+                field.setResponder(value -> {
+                    if (!value.equals(responderValue[0])) {
+                        responderValue[0] = value;
+                        runtime.dispatchText(spec.id(), value);
+                    }
+                });
                 widget = field;
             } else if (spec.kind() == ViewSpec.WidgetKind.CATALOG_CARD) {
                 CatalogCardWidget card = new CatalogCardWidget(
@@ -484,7 +493,20 @@ public final class NclSkinsScreen extends Screen {
 
     @Override
     public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        if (!runtime.closed()) {
+            currentView = runtime.view(width, height, mouseX, mouseY);
+        }
         super.extractBackground(graphics, mouseX, mouseY, partialTick);
+    }
+
+    @Override
+    protected void extractMenuBackground(GuiGraphicsExtractor graphics) {
+        if (!isAddSourceView()) {
+            super.extractMenuBackground(graphics);
+            return;
+        }
+        drawCreateWorldTabBackground(graphics);
+        extractMenuBackground(graphics, 0, 24, width, height);
     }
 
     @Override
@@ -502,6 +524,7 @@ public final class NclSkinsScreen extends Screen {
         publishNativeScroll(initialView);
         ViewSpec view = runtime.view(width, height, mouseX, mouseY);
         currentView = view;
+        syncPreviewAssets(view);
 
         for (ViewSpec.Panel panel : view.panels()) {
             if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
@@ -698,6 +721,19 @@ public final class NclSkinsScreen extends Screen {
     private void drawFrameSeparators(GuiGraphicsExtractor graphics, ViewSpec view) {
         Identifier header = minecraft.level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
         Identifier footer = minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
+        if ("add_source".equals(view.screenId())) {
+            graphics.blit(
+                    RenderPipelines.GUI_TEXTURED,
+                    footer,
+                    0,
+                    height - 38,
+                    0.0F,
+                    0.0F,
+                    width,
+                    2,
+                    32,
+                    2);
+        }
         boolean tabBarOwnsHeaderSeparator = !view.tabGroups().isEmpty();
         for (ViewSpec.Panel panel : view.panels()) {
             Bounds bounds = panel.bounds();
@@ -728,6 +764,24 @@ public final class NclSkinsScreen extends Screen {
                         2);
             }
         }
+    }
+
+    private boolean isAddSourceView() {
+        return currentView != null && "add_source".equals(currentView.screenId());
+    }
+
+    private void drawCreateWorldTabBackground(GuiGraphicsExtractor graphics) {
+        graphics.blit(
+                RenderPipelines.GUI_TEXTURED,
+                TAB_HEADER_BACKGROUND,
+                0,
+                0,
+                0.0F,
+                0.0F,
+                width,
+                24,
+                16,
+                16);
     }
 
     private void drawScrollbar(GuiGraphicsExtractor graphics, ViewSpec view, int mouseX, int mouseY) {

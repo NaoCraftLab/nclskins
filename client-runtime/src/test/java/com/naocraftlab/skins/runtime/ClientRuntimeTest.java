@@ -948,6 +948,170 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void coldOpenPublishesOnlyANeutralLoadingShellUntilInitializationCompletes() {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+
+        runtime.initialize();
+
+        ClientSnapshot loading = runtime.snapshot();
+        assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, loading.lifecycle());
+        assertTrue(loading.account().isEmpty());
+        ViewSpec view = runtime.view(320, 240, 0, 0);
+        assertTrue(view.texts().stream().anyMatch(text -> text.id().equals("gallery.loading")));
+        assertTrue(view.widget("gallery.search").isEmpty());
+        assertTrue(view.widget("gallery.retry_session").isEmpty());
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+        assertTrue(view.panels().stream().noneMatch(panel ->
+                panel.id().startsWith("gallery.card.")));
+
+        worker.runFirst();
+
+        assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
+        assertTrue(runtime.view(320, 240, 0, 0).widget("gallery.search").isPresent());
+    }
+
+    @Test
+    void warmedOpenPublishesCardsAndAnchorAtomicallyWithoutTransientOfflineChrome() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        UUID warmedActive = operations.account.presets().get(4).id();
+        operations.activePresetId = Optional.of(warmedActive);
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        operations.warmedInitialData = Optional.of(operations.initial());
+        operations.activePresetId = Optional.empty();
+        operations.session = TestFixtures.validSession();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        List<ClientSnapshot> publications = new ArrayList<>();
+        runtime.subscribe(publications::add);
+
+        runtime.initialize();
+
+        ClientSnapshot seeded = runtime.snapshot();
+        assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, seeded.lifecycle());
+        assertEquals(Optional.of(warmedActive), seeded.activePresetId());
+        assertEquals(1, seeded.galleryOffset());
+        ViewSpec seededView = runtime.view(320, 240, 0, 0);
+        assertHorizontallyCentered(
+                seededView.panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card." + warmedActive))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds(),
+                320);
+        assertTrue(seededView.widget("gallery.retry_session").isEmpty());
+        assertTrue(seededView.texts().stream().noneMatch(text ->
+                text.id().equals("gallery.offline")));
+
+        worker.runFirst();
+
+        ClientSnapshot ready = runtime.snapshot();
+        assertEquals(ClientSnapshot.Lifecycle.READY, ready.lifecycle());
+        assertTrue(ready.activePresetId().isEmpty());
+        assertEquals(0, ready.galleryOffset());
+        assertHorizontallyCentered(
+                runtime.view(320, 240, 0, 0).panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card.add"))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds(),
+                320);
+        publications.stream()
+                .filter(snapshot -> snapshot.account().isPresent())
+                .forEach(snapshot -> assertEquals(
+                        snapshot.activePresetId().isPresent() ? 1 : 0,
+                        snapshot.galleryOffset(),
+                        "account data and its gallery anchor must share one publication"));
+    }
+
+    @Test
+    void repeatedOpenUsesTheLastReadyCardsAndFreshUnchangedDataDoesNotMoveThem() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        UUID active = operations.account.presets().get(4).id();
+        operations.activePresetId = Optional.of(active);
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        worker.runFirst();
+        runtime.view(320, 240, 0, 0);
+        runtime.pointerScrolled(160, 100, 0.0, -0.5);
+        runtime.closeScreen();
+
+        runtime.reopen();
+
+        ClientSnapshot reopening = runtime.snapshot();
+        assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, reopening.lifecycle());
+        assertEquals(Optional.of(active), reopening.activePresetId());
+        ViewSpec seeded = runtime.view(320, 240, 0, 0);
+        assertHorizontallyCentered(
+                seeded.panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card." + active))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds(),
+                320);
+        int seededAddX = panelX(seeded, "gallery.card.add");
+
+        worker.runFirst();
+
+        assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
+        assertEquals(seededAddX, panelX(
+                runtime.view(320, 240, 0, 0), "gallery.card.add"));
+    }
+
+    @Test
+    void identicalTextDispatchesDoNotPublishOrResetGalleryScroll() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(5);
+        String personalHash = operations.seedPersonalSkin("Personal");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        AtomicInteger publications = new AtomicInteger();
+        runtime.initialize();
+        runtime.subscribe(ignored -> publications.incrementAndGet());
+
+        runtime.dispatchText("gallery.search", "Preset");
+        runtime.view(320, 240, 0, 0);
+        runtime.pointerScrolled(160, 100, 0.0, -0.5);
+        int scrolledX = panelX(runtime.view(320, 240, 0, 0), "gallery.card.add");
+        int afterScrollPublications = publications.get();
+        long generation = runtime.snapshot().generation();
+
+        runtime.dispatchText("gallery.search", "Preset");
+
+        assertEquals(afterScrollPublications, publications.get());
+        assertEquals(generation, runtime.snapshot().generation());
+        assertEquals(scrolledX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+
+        UUID presetId = operations.account.presets().get(0).id();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        String editorName = runtime.snapshot().editor().orElseThrow().name();
+        assertNoPublication(publications, () -> runtime.dispatchText("editor.name", editorName));
+        runtime.dispatchWidget("editor.cancel");
+
+        runtime.dispatchWidget("gallery.add");
+        AddSourceModel addSource = runtime.snapshot().addSource().orElseThrow();
+        assertNoPublication(publications, () ->
+                runtime.dispatchText("add.catalog.search", addSource.query()));
+        assertNoPublication(publications, () ->
+                runtime.dispatchText("add.player.input", addSource.playerInput()));
+        assertNoPublication(publications, () ->
+                runtime.dispatchText("add.url.input", addSource.urlInput()));
+
+        runtime.dispatchWidget("add.tab.catalog");
+        runtime.dispatchWidget("add.catalog.rename:" + personalHash);
+        String renameValue = runtime.view(320, 240, 0, 0)
+                .widget("add.catalog.rename.name")
+                .orElseThrow()
+                .value()
+                .orElseThrow();
+        assertNoPublication(publications, () ->
+                runtime.dispatchText("add.catalog.rename.name", renameValue));
+    }
+
+    @Test
     void typedPublicImportFailuresExposeOnlySafeLocalizationKeys() {
         Map<PublicSkinImportException.Code, String> playerFailures = Map.of(
                 PublicSkinImportException.Code.INVALID_IDENTIFIER,
@@ -971,6 +1135,8 @@ final class ClientRuntimeTest {
                 "nclskins.add_source.url_unsafe",
                 PublicSkinImportException.Code.REDIRECT_REJECTED,
                 "nclskins.add_source.url_redirect_rejected",
+                PublicSkinImportException.Code.SITE_BLOCKED,
+                "nclskins.add_source.url_site_blocked",
                 PublicSkinImportException.Code.NETWORK_FAILURE,
                 "nclskins.add_source.url_network_failure",
                 PublicSkinImportException.Code.SERVICE_UNAVAILABLE,
@@ -1834,6 +2000,12 @@ final class ClientRuntimeTest {
                 .x();
     }
 
+    private static void assertNoPublication(AtomicInteger publications, Runnable action) {
+        int before = publications.get();
+        action.run();
+        assertEquals(before, publications.get());
+    }
+
     private static void assertHorizontallyCentered(Bounds bounds, int viewportWidth) {
         assertTrue(
                 Math.abs(bounds.x() + bounds.width() / 2.0 - viewportWidth / 2.0) <= 0.5,
@@ -2058,6 +2230,7 @@ final class ClientRuntimeTest {
         private Exception playerImportFailure;
         private Exception urlImportFailure;
         private int playerImportCalls;
+        private Optional<InitialData> warmedInitialData = Optional.empty();
 
         @Override
         public void verifyStorageAccess() {
@@ -2070,6 +2243,11 @@ final class ClientRuntimeTest {
         @Override
         public InitialData initialize() {
             return initial();
+        }
+
+        @Override
+        public Optional<InitialData> warmedInitialData() {
+            return warmedInitialData;
         }
 
         @Override

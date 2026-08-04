@@ -556,6 +556,14 @@ public final class PresetEditorModel {
                 preview);
     }
 
+    public PresetEditorModel withoutPreviewFailure(UiMessage message) {
+        Objects.requireNonNull(message, "message");
+        if (!status.equals(Optional.of(message))) {
+            return this;
+        }
+        return copy(name, skin, variant, capeId, png, busy, Optional.empty(), preview);
+    }
+
     public ClientOperations.EditorSaveRequest saveRequest() {
         boolean reuseCatalogAsset = !reusableCatalogVariants.isEmpty();
         Optional<byte[]> bytesToPersist = reuseCatalogAsset

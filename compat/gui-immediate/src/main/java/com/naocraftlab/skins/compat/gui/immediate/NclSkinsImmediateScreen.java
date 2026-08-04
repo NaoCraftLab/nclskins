@@ -155,7 +155,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         synchronizePreviews(view);
 
 
-        renderEpochBackground(graphics, mouseX, mouseY, partialTick);
+        renderEpochBackground(graphics, view, mouseX, mouseY, partialTick);
         for (ViewSpec.Panel panel : view.panels()) {
             if (panel.style() != ViewSpec.Panel.Style.VANILLA_LIST) {
                 continue;
@@ -163,7 +163,12 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             renderClipped(graphics, view, panel.id(), () -> capabilities.renderPanel(graphics, panel));
         }
         for (ViewSpec.Preview preview : view.previews()) {
-            renderClipped(graphics, view, preview.id(), () -> renderPreview(graphics, preview));
+            renderClipped(
+                    graphics,
+                    view,
+                    preview.id(),
+                    preview.bounds(),
+                    () -> renderPreview(graphics, preview));
         }
         renderBackEquipmentPreviews(graphics, view);
         if (!view.previews().isEmpty() || !view.backEquipmentPreviews().isEmpty()) {
@@ -206,7 +211,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
 
     protected abstract void renderEpochBackground(
-            GuiGraphics graphics, int mouseX, int mouseY, float partialTick);
+            GuiGraphics graphics, ViewSpec view, int mouseX, int mouseY, float partialTick);
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
@@ -571,9 +576,16 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 bounds.height(),
                 resolve(widget.label()));
         editBox.setMaxLength(widget.maxLength());
-        editBox.setValue(widget.value().orElse(""));
+        String initialValue = widget.value().orElse("");
+        editBox.setValue(initialValue);
         widget.hint().ifPresent(hint -> editBox.setHint(resolve(hint)));
+        String[] responderValue = {initialValue};
         editBox.setResponder(value -> {
+            if (!value.equals(responderValue[0])) {
+                responderValue[0] = value;
+            } else {
+                return;
+            }
             if (!updatingText) {
                 runtime.dispatchText(widget.id(), value);
             }
@@ -1271,15 +1283,42 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 continue;
             }
             Bounds bounds = backEquipment.bounds();
-            renderClipped(graphics, view, backEquipment.id(), () -> backEquipmentRenderer.render(
+            renderClipped(
                     graphics,
-                    new BackEquipmentPreviewRenderer.Request(
-                            loaded.orElseThrow(),
-                            backEquipment.mode(),
-                            bounds.x(),
-                            bounds.y(),
-                            bounds.width(),
-                            bounds.height())));
+                    view,
+                    backEquipment.id(),
+                    bounds,
+                    () -> backEquipmentRenderer.render(
+                            graphics,
+                            new BackEquipmentPreviewRenderer.Request(
+                                    loaded.orElseThrow(),
+                                    backEquipment.mode(),
+                                    bounds.x(),
+                                    bounds.y(),
+                                    bounds.width(),
+                                    bounds.height())));
+        }
+    }
+
+    private static void renderClipped(
+            GuiGraphics graphics,
+            ViewSpec view,
+            String elementId,
+            Bounds bounds,
+            Runnable draw) {
+        Bounds viewport = view.clipFor(elementId).orElse(bounds);
+        int left = Math.max(bounds.x(), viewport.x());
+        int top = Math.max(bounds.y(), viewport.y());
+        int right = Math.min(bounds.right(), viewport.right());
+        int bottom = Math.min(bounds.bottom(), viewport.bottom());
+        if (right <= left || bottom <= top) {
+            return;
+        }
+        graphics.enableScissor(left, top, right, bottom);
+        try {
+            draw.run();
+        } finally {
+            graphics.disableScissor();
         }
     }
 

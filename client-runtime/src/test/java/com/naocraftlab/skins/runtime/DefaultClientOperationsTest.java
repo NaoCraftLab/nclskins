@@ -887,6 +887,8 @@ final class DefaultClientOperationsTest {
                 fixedClock());
 
         operations.warmSession();
+        ClientOperations.InitialData warmedSeed = operations.warmedInitialData().orElseThrow();
+        assertTrue(warmedSeed.account().presets().isEmpty());
         LibraryService otherProcess = new LibraryService(storage, fixedClock());
         AccountState warmed = otherProcess.load(TestFixtures.ACCOUNT_ID);
         UUID classicId = warmed.skinAssets().stream()
@@ -905,6 +907,44 @@ final class DefaultClientOperationsTest {
         assertEquals(changed.presets(), initialized.account().presets());
         assertEquals("Created elsewhere", initialized.account().presets().get(0).name());
         assertEquals(0, api.profileGets.get());
+        assertTrue(operations.warmedInitialData().isEmpty(),
+                "the startup seed must not replace a fresh gallery reload");
+    }
+
+    @Test
+    void warmedInitialDataDoesNotWaitForStartupWarmupMonitor() throws Exception {
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(),
+                new StubProfileApi(),
+                storage(),
+                ignored -> skinPng(0xFF224488),
+                fixedClock());
+        CountDownLatch monitorHeld = new CountDownLatch(1);
+        CountDownLatch releaseMonitor = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        Future<?> holder = executor.submit(() -> {
+            synchronized (operations) {
+                monitorHeld.countDown();
+                try {
+                    assertTrue(releaseMonitor.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(exception);
+                }
+            }
+        });
+
+        try {
+            assertTrue(monitorHeld.await(5, TimeUnit.SECONDS));
+            Future<Optional<ClientOperations.InitialData>> seed =
+                    executor.submit(operations::warmedInitialData);
+            assertTrue(seed.get(500, TimeUnit.MILLISECONDS).isEmpty(),
+                    "reading the optional startup seed must never block the client thread");
+        } finally {
+            releaseMonitor.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            executor.shutdownNow();
+        }
     }
 
     @Test

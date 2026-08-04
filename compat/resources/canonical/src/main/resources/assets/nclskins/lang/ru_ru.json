@@ -53,6 +53,7 @@
   "nclskins.add_source.url_failed": "Не удалось загрузить файл скина",
   "nclskins.add_source.url_unsafe": "Ссылка ведёт на недопустимый адрес",
   "nclskins.add_source.url_redirect_rejected": "Небезопасное перенаправление по ссылке",
+  "nclskins.add_source.url_site_blocked": "Сайт не разрешил автоматическое скачивание",
   "nclskins.add_source.url_network_failure": "Не удалось загрузить файл по ссылке",
   "nclskins.add_source.url_rate_limited": "Сайт временно ограничил загрузку файла",
   "nclskins.add_source.url_oversized": "Файл по ссылке превышает 1 МиБ",
@@ -167,6 +168,6 @@
   "nclskins.mutation.partial": "Скин применён, но плащ требует внимания.",
   "nclskins.mutation.unknown": "Результат неизвестен: официальный профиль не удалось проверить.",
   "nclskins.mutation.failed": "Официальная внешность не изменена.",
-  "pack.nclskins.mojang_collections.name": "Скины событий Mojang",
-  "pack.nclskins.mojang_collections.description": "Официально опубликованные скины событий Minecraft"
+  "pack.nclskins.mojang_collections.name": "Скины событий Minecraft",
+  "pack.nclskins.mojang_collections.description": "Официально опубликованные скины от Mojang"
 }

@@ -10,6 +10,7 @@ import com.naocraftlab.skins.client.PlayerPreviewLighting;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry;
+import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
 import com.naocraftlab.skins.client.VanillaPlayerModelTransform;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
@@ -19,6 +20,7 @@ import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
@@ -33,10 +35,6 @@ public final class Minecraft1201SimplePreviewRenderer
     private static final float FIT_PADDING = 0.97F;
     private static final float ANCHOR_Y = 0.88F;
     private static final float GUI_DEPTH = 120.0F;
-    private static final float EQUIPMENT_MODEL_WIDTH = 1.5F;
-    private static final float EQUIPMENT_MODEL_HEIGHT = 1.25F;
-    private static final float EQUIPMENT_CENTER_Y = EQUIPMENT_MODEL_HEIGHT / 2.0F;
-    private static final float EQUIPMENT_FIT_PADDING = 0.88F;
     private static final PlayerPreviewLighting.Rig LIGHTING =
             PlayerPreviewLighting.centeredFront();
     private static final Vector3f PRIMARY_LIGHT = lightDirection(LIGHTING.primary());
@@ -51,6 +49,34 @@ public final class Minecraft1201SimplePreviewRenderer
                 @Override
                 public void rotateZThenX(PoseStack pose, float zRadians, float xRadians) {
                     pose.mulPose(new Quaternionf().rotateZ(zRadians).rotateX(xRadians));
+                }
+
+                @Override
+                public void rotateY(PoseStack pose, float radians) {
+                    pose.mulPose(new Quaternionf().rotateY(radians));
+                }
+
+                @Override
+                public void translate(PoseStack pose, float x, float y, float z) {
+                    pose.translate(x, y, z);
+                }
+            };
+    private static final VanillaBackEquipmentTransform.Operations<PoseStack>
+            BACK_EQUIPMENT_OPERATIONS = new VanillaBackEquipmentTransform.Operations<>() {
+                @Override
+                public void scale(PoseStack pose, float x, float y, float z) {
+                    pose.scale(x, y, z);
+                }
+
+                @Override
+                public void rotateZThenX(
+                        PoseStack pose, float zRadians, float xRadians) {
+                    pose.mulPose(new Quaternionf().rotateZ(zRadians).rotateX(xRadians));
+                }
+
+                @Override
+                public void rotateX(PoseStack pose, float radians) {
+                    pose.mulPose(new Quaternionf().rotateX(radians));
                 }
 
                 @Override
@@ -96,11 +122,6 @@ public final class Minecraft1201SimplePreviewRenderer
         PoseStack pose = graphics.pose();
         pose.pushPose();
         try {
-            graphics.enableScissor(
-                    request.left(),
-                    request.top(),
-                    request.left() + request.width(),
-                    request.top() + request.height());
             float scale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
             pose.translate(
                     request.left() + request.width() / 2.0F,
@@ -135,7 +156,6 @@ public final class Minecraft1201SimplePreviewRenderer
                     location(capeHandle)));
             buffers.endBatch();
         } finally {
-            graphics.disableScissor();
             pose.popPose();
             Lighting.setupFor3DItems();
         }
@@ -148,57 +168,32 @@ public final class Minecraft1201SimplePreviewRenderer
         PoseStack pose = graphics.pose();
         pose.pushPose();
         try {
-            graphics.enableScissor(
-                    request.left(),
-                    request.top(),
-                    request.left() + request.width(),
-                    request.top() + request.height());
-            float scale = EQUIPMENT_FIT_PADDING * Math.min(
-                    request.width() / EQUIPMENT_MODEL_WIDTH,
-                    request.height() / EQUIPMENT_MODEL_HEIGHT);
+            float scale = VanillaBackEquipmentTransform.fitScale(
+                    request.width(), request.height());
             pose.translate(
                     request.left() + request.width() / 2.0F,
                     request.top() + request.height() / 2.0F,
                     GUI_DEPTH);
-            applyBackEquipmentTransform(pose, scale);
+            VanillaBackEquipmentTransform.applyStandalone(
+                    pose, scale, BACK_EQUIPMENT_OPERATIONS);
 
             RenderSystem.setShaderLights(PRIMARY_LIGHT, FILL_LIGHT);
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation texture = location(request.texture());
-            if (request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE) {
-                classicCloak.resetPose();
-                classicCloak.visible = true;
-                classicCloak.render(
-                        pose,
-                        buffers.getBuffer(classicModel.renderType(texture)),
-                        FULL_BRIGHT,
-                        OverlayTexture.NO_OVERLAY);
-                classicCloak.visible = false;
-            } else {
-                elytraRoot.resetPose();
-                elytraModel.renderToBuffer(
-                        pose,
-                        buffers.getBuffer(elytraModel.renderType(texture)),
-                        FULL_BRIGHT,
-                        OverlayTexture.NO_OVERLAY,
-                        1.0F,
-                        1.0F,
-                        1.0F,
-                        1.0F);
-            }
+            renderBackEquipment(
+                    pose,
+                    buffers,
+                    classicModel,
+                    classicCloak,
+                    request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE
+                            ? CapeMode.CAPE
+                            : CapeMode.ELYTRA,
+                    texture);
             buffers.endBatch();
         } finally {
-            graphics.disableScissor();
             pose.popPose();
             Lighting.setupFor3DItems();
         }
-    }
-
-    private static void applyBackEquipmentTransform(PoseStack pose, float scale) {
-        pose.scale(scale, scale, -scale);
-        pose.mulPose(new Quaternionf().rotateZ((float) Math.PI).rotateY((float) Math.PI));
-        pose.scale(-1.0F, -1.0F, 1.0F);
-        pose.translate(0.0F, -EQUIPMENT_CENTER_Y, 0.0F);
     }
 
     private void renderBackEquipment(
@@ -209,24 +204,46 @@ public final class Minecraft1201SimplePreviewRenderer
             CapeMode capeMode,
             ResourceLocation capeTexture) {
         if (capeMode == CapeMode.CAPE) {
-            cloak.visible = true;
-            cloak.render(
-                    pose,
-                    buffers.getBuffer(model.renderType(capeTexture)),
-                    FULL_BRIGHT,
-                    OverlayTexture.NO_OVERLAY);
-            cloak.visible = false;
+            pose.pushPose();
+            try {
+                VanillaBackEquipmentTransform.applyCapeAttachment(
+                        pose, BACK_EQUIPMENT_OPERATIONS);
+                cloak.resetPose();
+                cloak.visible = true;
+                cloak.render(
+                        pose,
+                        buffers.getBuffer(RenderType.entitySolid(capeTexture)),
+                        FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY);
+                cloak.visible = false;
+            } finally {
+                pose.popPose();
+            }
         } else if (capeMode == CapeMode.ELYTRA) {
-            elytraModel.renderToBuffer(
-                    pose,
-                    buffers.getBuffer(elytraModel.renderType(capeTexture)),
-                    FULL_BRIGHT,
-                    OverlayTexture.NO_OVERLAY,
-                    1.0F,
-                    1.0F,
-                    1.0F,
-                    1.0F);
+            pose.pushPose();
+            try {
+                VanillaBackEquipmentTransform.applyElytraAttachment(
+                        pose, BACK_EQUIPMENT_OPERATIONS);
+                configureElytra(model);
+                elytraModel.renderToBuffer(
+                        pose,
+                        buffers.getBuffer(RenderType.armorCutoutNoCull(capeTexture)),
+                        FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY,
+                        1.0F,
+                        1.0F,
+                        1.0F,
+                        1.0F);
+            } finally {
+                pose.popPose();
+            }
         }
+    }
+
+    private void configureElytra(PlayerModel<LivingEntity> player) {
+        elytraRoot.getAllParts().forEach(ModelPart::resetPose);
+        player.copyPropertiesTo(elytraModel);
+        elytraModel.young = false;
     }
 
     private static void configureLayers(PlayerModel<?> model, OuterLayerVisibility outerLayer) {

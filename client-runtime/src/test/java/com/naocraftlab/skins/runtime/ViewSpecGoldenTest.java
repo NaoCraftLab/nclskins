@@ -82,6 +82,42 @@ final class ViewSpecGoldenTest {
                         .stripTrailing());
     }
 
+    @Test
+    void cold320LoadingGalleryMatchesGolden() {
+        ClientSnapshot initial = ClientSnapshot.initial();
+        ClientSnapshot loading = new ClientSnapshot(
+                ClientSnapshot.Lifecycle.INITIALIZING,
+                initial.account(),
+                initial.session(),
+                initial.remoteProfile(),
+                initial.lastMutation(),
+                initial.selectedSkinId(),
+                initial.selectedPresetId(),
+                initial.selectedCapeId(),
+                initial.currentOfficialSkinId(),
+                initial.activePresetId(),
+                initial.editor(),
+                initial.addSource(),
+                UiMessage.info("nclskins.status.loading"),
+                true,
+                false,
+                0,
+                1,
+                0,
+                AppearanceSyncStatus.LOCAL_ONLY,
+                false);
+
+        assertEquals(
+                golden("gallery-view-spec-320-loading.txt"),
+                describe(GALLERY.present(
+                        loading,
+                        320,
+                        240,
+                        160,
+                        100,
+                        PreviewRenderer.CapeMode.CAPE)).stripTrailing());
+    }
+
     private static ViewSpec gallery(
             int presetCount,
             int activeIndex,

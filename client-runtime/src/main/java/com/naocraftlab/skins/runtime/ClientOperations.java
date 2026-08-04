@@ -51,6 +51,11 @@ public interface ClientOperations extends AutoCloseable {
     }
 
 
+    default Optional<InitialData> warmedInitialData() {
+        return Optional.empty();
+    }
+
+
     default boolean reconciliationRecommended(InitialData data) {
         Objects.requireNonNull(data, "data");
         return data.syncStatus() == AppearanceSyncStatus.PENDING

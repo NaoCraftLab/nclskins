@@ -36,13 +36,8 @@ final class AddSourceModelPresenterTest {
 
         ViewSpec view = presenter.present(model, false, 320, 240);
 
-        assertEquals(
-                new Bounds(0, 0, 320, 24),
-                view.panels().stream()
-                        .filter(panel -> panel.id().equals("add.header"))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds());
+        assertTrue(view.panels().stream().noneMatch(panel -> panel.id().equals("add.header")));
+        assertTrue(view.panels().stream().noneMatch(panel -> panel.id().equals("add.footer")));
         assertEquals(new Bounds(0, 0, 320, 24), view.tabGroups().get(0).bounds());
         assertEquals(List.of("add.tab.catalog", "add.tab.file"),
                 view.tabGroups().get(0).tabs().stream().map(ViewSpec.Tab::id).toList());
@@ -281,9 +276,9 @@ final class AddSourceModelPresenterTest {
                 narrow,
                 4,
                 new Bounds(16, 58, 290, 16),
-                new Bounds(16, 78, 68, 117),
+                new Bounds(16, 78, 68, 114),
                 new Bounds(20, 85, 60, 10),
-                new Bounds(21, 98, 58, 92));
+                new Bounds(21, 98, 58, 89));
 
 
         ViewSpec scaledDefault = presenter.present(model, false, 427, 240);
@@ -291,9 +286,9 @@ final class AddSourceModelPresenterTest {
                 scaledDefault,
                 5,
                 new Bounds(16, 58, 397, 16),
-                new Bounds(17, 78, 74, 117),
+                new Bounds(17, 78, 74, 114),
                 new Bounds(21, 85, 66, 10),
-                new Bounds(22, 98, 64, 92));
+                new Bounds(22, 98, 64, 89));
 
         ViewSpec canonical = presenter.present(model, false, 854, 480);
         assertCompactCatalogLayout(
@@ -443,6 +438,7 @@ final class AddSourceModelPresenterTest {
                 .findFirst()
                 .orElseThrow()
                 .bounds();
+        assertEquals(440, clip.bottom(), "Create World footer reserves 36 px plus a 4 px gap");
         assertTrue(canonical.previews().stream().allMatch(preview -> intersects(preview.bounds(), clip)));
 
         ViewSpec.Scrollbar scrollbar = canonical.scrollbar().orElseThrow();
@@ -769,6 +765,13 @@ final class AddSourceModelPresenterTest {
                 new Bounds(0, 0, 320, 33),
                 confirmationView.panels().stream()
                         .filter(panel -> panel.id().equals("personal_delete.header"))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds());
+        assertEquals(
+                new Bounds(0, 207, 320, 33),
+                confirmationView.panels().stream()
+                        .filter(panel -> panel.id().equals("personal_delete.footer"))
                         .findFirst()
                         .orElseThrow()
                         .bounds());

@@ -180,6 +180,38 @@ final class ClientRuntimeRegressionTest {
     }
 
     @Test
+    void successfulPreviewRetriesClearOnlyTheirMatchingEditorError() {
+        StubOperations operations = new StubOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker);
+        runtime.initialize();
+        worker.runFirst();
+        UUID presetId = operations.account.presets().get(1).id();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        ViewSpec.Preview preview = runtime.view(854, 480, 0, 0).previews().get(0);
+
+        operations.failNextCapePreview = true;
+        CompletableFuture<Optional<byte[]>> failedCape = runtime.loadCapePreview(preview);
+        worker.runFirst();
+        assertTrue(failedCape.join().isEmpty());
+        assertEquals(
+                "nclskins.error.cape_preview",
+                runtime.snapshot().editor().orElseThrow().status().orElseThrow().key());
+
+        CompletableFuture<Optional<byte[]>> successfulSkin = runtime.loadSkinPreview(preview);
+        worker.runFirst();
+        assertTrue(successfulSkin.join().isPresent());
+        assertEquals(
+                "nclskins.error.cape_preview",
+                runtime.snapshot().editor().orElseThrow().status().orElseThrow().key());
+
+        CompletableFuture<Optional<byte[]>> successfulCape = runtime.loadCapePreview(preview);
+        worker.runFirst();
+        assertTrue(successfulCape.join().isPresent());
+        assertTrue(runtime.snapshot().editor().orElseThrow().status().isEmpty());
+    }
+
+    @Test
     void identicalConcurrentSkinAndCapePreviewsCoalesceAndPublishIndependentArrays() {
         StubOperations operations = new StubOperations();
         QueuedExecutor worker = new QueuedExecutor();

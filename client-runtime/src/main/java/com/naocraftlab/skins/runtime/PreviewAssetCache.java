@@ -14,18 +14,33 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 
 public final class PreviewAssetCache<K> implements AutoCloseable {
+    private static final long FIRST_RETRY_NANOS = TimeUnit.MILLISECONDS.toNanos(250L);
+    private static final long SECOND_RETRY_NANOS = TimeUnit.SECONDS.toNanos(1L);
+    private static final long STEADY_RETRY_NANOS = TimeUnit.SECONDS.toNanos(5L);
+
     private final TextureRegistry textures;
     private final TextureKind kind;
+    private final LongSupplier monotonicNanos;
     private final Map<K, Entry> entries = new HashMap<>();
     private boolean closed;
 
     public PreviewAssetCache(TextureRegistry textures, TextureKind kind) {
+        this(textures, kind, System::nanoTime);
+    }
+
+    PreviewAssetCache(
+            TextureRegistry textures,
+            TextureKind kind,
+            LongSupplier monotonicNanos) {
         this.textures = Objects.requireNonNull(textures, "textures");
         this.kind = Objects.requireNonNull(kind, "kind");
+        this.monotonicNanos = Objects.requireNonNull(monotonicNanos, "monotonicNanos");
     }
 
 
@@ -36,20 +51,27 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(loader, "loader");
         Objects.requireNonNull(registrationFailure, "registrationFailure");
-        if (closed || entries.containsKey(key)) {
+        if (closed) {
             return;
         }
-        Entry entry = new Entry();
-        entries.put(key, entry);
+        Entry entry = entries.computeIfAbsent(key, ignored -> new Entry());
+        long now = monotonicNanos.getAsLong();
+        if (entry.handle != null
+                || entry.inFlight
+                || (entry.failures > 0 && now - entry.retryAtNanos < 0L)) {
+            return;
+        }
+        entry.inFlight = true;
+        long attempt = ++entry.attempt;
         final CompletableFuture<Optional<byte[]>> load;
         try {
             load = Objects.requireNonNull(loader.get(), "preview load future");
         } catch (RuntimeException failure) {
-            entries.remove(key, entry);
-            throw failure;
+            fail(entry, now);
+            return;
         }
         load.whenComplete((bytes, failure) ->
-                complete(key, entry, bytes, failure, registrationFailure));
+                complete(key, entry, attempt, bytes, failure, registrationFailure));
     }
 
     public synchronized Optional<TextureHandle> handle(K key) {
@@ -84,21 +106,55 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
     private synchronized void complete(
             K key,
             Entry entry,
+            long attempt,
             Optional<byte[]> bytes,
             Throwable failure,
             Runnable registrationFailure) {
-        if (closed || entries.get(key) != entry || failure != null || bytes == null) {
+        if (closed || entries.get(key) != entry || entry.attempt != attempt) {
             return;
         }
-        bytes.ifPresent(png -> register(entry, png, registrationFailure));
+        entry.inFlight = false;
+        if (failure != null || bytes == null || bytes.isEmpty()) {
+            scheduleRetry(entry);
+            return;
+        }
+        if (!register(entry, bytes.orElseThrow())) {
+            scheduleRetry(entry);
+            notifyRegistrationFailure(registrationFailure);
+        }
     }
 
-    private void register(Entry entry, byte[] png, Runnable registrationFailure) {
+    private boolean register(Entry entry, byte[] png) {
         try {
             entry.handle = textures.register(kind, sha256(png), png);
+            return true;
         } catch (IOException | RuntimeException ignored) {
-            registrationFailure.run();
+            return false;
         }
+    }
+
+    private static void notifyRegistrationFailure(Runnable registrationFailure) {
+        try {
+            registrationFailure.run();
+        } catch (RuntimeException ignored) {
+
+
+        }
+    }
+
+    private void scheduleRetry(Entry entry) {
+        fail(entry, monotonicNanos.getAsLong());
+    }
+
+    private static void fail(Entry entry, long now) {
+        entry.inFlight = false;
+        entry.failures++;
+        long delay = switch (entry.failures) {
+            case 1 -> FIRST_RETRY_NANOS;
+            case 2 -> SECOND_RETRY_NANOS;
+            default -> STEADY_RETRY_NANOS;
+        };
+        entry.retryAtNanos = now + delay;
     }
 
     private void release(Entry entry) {
@@ -124,5 +180,9 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     private static final class Entry {
         private TextureHandle handle;
+        private boolean inFlight;
+        private int failures;
+        private long retryAtNanos;
+        private long attempt;
     }
 }
