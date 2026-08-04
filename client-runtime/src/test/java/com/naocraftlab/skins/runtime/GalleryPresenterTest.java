@@ -109,17 +109,17 @@ final class GalleryPresenterTest {
         ViewSpec.Widget duplicate = view.widget(prefix + ".duplicate").orElseThrow();
         ViewSpec.Widget delete = view.widget(prefix + ".delete").orElseThrow();
 
-        assertEquals(new Bounds(163, 171, 101, 20), apply.bounds());
-        assertEquals(new Bounds(163, 149, 32, 20), edit.bounds());
-        assertEquals(new Bounds(197, 149, 33, 20), duplicate.bounds());
-        assertEquals(new Bounds(232, 149, 32, 20), delete.bounds());
+        assertEquals(new Bounds(165, 171, 97, 20), apply.bounds());
+        assertEquals(new Bounds(165, 149, 31, 20), edit.bounds());
+        assertEquals(new Bounds(198, 149, 31, 20), duplicate.bounds());
+        assertEquals(new Bounds(231, 149, 31, 20), delete.bounds());
         assertEquals(edit.bounds().width(), delete.bounds().width());
-        assertEquals(0, edit.bounds().x() - card.bounds().x());
+        assertEquals(2, edit.bounds().x() - card.bounds().x());
         assertEquals(2, duplicate.bounds().x() - edit.bounds().right());
         assertEquals(2, delete.bounds().x() - duplicate.bounds().right());
-        assertEquals(0, card.bounds().right() - delete.bounds().right());
-        assertEquals(0, apply.bounds().x() - card.bounds().x());
-        assertEquals(0, card.bounds().right() - apply.bounds().right());
+        assertEquals(2, card.bounds().right() - delete.bounds().right());
+        assertEquals(2, apply.bounds().x() - card.bounds().x());
+        assertEquals(2, card.bounds().right() - apply.bounds().right());
         assertEquals(2, apply.bounds().y() - edit.bounds().bottom());
         assertEquals(2, card.bounds().bottom() - apply.bounds().bottom());
         ViewSpec.Preview preview = view.previews().stream()
@@ -502,15 +502,15 @@ final class GalleryPresenterTest {
                 .findFirst()
                 .orElseThrow()
                 .bounds();
-        assertEquals(new Bounds(332, 350, 124, 20), apply.bounds());
-        assertEquals(new Bounds(458, 350, 20, 20), edit.bounds());
-        assertEquals(new Bounds(480, 350, 20, 20), duplicate.bounds());
-        assertEquals(new Bounds(502, 350, 20, 20), delete.bounds());
-        assertEquals(0, apply.bounds().x() - card.x());
+        assertEquals(new Bounds(334, 350, 120, 20), apply.bounds());
+        assertEquals(new Bounds(456, 350, 20, 20), edit.bounds());
+        assertEquals(new Bounds(478, 350, 20, 20), duplicate.bounds());
+        assertEquals(new Bounds(500, 350, 20, 20), delete.bounds());
+        assertEquals(2, apply.bounds().x() - card.x());
         assertEquals(2, edit.bounds().x() - apply.bounds().right());
         assertEquals(2, duplicate.bounds().x() - edit.bounds().right());
         assertEquals(2, delete.bounds().x() - duplicate.bounds().right());
-        assertEquals(0, card.right() - delete.bounds().right());
+        assertEquals(2, card.right() - delete.bounds().right());
         assertEquals(2, card.bottom() - delete.bounds().bottom());
         ViewSpec.Preview preview = view.previews().stream()
                 .filter(candidate -> candidate.id().equals(prefix + ".preview"))

@@ -11,7 +11,7 @@ texts
 widgets
 0|gallery.search|TEXT_FIELD|70,36,180,20|key:nclskins.gallery.search:INFO|value=|hint=key:nclskins.gallery.search_hint:INFO|enabled=true|visible=true|max=128
 1|gallery.add|BUTTON|65,118,190,254|key:nclskins.gallery.add_hint:INFO|value=-|hint=-|enabled=true|visible=false|max=0
-2|gallery.preset.00000000-0000-0002-0000-000000000004.apply|BUTTON|267,350,124,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
+2|gallery.preset.00000000-0000-0002-0000-000000000004.apply|BUTTON|269,350,120,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
 3|gallery.done|BUTTON|60,452,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
 0|gallery.preset.00000000-0000-0002-0000-000000000004.preview|275,138,174,208|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=9.126401|scale=0.88|preset=00000000-0000-0002-0000-000000000004

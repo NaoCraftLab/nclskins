@@ -13,11 +13,11 @@ texts
 widgets
 0|gallery.search|TEXT_FIELD|123,36,180,20|key:nclskins.gallery.search:INFO|value=|hint=key:nclskins.gallery.search_hint:INFO|enabled=true|visible=true|max=128
 1|gallery.add|BUTTON|17,198,190,254|key:nclskins.gallery.add_hint:INFO|value=-|hint=-|enabled=true|visible=false|max=0
-2|gallery.preset.00000000-0000-0002-0000-000000000004.apply|BUTTON|219,430,124,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
-3|gallery.preset.00000000-0000-0002-0000-000000000004.edit|ICON_BUTTON|345,430,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
-4|gallery.preset.00000000-0000-0002-0000-000000000004.duplicate|ICON_BUTTON|367,430,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
-5|gallery.preset.00000000-0000-0002-0000-000000000004.delete|ICON_BUTTON|389,430,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
-6|gallery.preset.00000000-0000-0002-0000-000000000003.apply|BUTTON|421,430,124,20|key:nclskins.gallery.apply:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+2|gallery.preset.00000000-0000-0002-0000-000000000004.apply|BUTTON|221,430,120,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
+3|gallery.preset.00000000-0000-0002-0000-000000000004.edit|ICON_BUTTON|343,430,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
+4|gallery.preset.00000000-0000-0002-0000-000000000004.duplicate|ICON_BUTTON|365,430,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
+5|gallery.preset.00000000-0000-0002-0000-000000000004.delete|ICON_BUTTON|387,430,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
+6|gallery.preset.00000000-0000-0002-0000-000000000003.apply|BUTTON|423,430,120,20|key:nclskins.gallery.apply:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 7|gallery.done|BUTTON|113,612,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 8|gallery.retry_session|BUTTON|307,6,112,20|key:nclskins.session.retry:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews

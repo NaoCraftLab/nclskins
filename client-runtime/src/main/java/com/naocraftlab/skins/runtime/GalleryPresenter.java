@@ -18,6 +18,7 @@ public final class GalleryPresenter {
     private static final int CARD_GAP = 12;
     private static final int CARD_MAX_WIDTH = 190;
     private static final int CARD_ACTION_GAP = 2;
+    private static final int CARD_ACTION_SIDE_INSET = 2;
     private static final int CARD_ACTION_BOTTOM_INSET = 2;
     private static final int PREVIEW_ACTION_GAP = 4;
     private static final int VIEWPORT_SCROLLBAR_GAP = 4;
@@ -357,28 +358,30 @@ public final class GalleryPresenter {
                     !snapshot.busy()), actionViewport);
             return;
         }
+        int actionX = x + CARD_ACTION_SIDE_INSET;
+        int actionWidth = innerWidth - CARD_ACTION_SIDE_INSET * 2;
         if (cardWidth < ONE_ROW_ACTION_MIN_WIDTH) {
             addTwoRowActions(
                     snapshot,
                     prefix,
                     active,
-                    x,
-                    innerWidth,
+                    actionX,
+                    actionWidth,
                     secondaryRow,
                     applyRow,
                     actionViewport,
                     widgets);
             return;
         }
-        int applyWidth = innerWidth - ACTION_HEIGHT * 3 - CARD_ACTION_GAP * 3;
+        int applyWidth = actionWidth - ACTION_HEIGHT * 3 - CARD_ACTION_GAP * 3;
         addIntersectingAction(widgets, ViewSpec.Widget.button(
                 prefix + ".apply",
-                new Bounds(x, applyRow, applyWidth, ACTION_HEIGHT),
+                new Bounds(actionX, applyRow, applyWidth, ACTION_HEIGHT),
                 active
                         ? UiMessage.info("nclskins.gallery.active")
                         : UiMessage.info("nclskins.gallery.apply"),
                 !snapshot.busy() && !active), actionViewport);
-        int editX = x + applyWidth + CARD_ACTION_GAP;
+        int editX = actionX + applyWidth + CARD_ACTION_GAP;
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(editX, applyRow, ACTION_HEIGHT, ACTION_HEIGHT),
