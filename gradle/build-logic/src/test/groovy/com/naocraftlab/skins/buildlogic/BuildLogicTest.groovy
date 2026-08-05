@@ -455,6 +455,25 @@ final class BuildLogicTest {
     }
 
     @Test
+    void semanticVerifierRejectsExactLocalPlayerPreviewScope() {
+        Path sourceRoot = Files.createTempDirectory('nclskins-preview-semantics-')
+        try {
+            Files.writeString(
+                    sourceRoot.resolve('Preview.java'),
+                    'class PreviewPlayer extends RemotePlayer { '
+                            + 'void render() { LocalPlayer player = minecraft.player; '
+                            + 'PreviewRenderScope.open(player, request); } }')
+            List<String> errors = []
+
+            SemanticVerifier.verifyPreviewBundle('fixture-preview', [sourceRoot] as Set, errors)
+
+            assertTrue(errors.any { it.contains('must not render the exact local player') })
+        } finally {
+            sourceRoot.toFile().deleteDir()
+        }
+    }
+
+    @Test
     void classfileVerifierRejectsWrongTargetMajor() {
         Path jar = Files.createTempFile('nclskins-artifact-', '.jar')
         try {

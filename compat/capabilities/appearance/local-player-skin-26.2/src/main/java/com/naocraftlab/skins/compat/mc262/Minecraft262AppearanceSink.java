@@ -92,7 +92,7 @@ final class Minecraft262AppearanceSink
             if (payload.skin().isPresent()) {
                 Asset skin = payload.skin().orElseThrow();
                 skinHandle = textures.register(
-                        TextureKind.PLAYER_SKIN_FEATURE_PRESERVING,
+                        TextureKind.PLAYER_SKIN,
                         skin.sha256(),
                         skin.path());
                 body = resourceTexture(skinHandle);

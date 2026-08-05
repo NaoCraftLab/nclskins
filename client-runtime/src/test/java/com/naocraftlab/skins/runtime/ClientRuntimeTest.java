@@ -651,7 +651,8 @@ final class ClientRuntimeTest {
                 opened.collections().get(0).id());
         ViewSpec catalog = runtime.view(854, 480, 0, 0);
         assertTrue(catalog.widgets().stream().anyMatch(widget ->
-                widget.id().equals("add.catalog.delete:" + hash)
+                widget.id().equals("add.catalog.delete:"
+                        + PersonalSkinCatalog.COLLECTION_ID + ":" + hash)
                         && widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON));
 
         int assetsBeforeReuse = operations.account.skinAssets().size();
@@ -672,7 +673,8 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("gallery.add");
         int assetsBeforeRemoval = operations.account.skinAssets().size();
         int presetsBeforeRemoval = operations.account.presets().size();
-        runtime.dispatchWidget("add.catalog.delete:" + hash);
+        runtime.dispatchWidget("add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + hash);
 
         assertEquals("add_source", runtime.view(854, 480, 0, 0).screenId());
         assertEquals(0, operations.removePersonalCalls);
@@ -680,10 +682,12 @@ final class ClientRuntimeTest {
         ViewSpec restored = runtime.view(854, 480, 0, 0);
         assertEquals("add_source", restored.screenId());
         assertEquals(
-                Optional.of("add.catalog.delete:" + hash),
+                Optional.of("add.catalog.delete:"
+                        + PersonalSkinCatalog.COLLECTION_ID + ":" + hash),
                 restored.focusRequest().map(ViewSpec.FocusRequest::widgetId));
 
-        runtime.dispatchWidget("add.catalog.delete:" + hash);
+        runtime.dispatchWidget("add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + hash);
         operations.failPersonalRemoval = true;
         runtime.dispatchWidget("add.catalog.delete.confirm");
 
@@ -703,6 +707,41 @@ final class ClientRuntimeTest {
         assertEquals(presetsBeforeRemoval, operations.account.presets().size());
         assertFalse(runtime.snapshot().addSource().orElseThrow().collections().stream()
                 .anyMatch(collection -> PersonalSkinCatalog.isCollection(collection.id())));
+    }
+
+    @Test
+    void otherPlayersCollectionRenameAndDeleteTargetThatExactCollection() {
+        FakeOperations operations = new FakeOperations();
+        String hash = operations.seedPersonalSkin("jeb_", PersonalSkinSource.PLAYER_NAME);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+
+        String renameId = "add.catalog.rename:"
+                + PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID + ':' + hash;
+        String deleteId = "add.catalog.delete:"
+                + PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID + ':' + hash;
+        ViewSpec catalog = runtime.view(854, 480, 0, 0);
+        assertTrue(catalog.widget(renameId).isPresent());
+        assertTrue(catalog.widget(deleteId).isPresent());
+
+        runtime.dispatchWidget(renameId);
+        ViewSpec rename = runtime.view(854, 480, 0, 0);
+        assertEquals(Optional.of("add.catalog.rename.name"),
+                rename.focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        assertTrue(rename.widget("add.catalog.rename.name").orElseThrow().selectAllOnPrimaryClick());
+        runtime.dispatchText("add.catalog.rename.name", "Dinnerbone");
+        runtime.dispatchWidget("add.catalog.rename.save");
+        assertEquals("Dinnerbone", operations.account.personalSkins().get(0).displayName());
+
+        runtime.dispatchWidget(deleteId);
+        assertEquals(PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
+                runtime.snapshot().addSource().orElseThrow().personalSkinDeletion()
+                        .orElseThrow().collectionId());
+        runtime.dispatchWidget("add.catalog.delete.confirm");
+        assertFalse(operations.account.personalSkins().get(0).visible());
+        assertEquals(1, operations.removePersonalCalls);
     }
 
     @Test
@@ -1110,7 +1149,8 @@ final class ClientRuntimeTest {
                 runtime.dispatchText("add.url.input", addSource.urlInput()));
 
         runtime.dispatchWidget("add.tab.catalog");
-        runtime.dispatchWidget("add.catalog.rename:" + personalHash);
+        runtime.dispatchWidget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash);
         ViewSpec renameView = runtime.view(320, 240, 0, 0);
         assertEquals(
                 Optional.of("add.catalog.rename.name"),
@@ -2274,9 +2314,12 @@ final class ClientRuntimeTest {
                     .ifPresent(entry -> {
                         personalCatalogAssetId = entry.optionalAssetId(SkinVariant.CLASSIC)
                                 .orElseThrow();
+                        boolean otherPlayer = entry.source() == PersonalSkinSource.PLAYER_NAME;
                         collections.add(new SkinCatalogSource.CollectionDescriptor(
-                                PersonalSkinCatalog.COLLECTION_ID,
-                                CatalogText.literal("Your skins"),
+                                otherPlayer
+                                        ? PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID
+                                        : PersonalSkinCatalog.COLLECTION_ID,
+                                CatalogText.literal(otherPlayer ? "Other players' skins" : "Your skins"),
                                 Optional.empty(),
                                 Optional.empty(),
                                 List.of(new SkinCatalogSource.SkinDescriptor(
@@ -2285,7 +2328,9 @@ final class ClientRuntimeTest {
                                         Optional.empty(),
                                         Optional.empty(),
                                         List.of(SkinModel.CLASSIC))),
-                                CatalogCollectionOrder.personal(PersonalSkinCatalog.SOURCE_ID)));
+                                CatalogCollectionOrder.personal(otherPlayer
+                                        ? PersonalSkinCatalog.OTHER_PLAYERS_SOURCE_ID
+                                        : PersonalSkinCatalog.SOURCE_ID)));
                     });
             collections.addAll(MinecraftSkinCatalog.collections());
             return List.copyOf(collections);
@@ -2416,6 +2461,24 @@ final class ClientRuntimeTest {
             Instant now = nextTime();
             List<PersonalSkinEntry> personalSkins = account.personalSkins().stream()
                     .map(entry -> entry.sha256().equals(sha256) ? entry.hidden(now) : entry)
+                    .toList();
+            account = new AccountState(
+                    AccountState.CURRENT_SCHEMA_VERSION,
+                    TestFixtures.ACCOUNT_ID,
+                    account.skinAssets(),
+                    personalSkins,
+                    account.presets(),
+                    now);
+            return account;
+        }
+
+        @Override
+        public AccountState renamePersonalSkin(String sha256, String newName) {
+            Instant now = nextTime();
+            List<PersonalSkinEntry> personalSkins = account.personalSkins().stream()
+                    .map(entry -> entry.sha256().equals(sha256)
+                            ? entry.renamed(newName, now)
+                            : entry)
                     .toList();
             account = new AccountState(
                     AccountState.CURRENT_SCHEMA_VERSION,
@@ -2734,6 +2797,10 @@ final class ClientRuntimeTest {
         }
 
         private String seedPersonalSkin(String name) {
+            return seedPersonalSkin(name, PersonalSkinSource.FILE);
+        }
+
+        private String seedPersonalSkin(String name, PersonalSkinSource source) {
             String hash = "a".repeat(64);
             Instant now = nextTime();
             SkinAsset asset = new SkinAsset(
@@ -2747,7 +2814,7 @@ final class ClientRuntimeTest {
             PersonalSkinEntry entry = new PersonalSkinEntry(
                     hash,
                     name,
-                    PersonalSkinSource.FILE,
+                    source,
                     now,
                     now,
                     Map.of(SkinVariant.CLASSIC, asset.id()),

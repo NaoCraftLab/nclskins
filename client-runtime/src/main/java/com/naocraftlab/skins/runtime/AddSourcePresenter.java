@@ -327,6 +327,7 @@ public final class AddSourcePresenter {
                         0));
                 Optional<String> skinInfo = model.skinInfo(collection, skin);
                 boolean renamingThisCard = personalRename
+                        .filter(rename -> rename.collectionId().equals(collection.id()))
                         .filter(rename -> rename.sha256().equals(skin.id()))
                         .isPresent();
                 int nameX = card.x() + 4;
@@ -441,7 +442,8 @@ public final class AddSourcePresenter {
                         addIntersectingWidget(
                                 widgets,
                                 ViewSpec.Widget.iconButton(
-                                        "add.catalog.rename:" + skin.id(),
+                                        AddSourceModel.personalActionId(
+                                                "add.catalog.rename:", collection.id(), skin.id()),
                                         leftAction,
                                         UiMessage.info("nclskins.your_skins.rename"),
                                         "edit",
@@ -450,11 +452,10 @@ public final class AddSourcePresenter {
                         addIntersectingWidget(
                                 widgets,
                                 ViewSpec.Widget.iconButton(
-                                        "add.catalog.delete:" + skin.id(),
+                                        AddSourceModel.personalActionId(
+                                                "add.catalog.delete:", collection.id(), skin.id()),
                                         rightAction,
-                                        UiMessage.info(
-                                                "nclskins.your_skins.delete",
-                                                model.skinName(skin)),
+                                        UiMessage.info("nclskins.your_skins.delete"),
                                         "delete",
                                         !busy && model.personalSkinDeletion().isEmpty()),
                                 contentBottom);
@@ -473,14 +474,17 @@ public final class AddSourcePresenter {
         List<String> ids = new ArrayList<>();
         ids.add(cardId);
         if (collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL) {
-            ids.add("add.catalog.rename:" + skin.id());
-            ids.add("add.catalog.delete:" + skin.id());
+            ids.add(AddSourceModel.personalActionId(
+                    "add.catalog.rename:", collection.id(), skin.id()));
+            ids.add(AddSourceModel.personalActionId(
+                    "add.catalog.delete:", collection.id(), skin.id()));
         }
         return List.copyOf(ids);
     }
 
-    public record PersonalSkinRename(String sha256, String value) {
+    public record PersonalSkinRename(String collectionId, String sha256, String value) {
         public PersonalSkinRename {
+            Objects.requireNonNull(collectionId, "collectionId");
             Objects.requireNonNull(sha256, "sha256");
             Objects.requireNonNull(value, "value");
         }

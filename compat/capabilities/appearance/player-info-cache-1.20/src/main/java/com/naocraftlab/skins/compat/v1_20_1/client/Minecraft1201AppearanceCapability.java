@@ -88,7 +88,7 @@ final class Minecraft1201AppearanceCapability
             if (payload.skin().isPresent()) {
                 Asset skin = payload.skin().orElseThrow();
                 skinHandle = textures.register(
-                        TextureKind.PLAYER_SKIN_FEATURE_PRESERVING,
+                        TextureKind.PLAYER_SKIN,
                         skin.sha256(),
                         skin.path());
                 body = location(skinHandle);

@@ -709,13 +709,15 @@ final class AddSourceModelPresenterTest {
                         .toList());
 
         ViewSpec view = presenter.present(model, false, 1600, 720);
-        ViewSpec.Widget delete = view.widget("add.catalog.delete:" + personalHash).orElseThrow();
+        ViewSpec.Widget delete = view.widget("add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, delete.kind());
         assertEquals("nclskins.your_skins.delete", delete.label().key());
-        assertEquals(List.of("Local hero"), delete.label().arguments());
+        assertEquals(List.of(), delete.label().arguments());
         assertTrue(delete.visible());
         assertTrue(delete.enabled());
-        ViewSpec.Widget rename = view.widget("add.catalog.rename:" + personalHash).orElseThrow();
+        ViewSpec.Widget rename = view.widget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, rename.kind());
         assertEquals(Optional.of("edit"), rename.icon());
         assertEquals(Optional.of("delete"), delete.icon());
@@ -750,7 +752,7 @@ final class AddSourceModelPresenterTest {
                 320,
                 240,
                 Optional.of(new AddSourcePresenter.PersonalSkinRename(
-                        personalHash, "Renamed hero")));
+                        PersonalSkinCatalog.COLLECTION_ID, personalHash, "Renamed hero")));
         Bounds viewport = view.clipRegions().stream()
                 .filter(region -> region.id().equals("add.catalog.viewport"))
                 .findFirst()
@@ -784,14 +786,16 @@ final class AddSourceModelPresenterTest {
                 320,
                 240,
                 Optional.of(new AddSourcePresenter.PersonalSkinRename(
-                        personalHash, "Renamed hero")));
+                        PersonalSkinCatalog.COLLECTION_ID, personalHash, "Renamed hero")));
         assertTrue(topActionsClipped.widget("add.catalog.skin:"
                         + PersonalSkinCatalog.COLLECTION_ID
                         + ":"
                         + personalHash)
                 .isPresent());
-        assertTrue(topActionsClipped.widget("add.catalog.rename:" + personalHash).isEmpty());
-        assertTrue(topActionsClipped.widget("add.catalog.delete:" + personalHash).isEmpty());
+        assertTrue(topActionsClipped.widget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).isEmpty());
+        assertTrue(topActionsClipped.widget("add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).isEmpty());
         assertTrue(topActionsClipped.widget("add.catalog.rename.name").isEmpty());
         for (String id : List.of("add.catalog.rename.save", "add.catalog.rename.cancel")) {
             ViewSpec.Widget overlay = topActionsClipped.widget(id).orElseThrow();
@@ -819,7 +823,8 @@ final class AddSourceModelPresenterTest {
         assertEquals(5, preservedScroll, "arbitrary in-range pixel offsets must not snap to rows");
         AddSourceModel catalog = unscrolled.withScrollOffset(preservedScroll);
         assertTrue(presenter.present(catalog, false, 320, 240)
-                .widget("add.catalog.delete:" + personalHash)
+                .widget("add.catalog.delete:"
+                        + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
                 .isPresent());
 
         AddSourceModel confirmation = catalog.requestPersonalSkinDeletion(personal, personalSkin);
@@ -836,8 +841,10 @@ final class AddSourceModelPresenterTest {
                 "add.catalog.delete.cancel",
                 confirmationView.focusRequest().orElseThrow().widgetId());
         assertTrue(confirmation.focusToken().orElseThrow() > catalog.focusToken().orElseThrow());
-        assertTrue(confirmationView.widget("add.catalog.rename:" + personalHash).isEmpty());
-        assertTrue(confirmationView.widget("add.catalog.delete:" + personalHash).isEmpty());
+        assertTrue(confirmationView.widget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).isEmpty());
+        assertTrue(confirmationView.widget("add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).isEmpty());
 
         ViewSpec busyView = presenter.present(confirmation, true, 320, 240);
         assertFalse(busyView.widget("add.catalog.delete.confirm").orElseThrow().enabled());
@@ -852,10 +859,11 @@ final class AddSourceModelPresenterTest {
         assertEquals(catalog.scrollOffset(), cancelled.scrollOffset());
         assertEquals("add_source", restored.screenId());
         assertEquals(
-                "add.catalog.delete:" + personalHash,
+                "add.catalog.delete:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash,
                 restored.focusRequest().orElseThrow().widgetId());
         assertTrue(cancelled.focusToken().orElseThrow() > confirmation.focusToken().orElseThrow());
-        assertTrue(restored.widget("add.catalog.delete:" + personalHash).isPresent());
+        assertTrue(restored.widget("add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).isPresent());
     }
 
     @Test

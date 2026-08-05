@@ -67,6 +67,18 @@ public final class ViewHostPolicy {
                 .isPresent();
     }
 
+    public static Optional<String> focusTargetAfterMouseDispatch(
+            ViewSpec view, String currentFocusedWidgetId) {
+        Objects.requireNonNull(view, "view");
+        return view.focusRequest()
+                .map(ViewSpec.FocusRequest::widgetId)
+                .filter(widgetId -> !widgetId.equals(currentFocusedWidgetId))
+                .filter(widgetId -> view.widget(widgetId)
+                        .filter(ViewSpec.Widget::visible)
+                        .filter(ViewSpec.Widget::enabled)
+                        .isPresent());
+    }
+
     public static List<WidgetShape> widgetShapes(ViewSpec view) {
         Objects.requireNonNull(view, "view");
         return view.widgets().stream().map(WidgetShape::new).toList();

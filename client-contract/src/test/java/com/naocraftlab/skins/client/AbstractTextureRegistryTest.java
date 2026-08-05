@@ -58,17 +58,28 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
     }
 
     @Test
-    void featureSkinBytesReachTheNativeAdapterWithoutRasterRewriting() throws IOException {
+    void completeFeatureMarkerBytesReachTheNativeAdapterWithoutRasterRewriting() throws IOException {
         FakeHarness harness = new FakeHarness();
         try (harness) {
             BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
             source.setRGB(8, 0, 0x12123456);
+            source.setRGB(1, 16, 0xFF0000FF);
+            source.setRGB(0, 16, 0xFF00007F);
+            source.setRGB(0, 17, 0xFF0000FF);
+            source.setRGB(2, 16, 0xFF00FF00);
+            source.setRGB(3, 16, 0xFF007F00);
+            source.setRGB(3, 17, 0xFF00FF00);
+            source.setRGB(0, 18, 0xFFFF0000);
+            source.setRGB(0, 19, 0xFF7F0000);
+            source.setRGB(1, 19, 0xFFFF0000);
+            source.setRGB(2, 19, 0xFFFFFFFF);
+            source.setRGB(3, 18, 0xFFFFFFFF);
             java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
             ImageIO.write(source, "png", output);
             byte[] png = output.toByteArray();
 
             harness.registry.register(
-                    TextureKind.PLAYER_SKIN_FEATURE_PRESERVING, CONTENT_HASH, png);
+                    TextureKind.PLAYER_SKIN, CONTENT_HASH, png);
 
             assertArrayEquals(png, harness.registry.lastLoadedBytes);
         }

@@ -357,7 +357,7 @@ public final class AddSourceModel {
                         collection.id(),
                         skin.id(),
                         skinName(skin),
-                        "add.catalog.delete:" + skin.id())),
+                        personalActionId("add.catalog.delete:", collection.id(), skin.id()))),
                 textResolver);
     }
 
@@ -405,9 +405,11 @@ public final class AddSourceModel {
                 nextCollections.add(collection);
                 continue;
             }
-            List<SkinCatalogSource.SkinDescriptor> remaining = collection.skins().stream()
+            List<SkinCatalogSource.SkinDescriptor> remaining = collection.id().equals(deletion.collectionId())
+                    ? collection.skins().stream()
                     .filter(skin -> !skin.id().equals(deletion.sha256()))
-                    .toList();
+                    .toList()
+                    : collection.skins();
             if (!remaining.isEmpty()) {
                 nextCollections.add(new SkinCatalogSource.CollectionDescriptor(
                         collection.id(),
@@ -524,8 +526,14 @@ public final class AddSourceModel {
     }
 
     public AddSourceModel renamedPersonalSkin(String sha256, String displayName) {
+        return renamedPersonalSkin(null, sha256, displayName);
+    }
+
+    public AddSourceModel renamedPersonalSkin(
+            String collectionId, String sha256, String displayName) {
         List<SkinCatalogSource.CollectionDescriptor> renamed = collections.stream().map(collection -> {
-            if (collection.order().kind() != CatalogCollectionOrder.Kind.PERSONAL) {
+            if (collection.order().kind() != CatalogCollectionOrder.Kind.PERSONAL
+                    || collectionId != null && !collection.id().equals(collectionId)) {
                 return collection;
             }
             List<SkinCatalogSource.SkinDescriptor> skins = collection.skins().stream()
@@ -543,6 +551,10 @@ public final class AddSourceModel {
                 selectedTab, renamed, collapsedCollectionIds, query, playerInput, urlInput,
                 filter, preferredVariant, scrollOffset, focusToken, focusWidgetId,
                 personalSkinDeletion, textResolver);
+    }
+
+    static String personalActionId(String prefix, String collectionId, String sha256) {
+        return prefix + collectionId + ':' + sha256;
     }
 
     public SkinVariant selectedVariant(SkinCatalogSource.SkinDescriptor skin) {

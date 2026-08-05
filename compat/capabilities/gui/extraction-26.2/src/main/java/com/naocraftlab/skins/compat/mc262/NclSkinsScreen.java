@@ -107,7 +107,6 @@ public final class NclSkinsScreen extends Screen {
 
     private Minecraft262TextureRegistry textureRegistry;
     private PreviewAssetCache<SkinKey> skinTextures;
-    private PreviewAssetCache<SkinKey> featureSkinTextures;
     private PreviewAssetCache<String> capeTextures;
     private Minecraft262PreviewRenderer editorRenderer;
     private Minecraft262SimplePreviewRenderer backEquipmentRenderer;
@@ -159,8 +158,6 @@ public final class NclSkinsScreen extends Screen {
         if (textureRegistry == null) {
             textureRegistry = new Minecraft262TextureRegistry();
             skinTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.PLAYER_SKIN);
-            featureSkinTextures = new PreviewAssetCache<>(
-                    textureRegistry, TextureKind.PLAYER_SKIN_FEATURE_PRESERVING);
             capeTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.IMAGE);
         }
         if (editorRenderer == null) {
@@ -483,6 +480,17 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
+    private void reassertFocusRequest(ViewSpec view) {
+        ViewHostPolicy.focusTargetAfterMouseDispatch(view, currentFocusedWidgetId())
+                .ifPresent(widgetId -> {
+            if (focusWidget(widgetId)) {
+                selectAllTextField(view, widgetId);
+                consumedFocusToken = Math.max(
+                        consumedFocusToken, view.focusRequest().orElseThrow().token());
+            }
+        });
+    }
+
     private boolean focusWidget(String widgetId) {
         AbstractWidget target = nativeWidgets.get(widgetId);
         if (target != null && target.visible && target.active) {
@@ -627,11 +635,8 @@ public final class NclSkinsScreen extends Screen {
         Set<String> visibleIds = new HashSet<>();
         for (ViewSpec.Preview preview : view.previews()) {
             visibleIds.add(preview.id());
-            PreviewAssetCache<SkinKey> cache = "preset_editor".equals(view.screenId())
-                    ? featureSkinTextures
-                    : skinTextures;
             Optional<TextureHandle> loadedSkin = Optional.ofNullable(previewSkinKeys.get(preview.id()))
-                    .flatMap(cache::handle);
+                    .flatMap(skinTextures::handle);
             if (preview.catalogImage().isPresent() && loadedSkin.isEmpty()) {
                 continue;
             }
@@ -1061,6 +1066,7 @@ public final class NclSkinsScreen extends Screen {
             if (event.button() == LEFT_MOUSE_BUTTON && action.enabled()) {
                 runtime.dispatchWidget(action.id(), event.hasShiftDown());
             }
+            reassertFocusRequest(currentView);
             return true;
         }
         if (event.button() == LEFT_MOUSE_BUTTON && pointerOwner.isEmpty()) {
@@ -1090,6 +1096,7 @@ public final class NclSkinsScreen extends Screen {
             restoreMaskedWidgets(maskedWidgets, latestView);
         }
         dispatchPendingTabSelection();
+        reassertFocusRequest(currentView);
         selectAllField.ifPresent(id -> selectAllTextField(currentView, id));
         if (nativeConsumed) {
             return true;
@@ -1229,9 +1236,7 @@ public final class NclSkinsScreen extends Screen {
             return;
         }
         Set<SkinKey> desiredSkins = new HashSet<>();
-        Set<SkinKey> desiredFeatureSkins = new HashSet<>();
         Set<String> desiredCapes = new HashSet<>();
-        boolean editor = "preset_editor".equals(view.screenId());
         previewSkinKeys.clear();
         for (ViewSpec.Preview preview : view.previews()) {
             SkinKey key = new SkinKey(
@@ -1240,8 +1245,8 @@ public final class NclSkinsScreen extends Screen {
                     preview.catalogImage(),
                     preview.variant());
             previewSkinKeys.put(preview.id(), key);
-            (editor ? desiredFeatureSkins : desiredSkins).add(key);
-            ensureSkin(preview, key, editor ? featureSkinTextures : skinTextures);
+            desiredSkins.add(key);
+            ensureSkin(preview, key, skinTextures);
             preview.capeId().ifPresent(capeId -> {
                 desiredCapes.add(capeId);
                 ensureCape(preview, capeId);
@@ -1255,7 +1260,6 @@ public final class NclSkinsScreen extends Screen {
                     () -> {});
         }
         skinTextures.retain(desiredSkins);
-        featureSkinTextures.retain(desiredFeatureSkins);
         capeTextures.retain(desiredCapes);
     }
 
@@ -1290,11 +1294,9 @@ public final class NclSkinsScreen extends Screen {
         pointerCaptured = false;
         Minecraft262TextureRegistry registry = textureRegistry;
         PreviewAssetCache<SkinKey> skins = skinTextures;
-        PreviewAssetCache<SkinKey> featureSkins = featureSkinTextures;
         PreviewAssetCache<String> capes = capeTextures;
         textureRegistry = null;
         skinTextures = null;
-        featureSkinTextures = null;
         capeTextures = null;
         try {
             if (subscription != null) {
@@ -1308,30 +1310,24 @@ public final class NclSkinsScreen extends Screen {
                 }
             } finally {
                 try {
-                    if (featureSkins != null) {
-                        featureSkins.close();
+                    if (capes != null) {
+                        capes.close();
                     }
                 } finally {
                     try {
-                        if (capes != null) {
-                            capes.close();
+                        if (registry != null) {
+                            registry.close();
                         }
                     } finally {
+                        previewSkinKeys.clear();
+                        galleryRenderers.clear();
+                        backEquipmentRenderer = null;
+                        nativeWidgets.clear();
+                        nativeTabGroups.clear();
                         try {
-                            if (registry != null) {
-                                registry.close();
-                            }
+                            runtime.closeScreen();
                         } finally {
-                            previewSkinKeys.clear();
-                            galleryRenderers.clear();
-                            backEquipmentRenderer = null;
-                            nativeWidgets.clear();
-                            nativeTabGroups.clear();
-                            try {
-                                runtime.closeScreen();
-                            } finally {
-                                super.removed();
-                            }
+                            super.removed();
                         }
                     }
                 }

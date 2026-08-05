@@ -571,7 +571,9 @@ public final class ClientRuntime implements AutoCloseable {
                     state.personalRenameHash == null
                             ? Optional.empty()
                             : Optional.of(new AddSourcePresenter.PersonalSkinRename(
-                                    state.personalRenameHash, state.personalRenameValue)));
+                            state.personalRenameCollectionId,
+                            state.personalRenameHash,
+                            state.personalRenameValue)));
         }
         return galleryView(width, height, mouseX, mouseY);
     }
@@ -1223,15 +1225,16 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         if (widgetId.startsWith("add.catalog.delete:")) {
-            requestPersonalSkinDeletion(widgetId.substring("add.catalog.delete:".length()));
+            personalCatalogAction(widgetId, "add.catalog.delete:")
+                    .ifPresent(action -> requestPersonalSkinDeletion(
+                            action.collectionId(), action.sha256()));
             return;
         }
         if (widgetId.startsWith("add.catalog.rename:")) {
-            String hash = widgetId.substring("add.catalog.rename:".length());
-            if (hash.matches("[0-9a-f]{64}")) {
-                requestPersonalSkinRename(hash);
-                return;
-            }
+            personalCatalogAction(widgetId, "add.catalog.rename:")
+                    .ifPresent(action -> requestPersonalSkinRename(
+                            action.collectionId(), action.sha256()));
+            return;
         }
         if (widgetId.startsWith("add.catalog.skin:")) {
             selectCatalogSkin(widgetId.substring("add.catalog.skin:".length()));
@@ -1655,7 +1658,7 @@ public final class ClientRuntime implements AutoCloseable {
         });
     }
 
-    private void requestPersonalSkinDeletion(String sha256) {
+    private void requestPersonalSkinDeletion(String collectionId, String sha256) {
         if (state.busy
                 || state.addSource == null
                 || state.addSource.selectedTab() != AddSourceTab.CATALOG
@@ -1664,6 +1667,7 @@ public final class ClientRuntime implements AutoCloseable {
         }
         SkinCatalogSource.CollectionDescriptor collection = state.addSource.collections().stream()
                 .filter(value -> value.order().kind() == CatalogCollectionOrder.Kind.PERSONAL)
+                .filter(value -> value.id().equals(collectionId))
                 .findFirst()
                 .orElse(null);
         if (collection == null) {
@@ -1682,12 +1686,13 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    private void requestPersonalSkinRename(String sha256) {
+    private void requestPersonalSkinRename(String collectionId, String sha256) {
         if (state.busy || state.addSource == null || state.personalRenameHash != null) {
             return;
         }
         SkinCatalogSource.SkinDescriptor skin = state.addSource.collections().stream()
                 .filter(collection -> collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL)
+                .filter(collection -> collection.id().equals(collectionId))
                 .flatMap(collection -> collection.skins().stream())
                 .filter(candidate -> candidate.id().equals(sha256))
                 .findFirst()
@@ -1695,6 +1700,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (skin == null) {
             return;
         }
+        state.personalRenameCollectionId = collectionId;
         state.personalRenameHash = sha256;
         state.personalRenameValue = state.addSource.skinName(skin);
         state.addSource = state.addSource.withRequestedFocus("add.catalog.rename.name");
@@ -1705,11 +1711,14 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.busy || state.personalRenameHash == null) {
             return;
         }
+        String collectionForFocus = state.personalRenameCollectionId;
         String hashForFocus = state.personalRenameHash;
+        state.personalRenameCollectionId = null;
         state.personalRenameHash = null;
         state.personalRenameValue = "";
         state.addSource = state.addSource.withRequestedFocus(
-                "add.catalog.rename:" + hashForFocus);
+                AddSourceModel.personalActionId(
+                        "add.catalog.rename:", collectionForFocus, hashForFocus));
         publish();
     }
 
@@ -1717,6 +1726,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.busy || state.addSource == null || state.personalRenameHash == null) {
             return;
         }
+        String collectionId = state.personalRenameCollectionId;
         String hash = state.personalRenameHash;
         String name = UntrustedDisplayName.sanitize(state.personalRenameValue, "");
         if (name.isBlank()) {
@@ -1729,9 +1739,11 @@ public final class ClientRuntime implements AutoCloseable {
                     state.account = account;
                     if (state.addSource != null) {
                         state.addSource = state.addSource
-                                .renamedPersonalSkin(hash, name)
-                                .withRequestedFocus("add.catalog.rename:" + hash);
+                                .renamedPersonalSkin(collectionId, hash, name)
+                                .withRequestedFocus(AddSourceModel.personalActionId(
+                                        "add.catalog.rename:", collectionId, hash));
                     }
+                    state.personalRenameCollectionId = null;
                     state.personalRenameHash = null;
                     state.personalRenameValue = "";
                     state.status = UiMessage.success("nclskins.your_skins.renamed");
@@ -3264,6 +3276,27 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
+    private static Optional<PersonalCatalogAction> personalCatalogAction(
+            String widgetId, String prefix) {
+        String value = widgetId.substring(prefix.length());
+        int separator = value.indexOf(':');
+        if (separator <= 0 || separator == value.length() - 1) {
+            return Optional.empty();
+        }
+        String collectionId = value.substring(0, separator);
+        String sha256 = value.substring(separator + 1);
+        return sha256.matches("[0-9a-f]{64}")
+                ? Optional.of(new PersonalCatalogAction(collectionId, sha256))
+                : Optional.empty();
+    }
+
+    private record PersonalCatalogAction(String collectionId, String sha256) {
+        private PersonalCatalogAction {
+            Objects.requireNonNull(collectionId, "collectionId");
+            Objects.requireNonNull(sha256, "sha256");
+        }
+    }
+
     private record ReconciliationRequest(
             ClientOperations.ReconciliationKey key,
             ClientOperations.ReconciliationTrigger trigger) {
@@ -3321,6 +3354,7 @@ public final class ClientRuntime implements AutoCloseable {
         private String galleryQuery = "";
         private String pendingPresetName;
         private UUID pendingPresetDeleteId;
+        private String personalRenameCollectionId;
         private String personalRenameHash;
         private String personalRenameValue = "";
         private long generation;
@@ -3359,6 +3393,7 @@ public final class ClientRuntime implements AutoCloseable {
             galleryQuery = "";
             pendingPresetName = null;
             pendingPresetDeleteId = null;
+            personalRenameCollectionId = null;
             personalRenameHash = null;
             personalRenameValue = "";
         }

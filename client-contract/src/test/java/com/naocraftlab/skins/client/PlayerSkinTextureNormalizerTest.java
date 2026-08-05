@@ -10,131 +10,63 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlayerSkinTextureNormalizerTest {
     @Test
-    void preservesTransparentFeaturePixelsOutsideVanillaBaseUvs() throws IOException {
-        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        source.setRGB(0, 0, 0x00112233);
-        source.setRGB(8, 0, 0x00123456);
-
-        BufferedImage normalized = PlayerSkinTextureNormalizer.normalize(source);
-
-        assertEquals(0x00112233, normalized.getRGB(0, 0));
-        assertEquals(0xFF123456, normalized.getRGB(8, 0));
-    }
-
-    @Test
-    void pngRoundTripPreservesRgbStoredUnderTransparentFeaturePixels() throws IOException {
-        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+    void ordinaryModernSkinRepairsOnlyMandatoryBaseAlpha() throws IOException {
+        BufferedImage source = coordinateImage(64, 64, 0x12);
         source.setRGB(0, 0, 0x00112233);
 
-        byte[] normalizedPng = PlayerSkinTextureNormalizer.normalizePng(writePng(source));
-        BufferedImage normalized = ImageIO.read(new ByteArrayInputStream(normalizedPng));
-
-        assertEquals(0x00112233, normalized.getRGB(0, 0));
-    }
-
-    @Test
-    void featurePreservingPolicyLeavesOrdinaryPlayerSkinAlphaForTheNativePipeline()
-            throws IOException {
-        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        source.setRGB(8, 0, 0x12123456);
-
-        BufferedImage featurePreserving =
-                PlayerSkinTextureNormalizer.normalizeFeaturePreserving(source);
-        byte[] roundTrip = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
-                writePng(source));
-
-        assertEquals(0x12123456, featurePreserving.getRGB(8, 0));
-        assertEquals(0x12123456,
-                ImageIO.read(new ByteArrayInputStream(roundTrip)).getRGB(8, 0));
-    }
-
-    @Test
-    void featurePreservingPolicyDoesNotDependOnAnEtfMarker() throws IOException {
-        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        source.setRGB(8, 0, 0x12123456);
-        addEtfMarker(source);
-
-        BufferedImage featurePreserving =
-                PlayerSkinTextureNormalizer.normalizeFeaturePreserving(source);
-        byte[] roundTrip = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
-                writePng(source));
-
-        assertEquals(0x12123456, featurePreserving.getRGB(8, 0));
-        assertEquals(0x12123456,
-                ImageIO.read(new ByteArrayInputStream(roundTrip)).getRGB(8, 0));
-    }
-
-    @Test
-    void featurePreservingPolicyKeepsLegacyLayoutForTheNativePipeline() throws IOException {
-        BufferedImage legacy = coordinateImage(64, 32, 0x40);
-
-        BufferedImage preserved = PlayerSkinTextureNormalizer.normalizeFeaturePreserving(legacy);
-
-        assertEquals(64, preserved.getWidth());
-        assertEquals(32, preserved.getHeight());
-        assertEquals(legacy.getRGB(8, 0), preserved.getRGB(8, 0));
-    }
-
-    @Test
-    void featurePreservingPolicyKeepsEmbeddedDataInVanillaOpaqueRegions() throws IOException {
-        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        source.setRGB(8, 0, 0x12123456);
-
-        byte[] preservedPng = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
-                writePng(source));
-        BufferedImage preserved = ImageIO.read(new ByteArrayInputStream(preservedPng));
-
-        assertEquals(0x12123456, preserved.getRGB(8, 0));
-    }
-
-    @Test
-    void featurePreservingPngKeepsExactEncodedBytes() throws IOException {
-        byte[] source = writePng(coordinateImage(64, 64, 0x40));
-
-        byte[] preserved = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(source);
-
-        assertArrayEquals(source, preserved);
-    }
-
-    @Test
-    void expandsLegacyLimbsWithTheCanonicalMirroredCopies() throws IOException {
-        BufferedImage legacy = coordinateImage(64, 32, 0x40);
-
-        BufferedImage normalized = PlayerSkinTextureNormalizer.normalize(legacy);
+        BufferedImage normalized = read(PlayerSkinTextureNormalizer.normalizePng(writePng(source)));
 
         assertEquals(64, normalized.getWidth());
         assertEquals(64, normalized.getHeight());
-        assertRgbEquals(legacy.getRGB(7, 16), normalized.getRGB(20, 48));
-        assertRgbEquals(legacy.getRGB(4, 16), normalized.getRGB(23, 48));
-        assertRgbEquals(legacy.getRGB(47, 16), normalized.getRGB(36, 48));
-        assertRgbEquals(legacy.getRGB(44, 16), normalized.getRGB(39, 48));
-        assertEquals(0xFF, alpha(normalized.getRGB(20, 48)));
-        assertEquals(0xFF, alpha(normalized.getRGB(36, 48)));
+        assertEquals(0xFF, alpha(normalized.getRGB(8, 0)));
+        assertEquals(0x00112233, normalized.getRGB(0, 0));
+        assertEquals(source.getRGB(40, 8), normalized.getRGB(40, 8));
     }
 
     @Test
-    void clearsThePreAlphaLegacyOverlayOnlyWhenItIsFullyOpaque() throws IOException {
-        BufferedImage legacy = coordinateImage(64, 32, 0xFF);
+    void ordinaryLegacySkinKeepsLegacyDimensionsForTheNativeLoader() throws IOException {
+        BufferedImage source = coordinateImage(64, 32, 0x12);
 
-        BufferedImage normalized = PlayerSkinTextureNormalizer.normalize(legacy);
+        BufferedImage normalized = read(PlayerSkinTextureNormalizer.normalizePng(writePng(source)));
 
-        assertEquals(0, alpha(normalized.getRGB(40, 8)));
-        assertEquals(0xFF, alpha(normalized.getRGB(44, 16)));
-        assertEquals(0xFF, alpha(normalized.getRGB(40, 20)));
+        assertEquals(64, normalized.getWidth());
+        assertEquals(32, normalized.getHeight());
+        assertEquals(0xFF, alpha(normalized.getRGB(8, 0)));
+    }
+
+    @Test
+    void completeEtfMarkerPreservesExactPngAndEmbeddedAlpha() throws IOException {
+        BufferedImage source = coordinateImage(64, 64, 0x12);
+        addEtfMarker(source);
+        byte[] png = writePng(source);
+
+        assertTrue(PlayerSkinTextureNormalizer.hasCompleteEtfFeatureMarker(source));
+        assertArrayEquals(png, PlayerSkinTextureNormalizer.normalizePng(png));
+        assertEquals(0x12, alpha(read(png).getRGB(8, 0)));
+    }
+
+    @Test
+    void incompleteEtfMarkerDoesNotDisableOrdinaryAlphaRepair() throws IOException {
+        BufferedImage source = coordinateImage(64, 64, 0x12);
+        addEtfMarker(source);
+        source.setRGB(3, 18, 0xFF000000);
+
+        BufferedImage normalized = read(PlayerSkinTextureNormalizer.normalizePng(writePng(source)));
+
+        assertFalse(PlayerSkinTextureNormalizer.hasCompleteEtfFeatureMarker(source));
+        assertEquals(0xFF, alpha(normalized.getRGB(8, 0)));
     }
 
     @Test
     void rejectsNonPlayerDimensions() {
         BufferedImage invalid = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-
         assertThrows(IOException.class, () -> PlayerSkinTextureNormalizer.normalize(invalid));
-        assertThrows(
-                IOException.class,
-                () -> PlayerSkinTextureNormalizer.normalizeFeaturePreserving(invalid));
     }
 
     private static BufferedImage coordinateImage(int width, int height, int alpha) {
@@ -155,6 +87,10 @@ class PlayerSkinTextureNormalizerTest {
         return output.toByteArray();
     }
 
+    private static BufferedImage read(byte[] png) throws IOException {
+        return ImageIO.read(new ByteArrayInputStream(png));
+    }
+
     private static void addEtfMarker(BufferedImage image) {
         image.setRGB(1, 16, 0xFF0000FF);
         image.setRGB(0, 16, 0xFF00007F);
@@ -167,10 +103,6 @@ class PlayerSkinTextureNormalizerTest {
         image.setRGB(1, 19, 0xFFFF0000);
         image.setRGB(2, 19, 0xFFFFFFFF);
         image.setRGB(3, 18, 0xFFFFFFFF);
-    }
-
-    private static void assertRgbEquals(int expected, int actual) {
-        assertEquals(expected & 0x00FFFFFF, actual & 0x00FFFFFF);
     }
 
     private static int alpha(int argb) {

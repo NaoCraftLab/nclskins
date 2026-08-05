@@ -64,6 +64,17 @@ final class VanillaBackEquipmentTransformTest {
     }
 
     @Test
+    void minecraft1211CapeCardAddsTheUvCorrectingHalfTurnOnlyForThatCardPath() {
+        RecordingOperations operations = new RecordingOperations();
+
+        VanillaBackEquipmentTransform.applyMinecraft1211StandaloneCapeAttachment(
+                new Object(), operations);
+
+        assertEquals(List.of("translate", "rotateX", "rotateY"), operations.names);
+        assertArrayEquals(new float[]{(float) Math.PI}, operations.values.get(2), EPSILON);
+    }
+
+    @Test
     void capeAttachmentCanClearInflatedWorldlessPlayerLayersWithoutChangingRotations() {
         RecordingOperations operations = new RecordingOperations();
 

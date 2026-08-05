@@ -86,7 +86,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private final TextureRegistry textures;
     private final NativeScrollController scrollController;
     private final PreviewAssetCache<PreviewAssetKey> skinTextures;
-    private final PreviewAssetCache<PreviewAssetKey> featureSkinTextures;
     private final PreviewAssetCache<String> capeTextures;
     private final BackEquipmentPreviewRenderer<GuiGraphics> backEquipmentRenderer;
     private final Map<String, AbstractWidget> nativeWidgets = new LinkedHashMap<>();
@@ -115,8 +114,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         this.scrollController = Objects.requireNonNull(
                 capabilities.createScrollController(), "scrollController");
         this.skinTextures = new PreviewAssetCache<>(textures, TextureKind.PLAYER_SKIN);
-        this.featureSkinTextures = new PreviewAssetCache<>(
-                textures, TextureKind.PLAYER_SKIN_FEATURE_PRESERVING);
         this.capeTextures = new PreviewAssetCache<>(textures, TextureKind.IMAGE);
         this.backEquipmentRenderer = Objects.requireNonNull(
                 capabilities.createBackEquipmentPreviewRenderer(), "backEquipmentPreviewRenderer");
@@ -259,6 +256,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             if (button == 0 && action.enabled()) {
                 runtime.dispatchWidget(action.id(), hasShiftDown());
             }
+            reassertFocusRequest(currentView());
             return true;
         }
         List<MaskedNativeWidget> maskedWidgets = maskWidgetsOutsideClip(clickView, mouseX, mouseY);
@@ -271,6 +269,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         }
         dispatchPendingTabSelection();
         ViewSpec view = currentView();
+        reassertFocusRequest(view);
         selectAllField.ifPresent(id -> selectAllTextField(view, id));
         if (!consumed && pointerOwner.isPresent()) {
 
@@ -1042,6 +1041,19 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         consumedFocusToken = focusRequest.token();
     }
 
+    private void reassertFocusRequest(ViewSpec view) {
+        ViewHostPolicy.focusTargetAfterMouseDispatch(view, currentFocusedWidgetId())
+                .ifPresent(widgetId -> {
+            AbstractWidget target = nativeWidgets.get(widgetId);
+            if (target != null && target.visible && target.active && getFocused() != target) {
+                setFocused(target);
+                selectAllTextField(view, widgetId);
+                consumedFocusToken = Math.max(
+                        consumedFocusToken, view.focusRequest().orElseThrow().token());
+            }
+        });
+    }
+
     private void dispatchPendingTabSelection() {
         String tabId = pendingTabSelection;
         pendingTabSelection = null;
@@ -1166,7 +1178,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private void synchronizePreviews(ViewSpec view) {
         Set<String> requested = new HashSet<>();
         Set<PreviewAssetKey> desiredSkins = new HashSet<>();
-        Set<PreviewAssetKey> desiredFeatureSkins = new HashSet<>();
         Set<String> desiredCapes = new HashSet<>();
         boolean editor = PRESET_EDITOR_SCREEN_ID.equals(view.screenId());
         for (ViewSpec.Preview preview : view.previews()) {
@@ -1178,11 +1189,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                             : new PreviewSlot(editor));
             PreviewAssetKey key = previewAssetKey(preview);
             if (preview.skin().optionalAssetId().isPresent() || preview.catalogImage().isPresent()) {
-                Set<PreviewAssetKey> desired = editor ? desiredFeatureSkins : desiredSkins;
-                PreviewAssetCache<PreviewAssetKey> cache =
-                        editor ? featureSkinTextures : skinTextures;
-                desired.add(key);
-                cache.request(
+                desiredSkins.add(key);
+                skinTextures.request(
                         key,
                         () -> runtime.loadSkinPreview(preview),
                         () -> runtime.reportSkinPreviewFailure(preview));
@@ -1204,7 +1212,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         }
         previewSlots.keySet().removeIf(id -> !requested.contains(id));
         skinTextures.retain(desiredSkins);
-        featureSkinTextures.retain(desiredFeatureSkins);
         capeTextures.retain(desiredCapes);
     }
 
@@ -1222,9 +1229,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             skin = borrowed.skin();
             model = borrowed.model();
         } else {
-            PreviewAssetCache<PreviewAssetKey> cache =
-                    slot.editor ? featureSkinTextures : skinTextures;
-            Optional<TextureHandle> loaded = cache.handle(previewAssetKey(preview));
+            Optional<TextureHandle> loaded = skinTextures.handle(previewAssetKey(preview));
             if (loaded.isEmpty()) {
                 return;
             }
@@ -1261,13 +1266,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             skinTextures.close();
         } finally {
             try {
-                featureSkinTextures.close();
+                capeTextures.close();
             } finally {
-                try {
-                    capeTextures.close();
-                } finally {
-                    previewSlots.clear();
-                }
+                previewSlots.clear();
             }
         }
     }

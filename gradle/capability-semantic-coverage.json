@@ -44,7 +44,7 @@
       "semantics": [
         "path-bytes-parity",
         "player-skin-normalization",
-        "generic-ordinary-feature-preserving-modes",
+        "generic-and-single-player-skin-mode",
         "reference-counting",
         "release-and-close"
       ]

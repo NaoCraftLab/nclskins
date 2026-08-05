@@ -33,10 +33,6 @@ public final class Minecraft1201SimplePreviewRenderer
         implements PreviewRenderer<GuiGraphics>, BackEquipmentPreviewRenderer<GuiGraphics> {
     private static final int FULL_BRIGHT = 0x00F000F0;
     private static final float GUI_DEPTH = 120.0F;
-    private static final PlayerPreviewLighting.Rig LIGHTING =
-            PlayerPreviewLighting.centeredFront();
-    private static final Vector3f PRIMARY_LIGHT = lightDirection(LIGHTING.primary());
-    private static final Vector3f FILL_LIGHT = lightDirection(LIGHTING.fill());
     private static final VanillaPlayerModelTransform.Operations<PoseStack> POSE_OPERATIONS =
             new VanillaPlayerModelTransform.Operations<>() {
                 @Override
@@ -138,7 +134,7 @@ public final class Minecraft1201SimplePreviewRenderer
                     request.pitchDegrees(),
                     POSE_OPERATIONS);
 
-            RenderSystem.setShaderLights(PRIMARY_LIGHT, FILL_LIGHT);
+            setupLighting(request.pitchDegrees());
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation skin = location(appearance.skin());
             model.renderToBuffer(
@@ -181,7 +177,7 @@ public final class Minecraft1201SimplePreviewRenderer
             VanillaBackEquipmentTransform.applyStandalone(
                     pose, scale, BACK_EQUIPMENT_OPERATIONS);
 
-            RenderSystem.setShaderLights(PRIMARY_LIGHT, FILL_LIGHT);
+            setupLighting(0.0F);
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation texture = location(request.texture());
             renderBackEquipment(
@@ -285,5 +281,11 @@ public final class Minecraft1201SimplePreviewRenderer
 
     private static Vector3f lightDirection(PlayerPreviewLighting.Direction direction) {
         return new Vector3f(direction.x(), direction.y(), direction.z());
+    }
+
+    private static void setupLighting(float pitchDegrees) {
+        PlayerPreviewLighting.Rig rig = PlayerPreviewLighting.centeredFrontForPitch(pitchDegrees);
+        RenderSystem.setShaderLights(
+                lightDirection(rig.primary()), lightDirection(rig.fill()));
     }
 }

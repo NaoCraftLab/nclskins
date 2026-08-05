@@ -60,7 +60,7 @@
   "nclskins.add_source.url_invalid_file": "Ссылка не вернула подходящий файл скина",
   "nclskins.your_skins.name": "Ваши скины",
   "nclskins.other_players.name": "Скины других игроков",
-  "nclskins.your_skins.delete": "Удалить %s из «Ваших скинов»",
+  "nclskins.your_skins.delete": "Удалить",
   "nclskins.your_skins.delete_title": "Удалить из «Ваших скинов»?",
   "nclskins.your_skins.delete_question": "Убрать %s из каталога?",
   "nclskins.your_skins.delete_note": "Существующие образы продолжат использовать этот скин.",

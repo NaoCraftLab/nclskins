@@ -38,6 +38,10 @@ final class ViewHostPolicyTest {
         assertTrue(ViewHostPolicy.submitAction(view, "field", false, "value").isEmpty());
         assertTrue(ViewHostPolicy.shouldSelectAll(view, "field", true, "value"));
         assertFalse(ViewHostPolicy.shouldSelectAll(view, "field", true, ""));
+        assertEquals(Optional.of("field"),
+                ViewHostPolicy.focusTargetAfterMouseDispatch(view, "rename-button"));
+        assertEquals(Optional.empty(),
+                ViewHostPolicy.focusTargetAfterMouseDispatch(view, "field"));
     }
 
     private static ViewSpec.Widget widget(String id, Bounds bounds) {
@@ -52,6 +56,6 @@ final class ViewHostPolicyTest {
         return new ViewSpec(
                 "test", UiMessage.literal("test", UiMessage.Severity.INFO), 100, 100,
                 List.of(), List.of(), widgets, List.of(), Optional.empty(), List.of(),
-                Optional.empty(), clips, List.of());
+                Optional.of(new ViewSpec.FocusRequest(widgets.get(0).id(), 1L)), clips, List.of());
     }
 }

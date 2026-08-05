@@ -57,13 +57,13 @@ public interface TextureRegistryTck {
 
             assertNotEquals(image, playerSkin);
             assertEquals(64, playerSkin.width());
-            assertEquals(64, playerSkin.height());
+            assertEquals(32, playerSkin.height());
             assertEquals(2, harness.liveNativeTextureCount());
         }
     }
 
     @Test
-    default void genericOrdinaryAndFeaturePreservingModesShareOneContract() throws IOException {
+    default void genericAndPlayerSkinModesHaveOnePlayerCacheKey() throws IOException {
         try (RegistryHarness harness = createRegistryHarness()) {
             byte[] png = imagePng(64, 64);
             TextureHandle generic = harness.registry()
@@ -71,12 +71,12 @@ public interface TextureRegistryTck {
             TextureHandle ordinary = harness.registry()
                     .register(TextureKind.PLAYER_SKIN, CONTENT_HASH, png);
             TextureHandle featurePreserving = harness.registry().register(
-                    TextureKind.PLAYER_SKIN_FEATURE_PRESERVING, CONTENT_HASH, png);
+                    TextureKind.PLAYER_SKIN, CONTENT_HASH, png);
 
             assertNotEquals(generic, ordinary);
-            assertNotEquals(ordinary, featurePreserving);
+            assertEquals(ordinary, featurePreserving);
             assertNotEquals(generic, featurePreserving);
-            assertEquals(3, harness.liveNativeTextureCount());
+            assertEquals(2, harness.liveNativeTextureCount());
         }
     }
 

@@ -205,7 +205,7 @@ public final class Minecraft1211SimplePreviewRenderer
             pose.pushPose();
             try {
                 if (standalone) {
-                    VanillaBackEquipmentTransform.applyStandaloneCapeAttachment(
+                    VanillaBackEquipmentTransform.applyMinecraft1211StandaloneCapeAttachment(
                             pose, BACK_EQUIPMENT_OPERATIONS);
                 } else {
                     VanillaBackEquipmentTransform.applyCapeAttachment(

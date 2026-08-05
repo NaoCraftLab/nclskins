@@ -60,7 +60,7 @@
   "nclskins.add_source.url_invalid_file": "The URL did not return a supported skin file",
   "nclskins.your_skins.name": "Your skins",
   "nclskins.other_players.name": "Other players' skins",
-  "nclskins.your_skins.delete": "Delete %s from Your skins",
+  "nclskins.your_skins.delete": "Delete",
   "nclskins.your_skins.delete_title": "Delete from Your skins?",
   "nclskins.your_skins.delete_question": "Remove %s from the catalog?",
   "nclskins.your_skins.delete_note": "Existing looks will keep using this skin.",

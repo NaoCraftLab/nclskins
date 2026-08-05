@@ -45,7 +45,7 @@ public final class Minecraft262TextureRegistry
     @Override
     protected LoadedTexture<NativeTexture> load(TextureKind kind, String sha256, byte[] pngBytes)
             throws IOException {
-        if (kind == TextureKind.PLAYER_SKIN_FEATURE_PRESERVING) {
+        if (kind == TextureKind.PLAYER_SKIN) {
             return loadFeatureSkin(sha256, pngBytes);
         }
         NativeImage image;
@@ -53,9 +53,8 @@ public final class Minecraft262TextureRegistry
             image = NativeImage.read(input);
         }
         String kindPath = switch (kind) {
-            case PLAYER_SKIN -> "skin";
-            case PLAYER_SKIN_FEATURE_PRESERVING -> throw new IllegalStateException(
-                    "Feature skins use the native player-skin pipeline");
+            case PLAYER_SKIN -> throw new IllegalStateException(
+                    "Player skins use the native player-skin pipeline");
             case IMAGE -> "image";
         };
         Identifier location = Identifier.fromNamespaceAndPath(

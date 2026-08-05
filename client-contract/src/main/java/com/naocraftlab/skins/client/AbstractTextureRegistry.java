@@ -111,7 +111,6 @@ public abstract class AbstractTextureRegistry<R> implements TextureRegistry {
     private static int maximumBytes(TextureKind kind) {
         TextureKind requiredKind = Objects.requireNonNull(kind, "kind");
         return requiredKind == TextureKind.PLAYER_SKIN
-                || requiredKind == TextureKind.PLAYER_SKIN_FEATURE_PRESERVING
                 ? MAX_PLAYER_SKIN_BYTES
                 : MAX_IMAGE_BYTES;
     }
@@ -159,7 +158,6 @@ public abstract class AbstractTextureRegistry<R> implements TextureRegistry {
         byte[] sourceBytes = source.read();
         byte[] uploadBytes = switch (kind) {
             case PLAYER_SKIN -> PlayerSkinTextureNormalizer.normalizePng(sourceBytes);
-            case PLAYER_SKIN_FEATURE_PRESERVING -> PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(sourceBytes);
             case IMAGE -> sourceBytes;
         };
         LoadedTexture<R> loaded = Objects.requireNonNull(

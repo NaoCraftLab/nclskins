@@ -122,6 +122,12 @@ final class SemanticVerifier {
         if (!text.contains('extends RemotePlayer')) {
             errors.add("${implementation}: editor preview must use a synthetic RemotePlayer")
         }
+        ['LocalPlayer player = minecraft.player',
+         'PreviewRenderScope.open(player, request)'].each { String forbidden ->
+            if (text.contains(forbidden)) {
+                errors.add("${implementation}: preview must not render the exact local player (${forbidden})")
+            }
+        }
         ['minecraft.player.set', 'minecraft.player.getInventory()',
          'minecraft.options.setModelPart'].each { String forbidden ->
             if (text.contains(forbidden)) {
