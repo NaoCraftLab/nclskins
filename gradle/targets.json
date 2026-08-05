@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001"
   },
@@ -583,7 +583,7 @@
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-immediate",
       "buildProfile": "fabric-loom-single",
-      "path": "targets/fabric/1.20.1",
+      "path": "targets/1.20.1/fabric",
       "minecraft": {
         "version": "1.20.1",
         "predicate": ">=1.20.1",
@@ -648,7 +648,7 @@
       "loaderProfile": "forge47-loader",
       "integrationProfile": "forge-immediate",
       "buildProfile": "forgegradle-legacy",
-      "path": "targets/forge/1.20.1",
+      "path": "targets/1.20.1/forge",
       "minecraft": {
         "version": "1.20.1",
         "predicate": "[1.20.1,)",
@@ -715,7 +715,7 @@
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-immediate",
       "buildProfile": "fabric-loom-split",
-      "path": "targets/fabric/1.21.1",
+      "path": "targets/1.21.1/fabric",
       "minecraft": {
         "version": "1.21.1",
         "predicate": ">=1.21.1",
@@ -780,7 +780,7 @@
       "loaderProfile": "neoforge-loader",
       "integrationProfile": "neoforge-immediate",
       "buildProfile": "neoforge-moddev",
-      "path": "targets/neoforge/1.21.1",
+      "path": "targets/1.21.1/neoforge",
       "minecraft": {
         "version": "1.21.1",
         "predicate": "[1.21.1,)",
@@ -847,7 +847,7 @@
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-extraction",
       "buildProfile": "fabric-loom-single",
-      "path": "targets/fabric/26.1",
+      "path": "targets/26.1/fabric",
       "minecraft": {
         "version": "26.1",
         "predicate": ">=26.1",
@@ -934,7 +934,7 @@
       "loaderProfile": "neoforge-loader",
       "integrationProfile": "neoforge-extraction",
       "buildProfile": "neoforge-moddev",
-      "path": "targets/neoforge/26.1",
+      "path": "targets/26.1/neoforge",
       "minecraft": {
         "version": "26.1",
         "predicate": "[26.1,)",
@@ -1023,7 +1023,7 @@
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-extraction",
       "buildProfile": "fabric-loom-single",
-      "path": "targets/fabric/26.2",
+      "path": "targets/26.2/fabric",
       "minecraft": {
         "version": "26.2",
         "predicate": ">=26.2",
@@ -1088,7 +1088,7 @@
       "loaderProfile": "neoforge-loader",
       "integrationProfile": "neoforge-extraction",
       "buildProfile": "neoforge-moddev",
-      "path": "targets/neoforge/26.2",
+      "path": "targets/26.2/neoforge",
       "minecraft": {
         "version": "26.2",
         "predicate": "[26.2,)",

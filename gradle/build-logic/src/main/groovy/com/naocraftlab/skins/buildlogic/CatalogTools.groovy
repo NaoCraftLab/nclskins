@@ -288,7 +288,7 @@ final class CatalogTools {
                 'schemaVersion', 'development', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 7) {
+        if (catalog.schemaVersion != 8) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -497,7 +497,7 @@ final class CatalogTools {
             String loader = target.loader instanceof Map ? target.loader.id?.toString() : null
             String minecraft = target.minecraft instanceof Map ? target.minecraft.version?.toString() : null
             String expectedId = loader && minecraft ? "${loader}-${minecraft}" : null
-            String expectedPath = loader && minecraft ? "targets/${loader}/${minecraft}" : null
+            String expectedPath = loader && minecraft ? "targets/${minecraft}/${loader}" : null
             if (target.id != expectedId || target.path != expectedPath) {
                 errors.add("${target.id}: target identity/path differs from loader and Minecraft version")
             }
@@ -847,6 +847,14 @@ final class CatalogTools {
             Map target = targets.find { path == it.path || path.startsWith(it.path.toString() + '/') } as Map
             if (target != null) {
                 affected[target.id.toString()].add("target-local:${target.path}")
+                return
+            }
+            Map relocatedTarget = targets.find {
+                String previousPath = "targets/${it.loader.id}/${it.minecraft.version}"
+                path == previousPath || path.startsWith(previousPath + '/')
+            } as Map
+            if (relocatedTarget != null) {
+                affected[relocatedTarget.id.toString()].add("target-relocated:${relocatedTarget.path}")
                 return
             }
             List matches = sourceOwners.findAll { String root, Set owners -> path == root || path.startsWith(root + '/') }.collectMany { it.value as List }

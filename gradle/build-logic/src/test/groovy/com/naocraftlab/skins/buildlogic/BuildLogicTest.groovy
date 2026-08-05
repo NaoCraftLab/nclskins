@@ -20,11 +20,14 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(7, catalog.schemaVersion)
+        assertEquals(8, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
         assertEquals(LinkedHashMap, catalog.targets.first().getClass())
+        assertEquals(
+                catalog.targets.collect { "targets/${it.minecraft.version}/${it.loader.id}".toString() },
+                catalog.targets.collect { it.path })
         CatalogTools.validate(repository, catalog)
     }
 
@@ -317,6 +320,7 @@ final class BuildLogicTest {
 
     @Test
     void affectedClassificationUsesCatalogOwnership() {
+        assertEquals(['forge-1.20.1'] as Set, selected('targets/1.20.1/forge/build.gradle'))
         assertEquals(['forge-1.20.1'] as Set, selected('targets/forge/1.20.1/build.gradle'))
         assertEquals(['fabric-1.20.1', 'forge-1.20.1'] as Set, selected('compat/capabilities/gui/immediate-1.20/src/main/java/Example.java'))
         assertEquals(catalog.targets.collect { it.id } as Set, selected('core/src/main/java/com/naocraftlab/skins/core/Example.java'))
