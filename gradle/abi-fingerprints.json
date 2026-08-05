@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "implementations": {
     "immediate-1.20": {
       "kind": "gui",
@@ -1295,7 +1295,7 @@
           ]
         }
       ],
-      "baselineSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "baselineSha256": "a78289d9e15d5f4164197a1c68012186e2df7f48f52a221573853089e9e56cd8"
     },
     "avatar-pip-26.2": {
       "kind": "preview",
@@ -3925,8 +3925,8 @@
       "baselineSha256": "698ac95899b6c0a3d87d7d10c3057223b690dc11b91a5823e7a9af1296152ce4"
     }
   },
-  "resolvedByEpoch": {
-    "1.20.1": {
+  "resolvedByProfile": {
+    "legacy-resource-location-authlib4": {
       "immediate-1.20": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
         "net.minecraft.client.gui.GuiGraphics": "7c5001e01cf271f3d09c4a33b428fc2d4e09f03f9adf49d1795178662f2cce5b",
@@ -4048,7 +4048,7 @@
         "net.minecraftforge.fml.loading.FMLPaths": "e917f9069035d84bda1d3817888c5963830c5f64cb92fd62da39d75d82315d4b"
       }
     },
-    "1.21.1": {
+    "modern-resource-location-authlib6": {
       "immediate-1.21": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
         "net.minecraft.client.gui.GuiGraphics": "7c5001e01cf271f3d09c4a33b428fc2d4e09f03f9adf49d1795178662f2cce5b",
@@ -4168,7 +4168,7 @@
         "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
       }
     },
-    "26.1": {
+    "identifier-extraction-authlib7": {
       "avatar-pip-26.1": {
         "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "a78289d9e15d5f4164197a1c68012186e2df7f48f52a221573853089e9e56cd8",
         "net.minecraft.client.renderer.entity.state.AvatarRenderState": "b53ede46370464db6be4e80a6e93a081a384974eb45ff5687a53ce3882582227"
@@ -4289,7 +4289,7 @@
         "net.minecraft.server.packs.PackResources": "5b204a6813ff7f9d7cf2c45a83b96e741cc2d7bd2608cafba406f8975fb94a14"
       }
     },
-    "26.2": {
+    "identifier-extraction-authlib9": {
       "extraction-26.2": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
         "net.minecraft.client.gui.ActiveTextCollector": "26406cec219761d8182d1c0ab44103a8213c2a176eaed18f0dabda595db89f6d",

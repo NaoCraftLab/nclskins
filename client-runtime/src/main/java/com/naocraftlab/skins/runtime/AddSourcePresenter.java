@@ -372,7 +372,8 @@ public final class AddSourcePresenter {
                         0.0F,
                         1.0F,
                         Optional.empty(),
-                        Optional.of(new ViewSpec.CatalogImage(collection.id(), skin.id()))));
+                            Optional.of(new ViewSpec.CatalogImage(collection.id(), skin.id())),
+                            PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL));
                 }
                 if (renamingThisCard) {
                     PersonalSkinRename rename = personalRename.orElseThrow();

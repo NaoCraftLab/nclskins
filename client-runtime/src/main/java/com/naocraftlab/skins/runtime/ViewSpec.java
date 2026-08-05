@@ -588,7 +588,8 @@ public record ViewSpec(
             float pitchDegrees,
             float scale,
             Optional<UUID> presetId,
-            Optional<CatalogImage> catalogImage) {
+            Optional<CatalogImage> catalogImage,
+            PreviewRenderer.PreviewIntent intent) {
         public Preview(
                 String id,
                 Bounds bounds,
@@ -615,7 +616,39 @@ public record ViewSpec(
                     pitchDegrees,
                     scale,
                     presetId,
-                    Optional.empty());
+                    Optional.empty(),
+                    PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL);
+        }
+
+        public Preview(
+                String id,
+                Bounds bounds,
+                SkinReference skin,
+                String imageRevision,
+                SkinVariant variant,
+                Optional<String> capeId,
+                PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility outerLayerVisibility,
+                float yawDegrees,
+                float pitchDegrees,
+                float scale,
+                Optional<UUID> presetId,
+                Optional<CatalogImage> catalogImage) {
+            this(
+                    id,
+                    bounds,
+                    skin,
+                    imageRevision,
+                    variant,
+                    capeId,
+                    capeMode,
+                    outerLayerVisibility,
+                    yawDegrees,
+                    pitchDegrees,
+                    scale,
+                    presetId,
+                    catalogImage,
+                    PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL);
         }
 
         public Preview {
@@ -632,6 +665,7 @@ public record ViewSpec(
             Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
             presetId = Objects.requireNonNull(presetId, "presetId");
             catalogImage = Objects.requireNonNull(catalogImage, "catalogImage");
+            Objects.requireNonNull(intent, "intent");
             if (!Float.isFinite(scale) || scale <= 0.0F) {
                 throw new IllegalArgumentException("preview scale must be finite and positive");
             }
@@ -671,7 +705,8 @@ public record ViewSpec(
                     pitchDegrees,
                     scale,
                     presetId,
-                    Optional.empty());
+                    Optional.empty(),
+                    PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL);
         }
     }
 

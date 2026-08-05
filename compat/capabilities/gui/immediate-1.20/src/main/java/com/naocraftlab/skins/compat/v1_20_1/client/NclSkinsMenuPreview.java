@@ -89,7 +89,8 @@ public final class NclSkinsMenuPreview implements Renderable, LayoutElement {
                             preview.height(),
                             layout.yawDegrees(),
                             layout.pitchDegrees(),
-                            layout.scale()));
+                            layout.scale(),
+                            PreviewRenderer.PreviewIntent.CURRENT_APPEARANCE));
         } finally {
             graphics.disableScissor();
         }

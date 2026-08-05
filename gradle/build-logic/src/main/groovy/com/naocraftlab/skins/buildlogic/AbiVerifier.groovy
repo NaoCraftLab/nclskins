@@ -55,15 +55,15 @@ final class AbiVerifier {
 
     static void verify(Map catalog, Map abi, String targetId, Map actual) {
         Map target = CatalogTools.selectTarget(catalog, targetId)
-        String epoch = target.minecraft.epoch.toString()
-        Map epochBaseline = abi.resolvedByEpoch[epoch] as Map
-        if (epochBaseline == null) throw new IllegalStateException("no resolved ABI baseline for epoch ${epoch}")
+        String profile = target.epochProfile.toString()
+        Map profileBaseline = abi.resolvedByProfile[profile] as Map
+        if (profileBaseline == null) throw new IllegalStateException("no resolved ABI baseline for API profile ${profile}")
         Map declarations = catalog.capabilityImplementations as Map
         Set<String> selected = (target.capabilities as Map).values().collect { declarations[it].abiImplementation.toString() } as Set
         Map expected = new TreeMap()
         selected.each { String implementation ->
-            if (!epochBaseline.containsKey(implementation)) throw new IllegalStateException("epoch ${epoch} lacks selected ABI profile ${implementation} for ${targetId}")
-            expected[implementation] = epochBaseline[implementation]
+            if (!profileBaseline.containsKey(implementation)) throw new IllegalStateException("API profile ${profile} lacks selected ABI implementation ${implementation} for ${targetId}")
+            expected[implementation] = profileBaseline[implementation]
         }
         if (expected == actual) return
         List<String> differences = []

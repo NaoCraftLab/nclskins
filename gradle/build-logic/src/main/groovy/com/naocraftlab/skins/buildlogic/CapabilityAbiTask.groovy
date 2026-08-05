@@ -22,12 +22,19 @@ abstract class CapabilityAbiTask extends DefaultTask {
     @Input
     abstract Property<String> getMode()
 
+    @Input
+    abstract Property<String> getCapabilityProbe()
+
     @Classpath
     abstract ConfigurableFileCollection getResolutionClasspath()
 
     @TaskAction
     void executeVerification() {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
+        if (!capabilityProbe.get().isBlank()) {
+            catalog = CatalogTools.catalogWithCapabilityProbe(
+                    catalog, targetId.get(), capabilityProbe.get())
+        }
         Map abi = CatalogTools.loadJson(abiFile.get().asFile.toPath())
         File javap = new File(System.getProperty('java.home'), 'bin/javap')
         Map resolved = AbiVerifier.resolve(catalog, abi, targetId.get(), resolutionClasspath.asPath, javap)

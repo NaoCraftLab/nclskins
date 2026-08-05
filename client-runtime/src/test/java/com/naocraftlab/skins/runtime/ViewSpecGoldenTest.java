@@ -11,12 +11,28 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class ViewSpecGoldenTest {
+    @Test
+    void serializerSchemaCoversEveryViewSpecRecordComponent() {
+        String schema = Stream.concat(
+                        Stream.of(ViewSpec.class),
+                        Arrays.stream(ViewSpec.class.getDeclaredClasses()).filter(Class::isRecord))
+                .sorted(Comparator.comparing(Class::getSimpleName))
+                .map(type -> type.getSimpleName() + ":" + Arrays.stream(type.getRecordComponents())
+                        .map(java.lang.reflect.RecordComponent::getName)
+                        .collect(java.util.stream.Collectors.joining(",")))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        assertEquals(golden("view-spec-schema.txt"), schema);
+    }
+
     private static final GalleryPresenter GALLERY = new GalleryPresenter();
     private static final TextResolver TEXT = message -> switch (message.key()) {
         case "nclskins.editor.default_name" -> "Preset " + message.arguments().get(0);

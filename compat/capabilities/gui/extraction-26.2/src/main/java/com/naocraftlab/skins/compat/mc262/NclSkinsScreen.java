@@ -22,6 +22,7 @@ import com.naocraftlab.skins.runtime.PreviewAssetCache;
 import com.naocraftlab.skins.runtime.PointerRouting;
 import com.naocraftlab.skins.runtime.UiMessage;
 import com.naocraftlab.skins.runtime.ViewSpec;
+import com.naocraftlab.skins.runtime.ViewHostPolicy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -325,6 +326,9 @@ public final class NclSkinsScreen extends Screen {
                         spec.hint().orElse(spec.label()))));
                 widget = infoButton;
             } else {
+                if (spec.kind() != ViewSpec.WidgetKind.BUTTON) {
+                    throw new IllegalArgumentException("Unsupported widget kind: " + spec.kind());
+                }
                 if (!spec.visible()) {
                     widget = new TransparentButtonWidget(
                             bounds,
@@ -651,7 +655,8 @@ public final class NclSkinsScreen extends Screen {
                     bounds.height(),
                     preview.yawDegrees(),
                     preview.pitchDegrees(),
-                    preview.scale());
+                    preview.scale(),
+                    preview.intent());
             if ("preset_editor".equals(view.screenId())) {
                 drawClipped(graphics, view, preview.id(), () -> editorRenderer.render(graphics, request));
             } else {
@@ -981,22 +986,12 @@ public final class NclSkinsScreen extends Screen {
 
     private static boolean pointerInsideClip(
             ViewSpec view, String elementId, double mouseX, double mouseY) {
-        return view.clipFor(elementId)
-                .map(bounds -> bounds.contains(mouseX, mouseY))
-                .orElse(true);
+        return ViewHostPolicy.pointerInsideClip(view, elementId, mouseX, mouseY);
     }
 
     private static Optional<ViewSpec.Widget> pointerOwnerAt(
             ViewSpec view, double mouseX, double mouseY) {
-        ViewSpec.Widget owner = null;
-        for (ViewSpec.Widget widget : view.widgets()) {
-            if (widget.visible()
-                    && widget.bounds().contains(mouseX, mouseY)
-                    && pointerInsideClip(view, widget.id(), mouseX, mouseY)) {
-                owner = widget;
-            }
-        }
-        return Optional.ofNullable(owner);
+        return ViewHostPolicy.pointerOwnerAt(view, mouseX, mouseY);
     }
 
     private static int textColor(ViewSpec.Text text) {
@@ -1122,45 +1117,22 @@ public final class NclSkinsScreen extends Screen {
 
     private boolean dispatchFocusedSubmit(ViewSpec view) {
         String focusedId = currentFocusedWidgetId();
-        if (focusedId == null) {
-            return false;
-        }
-        Optional<ViewSpec.Widget> source = view.widget(focusedId)
-                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
-                .filter(ViewSpec.Widget::enabled)
-                .filter(ViewSpec.Widget::visible)
-                .filter(widget -> widget.submitActionId().isPresent());
-        if (source.isEmpty()) {
-            return false;
-        }
         AbstractWidget nativeSource = nativeWidgets.get(focusedId);
-        if (!(nativeSource instanceof EditBox editBox)
-                || !editBox.isFocused()
-                || editBox.getValue().trim().isEmpty()) {
+        if (!(nativeSource instanceof EditBox editBox)) {
             return false;
         }
-        String actionId = source.orElseThrow().submitActionId().orElseThrow();
-        Optional<ViewSpec.Widget> action = view.widget(actionId)
-                .filter(ViewSpec.Widget::visible)
-                .filter(ViewSpec.Widget::enabled);
-        if (action.isEmpty()) {
-            return false;
-        }
-        runtime.dispatchWidget(actionId);
+        Optional<String> actionId = ViewHostPolicy.submitAction(
+                view, focusedId, editBox.isFocused(), editBox.getValue());
+        if (actionId.isEmpty()) return false;
+        runtime.dispatchWidget(actionId.orElseThrow());
         return true;
     }
 
     private void selectAllTextField(ViewSpec view, String widgetId) {
-        Optional<ViewSpec.Widget> source = view.widget(widgetId)
-                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
-                .filter(ViewSpec.Widget::selectAllOnPrimaryClick)
-                .filter(ViewSpec.Widget::enabled)
-                .filter(ViewSpec.Widget::visible);
         AbstractWidget nativeSource = nativeWidgets.get(widgetId);
-        if (source.isEmpty()
-                || !(nativeSource instanceof EditBox editBox)
-                || !editBox.isFocused()
-                || editBox.getValue().isEmpty()) {
+        if (!(nativeSource instanceof EditBox editBox)
+                || !ViewHostPolicy.shouldSelectAll(
+                        view, widgetId, editBox.isFocused(), editBox.getValue())) {
             return;
         }
         editBox.setCursorPosition(editBox.getValue().length());

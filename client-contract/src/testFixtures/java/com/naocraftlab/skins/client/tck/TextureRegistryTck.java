@@ -63,6 +63,24 @@ public interface TextureRegistryTck {
     }
 
     @Test
+    default void genericOrdinaryAndFeaturePreservingModesShareOneContract() throws IOException {
+        try (RegistryHarness harness = createRegistryHarness()) {
+            byte[] png = imagePng(64, 64);
+            TextureHandle generic = harness.registry()
+                    .register(TextureKind.IMAGE, CONTENT_HASH, png);
+            TextureHandle ordinary = harness.registry()
+                    .register(TextureKind.PLAYER_SKIN, CONTENT_HASH, png);
+            TextureHandle featurePreserving = harness.registry().register(
+                    TextureKind.PLAYER_SKIN_FEATURE_PRESERVING, CONTENT_HASH, png);
+
+            assertNotEquals(generic, ordinary);
+            assertNotEquals(ordinary, featurePreserving);
+            assertNotEquals(generic, featurePreserving);
+            assertEquals(3, harness.liveNativeTextureCount());
+        }
+    }
+
+    @Test
     default void closeReleasesEverythingAndPermanentlyClosesTheRegistry() throws IOException {
         RegistryHarness harness = createRegistryHarness();
         byte[] first = imagePng(1, 1);

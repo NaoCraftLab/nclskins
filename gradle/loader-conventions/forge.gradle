@@ -43,7 +43,7 @@ tasks.named(forgeMixinRuntime.processResourcesTaskName, ProcessResources).config
 minecraft {
     mappings channel: 'official', version: targetSpec.minecraft.version
     copyIdeResources = true
-    accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
+    accessTransformer = nclskinsAccessFile
 
     runs {
         configureEach {

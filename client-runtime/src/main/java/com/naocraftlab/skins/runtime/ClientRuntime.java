@@ -277,52 +277,6 @@ public final class ClientRuntime implements AutoCloseable {
             FilePicker filePicker,
             TextResolver textResolver,
             SignedTextureVerifier signedTextureVerifier,
-            PlayerAppearanceSink<AcknowledgedAppearanceAssets> sink) {
-        return createDefaultWithDeterministicAppearance(
-                tokenSource,
-                bundledSkins,
-                currentAppearanceSource,
-                clientExecutor,
-                filePicker,
-                textResolver,
-                signedTextureVerifier,
-                sink,
-                visibility -> {},
-                ServerAppearanceRefreshNotifier.NO_OP);
-    }
-
-
-    public static ClientRuntime createDefaultWithDeterministicAppearance(
-            GameSessionTokenSource tokenSource,
-            SkinCatalogSource bundledSkins,
-            CurrentPlayerAppearanceSource currentAppearanceSource,
-            ClientExecutor clientExecutor,
-            FilePicker filePicker,
-            TextResolver textResolver,
-            SignedTextureVerifier signedTextureVerifier,
-            PlayerAppearanceSink<AcknowledgedAppearanceAssets> sink,
-            ServerAppearanceRefreshNotifier serverAppearanceRefreshNotifier) {
-        return createDefaultWithDeterministicAppearance(
-                tokenSource,
-                bundledSkins,
-                currentAppearanceSource,
-                clientExecutor,
-                filePicker,
-                textResolver,
-                signedTextureVerifier,
-                sink,
-                visibility -> {},
-                serverAppearanceRefreshNotifier);
-    }
-
-    public static ClientRuntime createDefaultWithDeterministicAppearance(
-            GameSessionTokenSource tokenSource,
-            SkinCatalogSource bundledSkins,
-            CurrentPlayerAppearanceSource currentAppearanceSource,
-            ClientExecutor clientExecutor,
-            FilePicker filePicker,
-            TextResolver textResolver,
-            SignedTextureVerifier signedTextureVerifier,
             PlayerAppearanceSink<AcknowledgedAppearanceAssets> sink,
             OuterLayerVisibilityController outerLayerVisibilityController,
             ServerAppearanceRefreshNotifier serverAppearanceRefreshNotifier) {

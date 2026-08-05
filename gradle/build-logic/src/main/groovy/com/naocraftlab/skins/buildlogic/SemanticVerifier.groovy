@@ -6,7 +6,9 @@ import java.util.regex.Pattern
 
 final class SemanticVerifier {
     static final Set<String> REQUIRED_KEYS = [
-        'textures', 'appearance', 'session', 'filePicker', 'serverSignal', 'serverCommand',
+            'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
+            'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
+            'serverSignal', 'serverCommand',
         'serverProfileVerification', 'serverProfileMutation', 'serverTracking',
         'serverPlayerInfoPublication', 'serverLoader'
     ] as Set
@@ -14,8 +16,13 @@ final class SemanticVerifier {
     static final Set<String> IMPLEMENTATION_KEYS = ['capabilityKey', 'sharedSuite', 'leafSource'] as Set
     static final Set<String> SUITE_KEYS = ['tests', 'supportSources', 'semantics'] as Set
     static final Map<String, String> EXPECTED_SUITE_BY_KEY = [
-        textures: 'texture-ownership-and-normalization', appearance: 'appearance-orchestration',
+            gui              : 'view-host-contract', textures: 'texture-ownership-and-normalization',
+            preview          : 'synthetic-preview-contract', appearance: 'appearance-orchestration',
+            loaderScreen     : 'client-loader-lifecycle',
         session: 'session-boundary', filePicker: 'picker-coordination',
+            clientExecutor   : 'client-executor-contract',
+            bundledSkin      : 'resource-pack-access-contract',
+            currentAppearance: 'current-appearance-contract',
         serverSignal: 'server-refresh-notification', serverCommand: 'server-command-registration',
         serverProfileVerification: 'official-server-profile',
         serverProfileMutation: 'vanilla-observer-republication',
@@ -24,10 +31,16 @@ final class SemanticVerifier {
         serverLoader: 'server-loader-lifecycle'
     ]
     static final Map<String, List<String>> SUITE_MARKERS = [
+            'view-host-contract'           : ['ViewSpecGoldenTest', 'selectAllOnPrimaryClick', 'submitActionId'],
         'texture-ownership-and-normalization': ['TextureRegistryTck', 'PlayerSkinTextureNormalizer'],
+            'synthetic-preview-contract'   : ['PreviewIntent', 'EDITOR_DRAFT', 'ASSET_THUMBNAIL', 'PreviewInteractionModel'],
         'appearance-orchestration': ['AppearanceRefreshCoordinator', 'AppearanceReconnectTracker', 'SUPERSEDED', 'DEFERRED'],
+            'client-loader-lifecycle'      : ['ClientProcessHost', 'afterReconnect', 'close'],
         'session-boundary': ['SessionValidationService', 'withSession', 'SECRET'],
+            'client-executor-contract'     : ['ClientCapabilityContractsTest', 'ClientExecutor'],
         'picker-coordination': ['FilePickerCoordinator', 'concurrent'],
+            'resource-pack-access-contract': ['ResourcePackSkinCatalog', 'CatalogGenerationTracker', 'selectedPackMenuRanks'],
+            'current-appearance-contract'  : ['CurrentPlayerAppearanceSource', 'currentPlayerAppearance'],
         'server-refresh-notification': ['ServerAppearanceRefreshNotifier', 'RemoteAppearanceImpact', 'CONFIRMED_CHANGED', 'confirmedReconciliationStillNotifiesAfterGalleryCloses', 'postMutationLocalFailureStillNotifiesServerWithoutPublishingOutcomeData', 'confirmedPartialReconciliationSignalsExactlyOnce', 'disconnectedConfirmedSignalIsDroppedAndNeverReplayedAfterReconnect', 'readerOrConcurrentLoserWithoutOwnedOutcomeNeverSignals'],
         'official-server-profile': ['OfficialSessionProfileClient', 'OfficialTextureAppearanceParser', 'timestampTransportAndSignatureChangesDoNotChangeTheSemanticKey', 'parsesRetryAfterDeltaAndHttpDateWithSafeFallback', 'mismatchedOfficialIdentityIsRejectedBeforePublication'],
         'vanilla-observer-republication': ['VanillaBatchAppearancePublisher', 'continuesAcrossTicksAndNeverExceedsDeliveryBudget', 'reportsTotalAndMaximumPlatformThreadTimeSeparatelyAcrossTicks', 'semanticCompletionResumesOnFollowingLogicalTickWithoutFreshSameTickBudget', 'retriesFailedRetrackBeforeCompletingAndRestoresExactPair', 'cancelledHeadRetainsRetrackBarrierUntilRecoveryBeforeNextInstall', 'sixtyFourActorBatchKeepsOneRecipientFanoutAcrossOneThousandPlayers', 'watcherChannelRetracksBeforeLargeTabOnlyTail', 'explicitSupersedeFencesAdmittedIntentAndDoesNotPoisonFutureIntent', 'concurrentIntentCannotEnterBetweenLatestCheckAndProfileInstall', 'visibilityPortPreventsProfileDisclosureToHiddenRecipient', 'oneThousandDistinctSignalsAreAdmittedAndDrainWithoutLocalDrops', 'oneFiveTenAndFiftyChangesPerSecondAllConvergeAfterTheBurst', 'reconciliationAttemptsAreBoundedToOnePerFollowingTick', 'successfulWatcherRetryRefreshesWorldPairAfterInitializeFailure'],
@@ -88,11 +101,33 @@ final class SemanticVerifier {
             if (previous != null && previous != bundle) errors.add("${implementation}: shared leaf source ${root.relativize(source)} must be selected through one intentional bundle")
             if (roots.isEmpty() || !roots.any { source.startsWith(it) }) errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
             verifyLeaf(implementation, key, Files.readString(source), errors)
+            if (key == 'preview') verifyPreviewBundle(implementation, roots, errors)
         }
         verifySuites(root, coverage.sharedSuites, usedSuites, errors)
         verifyRuntimeBoundary(root, errors)
         verifyPublicationBoundary(root, errors)
         errors
+    }
+
+    static void verifyPreviewBundle(
+            String implementation, Set<Path> roots, List<String> errors) {
+        StringBuilder sources = new StringBuilder()
+        roots.findAll(Files::isDirectory).each { Path sourceRoot ->
+            Files.walk(sourceRoot).withCloseable { stream ->
+                stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.java') }
+                        .forEach { sources.append(Files.readString(it)).append('\n') }
+            }
+        }
+        String text = sources.toString().replaceAll('\\s+', ' ')
+        if (!text.contains('extends RemotePlayer')) {
+            errors.add("${implementation}: editor preview must use a synthetic RemotePlayer")
+        }
+        ['minecraft.player.set', 'minecraft.player.getInventory()',
+         'minecraft.options.setModelPart'].each { String forbidden ->
+            if (text.contains(forbidden)) {
+                errors.add("${implementation}: preview must not mutate the real local player (${forbidden})")
+            }
+        }
     }
 
     static void verifySuites(Path root, Object rawSuites, Set<String> used, List<String> errors) {
@@ -132,8 +167,15 @@ final class SemanticVerifier {
     static void verifyLeaf(String implementation, String key, String text, List<String> errors) {
         String compact = text.replaceAll('\\s+', ' ')
         Map<String, List<String>> markers = [
-            textures: ['extends AbstractTextureRegistry'], appearance: ['implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>'], session: ['implements GameSessionTokenSource'],
+                gui              : ['ClientRuntime'],
+                textures         : ['extends AbstractTextureRegistry'],
+                preview          : ['implements PreviewRenderer'],
+                appearance       : ['implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>'],
+                session          : ['implements GameSessionTokenSource'],
+                clientExecutor   : ['implements ClientExecutor'],
             filePicker: ['implements FilePicker', 'FilePickerCoordinator', 'new FilePickerCoordinator(', 'COORDINATOR.choose('],
+                bundledSkin      : ['implements SkinCatalogSource'],
+                currentAppearance: ['implements CurrentPlayerAppearanceSource'],
             serverSignal: ['implements ServerAppearanceRefreshNotifier', 'getConnection()', 'if (connection == null)', 'getChild(ServerRefreshCommandProtocol.ROOT_COMMAND)', 'root.getChild(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'ServerAppearanceRefreshCommandPath.isExactExecutableLeaf', 'sendCommand(ServerRefreshCommandProtocol.COMMAND)'],
             serverCommand: ['Commands.literal(ServerRefreshCommandProtocol.ROOT_COMMAND)', '.requires(MinecraftServerRefreshCommand::canRefresh)', 'Commands.literal(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'source.getEntity() instanceof ServerPlayer player', 'MinecraftServerAppearanceService.registered(source.getServer())', 'ServerRefreshCommandProtocol.eligible(', 'registered.eligible(player)', 'service.request(source.getPlayerOrException()).admission()', 'ServerRefreshCommandProtocol.result(admission)'],
             serverProfileVerification: ['implements OfficialTextureSignatureVerifier', 'MinecraftSessionService', 'getSecurePropertyValue(property)', 'OfficialTextureAppearanceParser', 'Optional.empty()'],

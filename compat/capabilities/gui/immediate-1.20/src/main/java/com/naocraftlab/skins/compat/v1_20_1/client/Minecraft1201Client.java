@@ -5,16 +5,13 @@ import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.TextureRegistry;
-import com.naocraftlab.skins.compat.client.MinecraftClientExecutor;
-import com.naocraftlab.skins.compat.client.MinecraftFilePicker;
-import com.naocraftlab.skins.compat.client.MinecraftGameSessionTokenSource;
-import com.naocraftlab.skins.compat.client.MinecraftServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.compat.gui.immediate.ImmediateScreenCapabilities;
 import com.naocraftlab.skins.compat.gui.immediate.NclSkinsImmediateScreen;
-import com.naocraftlab.skins.compat.gui.immediate.MinecraftSignedTextureVerifier;
 import com.naocraftlab.skins.compat.gui.immediate.NativeScrollController;
+import com.naocraftlab.skins.generated.TargetClientBindings;
 import com.naocraftlab.skins.runtime.ClientRuntime;
-import com.naocraftlab.skins.runtime.ClientProcessHost;
+import com.naocraftlab.skins.runtime.ClientApplicationHost;
+import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.TextResolver;
 import com.naocraftlab.skins.runtime.UiMessage;
 import com.naocraftlab.skins.runtime.ViewSpec;
@@ -30,26 +27,16 @@ import org.lwjgl.opengl.GL11;
 public final class Minecraft1201Client implements ImmediateScreenCapabilities {
     private static final Minecraft1201Client INSTANCE = new Minecraft1201Client();
 
-    private final Minecraft1201AppearanceCapability appearance =
-            new Minecraft1201AppearanceCapability();
+    private final ClientCapabilityProvider.Provision provision =
+            TargetClientBindings.provision();
     private final CurrentPlayerAppearanceSource currentAppearance =
-            new Minecraft1201CurrentPlayerAppearanceSource(appearance::installedAppearance);
-    private final ClientRuntime runtime = ClientRuntime.createDefaultWithDeterministicAppearance(
-            new MinecraftGameSessionTokenSource(),
-            new Minecraft1201BundledSkinSource(),
-            currentAppearance,
-            new MinecraftClientExecutor(),
-            new MinecraftFilePicker(),
+            provision.capabilities().currentAppearance();
+    private final ClientApplicationHost<Object> application = new ClientApplicationHost<>(
+            provision.capabilities(),
             TextResolver.withCatalogTranslations(
                     message -> resolve(message).getString(),
                     (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
-            new MinecraftSignedTextureVerifier(),
-            appearance,
-            new Minecraft1201OuterLayerVisibilityController(),
-            new MinecraftServerAppearanceRefreshNotifier());
-
-    private final ClientProcessHost<Object> process =
-            new ClientProcessHost<>(runtime, appearance::close);
+            provision::closeNative);
 
     private Minecraft1201Client() {}
 
@@ -58,29 +45,26 @@ public final class Minecraft1201Client implements ImmediateScreenCapabilities {
     }
 
     public void initialize() {
-        runtime.verifyStorageAccess();
+        application.verifyStorageAccess();
     }
 
     public void warmSession() {
-        if (process.closed()) {
-            return;
-        }
-        process.warmSession();
+        application.warmSession();
     }
 
     public void tick(Minecraft minecraft) {
         Objects.requireNonNull(minecraft, "minecraft");
 
 
-        if (process.closed()) {
+        if (application.closed()) {
             return;
         }
-        appearance.maintain();
+        provision.maintain();
         Object connection = minecraft.getConnection();
         boolean playerReady = connection != null
                 && minecraft.player != null
                 && minecraft.getConnection().getPlayerInfo(minecraft.player.getUUID()) != null;
-        process.tick(
+        application.tick(
                 connection,
                 playerReady);
     }
@@ -103,12 +87,12 @@ public final class Minecraft1201Client implements ImmediateScreenCapabilities {
     }
 
     public void close() {
-        process.close();
+        application.close();
     }
 
     @Override
     public ClientRuntime runtime() {
-        return runtime;
+        return application.runtime();
     }
 
     @Override

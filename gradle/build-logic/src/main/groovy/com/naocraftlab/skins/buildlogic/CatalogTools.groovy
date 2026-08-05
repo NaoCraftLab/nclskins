@@ -20,7 +20,8 @@ final class CatalogTools {
     ] as Set
     static final Set<String> REQUIRED_TARGET_KEYS = [
         'id', 'path', 'minecraft', 'loader', 'java', 'development', 'gradleFamily',
-        'sourceLayout', 'capabilities', 'metadata', 'artifact'
+        'sourceLayout', 'capabilities', 'metadata', 'artifact', 'epochProfile',
+        'loaderProfile', 'integrationProfile', 'buildProfile'
     ] as Set
     static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility'] as Set
     static final Set<String> MOD_KEYS = [
@@ -99,6 +100,42 @@ final class CatalogTools {
             throw new IllegalArgumentException("unknown target: ${targetId}")
         }
         selected[0] as Map
+    }
+
+    static Map withCapabilityProbe(Map catalog, Map target, String rawOverride) {
+        if (!(rawOverride instanceof String) || !rawOverride.contains('=')) {
+            throw new IllegalArgumentException(
+                    'nclskinsCapabilityProbe must use <capability>=<implementation>')
+        }
+        int separator = rawOverride.indexOf('=')
+        String capability = rawOverride.substring(0, separator)
+        String implementation = rawOverride.substring(separator + 1)
+        if (!REQUIRED_CAPABILITIES.contains(capability) || implementation.isBlank()) {
+            throw new IllegalArgumentException("invalid capability probe '${rawOverride}'")
+        }
+        Set<String> compatibleImplementations = (catalog.targets as List)
+                .findAll { it instanceof Map }
+                .collect { (it.capabilities as Map)[capability]?.toString() }
+                .findAll { it != null }
+                .toSet()
+        if (!compatibleImplementations.contains(implementation)) {
+            throw new IllegalArgumentException(
+                    "${implementation} is not declared for capability ${capability}")
+        }
+        Map probed = materialize(target) as Map
+        probed.capabilities[capability] = implementation
+        probed
+    }
+
+    static Map catalogWithCapabilityProbe(Map catalog, String targetId, String rawOverride) {
+        Map copy = materialize(catalog) as Map
+        int index = (copy.targets as List).findIndexOf { it.id == targetId }
+        if (index < 0) {
+            throw new IllegalArgumentException("unknown target: ${targetId}")
+        }
+        (copy.targets as List)[index] = withCapabilityProbe(
+                copy, (copy.targets as List)[index] as Map, rawOverride)
+        copy
     }
 
     static List<String> clientArguments(Map catalog) {
@@ -189,6 +226,8 @@ final class CatalogTools {
 
     static Map resolveTargetSources(File repositoryRoot, Map catalog, Map target) {
         List<String> roots = (catalog.baseBundles as List).collect { it.toString() }
+        roots.add(accessBundle(catalog, target))
+        roots.add(clientProviderBundle(catalog, target))
         (target.capabilities as Map).values().each {
             roots.add(capabilityDeclaration(catalog, it.toString()).bundle.toString())
         }
@@ -220,13 +259,36 @@ final class CatalogTools {
         [bundles: order, commonJava: common, clientJava: client, java: (common + client).unique(), resources: resources]
     }
 
+    static String accessBundle(Map catalog, Map target) {
+        Map epochs = ((catalog.profiles as Map).epochs as Map)
+        Map epoch = epochs[target.epochProfile] as Map
+        Object bundle = (epoch.accessBundles as Map)[target.loader.id]
+        if (!(bundle instanceof String) || bundle.isBlank() ||
+                !((catalog.sourceBundles as Map).containsKey(bundle))) {
+            throw new IllegalArgumentException(
+                    "${target.id}: API profile has no declared access bundle for ${target.loader.id}")
+        }
+        bundle.toString()
+    }
+
+    static String clientProviderBundle(Map catalog, Map target) {
+        Map epoch = ((catalog.profiles as Map).epochs as Map)[target.epochProfile] as Map
+        Object bundle = epoch.clientProviderBundle
+        if (!(bundle instanceof String) || bundle.isBlank() ||
+                !((catalog.sourceBundles as Map).containsKey(bundle))) {
+            throw new IllegalArgumentException(
+                    "${target.id}: API profile has no declared client provider bundle")
+        }
+        bundle.toString()
+    }
+
     static void validate(File repositoryRoot, Map catalog) {
         List<String> errors = []
         Set expectedTop = [
                 'schemaVersion', 'development', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
-            'baseBundles', 'sourceBundles', 'capabilityImplementations', 'targets'
+                'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 6) {
+        if (catalog.schemaVersion != 7) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -351,6 +413,12 @@ final class CatalogTools {
                 errors.add(error.message)
             }
         }
+        Map profiles = catalog.profiles instanceof Map ? catalog.profiles as Map : [:]
+        Set<String> profileGroups = ['epochs', 'loaders', 'integrations', 'builds'] as Set
+        if ((profiles.keySet() as Set) != profileGroups ||
+                profiles.values().any { !(it instanceof Map) || (it as Map).isEmpty() }) {
+            errors.add('profiles must define non-empty epochs, loaders, integrations and builds')
+        }
         Map bundles = catalog.sourceBundles instanceof Map ? catalog.sourceBundles as Map : [:]
         bundles.each { Object idRaw, Object bundleRaw ->
             String id = idRaw.toString()
@@ -438,19 +506,23 @@ final class CatalogTools {
                 errors.add("${target.id}: invalid Minecraft declaration")
             }
             Map loaderDeclaration = target.loader instanceof Map ? target.loader as Map : [:]
-            if ((loaderDeclaration.keySet() as Set) != ['id', 'version', 'predicate', 'apiVersion', 'apiPredicate', 'modMenuVersion'] as Set || !(loader in ['fabric', 'forge', 'neoforge']) || !(loaderDeclaration.version instanceof String) || loaderDeclaration.version.isBlank() || !(loaderDeclaration.predicate instanceof String) || loaderDeclaration.predicate.isBlank()) {
+            if ((loaderDeclaration.keySet() as Set) != ['id', 'version', 'predicate', 'apiVersion', 'apiPredicate', 'modMenuVersion'] as Set || !(loader in LoaderBackend.ids()) || !(loaderDeclaration.version instanceof String) || loaderDeclaration.version.isBlank() || !(loaderDeclaration.predicate instanceof String) || loaderDeclaration.predicate.isBlank()) {
                 errors.add("${target.id}: invalid loader declaration")
             }
             if (loader == 'fabric') {
                 if (!(loaderDeclaration.version ==~ /[0-9]+\.[0-9]+\.[0-9]+/) || loaderDeclaration.predicate != ">=${loaderDeclaration.version}") errors.add("${target.id}: Fabric Loader must use a semantic version and an identical lower-only predicate")
                 if (!(loaderDeclaration.apiVersion instanceof String) || loaderDeclaration.apiVersion.isBlank() || loaderDeclaration.apiPredicate != ">=${loaderDeclaration.apiVersion}") errors.add("${target.id}: Fabric API version and lower-only predicate must be explicit and identical")
                 if (!(loaderDeclaration.modMenuVersion instanceof String) || !(loaderDeclaration.modMenuVersion ==~ /[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?/)) errors.add("${target.id}: Fabric Mod Menu version must be explicit")
-                if (minecraftDeclaration.predicate != ">=${minecraftDeclaration.version}") errors.add("${target.id}: Fabric Minecraft predicate must contain only the target lower bound")
             } else {
                 if (loaderDeclaration.apiVersion != null || loaderDeclaration.apiPredicate != null || loaderDeclaration.modMenuVersion != null) errors.add("${target.id}: non-Fabric target must not declare Fabric API or Mod Menu")
                 if (loaderDeclaration.predicate != "[${loaderDeclaration.version},)") errors.add("${target.id}: loader predicate must contain only the build-version lower bound")
-                if (minecraftDeclaration.predicate != "[${minecraftDeclaration.version},)") errors.add("${target.id}: Minecraft predicate must contain only the target lower bound")
             }
+            if (loader in LoaderBackend.ids() &&
+                    minecraftDeclaration.predicate != LoaderBackend.require(loader)
+                    .minecraftPredicate(minecraftDeclaration.version.toString())) {
+                errors.add("${target.id}: Minecraft predicate must contain only the target-version lower bound")
+            }
+            validateTargetProfiles(target, profiles, loader, minecraftDeclaration, errors)
             validateCompatibility(target, loader, minecraft, loaderDeclaration, errors)
             if (!(target.capabilities instanceof Map) || ((target.capabilities as Map).keySet() as Set) != REQUIRED_CAPABILITIES) {
                 errors.add("${target.id}: capability map differs from schema")
@@ -483,9 +555,9 @@ final class CatalogTools {
                 errors.add("${target.id}: invalid source layout")
             }
             Map metadata = target.metadata instanceof Map ? target.metadata as Map : [:]
-            Set<String> expectedMetadataKeys = loader == 'fabric'
-                    ? ['files', 'entrypoint', 'serverEntrypoint', 'accessWidener', 'packFormat', 'mixins', 'serverMixins'] as Set
-                    : ['files', 'modLoader', 'loaderVersion', 'entrypointClass', 'clientEntrypointClass', 'accessTransformer', 'packFormat', 'mixins', 'serverMixins'] as Set
+            Set<String> expectedMetadataKeys = loader in LoaderBackend.ids()
+                    ? LoaderBackend.require(loader).metadataKeys()
+                    : [] as Set
             if ((metadata.keySet() as Set) != expectedMetadataKeys) {
                 errors.add("${target.id}: metadata keys differ from loader schema")
             }
@@ -541,6 +613,79 @@ final class CatalogTools {
         validateAbi(repositoryRoot, catalog, errors)
         if (errors) {
             throw new IllegalArgumentException(errors.collect { "- ${it}" }.join('\n'))
+        }
+    }
+
+    static void validateTargetProfiles(
+            Map target,
+            Map profiles,
+            String loader,
+            Map minecraft,
+            List<String> errors) {
+        Map groups = [
+                epochProfile      : profiles.epochs,
+                loaderProfile     : profiles.loaders,
+                integrationProfile: profiles.integrations,
+                buildProfile      : profiles.builds
+        ]
+        Map selected = [:]
+        groups.each { String targetKey, Object rawGroup ->
+            Object id = target[targetKey]
+            Object entry = rawGroup instanceof Map && id instanceof String
+                    ? (rawGroup as Map)[id]
+                    : null
+            if (!(id instanceof String) || id.isBlank() || !(entry instanceof Map)) {
+                errors.add("${target.id}: unknown ${targetKey} '${id}'")
+            } else {
+                selected[targetKey] = entry as Map
+            }
+        }
+
+        Map epoch = selected.epochProfile instanceof Map ? selected.epochProfile as Map : [:]
+        Set<String> epochCapabilities = REQUIRED_CAPABILITIES - ['loaderScreen', 'serverLoader'] as Set
+        if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass', 'clientProviderBundle', 'accessBundles', 'capabilities'] as Set ||
+                !(epoch.clientProviderClass instanceof String) ||
+                !(epoch.clientProviderClass ==~ /[a-zA-Z_$][a-zA-Z0-9_$]*(\.[a-zA-Z_$][a-zA-Z0-9_$]*)+/) ||
+                !(epoch.clientProviderBundle instanceof String) ||
+                !(epoch.accessBundles instanceof Map) ||
+                !(epoch.capabilities instanceof Map) ||
+                ((epoch.capabilities as Map).keySet() as Set) != epochCapabilities) {
+            errors.add("${target.id}: invalid epoch profile shape")
+        } else {
+            if (epoch.minecraftEpoch != minecraft.epoch || epoch.javaRelease != target.java?.release) {
+                errors.add("${target.id}: epoch profile differs from Minecraft epoch or Java release")
+            }
+            (epoch.capabilities as Map).each { Object key, Object implementation ->
+                if ((target.capabilities as Map)[key] != implementation) {
+                    errors.add("${target.id}: ${key} differs from epoch profile")
+                }
+            }
+            Object accessBundle = (epoch.accessBundles as Map)[loader]
+            if (!(accessBundle instanceof String) || accessBundle.isBlank()) {
+                errors.add("${target.id}: epoch profile has no access bundle for loader")
+            }
+        }
+
+        Map loaderProfile = selected.loaderProfile instanceof Map ? selected.loaderProfile as Map : [:]
+        if ((loaderProfile.keySet() as Set) != ['loader', 'serverLoader'] as Set ||
+                loaderProfile.loader != loader ||
+                loaderProfile.serverLoader != (target.capabilities as Map).serverLoader) {
+            errors.add("${target.id}: loader profile differs from target loader/server capability")
+        }
+
+        Map integration = selected.integrationProfile instanceof Map ? selected.integrationProfile as Map : [:]
+        if ((integration.keySet() as Set) != ['loader', 'loaderScreen'] as Set ||
+                integration.loader != loader ||
+                integration.loaderScreen != (target.capabilities as Map).loaderScreen) {
+            errors.add("${target.id}: integration profile differs from loader-screen capability")
+        }
+
+        Map build = selected.buildProfile instanceof Map ? selected.buildProfile as Map : [:]
+        if ((build.keySet() as Set) != ['loader', 'gradleFamily', 'sourceLayout'] as Set ||
+                build.loader != loader ||
+                build.gradleFamily != target.gradleFamily ||
+                build.sourceLayout != target.sourceLayout) {
+            errors.add("${target.id}: build profile differs from target build declaration")
         }
     }
 
@@ -606,8 +751,8 @@ final class CatalogTools {
             errors.add("cannot read ABI fingerprints: ${error.message}")
             return
         }
-        if (abi.schemaVersion != 4 || !(abi.implementations instanceof Map)) {
-            errors.add('ABI fingerprint schemaVersion must be 4')
+        if (abi.schemaVersion != 5 || !(abi.implementations instanceof Map)) {
+            errors.add('ABI fingerprint schemaVersion must be 5')
             return
         }
         Map<String, String> selected = [:]
@@ -645,30 +790,37 @@ final class CatalogTools {
             if (!(entry.classes instanceof List) || !(entry.classes as List)) {
                 errors.add("${id}: ABI classes must be non-empty")
             }
-            if (!(entry.baselineSha256 instanceof String) || !(entry.baselineSha256 ==~ /[0-9a-f]{64}/)) {
+            if (!validAbiDeclarationHash(entry.baselineSha256)) {
                 errors.add("${id}: invalid ABI declaration hash")
             }
         }
-        Set<String> catalogEpochs = (catalog.targets as List).collect { it.minecraft.epoch.toString() } as Set
-        Map resolved = abi.resolvedByEpoch instanceof Map ? abi.resolvedByEpoch as Map : [:]
-        if ((resolved.keySet() as Set) != catalogEpochs) {
-            errors.add('resolved ABI baselines must exactly cover catalog epochs')
+        Set<String> catalogProfiles = (catalog.targets as List).collect { it.epochProfile.toString() } as Set
+        Map resolved = abi.resolvedByProfile instanceof Map ? abi.resolvedByProfile as Map : [:]
+        if ((resolved.keySet() as Set) != catalogProfiles) {
+            errors.add('resolved ABI baselines must exactly cover selected API profiles')
         }
-        resolved.each { Object epoch, Object rawProfiles ->
+        resolved.each { Object profile, Object rawProfiles ->
             if (!(rawProfiles instanceof Map)) {
-                errors.add("${epoch}: resolved ABI baseline must be an object")
+                errors.add("${profile}: resolved ABI baseline must be an object")
                 return
             }
-            Set<String> required = epochs.findAll { String id, Set values -> values.contains(epoch.toString()) }.keySet() as Set
+            Set<String> profileEpochs = (catalog.targets as List)
+                    .findAll { it.epochProfile.toString() == profile.toString() }
+                    .collect { it.minecraft.epoch.toString() } as Set
+            Set<String> required = epochs.findAll { String id, Set values -> !(values.intersect(profileEpochs)).isEmpty() }.keySet() as Set
             if ((rawProfiles.keySet() as Set) != required) {
-                errors.add("${epoch}: resolved ABI profiles differ from selected implementations")
+                errors.add("${profile}: resolved ABI implementations differ from selected profile")
             }
             (rawProfiles as Map).each { Object implementation, Object rawClasses ->
                 if (!(rawClasses instanceof Map) || (rawClasses as Map).any { Object name, Object digest -> !(digest instanceof String) || !(digest ==~ /[0-9a-f]{64}/) }) {
-                    errors.add("${epoch}/${implementation}: invalid resolved ABI class hashes")
+                    errors.add("${profile}/${implementation}: invalid resolved ABI class hashes")
                 }
             }
         }
+    }
+
+    static boolean validAbiDeclarationHash(Object value) {
+        value instanceof String && value ==~ /[0-9a-f]{64}/ && value != '0' * 64
     }
 
     static Map<String, Set<String>> classifyAffected(File repositoryRoot, Map catalog, Collection<String> rawPaths) {

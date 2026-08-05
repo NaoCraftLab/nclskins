@@ -34,6 +34,10 @@ if (matches.size() != 1) {
 }
 
 def spec = matches[0]
+def capabilityProbe = providers.gradleProperty('nclskinsCapabilityProbe').orNull
+if (capabilityProbe != null) {
+    spec = nclskinsCatalogTools.withCapabilityProbe(catalog, spec, capabilityProbe)
+}
 def targetId = spec.id.toString()
 def currentTargetId = targetId
 def productionJarName = providers.provider {
@@ -61,6 +65,8 @@ repositories {
 }
 
 def rootBundleIds = catalog.baseBundles.collect { it.toString() }
+rootBundleIds += nclskinsCatalogTools.accessBundle(catalog, spec)
+rootBundleIds += nclskinsCatalogTools.clientProviderBundle(catalog, spec)
 rootBundleIds += spec.capabilities.values().collect { implementationId ->
     def implementation = catalog.capabilityImplementations[implementationId]
     if (implementation == null) {
@@ -107,6 +113,19 @@ def resolvedBundles = resolvedBundleIds.collect { catalog.sourceBundles[it] }
 def commonMinecraftFragments = resolvedBundles.findAll { it.side.toString() == 'common' }
 def clientMinecraftFragments = resolvedBundles.findAll { it.side.toString() == 'client' }
 def repositoryFile = { rawPath -> repositoryRoot.file(rawPath.toString()).asFile }
+def accessBundleId = nclskinsCatalogTools.accessBundle(catalog, spec)
+def accessBundleResources = catalog.sourceBundles[accessBundleId].resources
+if (accessBundleResources.size() != 1) {
+    throw new GradleException("${accessBundleId} must own exactly one access resource root")
+}
+def accessResourceRoot = repositoryFile(accessBundleResources.first())
+def accessRelativePath = nclskinsLoaderBackend
+        .require(spec.loader.id.toString()).accessRelativePath()
+def accessFile = new File(accessResourceRoot, accessRelativePath)
+if (!accessFile.isFile()) {
+    throw new GradleException("${accessBundleId} lacks ${accessRelativePath}")
+}
+extensions.extraProperties.set('nclskinsAccessFile', accessFile)
 def commonMinecraftJava = commonMinecraftFragments.collectMany { it.java }.collect {
     repositoryFile(it)
 }.unique()
@@ -118,15 +137,21 @@ def minecraftResources = resolvedBundles.collectMany { it.resources }.collect {
     repositoryFile(it)
 }.unique()
 def generatedMetadataDirectory = layout.buildDirectory.dir('generated/nclskins/metadata')
+def generatedClientBindingsDirectory = layout.buildDirectory.dir('generated/nclskins/client-bindings')
+def generatedServerBindingsDirectory = layout.buildDirectory.dir('generated/nclskins/server-bindings')
 
 def abiSourceSet
 
 if (spec.sourceLayout == 'fabricSplit') {
     sourceSets.main.java.srcDirs += commonMinecraftJava
+    sourceSets.main.java.srcDir generatedServerBindingsDirectory
     sourceSets.client.java.srcDirs += clientMinecraftJava
+    sourceSets.client.java.srcDir generatedClientBindingsDirectory
     abiSourceSet = sourceSets.client
 } else {
     sourceSets.main.java.srcDirs += minecraftJava
+    sourceSets.main.java.srcDir generatedClientBindingsDirectory
+    sourceSets.main.java.srcDir generatedServerBindingsDirectory
     abiSourceSet = sourceSets.main
 }
 
@@ -202,6 +227,23 @@ def generateTargetMetadata = tasks.register('generateTargetMetadata', nclskinsGe
     delegate.outputDirectory.set(generatedMetadataDirectory)
 }
 
+def generateTargetBindings = tasks.register('generateTargetBindings', nclskinsGenerateTargetBindingsTaskType) {
+    group = 'build setup'
+    description = 'Generates side-specific resolved capability bindings from gradle/targets.json.'
+    delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
+    delegate.targetId.set(currentTargetId)
+    delegate.clientOutputDirectory.set(generatedClientBindingsDirectory)
+    delegate.serverOutputDirectory.set(generatedServerBindingsDirectory)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    dependsOn generateTargetBindings
+}
+
+tasks.withType(Jar).configureEach {
+    dependsOn generateTargetBindings
+}
+
 tasks.named('processResources', ProcessResources).configure {
     dependsOn generateTargetMetadata
     inputs.file(catalogFile)
@@ -237,6 +279,7 @@ tasks.register('captureCapabilityAbi', nclskinsCapabilityAbiTaskType) {
     delegate.abiFile.set(repositoryRoot.file('gradle/abi-fingerprints.json'))
     delegate.targetId.set(currentTargetId)
     delegate.mode.set('capture')
+    delegate.capabilityProbe.set(capabilityProbe ?: '')
     delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
 }
 
@@ -247,6 +290,7 @@ def capabilityAbiTask = tasks.register('verifyCapabilityAbi', nclskinsCapability
     delegate.abiFile.set(repositoryRoot.file('gradle/abi-fingerprints.json'))
     delegate.targetId.set(currentTargetId)
     delegate.mode.set('verify')
+    delegate.capabilityProbe.set(capabilityProbe ?: '')
     delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
 }
 

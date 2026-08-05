@@ -48,6 +48,7 @@ final class ArtifactVerifier {
             if (names.any { String name -> FORBIDDEN_DEV_RUNTIME_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds the dev-only Mod Menu dependency")
             if (names.any { FORBIDDEN_MIXIN.matcher(it).find() }) errors.add("${target.id}: artifact contains a forbidden session/auth mixin candidate")
             verifyClassfiles(archive, target, names, errors)
+            verifyGeneratedBindings(archive, catalog, target, names, errors)
             verifyLegal(root, archive, target, errors)
             verifyMetadata(archive, catalog, target, version, errors)
             verifyResources(root, archive, catalog, target, names, errors)
@@ -112,6 +113,46 @@ final class ArtifactVerifier {
             if (bytes.length < 8 || bytes[0..3] as byte[] != [0xCA, 0xFE, 0xBA, 0xBE] as byte[]) { errors.add("${target.id}:${name}: invalid classfile header"); return }
             int major = ((bytes[6] & 0xff) << 8) | (bytes[7] & 0xff)
             if (major != expected) errors.add("${target.id}:${name}: expected classfile major ${expected}, got ${major}")
+        }
+    }
+
+    static void verifyGeneratedBindings(
+            ZipFile archive,
+            Map catalog,
+            Map target,
+            List<String> names,
+            List<String> errors) {
+        List<String> bindings = [
+                'com/naocraftlab/skins/generated/TargetClientBindings.class',
+                'com/naocraftlab/skins/generated/TargetServerBindings.class'
+        ]
+        bindings.each { String path ->
+            if (!names.contains(path)) {
+                errors.add("${target.id}: missing generated binding ${path}")
+            }
+        }
+        if (bindings.any { !names.contains(it) }) return
+        String constants = bindings.collect { String path ->
+            new String(read(archive, path), StandardCharsets.ISO_8859_1)
+        }.join('\n')
+        [target.id, target.epochProfile, target.loaderProfile,
+         target.integrationProfile, target.buildProfile].each { Object value ->
+            if (!constants.contains(value.toString())) {
+                errors.add("${target.id}: generated bindings omit profile ${value}")
+            }
+        }
+        String providerClass = catalog.profiles.epochs[target.epochProfile]
+                .clientProviderClass.toString()
+        if (providerClass != null) {
+            String providerPath = providerClass.replace('.', '/') + '.class'
+            if (!names.contains(providerPath) || !constants.contains(providerClass.replace('.', '/'))) {
+                errors.add("${target.id}: generated client provider is not artifact-reachable: ${providerClass}")
+            }
+        }
+        (target.capabilities as Map).each { Object role, Object implementation ->
+            if (!constants.contains(role.toString()) || !constants.contains(implementation.toString())) {
+                errors.add("${target.id}: generated bindings cannot reach ${role}=${implementation}")
+            }
         }
     }
 

@@ -25,7 +25,7 @@ if (modMenuConfiguration == null) {
 }
 
 loom {
-    accessWidenerPath = file('src/main/resources/nclskins.accesswidener')
+    accessWidenerPath = nclskinsAccessFile
     runs {
         client {
             nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->

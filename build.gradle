@@ -21,6 +21,7 @@ def requestedNewVersion = providers.gradleProperty('newVersion').orNull
 def targetIds = targetCatalog.targets.collect { it.id.toString() }
 def requestedTargetId = providers.gradleProperty('targetId').orNull
 def requestedMinecraftVersion = providers.gradleProperty('mcVersion').orNull
+def requestedCapabilityKey = providers.gradleProperty('capabilityKey').orNull
 def requestedFromRef = providers.gradleProperty('fromRef').orNull
 def requestedToRef = providers.gradleProperty('toRef').orNull
 def workerText = providers.environmentVariable('NCLSKINS_BUILD_JOBS').getOrElse('3')
@@ -128,6 +129,30 @@ tasks.register('affectedTargets', AffectedTargetsTask) {
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     if (requestedFromRef != null) fromRef.set(requestedFromRef)
     if (requestedToRef != null) toRef.set(requestedToRef)
+}
+
+tasks.register('probeCapabilityReuse', CapabilityReuseProbeTask) {
+    group = 'verification'
+    description = 'Tries existing capability implementations in reuse-first order for one catalog target.'
+    doFirst {
+        if (requestedTargetId == null || !targetIds.contains(requestedTargetId)) {
+            throw new GradleException("Use -PtargetId=<catalog target>; available=${targetIds.sort()}")
+        }
+        if (requestedCapabilityKey != null &&
+                !CatalogTools.REQUIRED_CAPABILITIES.contains(requestedCapabilityKey)) {
+            throw new GradleException(
+                    "Unknown -PcapabilityKey=${requestedCapabilityKey}; available=${CatalogTools.REQUIRED_CAPABILITIES.sort()}")
+        }
+    }
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
+    delegate.coverageFile.set(layout.projectDirectory.file('gradle/capability-semantic-coverage.json'))
+    targetId.set(requestedTargetId ?: '')
+    capabilityKey.set(requestedCapabilityKey ?: '')
+    compileCandidates.set(true)
+    reportFile.set(layout.buildDirectory.file(
+            "reports/capability-reuse/${requestedTargetId ?: 'unspecified'}.json"))
 }
 
 tasks.register('generateIdeaRunConfigurations', GenerateIdeaRunConfigurationsTask) {

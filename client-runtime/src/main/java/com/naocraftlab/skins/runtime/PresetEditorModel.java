@@ -702,7 +702,8 @@ public final class PresetEditorModel {
                 preview.pitchDegrees(),
                 preview.scale(),
                 originalPresetId,
-                previewCatalogImage);
+                previewCatalogImage,
+                PreviewRenderer.PreviewIntent.EDITOR_DRAFT);
         return new ViewSpec(
                 "preset_editor",
                 UiMessage.info(originalPresetId.isPresent()

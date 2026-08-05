@@ -20,12 +20,100 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(6, catalog.schemaVersion)
+        assertEquals(7, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
         assertEquals(LinkedHashMap, catalog.targets.first().getClass())
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void reuseProbePrefersSameEpochAndRejectsUndeclaredImplementations() {
+        Map target = CatalogTools.selectTarget(catalog, 'fabric-1.20.1')
+        List<Map> candidates = CapabilityReuse.candidates(catalog, target, 'gui')
+
+        assertEquals('immediate-1.20', candidates.first().implementation)
+        assertTrue(candidates.first().sameEpoch)
+        assertTrue(candidates.first().reused)
+        assertEquals(
+                'immediate-1.21',
+                CatalogTools.withCapabilityProbe(
+                        catalog, target, 'gui=immediate-1.21').capabilities.gui)
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.withCapabilityProbe(catalog, target, 'gui=missing-adapter')
+        }
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.withCapabilityProbe(
+                    catalog, target, 'textures=immediate-1.20')
+        }
+    }
+
+    @Test
+    void syntheticNinthTargetReusesEveryExistingCapabilityWithoutNewDeclarations() {
+        Map target = cloneMap(CatalogTools.selectTarget(catalog, 'fabric-26.2'))
+        target.id = 'fabric-26.2-fixture'
+
+        CatalogTools.REQUIRED_CAPABILITIES.each { String capability ->
+            List<Map> candidates = CapabilityReuse.candidates(catalog, target, capability)
+            assertFalse(candidates.isEmpty(), capability)
+            assertEquals(target.capabilities[capability], candidates.first().implementation, capability)
+            assertTrue(candidates.first().reused, capability)
+        }
+    }
+
+    @Test
+    void targetProfilesRejectHiddenOverrides() {
+        Map changed = cloneMap(catalog)
+        changed.targets.find { it.id == 'fabric-1.21.1' }
+                .capabilities.textures = 'resource-location-legacy'
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException) {
+            CatalogTools.validate(repository, changed)
+        }
+        assertTrue(failure.message.contains('textures differs from epoch profile'))
+    }
+
+    @Test
+    void reuseNegativeFixturesReportHiddenDependencyWrongSuiteAbiAndNewAdapter() {
+        Map target = CatalogTools.selectTarget(catalog, 'fabric-1.20.1')
+        Map coverage = CatalogTools.loadJson(
+                new File(repository, 'gradle/capability-semantic-coverage.json'))
+        Map candidate = CapabilityReuse.candidates(catalog, target, 'gui').first()
+
+        Map hiddenDependency = cloneMap(catalog)
+        hiddenDependency.sourceBundles['immediate-1.20'].requires = ['missing-hidden-bundle']
+        Map hidden = CapabilityReuse.inspect(
+                repository, hiddenDependency, abi, coverage, target, 'gui', candidate)
+        assertEquals('REJECTED', hidden.staticStatus)
+        assertTrue(
+                hidden.failures.any {
+                    it.toLowerCase().contains('missing') &&
+                            it.toLowerCase().contains('source bundle')
+                },
+                hidden.failures.toString())
+
+        Map wrongSuite = cloneMap(coverage)
+        wrongSuite.implementations['immediate-1.20'].capabilityKey = 'textures'
+        Map wrong = CapabilityReuse.inspect(
+                repository, catalog, abi, wrongSuite, target, 'gui', candidate)
+        assertEquals('REJECTED', wrong.staticStatus)
+        assertTrue(wrong.failures.contains('missing executable semantic contract'))
+
+        assertFalse(CapabilityReuse.matchesDeclaredAbi(
+                abi, 'immediate-1.20', ['example.Wrong': '0' * 64]))
+        assertThrows(IllegalStateException) {
+            CapabilityReuse.requireReuseFirstSelection(
+                    'fixture-target', 'gui', 'new-adapter', 'immediate-1.20')
+        }
+    }
+
+    @Test
+    void zeroAbiDeclarationHashIsRejected() {
+        assertFalse(CatalogTools.validAbiDeclarationHash('0' * 64))
+        assertFalse(CatalogTools.validAbiDeclarationHash('abc'))
+        assertTrue(CatalogTools.validAbiDeclarationHash(
+                abi.implementations['immediate-1.20'].baselineSha256))
     }
 
     @Test
@@ -166,7 +254,7 @@ final class BuildLogicTest {
     }
 
     @Test
-    void dependencyFloorsHaveNoUpperBoundsAndFabricUsesMinimumCompatiblePatches() {
+    void everyPublishedDependencyPredicateContainsOnlyItsMinimumVersion() {
         catalog.targets.each { Map target ->
             if (target.loader.id == 'fabric') {
                 assertTrue(target.loader.version ==~ /[0-9]+\.[0-9]+\.[0-9]+/)
@@ -182,10 +270,26 @@ final class BuildLogicTest {
     }
 
     @Test
+    void everyCatalogLoaderUsesARegisteredBackend() {
+        assertEquals(['fabric', 'forge', 'neoforge'] as Set, LoaderBackend.ids())
+        catalog.targets.each { Map target ->
+            LoaderBackend backend = LoaderBackend.require(target.loader.id.toString())
+            assertEquals(target.minecraft.predicate,
+                    backend.minecraftPredicate(target.minecraft.version.toString()))
+            assertEquals(target.metadata.keySet() as Set, backend.metadataKeys())
+            assertFalse(backend.metadata(catalog, target, '1.0.0').isEmpty())
+        }
+        assertThrows(IllegalArgumentException) { LoaderBackend.require('unknown') }
+    }
+
+    @Test
     void upperBoundAndMismatchedFabricFloorAreRejected() {
         Map upperBound = cloneMap(catalog)
         upperBound.targets.find { it.id == 'forge-1.20.1' }.loader.predicate = '[47.4.10,48)'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, upperBound) }
+        Map minecraftUpperBound = cloneMap(catalog)
+        minecraftUpperBound.targets.find { it.id == 'neoforge-26.1' }.minecraft.predicate = '[26.1,26.2)'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, minecraftUpperBound) }
         Map mismatchedLoader = cloneMap(catalog)
         mismatchedLoader.targets.find { it.id == 'fabric-26.2' }.loader.predicate = '>=0.19.0'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedLoader) }
@@ -306,7 +410,7 @@ final class BuildLogicTest {
             Map declarations = catalog.capabilityImplementations as Map
             Set<String> selected = (target.capabilities as Map).values().collect { declarations[it].abiImplementation.toString() } as Set
             Map actual = new TreeMap()
-            selected.each { actual[it] = abi.resolvedByEpoch[target.minecraft.epoch][it] }
+            selected.each { actual[it] = abi.resolvedByProfile[target.epochProfile][it] }
             AbiVerifier.verify(catalog, abi, target.id.toString(), actual)
         }
     }
@@ -333,7 +437,7 @@ final class BuildLogicTest {
         Map declarations = catalog.capabilityImplementations as Map
         Set<String> selected = (target.capabilities as Map).values().collect { declarations[it].abiImplementation.toString() } as Set
         Map actual = new TreeMap()
-        selected.each { actual[it] = cloneMap(abi.resolvedByEpoch[target.minecraft.epoch][it] as Map) }
+        selected.each { actual[it] = cloneMap(abi.resolvedByProfile[target.epochProfile][it] as Map) }
         String implementation = selected.first()
         String className = (actual[implementation] as Map).keySet().first()
         actual[implementation][className] = '0' * 64

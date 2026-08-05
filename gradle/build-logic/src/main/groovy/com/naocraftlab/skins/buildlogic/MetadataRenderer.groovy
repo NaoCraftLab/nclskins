@@ -5,16 +5,8 @@ import groovy.json.JsonOutput
 final class MetadataRenderer {
     static Map<String, String> render(Map catalog, Map target, String modVersion) {
         String loader = target.loader.id
-        Map<String, String> resources
-        if (loader == 'fabric') {
-            resources = ['fabric.mod.json': fabric(catalog, target, modVersion)]
-        } else if (loader == 'forge') {
-            resources = ['META-INF/mods.toml': forge(catalog, target, modVersion), 'pack.mcmeta': rootPack(target)]
-        } else if (loader == 'neoforge') {
-            resources = ['META-INF/neoforge.mods.toml': neoforge(catalog, target, modVersion)]
-        } else {
-            throw new IllegalArgumentException("unsupported loader: ${loader}")
-        }
+        Map<String, String> resources = LoaderBackend.require(loader)
+                .metadata(catalog, target, modVersion)
         resources['resourcepacks/mojang_collections/pack.mcmeta'] = mojangPack(target)
         Set expected = (target.metadata.files as List) as Set
         if (resources.keySet() as Set != expected) {

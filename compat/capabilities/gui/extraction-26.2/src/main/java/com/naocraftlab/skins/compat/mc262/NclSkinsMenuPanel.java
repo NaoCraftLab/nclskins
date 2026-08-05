@@ -131,7 +131,8 @@ public final class NclSkinsMenuPanel {
                             preview.height(),
                             layout.yawDegrees(),
                             layout.pitchDegrees(),
-                            layout.scale()));
+                            layout.scale(),
+                            PreviewRenderer.PreviewIntent.CURRENT_APPEARANCE));
 
 
             graphics.nextStratum();

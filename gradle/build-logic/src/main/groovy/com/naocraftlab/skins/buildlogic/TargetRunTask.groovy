@@ -54,8 +54,9 @@ abstract class TargetRunTask extends DefaultTask {
         List<String> command = [wrapper.absolutePath, '-p', targetDirectory.absolutePath, '--no-daemon', nativeTask]
         if (kind == 'Server') {
             int port = target.development.serverPort as int
-            if (target.loader.id == 'neoforge') command.add("-PnclskinsServerPort=${port}".toString())
-            else command.add("--args=--port ${port}".toString())
+            Optional<String> property = LoaderBackend.require(target.loader.id.toString())
+                    .serverPortProperty(port)
+            command.add(property.orElse("--args=--port ${port}".toString()))
         }
         if (dryRun) command.add('--dry-run')
         command

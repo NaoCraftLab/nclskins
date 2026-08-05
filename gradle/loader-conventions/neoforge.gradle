@@ -5,7 +5,7 @@ if (targetSpec.loader.id != 'neoforge') {
 def serverPort = providers.gradleProperty('nclskinsServerPort')
 
 neoForge {
-    accessTransformers.from('src/main/resources/META-INF/accesstransformer.cfg')
+    accessTransformers.from(nclskinsAccessFile)
 
     runs {
         client {
