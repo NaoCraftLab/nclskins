@@ -474,6 +474,7 @@ public final class NclSkinsScreen extends Screen {
         }
         ViewSpec.FocusRequest request = view.focusRequest().orElseThrow();
         if (request.token() > consumedFocusToken && focusWidget(request.widgetId())) {
+            selectAllTextField(view, request.widgetId());
             consumedFocusToken = request.token();
         }
     }
@@ -888,9 +889,19 @@ public final class NclSkinsScreen extends Screen {
                 continue;
             }
             graphics.setTooltipForNextFrame(
-                    Minecraft262Components.resolve(region.tooltip()), mouseX, mouseY);
+                    tooltipLines(Minecraft262Components.resolve(region.tooltip())),
+                    mouseX,
+                    mouseY);
             return;
         }
+    }
+
+    private static List<net.minecraft.util.FormattedCharSequence> tooltipLines(
+            Component tooltip) {
+        return tooltip.getString().lines()
+                .map(Component::literal)
+                .map(Component::getVisualOrderText)
+                .toList();
     }
 
     private boolean marqueeActive(

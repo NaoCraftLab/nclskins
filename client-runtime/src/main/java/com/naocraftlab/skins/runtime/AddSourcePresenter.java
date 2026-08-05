@@ -184,7 +184,9 @@ public final class AddSourcePresenter {
                         UiMessage.info("nclskins.add_source.no_results"),
                         ViewSpec.Text.Alignment.CENTER));
             }
-            operationStatus.ifPresent(status -> texts.add(new ViewSpec.Text(
+            operationStatus.filter(status ->
+                            "nclskins.your_skins.delete_failed".equals(status.key()))
+                    .ifPresent(status -> texts.add(new ViewSpec.Text(
                     "add.catalog.status",
                     new Bounds(16, Math.max(CONTENT_TOP, height - 39), Math.max(1, width - 32), 10),
                     status,
@@ -324,6 +326,9 @@ public final class AddSourcePresenter {
                         true,
                         0));
                 Optional<String> skinInfo = model.skinInfo(collection, skin);
+                boolean renamingThisCard = personalRename
+                        .filter(rename -> rename.sha256().equals(skin.id()))
+                        .isPresent();
                 int nameX = card.x() + 4;
                 int nameRight = card.right() - 4;
                 Bounds nameBounds = new Bounds(
@@ -331,7 +336,7 @@ public final class AddSourcePresenter {
                         card.y() + 7,
                         Math.max(1, nameRight - nameX),
                         10);
-                if (intersectsViewport(nameBounds, contentBottom)) {
+                if (!renamingThisCard && intersectsViewport(nameBounds, contentBottom)) {
                     texts.add(new ViewSpec.Text(
                         prefix + ".name",
                         nameBounds,
@@ -369,7 +374,7 @@ public final class AddSourcePresenter {
                         Optional.empty(),
                         Optional.of(new ViewSpec.CatalogImage(collection.id(), skin.id()))));
                 }
-                if (personalRename.filter(rename -> rename.sha256().equals(skin.id())).isPresent()) {
+                if (renamingThisCard) {
                     PersonalSkinRename rename = personalRename.orElseThrow();
                     addIntersectingWidget(
                             widgets,
@@ -380,7 +385,9 @@ public final class AddSourcePresenter {
                                     rename.value(),
                                     UiMessage.info("nclskins.your_skins.rename_hint"),
                                     !busy,
-                                    128),
+                                    128,
+                                    true,
+                                    Optional.of("add.catalog.rename.save")),
                             contentBottom);
                     int half = Math.max(1, (card.width() - 8) / 2);
                     addIntersectingWidget(

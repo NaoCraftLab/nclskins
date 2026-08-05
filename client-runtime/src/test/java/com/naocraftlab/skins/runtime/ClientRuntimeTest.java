@@ -1111,8 +1111,14 @@ final class ClientRuntimeTest {
 
         runtime.dispatchWidget("add.tab.catalog");
         runtime.dispatchWidget("add.catalog.rename:" + personalHash);
-        String renameValue = runtime.view(320, 240, 0, 0)
-                .widget("add.catalog.rename.name")
+        ViewSpec renameView = runtime.view(320, 240, 0, 0);
+        assertEquals(
+                Optional.of("add.catalog.rename.name"),
+                renameView.focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        assertTrue(renameView.widget("add.catalog.rename.name")
+                .orElseThrow()
+                .selectAllOnPrimaryClick());
+        String renameValue = renameView.widget("add.catalog.rename.name")
                 .orElseThrow()
                 .value()
                 .orElseThrow();

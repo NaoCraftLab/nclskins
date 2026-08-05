@@ -485,7 +485,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 setFocused(restored);
             }
         }
-        consumeFocusRequest(view.focusRequest());
+        consumeFocusRequest(view);
     }
 
     private AbstractWidget createWidget(ViewSpec.Widget widget) {
@@ -1019,7 +1019,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 .orElse(null);
     }
 
-    private void consumeFocusRequest(Optional<ViewSpec.FocusRequest> request) {
+    private void consumeFocusRequest(ViewSpec view) {
+        Optional<ViewSpec.FocusRequest> request = view.focusRequest();
         if (request.isEmpty()) {
             consumedFocusToken = 0;
             return;
@@ -1033,6 +1034,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             return;
         }
         setFocused(target);
+        selectAllTextField(view, focusRequest.widgetId());
         consumedFocusToken = focusRequest.token();
     }
 
@@ -1154,9 +1156,18 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                             .isPresent()) {
                 continue;
             }
-            graphics.renderTooltip(font, resolve(region.tooltip()), mouseX, mouseY);
+            graphics.renderTooltip(
+                    font, tooltipLines(resolve(region.tooltip())), mouseX, mouseY);
             return;
         }
+    }
+
+    private static List<net.minecraft.util.FormattedCharSequence> tooltipLines(
+            Component tooltip) {
+        return tooltip.getString().lines()
+                .map(Component::literal)
+                .map(Component::getVisualOrderText)
+                .toList();
     }
 
     private boolean marqueeActive(

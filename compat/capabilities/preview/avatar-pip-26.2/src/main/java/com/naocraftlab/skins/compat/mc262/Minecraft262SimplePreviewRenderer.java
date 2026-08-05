@@ -5,7 +5,6 @@ import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinModel;
-import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -110,16 +109,6 @@ final class Minecraft262SimplePreviewRenderer
                 request.top(),
                 request.left() + request.width(),
                 request.top() + request.height());
-    }
-
-    void renderAttachment(
-            GuiGraphicsExtractor graphics,
-            PreviewRequest request,
-            TextureHandle texture) {
-        Object cape = attachment(CapeMode.CAPE);
-        ((Model<?>) cape).resetPose();
-        float scale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
-        submit(graphics, cape, Identifier.parse(texture.location()), scale, request);
     }
 
     private static void submit(

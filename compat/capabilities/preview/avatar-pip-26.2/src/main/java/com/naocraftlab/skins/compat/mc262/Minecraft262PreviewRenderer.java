@@ -59,16 +59,21 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
     private ClientLevel previewLevel;
     private Identifier previewBodyTexture;
     private CompletableFuture<Optional<PlayerSkin>> previewProfileSkin;
-    private final Minecraft262SimplePreviewRenderer canonicalAttachments =
-            new Minecraft262SimplePreviewRenderer();
-
     @Override
     public void render(GuiGraphicsExtractor graphics, PreviewRequest request) {
         PreviewAppearance appearance = request.appearance();
         PlayerSkin skin = playerSkin(appearance);
         AvatarRenderState state = createRenderState(skin);
         configurePreviewState(state, appearance, skin, request);
-        ((NclSkinsWideDepthState) state).nclskins$setWideDepth(true);
+        NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
+        previewState.nclskins$setWideDepth(true);
+        previewState.nclskins$setPreviewCapeTexture(
+                appearance.capeMode() == CapeMode.CAPE
+                        ? appearance.cape()
+                                .map(TextureHandle::location)
+                                .map(Identifier::parse)
+                                .orElse(null)
+                        : null);
 
         float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
         float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
@@ -80,11 +85,6 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
                 0.0F,
                 state.boundingBoxHeight / 2.0F + ENTITY_Y_OFFSET,
                 0.0F);
-
-        if (appearance.capeMode() == CapeMode.CAPE) {
-            appearance.cape().ifPresent(cape ->
-                    canonicalAttachments.renderAttachment(graphics, request, cape));
-        }
 
         graphics.entity(
                 state,

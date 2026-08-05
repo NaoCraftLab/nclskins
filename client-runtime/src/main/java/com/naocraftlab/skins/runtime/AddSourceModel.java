@@ -209,6 +209,23 @@ public final class AddSourceModel {
         return focusWidgetId;
     }
 
+    public AddSourceModel withRequestedFocus(String widgetId) {
+        Objects.requireNonNull(widgetId, "widgetId");
+        if (widgetId.isBlank()) {
+            throw new IllegalArgumentException("focus widget id must not be blank");
+        }
+        return copy(
+                selectedTab,
+                collapsedCollectionIds,
+                query,
+                filter,
+                preferredVariant,
+                scrollOffset,
+                Math.max(1, focusToken + 1),
+                Optional.of(widgetId),
+                personalSkinDeletion);
+    }
+
     public Optional<PersonalSkinDeletion> personalSkinDeletion() {
         return personalSkinDeletion;
     }

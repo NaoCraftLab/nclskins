@@ -385,6 +385,39 @@ final class AddSourceModelPresenterTest {
                 skinName.y(), 30, skinName.height()), skinTooltip.hitBounds(30));
         assertEquals(Optional.of(viewport), view.clipFor(collectionTooltip.id()));
         assertEquals(Optional.of(viewport), view.clipFor(skinTooltip.id()));
+        assertEquals(
+                "Collection description\nCollection authors",
+                collectionTooltip.tooltip().key());
+        assertEquals("Skin description\nSkin authors", skinTooltip.tooltip().key());
+    }
+
+    @Test
+    void catalogHidesAmbientSessionStatusButKeepsPersonalDeleteFailure() {
+        AddSourceModel model = openCatalog(MinecraftSkinCatalog.collections().get(0));
+
+        ViewSpec offline = presenter.present(
+                model,
+                false,
+                Optional.of(UiMessage.error("nclskins.session.offline")),
+                320,
+                240);
+        ViewSpec deleteFailure = presenter.present(
+                model,
+                false,
+                Optional.of(UiMessage.error("nclskins.your_skins.delete_failed")),
+                320,
+                240);
+
+        assertTrue(offline.texts().stream().noneMatch(text ->
+                text.id().equals("add.catalog.status")));
+        assertEquals(
+                "nclskins.your_skins.delete_failed",
+                deleteFailure.texts().stream()
+                        .filter(text -> text.id().equals("add.catalog.status"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message()
+                        .key());
     }
 
     @Test
@@ -731,7 +764,18 @@ final class AddSourceModelPresenterTest {
             ViewSpec.Widget overlay = view.widget(id).orElseThrow();
             assertEquals(Optional.of(viewport), view.clipFor(id));
         }
-        assertTrue(view.widget("add.catalog.rename.name").orElseThrow().bounds().y() < viewport.y());
+        ViewSpec.Widget renameField = view.widget("add.catalog.rename.name").orElseThrow();
+        assertTrue(renameField.bounds().y() < viewport.y());
+        assertTrue(renameField.selectAllOnPrimaryClick());
+        assertEquals(Optional.of("add.catalog.rename.save"), renameField.submitActionId());
+        String nameId = "add.catalog.skin:"
+                + PersonalSkinCatalog.COLLECTION_ID
+                + ":"
+                + personalHash
+                + ".name";
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals(nameId)));
+        assertTrue(view.tooltipRegions().stream().noneMatch(region ->
+                region.id().endsWith(":" + personalHash)));
 
         ViewSpec topActionsClipped = presenter.present(
                 model.withScrollOffset(43),

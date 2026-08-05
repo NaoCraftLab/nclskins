@@ -1743,6 +1743,7 @@ public final class ClientRuntime implements AutoCloseable {
         }
         state.personalRenameHash = sha256;
         state.personalRenameValue = state.addSource.skinName(skin);
+        state.addSource = state.addSource.withRequestedFocus("add.catalog.rename.name");
         publish();
     }
 
@@ -1750,8 +1751,11 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.busy || state.personalRenameHash == null) {
             return;
         }
+        String hashForFocus = state.personalRenameHash;
         state.personalRenameHash = null;
         state.personalRenameValue = "";
+        state.addSource = state.addSource.withRequestedFocus(
+                "add.catalog.rename:" + hashForFocus);
         publish();
     }
 
@@ -1770,7 +1774,9 @@ public final class ClientRuntime implements AutoCloseable {
                 account -> {
                     state.account = account;
                     if (state.addSource != null) {
-                        state.addSource = state.addSource.renamedPersonalSkin(hash, name);
+                        state.addSource = state.addSource
+                                .renamedPersonalSkin(hash, name)
+                                .withRequestedFocus("add.catalog.rename:" + hash);
                     }
                     state.personalRenameHash = null;
                     state.personalRenameValue = "";

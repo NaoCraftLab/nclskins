@@ -36,17 +36,31 @@ class PlayerSkinTextureNormalizerTest {
     }
 
     @Test
-    void featurePreservingPolicyKeepsAlphaInsideVanillaBaseUvs() throws IOException {
+    void featurePreservingPolicyStillMakesOrdinaryPlayerSkinsVanillaSafe() throws IOException {
         BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
         source.setRGB(8, 0, 0x12123456);
 
-        BufferedImage safe = PlayerSkinTextureNormalizer.normalize(source);
         BufferedImage featurePreserving =
                 PlayerSkinTextureNormalizer.normalizeFeaturePreserving(source);
         byte[] roundTrip = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
                 writePng(source));
 
-        assertEquals(0xFF123456, safe.getRGB(8, 0));
+        assertEquals(0xFF123456, featurePreserving.getRGB(8, 0));
+        assertEquals(0xFF123456,
+                ImageIO.read(new ByteArrayInputStream(roundTrip)).getRGB(8, 0));
+    }
+
+    @Test
+    void featurePreservingPolicyKeepsBaseAlphaOnlyForEtfMarkedSkins() throws IOException {
+        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        source.setRGB(8, 0, 0x12123456);
+        addEtfMarker(source);
+
+        BufferedImage featurePreserving =
+                PlayerSkinTextureNormalizer.normalizeFeaturePreserving(source);
+        byte[] roundTrip = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
+                writePng(source));
+
         assertEquals(0x12123456, featurePreserving.getRGB(8, 0));
         assertEquals(0x12123456,
                 ImageIO.read(new ByteArrayInputStream(roundTrip)).getRGB(8, 0));
@@ -102,6 +116,20 @@ class PlayerSkinTextureNormalizerTest {
             throw new IOException("No PNG writer is available for the test");
         }
         return output.toByteArray();
+    }
+
+    private static void addEtfMarker(BufferedImage image) {
+        image.setRGB(1, 16, 0xFF0000FF);
+        image.setRGB(0, 16, 0xFF00007F);
+        image.setRGB(0, 17, 0xFF0000FF);
+        image.setRGB(2, 16, 0xFF00FF00);
+        image.setRGB(3, 16, 0xFF007F00);
+        image.setRGB(3, 17, 0xFF00FF00);
+        image.setRGB(0, 18, 0xFFFF0000);
+        image.setRGB(0, 19, 0xFF7F0000);
+        image.setRGB(1, 19, 0xFFFF0000);
+        image.setRGB(2, 19, 0xFFFFFFFF);
+        image.setRGB(3, 18, 0xFFFFFFFF);
     }
 
     private static void assertRgbEquals(int expected, int actual) {

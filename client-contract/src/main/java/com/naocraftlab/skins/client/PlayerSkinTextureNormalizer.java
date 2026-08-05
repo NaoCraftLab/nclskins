@@ -91,7 +91,7 @@ public final class PlayerSkinTextureNormalizer {
         if (legacy) {
             clearFullyOpaqueLegacyOverlay(image, 32, 0, 64, 32);
         }
-        if (!preserveFeatureAlpha) {
+        if (!preserveFeatureAlpha || !hasEtfFeatureMarker(image)) {
             setOpaque(image, 8, 0, 24, 8);
             setOpaque(image, 0, 8, 32, 16);
             setOpaque(image, 4, 16, 12, 20);
@@ -103,6 +103,24 @@ public final class PlayerSkinTextureNormalizer {
             setOpaque(image, 16, 52, 48, 64);
         }
         return image;
+    }
+
+    private static boolean hasEtfFeatureMarker(BufferedImage image) {
+        return rgb(image, 1, 16) == 0x0000FF
+                && rgb(image, 0, 16) == 0x00007F
+                && rgb(image, 0, 17) == 0x0000FF
+                && rgb(image, 2, 16) == 0x00FF00
+                && rgb(image, 3, 16) == 0x007F00
+                && rgb(image, 3, 17) == 0x00FF00
+                && rgb(image, 0, 18) == 0xFF0000
+                && rgb(image, 0, 19) == 0x7F0000
+                && rgb(image, 1, 19) == 0xFF0000
+                && rgb(image, 2, 19) == 0xFFFFFF
+                && rgb(image, 3, 18) == 0xFFFFFF;
+    }
+
+    private static int rgb(BufferedImage image, int x, int y) {
+        return image.getRGB(x, y) & 0x00FFFFFF;
     }
 
 
