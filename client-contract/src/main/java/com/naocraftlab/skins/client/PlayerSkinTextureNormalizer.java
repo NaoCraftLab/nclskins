@@ -18,17 +18,6 @@ public final class PlayerSkinTextureNormalizer {
 
 
     public static byte[] normalizePng(byte[] pngBytes) throws IOException {
-        return normalizePng(pngBytes, false);
-    }
-
-
-    public static byte[] normalizeFeaturePreservingPng(byte[] pngBytes) throws IOException {
-        return normalizePng(pngBytes, true);
-    }
-
-
-    private static byte[] normalizePng(byte[] pngBytes, boolean preserveFeatureAlpha)
-            throws IOException {
         Objects.requireNonNull(pngBytes, "pngBytes");
         BufferedImage decoded;
         try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {
@@ -37,8 +26,7 @@ public final class PlayerSkinTextureNormalizer {
         if (decoded == null) {
             throw new IOException("Player skin is not a decodable PNG image");
         }
-
-        BufferedImage normalized = normalize(decoded, preserveFeatureAlpha);
+        BufferedImage normalized = normalize(decoded);
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         if (!ImageIO.write(normalized, "png", output)) {
             throw new IOException("No PNG writer is available");
@@ -47,19 +35,21 @@ public final class PlayerSkinTextureNormalizer {
     }
 
 
+    public static byte[] normalizeFeaturePreservingPng(byte[] pngBytes) throws IOException {
+        Objects.requireNonNull(pngBytes, "pngBytes");
+        BufferedImage decoded;
+        try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {
+            decoded = ImageIO.read(input);
+        }
+        if (decoded == null) {
+            throw new IOException("Player skin is not a decodable PNG image");
+        }
+        requirePlayerSkinDimensions(decoded);
+        return pngBytes.clone();
+    }
+
+
     public static BufferedImage normalize(BufferedImage source) throws IOException {
-        return normalize(source, false);
-    }
-
-
-    public static BufferedImage normalizeFeaturePreserving(BufferedImage source)
-            throws IOException {
-        return normalize(source, true);
-    }
-
-
-    private static BufferedImage normalize(
-            BufferedImage source, boolean preserveFeatureAlpha) throws IOException {
         Objects.requireNonNull(source, "source");
         int width = source.getWidth();
         int height = source.getHeight();
@@ -91,36 +81,38 @@ public final class PlayerSkinTextureNormalizer {
         if (legacy) {
             clearFullyOpaqueLegacyOverlay(image, 32, 0, 64, 32);
         }
-        if (!preserveFeatureAlpha || !hasEtfFeatureMarker(image)) {
-            setOpaque(image, 8, 0, 24, 8);
-            setOpaque(image, 0, 8, 32, 16);
-            setOpaque(image, 4, 16, 12, 20);
-            setOpaque(image, 20, 16, 36, 20);
-            setOpaque(image, 44, 16, 52, 20);
-            setOpaque(image, 0, 20, 64, 32);
-            setOpaque(image, 20, 48, 28, 52);
-            setOpaque(image, 36, 48, 44, 52);
-            setOpaque(image, 16, 52, 48, 64);
-        }
+        setOpaque(image, 8, 0, 24, 8);
+        setOpaque(image, 0, 8, 32, 16);
+        setOpaque(image, 4, 16, 12, 20);
+        setOpaque(image, 20, 16, 36, 20);
+        setOpaque(image, 44, 16, 52, 20);
+        setOpaque(image, 0, 20, 64, 32);
+        setOpaque(image, 20, 48, 28, 52);
+        setOpaque(image, 36, 48, 44, 52);
+        setOpaque(image, 16, 52, 48, 64);
         return image;
     }
 
-    private static boolean hasEtfFeatureMarker(BufferedImage image) {
-        return rgb(image, 1, 16) == 0x0000FF
-                && rgb(image, 0, 16) == 0x00007F
-                && rgb(image, 0, 17) == 0x0000FF
-                && rgb(image, 2, 16) == 0x00FF00
-                && rgb(image, 3, 16) == 0x007F00
-                && rgb(image, 3, 17) == 0x00FF00
-                && rgb(image, 0, 18) == 0xFF0000
-                && rgb(image, 0, 19) == 0x7F0000
-                && rgb(image, 1, 19) == 0xFF0000
-                && rgb(image, 2, 19) == 0xFFFFFF
-                && rgb(image, 3, 18) == 0xFFFFFF;
+
+    public static BufferedImage normalizeFeaturePreserving(BufferedImage source)
+            throws IOException {
+        Objects.requireNonNull(source, "source");
+        requirePlayerSkinDimensions(source);
+        BufferedImage copy = new BufferedImage(
+                source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        int[] pixels = source.getRGB(
+                0, 0, source.getWidth(), source.getHeight(), null, 0, source.getWidth());
+        copy.setRGB(0, 0, source.getWidth(), source.getHeight(), pixels, 0, source.getWidth());
+        return copy;
     }
 
-    private static int rgb(BufferedImage image, int x, int y) {
-        return image.getRGB(x, y) & 0x00FFFFFF;
+    private static void requirePlayerSkinDimensions(BufferedImage image) throws IOException {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        if (width != SKIN_WIDTH || height != LEGACY_HEIGHT && height != MODERN_HEIGHT) {
+            throw new IOException(
+                    "Player skin must be 64x64 or legacy 64x32, got " + width + 'x' + height);
+        }
     }
 
 

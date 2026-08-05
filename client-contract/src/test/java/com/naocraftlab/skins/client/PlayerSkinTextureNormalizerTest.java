@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -36,7 +37,8 @@ class PlayerSkinTextureNormalizerTest {
     }
 
     @Test
-    void featurePreservingPolicyStillMakesOrdinaryPlayerSkinsVanillaSafe() throws IOException {
+    void featurePreservingPolicyLeavesOrdinaryPlayerSkinAlphaForTheNativePipeline()
+            throws IOException {
         BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
         source.setRGB(8, 0, 0x12123456);
 
@@ -45,13 +47,13 @@ class PlayerSkinTextureNormalizerTest {
         byte[] roundTrip = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
                 writePng(source));
 
-        assertEquals(0xFF123456, featurePreserving.getRGB(8, 0));
-        assertEquals(0xFF123456,
+        assertEquals(0x12123456, featurePreserving.getRGB(8, 0));
+        assertEquals(0x12123456,
                 ImageIO.read(new ByteArrayInputStream(roundTrip)).getRGB(8, 0));
     }
 
     @Test
-    void featurePreservingPolicyKeepsBaseAlphaOnlyForEtfMarkedSkins() throws IOException {
+    void featurePreservingPolicyDoesNotDependOnAnEtfMarker() throws IOException {
         BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
         source.setRGB(8, 0, 0x12123456);
         addEtfMarker(source);
@@ -64,6 +66,38 @@ class PlayerSkinTextureNormalizerTest {
         assertEquals(0x12123456, featurePreserving.getRGB(8, 0));
         assertEquals(0x12123456,
                 ImageIO.read(new ByteArrayInputStream(roundTrip)).getRGB(8, 0));
+    }
+
+    @Test
+    void featurePreservingPolicyKeepsLegacyLayoutForTheNativePipeline() throws IOException {
+        BufferedImage legacy = coordinateImage(64, 32, 0x40);
+
+        BufferedImage preserved = PlayerSkinTextureNormalizer.normalizeFeaturePreserving(legacy);
+
+        assertEquals(64, preserved.getWidth());
+        assertEquals(32, preserved.getHeight());
+        assertEquals(legacy.getRGB(8, 0), preserved.getRGB(8, 0));
+    }
+
+    @Test
+    void featurePreservingPolicyKeepsEmbeddedDataInVanillaOpaqueRegions() throws IOException {
+        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        source.setRGB(8, 0, 0x12123456);
+
+        byte[] preservedPng = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(
+                writePng(source));
+        BufferedImage preserved = ImageIO.read(new ByteArrayInputStream(preservedPng));
+
+        assertEquals(0x12123456, preserved.getRGB(8, 0));
+    }
+
+    @Test
+    void featurePreservingPngKeepsExactEncodedBytes() throws IOException {
+        byte[] source = writePng(coordinateImage(64, 64, 0x40));
+
+        byte[] preserved = PlayerSkinTextureNormalizer.normalizeFeaturePreservingPng(source);
+
+        assertArrayEquals(source, preserved);
     }
 
     @Test
@@ -98,6 +132,9 @@ class PlayerSkinTextureNormalizerTest {
         BufferedImage invalid = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
 
         assertThrows(IOException.class, () -> PlayerSkinTextureNormalizer.normalize(invalid));
+        assertThrows(
+                IOException.class,
+                () -> PlayerSkinTextureNormalizer.normalizeFeaturePreserving(invalid));
     }
 
     private static BufferedImage coordinateImage(int width, int height, int alpha) {

@@ -57,6 +57,23 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
         }
     }
 
+    @Test
+    void featureSkinBytesReachTheNativeAdapterWithoutRasterRewriting() throws IOException {
+        FakeHarness harness = new FakeHarness();
+        try (harness) {
+            BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+            source.setRGB(8, 0, 0x12123456);
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+            ImageIO.write(source, "png", output);
+            byte[] png = output.toByteArray();
+
+            harness.registry.register(
+                    TextureKind.PLAYER_SKIN_FEATURE_PRESERVING, CONTENT_HASH, png);
+
+            assertArrayEquals(png, harness.registry.lastLoadedBytes);
+        }
+    }
+
     private static final class FakeHarness implements RegistryHarness {
         private final FakeTextureRegistry registry = new FakeTextureRegistry();
 
@@ -78,10 +95,12 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
 
     private static final class FakeTextureRegistry extends AbstractTextureRegistry<String> {
         private final AtomicInteger unloads = new AtomicInteger();
+        private byte[] lastLoadedBytes;
 
         @Override
         protected LoadedTexture<String> load(TextureKind kind, String sha256, byte[] pngBytes)
                 throws IOException {
+            lastLoadedBytes = pngBytes.clone();
             BufferedImage image;
             try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {
                 image = ImageIO.read(input);
