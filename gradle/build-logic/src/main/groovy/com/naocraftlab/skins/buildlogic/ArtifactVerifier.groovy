@@ -47,6 +47,7 @@ final class ArtifactVerifier {
             if (names.any { String name -> FORBIDDEN_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds a forbidden auth/native/JSON dependency")
             if (names.any { String name -> FORBIDDEN_DEV_RUNTIME_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds the dev-only Mod Menu dependency")
             if (names.any { FORBIDDEN_MIXIN.matcher(it).find() }) errors.add("${target.id}: artifact contains a forbidden session/auth mixin candidate")
+            verifyContentClosure(root, archive, catalog, target, names, errors)
             verifyClassfiles(archive, target, names, errors)
             verifyGeneratedBindings(archive, catalog, target, names, errors)
             verifyLegal(root, archive, target, errors)
@@ -62,6 +63,126 @@ final class ArtifactVerifier {
                 if (TOKEN.matcher(content).find()) errors.add("${target.id}:${name}: credential-like value found")
             }
         }
+    }
+
+    static void verifyContentClosure(
+            File root,
+            ZipFile archive,
+            Map catalog,
+            Map target,
+            List<String> names,
+            List<String> errors) {
+        Set<String> actualClasses = names.findAll { it.endsWith('.class') } as Set
+        File classDirectory = new File(root, "${target.path}/build/classes/java")
+        List<String> productionSourceSets = ['main']
+        if (target.sourceLayout == 'fabricSplit') productionSourceSets.add('client')
+        Set<String> expectedClasses = [] as Set
+        productionSourceSets.each { String sourceSet ->
+            expectedClasses.addAll(relativeFiles(
+                    new File(classDirectory, sourceSet), errors, target,
+                    "compiled ${sourceSet} class"))
+        }
+        verifyExactEntrySet(target, 'classfile', actualClasses, expectedClasses, errors)
+
+        Map resolved = CatalogTools.resolveTargetSources(root, catalog, target)
+        Set<String> sourceStems = [] as Set
+        (resolved.java as List).each { Object rawRoot ->
+            File sourceRoot = new File(root, rawRoot.toString())
+            relativeFiles(sourceRoot, errors, target, 'Java source')
+                    .findAll { it.endsWith('.java') }
+                    .each { sourceStems.add(it.substring(0, it.length() - '.java'.length())) }
+        }
+        Set<String> generatedClasses = [
+                'com/naocraftlab/skins/generated/TargetClientBindings.class',
+                'com/naocraftlab/skins/generated/TargetServerBindings.class'
+        ] as Set
+        Set<String> foreignClasses = actualClasses.findAll { String entry ->
+            !generatedClasses.contains(entry) && !sourceStems.any { String stem ->
+                entry == "${stem}.class" || entry.startsWith("${stem}\$")
+            }
+        } as Set
+        if (!foreignClasses.isEmpty()) {
+            errors.add("${target.id}: classfiles are not owned by selected source bundles: ${sample(foreignClasses)}")
+        }
+
+        Set<String> actualResources = names.findAll {
+            !it.endsWith('/') && !it.endsWith('.class')
+        } as Set
+        File resourceDirectory = new File(root, "${target.path}/build/resources/main")
+        Set<String> processedResources = relativeFiles(
+                resourceDirectory, errors, target, 'processed resource')
+        Set<String> toolchainTransformedResources = [] as Set
+        if (target.artifact.remapJar && target.metadata.accessWidener) {
+            toolchainTransformedResources.add(target.metadata.accessWidener.toString())
+        }
+        processedResources.findAll {
+            actualResources.contains(it) && !toolchainTransformedResources.contains(it)
+        }.each { String entry ->
+            File processed = new File(resourceDirectory, entry)
+            if (!MessageDigest.isEqual(processed.bytes, read(archive, entry))) {
+                errors.add("${target.id}: resource differs from processed target output: ${entry}")
+            }
+        }
+        Set<String> expectedResources = new LinkedHashSet<>(processedResources)
+        expectedResources.addAll(['META-INF/MANIFEST.MF', 'META-INF/LICENSE', 'META-INF/NOTICE'])
+        Map forgeRefmap = FORGE_REFMAPS[target.id.toString()]
+        if (forgeRefmap != null) expectedResources.add(forgeRefmap.path.toString())
+        verifyExactEntrySet(target, 'resource', actualResources, expectedResources, errors)
+
+        Set<String> selectedResources = [] as Set
+        (resolved.resources as List).each { Object rawRoot ->
+            selectedResources.addAll(relativeFiles(
+                    new File(root, rawRoot.toString()), errors, target, 'resource source'))
+        }
+        selectedResources.removeIf { it.endsWith('.pixel.json') }
+        selectedResources.addAll(target.metadata.files as List)
+        selectedResources.addAll(['META-INF/MANIFEST.MF', 'META-INF/LICENSE', 'META-INF/NOTICE'])
+        if (forgeRefmap != null) selectedResources.add(forgeRefmap.path.toString())
+        Set<String> foreignResources = actualResources - selectedResources
+        if (!foreignResources.isEmpty()) {
+            errors.add("${target.id}: resources are not owned by selected source bundles or generated target metadata: ${sample(foreignResources)}")
+        }
+    }
+
+    static void verifyExactEntrySet(
+            Map target,
+            String kind,
+            Collection<String> actual,
+            Collection<String> expected,
+            List<String> errors) {
+        Set<String> unexpected = (actual as Set) - (expected as Set)
+        Set<String> missing = (expected as Set) - (actual as Set)
+        if (!unexpected.isEmpty()) {
+            errors.add("${target.id}: unexpected ${kind} entries: ${sample(unexpected)}")
+        }
+        if (!missing.isEmpty()) {
+            errors.add("${target.id}: missing ${kind} entries from target build outputs: ${sample(missing)}")
+        }
+    }
+
+    private static Set<String> relativeFiles(
+            File directory,
+            List<String> errors,
+            Map target,
+            String label) {
+        if (!directory.isDirectory()) {
+            errors.add("${target.id}: missing ${label} directory ${directory}")
+            return [] as Set
+        }
+        Set<String> result = [] as Set
+        Files.walk(directory.toPath()).withCloseable { stream ->
+            stream.filter { Files.isRegularFile(it) }.forEach { path ->
+                def relative = directory.toPath().relativize(path)
+                result.add(relative.toString().replace(File.separatorChar, '/' as char))
+            }
+        }
+        result
+    }
+
+    private static String sample(Collection<String> entries) {
+        List<String> sorted = entries.toList().sort()
+        String suffix = sorted.size() > 8 ? " (+${sorted.size() - 8} more)" : ''
+        sorted.take(8).join(', ') + suffix
     }
 
     static void verifyCompatibilityReport(

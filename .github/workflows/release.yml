@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Validate, test, and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require tag commit on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          tagged_commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+          if ! git merge-base --is-ancestor "$tagged_commit" origin/main; then
+            echo "::error title=Release tag is not on main::The tagged commit must be reachable from origin/main."
+            exit 1
+          fi
+
+      - name: Set up JDK 25
+        id: java25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up JDK 21
+        id: java21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up JDK 17
+        id: java17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: true
+          validate-wrappers: true
+
+      - name: Validate release contract
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ./gradlew validateRelease -PreleaseTag="$RELEASE_TAG"
+          metadata="build/release/${RELEASE_TAG}/release-metadata.json"
+          prerelease="$(jq -r '.prerelease' "$metadata")"
+          printf 'version=%s\n' "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          printf 'prerelease=%s\n' "$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Run full release gate and assemble bundle
+        shell: bash
+        env:
+          NCLSKINS_BUILD_JOBS: '3'
+          NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}
+          NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
+          NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
+          RELEASE_TAG: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease -PreleaseTag="$RELEASE_TAG"
+
+      - name: Upload verified release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nclskins-release-${{ steps.release.outputs.version }}
+          path: build/release/${{ steps.release.outputs.version }}
+          if-no-files-found: error
+          retention-days: 1
+          include-hidden-files: false
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nclskins-release-${{ needs.build.outputs.version }}
+          path: release-bundle
+
+      - name: Verify bundle and publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.version }}
+          EXPECTED_PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error title=Release verification failed::$1"
+            exit 1
+          }
+
+          bundle="release-bundle"
+          manifest="${bundle}/release-manifest.json"
+          assets="${bundle}/assets"
+          [[ -f "$manifest" && ! -L "$manifest" ]] || fail "The release manifest is missing or unsafe."
+          [[ -d "$assets" && ! -L "$assets" ]] || fail "The release asset directory is missing or unsafe."
+
+          schema_version="$(jq -er '.schemaVersion' "$manifest")" || fail "The release manifest has no schema version."
+          manifest_version="$(jq -er '.version' "$manifest")" || fail "The release manifest has no version."
+          manifest_prerelease="$(jq -er '.prerelease | if type == "boolean" then tostring else error("invalid prerelease flag") end' "$manifest")" || fail "The release manifest has no valid prerelease flag."
+          [[ "$schema_version" == '1' ]] || fail "The release manifest schema version is unsupported."
+          [[ "$manifest_version" == "$RELEASE_TAG" ]] || fail "The release manifest version does not match the pushed tag."
+          [[ "$manifest_prerelease" == "$EXPECTED_PRERELEASE" ]] || fail "The prerelease classification changed between jobs."
+          [[ "$manifest_prerelease" == 'true' || "$manifest_prerelease" == 'false' ]] || fail "The prerelease flag is invalid."
+
+          notes_name="$(jq -er '.releaseNotes.file' "$manifest")" || fail "The release notes filename is missing."
+          notes_hash="$(jq -er '.releaseNotes.sha256' "$manifest")" || fail "The release notes checksum is missing."
+          [[ "$notes_name" == 'release-notes.md' ]] || fail "The release notes filename is not allowed."
+          notes_file="${bundle}/${notes_name}"
+          [[ -f "$notes_file" && ! -L "$notes_file" ]] || fail "The release notes are missing or unsafe."
+          [[ "$(sha256sum "$notes_file" | cut -d' ' -f1)" == "$notes_hash" ]] || fail "The release notes checksum does not match."
+
+          target_count="$(jq -er '.targetCount' "$manifest")" || fail "The target count is missing."
+          asset_count="$(jq -er '.assets | length' "$manifest")" || fail "The asset list is missing."
+          mod_count="$(jq -er '[.assets[] | select(.kind == "mod")] | length' "$manifest")" || fail "The mod asset list is invalid."
+          sources_count="$(jq -er '[.assets[] | select(.kind == "sources")] | length' "$manifest")" || fail "The sources asset list is invalid."
+          unique_count="$(jq -er '[.assets[].file] | unique | length' "$manifest")" || fail "The asset filenames are invalid."
+          [[ "$target_count" =~ ^[1-9][0-9]*$ ]] || fail "The target count is invalid."
+          [[ "$asset_count" -eq $((target_count + 1)) ]] || fail "The release must contain one asset per target and one sources JAR."
+          [[ "$mod_count" -eq "$target_count" ]] || fail "The number of mod JARs does not match the target count."
+          [[ "$sources_count" -eq 1 ]] || fail "The release must contain exactly one sources JAR."
+          [[ "$unique_count" -eq "$asset_count" ]] || fail "The release asset filenames are not unique."
+
+          actual_count="$(find "$assets" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+          [[ "$actual_count" -eq "$asset_count" ]] || fail "The release asset directory contains unexpected files."
+          while IFS=$'\t' read -r file kind expected_size expected_hash; do
+            [[ "$file" != */* && "$file" != .* && "$file" == "nclskins-${RELEASE_TAG}"*.jar ]] || fail "A release asset filename is unsafe."
+            [[ "$kind" == 'mod' || "$kind" == 'sources' ]] || fail "A release asset kind is invalid."
+            path="${assets}/${file}"
+            [[ -f "$path" && ! -L "$path" ]] || fail "Release asset '${file}' is missing or unsafe."
+            [[ "$(stat -c '%s' "$path")" == "$expected_size" ]] || fail "Release asset '${file}' has the wrong size."
+            [[ "$(sha256sum "$path" | cut -d' ' -f1)" == "$expected_hash" ]] || fail "Release asset '${file}' has the wrong checksum."
+          done < <(jq -er '.assets[] | [.file, .kind, (.size | tostring), .sha256] | @tsv' "$manifest")
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            fail "A GitHub Release for tag '${RELEASE_TAG}' already exists; refusing to overwrite it."
+          fi
+
+          release_args=(
+            release create "$RELEASE_TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --title "NCL Skins ${RELEASE_TAG}"
+            --notes-file "$notes_file"
+          )
+          if [[ "$manifest_prerelease" == 'true' ]]; then
+            release_args+=(--prerelease --latest=false)
+          else
+            release_args+=(--latest)
+          fi
+          while IFS= read -r file; do
+            release_args+=("${assets}/${file}")
+          done < <(jq -er '.assets[].file' "$manifest")
+          gh "${release_args[@]}"

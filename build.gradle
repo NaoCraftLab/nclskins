@@ -22,6 +22,7 @@ def targetIds = targetCatalog.targets.collect { it.id.toString() }
 def requestedTargetId = providers.gradleProperty('targetId').orNull
 def requestedMinecraftVersion = providers.gradleProperty('mcVersion').orNull
 def requestedCapabilityKey = providers.gradleProperty('capabilityKey').orNull
+def requestedReleaseTag = providers.gradleProperty('releaseTag').orNull
 def requestedFromRef = providers.gradleProperty('fromRef').orNull
 def requestedToRef = providers.gradleProperty('toRef').orNull
 def workerText = providers.environmentVariable('NCLSKINS_BUILD_JOBS').getOrElse('3')
@@ -281,10 +282,34 @@ def checkAll = tasks.register('checkAll') {
     dependsOn gradle.includedBuild('build-logic').task(':test')
 }
 
-tasks.register('fullCheck', TargetBuildTask) {
+def fullCheck = tasks.register('fullCheck', TargetBuildTask) {
     group = 'verification'
     description = 'Runs common checks, every target build, artifact verification, and repository secret checks.'
     dependsOn checkAll
     configureTargetBuild(delegate, targetIds, ['clean', 'build'], true, false)
     verifyCompatibility.set(true)
+}
+
+def validateRelease = tasks.register('validateRelease', ValidateReleaseTask) {
+    group = 'release setup'
+    description = 'Validates a release tag, configured version, and matching changelog section.'
+    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
+    changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
+    releaseTag.set(requestedReleaseTag ?: '')
+    releaseRoot.set(layout.buildDirectory.dir('release'))
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('assembleRelease', AssembleReleaseTask) {
+    group = 'release'
+    description = 'Runs the full gate and assembles every catalog artifact plus one all-target sources JAR.'
+    dependsOn validateRelease
+    dependsOn fullCheck
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
+    changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
+    releaseTag.set(requestedReleaseTag ?: '')
+    releaseRoot.set(layout.buildDirectory.dir('release'))
+    outputs.upToDateWhen { false }
 }

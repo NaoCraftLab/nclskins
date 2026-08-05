@@ -499,6 +499,93 @@ final class BuildLogicTest {
     }
 
     @Test
+    void artifactContentClosureRejectsEntriesOutsideSelectedBundlesAndBuildOutputs() {
+        Path fixture = Files.createTempDirectory('nclskins-artifact-closure-')
+        try {
+            Map fixtureCatalog = [
+                    baseBundles              : ['selected'],
+                    sourceBundles            : [
+                            selected: [
+                                    java     : ['selected/java'],
+                                    resources: ['selected/resources'],
+                                    side     : 'common',
+                                    requires : []
+                            ]
+                    ],
+                    capabilityImplementations: [:],
+                    profiles                 : [epochs: [fixture: [
+                            accessBundles       : [fixture: 'selected'],
+                            clientProviderBundle: 'selected'
+                    ]]]
+            ]
+            Map target = [
+                    id          : 'fixture',
+                    path        : 'target',
+                    loader      : [id: 'fixture'],
+                    epochProfile: 'fixture',
+                    capabilities: [:],
+                    metadata    : [files: [], accessWidener: null],
+                    artifact    : [remapJar: false]
+            ]
+            Map<String, byte[]> files = [
+                    'selected/java/example/Selected.java'                  : 'class Selected {}'.bytes,
+                    'selected/resources/selected.txt'                      : 'selected'.bytes,
+                    'target/build/classes/java/main/example/Selected.class': [0] as byte[],
+                    'target/build/resources/main/selected.txt'             : 'selected'.bytes
+            ]
+            files.each { String relative, byte[] bytes ->
+                Path destination = fixture.resolve(relative)
+                Files.createDirectories(destination.parent)
+                Files.write(destination, bytes)
+            }
+
+            Closure<List<String>> verifyEntries = { List<String> entries, boolean corruptResource ->
+                Path jar = Files.createTempFile(fixture, 'artifact-', '.jar')
+                new ZipOutputStream(Files.newOutputStream(jar)).withCloseable { output ->
+                    entries.each { String entry ->
+                        output.putNextEntry(new ZipEntry(entry))
+                        byte[] content = entry == 'selected.txt'
+                                ? (corruptResource ? 'corrupt'.bytes : 'selected'.bytes)
+                                : [0] as byte[]
+                        output.write(content)
+                        output.closeEntry()
+                    }
+                }
+                List<String> errors = []
+                new ZipFile(jar.toFile()).withCloseable { archive ->
+                    List<String> names = archive.entries().collect { it.name }
+                    ArtifactVerifier.verifyContentClosure(
+                            fixture.toFile(), archive, fixtureCatalog, target, names, errors)
+                }
+                errors
+            }
+
+            List<String> expected = [
+                    'example/Selected.class',
+                    'selected.txt',
+                    'META-INF/MANIFEST.MF',
+                    'META-INF/LICENSE',
+                    'META-INF/NOTICE'
+            ]
+            assertEquals([], verifyEntries(expected, false))
+
+            List<String> errors = verifyEntries(expected + [
+                    'example/Foreign.class',
+                    'foreign.txt'
+            ], false)
+            assertTrue(errors.any { it.contains('unexpected classfile entries') && it.contains('Foreign.class') })
+            assertTrue(errors.any { it.contains('not owned by selected source bundles') && it.contains('Foreign.class') })
+            assertTrue(errors.any { it.contains('unexpected resource entries') && it.contains('foreign.txt') })
+            assertTrue(errors.any { it.contains('resources are not owned by selected source bundles') && it.contains('foreign.txt') })
+            assertTrue(verifyEntries(expected, true).any {
+                it.contains('resource differs from processed target output: selected.txt')
+            })
+        } finally {
+            fixture.toFile().deleteDir()
+        }
+    }
+
+    @Test
     void nestedEventPackIconIsCanonicalAndExcludedFromSkinInventory() {
         File canonical = new File(
                 repository, 'compat/resources/canonical/src/main/resources/icon.png')
