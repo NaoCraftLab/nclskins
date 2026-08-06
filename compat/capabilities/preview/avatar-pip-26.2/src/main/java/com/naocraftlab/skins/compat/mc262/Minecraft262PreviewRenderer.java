@@ -67,13 +67,6 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         configurePreviewState(state, appearance, skin, request);
         NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
         previewState.nclskins$setWideDepth(true);
-        previewState.nclskins$setPreviewCapeTexture(
-                appearance.capeMode() == CapeMode.CAPE
-                        ? appearance.cape()
-                                .map(TextureHandle::location)
-                                .map(Identifier::parse)
-                                .orElse(null)
-                        : null);
 
         float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
         float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
@@ -253,12 +246,9 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         state.showRightPants = appearance.outerLayerVisibility().visible(OuterLayerPart.RIGHT_LEG);
         state.showLeftSleeve = appearance.outerLayerVisibility().visible(OuterLayerPart.LEFT_ARM);
         state.showRightSleeve = appearance.outerLayerVisibility().visible(OuterLayerPart.RIGHT_ARM);
-        state.showCape = false;
+        state.showCape = appearance.capeMode() == CapeMode.CAPE;
         state.showExtraEars = false;
 
-        state.capeFlap = 0.0F;
-        state.capeLean = 0.0F;
-        state.capeLean2 = 0.0F;
         state.fallFlyingTimeInTicks = 0.0F;
         state.shouldApplyFlyingYRot = false;
         state.flyingYRot = 0.0F;
@@ -292,7 +282,7 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
     private static PlayerSkin playerSkin(PreviewAppearance appearance) {
         ClientAsset.Texture body = texture(appearance.skin());
         ClientAsset.Texture selectedCape = appearance.cape().map(Minecraft262PreviewRenderer::texture).orElse(null);
-        ClientAsset.Texture cape = null;
+        ClientAsset.Texture cape = appearance.capeMode() == CapeMode.CAPE ? selectedCape : null;
         ClientAsset.Texture elytra = appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null;
         PlayerModelType model = appearance.model() == SkinModel.SLIM
                 ? PlayerModelType.SLIM

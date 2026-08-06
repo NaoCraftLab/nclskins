@@ -1,3 +1,9 @@
+## 1.0.0-alpha.2
+
+### Fixed
+
+- Capes in the in-world look editor now follow player model animations provided by compatible renderer mods
+
 ## 1.0.0-alpha.1
 
 ### Added

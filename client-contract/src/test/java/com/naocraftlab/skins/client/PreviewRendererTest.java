@@ -9,15 +9,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PreviewRendererTest {
     @Test
-    void elytraRequiresCape() {
+    void backEquipmentRequiresCape() {
         TextureRegistry.TextureHandle skin = new TextureRegistry.TextureHandle("nclskins:test", 64, 64);
 
-        assertThrows(IllegalArgumentException.class, () -> new PreviewRenderer.PreviewAppearance(
-                skin,
-                SkinModel.CLASSIC,
-                Optional.empty(),
-                PreviewRenderer.CapeMode.ELYTRA,
-                true));
+        for (PreviewRenderer.CapeMode mode : new PreviewRenderer.CapeMode[]{
+                PreviewRenderer.CapeMode.CAPE,
+                PreviewRenderer.CapeMode.ELYTRA
+        }) {
+            assertThrows(IllegalArgumentException.class, () -> new PreviewRenderer.PreviewAppearance(
+                    skin,
+                    SkinModel.CLASSIC,
+                    Optional.empty(),
+                    mode,
+                    true));
+        }
     }
 
     @Test

@@ -4,7 +4,6 @@
   "package": "com.naocraftlab.skins.compat.mc262.mixin",
   "client": [
     "AccessibilityOptionsScreenMixin",
-    "AvatarRendererMixin",
     "AvatarRenderStateMixin",
     "OptionsScreenMixin",
     "PictureInPictureRendererMixin",
