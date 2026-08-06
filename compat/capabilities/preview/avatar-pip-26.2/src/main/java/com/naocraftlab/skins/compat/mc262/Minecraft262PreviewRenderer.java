@@ -59,14 +59,26 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
     private ClientLevel previewLevel;
     private Identifier previewBodyTexture;
     private CompletableFuture<Optional<PlayerSkin>> previewProfileSkin;
+
     @Override
     public void render(GuiGraphicsExtractor graphics, PreviewRequest request) {
         PreviewAppearance appearance = request.appearance();
-        PlayerSkin skin = playerSkin(appearance);
-        AvatarRenderState state = createRenderState(skin);
-        configurePreviewState(state, appearance, skin, request);
+        PlayerSkin entitySkin = playerSkin(appearance, true);
+        PreviewState preview = createRenderState(entitySkin);
+        AvatarRenderState state = preview.state();
+        PlayerSkin renderedSkin = preview.entityBacked()
+                ? entitySkin
+                : playerSkin(appearance, false);
+        configurePreviewState(state, appearance, renderedSkin, request, preview.entityBacked());
         NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
         previewState.nclskins$setWideDepth(true);
+        previewState.nclskins$setWorldlessCapeTexture(
+                !preview.entityBacked() && appearance.capeMode() == CapeMode.CAPE
+                        ? appearance.cape()
+                                .map(TextureHandle::location)
+                                .map(Identifier::parse)
+                                .orElse(null)
+                        : null);
 
         float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
         float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
@@ -91,25 +103,27 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
                 request.top() + request.height());
     }
 
-    private AvatarRenderState createRenderState(PlayerSkin selectedSkin) {
+    private PreviewState createRenderState(PlayerSkin selectedSkin) {
         Minecraft minecraft = Minecraft.getInstance();
         PreviewPlayer player = previewPlayer(minecraft, selectedSkin);
         if (player == null) {
-            return fallbackRenderState();
+            return new PreviewState(rendererSelectorState(), false);
         }
 
 
-        AvatarRenderState selector = fallbackRenderState();
+        AvatarRenderState selector = rendererSelectorState();
         selector.skin = selectedSkin;
         EntityRenderer<?, ? super AvatarRenderState> genericRenderer =
                 minecraft.getEntityRenderDispatcher().getRenderer(selector);
         if (!(genericRenderer instanceof AvatarRenderer<?> avatarRenderer)) {
-            return fallbackRenderState();
+            return new PreviewState(rendererSelectorState(), false);
         }
 
 
         float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(false);
-        return extractFromSelectedRenderer(avatarRenderer, player, partialTick);
+        return new PreviewState(
+                extractFromSelectedRenderer(avatarRenderer, player, partialTick),
+                true);
     }
 
     private PreviewPlayer previewPlayer(Minecraft minecraft, PlayerSkin selectedSkin) {
@@ -188,7 +202,7 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         return ((AvatarRenderer<AbstractClientPlayer>) renderer).createRenderState(player, partialTick);
     }
 
-    private static AvatarRenderState fallbackRenderState() {
+    private static AvatarRenderState rendererSelectorState() {
         AvatarRenderState state = new AvatarRenderState();
         state.entityType = Minecraft26Api.mannequin();
         state.boundingBoxWidth = 0.6F;
@@ -201,7 +215,8 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
             AvatarRenderState state,
             PreviewAppearance appearance,
             PlayerSkin skin,
-            PreviewRequest request) {
+            PreviewRequest request,
+            boolean entityBacked) {
         state.skin = skin;
 
 
@@ -246,7 +261,7 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         state.showRightPants = appearance.outerLayerVisibility().visible(OuterLayerPart.RIGHT_LEG);
         state.showLeftSleeve = appearance.outerLayerVisibility().visible(OuterLayerPart.LEFT_ARM);
         state.showRightSleeve = appearance.outerLayerVisibility().visible(OuterLayerPart.RIGHT_ARM);
-        state.showCape = appearance.capeMode() == CapeMode.CAPE;
+        state.showCape = entityBacked && appearance.capeMode() == CapeMode.CAPE;
         state.showExtraEars = false;
 
         state.fallFlyingTimeInTicks = 0.0F;
@@ -279,10 +294,12 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         return new ItemStack(PREVIEW_ELYTRA_HOLDER);
     }
 
-    private static PlayerSkin playerSkin(PreviewAppearance appearance) {
+    private static PlayerSkin playerSkin(PreviewAppearance appearance, boolean includeCape) {
         ClientAsset.Texture body = texture(appearance.skin());
         ClientAsset.Texture selectedCape = appearance.cape().map(Minecraft262PreviewRenderer::texture).orElse(null);
-        ClientAsset.Texture cape = appearance.capeMode() == CapeMode.CAPE ? selectedCape : null;
+        ClientAsset.Texture cape = includeCape && appearance.capeMode() == CapeMode.CAPE
+                ? selectedCape
+                : null;
         ClientAsset.Texture elytra = appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null;
         PlayerModelType model = appearance.model() == SkinModel.SLIM
                 ? PlayerModelType.SLIM
@@ -293,6 +310,10 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
     private static ClientAsset.Texture texture(TextureHandle handle) {
         Identifier location = Identifier.parse(handle.location());
         return new ClientAsset.ResourceTexture(location, location);
+    }
+
+
+    private record PreviewState(AvatarRenderState state, boolean entityBacked) {
     }
 
 

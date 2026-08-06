@@ -3,6 +3,8 @@
 ### Fixed
 
 - Capes in the in-world look editor now follow player model animations provided by compatible renderer mods
+- Prevented WaveyCapes and Ears from crashing the look editor before entering a world
+- Worldless previews now zoom around their center and keep capes and elytra attached while rotating
 
 ## 1.0.0-alpha.1
 
