@@ -1,0 +1,96 @@
+[review-240x240]
+screen=external_review size=240x240 title=key:nclskins.external_import.review_title:INFO
+panels
+0|header|0,0,240,33|VANILLA_HEADER
+1|footer|0,207,240,33|VANILLA_FOOTER
+2|external.review.card:candidate-0|22,57,96,132|VANILLA_LIST
+texts
+0|external.review.title|8,12,132,10|key:nclskins.external_import.review_title:INFO|CENTER
+1|external.review.card:candidate-0.name|26,64,88,10|literal:New classic:INFO|CENTER
+widgets
+0|external.review.toggle_all|BUTTON|152,6,80,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+1|external.review.collection.new|COLLECTION_HEADER|16,37,210,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+2|external.review.card:candidate-0|SELECTABLE_CARD|22,57,96,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
+3|external.review.collection.duplicates|COLLECTION_HEADER|16,203,210,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+4|external.review.commit|BUTTON|16,213,134,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+5|external.review.cancel|BUTTON|156,213,68,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+previews
+0|external.review.card:candidate-0.preview|27,77,86,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+back_equipment_previews
+icon_decorations
+clip_regions
+0|external.review.viewport|0,33,240,174|prefixes=external.review.collection.,external.review.card:
+scrollbar=231,33,6,174|231,33,6,90|offset=0|maximum=162
+[review-320x240]
+screen=external_review size=320x240 title=key:nclskins.external_import.review_title:INFO
+panels
+0|header|0,0,320,33|VANILLA_HEADER
+1|footer|0,207,320,33|VANILLA_FOOTER
+2|external.review.card:candidate-0|16,57,68,132|VANILLA_LIST
+texts
+0|external.review.title|8,12,186,10|key:nclskins.external_import.review_title:INFO|CENTER
+1|external.review.card:candidate-0.name|20,64,60,10|literal:New classic:INFO|CENTER
+widgets
+0|external.review.toggle_all|BUTTON|206,6,106,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+1|external.review.collection.new|COLLECTION_HEADER|16,37,290,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+2|external.review.card:candidate-0|SELECTABLE_CARD|16,57,68,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
+3|external.review.collection.duplicates|COLLECTION_HEADER|16,203,290,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+4|external.review.commit|BUTTON|16,213,188,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+5|external.review.cancel|BUTTON|210,213,94,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+previews
+0|external.review.card:candidate-0.preview|21,77,58,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+back_equipment_previews
+icon_decorations
+clip_regions
+0|external.review.viewport|0,33,320,174|prefixes=external.review.collection.,external.review.card:
+scrollbar=311,33,6,174|311,33,6,90|offset=0|maximum=162
+[review-427x240]
+screen=external_review size=427x240 title=key:nclskins.external_import.review_title:INFO
+panels
+0|header|0,0,427,33|VANILLA_HEADER
+1|footer|0,207,427,33|VANILLA_FOOTER
+2|external.review.card:candidate-0|17,57,74,132|VANILLA_LIST
+texts
+0|external.review.title|8,12,291,10|key:nclskins.external_import.review_title:INFO|CENTER
+1|external.review.card:candidate-0.name|21,64,66,10|literal:New classic:INFO|CENTER
+widgets
+0|external.review.toggle_all|BUTTON|311,6,108,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+1|external.review.collection.new|COLLECTION_HEADER|16,37,397,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+2|external.review.card:candidate-0|SELECTABLE_CARD|17,57,74,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
+3|external.review.collection.duplicates|COLLECTION_HEADER|16,203,397,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+4|external.review.commit|BUTTON|16,213,259,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+5|external.review.cancel|BUTTON|281,213,130,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+previews
+0|external.review.card:candidate-0.preview|22,77,64,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+back_equipment_previews
+icon_decorations
+clip_regions
+0|external.review.viewport|0,33,427,174|prefixes=external.review.collection.,external.review.card:
+scrollbar=418,33,6,174|418,33,6,90|offset=0|maximum=162
+[review-854x480]
+screen=external_review size=854x480 title=key:nclskins.external_import.review_title:INFO
+panels
+0|header|0,0,854,33|VANILLA_HEADER
+1|footer|0,447,854,33|VANILLA_FOOTER
+2|external.review.card:candidate-0|17,57,86,132|VANILLA_LIST
+3|external.review.card:candidate-1|17,223,86,132|VANILLA_LIST
+texts
+0|external.review.title|8,12,718,10|key:nclskins.external_import.review_title:INFO|CENTER
+1|external.review.card:candidate-0.name|21,64,78,10|literal:New classic:INFO|CENTER
+2|external.review.card:candidate-1.name|21,230,78,10|literal:Existing slim:INFO|CENTER
+widgets
+0|external.review.toggle_all|BUTTON|738,6,108,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+1|external.review.collection.new|COLLECTION_HEADER|16,37,824,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+2|external.review.card:candidate-0|SELECTABLE_CARD|17,57,86,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
+3|external.review.collection.duplicates|COLLECTION_HEADER|16,203,824,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+4|external.review.card:candidate-1|SELECTABLE_CARD|17,223,86,132|literal:Existing slim:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+5|external.review.commit|BUTTON|217,453,276,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+6|external.review.cancel|BUTTON|499,453,138,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+previews
+0|external.review.card:candidate-0.preview|22,77,76,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+1|external.review.card:candidate-1.preview|22,243,76,107|skin=ACCOUNT_DEFAULT:-|revision=external:1111111111111111111111111111111111111111111111111111111111111111:SLIM|variant=SLIM|cape=owned-cape|mode=CAPE|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+back_equipment_previews
+icon_decorations
+clip_regions
+0|external.review.viewport|0,33,854,414|prefixes=external.review.collection.,external.review.card:
+scrollbar=-

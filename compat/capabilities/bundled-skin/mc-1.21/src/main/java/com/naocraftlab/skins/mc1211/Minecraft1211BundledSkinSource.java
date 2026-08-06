@@ -48,6 +48,21 @@ public final class Minecraft1211BundledSkinSource implements SkinCatalogSource {
     }
 
     @Override
+    public byte[] loadResource(String identifier) throws IOException {
+        final ResourceLocation location;
+        try {
+            location = ResourceLocation.parse(identifier);
+        } catch (RuntimeException invalid) {
+            throw new IOException("Invalid Minecraft resource identifier", invalid);
+        }
+        Resource resource = Minecraft.getInstance().getResourceManager().getResource(location)
+                .orElseThrow(() -> new IOException("Minecraft resource skin is unavailable"));
+        try (InputStream input = resource.open()) {
+            return readBounded(input);
+        }
+    }
+
+    @Override
     public long generation() {
         ResourceManager resources = Minecraft.getInstance().getResourceManager();
         return generations.observe(

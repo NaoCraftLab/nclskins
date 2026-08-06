@@ -1,8 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,8 +10,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class FilePickerCoordinatorTest {
     @Test
@@ -51,6 +52,31 @@ final class FilePickerCoordinatorTest {
                 CompletionException.class, invalid::join);
         assertInstanceOf(IllegalStateException.class, invalidFailure.getCause());
         assertTrue(invalidFailure.getCause().getCause() instanceof IllegalArgumentException);
+    }
+
+    @Test
+    void directorySelectionSharesTheSingleDialogGuard(@TempDir Path directory) {
+        QueuedExecutor worker = new QueuedExecutor();
+        QueuedExecutor clientExecutor = new QueuedExecutor();
+        FilePickerCoordinator picker = new FilePickerCoordinator(worker);
+
+        var selected = picker.chooseDirectory(() -> Optional.of(directory), clientExecutor);
+        assertTrue(worker.tasks.isEmpty());
+        assertEquals(1, clientExecutor.tasks.size());
+        CompletionException concurrent = org.junit.jupiter.api.Assertions.assertThrows(
+                CompletionException.class,
+                () -> picker.choose(Optional::empty).join());
+        assertInstanceOf(IllegalStateException.class, concurrent.getCause());
+        clientExecutor.runFirst();
+        assertEquals(Optional.of(directory.toAbsolutePath().normalize()), selected.join());
+
+        Path missing = directory.resolve("missing");
+        var invalid = picker.chooseDirectory(() -> Optional.of(missing));
+        worker.runFirst();
+        CompletionException invalidFailure = org.junit.jupiter.api.Assertions.assertThrows(
+                CompletionException.class, invalid::join);
+        assertInstanceOf(IllegalStateException.class, invalidFailure.getCause());
+        assertTrue(invalidFailure.getCause().getMessage().contains("directory"));
     }
 
     private static final class QueuedExecutor implements Executor {

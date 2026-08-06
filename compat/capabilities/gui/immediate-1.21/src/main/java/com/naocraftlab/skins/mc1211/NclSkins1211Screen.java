@@ -58,7 +58,7 @@ final class NclSkins1211Screen extends NclSkinsImmediateScreen {
                 ? Screen.FOOTER_SEPARATOR
                 : Screen.INWORLD_FOOTER_SEPARATOR;
         RenderSystem.enableBlend();
-        graphics.blit(footer, 0, height - 38, 0.0F, 0.0F, width, 2, 32, 2);
+        graphics.blit(footer, 0, height - 33, 0.0F, 0.0F, width, 2, 32, 2);
         RenderSystem.disableBlend();
     }
 

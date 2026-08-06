@@ -12,6 +12,8 @@ import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.MinecraftProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApi;
+import com.naocraftlab.skins.core.importing.ExternalImportContext;
+import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
@@ -54,6 +56,7 @@ import com.naocraftlab.skins.core.storage.StorageInitialization;
 import com.naocraftlab.skins.core.storage.TextureCache;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -86,6 +89,7 @@ public final class DefaultClientOperations implements ClientOperations {
     private final AppearanceMutationService mutations;
     private final TextureCache textures;
     private final PublicSkinImportService publicImports;
+    private final ExternalAppearanceImportService externalImports;
     private final OfficialSkinTextureSource officialSkinTextures;
 
     private final Map<UUID, LibraryObservation> libraryObservations = new ConcurrentHashMap<>();
@@ -132,6 +136,8 @@ public final class DefaultClientOperations implements ClientOperations {
         this.mutations = new AppearanceMutationService(profileApi, storage, sessionGate, sessions);
         this.textures = new TextureCache(storage);
         this.publicImports = new PublicSkinImportService(this.textures, this::loadCatalogSkin);
+        this.externalImports = new ExternalAppearanceImportService(
+                this.library, this.publicImports, this.bundledSkins);
         this.officialSkinTextures = officialSkinTextures != null
                 ? officialSkinTextures
                 : skin -> this.textures.read(this.textures.get(skin));
@@ -672,6 +678,54 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public ImportDraft loadUrlSkin(String url) throws Exception {
         return publicImports.loadUrl(url);
+    }
+
+    @Override
+    public boolean probeExternalSource(
+            ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
+        OperationContext operation = pinCurrentSession();
+        ExternalImportContext context = new ExternalImportContext(
+                operation.identity().profileName(),
+                Path.of(System.getProperty("user.dir", ".")));
+        return externalImports.probe(
+                Objects.requireNonNull(source, "source"),
+                Objects.requireNonNull(selectedRoot, "selectedRoot"),
+                context);
+    }
+
+    @Override
+    public ExternalImportReview prepareExternalAppearances(
+            ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
+        OperationContext operation = pinCurrentSession();
+        UUID accountId = resolveAccountId(operation.identity());
+        ExternalImportContext context = new ExternalImportContext(
+                operation.identity().profileName(),
+                Path.of(System.getProperty("user.dir", ".")));
+        return externalImports.prepareAppearances(
+                accountId,
+                Objects.requireNonNull(source, "source"),
+                Objects.requireNonNull(selectedRoot, "selectedRoot"),
+                context,
+                storage.loadOwnedCapes(accountId));
+    }
+
+    @Override
+    public ExternalImportResult commitExternalAppearances(
+            List<ExternalImportCandidate> selected, int skipped, int warnings) throws Exception {
+        UUID accountId = resolveAccountId(pinCurrentSession().identity());
+        ExternalAppearanceImportService.Result result = externalImports.commitAppearances(
+                accountId,
+                Objects.requireNonNull(selected, "selected"),
+                skipped,
+                warnings);
+        catalogDiscoveryCache = null;
+        AccountState observed = observeLocal(result.state());
+        return new ExternalImportResult(
+                observed,
+                result.imported(),
+                result.alreadyPresent(),
+                result.skipped(),
+                result.warnings());
     }
 
     @Override

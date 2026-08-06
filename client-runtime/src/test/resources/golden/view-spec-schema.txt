@@ -1,11 +1,12 @@
 BackEquipmentPreview:id,bounds,capeId,mode
 CatalogImage:collectionId,skinId
 ClipRegion:id,bounds,elementPrefixes
+ExternalImage:candidateId
 FocusRequest:widgetId,token
 IconDecoration:id,bounds,icon,ownerWidgetId,idleOpacity,activeOpacity
 MarqueeActivation:hoverBounds,focusWidgetIds
 Panel:id,bounds,style
-Preview:id,bounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,intent
+Preview:id,bounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent
 ScrollSurface:id,viewport,orientation,offsetPixels,maximumPixels,wheelStepPixels
 Scrollbar:track,thumb,offset,maximum,orientation
 Tab:id,label,selected,enabled

@@ -57,6 +57,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private static final String PRESET_EDITOR_SCREEN_ID = "preset_editor";
     private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
             "edit",
+            "folder",
             "plus",
             "duplicate",
             "delete",
@@ -182,6 +183,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
                 continue;
             }
+            if (!shouldRenderFramePanel(view, panel)) {
+                continue;
+            }
             capabilities.renderPanel(graphics, panel);
         }
         view.scrollbar().ifPresent(scrollbar -> renderScrollbar(graphics, scrollbar));
@@ -215,6 +219,14 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
     protected abstract void renderEpochBackground(
             GuiGraphics graphics, ViewSpec view, int mouseX, int mouseY, float partialTick);
+
+    protected boolean shouldRenderFramePanel(ViewSpec view, ViewSpec.Panel panel) {
+        return true;
+    }
+
+    protected Bounds resolveTextBounds(ViewSpec view, ViewSpec.Text text) {
+        return text.bounds();
+    }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
@@ -499,7 +511,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.height(),
                     resolve(widget.label()));
         }
-        if (widget.kind() == ViewSpec.WidgetKind.CAPE_CARD) {
+        if (widget.kind() == ViewSpec.WidgetKind.CAPE_CARD
+                || widget.kind() == ViewSpec.WidgetKind.SELECTABLE_CARD) {
             return new CapeCardWidget(
                     widget.id(),
                     bounds.x(),
@@ -1113,7 +1126,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             ViewSpec.Text text,
             int mouseX,
             int mouseY) {
-        Bounds bounds = text.bounds();
+        Bounds bounds = resolveTextBounds(view, text);
         Component message = resolve(text.message());
         int color = textColor(text);
         if (font.width(message) > bounds.width()
@@ -1188,7 +1201,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                             ? existing
                             : new PreviewSlot(editor));
             PreviewAssetKey key = previewAssetKey(preview);
-            if (preview.skin().optionalAssetId().isPresent() || preview.catalogImage().isPresent()) {
+            if (preview.skin().optionalAssetId().isPresent()
+                    || preview.catalogImage().isPresent()
+                    || preview.externalImage().isPresent()) {
                 desiredSkins.add(key);
                 skinTextures.request(
                         key,
@@ -1222,7 +1237,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         }
         TextureHandle skin;
         SkinModel model;
-        if (preview.skin().optionalAssetId().isEmpty() && preview.catalogImage().isEmpty()) {
+        if (preview.skin().optionalAssetId().isEmpty()
+                && preview.catalogImage().isEmpty()
+                && preview.externalImage().isEmpty()) {
             PlayerAppearance borrowed = runtime.currentPlayerAppearance()
                     .orElseThrow(() -> new IllegalStateException(
                             "Current-player appearance capability is unavailable"));
@@ -1458,7 +1475,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                         preview.imageRevision(),
                         preview.variant(),
                         preview.capeId(),
-                        preview.catalogImage()));
+                        preview.catalogImage(),
+                        preview.externalImage()));
     }
 
     private record PreviewAssetKey(String previewId, PreviewIdentity identity) {
@@ -1473,13 +1491,15 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             String imageRevision,
             SkinVariant variant,
             Optional<String> capeId,
-            Optional<ViewSpec.CatalogImage> catalogImage) {
+            Optional<ViewSpec.CatalogImage> catalogImage,
+            Optional<ViewSpec.ExternalImage> externalImage) {
         private PreviewIdentity {
             Objects.requireNonNull(skin, "skin");
             Objects.requireNonNull(imageRevision, "imageRevision");
             Objects.requireNonNull(variant, "variant");
             capeId = Objects.requireNonNull(capeId, "capeId");
             catalogImage = Objects.requireNonNull(catalogImage, "catalogImage");
+            externalImage = Objects.requireNonNull(externalImage, "externalImage");
         }
     }
 

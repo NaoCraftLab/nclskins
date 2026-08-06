@@ -42,6 +42,10 @@ final class AddSourceModelPresenterTest {
         assertEquals(List.of("add.tab.catalog", "add.tab.file"),
                 view.tabGroups().get(0).tabs().stream().map(ViewSpec.Tab::id).toList());
         assertTrue(view.widget("add.file.choose").orElseThrow().enabled());
+        assertEquals(
+                view.widget("add.file.choose").orElseThrow().bounds().width(),
+                view.widget("add.external.launcher").orElseThrow().bounds().width());
+        assertTrue(view.widget("add.external.mod").isPresent());
         ViewSpec.Widget playerInput = view.widget("add.player.input").orElseThrow();
         assertEquals("jeb_", playerInput.value().orElseThrow());
         assertTrue(playerInput.selectAllOnPrimaryClick());
@@ -52,6 +56,43 @@ final class AddSourceModelPresenterTest {
         assertTrue(view.widget("add.player.load").orElseThrow().enabled());
         assertTrue(view.widget("add.url.load").orElseThrow().enabled());
         assertTrue(view.texts().stream().anyMatch(text -> text.id().equals("add.url.privacy")));
+    }
+
+    @Test
+    void compactImportLayoutKeepsBothExternalActionsStatusAndCancelSeparated() {
+        AddSourceModel model = AddSourceModel.open(
+                        AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())
+                .withSelectedTab(AddSourceTab.FILE);
+        ViewSpec view = presenter.present(
+                model,
+                false,
+                Optional.of(UiMessage.info("nclskins.status.cancelled")),
+                240,
+                240);
+
+        List<Bounds> vertical = List.of(
+                view.widget("add.player.input").orElseThrow().bounds(),
+                view.widget("add.url.input").orElseThrow().bounds(),
+                view.texts().stream().filter(text -> text.id().equals("add.url.privacy"))
+                        .findFirst().orElseThrow().bounds(),
+                view.widget("add.file.choose").orElseThrow().bounds(),
+                view.widget("add.external.launcher").orElseThrow().bounds(),
+                view.widget("add.external.mod").orElseThrow().bounds(),
+                view.texts().stream().filter(text -> text.id().equals("add.import.status"))
+                        .findFirst().orElseThrow().bounds(),
+                view.widget("add.cancel").orElseThrow().bounds());
+        for (int index = 1; index < vertical.size(); index++) {
+            assertTrue(vertical.get(index - 1).bottom() <= vertical.get(index).y());
+        }
+
+        ViewSpec withoutPrompt = presenter.present(
+                model,
+                false,
+                Optional.of(UiMessage.info("nclskins.external_import.choose_source")),
+                240,
+                240);
+        assertTrue(withoutPrompt.texts().stream()
+                .noneMatch(text -> text.id().equals("add.import.status")));
     }
 
     @Test

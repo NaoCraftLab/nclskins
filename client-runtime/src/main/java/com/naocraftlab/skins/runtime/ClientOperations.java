@@ -4,6 +4,7 @@ import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
@@ -17,6 +18,7 @@ import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.SessionValidation;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -114,6 +116,26 @@ public interface ClientOperations extends AutoCloseable {
         throw new UnsupportedOperationException("Remote PNG import is unavailable");
     }
 
+    default boolean probeExternalSource(
+            ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(selectedRoot, "selectedRoot");
+        return false;
+    }
+
+    default ExternalImportReview prepareExternalAppearances(
+            ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(selectedRoot, "selectedRoot");
+        throw new UnsupportedOperationException("External appearance preparation is unavailable");
+    }
+
+    default ExternalImportResult commitExternalAppearances(
+            List<ExternalImportCandidate> selected, int skipped, int warnings) throws Exception {
+        Objects.requireNonNull(selected, "selected");
+        throw new UnsupportedOperationException("External appearance import is unavailable");
+    }
+
     AccountState renameSkin(UUID skinId, String newName) throws Exception;
 
     AccountState changeSkinVariant(UUID skinId, SkinVariant variant) throws Exception;
@@ -139,6 +161,87 @@ public interface ClientOperations extends AutoCloseable {
 
 
     default void warmOwnedCapeCache() throws Exception {}
+
+    record ExternalImportResult(
+            AccountState account,
+            int imported,
+            int alreadyPresent,
+            int skipped,
+            int warnings) {
+        public ExternalImportResult {
+            Objects.requireNonNull(account, "account");
+            if (imported < 0 || alreadyPresent < 0 || skipped < 0 || warnings < 0) {
+                throw new IllegalArgumentException("external import counters must not be negative");
+            }
+        }
+    }
+
+    record ExternalImportReview(
+            ExternalImportSource source,
+            List<ExternalImportCandidate> candidates,
+            int skipped,
+            int warnings) {
+        public ExternalImportReview {
+            Objects.requireNonNull(source, "source");
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "candidates"));
+            if (candidates.isEmpty()) {
+                throw new IllegalArgumentException("external import review must not be empty");
+            }
+            if (candidates.stream().anyMatch(Objects::isNull)) {
+                throw new IllegalArgumentException("external import review contains null");
+            }
+            if (candidates.stream().map(ExternalImportCandidate::id).distinct().count()
+                    != candidates.size()) {
+                throw new IllegalArgumentException("external import candidate ids must be unique");
+            }
+            if (skipped < 0 || warnings < 0) {
+                throw new IllegalArgumentException("external import counters must not be negative");
+            }
+        }
+    }
+
+    record ExternalImportCandidate(
+            String id,
+            String displayName,
+            SkinVariant variant,
+            PersonalSkinSource source,
+            byte[] normalizedPng,
+            String sha256,
+            String capeId,
+            int sourceOrder,
+            boolean duplicate) {
+        public ExternalImportCandidate {
+            id = Objects.requireNonNull(id, "id");
+            displayName = Objects.requireNonNull(displayName, "displayName");
+            Objects.requireNonNull(variant, "variant");
+            Objects.requireNonNull(source, "source");
+            normalizedPng = Objects.requireNonNull(normalizedPng, "normalizedPng").clone();
+            sha256 = Objects.requireNonNull(sha256, "sha256");
+            if (!id.matches("[a-z0-9][a-z0-9_-]{0,127}")) {
+                throw new IllegalArgumentException("external import candidate id is invalid");
+            }
+            if (displayName.isBlank() || displayName.length() > 128) {
+                throw new IllegalArgumentException("external import display name is invalid");
+            }
+            if (normalizedPng.length == 0) {
+                throw new IllegalArgumentException("external import PNG must not be empty");
+            }
+            if (!sha256.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("external import SHA-256 is invalid");
+            }
+            if (capeId != null && (capeId.isBlank() || capeId.length() > 256)) {
+                throw new IllegalArgumentException("external import cape id is invalid");
+            }
+            if (sourceOrder < 0) {
+                throw new IllegalArgumentException("external import source order must not be negative");
+            }
+        }
+
+        @Override
+        public byte[] normalizedPng() {
+            return normalizedPng.clone();
+        }
+    }
 
     InitialData resetLibrary() throws Exception;
 

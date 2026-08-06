@@ -364,6 +364,127 @@ public final class LibraryService {
     }
 
 
+    public BatchPersonalSkinPresetImport importPersonalSkinPresets(
+            UUID accountId,
+            List<PersonalSkinPresetImport> imports) throws IOException, PngValidationException {
+        Objects.requireNonNull(accountId, "accountId");
+        List<PersonalSkinPresetImport> requested = List.copyOf(
+                Objects.requireNonNull(imports, "imports"));
+        if (requested.isEmpty()) {
+            return new BatchPersonalSkinPresetImport(load(accountId), 0, 0);
+        }
+
+        List<PreparedPersonalSkinPresetImport> prepared = new ArrayList<>(requested.size());
+        for (PersonalSkinPresetImport candidate : requested) {
+            Objects.requireNonNull(candidate, "imports contains null");
+            StoredAsset stored = storage.storeAsset(candidate.pngBytes());
+            prepared.add(new PreparedPersonalSkinPresetImport(candidate, stored));
+        }
+
+        Instant now = clock.instant();
+        int[] imported = {0};
+        int[] alreadyPresent = {0};
+        AccountState state = storage.updateAccount(accountId, current -> {
+            imported[0] = 0;
+            alreadyPresent[0] = 0;
+            Instant mutationTime = nextRevision(current, now);
+            List<SkinAsset> assets = new ArrayList<>(current.skinAssets());
+            List<PersonalSkinEntry> personalSkins = new ArrayList<>(current.personalSkins());
+            List<AppearancePreset> presets = new ArrayList<>(current.presets());
+            boolean changed = false;
+
+            for (PreparedPersonalSkinPresetImport item : prepared) {
+                PersonalSkinPresetImport candidate = item.candidate();
+                String sha256 = item.stored().sha256();
+                PersonalSkinEntry existingEntry = personalSkins.stream()
+                        .filter(entry -> entry.sha256().equals(sha256))
+                        .findFirst()
+                        .orElse(null);
+                SkinAsset asset = reusablePersonalAsset(
+                        assets, existingEntry, sha256, candidate.variant()).orElse(null);
+                if (asset == null) {
+                    asset = new SkinAsset(
+                            UUID.randomUUID(),
+                            existingEntry != null && existingEntry.visible()
+                                    ? existingEntry.displayName()
+                                    : candidate.personalSkinDisplayName(),
+                            sha256,
+                            candidate.variant(),
+                            SkinSource.IMPORTED,
+                            mutationTime,
+                            mutationTime);
+                    assets.add(asset);
+                    changed = true;
+                }
+
+                PersonalSkinEntry replacement;
+                if (existingEntry == null) {
+                    replacement = new PersonalSkinEntry(
+                            sha256,
+                            candidate.personalSkinDisplayName(),
+                            candidate.source(),
+                            mutationTime,
+                            mutationTime,
+                            Map.of(candidate.variant(), asset.id()),
+                            true);
+                } else if (existingEntry.visible()) {
+                    replacement = existingEntry
+                            .withVariant(candidate.variant(), asset.id(), mutationTime)
+                            .withSourcePriority(candidate.source(), mutationTime);
+                } else {
+                    PersonalSkinSource restoredSource = existingEntry.source()
+                            == PersonalSkinSource.PLAYER_NAME
+                            ? PersonalSkinSource.PLAYER_NAME
+                            : candidate.source();
+                    replacement = existingEntry.restored(
+                            candidate.personalSkinDisplayName(),
+                            restoredSource,
+                            candidate.variant(),
+                            asset.id(),
+                            mutationTime);
+                }
+                if (!replacement.equals(existingEntry)) {
+                    replacePersonalSkinInPlace(personalSkins, existingEntry, replacement);
+                    changed = true;
+                }
+
+                if (containsEquivalentPreset(
+                        presets,
+                        assets,
+                        candidate.presetName(),
+                        sha256,
+                        candidate.variant(),
+                        candidate.capeId())) {
+                    alreadyPresent[0]++;
+                    continue;
+                }
+                presets.add(new AppearancePreset(
+                        UUID.randomUUID(),
+                        candidate.presetName(),
+                        SkinReference.asset(asset.id()),
+                        candidate.capeId(),
+                        OuterLayerVisibility.allVisible(),
+                        mutationTime,
+                        mutationTime));
+                imported[0]++;
+                changed = true;
+            }
+
+            if (!changed) {
+                return current;
+            }
+            return new AccountState(
+                    AccountState.CURRENT_SCHEMA_VERSION,
+                    current.accountId(),
+                    List.copyOf(assets),
+                    List.copyOf(personalSkins),
+                    List.copyOf(presets),
+                    mutationTime);
+        });
+        return new BatchPersonalSkinPresetImport(state, imported[0], alreadyPresent[0]);
+    }
+
+
     public AccountState hidePersonalSkin(UUID accountId, String sha256) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         String requiredHash = requireSha256(sha256);
@@ -704,6 +825,79 @@ public final class LibraryService {
                         .thenComparing(asset -> asset.id().toString()));
     }
 
+    private static Optional<SkinAsset> reusablePersonalAsset(
+            List<SkinAsset> assets,
+            PersonalSkinEntry entry,
+            String sha256,
+            SkinVariant variant) {
+        if (entry != null) {
+            Optional<UUID> mapped = entry.optionalAssetId(variant);
+            if (mapped.isPresent()) {
+                UUID assetId = mapped.orElseThrow();
+                Optional<SkinAsset> existing = assets.stream()
+                        .filter(asset -> asset.id().equals(assetId))
+                        .findFirst();
+                if (existing.isPresent()) {
+                    return existing;
+                }
+            }
+        }
+        return assets.stream()
+                .filter(asset -> asset.sha256().equals(sha256))
+                .filter(asset -> asset.variant() == variant)
+                .filter(asset -> asset.catalogOrigin().isEmpty())
+                .filter(asset -> asset.source() == SkinSource.IMPORTED
+                        || asset.source() == SkinSource.DUPLICATED)
+                .min(Comparator.comparing(SkinAsset::createdAt)
+                        .thenComparing(asset -> asset.id().toString()));
+    }
+
+    private static void replacePersonalSkinInPlace(
+            List<PersonalSkinEntry> personalSkins,
+            PersonalSkinEntry existing,
+            PersonalSkinEntry replacement) {
+        if (existing == null) {
+            personalSkins.add(replacement);
+            return;
+        }
+        for (int index = 0; index < personalSkins.size(); index++) {
+            if (personalSkins.get(index).sha256().equals(existing.sha256())) {
+                personalSkins.set(index, replacement);
+                return;
+            }
+        }
+        throw new IllegalStateException("Personal skin disappeared during batch import");
+    }
+
+    private static boolean containsEquivalentPreset(
+            List<AppearancePreset> presets,
+            List<SkinAsset> assets,
+            String name,
+            String sha256,
+            SkinVariant variant,
+            String capeId) {
+        return presets.stream()
+                .filter(preset -> preset.name().equals(name))
+                .filter(preset -> Objects.equals(preset.capeId(), normalizeCapeId(capeId)))
+                .filter(preset -> preset.outerLayerVisibility().equals(OuterLayerVisibility.allVisible()))
+                .map(AppearancePreset::skin)
+                .map(SkinReference::optionalAssetId)
+                .flatMap(Optional::stream)
+                .map(assetId -> assets.stream()
+                        .filter(asset -> asset.id().equals(assetId))
+                        .findFirst())
+                .flatMap(Optional::stream)
+                .anyMatch(asset -> asset.sha256().equals(sha256) && asset.variant() == variant);
+    }
+
+    private static String normalizeCapeId(String capeId) {
+        if (capeId == null) {
+            return null;
+        }
+        String trimmed = capeId.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private static List<PersonalSkinEntry> replacePersonalSkin(
             List<PersonalSkinEntry> personalSkins,
             PersonalSkinEntry existing,
@@ -752,6 +946,49 @@ public final class LibraryService {
             if (!state.accountId().equals(appearance.accountId())) {
                 throw new IllegalArgumentException("Account and appearance UUIDs differ");
             }
+        }
+    }
+
+    public record PersonalSkinPresetImport(
+            String presetName,
+            String personalSkinDisplayName,
+            SkinVariant variant,
+            PersonalSkinSource source,
+            byte[] pngBytes,
+            String capeId) {
+        public PersonalSkinPresetImport {
+            presetName = requirePersonalSkinDisplayName(presetName);
+            personalSkinDisplayName = requirePersonalSkinDisplayName(personalSkinDisplayName);
+            Objects.requireNonNull(variant, "variant");
+            Objects.requireNonNull(source, "source");
+            pngBytes = Objects.requireNonNull(pngBytes, "pngBytes").clone();
+            if (pngBytes.length == 0) {
+                throw new IllegalArgumentException("pngBytes must not be empty");
+            }
+            capeId = normalizeCapeId(capeId);
+        }
+
+        @Override
+        public byte[] pngBytes() {
+            return pngBytes.clone();
+        }
+    }
+
+    public record BatchPersonalSkinPresetImport(
+            AccountState state, int imported, int alreadyPresent) {
+        public BatchPersonalSkinPresetImport {
+            Objects.requireNonNull(state, "state");
+            if (imported < 0 || alreadyPresent < 0) {
+                throw new IllegalArgumentException("import counters must not be negative");
+            }
+        }
+    }
+
+    private record PreparedPersonalSkinPresetImport(
+            PersonalSkinPresetImport candidate, StoredAsset stored) {
+        private PreparedPersonalSkinPresetImport {
+            Objects.requireNonNull(candidate, "candidate");
+            Objects.requireNonNull(stored, "stored");
         }
     }
 

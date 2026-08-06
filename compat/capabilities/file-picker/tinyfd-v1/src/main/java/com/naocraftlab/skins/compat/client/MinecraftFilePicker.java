@@ -1,8 +1,11 @@
 package com.naocraftlab.skins.compat.client;
 
 import com.naocraftlab.skins.client.FilePicker;
+import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.runtime.FilePickerCoordinator;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +24,11 @@ public final class MinecraftFilePicker implements FilePicker {
     });
     private static final FilePickerCoordinator COORDINATOR =
             new FilePickerCoordinator(DIALOG_WORKER);
+    private final ClientExecutor clientExecutor;
+
+    public MinecraftFilePicker(ClientExecutor clientExecutor) {
+        this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
+    }
 
     @Override
     public CompletableFuture<Optional<Path>> chooseSkinPng() {
@@ -32,6 +40,19 @@ public final class MinecraftFilePicker implements FilePicker {
                     new IllegalStateException("The system PNG picker could not be prepared", failure));
         }
         return COORDINATOR.choose(() -> selectLocalPng(title));
+    }
+
+    @Override
+    public CompletableFuture<Optional<Path>> chooseDirectory() {
+        final String title;
+        try {
+            title = Component.translatable("nclskins.external_import.folder_picker_title").getString();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("The system directory picker could not be prepared", failure));
+        }
+        return COORDINATOR.chooseDirectory(
+                () -> selectLocalDirectory(title), clientExecutor::execute);
     }
 
     private static Optional<Path> selectLocalPng(String title) {
@@ -49,6 +70,28 @@ public final class MinecraftFilePicker implements FilePicker {
                 return Optional.empty();
             }
             return Optional.of(Path.of(selected));
+        }
+    }
+
+    private static Optional<Path> selectLocalDirectory(String title) {
+        try {
+            String selected = TinyFileDialogs.tinyfd_selectFolderDialog(title, null);
+            return selected == null ? Optional.empty() : Optional.of(Path.of(selected));
+        } catch (LinkageError | RuntimeException unavailableFolderDialog) {
+            String selected = TinyFileDialogs.tinyfd_openFileDialog(
+                    title,
+                    null,
+                    null,
+                    null,
+                    false);
+            if (selected == null) {
+                return Optional.empty();
+            }
+            Path path = Path.of(selected);
+            if (Files.isDirectory(path)) {
+                return Optional.of(path);
+            }
+            return Optional.ofNullable(path.getParent());
         }
     }
 }

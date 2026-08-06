@@ -15,6 +15,7 @@ import com.naocraftlab.skins.client.SignedProfileResolver;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.PublicSkinImportException;
+import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
@@ -1281,6 +1282,96 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void unavailableModSourceOffersFolderAndBackReturnsToImportTab() {
+        FakeOperations operations = new FakeOperations();
+        operations.externalSourceAvailable = false;
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+
+        assertTrue(runtime.view(320, 240, 0, 0).widget("add.external.mod").isPresent());
+        runtime.dispatchWidget("add.external.mod");
+        ViewSpec chooser = runtime.view(320, 240, 0, 0);
+        assertEquals(UiMessage.info("nclskins.external_import.mod_title"), chooser.title());
+        assertFalse(chooser.widget("external.source.skin_shuffle").orElseThrow().enabled());
+        assertTrue(chooser.widget("external.folder.skin_shuffle").orElseThrow().enabled());
+        assertEquals(ExternalImportSource.SKIN_SHUFFLE, operations.lastExternalSource);
+        assertEquals(Optional.empty(), operations.lastExternalRoot);
+
+        runtime.dispatchWidget("external.back");
+        ViewSpec restored = runtime.view(320, 240, 0, 0);
+        assertEquals(UiMessage.info("nclskins.add_source.title"), restored.title());
+        assertTrue(restored.widget("add.external.mod").isPresent());
+    }
+
+    @Test
+    void externalImportRetriesSelectedFolderAndReturnsGallery(@TempDir Path directory) {
+        FakeOperations operations = new FakeOperations();
+        operations.externalSourceAvailable = false;
+        FilePicker picker = new FilePicker() {
+            @Override
+            public CompletableFuture<Optional<Path>> chooseSkinPng() {
+                return CompletableFuture.completedFuture(Optional.empty());
+            }
+
+            @Override
+            public CompletableFuture<Optional<Path>> chooseDirectory() {
+                return CompletableFuture.completedFuture(Optional.of(directory));
+            }
+        };
+        ClientRuntime runtime = runtime(operations, picker);
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.external.launcher");
+        operations.externalSourceAvailable = true;
+        runtime.dispatchWidget("external.folder.prism_launcher");
+        runtime.dispatchWidget("external.source.prism_launcher");
+        assertEquals("external_review", runtime.view(320, 240, 0, 0).screenId());
+        assertEquals(0, operations.externalCommitCalls);
+        runtime.dispatchWidget("external.review.cancel");
+        assertEquals("external_chooser", runtime.view(320, 240, 0, 0).screenId());
+        assertEquals(0, operations.externalCommitCalls);
+        runtime.dispatchWidget("external.source.prism_launcher");
+        operations.externalImportResult = new ClientOperations.ExternalImportResult(
+                operations.account, 2, 3, 1, 1);
+        runtime.dispatchWidget("external.review.commit");
+
+        assertEquals("gallery", runtime.view(320, 240, 0, 0).screenId());
+        assertEquals(
+                UiMessage.success("nclskins.external_import.complete", 2, 1, 3, 1),
+                runtime.snapshot().status());
+        assertEquals(Optional.of(directory.toAbsolutePath().normalize()),
+                operations.lastExternalRoot.map(path -> path.toAbsolutePath().normalize()));
+        assertEquals(1, operations.externalCommitCalls);
+    }
+
+    @Test
+    void leavingExternalImportFencesLateWorkerResult() {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        worker.runFirst();
+        runtime.dispatchWidget("gallery.add");
+        worker.runFirst();
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.external.launcher");
+        assertTrue(runtime.snapshot().busy());
+        runtime.dispatchWidget("external.back");
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(UiMessage.info("nclskins.status.cancelled"), runtime.snapshot().status());
+
+        worker.runFirst();
+
+        ViewSpec restored = runtime.view(320, 240, 0, 0);
+        assertEquals(UiMessage.info("nclskins.add_source.title"), restored.title());
+        assertTrue(restored.widget("add.external.launcher").isPresent());
+        assertEquals(UiMessage.info("nclskins.status.cancelled"), runtime.snapshot().status());
+    }
+
+    @Test
     void urlImportUsesDetectedVariantAndPreferenceSurvivesEditorCancel() {
         FakeOperations operations = new FakeOperations();
         operations.urlImportVariant = SkinVariant.SLIM;
@@ -2393,6 +2484,12 @@ final class ClientRuntimeTest {
         private SkinVariant urlImportVariant = SkinVariant.CLASSIC;
         private int playerImportCalls;
         private Optional<InitialData> warmedInitialData = Optional.empty();
+        private Exception externalImportFailure;
+        private ExternalImportResult externalImportResult;
+        private boolean externalSourceAvailable = true;
+        private int externalCommitCalls;
+        private ExternalImportSource lastExternalSource;
+        private Optional<Path> lastExternalRoot = Optional.empty();
 
         @Override
         public void verifyStorageAccess() {
@@ -2517,6 +2614,49 @@ final class ClientRuntimeTest {
             }
             return new ImportDraft(
                     "Remote skin", urlImportVariant, skinPng(), PersonalSkinSource.URL);
+        }
+
+        @Override
+        public boolean probeExternalSource(
+                ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
+            lastExternalSource = source;
+            lastExternalRoot = selectedRoot;
+            if (externalImportFailure != null) {
+                throw externalImportFailure;
+            }
+            return externalSourceAvailable;
+        }
+
+        @Override
+        public ExternalImportReview prepareExternalAppearances(
+                ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
+            lastExternalSource = source;
+            lastExternalRoot = selectedRoot;
+            if (externalImportFailure != null) {
+                throw externalImportFailure;
+            }
+            return new ExternalImportReview(source, List.of(new ExternalImportCandidate(
+                    "candidate-0",
+                    "Imported",
+                    SkinVariant.CLASSIC,
+                    PersonalSkinSource.FILE,
+                    skinPng(),
+                    "0".repeat(64),
+                    null,
+                    0,
+                    false)), 0, 0);
+        }
+
+        @Override
+        public ExternalImportResult commitExternalAppearances(
+                List<ExternalImportCandidate> selected, int skipped, int warnings) throws Exception {
+            externalCommitCalls++;
+            if (externalImportFailure != null) {
+                throw externalImportFailure;
+            }
+            return externalImportResult == null
+                    ? new ExternalImportResult(account, 1, 0, 0, 0)
+                    : externalImportResult;
         }
 
         @Override

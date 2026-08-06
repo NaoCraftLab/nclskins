@@ -557,6 +557,60 @@ class LibraryServiceTest {
         assertEquals(before.presets(), after.presets());
     }
 
+    @Test
+    void batchPersonalImportDeduplicatesAssetsAndIsIdempotent() throws Exception {
+        LibraryService library = library();
+        UUID accountId = UUID.randomUUID();
+        byte[] shared = TestPng.create(64, 64);
+        List<LibraryService.PersonalSkinPresetImport> firstBatch = List.of(
+                new LibraryService.PersonalSkinPresetImport(
+                        "First look", "First skin", SkinVariant.CLASSIC,
+                        PersonalSkinSource.FILE, shared, null),
+                new LibraryService.PersonalSkinPresetImport(
+                        "Second look", "Second label", SkinVariant.CLASSIC,
+                        PersonalSkinSource.URL, shared, null));
+
+        LibraryService.BatchPersonalSkinPresetImport first =
+                library.importPersonalSkinPresets(accountId, firstBatch);
+        assertEquals(2, first.imported());
+        assertEquals(0, first.alreadyPresent());
+        assertEquals(1, first.state().personalSkins().size());
+        assertEquals("First skin", first.state().personalSkins().get(0).displayName());
+        assertEquals(1, first.state().skinAssets().size());
+        assertEquals(2, first.state().presets().size());
+
+        LibraryService.BatchPersonalSkinPresetImport repeated =
+                library.importPersonalSkinPresets(accountId, firstBatch);
+        assertEquals(0, repeated.imported());
+        assertEquals(2, repeated.alreadyPresent());
+        assertEquals(first.state(), repeated.state());
+
+        LibraryService.BatchPersonalSkinPresetImport slim = library.importPersonalSkinPresets(
+                accountId,
+                List.of(new LibraryService.PersonalSkinPresetImport(
+                        "Slim look", "Ignored replacement", SkinVariant.SLIM,
+                        PersonalSkinSource.PLAYER_NAME, shared, "owned-cape")));
+        assertEquals(1, slim.imported());
+        assertEquals(1, slim.state().personalSkins().size());
+        assertEquals(2, slim.state().personalSkins().get(0).variantAssetIds().size());
+        assertEquals(PersonalSkinSource.PLAYER_NAME, slim.state().personalSkins().get(0).source());
+
+        library.hidePersonalSkin(accountId, slim.state().personalSkins().get(0).sha256());
+        LibraryService.BatchPersonalSkinPresetImport restored =
+                library.importPersonalSkinPresets(accountId, firstBatch.subList(0, 1));
+        assertEquals(0, restored.imported());
+        assertEquals(1, restored.alreadyPresent());
+        assertTrue(restored.state().personalSkins().get(0).visible());
+
+        LibraryService.BatchPersonalSkinPresetImport sameNameDifferentSkin =
+                library.importPersonalSkinPresets(accountId, List.of(
+                        new LibraryService.PersonalSkinPresetImport(
+                                "First look", "Legacy-format skin", SkinVariant.CLASSIC,
+                                PersonalSkinSource.FILE, TestPng.create(64, 32), null)));
+        assertEquals(1, sameNameDifferentSkin.imported());
+        assertEquals(4, sameNameDifferentSkin.state().presets().size());
+    }
+
     private LibraryService library() {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         return new LibraryService(storage(), clock);

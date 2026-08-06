@@ -277,6 +277,8 @@ public record ViewSpec(
 
         CATALOG_CARD,
 
+        SELECTABLE_CARD,
+
         CAPE_CARD,
 
         CATALOG_DELETE
@@ -489,6 +491,29 @@ public record ViewSpec(
                     0);
         }
 
+        public static Widget selectableCard(
+                String id,
+                Bounds bounds,
+                UiMessage accessibleLabel,
+                boolean selected,
+                boolean enabled) {
+            return new Widget(
+                    id,
+                    WidgetKind.SELECTABLE_CARD,
+                    bounds,
+                    accessibleLabel,
+                    selected ? Optional.of("selected") : Optional.empty(),
+                    Optional.empty(),
+                    enabled,
+                    true,
+                    0);
+        }
+
+        public boolean selectableCardSelected() {
+            return kind == WidgetKind.SELECTABLE_CARD
+                    && value.filter("selected"::equals).isPresent();
+        }
+
         public static Widget collectionHeader(
                 String id,
                 Bounds bounds,
@@ -589,6 +614,7 @@ public record ViewSpec(
             float scale,
             Optional<UUID> presetId,
             Optional<CatalogImage> catalogImage,
+            Optional<ExternalImage> externalImage,
             PreviewRenderer.PreviewIntent intent) {
         public Preview(
                 String id,
@@ -616,6 +642,7 @@ public record ViewSpec(
                     pitchDegrees,
                     scale,
                     presetId,
+                    Optional.empty(),
                     Optional.empty(),
                     PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL);
         }
@@ -648,7 +675,41 @@ public record ViewSpec(
                     scale,
                     presetId,
                     catalogImage,
+                    Optional.empty(),
                     PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL);
+        }
+
+        public Preview(
+                String id,
+                Bounds bounds,
+                SkinReference skin,
+                String imageRevision,
+                SkinVariant variant,
+                Optional<String> capeId,
+                PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility outerLayerVisibility,
+                float yawDegrees,
+                float pitchDegrees,
+                float scale,
+                Optional<UUID> presetId,
+                Optional<CatalogImage> catalogImage,
+                PreviewRenderer.PreviewIntent intent) {
+            this(
+                    id,
+                    bounds,
+                    skin,
+                    imageRevision,
+                    variant,
+                    capeId,
+                    capeMode,
+                    outerLayerVisibility,
+                    yawDegrees,
+                    pitchDegrees,
+                    scale,
+                    presetId,
+                    catalogImage,
+                    Optional.empty(),
+                    intent);
         }
 
         public Preview {
@@ -665,6 +726,7 @@ public record ViewSpec(
             Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
             presetId = Objects.requireNonNull(presetId, "presetId");
             catalogImage = Objects.requireNonNull(catalogImage, "catalogImage");
+            externalImage = Objects.requireNonNull(externalImage, "externalImage");
             Objects.requireNonNull(intent, "intent");
             if (!Float.isFinite(scale) || scale <= 0.0F) {
                 throw new IllegalArgumentException("preview scale must be finite and positive");
@@ -674,6 +736,11 @@ public record ViewSpec(
             }
             if (catalogImage.isPresent() && skin.optionalAssetId().isPresent()) {
                 throw new IllegalArgumentException("catalog preview must not also reference a library asset");
+            }
+            if (externalImage.isPresent()
+                    && (catalogImage.isPresent() || skin.optionalAssetId().isPresent())) {
+                throw new IllegalArgumentException(
+                        "external preview must not also reference a catalog or library asset");
             }
         }
 
@@ -706,6 +773,7 @@ public record ViewSpec(
                     scale,
                     presetId,
                     Optional.empty(),
+                    Optional.empty(),
                     PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL);
         }
     }
@@ -722,6 +790,12 @@ public record ViewSpec(
                 throw new IllegalArgumentException(name + " is not a stable catalog id");
             }
             return value;
+        }
+    }
+
+    public record ExternalImage(String candidateId) {
+        public ExternalImage {
+            candidateId = CatalogImage.requireStableId(candidateId, "candidateId");
         }
     }
 

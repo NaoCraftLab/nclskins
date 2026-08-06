@@ -12,13 +12,14 @@ public final class Minecraft262ClientCapabilityProvider implements ClientCapabil
     @Override
     public Provision provision() {
         Minecraft262AppearanceSink appearance = new Minecraft262AppearanceSink();
+        MinecraftClientExecutor clientExecutor = new MinecraftClientExecutor();
         return new Provision(
                 new ClientCapabilitySet(
                         new MinecraftGameSessionTokenSource(),
                         new Minecraft262BundledSkinSource(),
                         new Minecraft262CurrentPlayerAppearanceSource(appearance::installedSkin),
-                        new MinecraftClientExecutor(),
-                        new MinecraftFilePicker(),
+                        clientExecutor,
+                        new MinecraftFilePicker(clientExecutor),
                         new Minecraft262SignedTextureVerifier(),
                         appearance,
                         new Minecraft262OuterLayerVisibilityController(),

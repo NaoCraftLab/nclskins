@@ -73,19 +73,14 @@ public final class AddSourcePresenter {
             int contentWidth = Math.min(520, Math.max(220, width - 32));
             int contentX = (width - contentWidth) / 2;
             int actionWidth = Math.min(96, Math.max(76, contentWidth / 3));
-            widgets.add(ViewSpec.Widget.button(
-                    "add.file.choose",
-                    new Bounds(contentX, 42, contentWidth, 20),
-                    UiMessage.info("nclskins.add_source.choose_file"),
-                    !busy));
             texts.add(new ViewSpec.Text(
                     "add.player.label",
-                    new Bounds(contentX, 72, contentWidth, 10),
+                    new Bounds(contentX, 30, contentWidth, 10),
                     UiMessage.info("nclskins.add_source.player_label"),
                     ViewSpec.Text.Alignment.LEFT));
             widgets.add(ViewSpec.Widget.textField(
                     "add.player.input",
-                    new Bounds(contentX, 84, contentWidth - actionWidth - 6, 20),
+                    new Bounds(contentX, 41, contentWidth - actionWidth - 6, 20),
                     UiMessage.info("nclskins.add_source.player_label"),
                     model.playerInput(),
                     UiMessage.info("nclskins.add_source.player_hint"),
@@ -95,17 +90,17 @@ public final class AddSourcePresenter {
                     Optional.of("add.player.load")));
             widgets.add(ViewSpec.Widget.button(
                     "add.player.load",
-                    new Bounds(contentX + contentWidth - actionWidth, 84, actionWidth, 20),
+                    new Bounds(contentX + contentWidth - actionWidth, 41, actionWidth, 20),
                     UiMessage.info("nclskins.add_source.find_player"),
                     !busy && !model.playerInput().isBlank()));
             texts.add(new ViewSpec.Text(
                     "add.url.label",
-                    new Bounds(contentX, 114, contentWidth, 10),
+                    new Bounds(contentX, 65, contentWidth, 10),
                     UiMessage.info("nclskins.add_source.url_label"),
                     ViewSpec.Text.Alignment.LEFT));
             widgets.add(ViewSpec.Widget.textField(
                     "add.url.input",
-                    new Bounds(contentX, 126, contentWidth - actionWidth - 6, 20),
+                    new Bounds(contentX, 76, contentWidth - actionWidth - 6, 20),
                     UiMessage.info("nclskins.add_source.url_label"),
                     model.urlInput(),
                     UiMessage.info("nclskins.add_source.url_hint"),
@@ -115,17 +110,34 @@ public final class AddSourcePresenter {
                     Optional.of("add.url.load")));
             widgets.add(ViewSpec.Widget.button(
                     "add.url.load",
-                    new Bounds(contentX + contentWidth - actionWidth, 126, actionWidth, 20),
+                    new Bounds(contentX + contentWidth - actionWidth, 76, actionWidth, 20),
                     UiMessage.info("nclskins.add_source.download"),
                     !busy && !model.urlInput().isBlank()));
             texts.add(new ViewSpec.Text(
                     "add.url.privacy",
-                    new Bounds(contentX, 151, contentWidth, 20),
+                    new Bounds(contentX, 99, contentWidth, 10),
                     UiMessage.info("nclskins.add_source.url_privacy"),
                     ViewSpec.Text.Alignment.LEFT));
-            operationStatus.ifPresent(status -> texts.add(new ViewSpec.Text(
+            widgets.add(ViewSpec.Widget.button(
+                    "add.file.choose",
+                    new Bounds(contentX, 113, contentWidth, 20),
+                    UiMessage.info("nclskins.add_source.choose_file"),
+                    !busy));
+            widgets.add(ViewSpec.Widget.button(
+                    "add.external.launcher",
+                    new Bounds(contentX, 137, contentWidth, 20),
+                    UiMessage.info("nclskins.external_import.from_launcher"),
+                    !busy));
+            widgets.add(ViewSpec.Widget.button(
+                    "add.external.mod",
+                    new Bounds(contentX, 161, contentWidth, 20),
+                    UiMessage.info("nclskins.external_import.from_mod"),
+                    !busy));
+            operationStatus.filter(status ->
+                            !"nclskins.external_import.choose_source".equals(status.key()))
+                    .ifPresent(status -> texts.add(new ViewSpec.Text(
                     "add.import.status",
-                    new Bounds(contentX, Math.min(height - 48, 176), contentWidth, 10),
+                            new Bounds(contentX, Math.min(height - 40, 196), contentWidth, 10),
                     status,
                     ViewSpec.Text.Alignment.CENTER)));
         } else {
@@ -491,72 +503,37 @@ public final class AddSourcePresenter {
     }
 
     private static CatalogLayout catalogLayout(AddSourceModel model, int width, int height) {
-        int contentBottom = Math.max(
-                CONTENT_TOP + 1,
-                height - ADD_SOURCE_FOOTER_HEIGHT - 4);
-        int contentRight = Math.max(17, width - 14);
-        int available = Math.max(1, contentRight - 16);
-        int columns = Math.max(2, Math.min(9, (available + CARD_GAP) / (68 + CARD_GAP)));
-        int cardWidth = Math.min(
+        List<SkinCatalogSource.CollectionDescriptor> collections = model.visibleCollections();
+        List<CollectionGridLayout.Section> sections = collections.stream()
+                .map(collection -> new CollectionGridLayout.Section(
+                        model.visibleSkins(collection).size(),
+                        model.collectionCollapsed(collection.id())))
+                .toList();
+        CollectionGridLayout.Layout layout = CollectionGridLayout.calculate(
+                width,
+                height,
+                CONTENT_TOP,
+                ADD_SOURCE_FOOTER_HEIGHT,
+                0,
+                4,
+                COLLECTION_HEADER_HEIGHT,
+                CARD_GAP,
+                68,
                 96,
-                Math.max(1, (available - (columns - 1) * CARD_GAP) / columns));
-        int rowWidth = columns * cardWidth + (columns - 1) * CARD_GAP;
-        int cardStartX = 16 + Math.max(0, (available - rowWidth) / 2);
-        int viewportHeight = Math.max(1, contentBottom - CONTENT_TOP);
-        int cardHeight = Math.min(
+                MIN_CARD_HEIGHT,
                 MAX_CARD_HEIGHT,
-                Math.max(MIN_CARD_HEIGHT, viewportHeight - COLLECTION_HEADER_HEIGHT - 12));
-        int totalHeight = 0;
-        int matchingSkinCount = 0;
-        for (SkinCatalogSource.CollectionDescriptor collection : model.visibleCollections()) {
-            List<SkinCatalogSource.SkinDescriptor> skins = model.visibleSkins(collection);
-            matchingSkinCount += skins.size();
-            totalHeight += COLLECTION_HEADER_HEIGHT + 4;
-            if (!model.collectionCollapsed(collection.id())) {
-                int rows = (skins.size() + columns - 1) / columns;
-                totalHeight += rows * (cardHeight + CARD_GAP) + 8;
-            }
-        }
-        int maximum = Math.max(0, totalHeight - viewportHeight);
-        Optional<ViewSpec.Scrollbar> scrollbar = maximum == 0
-                ? Optional.empty()
-                : Optional.of(verticalScrollbar(
-                        width,
-                        contentBottom,
-                        totalHeight,
-                        viewportHeight,
-                        Math.min(model.scrollOffset(), maximum),
-                        maximum));
+                model.scrollOffset(),
+                sections);
         return new CatalogLayout(
-                columns,
-                cardWidth,
-                cardStartX,
-                cardHeight,
-                contentRight,
-                contentBottom,
-                maximum,
-                matchingSkinCount,
-                scrollbar);
-    }
-
-    private static ViewSpec.Scrollbar verticalScrollbar(
-            int width,
-            int contentBottom,
-            int totalHeight,
-            int viewportHeight,
-            int offset,
-            int maximum) {
-        int trackHeight = Math.max(1, contentBottom - CONTENT_TOP);
-        int thumbHeight = Math.max(12, (int) Math.round(trackHeight * (viewportHeight / (double) totalHeight)));
-        thumbHeight = Math.min(trackHeight, thumbHeight);
-        int travel = Math.max(0, trackHeight - thumbHeight);
-        int thumbTop = CONTENT_TOP + (int) Math.round(travel * (offset / (double) maximum));
-        return new ViewSpec.Scrollbar(
-                new Bounds(Math.max(0, width - 9), CONTENT_TOP, 6, trackHeight),
-                new Bounds(Math.max(0, width - 9), thumbTop, 6, Math.max(1, thumbHeight)),
-                offset,
-                maximum,
-                ViewSpec.Scrollbar.Orientation.VERTICAL);
+                layout.columns(),
+                layout.cardWidth(),
+                layout.cardStartX(),
+                layout.cardHeight(),
+                layout.contentRight(),
+                layout.contentBottom(),
+                layout.maximum(),
+                layout.itemCount(),
+                layout.scrollbar());
     }
 
     private static boolean intersectsViewport(Bounds bounds, int contentBottom) {

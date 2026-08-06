@@ -14,6 +14,12 @@ public interface SkinCatalogSource {
     byte[] load(String collectionId, String skinId, SkinModel model) throws IOException;
 
 
+    default byte[] loadResource(String identifier) throws IOException {
+        Objects.requireNonNull(identifier, "identifier");
+        throw new IOException("Minecraft resource skin lookup is unavailable");
+    }
+
+
     default List<CollectionDescriptor> collections() {
         return MinecraftSkinCatalog.collections();
     }
@@ -49,6 +55,11 @@ public interface SkinCatalogSource {
                                 MinecraftSkinCatalog.COLLECTION_ID.equals(collection.id()))
                         .forEach(combined::add);
                 return List.copyOf(combined);
+            }
+
+            @Override
+            public byte[] loadResource(String identifier) throws IOException {
+                return resourcePacks.loadResource(identifier);
             }
 
             @Override

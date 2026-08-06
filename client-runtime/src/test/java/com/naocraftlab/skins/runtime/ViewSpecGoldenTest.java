@@ -3,16 +3,22 @@ package com.naocraftlab.skins.runtime;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import com.naocraftlab.skins.core.model.PersonalSkinSource;
+import com.naocraftlab.skins.core.model.SkinVariant;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -132,6 +138,89 @@ final class ViewSpecGoldenTest {
                         160,
                         100,
                         PreviewRenderer.CapeMode.CAPE)).stripTrailing());
+    }
+
+    @Test
+    void externalImportChooserBusyAndRetryViewsMatchGolden() {
+        ExternalImportPresenter presenter = new ExternalImportPresenter();
+        ExternalImportModel launcher = ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER)
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.MINECRAFT_LAUNCHER, true,
+                        ExternalImportSource.PRISM_LAUNCHER, false));
+        ExternalImportModel failed = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, false))
+                .withManualProbe(ExternalImportSource.SKIN_SHUFFLE, Path.of("instance"), false);
+        ExternalImportModel probing = ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER);
+        String actual = "[chooser-240]\n" + describe(presenter.present(
+                launcher,
+                false,
+                Optional.of(UiMessage.info("nclskins.external_import.choose_source")),
+                240,
+                240))
+                + "[failed-320]\n" + describe(presenter.present(
+                failed,
+                false,
+                Optional.of(UiMessage.error("nclskins.external_import.not_found.skin_shuffle")),
+                320,
+                240))
+                + "[busy-427]\n" + describe(presenter.present(
+                probing,
+                true,
+                Optional.of(UiMessage.info("nclskins.external_import.searching")),
+                427,
+                240))
+                + "[retry-854]\n" + describe(presenter.present(
+                failed,
+                false,
+                Optional.of(UiMessage.error("nclskins.external_import.no_valid")),
+                854,
+                480));
+        assertEquals(golden("external-import-view-spec.txt"), actual.stripTrailing());
+    }
+
+    @Test
+    void externalImportReviewMatchesGoldenAtControlSizes() {
+        ExternalImportPresenter presenter = new ExternalImportPresenter();
+        ExternalImportModel review = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, true))
+                .withReview(new ClientOperations.ExternalImportReview(
+                        ExternalImportSource.SKIN_SHUFFLE,
+                        List.of(
+                                externalCandidate("candidate-0", "New classic", false),
+                                externalCandidate("candidate-1", "Existing slim", true)),
+                        1,
+                        1));
+        StringBuilder actual = new StringBuilder();
+        for (int[] size : List.of(
+                new int[]{240, 240},
+                new int[]{320, 240},
+                new int[]{427, 240},
+                new int[]{854, 480})) {
+            actual.append("[review-").append(size[0]).append('x').append(size[1]).append("]\n")
+                    .append(describe(presenter.present(
+                            review,
+                            false,
+                            Optional.of(UiMessage.info("nclskins.external_import.review_ready")),
+                            size[0],
+                            size[1])));
+        }
+        assertEquals(
+                golden("external-import-review-view-spec.txt"),
+                actual.toString().stripTrailing());
+    }
+
+    private static ClientOperations.ExternalImportCandidate externalCandidate(
+            String id, String name, boolean duplicate) {
+        return new ClientOperations.ExternalImportCandidate(
+                id,
+                name,
+                duplicate ? SkinVariant.SLIM : SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE,
+                new byte[]{1, 2, 3},
+                (duplicate ? "1" : "0").repeat(64),
+                duplicate ? "owned-cape" : null,
+                duplicate ? 1 : 0,
+                duplicate);
     }
 
     private static ViewSpec gallery(

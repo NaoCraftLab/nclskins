@@ -15,6 +15,7 @@ import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.PublicSkinImportException;
+import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
@@ -77,6 +78,7 @@ public final class ClientRuntime implements AutoCloseable {
     private final Optional<ServerAppearanceReadinessCoordinator> serverAppearanceReadiness;
     private final GalleryPresenter galleryPresenter = new GalleryPresenter();
     private final AddSourcePresenter addSourcePresenter = new AddSourcePresenter();
+    private final ExternalImportPresenter externalImportPresenter = new ExternalImportPresenter();
     private final CopyOnWriteArrayList<Consumer<ClientSnapshot>> listeners = new CopyOnWriteArrayList<>();
     private final Map<String, byte[]> previewBytes = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<Optional<byte[]>>> previewInFlight =
@@ -407,7 +409,7 @@ public final class ClientRuntime implements AutoCloseable {
         onClient(() -> {
             if (disposed
                     || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
-                    || state.busy) {
+                    || state.busy && state.externalImport == null) {
                 return;
             }
             if (state.pendingPresetDeleteId != null) {
@@ -425,6 +427,10 @@ public final class ClientRuntime implements AutoCloseable {
             }
             if (state.editor != null) {
                 cancelEditor();
+                return;
+            }
+            if (state.externalImport != null) {
+                cancelExternalImport();
                 return;
             }
             if (state.addSource != null) {
@@ -445,6 +451,7 @@ public final class ClientRuntime implements AutoCloseable {
         clearSessionRetryFeedback();
         state.editor = null;
         state.addSource = null;
+        state.externalImport = null;
         if (draggingGalleryScrollbar) {
             state.galleryScrollTarget = state.galleryScrollPosition;
         }
@@ -561,6 +568,14 @@ public final class ClientRuntime implements AutoCloseable {
         PresetEditorModel editor = state.editor;
         if (editor != null) {
             return editor.present(width, height, editorCapeScrollPosition);
+        }
+        if (state.externalImport != null) {
+            return externalImportPresenter.present(
+                    state.externalImport,
+                    state.busy,
+                    Optional.of(state.status),
+                    width,
+                    height);
         }
         if (state.addSource != null) {
             return addSourcePresenter.present(
@@ -819,6 +834,24 @@ public final class ClientRuntime implements AutoCloseable {
                 }
                 return;
             }
+            if (state.externalImport != null && state.externalImport.review().isPresent()) {
+                ViewSpec reviewView = view(
+                        viewportWidth, viewportHeight, (int) mouseX, (int) mouseY);
+                double amount = dominantScrollAmount(horizontalAmount, verticalAmount);
+                if (amount != 0.0
+                        && PointerRouting.clipRegion(
+                        reviewView,
+                        "external.review.viewport",
+                        mouseX,
+                        mouseY)) {
+                    ExternalImportModel.ReviewState review =
+                            state.externalImport.review().orElseThrow();
+                    state.externalImport = state.externalImport.withReviewScroll(
+                            Math.max(0, review.scrollOffset() - (int) Math.round(amount * 32.0)));
+                    publish();
+                }
+                return;
+            }
             if (state.addSource != null) {
                 if (state.addSource.personalSkinDeletion().isPresent()) {
                     return;
@@ -867,6 +900,14 @@ public final class ClientRuntime implements AutoCloseable {
                         return;
                     }
                     setAddSourceOffset((int) Math.round(offsetPixels));
+                }
+                case "external.review" -> {
+                    if (state.externalImport == null || state.externalImport.review().isEmpty()) {
+                        return;
+                    }
+                    state.externalImport = state.externalImport.withReviewScroll(
+                            Math.max(0, (int) Math.round(offsetPixels)));
+                    publish();
                 }
                 case "editor.capes" -> {
                     if (state.editor == null) {
@@ -919,6 +960,16 @@ public final class ClientRuntime implements AutoCloseable {
                             + model.name(),
                     () -> Optional.of(operations.loadCatalogSkin(
                             image.collectionId(), image.skinId(), model)));
+            observeSkinPreview(preview, loaded, false);
+            return loaded;
+        }
+        if (preview.externalImage().isPresent()) {
+            String candidateId = preview.externalImage().orElseThrow().candidateId();
+            Optional<ClientOperations.ExternalImportCandidate> candidate = state.externalImport == null
+                    ? Optional.empty()
+                    : state.externalImport.candidate(candidateId);
+            CompletableFuture<Optional<byte[]>> loaded = publishPreview(
+                    candidate.map(ClientOperations.ExternalImportCandidate::normalizedPng));
             observeSkinPreview(preview, loaded, false);
             return loaded;
         }
@@ -1241,6 +1292,22 @@ public final class ClientRuntime implements AutoCloseable {
             selectCatalogSkin(widgetId.substring("add.catalog.skin:".length()));
             return;
         }
+        if (widgetId.startsWith("external.source.")) {
+            prepareExternalImport(ExternalImportPresenter.source(widgetId));
+            return;
+        }
+        if (widgetId.startsWith("external.folder.")) {
+            chooseExternalImportFolder(ExternalImportPresenter.source(widgetId));
+            return;
+        }
+        if (widgetId.startsWith("external.review.card:")) {
+            toggleExternalCandidate(widgetId.substring("external.review.card:".length()));
+            return;
+        }
+        if (widgetId.startsWith("external.review.collection.")) {
+            toggleExternalCollection(widgetId.endsWith("duplicates"));
+            return;
+        }
         if (widgetId.startsWith("editor.outer_layer.")) {
             cycleEditorOuterLayer(
                     widgetId.substring("editor.outer_layer.".length()), reverse);
@@ -1263,6 +1330,8 @@ public final class ClientRuntime implements AutoCloseable {
             case "add.tab.file" -> selectAddSourceTab(AddSourceTab.FILE);
             case "add.tab.catalog" -> selectAddSourceTab(AddSourceTab.CATALOG);
             case "add.file.choose" -> chooseAddSourcePng();
+            case "add.external.launcher" -> openExternalImport(ExternalImportModel.Category.LAUNCHER);
+            case "add.external.mod" -> openExternalImport(ExternalImportModel.Category.MOD);
             case "add.player.load" -> loadRemoteImport(true);
             case "add.url.load" -> loadRemoteImport(false);
             case "add.catalog.filter" -> cycleCatalogFilter(reverse);
@@ -1271,6 +1340,10 @@ public final class ClientRuntime implements AutoCloseable {
             case "add.catalog.rename.save" -> savePersonalSkinRename();
             case "add.catalog.rename.cancel" -> cancelPersonalSkinRename();
             case "add.cancel" -> cancelAddSource();
+            case "external.back" -> cancelExternalImport();
+            case "external.review.toggle_all" -> toggleAllExternalCandidates();
+            case "external.review.commit" -> commitExternalImport();
+            case "external.review.cancel" -> cancelExternalReview();
             case "editor.model" -> toggleEditorVariant();
             case "editor.cape" -> updateEditor(editor -> editor.cycleCape(reverse ? -1 : 1));
             case "editor.preview_mode" -> {
@@ -1611,6 +1684,233 @@ public final class ClientRuntime implements AutoCloseable {
                         }));
             }
         }));
+    }
+
+    private void openExternalImport(ExternalImportModel.Category category) {
+        if (state.busy
+                || state.addSource == null
+                || state.addSource.selectedTab() != AddSourceTab.FILE) {
+            return;
+        }
+        state.externalImport = ExternalImportModel.open(category);
+        submit(
+                UiMessage.info("nclskins.external_import.searching"),
+                () -> {
+                    EnumMap<ExternalImportSource, Boolean> probes =
+                            new EnumMap<>(ExternalImportSource.class);
+                    for (ExternalImportSource source : category.sources()) {
+                        boolean available;
+                        try {
+                            available = operations.probeExternalSource(source, Optional.empty());
+                        } catch (Exception ignored) {
+                            available = false;
+                        }
+                        probes.put(source, available);
+                    }
+                    return Map.copyOf(probes);
+                },
+                probes -> {
+                    if (state.externalImport != null
+                            && state.externalImport.category() == category) {
+                        state.externalImport = state.externalImport.withAutomaticProbes(probes);
+                        state.status = UiMessage.info("nclskins.external_import.choose_source");
+                    }
+                },
+                failure -> state.status = UiMessage.error("nclskins.external_import.probe_failed"));
+    }
+
+    private void prepareExternalImport(ExternalImportSource source) {
+        if (state.externalImport == null
+                || state.busy
+                || !state.externalImport.available(source)) {
+            return;
+        }
+        Optional<Path> root = state.externalImport.selectedRoot(source);
+        submit(
+                UiMessage.info("nclskins.external_import.preparing"),
+                () -> operations.prepareExternalAppearances(source, root),
+                review -> {
+                    if (state.externalImport != null) {
+                        state.externalImport = state.externalImport.withReview(review);
+                        state.status = UiMessage.info("nclskins.external_import.review_ready");
+                    }
+                },
+                failure -> failExternalPreparation(source, failure));
+    }
+
+    private void chooseExternalImportFolder(ExternalImportSource source) {
+        if (state.externalImport == null
+                || !state.externalImport.category().sources().contains(source)
+                || state.busy) {
+            return;
+        }
+        long ticket = ++state.generation;
+        state.busy = true;
+        state.status = UiMessage.info("nclskins.external_import.choose_folder_status");
+        publish();
+        CompletableFuture<Optional<Path>> picked;
+        try {
+            picked = Objects.requireNonNull(filePicker.chooseDirectory(), "directory picker future");
+        } catch (RuntimeException unavailablePicker) {
+            finishExternalDirectoryPicker(ticket, source, null, unavailablePicker);
+            return;
+        }
+        picked.whenComplete((selection, failure) -> onClient(() -> {
+            if (!current(ticket) || state.externalImport == null) {
+                return;
+            }
+            if (failure != null || selection == null) {
+                finishExternalDirectoryPicker(ticket, source, null, failure);
+                return;
+            }
+            if (selection.isEmpty()) {
+                state.busy = false;
+                state.status = UiMessage.info("nclskins.external_import.choose_source");
+                publish();
+                return;
+            }
+            Path root = selection.orElseThrow();
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    return operations.probeExternalSource(source, Optional.of(root));
+                } catch (Exception probeFailure) {
+                    throw new CompletionException(probeFailure);
+                }
+            }, worker).whenComplete((available, probeFailure) -> onClient(() -> {
+                if (!current(ticket) || state.externalImport == null) {
+                    return;
+                }
+                state.busy = false;
+                if (probeFailure == null) {
+                    state.externalImport = state.externalImport.withManualProbe(
+                            source, root, Boolean.TRUE.equals(available));
+                    state.status = Boolean.TRUE.equals(available)
+                            ? UiMessage.success("nclskins.external_import.folder_ready")
+                            : UiMessage.error(invalidFolderKey(source));
+                } else {
+                    state.externalImport = state.externalImport.withManualProbe(source, root, false);
+                    state.status = UiMessage.error(invalidFolderKey(source));
+                }
+                publish();
+            }));
+        }));
+    }
+
+    private void finishExternalDirectoryPicker(
+            long ticket,
+            ExternalImportSource source,
+            Path ignored,
+            Throwable failure) {
+        if (!current(ticket) || state.externalImport == null) {
+            return;
+        }
+        state.busy = false;
+        state.status = UiMessage.error("nclskins.external_import.picker_failed");
+        publish();
+    }
+
+    private void toggleExternalCandidate(String candidateId) {
+        if (state.externalImport == null || state.externalImport.review().isEmpty() || state.busy) {
+            return;
+        }
+        state.externalImport = state.externalImport.toggleCandidate(candidateId);
+        publish();
+    }
+
+    private void toggleExternalCollection(boolean duplicates) {
+        if (state.externalImport == null || state.externalImport.review().isEmpty() || state.busy) {
+            return;
+        }
+        state.externalImport = state.externalImport.toggleCollection(duplicates);
+        publish();
+    }
+
+    private void toggleAllExternalCandidates() {
+        if (state.externalImport == null || state.externalImport.review().isEmpty() || state.busy) {
+            return;
+        }
+        state.externalImport = state.externalImport.toggleAll();
+        publish();
+    }
+
+    private void commitExternalImport() {
+        if (state.externalImport == null || state.externalImport.review().isEmpty() || state.busy) {
+            return;
+        }
+        ExternalImportModel.ReviewState review = state.externalImport.review().orElseThrow();
+        List<ClientOperations.ExternalImportCandidate> selected = review.selectedCandidates();
+        if (selected.isEmpty()) {
+            return;
+        }
+        submit(
+                UiMessage.info("nclskins.status.saving"),
+                () -> operations.commitExternalAppearances(
+                        selected, review.review().skipped(), review.review().warnings()),
+                this::finishExternalImport,
+                failure -> state.status = UiMessage.error("nclskins.external_import.commit_failed"));
+    }
+
+    private void finishExternalImport(ClientOperations.ExternalImportResult result) {
+        state.account = result.account();
+        state.externalImport = null;
+        state.addSource = null;
+        state.selectedPresetId = null;
+        invalidateCatalogPreviews();
+        state.status = UiMessage.success(
+                "nclskins.external_import.complete",
+                result.imported(),
+                result.skipped(),
+                result.alreadyPresent(),
+                result.warnings());
+    }
+
+    private void failExternalPreparation(ExternalImportSource source, Throwable failure) {
+        if (state.externalImport == null) {
+            return;
+        }
+        Throwable cause = unwrap(failure);
+        if (cause instanceof ExternalImportException external
+                && external.code() == ExternalImportException.Code.NO_VALID_APPEARANCES) {
+            state.status = UiMessage.error("nclskins.external_import.no_valid");
+            return;
+        }
+        state.status = UiMessage.error(invalidFolderKey(source));
+    }
+
+    private static String invalidFolderKey(ExternalImportSource source) {
+        return "nclskins.external_import.invalid_folder." + switch (source) {
+            case MINECRAFT_LAUNCHER -> "minecraft_launcher";
+            case SKIN_SHUFFLE -> "skin_shuffle";
+            case PRISM_LAUNCHER -> "prism_launcher";
+        };
+    }
+
+    private void cancelExternalReview() {
+        if (state.externalImport == null || state.externalImport.review().isEmpty()) {
+            return;
+        }
+        state.generation++;
+        state.busy = false;
+        state.externalImport = state.externalImport.clearReview();
+        state.status = UiMessage.info("nclskins.external_import.choose_source");
+        publish();
+    }
+
+    private void cancelExternalImport() {
+        if (state.externalImport == null) {
+            return;
+        }
+        if (state.busy) {
+            state.generation++;
+            state.busy = false;
+            state.status = UiMessage.info("nclskins.status.cancelled");
+        }
+        if (state.externalImport.review().isPresent()) {
+            state.externalImport = state.externalImport.clearReview();
+        } else {
+            state.externalImport = null;
+        }
+        publish();
     }
 
     private void loadRemoteImport(boolean player) {
@@ -3358,6 +3658,7 @@ public final class ClientRuntime implements AutoCloseable {
         private PresetEditorModel editor;
         private PersonalSkinSource editorPersonalSource = PersonalSkinSource.FILE;
         private AddSourceModel addSource;
+        private ExternalImportModel externalImport;
         private AccountUiPreferences uiPreferences;
         private OwnedCapeInventory ownedCapes;
         private UiMessage status = UiMessage.info("nclskins.status.loading");
@@ -3401,6 +3702,7 @@ public final class ClientRuntime implements AutoCloseable {
             editor = null;
             editorPersonalSource = PersonalSkinSource.FILE;
             addSource = null;
+            externalImport = null;
             status = UiMessage.info("nclskins.status.loading");
             busy = false;
             rateLimited = false;

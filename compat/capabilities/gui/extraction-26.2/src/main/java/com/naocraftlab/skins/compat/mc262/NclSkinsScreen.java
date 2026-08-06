@@ -73,6 +73,7 @@ public final class NclSkinsScreen extends Screen {
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
     private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
             "edit",
+            "folder",
             "plus",
             "duplicate",
             "delete",
@@ -272,7 +273,8 @@ public final class NclSkinsScreen extends Screen {
                         () -> runtime.dispatchWidget(spec.id()));
                 card.active = spec.enabled();
                 widget = card;
-            } else if (spec.kind() == ViewSpec.WidgetKind.CAPE_CARD) {
+            } else if (spec.kind() == ViewSpec.WidgetKind.CAPE_CARD
+                    || spec.kind() == ViewSpec.WidgetKind.SELECTABLE_CARD) {
                 CapeCardWidget card = new CapeCardWidget(
                         bounds,
                         Minecraft262Components.resolve(spec.label()),
@@ -637,7 +639,8 @@ public final class NclSkinsScreen extends Screen {
             visibleIds.add(preview.id());
             Optional<TextureHandle> loadedSkin = Optional.ofNullable(previewSkinKeys.get(preview.id()))
                     .flatMap(skinTextures::handle);
-            if (preview.catalogImage().isPresent() && loadedSkin.isEmpty()) {
+            if ((preview.catalogImage().isPresent() || preview.externalImage().isPresent())
+                    && loadedSkin.isEmpty()) {
                 continue;
             }
             TextureHandle skin = loadedSkin.orElse(fallback.skin());
@@ -746,7 +749,7 @@ public final class NclSkinsScreen extends Screen {
                     RenderPipelines.GUI_TEXTURED,
                     footer,
                     0,
-                    height - 38,
+                    height - 33,
                     0.0F,
                     0.0F,
                     width,
@@ -1243,6 +1246,7 @@ public final class NclSkinsScreen extends Screen {
                     preview.skin(),
                     preview.imageRevision(),
                     preview.catalogImage(),
+                    preview.externalImage(),
                     preview.variant());
             previewSkinKeys.put(preview.id(), key);
             desiredSkins.add(key);
@@ -1350,11 +1354,13 @@ public final class NclSkinsScreen extends Screen {
             SkinReference reference,
             String imageRevision,
             Optional<ViewSpec.CatalogImage> catalogImage,
+            Optional<ViewSpec.ExternalImage> externalImage,
             SkinVariant variant) {
         private SkinKey {
             Objects.requireNonNull(reference, "reference");
             Objects.requireNonNull(imageRevision, "imageRevision");
             Objects.requireNonNull(catalogImage, "catalogImage");
+            Objects.requireNonNull(externalImage, "externalImage");
             Objects.requireNonNull(variant, "variant");
         }
     }

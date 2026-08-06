@@ -17,13 +17,14 @@ public final class Minecraft1211ClientCapabilityProvider implements ClientCapabi
                 new Minecraft1211AppearanceCapability();
         CurrentPlayerAppearanceSource currentAppearance =
                 new Minecraft1211CurrentPlayerAppearanceSource(appearance::installedAppearance);
+        MinecraftClientExecutor clientExecutor = new MinecraftClientExecutor();
         return new Provision(
                 new ClientCapabilitySet(
                         new MinecraftGameSessionTokenSource(),
                         new Minecraft1211BundledSkinSource(),
                         currentAppearance,
-                        new MinecraftClientExecutor(),
-                        new MinecraftFilePicker(),
+                        clientExecutor,
+                        new MinecraftFilePicker(clientExecutor),
                         new MinecraftSignedTextureVerifier(),
                         appearance,
                         new Minecraft1211OuterLayerVisibilityController(),
