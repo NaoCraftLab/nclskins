@@ -39,11 +39,14 @@ import com.naocraftlab.skins.core.service.SessionFailureContext;
 import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -1208,6 +1211,7 @@ final class ClientRuntimeTest {
     @Test
     void publicPlayerLookupRemainsAvailableForAnOfflineCurrentSession() {
         FakeOperations operations = new FakeOperations();
+        operations.playerImportVariant = SkinVariant.SLIM;
         operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
@@ -1223,8 +1227,77 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("add.player.load");
 
         assertEquals(1, operations.playerImportCalls);
-        assertTrue(runtime.snapshot().editor().isPresent());
+        PresetEditorModel editor = runtime.snapshot().editor().orElseThrow();
+        assertEquals(SkinVariant.SLIM, editor.variant());
+        assertEquals(SkinVariant.SLIM, editor.saveRequest().initialVariant());
+        assertEquals(Optional.of(SkinVariant.SLIM), operations.uiPreferences.preferredSkinVariant());
         assertFalse(runtime.snapshot().session().orElseThrow().valid());
+    }
+
+    @Test
+    void fileImportDetectsVariantAndManualOverrideRemainsAvailable(@TempDir Path directory)
+            throws Exception {
+        FakeOperations operations = new FakeOperations();
+        Path selected = Files.write(directory.resolve("slim.png"), opaqueSkinPng(true));
+        FilePicker picker = () -> CompletableFuture.completedFuture(Optional.of(selected));
+        ClientRuntime runtime = runtime(operations, picker);
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+
+        runtime.dispatchWidget("add.file.choose");
+
+        PresetEditorModel editor = runtime.snapshot().editor().orElseThrow();
+        assertEquals(SkinVariant.SLIM, editor.variant());
+        assertEquals(SkinVariant.SLIM, editor.saveRequest().initialVariant());
+        assertEquals(Optional.of(SkinVariant.SLIM), operations.uiPreferences.preferredSkinVariant());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("editor.model").orElseThrow().enabled());
+
+        runtime.dispatchWidget("editor.model");
+
+        assertEquals(SkinVariant.CLASSIC, runtime.snapshot().editor().orElseThrow().variant());
+        assertEquals(Optional.of(SkinVariant.CLASSIC), operations.uiPreferences.preferredSkinVariant());
+        runtime.dispatchText("editor.name", "Detected file");
+        runtime.dispatchWidget("editor.save");
+        AppearancePreset saved = findPreset(
+                runtime.snapshot(), runtime.snapshot().selectedPresetId().orElseThrow());
+        assertEquals(
+                SkinVariant.CLASSIC,
+                findSkin(runtime.snapshot(), saved.skin().assetId()).variant());
+    }
+
+    @Test
+    void cancelledFilePickerDoesNotChangePreferredVariant() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, CANCELLED_PICKER);
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+
+        runtime.dispatchWidget("add.file.choose");
+
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertTrue(operations.uiPreferences.preferredSkinVariant().isEmpty());
+    }
+
+    @Test
+    void urlImportUsesDetectedVariantAndPreferenceSurvivesEditorCancel() {
+        FakeOperations operations = new FakeOperations();
+        operations.urlImportVariant = SkinVariant.SLIM;
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchText("add.url.input", "https://example.test/slim.png");
+
+        runtime.dispatchWidget("add.url.load");
+
+        assertEquals(SkinVariant.SLIM, runtime.snapshot().editor().orElseThrow().variant());
+        assertEquals(Optional.of(SkinVariant.SLIM), operations.uiPreferences.preferredSkinVariant());
+        runtime.dispatchWidget("editor.cancel");
+        assertEquals(
+                SkinVariant.SLIM,
+                runtime.snapshot().addSource().orElseThrow().preferredVariant());
     }
 
     @Test
@@ -2089,6 +2162,7 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget(player ? "add.player.load" : "add.url.load");
 
         assertEquals(UiMessage.error(expectedKey), runtime.snapshot().status());
+        assertTrue(operations.uiPreferences.preferredSkinVariant().isEmpty());
         assertFalse(runtime.snapshot().status().literal());
         assertFalse(runtime.snapshot().status().key().contains("sensitive"));
     }
@@ -2113,6 +2187,18 @@ final class ClientRuntimeTest {
             Executor worker,
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh) {
         return runtime(operations, worker, appearanceRefresh, Optional.empty());
+    }
+
+    private static ClientRuntime runtime(FakeOperations operations, FilePicker picker) {
+        return new ClientRuntime(
+                operations,
+                CLIENT,
+                picker,
+                Runnable::run,
+                TEXT,
+                Optional.empty(),
+                Optional.empty(),
+                IMMEDIATE_READINESS_SCHEDULER);
     }
 
     private static ClientRuntime runtime(
@@ -2149,6 +2235,25 @@ final class ClientRuntimeTest {
             ImageIO.write(image, "png", output);
             return output.toByteArray();
         } catch (java.io.IOException failure) {
+            throw new AssertionError(failure);
+        }
+    }
+
+    private static byte[] opaqueSkinPng(boolean slim) {
+        try {
+            BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < 64; y++) {
+                for (int x = 0; x < 64; x++) {
+                    image.setRGB(x, y, 0xff3186d8);
+                }
+            }
+            if (slim) {
+                image.setRGB(54, 20, 0x003186d8);
+            }
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", output);
+            return output.toByteArray();
+        } catch (IOException failure) {
             throw new AssertionError(failure);
         }
     }
@@ -2284,6 +2389,8 @@ final class ClientRuntimeTest {
         private boolean failEditorSave;
         private Exception playerImportFailure;
         private Exception urlImportFailure;
+        private SkinVariant playerImportVariant = SkinVariant.CLASSIC;
+        private SkinVariant urlImportVariant = SkinVariant.CLASSIC;
         private int playerImportCalls;
         private Optional<InitialData> warmedInitialData = Optional.empty();
 
@@ -2400,7 +2507,7 @@ final class ClientRuntimeTest {
                 throw playerImportFailure;
             }
             return new ImportDraft(
-                    "Player", SkinVariant.CLASSIC, skinPng(), PersonalSkinSource.PLAYER_NAME);
+                    "Player", playerImportVariant, skinPng(), PersonalSkinSource.PLAYER_NAME);
         }
 
         @Override
@@ -2409,7 +2516,7 @@ final class ClientRuntimeTest {
                 throw urlImportFailure;
             }
             return new ImportDraft(
-                    "Remote skin", SkinVariant.CLASSIC, skinPng(), PersonalSkinSource.URL);
+                    "Remote skin", urlImportVariant, skinPng(), PersonalSkinSource.URL);
         }
 
         @Override

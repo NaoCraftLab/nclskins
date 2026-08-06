@@ -1,5 +1,8 @@
 package com.naocraftlab.skins.core.png;
 
+import com.naocraftlab.skins.core.model.SkinVariant;
+
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -15,7 +18,6 @@ import java.util.Objects;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
-import javax.imageio.ImageIO;
 
 
 public final class PngValidator {
@@ -26,6 +28,12 @@ public final class PngValidator {
     private static final int MAX_CHUNKS = 4_096;
     private static final byte[] SIGNATURE = {
         (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
+    };
+    private static final int[][] SLIM_UNUSED_AREAS = {
+            {50, 16, 2, 4},
+            {54, 20, 2, 12},
+            {42, 48, 2, 4},
+            {46, 52, 2, 12}
     };
 
     private final int maxBytes;
@@ -67,11 +75,16 @@ public final class PngValidator {
 
 
     public byte[] normalizeSkin(byte[] bytes) throws PngValidationException {
+        return normalizeSkinWithVariant(bytes).pngBytes();
+    }
+
+    public NormalizedSkin normalizeSkinWithVariant(byte[] bytes) throws PngValidationException {
         Inspection inspection = inspect(bytes, true, true);
         int sourceWidth = inspection.info().width();
         int sourceHeight = inspection.info().height();
         if (sourceWidth == 64) {
-            return inspection.canonicalBytes();
+            return new NormalizedSkin(
+                    inspection.canonicalBytes(), detectSkinVariant(inspection.image()));
         }
 
         int scale = sourceWidth / 64;
@@ -92,21 +105,47 @@ public final class PngValidator {
             }
             byte[] normalized = output.toByteArray();
             validate(normalized);
-            return normalized;
+            return new NormalizedSkin(normalized, detectSkinVariant(target));
         } catch (IOException | RuntimeException exception) {
             throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG could not be normalized");
         }
     }
 
     public byte[] normalizeSkin(Path path) throws IOException, PngValidationException {
+        return normalizeSkinWithVariant(path).pngBytes();
+    }
+
+    public NormalizedSkin normalizeSkinWithVariant(Path path)
+            throws IOException, PngValidationException {
         Objects.requireNonNull(path, "path");
         try (InputStream input = Files.newInputStream(path)) {
-            return normalizeSkin(readBounded(input));
+            return normalizeSkinWithVariant(readBounded(input));
         }
     }
 
     public byte[] normalizeSkin(InputStream input) throws IOException, PngValidationException {
-        return normalizeSkin(readBounded(Objects.requireNonNull(input, "input")));
+        return normalizeSkinWithVariant(input).pngBytes();
+    }
+
+    public NormalizedSkin normalizeSkinWithVariant(InputStream input)
+            throws IOException, PngValidationException {
+        return normalizeSkinWithVariant(readBounded(Objects.requireNonNull(input, "input")));
+    }
+
+    private static SkinVariant detectSkinVariant(BufferedImage image) {
+        if (image.getWidth() != 64 || image.getHeight() == 32) {
+            return SkinVariant.CLASSIC;
+        }
+        for (int[] area : SLIM_UNUSED_AREAS) {
+            for (int y = area[1]; y < area[1] + area[3]; y++) {
+                for (int x = area[0]; x < area[0] + area[2]; x++) {
+                    if ((image.getRGB(x, y) >>> 24) < 0xff) {
+                        return SkinVariant.SLIM;
+                    }
+                }
+            }
+        }
+        return SkinVariant.CLASSIC;
     }
 
     private Inspection inspect(

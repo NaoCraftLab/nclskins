@@ -28,6 +28,7 @@ import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.png.NormalizedSkin;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
@@ -1588,7 +1589,7 @@ public final class ClientRuntime implements AutoCloseable {
             } else {
                 Path path = selection.orElseThrow();
                 CompletableFuture.supplyAsync(() -> readPng(path), worker)
-                        .whenComplete((png, pngFailure) -> onClient(() -> {
+                        .whenComplete((skin, pngFailure) -> onClient(() -> {
                             if (!current(ticket) || state.addSource == null) {
                                 return;
                             }
@@ -1596,16 +1597,15 @@ public final class ClientRuntime implements AutoCloseable {
                             if (pngFailure != null) {
                                 state.status = UiMessage.error("nclskins.error.png");
                             } else {
-                                PresetEditorModel editor = createEditor(null);
-                                if (editor == null) {
-                                    state.status = UiMessage.error("nclskins.gallery.prepare_failed");
-                                } else {
-                                    state.editor = applyPendingPresetName(
-                                            editor.withPng(path.getFileName().toString(), png));
-                                    resetEditorCapeScroll();
-                                    state.editorPersonalSource = PersonalSkinSource.FILE;
-                                    state.selectedPresetId = null;
-                                }
+                                String sourceName = path.getFileName().toString();
+                                openImportedDraft(
+                                        new ClientOperations.ImportDraft(
+                                                sourceName,
+                                                skin.detectedVariant(),
+                                                skin.pngBytes(),
+                                                PersonalSkinSource.FILE),
+                                        sourceName,
+                                        false);
                             }
                             publish();
                         }));
@@ -1627,24 +1627,36 @@ public final class ClientRuntime implements AutoCloseable {
                         : "nclskins.add_source.url_loading"),
                 () -> player ? operations.loadPlayerSkin(input) : operations.loadUrlSkin(input),
                 draft -> {
-                    PresetEditorModel editor = createEditor(null);
-                    if (editor == null) {
-                        state.status = UiMessage.error("nclskins.gallery.prepare_failed");
-                        return;
+                    if (openImportedDraft(draft, draft.name() + ".png", true)) {
+                        state.status = UiMessage.success("nclskins.status.png_ready");
                     }
-                    if (editor.variant() != draft.variant()) {
-                        editor = editor.toggleVariant();
-                    }
-                    state.editor = applyPendingPresetName(
-                            editor.withName(draft.name()).withPng(draft.name() + ".png", draft.pngBytes()));
-                    resetEditorCapeScroll();
-                    state.editorPersonalSource = draft.source();
-                    state.selectedPresetId = null;
-                    state.status = UiMessage.success("nclskins.status.png_ready");
                 },
                 failure -> state.status = UiMessage.error(player
                         ? publicImportFailureKey(failure, true)
                         : publicImportFailureKey(failure, false)));
+    }
+
+    private boolean openImportedDraft(
+            ClientOperations.ImportDraft draft,
+            String sourceName,
+            boolean useSuggestedPresetName) {
+        Objects.requireNonNull(draft, "draft");
+        Objects.requireNonNull(sourceName, "sourceName");
+        PresetEditorModel editor = createEditor(null);
+        if (editor == null) {
+            state.status = UiMessage.error("nclskins.gallery.prepare_failed");
+            return false;
+        }
+        editor = editor.withImportedPng(sourceName, draft.pngBytes(), draft.variant());
+        if (useSuggestedPresetName) {
+            editor = editor.withName(draft.name());
+        }
+        state.editor = applyPendingPresetName(editor);
+        resetEditorCapeScroll();
+        state.editorPersonalSource = draft.source();
+        state.selectedPresetId = null;
+        rememberPreferredSkinVariant(draft.variant());
+        return true;
     }
 
     private void finishAddSourcePicker(long ticket, byte[] ignored, Throwable failure) {
@@ -1897,7 +1909,7 @@ public final class ClientRuntime implements AutoCloseable {
             } else {
                 Path path = selection.orElseThrow();
                 CompletableFuture.supplyAsync(() -> readPng(path), worker)
-                        .whenComplete((png, pngFailure) -> onClient(() -> {
+                        .whenComplete((skin, pngFailure) -> onClient(() -> {
                             if (!current(ticket) || state.editor == null) {
                                 return;
                             }
@@ -1905,8 +1917,11 @@ public final class ClientRuntime implements AutoCloseable {
                             if (pngFailure != null) {
                                 state.editor = state.editor.withStatus(UiMessage.error("nclskins.error.png"));
                             } else {
-                                state.editor = state.editor.withPng(
-                                        path.getFileName().toString(), png);
+                                state.editor = state.editor.withImportedPng(
+                                        path.getFileName().toString(),
+                                        skin.pngBytes(),
+                                        skin.detectedVariant());
+                                rememberPreferredSkinVariant(skin.detectedVariant());
                             }
                             publish();
                         }));
@@ -2862,6 +2877,9 @@ public final class ClientRuntime implements AutoCloseable {
                 ? AccountUiPreferences.defaults(state.account.accountId())
                 : state.uiPreferences;
         state.uiPreferences = preferences.withPreferredSkinVariant(variant);
+        if (state.addSource != null) {
+            state.addSource = state.addSource.withPreferredVariant(variant);
+        }
         persistUiPreference(() -> {
             operations.setPreferredSkinVariant(variant);
             return null;
@@ -3053,9 +3071,9 @@ public final class ClientRuntime implements AutoCloseable {
         return state.account.skinAssets().stream().filter(skin -> skin.id().equals(id)).findFirst().orElse(null);
     }
 
-    private static byte[] readPng(Path path) {
+    private static NormalizedSkin readPng(Path path) {
         try {
-            return new PngValidator().normalizeSkin(path);
+            return new PngValidator().normalizeSkinWithVariant(path);
         } catch (IOException | PngValidationException failure) {
             throw new CompletionException(failure);
         }

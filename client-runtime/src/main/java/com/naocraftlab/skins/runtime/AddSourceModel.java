@@ -197,6 +197,12 @@ public final class AddSourceModel {
         return preferredVariant;
     }
 
+    public AddSourceModel withPreferredVariant(SkinVariant value) {
+        return copy(selectedTab, collapsedCollectionIds, query,
+                playerInput, urlInput, filter, Objects.requireNonNull(value, "value"),
+                scrollOffset, focusToken, focusWidgetId, personalSkinDeletion);
+    }
+
     public int scrollOffset() {
         return scrollOffset;
     }

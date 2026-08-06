@@ -1,5 +1,11 @@
 ## 1.0.0-alpha.2
 
+### Added
+
+- **Automatic skin model detection**
+  - Imports from files, direct links, player names, and UUIDs now choose Classic or Slim from the skin itself
+  - You can still switch the model manually in the look editor
+
 ### Fixed
 
 - Capes in the in-world look editor now follow player model animations provided by compatible renderer mods

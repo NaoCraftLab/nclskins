@@ -1,9 +1,14 @@
 package com.naocraftlab.skins.core.api;
 
+import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.png.NormalizedSkin;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.test.TestPng;
 import org.junit.jupiter.api.Test;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
@@ -111,6 +116,21 @@ final class SafeRemotePngFetcherTest {
         fetcher.fetch("https://example.com/skin.png");
 
         assertEquals(List.of(first, second), connected.get());
+    }
+
+    @Test
+    void fetchSkinReturnsTheVariantDetectedAfterSafeNormalization() throws Exception {
+        URI uri = URI.create("https://example.com/skin.png");
+        byte[] png = slimPng();
+        SafeRemotePngFetcher fetcher = new SafeRemotePngFetcher(
+                new ScriptedTransport(Map.of(uri, ok(uri, png)), new AtomicLong()),
+                new PngValidator(),
+                ignored -> new InetAddress[]{InetAddress.getByName("8.8.8.8")});
+
+        NormalizedSkin skin = fetcher.fetchSkin(uri.toString());
+
+        assertEquals(SkinVariant.SLIM, skin.detectedVariant());
+        assertArrayEquals(png, skin.pngBytes());
     }
 
     @Test
@@ -364,6 +384,21 @@ final class SafeRemotePngFetcherTest {
                 new ScriptedTransport(responses, new AtomicLong()),
                 new PngValidator(),
                 resolver);
+    }
+
+    private static byte[] slimPng() throws IOException {
+        BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                image.setRGB(x, y, 0xff3186d8);
+            }
+        }
+        image.setRGB(54, 20, 0x003186d8);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        if (!ImageIO.write(image, "png", output)) {
+            throw new IOException("PNG writer is unavailable");
+        }
+        return output.toByteArray();
     }
 
     private static SafeRemotePngFetcher.HostResolver publicResolver() {

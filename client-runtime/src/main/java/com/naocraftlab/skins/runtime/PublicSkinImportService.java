@@ -8,6 +8,7 @@ import com.naocraftlab.skins.core.api.PublicSkinImportException;
 import com.naocraftlab.skins.core.api.SafeRemotePngFetcher;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.png.NormalizedSkin;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.storage.TextureCache;
@@ -48,11 +49,15 @@ final class PublicSkinImportService {
         if (players == null) {
             throw new UnsupportedOperationException("Public player skin lookup is unavailable");
         }
-        PublicPlayerSkinClient.Result result = players.lookup(playerNameOrUuid);
-        byte[] png;
+        return loadResolvedPlayer(players.lookup(playerNameOrUuid));
+    }
+
+    ClientOperations.ImportDraft loadResolvedPlayer(PublicPlayerSkinClient.Result result) throws Exception {
+        Objects.requireNonNull(result, "result");
+        NormalizedSkin skin;
         if (result.textureUri().isPresent()) {
             try {
-                png = pngValidator.normalizeSkin(
+                skin = pngValidator.normalizeSkinWithVariant(
                         textures.get(result.textureUri().orElseThrow()).path());
             } catch (TextureCacheException failure) {
                 throw playerTextureFailure(failure);
@@ -60,13 +65,18 @@ final class PublicSkinImportService {
                 throw playerTextureFailure(failure);
             }
         } else {
-            png = catalog.load(
-                    MinecraftSkinCatalog.COLLECTION_ID,
-                    result.defaultSkinId().orElseThrow(),
-                    result.variant() == SkinVariant.SLIM ? SkinModel.SLIM : SkinModel.CLASSIC);
+            try {
+                byte[] png = catalog.load(
+                        MinecraftSkinCatalog.COLLECTION_ID,
+                        result.defaultSkinId().orElseThrow(),
+                        result.variant() == SkinVariant.SLIM ? SkinModel.SLIM : SkinModel.CLASSIC);
+                skin = pngValidator.normalizeSkinWithVariant(png);
+            } catch (PngValidationException failure) {
+                throw playerTextureFailure(failure);
+            }
         }
         return new ClientOperations.ImportDraft(
-                result.canonicalName(), result.variant(), png, PersonalSkinSource.PLAYER_NAME);
+                result.canonicalName(), skin.detectedVariant(), skin.pngBytes(), PersonalSkinSource.PLAYER_NAME);
     }
 
     static PublicSkinImportException playerTextureFailure(TextureCacheException failure) {
@@ -88,7 +98,7 @@ final class PublicSkinImportService {
     }
 
     ClientOperations.ImportDraft loadUrl(String url) throws Exception {
-        byte[] png = remotePng.fetch(url);
+        NormalizedSkin skin = remotePng.fetchSkin(url);
         String fallback = "Imported URL skin";
         String name = fallback;
         try {
@@ -103,7 +113,8 @@ final class PublicSkinImportService {
         } catch (IllegalArgumentException ignored) {
 
         }
-        return new ClientOperations.ImportDraft(name, SkinVariant.CLASSIC, png, PersonalSkinSource.URL);
+        return new ClientOperations.ImportDraft(
+                name, skin.detectedVariant(), skin.pngBytes(), PersonalSkinSource.URL);
     }
 
     @FunctionalInterface

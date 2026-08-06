@@ -1,7 +1,9 @@
 package com.naocraftlab.skins.core.api;
 
+import com.naocraftlab.skins.core.png.NormalizedSkin;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+
 import java.io.IOException;
 import java.net.IDN;
 import java.net.Inet4Address;
@@ -167,6 +169,10 @@ public final class SafeRemotePngFetcher {
     }
 
     public byte[] fetch(String input) throws PublicSkinImportException {
+        return fetchSkin(input).pngBytes();
+    }
+
+    public NormalizedSkin fetchSkin(String input) throws PublicSkinImportException {
         long deadline = saturatedAdd(nanoTime.getAsLong(), timeout.toNanos());
         ValidatedUri validated = validateBeforeDeadline(input, deadline);
         Set<String> visited = new HashSet<>();
@@ -221,7 +227,7 @@ public final class SafeRemotePngFetcher {
                             "Remote response is not a PNG.");
                 }
                 try {
-                    byte[] normalized = validator.normalizeSkin(response.body());
+                    NormalizedSkin normalized = validator.normalizeSkinWithVariant(response.body());
                     ensureBeforeDeadline(deadline);
                     return normalized;
                 } catch (PngValidationException exception) {

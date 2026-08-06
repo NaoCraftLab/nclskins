@@ -505,16 +505,32 @@ public final class PresetEditorModel {
     }
 
     public PresetEditorModel withPng(String fileName, byte[] normalizedBytes) {
+        return withPng(fileName, normalizedBytes, initialVariant, variant);
+    }
+
+    public PresetEditorModel withImportedPng(
+            String fileName, byte[] normalizedBytes, SkinVariant importedVariant) {
+        Objects.requireNonNull(importedVariant, "importedVariant");
+        return withPng(fileName, normalizedBytes, importedVariant, importedVariant);
+    }
+
+    private PresetEditorModel withPng(
+            String fileName,
+            byte[] normalizedBytes,
+            SkinVariant nextInitialVariant,
+            SkinVariant nextVariant) {
         if (busy) {
             return this;
         }
+        Objects.requireNonNull(nextInitialVariant, "nextInitialVariant");
+        Objects.requireNonNull(nextVariant, "nextVariant");
         DraftPng draft = new DraftPng(fileName, normalizedBytes);
         return new PresetEditorModel(
                 originalPresetId,
                 name,
                 skin,
-                initialVariant,
-                variant,
+                nextInitialVariant,
+                nextVariant,
                 capeId,
                 capeChoices,
                 hasOwnedCapePreview,

@@ -1,12 +1,11 @@
 package com.naocraftlab.skins.core.png;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
+import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.test.TestPng;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -17,9 +16,12 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.zip.CRC32;
 import java.util.zip.DeflaterOutputStream;
-import javax.imageio.ImageIO;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PngValidatorTest {
     private final PngValidator validator = new PngValidator();
@@ -146,6 +148,66 @@ class PngValidatorTest {
 
         assertArrayEquals(modern, validator.normalizeSkin(modern));
         assertArrayEquals(legacy, validator.normalizeSkin(legacy));
+        assertArrayEquals(modern, validator.normalizeSkinWithVariant(modern).pngBytes());
+        assertArrayEquals(legacy, validator.normalizeSkinWithVariant(legacy).pngBytes());
+    }
+
+    @Test
+    void detectsSlimFromTransparencyInEachUnusedArmArea() throws Exception {
+        int[][] areas = {
+                {50, 16},
+                {54, 20},
+                {42, 48},
+                {46, 52}
+        };
+        assertEquals(
+                SkinVariant.CLASSIC,
+                validator.normalizeSkinWithVariant(encode(opaqueSkin(64, 64))).detectedVariant());
+
+        for (int index = 0; index < areas.length; index++) {
+            BufferedImage skin = opaqueSkin(64, 64);
+            int alpha = index == 0 ? 0x00 : 0x7f;
+            skin.setRGB(areas[index][0], areas[index][1], alpha << 24 | 0x003186d8);
+
+            assertEquals(
+                    SkinVariant.SLIM,
+                    validator.normalizeSkinWithVariant(encode(skin)).detectedVariant(),
+                    "unused arm area " + index);
+        }
+    }
+
+    @Test
+    void ignoresOpaqueMatteAndTransparencyOutsideSlimAreas() throws Exception {
+        BufferedImage skin = opaqueSkin(64, 64);
+        skin.setRGB(50, 16, 0xff000000);
+        skin.setRGB(54, 20, 0xffffffff);
+        skin.setRGB(42, 48, 0xff000000);
+        skin.setRGB(46, 52, 0xffffffff);
+        skin.setRGB(49, 16, 0x003186d8);
+
+        assertEquals(
+                SkinVariant.CLASSIC,
+                validator.normalizeSkinWithVariant(encode(skin)).detectedVariant());
+    }
+
+    @Test
+    void treatsLegacyLayoutAsClassicAndDetectsAfterScaledNormalization() throws Exception {
+        BufferedImage legacy = opaqueSkin(64, 32);
+        legacy.setRGB(54, 20, 0x003186d8);
+        assertEquals(
+                SkinVariant.CLASSIC,
+                validator.normalizeSkinWithVariant(encode(legacy)).detectedVariant());
+
+        BufferedImage scaled = opaqueSkin(128, 128);
+        for (int y = 40; y < 42; y++) {
+            for (int x = 108; x < 110; x++) {
+                scaled.setRGB(x, y, 0x003186d8);
+            }
+        }
+        NormalizedSkin normalized = validator.normalizeSkinWithVariant(encode(scaled));
+
+        assertEquals(SkinVariant.SLIM, normalized.detectedVariant());
+        assertEquals(new PngInfo(64, 64), validator.validate(normalized.pngBytes()));
     }
 
     @Test
@@ -249,6 +311,16 @@ class PngValidatorTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         assertTrue(ImageIO.write(image, "png", output));
         return output.toByteArray();
+    }
+
+    private static BufferedImage opaqueSkin(int width, int height) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                image.setRGB(x, y, 0xff3186d8);
+            }
+        }
+        return image;
     }
 
     private static byte[] withHeaderDimensions(byte[] source, int width, int height) {
