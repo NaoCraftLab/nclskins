@@ -10,7 +10,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 
 final class ArtifactVerifier {
-    static final List<String> FORBIDDEN_PREFIXES = ['com/microsoft/aad', 'com/nimbusds/', 'com/sun/jna/', 'com/fasterxml/jackson/', 'com/google/gson/']
+    static final List<String> FORBIDDEN_PREFIXES = ['com/microsoft/aad', 'com/nimbusds/', 'com/sun/jna/', 'com/fasterxml/jackson/', 'com/google/gson/', 'org/sqlite/']
     static final List<String> FORBIDDEN_DEV_RUNTIME_PREFIXES = ['com/terraformersmc/modmenu/', 'META-INF/jars/modmenu']
     static final Pattern FORBIDDEN_CONTENT = Pattern.compile('login' + '\\.microsoftonline\\.com|refresh' + '_token|launcher' + '_accounts\\.json|accounts\\.json')
     static final Pattern FORBIDDEN_MIXIN = Pattern.compile('(?:User|Session|Authlib).*Mixin\\.class$')
@@ -297,7 +297,11 @@ final class ArtifactVerifier {
             if (metadata.environment != '*') errors.add("${target.id}: Fabric environment must be universal")
             if (metadata.entrypoints != [main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint]]) errors.add("${target.id}: Fabric entrypoints differ from catalog")
             if (metadata.depends != ['fabricloader': target.loader.predicate, 'fabric-api': target.loader.apiPredicate, minecraft: target.minecraft.predicate, java: ">=${target.java.release}"]) errors.add("${target.id}: Fabric dependencies differ from catalog")
-            if (metadata.suggests != [modmenu: ">=${target.loader.modMenuVersion}".toString()]) errors.add("${target.id}: Fabric Mod Menu suggestion differs from catalog")
+            Map expectedSuggestions = [modmenu: ">=${target.loader.modMenuVersion}".toString()]
+            (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
+                expectedSuggestions[dependencyId.toString()] = (predicates as Map).fabric
+            }
+            if (metadata.suggests != expectedSuggestions) errors.add("${target.id}: Fabric suggestions differ from catalog")
             if (metadata.custom != [modmenu: [links: ['modmenu.modrinth': MetadataRenderer.modrinthUrl(catalog.mod as Map), 'modmenu.curseforge': MetadataRenderer.curseForgeUrl(catalog.mod as Map)], update_checker: true]]) errors.add("${target.id}: Fabric Mod Menu card metadata differs from catalog")
             if (metadata.accessWidener != target.metadata.accessWidener) errors.add("${target.id}: Fabric access widener differs from catalog")
             List expectedMixins = (target.metadata.serverMixins ?: []).collect { [config: it] } + (target.metadata.mixins ?: []).collect { [config: it, environment: 'client'] }

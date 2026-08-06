@@ -79,6 +79,25 @@ final class FilePickerCoordinatorTest {
         assertTrue(invalidFailure.getCause().getMessage().contains("directory"));
     }
 
+    @Test
+    void sqliteSelectionAcceptsOnlyAppDatabase(@TempDir Path directory) throws Exception {
+        QueuedExecutor worker = new QueuedExecutor();
+        FilePickerCoordinator picker = new FilePickerCoordinator(worker);
+        Path database = Files.write(directory.resolve("app.db"), new byte[]{1});
+
+        var selected = picker.chooseSqliteDatabase(() -> Optional.of(database));
+        worker.runFirst();
+        assertEquals(Optional.of(database.toAbsolutePath().normalize()), selected.join());
+
+        Path other = Files.write(directory.resolve("other.db"), new byte[]{1});
+        var invalid = picker.chooseSqliteDatabase(() -> Optional.of(other));
+        worker.runFirst();
+        CompletionException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                CompletionException.class, invalid::join);
+        assertInstanceOf(IllegalStateException.class, failure.getCause());
+        assertTrue(failure.getCause().getCause() instanceof IllegalArgumentException);
+    }
+
     private static final class QueuedExecutor implements Executor {
         private final List<Runnable> tasks = new ArrayList<>();
 

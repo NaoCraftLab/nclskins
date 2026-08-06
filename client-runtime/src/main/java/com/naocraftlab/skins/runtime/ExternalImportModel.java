@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 
 import java.nio.file.Path;
@@ -42,11 +43,12 @@ public record ExternalImportModel(
     }
 
     public ExternalImportModel withAutomaticProbes(
-            Map<ExternalImportSource, Boolean> availability) {
+            Map<ExternalImportSource, ExternalImportProbe> availability) {
         EnumMap<ExternalImportSource, SourceState> changed = copySources();
         for (ExternalImportSource source : category.sources()) {
-            boolean available = Boolean.TRUE.equals(availability.get(source));
-            changed.put(source, SourceState.automatic(available));
+            ExternalImportProbe probe = availability.getOrDefault(
+                    source, ExternalImportProbe.UNAVAILABLE);
+            changed.put(source, SourceState.automatic(probe));
         }
         return new ExternalImportModel(category, changed, Optional.empty());
     }
@@ -124,6 +126,8 @@ public record ExternalImportModel(
     public enum Category {
         LAUNCHER(List.of(
                 ExternalImportSource.MINECRAFT_LAUNCHER,
+                ExternalImportSource.CURSEFORGE_APP,
+                ExternalImportSource.MODRINTH_APP,
                 ExternalImportSource.PRISM_LAUNCHER)),
         MOD(List.of(ExternalImportSource.SKIN_SHUFFLE));
 
@@ -140,6 +144,7 @@ public record ExternalImportModel(
 
     public enum Availability {
         PROBING(false),
+        DEPENDENCY_MISSING(false),
         UNAVAILABLE(false),
         AVAILABLE_STANDARD(true),
         AVAILABLE_MANUAL(true);
@@ -178,9 +183,15 @@ public record ExternalImportModel(
             return new SourceState(Availability.PROBING, Optional.empty(), 0);
         }
 
-        public static SourceState automatic(boolean available) {
+        public static SourceState automatic(ExternalImportProbe probe) {
+            Objects.requireNonNull(probe, "probe");
+            Availability availability = switch (probe) {
+                case AVAILABLE -> Availability.AVAILABLE_STANDARD;
+                case UNAVAILABLE -> Availability.UNAVAILABLE;
+                case DEPENDENCY_MISSING -> Availability.DEPENDENCY_MISSING;
+            };
             return new SourceState(
-                    available ? Availability.AVAILABLE_STANDARD : Availability.UNAVAILABLE,
+                    availability,
                     Optional.empty(),
                     0);
         }

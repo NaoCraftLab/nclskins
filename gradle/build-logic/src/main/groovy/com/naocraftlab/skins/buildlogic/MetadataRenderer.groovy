@@ -48,6 +48,9 @@ final class MetadataRenderer {
             java: ">=${target.java.release}"
         ]
         result.suggests = [modmenu: ">=${target.loader.modMenuVersion}"]
+        (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
+            result.suggests[dependencyId.toString()] = (predicates as Map).fabric
+        }
         result.custom = [modmenu: [
                 links         : [
                         'modmenu.modrinth'  : modrinthUrl(mod),
@@ -63,7 +66,7 @@ final class MetadataRenderer {
         Map metadata = target.metadata as Map
         Map contact = mod.contact as Map
         String id = mod.id
-        [
+        List<String> lines = [
             "modLoader=${quote(metadata.modLoader)}",
             "loaderVersion=${quote(metadata.loaderVersion)}",
             "license=${quote(mod.license)}",
@@ -97,7 +100,19 @@ final class MetadataRenderer {
             'ordering="NONE"',
             'side="BOTH"',
             ''
-        ].join('\n')
+        ]
+        (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
+            lines.addAll([
+                    "[[dependencies.${id}]]",
+                    "modId=${quote(dependencyId)}",
+                    'mandatory=false',
+                    "versionRange=${quote((predicates as Map).forge)}",
+                    'ordering="NONE"',
+                    'side="CLIENT"',
+                    ''
+            ])
+        }
+        lines.join('\n')
     }
 
     static String neoforge(Map catalog, Map target, String version) {
@@ -145,7 +160,20 @@ final class MetadataRenderer {
             "versionRange=${quote(target.minecraft.predicate)}",
             'ordering="NONE"',
             'side="BOTH"',
-            '',
+            ''
+        ])
+        (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
+            lines.addAll([
+                    "[[dependencies.${id}]]",
+                    "modId=${quote(dependencyId)}",
+                    'type="optional"',
+                    "versionRange=${quote((predicates as Map).neoforge)}",
+                    'ordering="NONE"',
+                    'side="CLIENT"',
+                    ''
+            ])
+        }
+        lines.addAll([
             "[features.${id}]",
             "javaVersion=\"[${target.java.release},)\"",
             ''

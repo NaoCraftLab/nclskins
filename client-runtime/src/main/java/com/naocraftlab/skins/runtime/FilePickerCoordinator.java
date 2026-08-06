@@ -30,6 +30,10 @@ public final class FilePickerCoordinator {
         return choose(dialog, SelectionType.DIRECTORY, executor);
     }
 
+    public CompletableFuture<Optional<Path>> chooseSqliteDatabase(Dialog dialog) {
+        return choose(dialog, SelectionType.SQLITE_DATABASE);
+    }
+
     private CompletableFuture<Optional<Path>> choose(Dialog dialog, SelectionType selectionType) {
         return choose(dialog, selectionType, worker);
     }
@@ -49,9 +53,7 @@ public final class FilePickerCoordinator {
                     return validate(dialog.open(), selectionType);
                 } catch (LinkageError | RuntimeException failure) {
                     throw new IllegalStateException(
-                            selectionType == SelectionType.PNG
-                                    ? "The system PNG picker is unavailable"
-                                    : "The system directory picker is unavailable",
+                            pickerUnavailable(selectionType),
                             failure);
                 } finally {
                     dialogOpen.set(false);
@@ -61,9 +63,7 @@ public final class FilePickerCoordinator {
             dialogOpen.set(false);
             return CompletableFuture.failedFuture(
                     new IllegalStateException(
-                            selectionType == SelectionType.PNG
-                                    ? "The system PNG picker could not be started"
-                                    : "The system directory picker could not be started",
+                            pickerCouldNotStart(selectionType),
                             schedulingFailure));
         }
     }
@@ -79,20 +79,41 @@ public final class FilePickerCoordinator {
             if (!Files.isDirectory(path)) {
                 throw new IllegalArgumentException("The selected path is not a local directory");
             }
-        } else {
+        } else if (selectionType == SelectionType.PNG) {
             Path fileName = path.getFileName();
             if (fileName == null
                     || !fileName.toString().toLowerCase(Locale.ROOT).endsWith(".png")
                     || !Files.isRegularFile(path)) {
                 throw new IllegalArgumentException("The selected file is not a local PNG");
             }
+        } else if (!Files.isRegularFile(path)
+                || path.getFileName() == null
+                || !"app.db".equalsIgnoreCase(path.getFileName().toString())) {
+            throw new IllegalArgumentException("The selected file is not an app.db SQLite database");
         }
         return Optional.of(path);
     }
 
+    private static String pickerUnavailable(SelectionType type) {
+        return switch (type) {
+            case PNG -> "The system PNG picker is unavailable";
+            case DIRECTORY -> "The system directory picker is unavailable";
+            case SQLITE_DATABASE -> "The system SQLite database picker is unavailable";
+        };
+    }
+
+    private static String pickerCouldNotStart(SelectionType type) {
+        return switch (type) {
+            case PNG -> "The system PNG picker could not be started";
+            case DIRECTORY -> "The system directory picker could not be started";
+            case SQLITE_DATABASE -> "The system SQLite database picker could not be started";
+        };
+    }
+
     private enum SelectionType {
         PNG,
-        DIRECTORY
+        DIRECTORY,
+        SQLITE_DATABASE
     }
 
     @FunctionalInterface

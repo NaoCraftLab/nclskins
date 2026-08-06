@@ -9,7 +9,8 @@ public final class ExternalImportException extends IOException {
 
     public enum Code {
         NOT_FOUND,
-        NO_VALID_APPEARANCES
+        NO_VALID_APPEARANCES,
+        DEPENDENCY_MISSING
     }
 
     private final Code code;

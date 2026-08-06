@@ -13,7 +13,10 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
@@ -108,6 +111,27 @@ public final class PngValidator {
             return new NormalizedSkin(normalized, detectSkinVariant(target));
         } catch (IOException | RuntimeException exception) {
             throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG could not be normalized");
+        }
+    }
+
+    public String pixelSha256(byte[] bytes) throws PngValidationException {
+        Inspection inspection = inspect(bytes, true, true);
+        BufferedImage image = inspection.image();
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            ByteBuffer pixel = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.BIG_ENDIAN);
+            digest.update(pixel.putInt(image.getWidth()).array());
+            pixel.clear();
+            digest.update(pixel.putInt(image.getHeight()).array());
+            for (int y = 0; y < image.getHeight(); y++) {
+                for (int x = 0; x < image.getWidth(); x++) {
+                    pixel.clear();
+                    digest.update(pixel.putInt(image.getRGB(x, y)).array());
+                }
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
 

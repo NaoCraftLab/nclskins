@@ -55,6 +55,19 @@ public final class MinecraftFilePicker implements FilePicker {
                 () -> selectLocalDirectory(title), clientExecutor::execute);
     }
 
+    @Override
+    public CompletableFuture<Optional<Path>> chooseSqliteDatabase() {
+        final String title;
+        try {
+            title = Component.translatable(
+                    "nclskins.external_import.database_picker_title").getString();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("The system database picker could not be prepared", failure));
+        }
+        return COORDINATOR.chooseSqliteDatabase(() -> selectAppDatabase(title));
+    }
+
     private static Optional<Path> selectLocalPng(String title) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             PointerBuffer filters = stack.mallocPointer(1);
@@ -92,6 +105,20 @@ public final class MinecraftFilePicker implements FilePicker {
                 return Optional.of(path);
             }
             return Optional.ofNullable(path.getParent());
+        }
+    }
+
+    private static Optional<Path> selectAppDatabase(String title) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            PointerBuffer filters = stack.mallocPointer(1);
+            filters.put(stack.UTF8("*.db")).flip();
+            String selected = TinyFileDialogs.tinyfd_openFileDialog(
+                    title,
+                    null,
+                    filters,
+                    "SQLite app.db",
+                    false);
+            return selected == null ? Optional.empty() : Optional.of(Path.of(selected));
         }
     }
 }

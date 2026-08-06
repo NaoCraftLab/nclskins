@@ -4,6 +4,7 @@ import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
@@ -116,11 +117,11 @@ public interface ClientOperations extends AutoCloseable {
         throw new UnsupportedOperationException("Remote PNG import is unavailable");
     }
 
-    default boolean probeExternalSource(
+    default ExternalImportProbe probeExternalSource(
             ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(selectedRoot, "selectedRoot");
-        return false;
+        return ExternalImportProbe.UNAVAILABLE;
     }
 
     default ExternalImportReview prepareExternalAppearances(

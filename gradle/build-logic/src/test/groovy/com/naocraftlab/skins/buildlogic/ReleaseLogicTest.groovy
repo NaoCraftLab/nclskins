@@ -17,12 +17,13 @@ final class ReleaseLogicTest {
         Map metadata = ReleaseMetadata.validate(
                 new File(repository, 'gradle/version.properties'),
                 new File(repository, 'CHANGELOG.md'),
-                '1.0.0-alpha.1')
+                '1.0.0-alpha.2')
 
-        assertEquals('1.0.0-alpha.1', metadata.version)
+        assertEquals('1.0.0-alpha.2', metadata.version)
         assertTrue(metadata.prerelease)
-        assertTrue(metadata.notes.startsWith('### Added\n\n- **Skin imports**'))
-        assertFalse(metadata.notes.contains('## 1.0.0-alpha.1'))
+        assertTrue(metadata.notes.startsWith(
+                '### Added\n\n- **Imports from launchers and other mods**'))
+        assertFalse(metadata.notes.contains('## 1.0.0-alpha.2'))
     }
 
     @Test

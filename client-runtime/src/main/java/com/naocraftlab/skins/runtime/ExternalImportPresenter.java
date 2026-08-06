@@ -67,28 +67,46 @@ public final class ExternalImportPresenter {
             ExternalImportModel.SourceState state = model.sources().get(source);
             int folderWidth = 20;
             int rowGap = 2;
+            Optional<UiMessage> dependencyHint =
+                    state.availability() == ExternalImportModel.Availability.DEPENDENCY_MISSING
+                            ? Optional.of(UiMessage.info(
+                            "nclskins.external_import.sqlite_dependency_required"))
+                            : Optional.empty();
+            Optional<String> stateKey = visibleStateKey(source, state);
+            boolean launcherChooser = model.category() == ExternalImportModel.Category.LAUNCHER;
+            Optional<UiMessage> sourceHint = dependencyHint.isPresent()
+                    ? dependencyHint
+                    : launcherChooser
+                    ? stateKey.map(UiMessage::info)
+                    : Optional.empty();
             widgets.add(ViewSpec.Widget.button(
                     sourceId(source),
                     new Bounds(x, y, contentWidth - folderWidth - rowGap, 20),
                     UiMessage.info(sourceLabel(source)),
+                    sourceHint,
                     !busy && state.availability().available()));
             widgets.add(ViewSpec.Widget.iconButton(
                     folderId(source),
                     new Bounds(x + contentWidth - folderWidth, y, folderWidth, 20),
                     UiMessage.info("nclskins.external_import.choose_folder"),
+                    dependencyHint.isPresent()
+                            ? dependencyHint
+                            : Optional.of(UiMessage.info("nclskins.external_import.choose_folder")),
                     "folder",
-                    !busy));
-            Optional<String> stateKey = visibleStateKey(source, state);
-            if (stateKey.isPresent()) {
+                    !busy && state.availability()
+                            != ExternalImportModel.Availability.DEPENDENCY_MISSING));
+            if (!launcherChooser && stateKey.isPresent()) {
                 texts.add(new ViewSpec.Text(
                         sourceId(source) + ".state",
-                        new Bounds(x, y + 24, contentWidth, 10),
+                        new Bounds(x, y + 21, contentWidth, 10),
                         UiMessage.info(stateKey.orElseThrow()),
                         ViewSpec.Text.Alignment.LEFT));
             }
-            y += stateKey.isPresent() ? 38 : 24;
+            y += !launcherChooser && stateKey.isPresent() ? 34 : 24;
         }
-        int statusY = Math.max(y + 22, height - 48);
+        int statusY = Math.min(
+                Math.max(CHROME_HEIGHT + 4, height - FOOTER_HEIGHT - 14),
+                y + 4);
         status.filter(message -> !"nclskins.external_import.choose_source".equals(message.key()))
                 .ifPresent(message -> texts.add(new ViewSpec.Text(
                         "external.status",
@@ -345,7 +363,7 @@ public final class ExternalImportPresenter {
             return Optional.of("nclskins.external_import.invalid_folder." + sourceKey(source));
         }
         return switch (state.availability()) {
-            case PROBING -> Optional.of("nclskins.external_import.probing");
+            case PROBING, DEPENDENCY_MISSING -> Optional.empty();
             case UNAVAILABLE -> Optional.of(
                     "nclskins.external_import.unavailable." + sourceKey(source));
             case AVAILABLE_STANDARD -> Optional.empty();
@@ -360,6 +378,8 @@ public final class ExternalImportPresenter {
     private static String sourceKey(ExternalImportSource source) {
         return switch (source) {
             case MINECRAFT_LAUNCHER -> "minecraft_launcher";
+            case CURSEFORGE_APP -> "curseforge_app";
+            case MODRINTH_APP -> "modrinth_app";
             case SKIN_SHUFFLE -> "skin_shuffle";
             case PRISM_LAUNCHER -> "prism_launcher";
         };
@@ -384,6 +404,8 @@ public final class ExternalImportPresenter {
         }
         return switch (suffix) {
             case "minecraft_launcher" -> ExternalImportSource.MINECRAFT_LAUNCHER;
+            case "curseforge_app" -> ExternalImportSource.CURSEFORGE_APP;
+            case "modrinth_app" -> ExternalImportSource.MODRINTH_APP;
             case "skin_shuffle" -> ExternalImportSource.SKIN_SHUFFLE;
             case "prism_launcher" -> ExternalImportSource.PRISM_LAUNCHER;
             default -> throw new IllegalArgumentException("Unknown external import widget");

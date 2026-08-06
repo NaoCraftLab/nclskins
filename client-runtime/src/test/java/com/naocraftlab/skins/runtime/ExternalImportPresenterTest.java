@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -21,8 +22,10 @@ final class ExternalImportPresenterTest {
     void categoriesExposeOnlyTheirSourcesAndFolderActionsAtMinimumViewport() {
         ExternalImportModel launcher = ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER)
                 .withAutomaticProbes(Map.of(
-                        ExternalImportSource.MINECRAFT_LAUNCHER, true,
-                        ExternalImportSource.PRISM_LAUNCHER, false));
+                        ExternalImportSource.MINECRAFT_LAUNCHER, ExternalImportProbe.AVAILABLE,
+                        ExternalImportSource.CURSEFORGE_APP, ExternalImportProbe.DEPENDENCY_MISSING,
+                        ExternalImportSource.MODRINTH_APP, ExternalImportProbe.DEPENDENCY_MISSING,
+                        ExternalImportSource.PRISM_LAUNCHER, ExternalImportProbe.UNAVAILABLE));
         ViewSpec chooser = presenter.present(
                 launcher,
                 false,
@@ -35,8 +38,19 @@ final class ExternalImportPresenterTest {
         assertFalse(chooser.widget("external.source.prism_launcher").orElseThrow().enabled());
         assertTrue(chooser.widget("external.folder.prism_launcher").orElseThrow().enabled());
         assertEquals(
-                new Bounds(204, 66, 20, 20),
+                new Bounds(204, 114, 20, 20),
                 chooser.widget("external.folder.prism_launcher").orElseThrow().bounds());
+        for (String source : List.of("curseforge_app", "modrinth_app")) {
+            ViewSpec.Widget sourceButton = chooser.widget("external.source." + source).orElseThrow();
+            ViewSpec.Widget folderButton = chooser.widget("external.folder." + source).orElseThrow();
+            assertFalse(sourceButton.enabled());
+            assertFalse(folderButton.enabled());
+            assertEquals(
+                    Optional.of(UiMessage.info(
+                            "nclskins.external_import.sqlite_dependency_required")),
+                    sourceButton.hint());
+            assertEquals(sourceButton.hint(), folderButton.hint());
+        }
         assertEquals(
                 ViewSpec.WidgetKind.ICON_BUTTON,
                 chooser.widget("external.folder.prism_launcher").orElseThrow().kind());
@@ -48,9 +62,28 @@ final class ExternalImportPresenterTest {
                 chooser.widget("external.folder.prism_launcher").orElseThrow().bounds().x()
                         - chooser.widget("external.source.prism_launcher").orElseThrow().bounds().right());
         assertEquals(
-                4,
-                chooser.widget("external.source.prism_launcher").orElseThrow().bounds().y()
-                        - chooser.widget("external.source.minecraft_launcher").orElseThrow().bounds().bottom());
+                List.of(42, 66, 90, 114),
+                List.of("minecraft_launcher", "curseforge_app", "modrinth_app", "prism_launcher")
+                        .stream()
+                        .map(source -> chooser.widget("external.source." + source)
+                                .orElseThrow().bounds().y())
+                        .toList());
+        assertEquals(
+                Optional.of(UiMessage.info(
+                        "nclskins.external_import.unavailable.prism_launcher")),
+                chooser.widget("external.source.prism_launcher").orElseThrow().hint());
+        ViewSpec firstFrame = presenter.present(
+                ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER),
+                true,
+                Optional.of(UiMessage.info("nclskins.external_import.searching")),
+                240,
+                240);
+        for (String source : List.of(
+                "minecraft_launcher", "curseforge_app", "modrinth_app", "prism_launcher")) {
+            assertEquals(
+                    chooser.widget("external.source." + source).orElseThrow().bounds(),
+                    firstFrame.widget("external.source." + source).orElseThrow().bounds());
+        }
         assertTrue(chooser.panels().stream().anyMatch(panel ->
                 panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER));
         assertTrue(chooser.panels().stream().anyMatch(panel ->
@@ -66,6 +99,12 @@ final class ExternalImportPresenterTest {
         assertTrue(chooser.texts().stream().noneMatch(text ->
                 text.id().equals("external.source.minecraft_launcher.state")));
         assertTrue(chooser.texts().stream().noneMatch(text ->
+                text.id().equals("external.source.curseforge_app.state")
+                        || text.id().equals("external.source.modrinth_app.state")
+                        || text.id().equals("external.source.prism_launcher.state")));
+        assertTrue(firstFrame.texts().stream().noneMatch(text ->
+                text.id().startsWith("external.source.") && text.id().endsWith(".state")));
+        assertTrue(chooser.texts().stream().noneMatch(text ->
                 text.id().equals("external.mod.explanation")));
         assertTrue(chooser.widget("external.source.skin_shuffle").isEmpty());
         assertTrue(chooser.widgets().stream().allMatch(widget -> widget.bounds().right() <= 240));
@@ -74,7 +113,8 @@ final class ExternalImportPresenterTest {
     @Test
     void reviewDefaultsToNewCandidatesAndCanSelectDuplicates() {
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, true))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
                 .withReview(new ClientOperations.ExternalImportReview(
                         ExternalImportSource.SKIN_SHUFFLE,
                         List.of(candidate("candidate-0", false), candidate("candidate-1", true)),
@@ -116,7 +156,8 @@ final class ExternalImportPresenterTest {
     @Test
     void emptyDuplicateCollectionIsNotRendered() {
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, true))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
                 .withReview(new ClientOperations.ExternalImportReview(
                         ExternalImportSource.SKIN_SHUFFLE,
                         List.of(candidate("candidate-0", false)),
@@ -131,7 +172,8 @@ final class ExternalImportPresenterTest {
     @Test
     void emptyNewCollectionIsNotRendered() {
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, true))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
                 .withReview(new ClientOperations.ExternalImportReview(
                         ExternalImportSource.SKIN_SHUFFLE,
                         List.of(candidate("candidate-1", true)),
@@ -146,7 +188,8 @@ final class ExternalImportPresenterTest {
     @Test
     void reviewErrorGetsItsOwnRowWithoutChangingChromeClipBounds() {
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, true))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
                 .withReview(new ClientOperations.ExternalImportReview(
                         ExternalImportSource.SKIN_SHUFFLE,
                         List.of(candidate("candidate-0", false)),
@@ -174,7 +217,8 @@ final class ExternalImportPresenterTest {
     void invalidReplacementFolderKeepsThePreviousValidOverride() {
         Path working = Path.of("working-instance");
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, false))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.UNAVAILABLE))
                 .withManualProbe(ExternalImportSource.SKIN_SHUFFLE, working, true)
                 .withManualProbe(ExternalImportSource.SKIN_SHUFFLE, Path.of("wrong-instance"), false);
 
@@ -187,7 +231,8 @@ final class ExternalImportPresenterTest {
     @Test
     void clearAllDisablesCommitAndSelectingOneBuildsAnExactSubset() {
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, true))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
                 .withReview(new ClientOperations.ExternalImportReview(
                         ExternalImportSource.SKIN_SHUFFLE,
                         List.of(candidate("candidate-0", false), candidate("candidate-1", true)),

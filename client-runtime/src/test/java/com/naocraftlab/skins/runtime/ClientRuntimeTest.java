@@ -15,6 +15,7 @@ import com.naocraftlab.skins.client.SignedProfileResolver;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.PublicSkinImportException;
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
@@ -50,6 +51,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1348,6 +1350,47 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void missingSqliteDependencyBlocksImportAndDatabasePicker() {
+        FakeOperations operations = new FakeOperations();
+        operations.externalSourceProbes.put(
+                ExternalImportSource.MINECRAFT_LAUNCHER, ExternalImportProbe.UNAVAILABLE);
+        operations.externalSourceProbes.put(
+                ExternalImportSource.CURSEFORGE_APP, ExternalImportProbe.DEPENDENCY_MISSING);
+        operations.externalSourceProbes.put(
+                ExternalImportSource.MODRINTH_APP, ExternalImportProbe.DEPENDENCY_MISSING);
+        operations.externalSourceProbes.put(
+                ExternalImportSource.PRISM_LAUNCHER, ExternalImportProbe.UNAVAILABLE);
+        java.util.concurrent.atomic.AtomicInteger pickerCalls =
+                new java.util.concurrent.atomic.AtomicInteger();
+        FilePicker picker = new FilePicker() {
+            @Override
+            public CompletableFuture<Optional<Path>> chooseSkinPng() {
+                return CompletableFuture.completedFuture(Optional.empty());
+            }
+
+            @Override
+            public CompletableFuture<Optional<Path>> chooseSqliteDatabase() {
+                pickerCalls.incrementAndGet();
+                return CompletableFuture.completedFuture(Optional.empty());
+            }
+        };
+        ClientRuntime runtime = runtime(operations, picker);
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.external.launcher");
+
+        ViewSpec chooser = runtime.view(240, 240, 0, 0);
+        assertFalse(chooser.widget("external.source.curseforge_app").orElseThrow().enabled());
+        assertFalse(chooser.widget("external.folder.modrinth_app").orElseThrow().enabled());
+        runtime.dispatchWidget("external.folder.modrinth_app");
+        runtime.dispatchWidget("external.source.curseforge_app");
+
+        assertEquals(0, pickerCalls.get());
+        assertEquals("external_chooser", runtime.view(240, 240, 0, 0).screenId());
+    }
+
+    @Test
     void leavingExternalImportFencesLateWorkerResult() {
         FakeOperations operations = new FakeOperations();
         QueuedExecutor worker = new QueuedExecutor();
@@ -2487,6 +2530,8 @@ final class ClientRuntimeTest {
         private Exception externalImportFailure;
         private ExternalImportResult externalImportResult;
         private boolean externalSourceAvailable = true;
+        private final EnumMap<ExternalImportSource, ExternalImportProbe> externalSourceProbes =
+                new EnumMap<>(ExternalImportSource.class);
         private int externalCommitCalls;
         private ExternalImportSource lastExternalSource;
         private Optional<Path> lastExternalRoot = Optional.empty();
@@ -2617,14 +2662,16 @@ final class ClientRuntimeTest {
         }
 
         @Override
-        public boolean probeExternalSource(
+        public ExternalImportProbe probeExternalSource(
                 ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
             lastExternalSource = source;
             lastExternalRoot = selectedRoot;
             if (externalImportFailure != null) {
                 throw externalImportFailure;
             }
-            return externalSourceAvailable;
+            return externalSourceProbes.getOrDefault(source, externalSourceAvailable
+                    ? ExternalImportProbe.AVAILABLE
+                    : ExternalImportProbe.UNAVAILABLE);
         }
 
         @Override

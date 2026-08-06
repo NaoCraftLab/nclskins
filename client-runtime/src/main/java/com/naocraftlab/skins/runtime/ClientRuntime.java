@@ -15,6 +15,7 @@ import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.PublicSkinImportException;
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
@@ -1696,14 +1697,14 @@ public final class ClientRuntime implements AutoCloseable {
         submit(
                 UiMessage.info("nclskins.external_import.searching"),
                 () -> {
-                    EnumMap<ExternalImportSource, Boolean> probes =
+                    EnumMap<ExternalImportSource, ExternalImportProbe> probes =
                             new EnumMap<>(ExternalImportSource.class);
                     for (ExternalImportSource source : category.sources()) {
-                        boolean available;
+                        ExternalImportProbe available;
                         try {
                             available = operations.probeExternalSource(source, Optional.empty());
                         } catch (Exception ignored) {
-                            available = false;
+                            available = ExternalImportProbe.UNAVAILABLE;
                         }
                         probes.put(source, available);
                     }
@@ -1741,7 +1742,9 @@ public final class ClientRuntime implements AutoCloseable {
     private void chooseExternalImportFolder(ExternalImportSource source) {
         if (state.externalImport == null
                 || !state.externalImport.category().sources().contains(source)
-                || state.busy) {
+                || state.busy
+                || state.externalImport.sources().get(source).availability()
+                == ExternalImportModel.Availability.DEPENDENCY_MISSING) {
             return;
         }
         long ticket = ++state.generation;
@@ -1750,7 +1753,11 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
         CompletableFuture<Optional<Path>> picked;
         try {
-            picked = Objects.requireNonNull(filePicker.chooseDirectory(), "directory picker future");
+            picked = Objects.requireNonNull(
+                    source.requiresSqlite()
+                            ? filePicker.chooseSqliteDatabase()
+                            : filePicker.chooseDirectory(),
+                    "external import picker future");
         } catch (RuntimeException unavailablePicker) {
             finishExternalDirectoryPicker(ticket, source, null, unavailablePicker);
             return;
@@ -1776,15 +1783,15 @@ public final class ClientRuntime implements AutoCloseable {
                 } catch (Exception probeFailure) {
                     throw new CompletionException(probeFailure);
                 }
-            }, worker).whenComplete((available, probeFailure) -> onClient(() -> {
+            }, worker).whenComplete((probe, probeFailure) -> onClient(() -> {
                 if (!current(ticket) || state.externalImport == null) {
                     return;
                 }
                 state.busy = false;
                 if (probeFailure == null) {
                     state.externalImport = state.externalImport.withManualProbe(
-                            source, root, Boolean.TRUE.equals(available));
-                    state.status = Boolean.TRUE.equals(available)
+                            source, root, probe == ExternalImportProbe.AVAILABLE);
+                    state.status = probe == ExternalImportProbe.AVAILABLE
                             ? UiMessage.success("nclskins.external_import.folder_ready")
                             : UiMessage.error(invalidFolderKey(source));
                 } else {
@@ -1874,12 +1881,19 @@ public final class ClientRuntime implements AutoCloseable {
             state.status = UiMessage.error("nclskins.external_import.no_valid");
             return;
         }
+        if (cause instanceof ExternalImportException external
+                && external.code() == ExternalImportException.Code.DEPENDENCY_MISSING) {
+            state.status = UiMessage.error("nclskins.external_import.sqlite_dependency_required");
+            return;
+        }
         state.status = UiMessage.error(invalidFolderKey(source));
     }
 
     private static String invalidFolderKey(ExternalImportSource source) {
         return "nclskins.external_import.invalid_folder." + switch (source) {
             case MINECRAFT_LAUNCHER -> "minecraft_launcher";
+            case CURSEFORGE_APP -> "curseforge_app";
+            case MODRINTH_APP -> "modrinth_app";
             case SKIN_SHUFFLE -> "skin_shuffle";
             case PRISM_LAUNCHER -> "prism_launcher";
         };

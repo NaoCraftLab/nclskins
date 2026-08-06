@@ -128,6 +128,7 @@ class PngValidatorTest {
                 source, "iCCP", new byte[] {'x', 0, 0, 0x78, (byte) 0x9c, 3, 0, 0, 0, 0, 1});
 
         assertArrayEquals(withMetadata, validator.normalizeSkin(withMetadata));
+        assertEquals(validator.pixelSha256(source), validator.pixelSha256(withMetadata));
     }
 
     @Test

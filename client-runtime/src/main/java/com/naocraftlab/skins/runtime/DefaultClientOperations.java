@@ -13,6 +13,7 @@ import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.MinecraftProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.importing.ExternalImportContext;
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
@@ -681,10 +682,11 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public boolean probeExternalSource(
+    public ExternalImportProbe probeExternalSource(
             ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
         OperationContext operation = pinCurrentSession();
         ExternalImportContext context = new ExternalImportContext(
+                operation.identity().profileId(),
                 operation.identity().profileName(),
                 Path.of(System.getProperty("user.dir", ".")));
         return externalImports.probe(
@@ -699,6 +701,7 @@ public final class DefaultClientOperations implements ClientOperations {
         OperationContext operation = pinCurrentSession();
         UUID accountId = resolveAccountId(operation.identity());
         ExternalImportContext context = new ExternalImportContext(
+                operation.identity().profileId(),
                 operation.identity().profileName(),
                 Path.of(System.getProperty("user.dir", ".")));
         return externalImports.prepareAppearances(

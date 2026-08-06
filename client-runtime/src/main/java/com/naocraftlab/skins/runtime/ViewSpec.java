@@ -445,13 +445,22 @@ public record ViewSpec(
         }
 
         public static Widget button(String id, Bounds bounds, UiMessage label, boolean enabled) {
+            return button(id, bounds, label, Optional.empty(), enabled);
+        }
+
+        public static Widget button(
+                String id,
+                Bounds bounds,
+                UiMessage label,
+                Optional<UiMessage> hint,
+                boolean enabled) {
             return new Widget(
                     id,
                     WidgetKind.BUTTON,
                     bounds,
                     label,
                     Optional.empty(),
-                    Optional.empty(),
+                    Objects.requireNonNull(hint, "hint"),
                     enabled,
                     true,
                     0);
@@ -464,13 +473,24 @@ public record ViewSpec(
                 String icon,
                 boolean enabled) {
             requireIconId(icon);
+            return iconButton(id, bounds, accessibleLabel, Optional.of(accessibleLabel), icon, enabled);
+        }
+
+        public static Widget iconButton(
+                String id,
+                Bounds bounds,
+                UiMessage accessibleLabel,
+                Optional<UiMessage> hint,
+                String icon,
+                boolean enabled) {
+            requireIconId(icon);
             return new Widget(
                     id,
                     WidgetKind.ICON_BUTTON,
                     bounds,
                     accessibleLabel,
                     Optional.of(icon),
-                    Optional.of(accessibleLabel),
+                    Objects.requireNonNull(hint, "hint"),
                     enabled,
                     true,
                     0);

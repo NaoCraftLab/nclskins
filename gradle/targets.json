@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001"
   },
@@ -179,6 +179,13 @@
   "gsonCompatibility": {
     "minimum": "2.10",
     "maximum": "2.14.0"
+  },
+  "optionalDependencies": {
+    "sqlite_jdbc": {
+      "fabric": ">=3.36.0.3",
+      "forge": "[3.36.0.3,)",
+      "neoforge": "[3.53.0.0,)"
+    }
   },
   "baseBundles": ["portable-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {

@@ -2,6 +2,9 @@
 
 ### Added
 
+- **Imports from launchers and other mods**
+  - Preview and import saved skins and looks from Minecraft Launcher, CurseForge App, Modrinth App, and Prism Launcher
+  - Import Skin Shuffle looks, choose what to add, and review duplicates before saving
 - **Automatic skin model detection**
   - Imports from files, direct links, player names, and UUIDs now choose Classic or Slim from the skin itself
   - You can still switch the model manually in the look editor

@@ -3,6 +3,7 @@ package com.naocraftlab.skins.runtime;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
@@ -145,10 +146,13 @@ final class ViewSpecGoldenTest {
         ExternalImportPresenter presenter = new ExternalImportPresenter();
         ExternalImportModel launcher = ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER)
                 .withAutomaticProbes(Map.of(
-                        ExternalImportSource.MINECRAFT_LAUNCHER, true,
-                        ExternalImportSource.PRISM_LAUNCHER, false));
+                        ExternalImportSource.MINECRAFT_LAUNCHER, ExternalImportProbe.AVAILABLE,
+                        ExternalImportSource.CURSEFORGE_APP, ExternalImportProbe.DEPENDENCY_MISSING,
+                        ExternalImportSource.MODRINTH_APP, ExternalImportProbe.DEPENDENCY_MISSING,
+                        ExternalImportSource.PRISM_LAUNCHER, ExternalImportProbe.UNAVAILABLE));
         ExternalImportModel failed = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, false))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.UNAVAILABLE))
                 .withManualProbe(ExternalImportSource.SKIN_SHUFFLE, Path.of("instance"), false);
         ExternalImportModel probing = ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER);
         String actual = "[chooser-240]\n" + describe(presenter.present(
@@ -182,7 +186,8 @@ final class ViewSpecGoldenTest {
     void externalImportReviewMatchesGoldenAtControlSizes() {
         ExternalImportPresenter presenter = new ExternalImportPresenter();
         ExternalImportModel review = ExternalImportModel.open(ExternalImportModel.Category.MOD)
-                .withAutomaticProbes(Map.of(ExternalImportSource.SKIN_SHUFFLE, true))
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
                 .withReview(new ClientOperations.ExternalImportReview(
                         ExternalImportSource.SKIN_SHUFFLE,
                         List.of(

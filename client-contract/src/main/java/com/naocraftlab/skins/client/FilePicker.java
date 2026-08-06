@@ -12,4 +12,9 @@ public interface FilePicker {
         return CompletableFuture.failedFuture(
                 new UnsupportedOperationException("Directory picker is unavailable"));
     }
+
+    default CompletableFuture<Optional<Path>> chooseSqliteDatabase() {
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("SQLite database picker is unavailable"));
+    }
 }

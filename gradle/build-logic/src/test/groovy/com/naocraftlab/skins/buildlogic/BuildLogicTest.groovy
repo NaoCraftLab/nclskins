@@ -20,7 +20,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(8, catalog.schemaVersion)
+        assertEquals(9, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
@@ -324,6 +324,7 @@ final class BuildLogicTest {
         assertEquals(['forge-1.20.1'] as Set, selected('targets/forge/1.20.1/build.gradle'))
         assertEquals(['fabric-1.20.1', 'forge-1.20.1'] as Set, selected('compat/capabilities/gui/immediate-1.20/src/main/java/Example.java'))
         assertEquals(catalog.targets.collect { it.id } as Set, selected('core/src/main/java/com/naocraftlab/skins/core/Example.java'))
+        assertEquals(catalog.targets.collect { it.id } as Set, selected('client-runtime/build.gradle'))
         assertEquals(catalog.targets.collect { it.id } as Set, selected('gradle/version.properties'))
     }
 
@@ -345,7 +346,10 @@ final class BuildLogicTest {
                 assertEquals([main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint]], metadata.entrypoints)
                 assertEquals(catalog.mod.descriptions.en_us, metadata.description)
                 assertEquals(catalog.mod.contact, metadata.contact)
-                assertEquals([modmenu: ">=${target.loader.modMenuVersion}".toString()], metadata.suggests)
+                assertEquals([
+                        modmenu    : ">=${target.loader.modMenuVersion}".toString(),
+                        sqlite_jdbc: catalog.optionalDependencies.sqlite_jdbc.fabric
+                ], metadata.suggests)
                 assertEquals(true, metadata.custom.modmenu.update_checker)
                 assertEquals(['modmenu.modrinth': 'https://modrinth.com/mod/nclskins', 'modmenu.curseforge': 'https://www.curseforge.com/minecraft/mc-mods/nclskins'], metadata.custom.modmenu.links)
             } else if (target.loader.id == 'forge') {
@@ -353,12 +357,18 @@ final class BuildLogicTest {
                 assertTrue(resources['META-INF/mods.toml'].contains('showAsResourcePack=false'))
                 assertTrue(resources['META-INF/mods.toml'].contains('features={java_version="[17,)"}'))
                 assertTrue(resources['META-INF/mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json"'))
+                assertTrue(resources['META-INF/mods.toml'].contains('modId="sqlite_jdbc"'))
+                assertTrue(resources['META-INF/mods.toml'].contains('mandatory=false'))
+                assertTrue(resources['META-INF/mods.toml'].contains('side="CLIENT"'))
                 assertFalse(resources['META-INF/mods.toml'].contains('[[mixins]]'))
             } else {
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains("javaVersion=\"[${target.java.release},)\""))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsResourcePack=false'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsDataPack=false'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json?neoforge=only"'))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('modId="sqlite_jdbc"'))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('type="optional"'))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('side="CLIENT"'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains("file=\"${target.metadata.accessTransformer}\""))
                 assertEquals((target.metadata.serverMixins ?: []) + target.metadata.mixins, resources['META-INF/neoforge.mods.toml'].readLines().findAll { it.startsWith('config=') }.collect { it.substring('config="'.length(), it.length() - 1) })
             }

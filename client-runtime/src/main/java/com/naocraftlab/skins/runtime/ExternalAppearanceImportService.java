@@ -5,13 +5,16 @@ import com.naocraftlab.skins.core.importing.ExternalAppearanceRecord;
 import com.naocraftlab.skins.core.importing.ExternalImportAdapter;
 import com.naocraftlab.skins.core.importing.ExternalImportBatch;
 import com.naocraftlab.skins.core.importing.ExternalImportContext;
+import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.importing.SkinLocator;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.NormalizedSkin;
+import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.LibraryService;
 
@@ -24,15 +27,14 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 
 final class ExternalAppearanceImportService {
@@ -48,6 +50,8 @@ final class ExternalAppearanceImportService {
             SkinCatalogSource resources) {
         this(library, publicImports, resources, new PngValidator(), List.of(
                 new MinecraftLauncherImportAdapter(),
+                new CurseForgeAppImportAdapter(),
+                new ModrinthAppImportAdapter(),
                 new SkinShuffleImportAdapter(),
                 new PrismLauncherImportAdapter()));
     }
@@ -74,16 +78,19 @@ final class ExternalAppearanceImportService {
         this.adapters = Map.copyOf(mapped);
     }
 
-    boolean probe(
+    ExternalImportProbe probe(
             ExternalImportSource source,
             Optional<Path> selectedRoot,
             ExternalImportContext context) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(selectedRoot, "selectedRoot");
         Objects.requireNonNull(context, "context");
+        if (source.requiresSqlite() && !SqliteSupport.available()) {
+            return ExternalImportProbe.DEPENDENCY_MISSING;
+        }
         ExternalImportAdapter adapter = adapters.get(source);
         if (adapter == null) {
-            return false;
+            return ExternalImportProbe.UNAVAILABLE;
         }
         List<Path> roots = selectedRoot
                 .map(path -> List.of(path.toAbsolutePath().normalize()))
@@ -91,12 +98,12 @@ final class ExternalAppearanceImportService {
         for (Path root : roots) {
             try {
                 if (adapter.probe(root, context)) {
-                    return true;
+                    return ExternalImportProbe.AVAILABLE;
                 }
             } catch (IOException | RuntimeException failure) {
             }
         }
-        return false;
+        return ExternalImportProbe.UNAVAILABLE;
     }
 
     ClientOperations.ExternalImportReview prepareAppearances(
@@ -110,16 +117,18 @@ final class ExternalAppearanceImportService {
         Objects.requireNonNull(selectedRoot, "selectedRoot");
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(ownedCapes, "ownedCapes");
+        if (source.requiresSqlite() && !SqliteSupport.available()) {
+            throw new ExternalImportException(
+                    ExternalImportException.Code.DEPENDENCY_MISSING,
+                    "Minecraft SQLite JDBC is unavailable");
+        }
 
         ExternalImportAdapter adapter = Optional.ofNullable(adapters.get(source))
                 .orElseThrow(() -> new ExternalImportException(
                         ExternalImportException.Code.NOT_FOUND,
                         "External import adapter is unavailable"));
         ExternalImportBatch batch = discover(adapter, source, selectedRoot, context);
-        Set<String> existingHashes = library.load(accountId).personalSkins().stream()
-                .filter(entry -> entry.visible())
-                .map(entry -> entry.sha256())
-                .collect(Collectors.toUnmodifiableSet());
+        Map<String, ExistingPersonalSkin> existingSkins = existingPersonalSkins(accountId);
         List<ClientOperations.ExternalImportCandidate> resolved = new ArrayList<>();
         int skipped = 0;
         int warnings = batch.warnings().size();
@@ -134,17 +143,21 @@ final class ExternalAppearanceImportService {
                     warnings++;
                 }
                 SkinVariant variant = record.declaredVariant().orElse(resolution.variant());
-                String sha256 = sha256(resolution.pngBytes());
+                byte[] resolvedPng = resolution.pngBytes();
+                ExistingPersonalSkin existing = existingSkins.get(
+                        pngValidator.pixelSha256(resolvedPng));
+                byte[] candidatePng = existing == null ? resolvedPng : existing.pngBytes();
+                String sha256 = existing == null ? sha256(candidatePng) : existing.sha256();
                 resolved.add(new ClientOperations.ExternalImportCandidate(
                         "candidate-" + resolved.size(),
                         name,
                         variant,
                         resolution.source(),
-                        resolution.pngBytes(),
+                        candidatePng,
                         sha256,
                         capeId,
                         record.sourceOrder(),
-                        existingHashes.contains(sha256)));
+                        existing != null));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw interrupted;
@@ -159,6 +172,29 @@ final class ExternalAppearanceImportService {
         }
         return new ClientOperations.ExternalImportReview(
                 source, resolved, skipped, warnings);
+    }
+
+    private Map<String, ExistingPersonalSkin> existingPersonalSkins(UUID accountId)
+            throws IOException {
+        AccountState account = library.load(accountId);
+        Map<String, ExistingPersonalSkin> existing = new HashMap<>();
+        for (PersonalSkinEntry entry : account.personalSkins()) {
+            if (!entry.visible()) {
+                continue;
+            }
+            Optional<UUID> assetId = entry.variantAssetIds().values().stream().findFirst();
+            if (assetId.isEmpty()) {
+                continue;
+            }
+            try {
+                byte[] png = library.resolveSkin(account, assetId.orElseThrow()).pngBytes();
+                existing.putIfAbsent(
+                        pngValidator.pixelSha256(png),
+                        new ExistingPersonalSkin(entry.sha256(), png));
+            } catch (IOException | PngValidationException | RuntimeException invalidExistingAsset) {
+            }
+        }
+        return Map.copyOf(existing);
     }
 
     Result commitAppearances(
@@ -298,19 +334,40 @@ final class ExternalAppearanceImportService {
         }
         if (os.contains("win")) {
             Path appData = optionalPath(environment.get("APPDATA")).orElse(home);
-            return List.of(appData.resolve(source == ExternalImportSource.MINECRAFT_LAUNCHER
-                    ? ".minecraft" : "PrismLauncher"));
+            return List.of(appData.resolve(switch (source) {
+                case MINECRAFT_LAUNCHER -> ".minecraft";
+                case CURSEFORGE_APP -> "CurseForge";
+                case MODRINTH_APP -> "ModrinthApp";
+                case PRISM_LAUNCHER -> "PrismLauncher";
+                case SKIN_SHUFFLE -> throw new IllegalStateException("handled above");
+            }));
         }
         if (os.contains("mac")) {
             Path applicationSupport = home.resolve("Library").resolve("Application Support");
-            return List.of(applicationSupport.resolve(source == ExternalImportSource.MINECRAFT_LAUNCHER
-                    ? "minecraft" : "PrismLauncher"));
+            return List.of(applicationSupport.resolve(switch (source) {
+                case MINECRAFT_LAUNCHER -> "minecraft";
+                case CURSEFORGE_APP -> "CurseForge";
+                case MODRINTH_APP -> "ModrinthApp";
+                case PRISM_LAUNCHER -> "PrismLauncher";
+                case SKIN_SHUFFLE -> throw new IllegalStateException("handled above");
+            }));
         }
         if (source == ExternalImportSource.MINECRAFT_LAUNCHER) {
             return List.of(home.resolve(".minecraft"));
         }
+        if (source == ExternalImportSource.CURSEFORGE_APP) {
+            Path configHome = optionalPath(environment.get("XDG_CONFIG_HOME"))
+                    .orElse(home.resolve(".config"));
+            return List.of(configHome.resolve("CurseForge"));
+        }
         Path dataHome = optionalPath(environment.get("XDG_DATA_HOME"))
                 .orElse(home.resolve(".local").resolve("share"));
+        if (source == ExternalImportSource.MODRINTH_APP) {
+            return List.of(
+                    dataHome.resolve("ModrinthApp"),
+                    home.resolve(".var").resolve("app").resolve("com.modrinth.ModrinthApp")
+                            .resolve("data").resolve("ModrinthApp"));
+        }
         return List.of(
                 dataHome.resolve("PrismLauncher"),
                 home.resolve(".var").resolve("app").resolve("org.prismlauncher.PrismLauncher")
@@ -356,6 +413,18 @@ final class ExternalAppearanceImportService {
             pngBytes = Objects.requireNonNull(pngBytes, "pngBytes").clone();
             Objects.requireNonNull(variant, "variant");
             Objects.requireNonNull(source, "source");
+        }
+
+        @Override
+        public byte[] pngBytes() {
+            return pngBytes.clone();
+        }
+    }
+
+    private record ExistingPersonalSkin(String sha256, byte[] pngBytes) {
+        private ExistingPersonalSkin {
+            Objects.requireNonNull(sha256, "sha256");
+            pngBytes = Objects.requireNonNull(pngBytes, "pngBytes").clone();
         }
 
         @Override

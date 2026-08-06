@@ -286,9 +286,10 @@ final class CatalogTools {
         List<String> errors = []
         Set expectedTop = [
                 'schemaVersion', 'development', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
-                'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations', 'targets'
+                'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
+                'optionalDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 8) {
+        if (catalog.schemaVersion != 9) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -338,6 +339,20 @@ final class CatalogTools {
             errors.add('mod.iconBlur must be a boolean')
         } else if (!mod.iconBlur) {
             errors.add('mod.iconBlur must remain true for the smooth 320x320 artwork')
+        }
+        Map optionalDependencies = catalog.optionalDependencies instanceof Map
+                ? catalog.optionalDependencies as Map : [:]
+        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc'] as Set) {
+            errors.add('optionalDependencies must declare only sqlite_jdbc')
+        } else {
+            Map sqlite = optionalDependencies.sqlite_jdbc instanceof Map
+                    ? optionalDependencies.sqlite_jdbc as Map : [:]
+            if ((sqlite.keySet() as Set) != LoaderBackend.ids() as Set
+                    || !(sqlite.fabric ==~ />=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)
+                    || !(sqlite.forge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)
+                    || !(sqlite.neoforge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)) {
+                errors.add('sqlite_jdbc must define explicit Fabric, Forge and NeoForge ranges')
+            }
         }
         if (mod.icon instanceof String) {
             File icon = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/${mod.icon}")
@@ -861,6 +876,16 @@ final class CatalogTools {
             if (matches) {
                 matches.each { affected[it].add('source') }
                 return
+            }
+            if (path.endsWith('/build.gradle')) {
+                String module = path.substring(0, path.length() - '/build.gradle'.length())
+                Set<String> moduleOwners = sourceOwners.findAll { String root, Set owners ->
+                    root == module || root.startsWith(module + '/')
+                }.collectMany { it.value as List } as Set
+                if (!moduleOwners.isEmpty()) {
+                    moduleOwners.each { affected[it].add('module-build') }
+                    return
+                }
             }
             if (path.startsWith('gradle/') || path == 'build.gradle' || path == 'settings.gradle' || path in ['LICENSE', 'NOTICE']) {
                 targetIds.each { affected[it].add('shared-build') }
