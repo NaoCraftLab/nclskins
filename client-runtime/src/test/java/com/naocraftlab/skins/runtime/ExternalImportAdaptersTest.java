@@ -123,6 +123,117 @@ final class ExternalImportAdaptersTest {
     }
 
     @Test
+    void skinSwapperFamilyReadsDirectPngAndTypesButIgnoresOrder(@TempDir Path game)
+            throws Exception {
+        Path skins = Files.createDirectories(game.resolve("skins"));
+        Files.write(skins.resolve("Zulu.png"), skinPng(0xFF557799));
+        Files.write(skins.resolve("alpha.PNG"), skinPng(0xFF775599));
+        Files.writeString(skins.resolve("types.json"), """
+                {"Zulu.png":"slim","alpha.PNG":"classic"}
+                """);
+        Files.writeString(skins.resolve("order.txt"), "Zulu.png,alpha.PNG");
+        Files.createDirectories(skins.resolve("nested"));
+        Files.write(skins.resolve("nested/ignored.png"), skinPng(0xFF112233));
+
+        SkinSwapperFamilyImportAdapter adapter = new SkinSwapperFamilyImportAdapter();
+        assertTrue(adapter.probe(game, context(game)));
+        assertTrue(adapter.probe(skins, context(game)));
+        ExternalImportBatch batch = adapter.discover(game, context(game));
+
+        assertEquals(List.of("alpha", "Zulu"),
+                batch.records().stream().map(ExternalAppearanceRecord::displayName).toList());
+        assertEquals(List.of(Optional.of(SkinVariant.CLASSIC), Optional.of(SkinVariant.SLIM)),
+                batch.records().stream().map(ExternalAppearanceRecord::declaredVariant).toList());
+        assertTrue(batch.records().stream().allMatch(record ->
+                record.skinLocator() instanceof SkinLocator.LocalPng));
+    }
+
+    @Test
+    void skinSwapperFamilyFallsBackWhenTypeMetadataIsInvalid(@TempDir Path game)
+            throws Exception {
+        Path skins = Files.createDirectories(game.resolve("skins"));
+        Files.write(skins.resolve("Fallback.png"), skinPng(0xFF335577));
+        Files.writeString(skins.resolve("types.json"), "not-json");
+
+        ExternalImportBatch batch = new SkinSwapperFamilyImportAdapter()
+                .discover(game, context(game));
+
+        assertEquals(Optional.empty(), batch.records().get(0).declaredVariant());
+        assertTrue(batch.warnings().contains("invalid_model_metadata"));
+    }
+
+    @Test
+    void quickSkinReadsNestedUploadsAndRawSha1ModelPreferences(@TempDir Path game)
+            throws Exception {
+        Path skins = Files.createDirectories(game.resolve("quickskin/uploads/skins/pack"));
+        byte[] classic = skinPng(0xFF224466);
+        byte[] slim = skinPng(0xFF446622);
+        Files.write(skins.resolve("Classic.png"), classic);
+        Files.write(skins.resolve("Slim.png"), slim);
+        Files.write(skins.resolve("Ignored.gif"), new byte[]{'G', 'I', 'F'});
+        Files.createDirectories(game.resolve("quickskin/uploads/capes"));
+        Files.write(game.resolve("quickskin/uploads/capes/Cape.png"), classic);
+        Files.createDirectories(game.resolve("config"));
+        Files.writeString(game.resolve("config/skin-preferences.json"), """
+                {"preferences":{
+                  "%s":{"modelType":"classic"},
+                  "%s":{"modelType":"slim"}
+                }}
+                """.formatted(sha1Hex(classic), sha1Hex(slim)));
+
+        QuickSkinImportAdapter adapter = new QuickSkinImportAdapter();
+        assertTrue(adapter.probe(game, context(game)));
+        assertTrue(adapter.probe(game.resolve("quickskin/uploads/skins"), context(game)));
+        ExternalImportBatch batch = adapter.discover(game, context(game));
+
+        assertEquals(List.of("Classic", "Slim"),
+                batch.records().stream().map(ExternalAppearanceRecord::displayName).toList());
+        assertEquals(List.of(Optional.of(SkinVariant.CLASSIC), Optional.of(SkinVariant.SLIM)),
+                batch.records().stream().map(ExternalAppearanceRecord::declaredVariant).toList());
+    }
+
+    @Test
+    void quickSkinUsesRasterFallbackAndStopsAtScanDepth(@TempDir Path game) throws Exception {
+        Path skins = Files.createDirectories(game.resolve("quickskin/uploads/skins"));
+        Files.write(skins.resolve("Visible.png"), skinPng(0xFF123456));
+        Path tooDeep = skins;
+        for (int index = 0; index < QuickSkinImportAdapter.MAX_SCAN_DEPTH; index++) {
+            tooDeep = Files.createDirectories(tooDeep.resolve("level-" + index));
+        }
+        Files.write(tooDeep.resolve("Too deep.png"), skinPng(0xFF654321));
+        Files.createDirectories(game.resolve("config"));
+        Files.writeString(game.resolve("config/skin-preferences.json"), """
+                {"preferences":{"unused":{"modelType":"auto"}}}
+                """);
+
+        ExternalImportBatch batch = new QuickSkinImportAdapter().discover(game, context(game));
+
+        assertEquals(List.of("Visible"),
+                batch.records().stream().map(ExternalAppearanceRecord::displayName).toList());
+        assertEquals(Optional.empty(), batch.records().get(0).declaredVariant());
+    }
+
+    @Test
+    void directoryModAdaptersKeepTheSharedRecordLimit(@TempDir Path game) throws Exception {
+        Path shared = Files.createDirectories(game.resolve("skins"));
+        Path quick = Files.createDirectories(game.resolve("quickskin/uploads/skins"));
+        for (int index = 0; index <= ExternalImportFiles.MAX_RECORDS; index++) {
+            Files.write(shared.resolve("shared-%04d.png".formatted(index)), new byte[0]);
+            Files.write(quick.resolve("quick-%04d.png".formatted(index)), new byte[0]);
+        }
+
+        ExternalImportBatch sharedBatch = new SkinSwapperFamilyImportAdapter()
+                .discover(game, context(game));
+        ExternalImportBatch quickBatch = new QuickSkinImportAdapter()
+                .discover(game, context(game));
+
+        assertEquals(ExternalImportFiles.MAX_RECORDS, sharedBatch.records().size());
+        assertEquals(ExternalImportFiles.MAX_RECORDS, quickBatch.records().size());
+        assertTrue(sharedBatch.warnings().contains("record_limit"));
+        assertTrue(quickBatch.warnings().contains("record_limit"));
+    }
+
+    @Test
     void modrinthReadsInitialSchemaForOnlyTheCurrentAccount(@TempDir Path root) throws Exception {
         Path database = root.resolve("app.db");
         byte[] classic = skinPng(0xFF102030);
@@ -375,6 +486,20 @@ final class ExternalImportAdaptersTest {
                         "mac os x",
                         home,
                         Map.of()));
+        assertEquals(List.of(game.toAbsolutePath().normalize()),
+                ExternalAppearanceImportService.expectedRoots(
+                        ExternalImportSource.SKIN_SWAPPER_FAMILY,
+                        context,
+                        "mac os x",
+                        home,
+                        Map.of()));
+        assertEquals(List.of(game.toAbsolutePath().normalize()),
+                ExternalAppearanceImportService.expectedRoots(
+                        ExternalImportSource.QUICK_SKIN,
+                        context,
+                        "mac os x",
+                        home,
+                        Map.of()));
         assertEquals(
                 home.resolve("Library/Application Support/minecraft"),
                 ExternalAppearanceImportService.expectedRoots(
@@ -478,6 +603,11 @@ final class ExternalImportAdaptersTest {
 
     private static String sha256Hex(byte[] value) throws Exception {
         return java.util.HexFormat.of().formatHex(sha256(value));
+    }
+
+    private static String sha1Hex(byte[] value) throws Exception {
+        return java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-1").digest(value));
     }
 
     private static byte[] insertBeforeIend(byte[] png, String type, byte[] data) {

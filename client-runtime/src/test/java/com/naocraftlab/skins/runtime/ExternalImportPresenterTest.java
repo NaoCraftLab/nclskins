@@ -111,6 +111,51 @@ final class ExternalImportPresenterTest {
     }
 
     @Test
+    void modChooserExposesSkinShuffleSkinSwappersAndQuickSkinInStableOrder() {
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE,
+                        ExternalImportSource.SKIN_SWAPPER_FAMILY, ExternalImportProbe.AVAILABLE,
+                        ExternalImportSource.QUICK_SKIN, ExternalImportProbe.UNAVAILABLE));
+
+        ViewSpec chooser = presenter.present(
+                model,
+                false,
+                Optional.of(UiMessage.info("nclskins.external_import.choose_source")),
+                320,
+                240);
+
+        assertEquals(
+                List.of("skin_shuffle", "skin_swapper_family", "quick_skin"),
+                model.category().sources().stream()
+                        .map(ExternalImportPresenter::sourceId)
+                        .map(id -> id.substring("external.source.".length()))
+                        .toList());
+        assertEquals(
+                List.of(42, 66, 90),
+                List.of("skin_shuffle", "skin_swapper_family", "quick_skin").stream()
+                        .map(source -> chooser.widget("external.source." + source)
+                                .orElseThrow().bounds().y())
+                        .toList());
+        assertTrue(chooser.texts().stream().noneMatch(text ->
+                text.id().startsWith("external.source.") && text.id().endsWith(".state")));
+        assertTrue(chooser.widget("external.source.skin_swapper_family").orElseThrow().enabled());
+        assertFalse(chooser.widget("external.source.quick_skin").orElseThrow().enabled());
+        assertEquals(
+                Optional.of(UiMessage.info("nclskins.external_import.unavailable.quick_skin")),
+                chooser.widget("external.source.quick_skin").orElseThrow().hint());
+        assertEquals(
+                Optional.of(UiMessage.info("nclskins.external_import.choose_folder")),
+                chooser.widget("external.folder.quick_skin").orElseThrow().hint());
+        assertEquals(
+                ExternalImportSource.SKIN_SWAPPER_FAMILY,
+                ExternalImportPresenter.source("external.folder.skin_swapper_family"));
+        assertEquals(
+                ExternalImportSource.QUICK_SKIN,
+                ExternalImportPresenter.source("external.source.quick_skin"));
+    }
+
+    @Test
     void reviewDefaultsToNewCandidatesAndCanSelectDuplicates() {
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
                 .withAutomaticProbes(Map.of(

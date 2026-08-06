@@ -129,7 +129,10 @@ public record ExternalImportModel(
                 ExternalImportSource.CURSEFORGE_APP,
                 ExternalImportSource.MODRINTH_APP,
                 ExternalImportSource.PRISM_LAUNCHER)),
-        MOD(List.of(ExternalImportSource.SKIN_SHUFFLE));
+        MOD(List.of(
+                ExternalImportSource.SKIN_SHUFFLE,
+                ExternalImportSource.SKIN_SWAPPER_FAMILY,
+                ExternalImportSource.QUICK_SKIN));
 
         private final List<ExternalImportSource> sources;
 

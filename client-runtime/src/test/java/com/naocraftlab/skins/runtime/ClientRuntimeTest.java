@@ -1298,7 +1298,7 @@ final class ClientRuntimeTest {
         assertEquals(UiMessage.info("nclskins.external_import.mod_title"), chooser.title());
         assertFalse(chooser.widget("external.source.skin_shuffle").orElseThrow().enabled());
         assertTrue(chooser.widget("external.folder.skin_shuffle").orElseThrow().enabled());
-        assertEquals(ExternalImportSource.SKIN_SHUFFLE, operations.lastExternalSource);
+        assertEquals(ExternalImportSource.QUICK_SKIN, operations.lastExternalSource);
         assertEquals(Optional.empty(), operations.lastExternalRoot);
 
         runtime.dispatchWidget("external.back");

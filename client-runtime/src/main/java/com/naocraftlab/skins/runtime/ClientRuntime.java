@@ -1895,6 +1895,8 @@ public final class ClientRuntime implements AutoCloseable {
             case CURSEFORGE_APP -> "curseforge_app";
             case MODRINTH_APP -> "modrinth_app";
             case SKIN_SHUFFLE -> "skin_shuffle";
+            case SKIN_SWAPPER_FAMILY -> "skin_swapper_family";
+            case QUICK_SKIN -> "quick_skin";
             case PRISM_LAUNCHER -> "prism_launcher";
         };
     }

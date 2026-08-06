@@ -6,6 +6,8 @@ public enum ExternalImportSource {
     CURSEFORGE_APP,
     MODRINTH_APP,
     SKIN_SHUFFLE,
+    SKIN_SWAPPER_FAMILY,
+    QUICK_SKIN,
     PRISM_LAUNCHER;
 
     public boolean requiresSqlite() {

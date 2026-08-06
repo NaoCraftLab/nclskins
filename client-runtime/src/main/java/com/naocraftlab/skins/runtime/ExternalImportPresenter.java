@@ -73,12 +73,9 @@ public final class ExternalImportPresenter {
                             "nclskins.external_import.sqlite_dependency_required"))
                             : Optional.empty();
             Optional<String> stateKey = visibleStateKey(source, state);
-            boolean launcherChooser = model.category() == ExternalImportModel.Category.LAUNCHER;
             Optional<UiMessage> sourceHint = dependencyHint.isPresent()
                     ? dependencyHint
-                    : launcherChooser
-                    ? stateKey.map(UiMessage::info)
-                    : Optional.empty();
+                    : stateKey.map(UiMessage::info);
             widgets.add(ViewSpec.Widget.button(
                     sourceId(source),
                     new Bounds(x, y, contentWidth - folderWidth - rowGap, 20),
@@ -95,14 +92,7 @@ public final class ExternalImportPresenter {
                     "folder",
                     !busy && state.availability()
                             != ExternalImportModel.Availability.DEPENDENCY_MISSING));
-            if (!launcherChooser && stateKey.isPresent()) {
-                texts.add(new ViewSpec.Text(
-                        sourceId(source) + ".state",
-                        new Bounds(x, y + 21, contentWidth, 10),
-                        UiMessage.info(stateKey.orElseThrow()),
-                        ViewSpec.Text.Alignment.LEFT));
-            }
-            y += !launcherChooser && stateKey.isPresent() ? 34 : 24;
+            y += 24;
         }
         int statusY = Math.min(
                 Math.max(CHROME_HEIGHT + 4, height - FOOTER_HEIGHT - 14),
@@ -381,6 +371,8 @@ public final class ExternalImportPresenter {
             case CURSEFORGE_APP -> "curseforge_app";
             case MODRINTH_APP -> "modrinth_app";
             case SKIN_SHUFFLE -> "skin_shuffle";
+            case SKIN_SWAPPER_FAMILY -> "skin_swapper_family";
+            case QUICK_SKIN -> "quick_skin";
             case PRISM_LAUNCHER -> "prism_launcher";
         };
     }
@@ -407,6 +399,8 @@ public final class ExternalImportPresenter {
             case "curseforge_app" -> ExternalImportSource.CURSEFORGE_APP;
             case "modrinth_app" -> ExternalImportSource.MODRINTH_APP;
             case "skin_shuffle" -> ExternalImportSource.SKIN_SHUFFLE;
+            case "skin_swapper_family" -> ExternalImportSource.SKIN_SWAPPER_FAMILY;
+            case "quick_skin" -> ExternalImportSource.QUICK_SKIN;
             case "prism_launcher" -> ExternalImportSource.PRISM_LAUNCHER;
             default -> throw new IllegalArgumentException("Unknown external import widget");
         };

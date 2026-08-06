@@ -53,6 +53,8 @@ final class ExternalAppearanceImportService {
                 new CurseForgeAppImportAdapter(),
                 new ModrinthAppImportAdapter(),
                 new SkinShuffleImportAdapter(),
+                new SkinSwapperFamilyImportAdapter(),
+                new QuickSkinImportAdapter(),
                 new PrismLauncherImportAdapter()));
     }
 
@@ -329,7 +331,9 @@ final class ExternalAppearanceImportService {
         Objects.requireNonNull(os, "os");
         Objects.requireNonNull(home, "home");
         Objects.requireNonNull(environment, "environment");
-        if (source == ExternalImportSource.SKIN_SHUFFLE) {
+        if (source == ExternalImportSource.SKIN_SHUFFLE
+                || source == ExternalImportSource.SKIN_SWAPPER_FAMILY
+                || source == ExternalImportSource.QUICK_SKIN) {
             return List.of(context.currentGameDirectory());
         }
         if (os.contains("win")) {
@@ -339,7 +343,7 @@ final class ExternalAppearanceImportService {
                 case CURSEFORGE_APP -> "CurseForge";
                 case MODRINTH_APP -> "ModrinthApp";
                 case PRISM_LAUNCHER -> "PrismLauncher";
-                case SKIN_SHUFFLE -> throw new IllegalStateException("handled above");
+                case SKIN_SHUFFLE, SKIN_SWAPPER_FAMILY, QUICK_SKIN -> throw new IllegalStateException("handled above");
             }));
         }
         if (os.contains("mac")) {
@@ -349,7 +353,7 @@ final class ExternalAppearanceImportService {
                 case CURSEFORGE_APP -> "CurseForge";
                 case MODRINTH_APP -> "ModrinthApp";
                 case PRISM_LAUNCHER -> "PrismLauncher";
-                case SKIN_SHUFFLE -> throw new IllegalStateException("handled above");
+                case SKIN_SHUFFLE, SKIN_SWAPPER_FAMILY, QUICK_SKIN -> throw new IllegalStateException("handled above");
             }));
         }
         if (source == ExternalImportSource.MINECRAFT_LAUNCHER) {
