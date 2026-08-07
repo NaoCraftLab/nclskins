@@ -3,32 +3,19 @@
 ### Added
 
 - **Imports from launchers and other mods**
-  - Preview and import saved skins and looks from Minecraft Launcher, CurseForge App, Modrinth App, and Prism Launcher
-  - Import Skin Shuffle looks, choose what to add, and review duplicates before saving
+  - Preview and import saved looks from Minecraft Launcher, CurseForge App, Modrinth App, Prism Launcher, Skin Shuffle,
+    Simple/SkinSwapper, and Quick Skin
+  - Choose a different app or instance folder when automatic discovery misses it
+  - Review new and duplicate looks, then import only the entries you select
 - **Automatic skin model detection**
-  - Imports from files, direct links, player names, and UUIDs now choose Classic or Slim from the skin itself
+  - Imports from files, direct links, player names, and UUIDs choose Classic or Slim from the skin itself
+  - Imported looks preserve their saved model when available and detect it when missing
   - You can still switch the model manually in the look editor
-
-### Fixed
-
-- Capes in the in-world look editor now follow player model animations provided by compatible renderer mods
-- Worldless previews no longer run third-party player layers, while the in-world editor gives compatible renderer mods an isolated full
-  player context without freezing the real player pose
-- Preserved embedded skin alpha data so Ears features keep their transparency instead of rendering black
-- Native skins now finish loading before in-world renderer layers or the local player use them, so 3D Skin Layers can build the
-  selected look correctly
-- Fresh Moves idle animations keep moving in the paused in-world look editor without reusing a frozen world pose or advancing the world
-- Empty player-model anchors from renderer packs no longer crash Ears features, including when Fresh Moves is active
-- A broken third-party layer is skipped without removing the rest of the in-world preview, while a broader renderer failure safely
-  falls back to vanilla for that editor session
-- Worldless previews now keep the full player centered while zooming and render the player, cape, and elytra with one shared rotation
-  and depth
-- Static previews now use a shared vanilla model pool so renderer packs cannot bake a paused world pose into menus or gallery cards
-- Gallery skins and cape cards on 26.x now keep independent render targets instead of repeating the last visible preset
-- Pending preset skins now stay empty until their own native texture is ready instead of briefly showing the current player skin
-- Worldless capes on 26.x now use their vanilla attachment pose and remain fixed to the player while rotating and zooming
-- Elytra previews now use the vanilla folded standing pose on both equipped players and cape-list cards
-- Draft cape changes now appear immediately in both cape and elytra modes of the in-world editor
+- **Compatible look previews**
+  - View Ears features with their original transparency, 3D Skin Layers geometry, and Fresh Moves animations together in the in-world
+    look editor
+  - Capes and Elytra follow the preview model and update immediately while you edit the look
+  - Worldless menus and galleries use stable vanilla previews, while rotation, tilt, and zoom stay centered
 
 ## 1.0.0-alpha.1
 
