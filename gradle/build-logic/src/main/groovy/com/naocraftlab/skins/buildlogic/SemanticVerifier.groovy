@@ -17,7 +17,7 @@ final class SemanticVerifier {
     static final Set<String> SUITE_KEYS = ['tests', 'supportSources', 'semantics'] as Set
     static final Map<String, String> EXPECTED_SUITE_BY_KEY = [
             gui              : 'view-host-contract', textures: 'texture-ownership-and-normalization',
-            preview          : 'synthetic-preview-contract', appearance: 'appearance-orchestration',
+            preview: 'scoped-preview-contract', appearance: 'appearance-orchestration',
             loaderScreen     : 'client-loader-lifecycle',
         session: 'session-boundary', filePicker: 'picker-coordination',
             clientExecutor   : 'client-executor-contract',
@@ -32,9 +32,9 @@ final class SemanticVerifier {
     ]
     static final Map<String, List<String>> SUITE_MARKERS = [
             'view-host-contract'           : ['ViewSpecGoldenTest', 'selectAllOnPrimaryClick', 'submitActionId'],
-        'texture-ownership-and-normalization': ['TextureRegistryTck', 'PlayerSkinTextureNormalizer'],
-            'synthetic-preview-contract'   : ['PreviewIntent', 'EDITOR_DRAFT', 'ASSET_THUMBNAIL', 'PreviewInteractionModel'],
-        'appearance-orchestration': ['AppearanceRefreshCoordinator', 'AppearanceReconnectTracker', 'SUPERSEDED', 'DEFERRED'],
+            'texture-ownership-and-normalization': ['TextureRegistryTck', 'PlayerSkinTextureNormalizer', 'NativePlayerSkinLifecycle', 'NativeTextureUploadTracker'],
+            'scoped-preview-contract'            : ['PreviewIntent', 'EDITOR_DRAFT', 'EditorPreviewSession', 'EditorPreviewClock', 'ExactLocalPlayerScope', 'CenteredPipPreviewTransform', 'ScreenOwnedRenderTarget', 'PreviewSkinSourceTest'],
+            'appearance-orchestration'           : ['AppearanceRefreshCoordinator', 'AppearanceReconnectTracker', 'AppearanceOverrideController', 'deferredReplacementRemainsActiveAndCanAttachWhenPlayerBecomesReady', 'SUPERSEDED', 'DEFERRED'],
             'client-loader-lifecycle'      : ['ClientProcessHost', 'afterReconnect', 'close'],
         'session-boundary': ['SessionValidationService', 'withSession', 'SECRET'],
             'client-executor-contract'     : ['ClientCapabilityContractsTest', 'ClientExecutor'],
@@ -73,7 +73,7 @@ final class SemanticVerifier {
         Map abiImplementations = abi.implementations instanceof Map ? abi.implementations as Map : [:]
         Map declarations = catalog.capabilityImplementations as Map
         Set<String> usedSuites = [] as Set
-        Map<Path, String> leafBundles = [:]
+        Map<Path, Set<Path>> leafBundleRoots = [:]
         implementations.each { Object rawId, Object rawEntry ->
             String implementation = rawId.toString()
             if (!(rawEntry instanceof Map) || (rawEntry.keySet() as Set) != IMPLEMENTATION_KEYS) {
@@ -97,8 +97,8 @@ final class SemanticVerifier {
             if (source == null) return
             String bundle = declaration.bundle?.toString()
             Set<Path> roots = bundleRoots(root, catalog.sourceBundles as Map, bundle)
-            String previous = leafBundles.putIfAbsent(source, bundle)
-            if (previous != null && previous != bundle) errors.add("${implementation}: shared leaf source ${root.relativize(source)} must be selected through one intentional bundle")
+            Set<Path> previousRoots = leafBundleRoots.putIfAbsent(source, roots)
+            if (previousRoots != null && previousRoots.intersect(roots).isEmpty()) errors.add("${implementation}: shared leaf source ${root.relativize(source)} must be selected through one intentional common bundle")
             if (roots.isEmpty() || !roots.any { source.startsWith(it) }) errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
             verifyLeaf(implementation, key, Files.readString(source), errors)
             if (key == 'preview') verifyPreviewBundle(implementation, roots, errors)
@@ -119,13 +119,38 @@ final class SemanticVerifier {
             }
         }
         String text = sources.toString().replaceAll('\\s+', ' ')
-        if (!text.contains('extends RemotePlayer')) {
-            errors.add("${implementation}: editor preview must use a synthetic RemotePlayer")
+        ['minecraft.player', 'EditorPreviewSession', 'ExactLocalPlayerScope',
+         'extends RemotePlayer'].each { String required ->
+            if (!text.contains(required)) {
+                errors.add("${implementation}: live editor preview lacks required isolated-proxy marker (${required})")
+            }
         }
-        ['LocalPlayer player = minecraft.player',
-         'PreviewRenderScope.open(player, request)'].each { String forbidden ->
-            if (text.contains(forbidden)) {
-                errors.add("${implementation}: preview must not render the exact local player (${forbidden})")
+        ['EditorPreviewClock', 'NativePlayerSkinLifecycle'].each { String required ->
+            if (!text.contains(required)) {
+                errors.add("${implementation}: editor preview lacks readiness/animation marker (${required})")
+            }
+        }
+        if (implementation.startsWith('avatar-pip-')) {
+            ['Minecraft262PreviewContext', 'NclBakedPlayerRenderState',
+             'NclBakedPlayerSubmission', 'GuiGraphicsExtractorPreviewMixin',
+             'GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
+             'ScreenOwnedRenderTarget', 'NclBakedPlayerTarget',
+             'standaloneEquipment', 'PlayerCapeModel', 'ElytraModel',
+             'modelView.pushMatrix()', 'modelView.popMatrix()'].each { String required ->
+                if (!text.contains(required)) {
+                    errors.add("${implementation}: 26.x preview lacks deferred/composite marker (${required})")
+                }
+            }
+        } else {
+            ['tickCount', 'PreviewPlayer', 'PreviewScope.open'].each { String required ->
+                if (!text.contains(required)) {
+                    errors.add("${implementation}: legacy preview lacks isolated animation marker (${required})")
+                }
+            }
+            ['bakeLayer(', 'getEntityModels()'].each { String forbidden ->
+                if (text.contains(forbidden)) {
+                    errors.add("${implementation}: static legacy preview must bypass intercepted model baking (${forbidden})")
+                }
             }
         }
         ['minecraft.player.set', 'minecraft.player.getInventory()',
@@ -191,6 +216,17 @@ final class SemanticVerifier {
             serverLoader: ['MinecraftServerLifecycle', 'MinecraftServerRefreshCommand.register']
         ]
         markers.getOrDefault(key, []).each { String marker -> if (!compact.contains(marker)) errors.add("${implementation}: ${key} leaf lacks required marker '${marker}'") }
+        if (key == 'textures') {
+            ['NativePlayerSkinLifecycle', 'OwnedSkinFile'].each { String marker ->
+                if (!compact.contains(marker)) errors.add("${implementation}: texture lifecycle lacks required marker '${marker}'")
+            }
+            List<String> nativeMarkers = implementation == 'identifier-26.2'
+                    ? ['SkinTextureDownloader', 'whenComplete', 'stagedFile.close()']
+                    : ['HttpTexture', 'NativeTextureUploadTracker', 'closeStagedFile()']
+            nativeMarkers.each { String marker ->
+                if (!compact.contains(marker)) errors.add("${implementation}: native texture readiness lacks required marker '${marker}'")
+            }
+        }
         if (key == 'serverSignal' && compact.count('instanceof LiteralCommandNode') != 2) errors.add("${implementation}: server-signal leaf must validate both exact path nodes as LiteralCommandNode")
         if (implementation == 'fabric-server-v1') {
             if (!compact.contains('ServerLifecycleEvents.SERVER_STARTED.register')) errors.add("${implementation}: Fabric service must start after server setup")

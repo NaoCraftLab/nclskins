@@ -16,7 +16,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.model.ElytraModel;
 import net.minecraft.client.model.PlayerModel;
-import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -89,14 +88,14 @@ public final class Minecraft1211SimplePreviewRenderer
 
     public Minecraft1211SimplePreviewRenderer(Minecraft minecraft) {
         Objects.requireNonNull(minecraft, "minecraft");
-        ModelPart classicRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER);
-        ModelPart slimRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER_SLIM);
-        classic = new PlayerModel<>(classicRoot, false);
-        slim = new PlayerModel<>(slimRoot, true);
-        classicCloak = classicRoot.getChild("cloak");
-        slimCloak = slimRoot.getChild("cloak");
-        elytraRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA);
-        elytra = new ElytraModel<>(elytraRoot);
+        Minecraft1211VanillaPreviewModels models =
+                Minecraft1211VanillaPreviewModels.instance();
+        classic = models.classic;
+        slim = models.slim;
+        classicCloak = models.classicCloak;
+        slimCloak = models.slimCloak;
+        elytraRoot = models.elytraRoot;
+        elytra = models.elytra;
     }
 
     @Override
@@ -112,6 +111,7 @@ public final class Minecraft1211SimplePreviewRenderer
         ModelPart cloak = slimModel ? slimCloak : classicCloak;
 
         configurePlayerModel(player, request.appearance().outerLayerVisibility());
+        resetCloaks();
         PoseStack pose = graphics.pose();
         pose.pushPose();
         try {
@@ -213,12 +213,15 @@ public final class Minecraft1211SimplePreviewRenderer
                 }
                 cloak.resetPose();
                 cloak.visible = true;
-                cloak.render(
-                        pose,
-                        buffers.getBuffer(RenderType.entitySolid(texture)),
-                        LightTexture.FULL_BRIGHT,
-                        OverlayTexture.NO_OVERLAY);
-                cloak.visible = false;
+                try {
+                    cloak.render(
+                            pose,
+                            buffers.getBuffer(RenderType.entitySolid(texture)),
+                            LightTexture.FULL_BRIGHT,
+                            OverlayTexture.NO_OVERLAY);
+                } finally {
+                    cloak.visible = false;
+                }
             } finally {
                 pose.popPose();
             }
@@ -262,6 +265,7 @@ public final class Minecraft1211SimplePreviewRenderer
         player.rightPants.resetPose();
         player.leftPants.resetPose();
         player.setAllVisible(true);
+        player.attackTime = 0.0F;
         player.crouching = false;
         player.riding = false;
         player.young = false;
@@ -276,6 +280,13 @@ public final class Minecraft1211SimplePreviewRenderer
         player.leftSleeve.visible = outerLayer.visible(OuterLayerPart.LEFT_ARM);
         player.rightPants.visible = outerLayer.visible(OuterLayerPart.RIGHT_LEG);
         player.leftPants.visible = outerLayer.visible(OuterLayerPart.LEFT_LEG);
+    }
+
+    private void resetCloaks() {
+        classicCloak.resetPose();
+        classicCloak.visible = false;
+        slimCloak.resetPose();
+        slimCloak.visible = false;
     }
 
     private static ResourceLocation parseTexture(String value) {

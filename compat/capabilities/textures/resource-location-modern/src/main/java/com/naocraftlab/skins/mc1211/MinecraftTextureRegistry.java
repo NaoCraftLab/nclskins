@@ -2,6 +2,8 @@ package com.naocraftlab.skins.mc1211;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.naocraftlab.skins.client.AbstractTextureRegistry;
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
+import com.naocraftlab.skins.client.NativeTextureUploadTracker;
 import com.naocraftlab.skins.client.OwnedSkinFile;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -69,11 +71,15 @@ public final class MinecraftTextureRegistry
         }
         return new LoadedTexture<>(
                 new TextureHandle(location.toString(), image.getWidth(), image.getHeight()),
-                new NativeTexture(location, null));
+                new NativeTexture(location, texture, null, null));
     }
 
     @Override
     protected void unload(NativeTexture resource) {
+        if (resource.registration() != null) {
+            resource.registration().retire();
+            NativeTextureUploadTracker.forget(resource.texture());
+        }
         Minecraft.getInstance().getTextureManager().release(resource.location());
         resource.closeStagedFile();
     }
@@ -90,27 +96,38 @@ public final class MinecraftTextureRegistry
         OwnedSkinFile staged = OwnedSkinFile.stage(sha256, pngBytes);
         ResourceLocation location = ResourceLocation.fromNamespaceAndPath(
                 "nclskins", pathRoot + "/feature_skin/" + sha256);
+        NativePlayerSkinLifecycle.Registration registration =
+                NativePlayerSkinLifecycle.pending(location.toString());
         HttpTexture texture = new HttpTexture(
                 staged.path().toFile(),
                 LOCAL_SKIN_SENTINEL + sha256,
                 DefaultPlayerSkin.get(FALLBACK_PROFILE_ID).texture(),
                 true,
-                staged::close);
+                () -> { });
+        NativeTextureUploadTracker.track(texture, registration);
         try {
             Minecraft.getInstance().getTextureManager().register(location, texture);
         } catch (RuntimeException failure) {
             texture.close();
+            registration.failed();
+            NativeTextureUploadTracker.forget(texture);
+            registration.retire();
             staged.close();
             throw failure;
         }
         return new LoadedTexture<>(
                 new TextureHandle(location.toString(), 64, 64),
-                new NativeTexture(location, staged));
+                new NativeTexture(location, texture, staged, registration));
     }
 
-    protected record NativeTexture(ResourceLocation location, OwnedSkinFile stagedFile) {
+    protected record NativeTexture(
+            ResourceLocation location,
+            Object texture,
+            OwnedSkinFile stagedFile,
+            NativePlayerSkinLifecycle.Registration registration) {
         protected NativeTexture {
             Objects.requireNonNull(location, "location");
+            Objects.requireNonNull(texture, "texture");
         }
 
         private void closeStagedFile() {

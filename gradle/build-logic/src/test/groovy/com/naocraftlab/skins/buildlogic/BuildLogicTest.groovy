@@ -465,19 +465,19 @@ final class BuildLogicTest {
     }
 
     @Test
-    void semanticVerifierRejectsExactLocalPlayerPreviewScope() {
+    void semanticVerifierRequiresACompleteScopedRenderProxy() {
         Path sourceRoot = Files.createTempDirectory('nclskins-preview-semantics-')
         try {
             Files.writeString(
                     sourceRoot.resolve('Preview.java'),
                     'class PreviewPlayer extends RemotePlayer { '
-                            + 'void render() { LocalPlayer player = minecraft.player; '
-                            + 'PreviewRenderScope.open(player, request); } }')
+                            + 'void render() { LocalPlayer player = minecraft.player; } }')
             List<String> errors = []
 
             SemanticVerifier.verifyPreviewBundle('fixture-preview', [sourceRoot] as Set, errors)
 
-            assertTrue(errors.any { it.contains('must not render the exact local player') })
+            assertTrue(errors.any { it.contains('lacks required isolated-proxy marker') })
+            assertTrue(errors.any { it.contains('lacks readiness/animation marker') })
         } finally {
             sourceRoot.toFile().deleteDir()
         }

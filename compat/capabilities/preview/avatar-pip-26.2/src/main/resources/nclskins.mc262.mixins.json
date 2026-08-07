@@ -3,11 +3,19 @@
   "minVersion": "0.8",
   "package": "com.naocraftlab.skins.compat.mc262.mixin",
   "client": [
+    "AbstractClientPlayerPreviewMixin",
     "AccessibilityOptionsScreenMixin",
-    "AvatarRendererMixin",
+    "AvatarPreviewMixin",
     "AvatarRenderStateMixin",
+    "GuiEntityRendererMixin",
+    "GuiGraphicsExtractorPreviewMixin",
+    "GuiRendererMixin",
+    "LivingEntityPreviewMixin",
+    "LivingEntityRendererPreviewMixin",
+    "ModelPartPreviewMixin",
     "OptionsScreenMixin",
     "PictureInPictureRendererMixin",
+    "PlayerModelPreviewAccessor",
     "ScreenRenderablesAccessor"
   ],
   "injectors": {

@@ -2,6 +2,7 @@ package com.naocraftlab.skins.compat.mc262;
 
 import com.naocraftlab.skins.client.ExpectedAppearance;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.SignedProfileResolver.ResolvedProfile;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry.TextureKind;
@@ -155,7 +156,8 @@ final class Minecraft262AppearanceSink
         if (installed == null
                 || !minecraft.getUser()
                         .getProfileId()
-                        .equals(installed.expected().profileId())) {
+                        .equals(installed.expected().profileId())
+                || !skinReady(installed)) {
             return;
         }
         PlayerInfo playerInfo = currentPlayerInfo(minecraft);
@@ -201,7 +203,8 @@ final class Minecraft262AppearanceSink
             Minecraft minecraft, InstalledOverride installed) {
         if (!minecraft.getUser()
                 .getProfileId()
-                .equals(installed.expected().profileId())) {
+                .equals(installed.expected().profileId())
+                || !skinReady(installed)) {
             return ApplyResult.DEFERRED;
         }
         PlayerInfo playerInfo = currentPlayerInfo(minecraft);
@@ -210,6 +213,11 @@ final class Minecraft262AppearanceSink
         }
         install(playerInfo, installed);
         return ApplyResult.UPDATED;
+    }
+
+    private static boolean skinReady(InstalledOverride installed) {
+        return installed.skinHandle() == null
+                || NativePlayerSkinLifecycle.isReady(installed.skinHandle().location());
     }
 
     private static void restoreVanilla(Minecraft minecraft) {

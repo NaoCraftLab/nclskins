@@ -12,8 +12,21 @@
 ### Fixed
 
 - Capes in the in-world look editor now follow player model animations provided by compatible renderer mods
-- Prevented WaveyCapes and Ears from crashing the look editor before entering a world
-- Worldless previews now zoom around their center and keep capes and elytra attached while rotating
+- Worldless previews no longer run third-party player layers, while the in-world editor gives compatible renderer mods an isolated full
+  player context without freezing the real player pose
+- Preserved embedded skin alpha data so Ears features keep their transparency instead of rendering black
+- Native skins now finish loading before in-world renderer layers or the local player use them, so 3D Skin Layers can build the
+  selected look correctly
+- Fresh Moves idle animations keep moving in the paused in-world look editor without reusing a frozen world pose or advancing the world
+- Empty player-model anchors from renderer packs no longer crash Ears features, including when Fresh Moves is active
+- A broken third-party layer is skipped without removing the rest of the in-world preview, while a broader renderer failure safely
+  falls back to vanilla for that editor session
+- Worldless previews now zoom around their center and render the player, cape, and elytra with one shared rotation and depth
+- Static previews now use a shared vanilla model pool so renderer packs cannot bake a paused world pose into menus or gallery cards
+- Gallery skins and cape cards on 26.x now keep independent render targets instead of repeating the last visible preset
+- Pending preset skins now stay empty until their own native texture is ready instead of briefly showing the current player skin
+- Worldless capes on 26.x now use their vanilla attachment pose and remain fixed to the player while rotating and zooming
+- Draft cape changes now appear immediately in both cape and elytra modes of the in-world editor
 
 ## 1.0.0-alpha.1
 

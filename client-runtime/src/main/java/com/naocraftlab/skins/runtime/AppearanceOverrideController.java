@@ -24,6 +24,7 @@ public final class AppearanceOverrideController<N, H> implements AutoCloseable {
 
     private final Strategy<N, H> strategy;
     private N active;
+    private N attached;
     private boolean closed;
 
     public AppearanceOverrideController(Strategy<N, H> strategy) {
@@ -40,9 +41,13 @@ public final class AppearanceOverrideController<N, H> implements AutoCloseable {
         ensureOpen();
         ApplyResult result = Objects.requireNonNull(
                 strategy.attach(replacement), "attachment result");
-        N previous = active;
+        N previousActive = active;
+        N previousAttached = attached;
         active = replacement;
-        release(previous);
+        if (result == ApplyResult.UPDATED) {
+            attached = replacement;
+        }
+        releaseRemoved(previousActive, previousAttached, active, attached);
         return result;
     }
 
@@ -54,8 +59,14 @@ public final class AppearanceOverrideController<N, H> implements AutoCloseable {
         if (installed == null || !strategy.expected(installed).equals(expected)) {
             return Optional.empty();
         }
-        return Optional.of(Objects.requireNonNull(
-                strategy.attach(installed), "attachment result"));
+        ApplyResult result = Objects.requireNonNull(
+                strategy.attach(installed), "attachment result");
+        if (result == ApplyResult.UPDATED) {
+            N previousAttached = attached;
+            attached = installed;
+            releaseRemoved(null, previousAttached, active, attached);
+        }
+        return Optional.of(result);
     }
 
     public ApplyResult reattach(ExpectedAppearance expected) {
@@ -65,11 +76,13 @@ public final class AppearanceOverrideController<N, H> implements AutoCloseable {
 
     public void clear() {
         ensureOpen();
-        N installed = active;
+        N previousActive = active;
+        N previousAttached = attached;
         active = null;
-        if (installed != null) {
+        attached = null;
+        if (previousActive != null || previousAttached != null) {
             strategy.restore();
-            release(installed);
+            releaseRemoved(previousActive, previousAttached, null, null);
         }
     }
 
@@ -82,12 +95,20 @@ public final class AppearanceOverrideController<N, H> implements AutoCloseable {
             return;
         }
         if (strategy.expected(installed).equals(expected)) {
-            strategy.attach(installed);
+            ApplyResult result = Objects.requireNonNull(
+                    strategy.attach(installed), "attachment result");
+            if (result == ApplyResult.UPDATED) {
+                N previousAttached = attached;
+                attached = installed;
+                releaseRemoved(null, previousAttached, active, attached);
+            }
             return;
         }
+        N previousAttached = attached;
         active = null;
+        attached = null;
         strategy.restore();
-        release(installed);
+        releaseRemoved(installed, previousAttached, null, null);
     }
 
     @Override
@@ -96,12 +117,32 @@ public final class AppearanceOverrideController<N, H> implements AutoCloseable {
             return;
         }
         closed = true;
-        N installed = active;
+        N previousActive = active;
+        N previousAttached = attached;
         active = null;
-        if (installed != null) {
+        attached = null;
+        if (previousActive != null || previousAttached != null) {
             strategy.restore();
-            release(installed);
+            releaseRemoved(previousActive, previousAttached, null, null);
         }
+    }
+
+    private void releaseRemoved(
+            N previousActive,
+            N previousAttached,
+            N nextActive,
+            N nextAttached) {
+        if (!retained(previousActive, nextActive, nextAttached)) {
+            release(previousActive);
+        }
+        if (previousAttached != previousActive
+                && !retained(previousAttached, nextActive, nextAttached)) {
+            release(previousAttached);
+        }
+    }
+
+    private static boolean retained(Object candidate, Object active, Object attached) {
+        return candidate == null || candidate == active || candidate == attached;
     }
 
     private void release(N installed) {

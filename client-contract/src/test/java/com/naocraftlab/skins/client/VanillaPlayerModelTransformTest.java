@@ -68,6 +68,25 @@ class VanillaPlayerModelTransformTest {
                 EPSILON);
     }
 
+    @Test
+    void pictureInPicturePoseOmitsOnlyTheScaleOwnedByTheHostRenderer() {
+        RecordingOperations direct = new RecordingOperations();
+        RecordingOperations pictureInPicture = new RecordingOperations();
+
+        VanillaPlayerModelTransform.applyCentered(
+                new Object(), 42.0F, 35.0F, -12.0F, direct);
+        VanillaPlayerModelTransform.applyCenteredPose(
+                new Object(), 35.0F, -12.0F, pictureInPicture);
+
+        assertEquals(direct.names.subList(1, direct.names.size()), pictureInPicture.names);
+        for (int index = 0; index < pictureInPicture.values.size(); index++) {
+            assertArrayEquals(
+                    direct.values.get(index + 1),
+                    pictureInPicture.values.get(index),
+                    EPSILON);
+        }
+    }
+
     private static final class RecordingOperations
             implements VanillaPlayerModelTransform.Operations<Object> {
         private final List<String> names = new ArrayList<>();

@@ -58,11 +58,14 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
     }
 
     @Test
-    void completeFeatureMarkerBytesReachTheNativeAdapterWithoutRasterRewriting() throws IOException {
+    void earsLikeMagicAndArbitraryAlphaReachTheNativeAdapterWithoutRasterRewriting() throws IOException {
         FakeHarness harness = new FakeHarness();
         try (harness) {
             BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
             source.setRGB(8, 0, 0x12123456);
+            source.setRGB(0, 32, 0xFF3F23D8);
+            source.setRGB(56, 20, 0x00112233);
+            source.setRGB(57, 20, 0x7F445566);
             source.setRGB(1, 16, 0xFF0000FF);
             source.setRGB(0, 16, 0xFF00007F);
             source.setRGB(0, 17, 0xFF0000FF);
@@ -80,6 +83,22 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
 
             harness.registry.register(
                     TextureKind.PLAYER_SKIN, CONTENT_HASH, png);
+
+            assertArrayEquals(png, harness.registry.lastLoadedBytes);
+        }
+    }
+
+    @Test
+    void ordinaryPlayerSkinBytesReachTheNativeAdapterWithoutPresentationRewrite() throws IOException {
+        FakeHarness harness = new FakeHarness();
+        try (harness) {
+            BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+            source.setRGB(8, 0, 0x12123456);
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+            ImageIO.write(source, "png", output);
+            byte[] png = output.toByteArray();
+
+            harness.registry.register(TextureKind.PLAYER_SKIN, CONTENT_HASH, png);
 
             assertArrayEquals(png, harness.registry.lastLoadedBytes);
         }

@@ -322,11 +322,23 @@
       "side": "client",
       "requires": []
     },
-    "avatar-pip-26.2": {
+    "avatar-pip-common": {
       "java": ["compat/capabilities/preview/avatar-pip-26.2/src/main/java"],
       "resources": ["compat/capabilities/preview/avatar-pip-26.2/src/main/resources"],
       "side": "client",
       "requires": []
+    },
+    "avatar-pip-26.1": {
+      "java": ["compat/capabilities/preview/avatar-pip-26.1/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-common"]
+    },
+    "avatar-pip-26.2": {
+      "java": ["compat/capabilities/preview/avatar-pip-render-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-common"]
     },
     "player-info-cache-1.20": {
       "java": ["compat/capabilities/appearance/player-info-cache-1.20/src/main/java"],
@@ -540,7 +552,7 @@
     "player-skin-1.21": {"bundle": "player-skin-1.21", "abiImplementation": "player-skin-1.21"},
     "avatar-pip-26.2": {"bundle": "avatar-pip-26.2", "abiImplementation": "avatar-pip-26.2"},
     "avatar-pip-26.1": {
-      "bundle": "avatar-pip-26.2",
+      "bundle": "avatar-pip-26.1",
       "abiImplementation": "avatar-pip-26.1"
     },
     "player-info-cache-1.20": {"bundle": "player-info-cache-1.20", "abiImplementation": "player-info-cache-1.20"},

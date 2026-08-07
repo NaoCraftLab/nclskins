@@ -764,6 +764,12 @@ public record ViewSpec(
             }
         }
 
+        public boolean requiresLoadedSkin() {
+            return skin.optionalAssetId().isPresent()
+                    || catalogImage.isPresent()
+                    || externalImage.isPresent();
+        }
+
         public Preview(
                 String id,
                 Bounds bounds,

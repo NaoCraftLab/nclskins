@@ -104,13 +104,14 @@ public final class NclSkinsScreen extends Screen {
     private final Map<String, AbstractWidget> nativeWidgets = new HashMap<>();
     private final Map<String, NativeTabGroup> nativeTabGroups = new HashMap<>();
     private final Map<String, Minecraft262SimplePreviewRenderer> galleryRenderers = new HashMap<>();
+    private final Map<String, Minecraft262SimplePreviewRenderer> backEquipmentRenderers =
+            new HashMap<>();
     private final Map<String, SkinKey> previewSkinKeys = new HashMap<>();
 
     private Minecraft262TextureRegistry textureRegistry;
     private PreviewAssetCache<SkinKey> skinTextures;
     private PreviewAssetCache<String> capeTextures;
     private Minecraft262PreviewRenderer editorRenderer;
-    private Minecraft262SimplePreviewRenderer backEquipmentRenderer;
     private ClientRuntime.Subscription subscription;
     private ViewSpec currentView;
     private List<WidgetSignature> widgetSignature = List.of();
@@ -164,10 +165,6 @@ public final class NclSkinsScreen extends Screen {
         if (editorRenderer == null) {
             editorRenderer = new Minecraft262PreviewRenderer();
         }
-        if (backEquipmentRenderer == null) {
-            backEquipmentRenderer = new Minecraft262SimplePreviewRenderer();
-        }
-
         runtime.reopen();
         currentView = runtime.view(width, height, lastMouseX, lastMouseY);
         nativeWidgets.clear();
@@ -632,25 +629,33 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private void drawPreviews(GuiGraphicsExtractor graphics, ViewSpec view) {
-        PlayerAppearance fallback = runtime.currentPlayerAppearance()
-                .orElseThrow(() -> new IllegalStateException("Current-player appearance capability is unavailable"));
         Set<String> visibleIds = new HashSet<>();
         for (ViewSpec.Preview preview : view.previews()) {
             visibleIds.add(preview.id());
-            Optional<TextureHandle> loadedSkin = Optional.ofNullable(previewSkinKeys.get(preview.id()))
-                    .flatMap(skinTextures::handle);
-            if ((preview.catalogImage().isPresent() || preview.externalImage().isPresent())
-                    && loadedSkin.isEmpty()) {
-                continue;
+            TextureHandle skin;
+            SkinModel model;
+            if (preview.requiresLoadedSkin()) {
+                Optional<TextureHandle> loadedSkin = Optional.ofNullable(previewSkinKeys.get(preview.id()))
+                        .flatMap(skinTextures::handle);
+                if (loadedSkin.isEmpty()) {
+                    continue;
+                }
+                skin = loadedSkin.orElseThrow();
+                model = preview.variant() == SkinVariant.SLIM ? SkinModel.SLIM : SkinModel.CLASSIC;
+            } else {
+                PlayerAppearance current = runtime.currentPlayerAppearance()
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Current-player appearance capability is unavailable"));
+                skin = current.skin();
+                model = current.model();
             }
-            TextureHandle skin = loadedSkin.orElse(fallback.skin());
             Optional<TextureHandle> cape = preview.capeId().flatMap(capeTextures::handle);
             PreviewRenderer.CapeMode capeMode = cape.isPresent()
                     ? preview.capeMode()
                     : PreviewRenderer.CapeMode.OFF;
             PreviewRenderer.PreviewAppearance appearance = new PreviewRenderer.PreviewAppearance(
                     skin,
-                    preview.variant() == SkinVariant.SLIM ? SkinModel.SLIM : SkinModel.CLASSIC,
+                    model,
                     cape,
                     capeMode,
                     preview.outerLayerVisibility());
@@ -673,7 +678,7 @@ public final class NclSkinsScreen extends Screen {
                         .render(graphics, request));
             }
         }
-        galleryRenderers.keySet().removeIf(id -> !visibleIds.contains(id));
+        closeMissingRenderers(galleryRenderers, visibleIds);
     }
 
     private void drawVanillaListPanel(GuiGraphicsExtractor graphics, Bounds bounds) {
@@ -930,21 +935,39 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private void drawBackEquipmentPreviews(GuiGraphicsExtractor graphics, ViewSpec view) {
+        Set<String> visibleIds = new HashSet<>();
         for (ViewSpec.BackEquipmentPreview backEquipment : view.backEquipmentPreviews()) {
+            visibleIds.add(backEquipment.id());
             Optional<TextureHandle> loaded = capeTextures.handle(backEquipment.capeId());
             if (loaded.isEmpty()) {
                 continue;
             }
             Bounds bounds = backEquipment.bounds();
-            drawClipped(graphics, view, backEquipment.id(), () -> backEquipmentRenderer.render(
-                    graphics,
-                    new BackEquipmentPreviewRenderer.Request(
-                            loaded.orElseThrow(),
-                            backEquipment.mode(),
-                            bounds.x(),
-                            bounds.y(),
-                            bounds.width(),
-                            bounds.height())));
+            drawClipped(graphics, view, backEquipment.id(), () -> backEquipmentRenderers
+                    .computeIfAbsent(
+                            backEquipment.id(), ignored -> new Minecraft262SimplePreviewRenderer())
+                    .render(
+                            graphics,
+                            new BackEquipmentPreviewRenderer.Request(
+                                    loaded.orElseThrow(),
+                                    backEquipment.mode(),
+                                    bounds.x(),
+                                    bounds.y(),
+                                    bounds.width(),
+                                    bounds.height())));
+        }
+        closeMissingRenderers(backEquipmentRenderers, visibleIds);
+    }
+
+    private static void closeMissingRenderers(
+            Map<String, Minecraft262SimplePreviewRenderer> renderers, Set<String> visibleIds) {
+        var iterator = renderers.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, Minecraft262SimplePreviewRenderer> entry = iterator.next();
+            if (!visibleIds.contains(entry.getKey())) {
+                entry.getValue().close();
+                iterator.remove();
+            }
         }
     }
 
@@ -1249,8 +1272,10 @@ public final class NclSkinsScreen extends Screen {
                     preview.externalImage(),
                     preview.variant());
             previewSkinKeys.put(preview.id(), key);
-            desiredSkins.add(key);
-            ensureSkin(preview, key, skinTextures);
+            if (preview.requiresLoadedSkin()) {
+                desiredSkins.add(key);
+                ensureSkin(preview, key, skinTextures);
+            }
             preview.capeId().ifPresent(capeId -> {
                 desiredCapes.add(capeId);
                 ensureCape(preview, capeId);
@@ -1324,8 +1349,15 @@ public final class NclSkinsScreen extends Screen {
                         }
                     } finally {
                         previewSkinKeys.clear();
+                        galleryRenderers.values().forEach(Minecraft262SimplePreviewRenderer::close);
                         galleryRenderers.clear();
-                        backEquipmentRenderer = null;
+                        backEquipmentRenderers.values()
+                                .forEach(Minecraft262SimplePreviewRenderer::close);
+                        backEquipmentRenderers.clear();
+                        if (editorRenderer != null) {
+                            editorRenderer.close();
+                            editorRenderer = null;
+                        }
                         nativeWidgets.clear();
                         nativeTabGroups.clear();
                         try {

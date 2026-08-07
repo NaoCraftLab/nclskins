@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.TextureRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -17,6 +18,66 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PreviewAssetCacheTest {
+    @Test
+    void managedPlayerSkinIsHiddenUntilNativeUploadIsReady() {
+        FakeRegistry registry = new FakeRegistry();
+        PreviewAssetCache<String> cache =
+                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.PLAYER_SKIN);
+
+        cache.request(
+                "skin",
+                () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})),
+                () -> {
+                });
+        NativePlayerSkinLifecycle.Registration registration =
+                NativePlayerSkinLifecycle.pending("texture/1");
+
+        assertTrue(cache.handle("skin").isEmpty());
+        registration.ready();
+        assertEquals("texture/1", cache.handle("skin").orElseThrow().location());
+
+        cache.close();
+        registration.retire();
+    }
+
+    @Test
+    void failedNativePlayerSkinIsReleasedAndRetriedWithBackoff() {
+        FakeRegistry registry = new FakeRegistry();
+        FakeMonotonicClock clock = new FakeMonotonicClock();
+        PreviewAssetCache<String> cache = new PreviewAssetCache<>(
+                registry, TextureRegistry.TextureKind.PLAYER_SKIN, clock::now);
+        AtomicInteger loads = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
+
+        cache.request(
+                "skin",
+                () -> result(loads, Optional.of(new byte[]{1})),
+                failures::incrementAndGet);
+        NativePlayerSkinLifecycle.Registration failed =
+                NativePlayerSkinLifecycle.pending("texture/1");
+        failed.failed();
+
+        assertTrue(cache.handle("skin").isEmpty());
+        cache.request(
+                "skin",
+                () -> result(loads, Optional.of(new byte[]{2})),
+                failures::incrementAndGet);
+        assertEquals(List.of("texture/1"), registry.released);
+        assertEquals(1, failures.get());
+        assertEquals(1, loads.get());
+
+        failed.retire();
+        clock.advanceMillis(250L);
+        cache.request(
+                "skin",
+                () -> result(loads, Optional.of(new byte[]{2})),
+                failures::incrementAndGet);
+
+        assertEquals(2, loads.get());
+        assertEquals("texture/2", cache.handle("skin").orElseThrow().location());
+        cache.close();
+    }
+
     @Test
     void oneKeyStartsOneLoadAndRetainsTheRegisteredHandle() {
         FakeRegistry registry = new FakeRegistry();

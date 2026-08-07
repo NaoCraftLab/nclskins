@@ -29,6 +29,15 @@ public final class VanillaPlayerModelTransform {
             Operations<C> operations) {
         validate(context, scale, yawDegrees, pitchDegrees, operations);
         operations.scale(context, scale, scale, -scale);
+        applyCenteredPose(context, yawDegrees, pitchDegrees, operations);
+    }
+
+    public static <C> void applyCenteredPose(
+            C context,
+            float yawDegrees,
+            float pitchDegrees,
+            Operations<C> operations) {
+        validate(context, 1.0F, yawDegrees, pitchDegrees, operations);
         operations.translate(
                 context,
                 0.0F,

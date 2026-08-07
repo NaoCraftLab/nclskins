@@ -1,14 +1,19 @@
 package com.naocraftlab.skins.compat.mc262;
 
-import net.minecraft.resources.Identifier;
-
-
 public interface NclSkinsWideDepthState {
     boolean nclskins$usesWideDepth();
 
     void nclskins$setWideDepth(boolean wideDepth);
 
-    Identifier nclskins$worldlessCapeTexture();
+    PreviewRenderFailureSink nclskins$failureSink();
 
-    void nclskins$setWorldlessCapeTexture(Identifier texture);
+    void nclskins$setFailureSink(PreviewRenderFailureSink failureSink);
+
+    PreviewRenderFailureSink nclskins$layerFailureSink();
+
+    void nclskins$setLayerFailureSink(PreviewRenderFailureSink failureSink);
+
+    Minecraft262PreviewContext nclskins$previewContext();
+
+    void nclskins$setPreviewContext(Minecraft262PreviewContext previewContext);
 }

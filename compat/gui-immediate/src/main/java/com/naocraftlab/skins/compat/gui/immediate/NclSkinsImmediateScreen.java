@@ -1201,9 +1201,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                             ? existing
                             : new PreviewSlot(editor));
             PreviewAssetKey key = previewAssetKey(preview);
-            if (preview.skin().optionalAssetId().isPresent()
-                    || preview.catalogImage().isPresent()
-                    || preview.externalImage().isPresent()) {
+            if (preview.requiresLoadedSkin()) {
                 desiredSkins.add(key);
                 skinTextures.request(
                         key,
@@ -1237,9 +1235,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         }
         TextureHandle skin;
         SkinModel model;
-        if (preview.skin().optionalAssetId().isEmpty()
-                && preview.catalogImage().isEmpty()
-                && preview.externalImage().isEmpty()) {
+        if (!preview.requiresLoadedSkin()) {
             PlayerAppearance borrowed = runtime.currentPlayerAppearance()
                     .orElseThrow(() -> new IllegalStateException(
                             "Current-player appearance capability is unavailable"));

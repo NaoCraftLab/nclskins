@@ -24,9 +24,35 @@ final class ArtifactVerifier {
                 'com/naocraftlab/skins/compat/v1_20_1/client/mixin/AccessibilityOptionsScreenMixin': [
                     options: 'Lnet/minecraft/client/gui/screens/AccessibilityOptionsScreen;m_232690_(Lnet/minecraft/client/Options;)[Lnet/minecraft/client/OptionInstance;'
                 ],
+                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/AbstractClientPlayerPreviewMixin': [
+                        getCloakTextureLocation : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108561_()Lnet/minecraft/resources/ResourceLocation;',
+                        isCapeLoaded            : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108555_()Z',
+                        getSkinTextureLocation  : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108560_()Lnet/minecraft/resources/ResourceLocation;',
+                        isElytraLoaded          : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108562_()Z',
+                        isSkinLoaded            : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108559_()Z',
+                        getModelName            : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108564_()Ljava/lang/String;',
+                        getElytraTextureLocation: 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108563_()Lnet/minecraft/resources/ResourceLocation;'
+                ],
+                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/HttpTextureUploadMixin'          : [
+                        'upload(Lcom/mojang/blaze3d/platform/NativeImage;)V': 'Lnet/minecraft/client/renderer/texture/HttpTexture;m_118020_(Lcom/mojang/blaze3d/platform/NativeImage;)V'
+                ],
+                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/LivingEntityRendererPreviewMixin': [
+                        render                                                                                                                                                                                              : 'Lnet/minecraft/client/renderer/entity/LivingEntityRenderer;m_7392_(Lnet/minecraft/world/entity/LivingEntity;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V',
+                        'Lnet/minecraft/client/renderer/entity/layers/RenderLayer;render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/world/entity/Entity;FFFFFF)V': 'Lnet/minecraft/client/renderer/entity/layers/RenderLayer;m_6494_(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/world/entity/Entity;FFFFFF)V'
+                ],
+                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/ModelPartPreviewMixin'           : [
+                        getRandomCube: 'Lnet/minecraft/client/model/geom/ModelPart;m_233558_(Lnet/minecraft/util/RandomSource;)Lnet/minecraft/client/model/geom/ModelPart$Cube;'
+                ],
                 'com/naocraftlab/skins/compat/v1_20_1/client/mixin/OptionsScreenMixin': [
                     init: 'Lnet/minecraft/client/gui/screens/OptionsScreen;m_7856_()V',
                     'Lnet/minecraft/client/gui/layouts/GridLayout$RowHelper;addChild(Lnet/minecraft/client/gui/layouts/LayoutElement;)Lnet/minecraft/client/gui/layouts/LayoutElement;': 'Lnet/minecraft/client/gui/layouts/GridLayout$RowHelper;m_264139_(Lnet/minecraft/client/gui/layouts/LayoutElement;)Lnet/minecraft/client/gui/layouts/LayoutElement;'
+                ],
+                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/PlayerPreviewMixin'              : [
+                        isModelPartShown: 'Lnet/minecraft/world/entity/player/Player;m_36170_(Lnet/minecraft/world/entity/player/PlayerModelPart;)Z',
+                        getItemBySlot   : 'Lnet/minecraft/world/entity/player/Player;m_6844_(Lnet/minecraft/world/entity/EquipmentSlot;)Lnet/minecraft/world/item/ItemStack;'
+                ],
+                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/PlayerModelPreviewAccessor'      : [
+                        slim: 'f_103380_:Z'
                 ],
                 'com/naocraftlab/skins/compat/v1_20_1/client/mixin/ScreenRenderablesAccessor': [
                     renderables: 'f_169369_:Ljava/util/List;'

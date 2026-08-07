@@ -10,57 +10,53 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlayerSkinTextureNormalizerTest {
     @Test
-    void ordinaryModernSkinRepairsOnlyMandatoryBaseAlpha() throws IOException {
+    void ordinaryModernSkinReachesTheNativeLoaderByteForByte() throws IOException {
         BufferedImage source = coordinateImage(64, 64, 0x12);
         source.setRGB(0, 0, 0x00112233);
+        byte[] png = writePng(source);
 
-        BufferedImage normalized = read(PlayerSkinTextureNormalizer.normalizePng(writePng(source)));
+        byte[] normalized = PlayerSkinTextureNormalizer.normalizePng(png);
 
-        assertEquals(64, normalized.getWidth());
-        assertEquals(64, normalized.getHeight());
-        assertEquals(0xFF, alpha(normalized.getRGB(8, 0)));
-        assertEquals(0x00112233, normalized.getRGB(0, 0));
-        assertEquals(source.getRGB(40, 8), normalized.getRGB(40, 8));
+        assertArrayEquals(png, normalized);
+        assertEquals(0x12, alpha(read(normalized).getRGB(8, 0)));
     }
 
     @Test
-    void ordinaryLegacySkinKeepsLegacyDimensionsForTheNativeLoader() throws IOException {
+    void ordinaryLegacySkinReachesTheNativeLoaderByteForByte() throws IOException {
         BufferedImage source = coordinateImage(64, 32, 0x12);
+        byte[] png = writePng(source);
 
-        BufferedImage normalized = read(PlayerSkinTextureNormalizer.normalizePng(writePng(source)));
+        byte[] normalized = PlayerSkinTextureNormalizer.normalizePng(png);
 
-        assertEquals(64, normalized.getWidth());
-        assertEquals(32, normalized.getHeight());
-        assertEquals(0xFF, alpha(normalized.getRGB(8, 0)));
+        assertArrayEquals(png, normalized);
+        assertEquals(32, read(normalized).getHeight());
     }
 
     @Test
-    void completeEtfMarkerPreservesExactPngAndEmbeddedAlpha() throws IOException {
+    void featureMarkerAndEmbeddedAlphaArePreservedWithoutFormatRecognition() throws IOException {
         BufferedImage source = coordinateImage(64, 64, 0x12);
         addEtfMarker(source);
         byte[] png = writePng(source);
 
-        assertTrue(PlayerSkinTextureNormalizer.hasCompleteEtfFeatureMarker(source));
         assertArrayEquals(png, PlayerSkinTextureNormalizer.normalizePng(png));
         assertEquals(0x12, alpha(read(png).getRGB(8, 0)));
     }
 
     @Test
-    void incompleteEtfMarkerDoesNotDisableOrdinaryAlphaRepair() throws IOException {
+    void incompleteFeatureMarkerAndArbitraryAlphaAreAlsoPreserved() throws IOException {
         BufferedImage source = coordinateImage(64, 64, 0x12);
         addEtfMarker(source);
         source.setRGB(3, 18, 0xFF000000);
 
-        BufferedImage normalized = read(PlayerSkinTextureNormalizer.normalizePng(writePng(source)));
+        byte[] png = writePng(source);
+        byte[] normalized = PlayerSkinTextureNormalizer.normalizePng(png);
 
-        assertFalse(PlayerSkinTextureNormalizer.hasCompleteEtfFeatureMarker(source));
-        assertEquals(0xFF, alpha(normalized.getRGB(8, 0)));
+        assertArrayEquals(png, normalized);
+        assertEquals(0x12, alpha(read(normalized).getRGB(8, 0)));
     }
 
     @Test

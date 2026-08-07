@@ -2,113 +2,140 @@ package com.naocraftlab.skins.compat.mc262;
 
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.PreviewRenderer;
-import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinModel;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.model.Model;
-import net.minecraft.client.model.object.equipment.ElytraModel;
-import net.minecraft.client.model.player.PlayerCapeModel;
 import net.minecraft.client.model.player.PlayerModel;
-import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.model.geom.PartPose;
-import net.minecraft.client.model.geom.builders.CubeDeformation;
-import net.minecraft.client.model.geom.builders.CubeListBuilder;
-import net.minecraft.client.model.geom.builders.LayerDefinition;
-import net.minecraft.client.model.geom.builders.MeshDefinition;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.resources.Identifier;
 
 
 final class Minecraft262SimplePreviewRenderer
-        implements PreviewRenderer<GuiGraphicsExtractor>, BackEquipmentPreviewRenderer<GuiGraphicsExtractor> {
+        implements PreviewRenderer<GuiGraphicsExtractor>,
+                BackEquipmentPreviewRenderer<GuiGraphicsExtractor>, AutoCloseable {
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
-    private static final float PIVOT_Y = -MODEL_HEIGHT / 2.0F;
     private static final float EQUIPMENT_MODEL_WIDTH = 1.5F;
     private static final float EQUIPMENT_MODEL_HEIGHT = 1.25F;
-    private static final float EQUIPMENT_PIVOT_Y = -EQUIPMENT_MODEL_HEIGHT / 2.0F;
     private static final float EQUIPMENT_FIT_PADDING = 0.88F;
     private static final Method SKIN_METHOD = skinMethod();
     private static final boolean PLAYER_MODEL_SKIN =
             SKIN_METHOD.getParameterTypes()[0] == PlayerModel.class;
 
-    private final Model.Simple wideModel;
-    private final Model.Simple slimModel;
-    private final PlayerModel widePlayerModel;
-    private final PlayerModel slimPlayerModel;
-    private final Model.Simple simpleCapeModel;
-    private final Model.Simple simpleElytraModel;
-    private final PlayerModel playerCapeModel;
-    private final PlayerModel playerElytraModel;
+    private final Minecraft262VanillaPreviewModels models = Minecraft262VanillaPreviewModels.INSTANCE;
+    private final NclBakedPlayerTarget target = new NclBakedPlayerTarget();
 
     Minecraft262SimplePreviewRenderer() {
-
-
-        wideModel = simplePlayerModel(false);
-        slimModel = simplePlayerModel(true);
-        widePlayerModel = playerModel(false);
-        slimPlayerModel = playerModel(true);
-        simpleCapeModel = new Model.Simple(
-                PlayerCapeModel.createCapeLayer().bakeRoot(), RenderTypes::entityTranslucent);
-        simpleElytraModel = new Model.Simple(
-                ElytraModel.createLayer().bakeRoot(), RenderTypes::entityTranslucent);
-        playerCapeModel = new PlayerCapeModel(PlayerCapeModel.createCapeLayer().bakeRoot());
-        playerElytraModel = new PlayerModel(playerElytraRoot(), false);
     }
 
     @Override
     public void render(GuiGraphicsExtractor graphics, PreviewRequest request) {
         PreviewAppearance appearance = request.appearance();
-        Model.Simple simpleModel = appearance.model() == SkinModel.SLIM ? slimModel : wideModel;
-        PlayerModel playerModel = appearance.model() == SkinModel.SLIM ? slimPlayerModel : widePlayerModel;
-        ModelPart playerRoot = PLAYER_MODEL_SKIN ? playerModel.root() : simpleModel.root();
-        configureOuterLayer(playerRoot, appearance.outerLayerVisibility());
+        Model.Simple simpleModel = appearance.model() == SkinModel.SLIM
+                ? models.slimModel
+                : models.wideModel;
+        PlayerModel playerModel = appearance.model() == SkinModel.SLIM
+                ? models.slimPlayerModel
+                : models.widePlayerModel;
         float scale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
-
-        appearance.cape().filter(ignored -> appearance.capeMode() != CapeMode.OFF).ifPresent(cape -> {
-            Object attachment = attachment(appearance.capeMode());
-            ((Model<?>) attachment).resetPose();
-
-
+        Identifier attachmentTexture = appearance.cape()
+                .filter(ignored -> appearance.capeMode() != CapeMode.OFF)
+                .map(cape -> Identifier.parse(cape.location()))
+                .orElse(null);
+        Minecraft262VanillaPreviewModels.AttachmentModels attachment = attachmentTexture == null
+                ? null
+                : attachment(appearance.capeMode());
+        NclBakedPlayerRenderState state = new NclBakedPlayerRenderState(
+                target,
+                PLAYER_MODEL_SKIN ? playerModel : null,
+                PLAYER_MODEL_SKIN ? null : simpleModel,
+                attachment == null || !PLAYER_MODEL_SKIN ? null : attachment.player(),
+                attachment == null || PLAYER_MODEL_SKIN ? null : attachment.simple(),
+                attachment == null
+                        ? null
+                        : PLAYER_MODEL_SKIN
+                                ? attachment.playerCapePose()
+                                : attachment.simpleCapePose(),
+                attachment == null
+                        ? null
+                        : PLAYER_MODEL_SKIN
+                                ? attachment.playerElytraPose()
+                                : attachment.simpleElytraPose(),
+                Identifier.parse(appearance.skin().location()),
+                attachmentTexture,
+                appearance.capeMode(),
+                appearance.outerLayerVisibility(),
+                request.pitchDegrees(),
+                request.yawDegrees(),
+                request.left(),
+                request.top(),
+                request.left() + request.width(),
+                request.top() + request.height(),
+                scale,
+                false,
+                null);
+        try (NclBakedPlayerSubmission submission =
+                NclBakedPlayerSubmission.open(graphics, state)) {
             submit(
                     graphics,
-                    attachment,
-                    Identifier.parse(cape.location()),
+                    PLAYER_MODEL_SKIN ? playerModel : simpleModel,
+                    state.skinTexture(),
                     scale,
                     request);
-        });
-        submit(
-                graphics,
-                PLAYER_MODEL_SKIN ? playerModel : simpleModel,
-                Identifier.parse(appearance.skin().location()),
-                scale,
-                request);
+            submission.requireConsumed();
+        }
     }
 
     @Override
     public void render(
             GuiGraphicsExtractor graphics,
             BackEquipmentPreviewRenderer.Request request) {
-        Object attachment = attachment(request.mode());
-        ((Model<?>) attachment).resetPose();
+        Minecraft262VanillaPreviewModels.AttachmentModels attachment = attachment(request.mode());
+        Object submittedModel = PLAYER_MODEL_SKIN ? attachment.player() : attachment.simple();
         float scale = EQUIPMENT_FIT_PADDING * Math.min(
                 request.width() / EQUIPMENT_MODEL_WIDTH,
                 request.height() / EQUIPMENT_MODEL_HEIGHT);
-        submit(
-                graphics,
-                attachment,
+        PreviewRenderer.CapeMode mode = request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA
+                ? PreviewRenderer.CapeMode.ELYTRA
+                : PreviewRenderer.CapeMode.CAPE;
+        NclBakedPlayerRenderState state = new NclBakedPlayerRenderState(
+                target,
+                null,
+                null,
+                PLAYER_MODEL_SKIN ? attachment.player() : null,
+                PLAYER_MODEL_SKIN ? null : attachment.simple(),
+                PLAYER_MODEL_SKIN ? attachment.playerCapePose() : attachment.simpleCapePose(),
+                PLAYER_MODEL_SKIN ? attachment.playerElytraPose() : attachment.simpleElytraPose(),
+                null,
                 Identifier.parse(request.texture().location()),
-                scale,
+                mode,
+                OuterLayerVisibility.allVisible(),
                 0.0F,
                 180.0F,
-                EQUIPMENT_PIVOT_Y,
                 request.left(),
                 request.top(),
                 request.left() + request.width(),
-                request.top() + request.height());
+                request.top() + request.height(),
+                scale,
+                true,
+                null);
+        try (NclBakedPlayerSubmission submission = NclBakedPlayerSubmission.open(graphics, state)) {
+            submit(
+                    graphics,
+                    submittedModel,
+                    state.attachmentTexture(),
+                    scale,
+                    0.0F,
+                    180.0F,
+                    0.0F,
+                    request.left(),
+                    request.top(),
+                    request.left() + request.width(),
+                    request.top() + request.height());
+            submission.requireConsumed();
+        }
     }
 
     private static void submit(
@@ -124,7 +151,7 @@ final class Minecraft262SimplePreviewRenderer
                 scale,
                 request.pitchDegrees(),
                 request.yawDegrees(),
-                PIVOT_Y,
+                0.0F,
                 request.left(),
                 request.top(),
                 request.left() + request.width(),
@@ -161,63 +188,20 @@ final class Minecraft262SimplePreviewRenderer
         }
     }
 
-    private static void configureOuterLayer(ModelPart root, OuterLayerVisibility visible) {
-        root.resetPose();
-        root.getChild("head").getChild("hat").visible = visible.visible(OuterLayerPart.HEAD);
-        root.getChild("body").getChild("jacket").visible = visible.visible(OuterLayerPart.BODY);
-        root.getChild("left_arm").getChild("left_sleeve").visible = visible.visible(OuterLayerPart.LEFT_ARM);
-        root.getChild("right_arm").getChild("right_sleeve").visible = visible.visible(OuterLayerPart.RIGHT_ARM);
-        root.getChild("left_leg").getChild("left_pants").visible = visible.visible(OuterLayerPart.LEFT_LEG);
-        root.getChild("right_leg").getChild("right_pants").visible = visible.visible(OuterLayerPart.RIGHT_LEG);
+    private Minecraft262VanillaPreviewModels.AttachmentModels attachment(CapeMode mode) {
+        return mode == CapeMode.ELYTRA ? models.elytra : models.cape;
     }
 
-    private static Model.Simple simplePlayerModel(boolean slim) {
-        ModelPart root = LayerDefinition.create(
-                        PlayerModel.createMesh(CubeDeformation.NONE, slim), 64, 64)
-                .bakeRoot();
-        return new Model.Simple(root, RenderTypes::entityTranslucent);
-    }
-
-    private static PlayerModel playerModel(boolean slim) {
-        ModelPart root = LayerDefinition.create(
-                        PlayerModel.createMesh(CubeDeformation.NONE, slim), 64, 64)
-                .bakeRoot();
-        return new PlayerModel(root, slim);
-    }
-
-    private Object attachment(CapeMode mode) {
-        if (PLAYER_MODEL_SKIN) {
-            return mode == CapeMode.ELYTRA ? playerElytraModel : playerCapeModel;
-        }
-        return mode == CapeMode.ELYTRA ? simpleElytraModel : simpleCapeModel;
-    }
-
-    private Object attachment(BackEquipmentPreviewRenderer.Mode mode) {
-        if (PLAYER_MODEL_SKIN) {
-            return mode == BackEquipmentPreviewRenderer.Mode.ELYTRA
-                    ? playerElytraModel
-                    : playerCapeModel;
-        }
+    private Minecraft262VanillaPreviewModels.AttachmentModels attachment(
+            BackEquipmentPreviewRenderer.Mode mode) {
         return mode == BackEquipmentPreviewRenderer.Mode.ELYTRA
-                ? simpleElytraModel
-                : simpleCapeModel;
+                ? models.elytra
+                : models.cape;
     }
 
-    private static ModelPart playerElytraRoot() {
-        MeshDefinition mesh = PlayerModel.createMesh(CubeDeformation.NONE, false);
-        mesh.getRoot().clearRecursively();
-        CubeDeformation deformation = new CubeDeformation(1.0F);
-        mesh.getRoot().addOrReplaceChild(
-                "left_wing",
-                CubeListBuilder.create().texOffs(22, 0)
-                        .addBox(-10.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, deformation),
-                PartPose.offsetAndRotation(5.0F, 0.0F, 0.0F, 0.2617994F, 0.0F, -0.2617994F));
-        mesh.getRoot().addOrReplaceChild(
-                "right_wing",
-                CubeListBuilder.create().texOffs(22, 0).mirror()
-                        .addBox(0.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, deformation),
-                PartPose.offsetAndRotation(-5.0F, 0.0F, 0.0F, 0.2617994F, 0.0F, 0.2617994F));
-        return LayerDefinition.create(mesh, 64, 32).bakeRoot();
+    @Override
+    public void close() {
+        target.close();
     }
 
     private static Method skinMethod() {

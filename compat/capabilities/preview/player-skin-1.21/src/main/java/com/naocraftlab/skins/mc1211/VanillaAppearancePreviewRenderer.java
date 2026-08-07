@@ -5,25 +5,27 @@ import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
+import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
+import com.naocraftlab.skins.client.EditorPreviewClock;
+import com.naocraftlab.skins.client.EditorPreviewSession;
 import com.naocraftlab.skins.client.LegacyPreviewDepth;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
 import com.naocraftlab.skins.client.VanillaPlayerModelTransform;
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.model.ElytraModel;
 import net.minecraft.client.model.PlayerModel;
-import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -49,6 +51,8 @@ import org.joml.Vector3f;
 public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final AtomicInteger NEXT_PREVIEW_ENTITY_ID = new AtomicInteger(-1);
     private static final PlayerTeam PREVIEW_TEAM = previewTeam();
+    private static final System.Logger LOGGER =
+            System.getLogger(VanillaAppearancePreviewRenderer.class.getName());
     private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
@@ -114,7 +118,11 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             };
 
     private final Minecraft minecraft;
-    private final UUID previewNamespace = UUID.randomUUID();
+    private final EditorPreviewSession session = new EditorPreviewSession();
+    private final EditorPreviewClock previewClock = new EditorPreviewClock();
+    private boolean layerFailureLogged;
+    private final GameProfile previewProfile =
+            new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
     private final PlayerModel<?> classic;
     private final PlayerModel<?> slim;
     private final ModelPart classicCloak;
@@ -123,32 +131,41 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     private final ElytraModel<?> elytra;
     private PreviewPlayer previewPlayer;
     private ClientLevel previewLevel;
-    private PreviewAppearance previewAppearance;
 
     public VanillaAppearancePreviewRenderer(Minecraft minecraft) {
         this.minecraft = minecraft;
-        ModelPart classicRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER);
-        ModelPart slimRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER_SLIM);
-        classic = new PlayerModel<>(classicRoot, false);
-        slim = new PlayerModel<>(slimRoot, true);
-        classicCloak = classicRoot.getChild("cloak");
-        slimCloak = slimRoot.getChild("cloak");
-        elytraRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA);
-        elytra = new ElytraModel<>(elytraRoot);
+        Minecraft1211VanillaPreviewModels models =
+                Minecraft1211VanillaPreviewModels.instance();
+        classic = models.classic;
+        slim = models.slim;
+        classicCloak = models.classicCloak;
+        slimCloak = models.slimCloak;
+        elytraRoot = models.elytraRoot;
+        elytra = models.elytra;
     }
 
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
+        LocalPlayer localPlayer = minecraft.player;
+        if (session.path(request.intent(), minecraft.level != null && localPlayer != null)
+                        == EditorPreviewSession.Path.BAKED
+                || !NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) {
+            renderFallback(graphics, request);
+            return;
+        }
+
         PreviewPlayer player = previewPlayer(request.appearance());
         if (player == null) {
             renderFallback(graphics, request);
             return;
         }
 
-        configureEntity(player, request);
-        PoseStack pose = graphics.pose();
-        pose.pushPose();
-        try {
+        try (Minecraft1211PreviewScope ignored = Minecraft1211PreviewScope.open(
+                minecraft, localPlayer, request.appearance())) {
+            configureEntity(player, request);
+            PoseStack pose = graphics.pose();
+            pose.pushPose();
+            try {
             float fittedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
 
 
@@ -163,38 +180,50 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
                     player.getBbHeight() / 2.0F + ENTITY_Y_OFFSET,
                     0.0F);
 
-            InventoryScreen.renderEntityInInventory(
-                    graphics,
-                    request.left() + request.width() / 2.0F,
-                    request.top() + request.height() / 2.0F,
-                    fittedScale / player.getScale(),
-                    translation,
-                    modelRotation,
-                    cameraPitch,
-                    player);
-        } finally {
-            pose.popPose();
+            try (EditorPreviewLayerGuard ignoredLayers =
+                    EditorPreviewLayerGuard.open(this::onLiveLayerFailure)) {
+                InventoryScreen.renderEntityInInventory(
+                        graphics,
+                        request.left() + request.width() / 2.0F,
+                        request.top() + request.height() / 2.0F,
+                        fittedScale / player.getScale(),
+                        translation,
+                        modelRotation,
+                        cameraPitch,
+                        player);
+            }
+            } finally {
+                pose.popPose();
+            }
+        } catch (RuntimeException failure) {
+            if (session.disableLive(failure)) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "NCL Skins disabled live editor preview for this screen after a renderer failure");
+            }
+        }
+    }
+
+    private void onLiveLayerFailure(RuntimeException failure) {
+        if (!layerFailureLogged) {
+            layerFailureLogged = true;
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "NCL Skins skipped an incompatible third-party layer in editor preview");
         }
     }
 
     private PreviewPlayer previewPlayer(PreviewAppearance appearance) {
         ClientLevel level = minecraft.level;
-        if (level == null || minecraft.player == null) {
+        if (level == null) {
             previewPlayer = null;
             previewLevel = null;
-            previewAppearance = null;
             return null;
         }
-
-        if (previewPlayer == null
-                || previewLevel != level
-                || !appearance.equals(previewAppearance)) {
-            previewPlayer = new PreviewPlayer(level, previewUuid(appearance), playerSkin(appearance));
+        if (previewPlayer == null || previewLevel != level) {
+            previewPlayer = new PreviewPlayer(level, previewProfile);
             previewPlayer.setId(nextPreviewEntityId());
             previewLevel = level;
-            previewAppearance = appearance;
         }
-
+        previewPlayer.setPreviewSkin(playerSkin(appearance));
         previewPlayer.getEntityData().set(
                 Player.DATA_PLAYER_MODE_CUSTOMISATION,
                 previewModelParts(appearance));
@@ -212,13 +241,10 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         if (cameraEntity != null) {
             player.setPos(cameraEntity.getX(), cameraEntity.getY(), cameraEntity.getZ());
         }
-
-
         float yaw = 180.0F - request.yawDegrees();
         player.setPose(Pose.STANDING);
         player.setInvisible(false);
 
-        player.tickCount = (int) (Util.getMillis() / 50L);
         player.yBodyRot = yaw;
         player.yBodyRotO = yaw;
         player.setYRot(yaw);
@@ -239,6 +265,7 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         player.elytraRotX = 0.2617994F;
         player.elytraRotY = 0.0F;
         player.elytraRotZ = -0.2617994F;
+        player.tickCount = Math.max(0, (int) Math.floor(previewClock.ageTicks(player.tickCount)));
     }
 
     private static byte previewModelParts(PreviewAppearance appearance) {
@@ -267,19 +294,6 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         return new PlayerSkin(skin, "", cape, elytra, model, false);
     }
 
-    private UUID previewUuid(PreviewAppearance appearance) {
-        String identity = previewNamespace
-                + "|"
-                + appearance.skin().location()
-                + "|"
-                + appearance.model()
-                + "|"
-                + appearance.cape().map(handle -> handle.location()).orElse("")
-                + "|"
-                + appearance.capeMode();
-        return UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8));
-    }
-
     private static int nextPreviewEntityId() {
         int candidate = NEXT_PREVIEW_ENTITY_ID.getAndDecrement();
         return candidate == 0 ? NEXT_PREVIEW_ENTITY_ID.getAndDecrement() : candidate;
@@ -301,6 +315,10 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         ModelPart cloak = slimModel ? slimCloak : classicCloak;
 
         configurePlayerModel(player, request.appearance().outerLayerVisibility());
+        classicCloak.resetPose();
+        classicCloak.visible = false;
+        slimCloak.resetPose();
+        slimCloak.visible = false;
         PoseStack pose = graphics.pose();
         pose.pushPose();
         try {
@@ -359,12 +377,15 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
                         BACK_EQUIPMENT_OPERATIONS);
                 cloak.resetPose();
                 cloak.visible = true;
-                cloak.render(
-                        pose,
-                        buffers.getBuffer(RenderType.entitySolid(texture)),
-                        LightTexture.FULL_BRIGHT,
-                        OverlayTexture.NO_OVERLAY);
-                cloak.visible = false;
+                try {
+                    cloak.render(
+                            pose,
+                            buffers.getBuffer(RenderType.entitySolid(texture)),
+                            LightTexture.FULL_BRIGHT,
+                            OverlayTexture.NO_OVERLAY);
+                } finally {
+                    cloak.visible = false;
+                }
             } finally {
                 pose.popPose();
             }
@@ -403,6 +424,7 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         player.rightPants.resetPose();
         player.leftPants.resetPose();
         player.setAllVisible(true);
+        player.attackTime = 0.0F;
         player.crouching = false;
         player.riding = false;
         player.young = false;
@@ -419,6 +441,14 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         player.leftPants.visible = outerLayer.visible(OuterLayerPart.LEFT_LEG);
     }
 
+    private static ResourceLocation parseTexture(String value) {
+        ResourceLocation location = ResourceLocation.tryParse(value);
+        if (location == null) {
+            throw new IllegalArgumentException("Invalid preview texture location");
+        }
+        return location;
+    }
+
     private static OuterLayerPart outerLayerPart(PlayerModelPart part) {
         return switch (part) {
             case HAT -> OuterLayerPart.HEAD;
@@ -431,20 +461,11 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         };
     }
 
-    private static ResourceLocation parseTexture(String value) {
-        ResourceLocation location = ResourceLocation.tryParse(value);
-        if (location == null) {
-            throw new IllegalArgumentException("Invalid preview texture location");
-        }
-        return location;
-    }
-
     private static final class PreviewPlayer extends RemotePlayer {
-        private final PlayerSkin previewSkin;
+        private PlayerSkin previewSkin;
 
-        private PreviewPlayer(ClientLevel level, UUID previewUuid, PlayerSkin previewSkin) {
-            super(level, new GameProfile(previewUuid, "NCLSkinPreview"));
-            this.previewSkin = previewSkin;
+        private PreviewPlayer(ClientLevel level, GameProfile profile) {
+            super(level, profile);
         }
 
         @Override
@@ -464,9 +485,11 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
 
         @Override
         public PlayerTeam getTeam() {
-
-
             return PREVIEW_TEAM;
+        }
+
+        private void setPreviewSkin(PlayerSkin previewSkin) {
+            this.previewSkin = previewSkin;
         }
     }
 }

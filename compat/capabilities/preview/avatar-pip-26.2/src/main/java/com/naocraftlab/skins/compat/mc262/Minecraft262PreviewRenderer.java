@@ -1,19 +1,22 @@
 package com.naocraftlab.skins.compat.mc262;
 
 import com.mojang.authlib.GameProfile;
+import com.naocraftlab.skins.client.EditorPreviewSession;
+import com.naocraftlab.skins.client.EditorPreviewClock;
+import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
-import java.nio.charset.StandardCharsets;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.player.AvatarRenderer;
@@ -23,8 +26,6 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.Identifier;
-import net.minecraft.util.Util;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.PlayerModelPart;
@@ -40,8 +41,11 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 
-public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGraphicsExtractor> {
+public final class Minecraft262PreviewRenderer
+        implements PreviewRenderer<GuiGraphicsExtractor>, AutoCloseable {
     private static final AtomicInteger NEXT_PREVIEW_ENTITY_ID = new AtomicInteger(-1);
+    private static final System.Logger LOGGER =
+            System.getLogger(Minecraft262PreviewRenderer.class.getName());
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
     private static final float ENTITY_Y_OFFSET = 0.0625F;
@@ -55,114 +59,123 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
                                     .setAsset(EquipmentAssets.ELYTRA)
                                     .build())
                     .build());
+    private final EditorPreviewSession session = new EditorPreviewSession();
+    private final EditorPreviewClock previewClock = new EditorPreviewClock();
+    private boolean layerFailureLogged;
+    private final GameProfile previewProfile =
+            new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
+    private final Minecraft262SimplePreviewRenderer bakedRenderer =
+            new Minecraft262SimplePreviewRenderer();
     private PreviewPlayer previewPlayer;
     private ClientLevel previewLevel;
-    private Identifier previewBodyTexture;
-    private CompletableFuture<Optional<PlayerSkin>> previewProfileSkin;
 
     @Override
     public void render(GuiGraphicsExtractor graphics, PreviewRequest request) {
-        PreviewAppearance appearance = request.appearance();
-        PlayerSkin entitySkin = playerSkin(appearance, true);
-        PreviewState preview = createRenderState(entitySkin);
-        AvatarRenderState state = preview.state();
-        PlayerSkin renderedSkin = preview.entityBacked()
-                ? entitySkin
-                : playerSkin(appearance, false);
-        configurePreviewState(state, appearance, renderedSkin, request, preview.entityBacked());
-        NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
-        previewState.nclskins$setWideDepth(true);
-        previewState.nclskins$setWorldlessCapeTexture(
-                !preview.entityBacked() && appearance.capeMode() == CapeMode.CAPE
-                        ? appearance.cape()
-                                .map(TextureHandle::location)
-                                .map(Identifier::parse)
-                                .orElse(null)
-                        : null);
-
-        float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
-        float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
-        Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
-        Quaternionf modelRotation = new Quaternionf()
-                .rotateZ((float) Math.PI)
-                .mul(cameraPitch);
-        Vector3f translation = new Vector3f(
-                0.0F,
-                state.boundingBoxHeight / 2.0F + ENTITY_Y_OFFSET,
-                0.0F);
-
-        graphics.entity(
-                state,
-                requestedScale,
-                translation,
-                modelRotation,
-                cameraPitch,
-                request.left(),
-                request.top(),
-                request.left() + request.width(),
-                request.top() + request.height());
-    }
-
-    private PreviewState createRenderState(PlayerSkin selectedSkin) {
+        Objects.requireNonNull(graphics, "graphics");
+        Objects.requireNonNull(request, "request");
         Minecraft minecraft = Minecraft.getInstance();
-        PreviewPlayer player = previewPlayer(minecraft, selectedSkin);
-        if (player == null) {
-            return new PreviewState(rendererSelectorState(), false);
+        LocalPlayer player = minecraft.player;
+        if (session.path(request.intent(), minecraft.level != null && player != null)
+                        == EditorPreviewSession.Path.BAKED
+                || !NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) {
+            bakedRenderer.render(graphics, request);
+            return;
         }
 
+        try {
+            PreviewAppearance appearance = request.appearance();
+            PlayerSkin skin = playerSkin(appearance);
+            ItemStack chestEquipment = appearance.capeMode() == CapeMode.ELYTRA
+                    ? previewElytraStack()
+                    : ItemStack.EMPTY;
+            Minecraft262PreviewContext context = new Minecraft262PreviewContext(
+                    player, appearance, skin, chestEquipment);
+            PreviewPlayer renderPlayer = previewPlayer(minecraft, appearance, skin, chestEquipment);
+            if (renderPlayer == null) {
+                bakedRenderer.render(graphics, request);
+                return;
+            }
+            float previewAge = previewClock.ageTicks(renderPlayer.tickCount);
+            renderPlayer.tickCount = Math.max(0, (int) Math.floor(previewAge));
+            AvatarRenderState state = createRenderState(minecraft, renderPlayer, context);
+            state.ageInTicks = previewAge;
+            configurePreviewState(state, appearance, skin, request);
+            NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
+            previewState.nclskins$setWideDepth(true);
+            previewState.nclskins$setFailureSink(this::onLiveRenderFailure);
+            previewState.nclskins$setLayerFailureSink(this::onLiveLayerFailure);
+            previewState.nclskins$setPreviewContext(context);
 
+            float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
+            float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
+            Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
+            Quaternionf modelRotation = new Quaternionf()
+                    .rotateZ((float) Math.PI)
+                    .mul(cameraPitch);
+            Vector3f translation = new Vector3f(
+                    0.0F,
+                    CenteredPlayerPreviewGeometry.modernEntityTranslationY(
+                            CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT),
+                    0.0F);
+
+            graphics.entity(
+                    state,
+                    requestedScale,
+                    translation,
+                    modelRotation,
+                    cameraPitch,
+                    request.left(),
+                    request.top(),
+                    request.left() + request.width(),
+                    request.top() + request.height());
+        } catch (RuntimeException failure) {
+            onLiveRenderFailure(failure);
+        }
+    }
+
+    private AvatarRenderState createRenderState(
+            Minecraft minecraft,
+            AbstractClientPlayer player,
+            Minecraft262PreviewContext context) {
         AvatarRenderState selector = rendererSelectorState();
-        selector.skin = selectedSkin;
+        selector.skin = player.getSkin();
         EntityRenderer<?, ? super AvatarRenderState> genericRenderer =
                 minecraft.getEntityRenderDispatcher().getRenderer(selector);
         if (!(genericRenderer instanceof AvatarRenderer<?> avatarRenderer)) {
-            return new PreviewState(rendererSelectorState(), false);
+            throw new IllegalStateException("Selected local player renderer is not an avatar renderer");
         }
-
 
         float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(false);
-        return new PreviewState(
-                extractFromSelectedRenderer(avatarRenderer, player, partialTick),
-                true);
+        try (Minecraft262PreviewScope ignored = context.open(minecraft)) {
+            return extractFromSelectedRenderer(avatarRenderer, player, partialTick);
+        }
     }
 
-    private PreviewPlayer previewPlayer(Minecraft minecraft, PlayerSkin selectedSkin) {
-        if (minecraft.player == null || minecraft.level == null) {
-            clearPreviewPlayer();
+    private PreviewPlayer previewPlayer(
+            Minecraft minecraft,
+            PreviewAppearance appearance,
+            PlayerSkin skin,
+            ItemStack chestEquipment) {
+        ClientLevel level = minecraft.level;
+        LocalPlayer localPlayer = minecraft.player;
+        if (level == null || localPlayer == null) {
+            previewPlayer = null;
+            previewLevel = null;
             return null;
         }
-
-        Identifier bodyTexture = selectedSkin.body().texturePath();
-        if (previewPlayer == null
-                || previewLevel != minecraft.level
-                || !bodyTexture.equals(previewBodyTexture)) {
-            UUID previewId = UUID.nameUUIDFromBytes(
-                    ("nclskins:preview:" + bodyTexture).getBytes(StandardCharsets.UTF_8));
-
-
-            GameProfile profile = minecraft.player.getGameProfile();
-            previewPlayer = new PreviewPlayer(minecraft.level, profile, selectedSkin);
-            previewPlayer.setUUID(previewId);
-
-
+        if (previewPlayer == null || previewLevel != level) {
+            previewPlayer = new PreviewPlayer(level, previewProfile);
             previewPlayer.setId(nextPreviewEntityId());
-            previewLevel = minecraft.level;
-            previewBodyTexture = bodyTexture;
-            previewProfileSkin = minecraft.getSkinManager().get(profile);
-        } else {
-            previewPlayer.setPreviewSkin(selectedSkin);
+            previewLevel = level;
         }
 
-
-        if (previewProfileSkin == null
-                || !previewProfileSkin.isDone()
-                || previewProfileSkin.isCompletedExceptionally()
-                || previewProfileSkin.getNow(Optional.empty()).isEmpty()) {
-            return null;
+        previewPlayer.setPreviewSkin(skin);
+        previewPlayer.setPreviewModelParts(previewModelParts(appearance));
+        for (EquipmentSlot slot : EquipmentSlot.values()) {
+            previewPlayer.setItemSlot(slot, ItemStack.EMPTY);
         }
-
-        previewPlayer.tickCount = (int) (Util.getMillis() / 50L);
-        previewPlayer.setPos(minecraft.player.position());
+        previewPlayer.setItemSlot(EquipmentSlot.CHEST, chestEquipment.copy());
+        previewPlayer.setPos(localPlayer.position());
         previewPlayer.setYRot(0.0F);
         previewPlayer.yRotO = 0.0F;
         previewPlayer.setXRot(0.0F);
@@ -179,19 +192,19 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         return previewPlayer;
     }
 
-    private void clearPreviewPlayer() {
-        previewPlayer = null;
-        previewLevel = null;
-        previewBodyTexture = null;
-        previewProfileSkin = null;
+    private void onLiveRenderFailure(RuntimeException failure) {
+        if (session.disableLive(failure)) {
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "NCL Skins disabled live editor preview for this screen after a renderer failure");
+        }
     }
 
-    private static int nextPreviewEntityId() {
-        int candidate = NEXT_PREVIEW_ENTITY_ID.getAndDecrement();
-        if (candidate == 0) {
-            candidate = NEXT_PREVIEW_ENTITY_ID.getAndDecrement();
+    private void onLiveLayerFailure(RuntimeException failure) {
+        if (!layerFailureLogged) {
+            layerFailureLogged = true;
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "NCL Skins skipped an incompatible third-party layer in editor preview");
         }
-        return candidate;
     }
 
     @SuppressWarnings("unchecked")
@@ -211,12 +224,41 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         return state;
     }
 
+    private static byte previewModelParts(PreviewAppearance appearance) {
+        int mask = 0;
+        for (PlayerModelPart part : PlayerModelPart.values()) {
+            boolean visible = part == PlayerModelPart.CAPE
+                    ? appearance.capeMode() == CapeMode.CAPE
+                    : appearance.outerLayerVisibility().visible(outerLayerPart(part));
+            if (visible) {
+                mask |= part.getMask();
+            }
+        }
+        return (byte) mask;
+    }
+
+    private static int nextPreviewEntityId() {
+        int candidate = NEXT_PREVIEW_ENTITY_ID.getAndDecrement();
+        return candidate == 0 ? NEXT_PREVIEW_ENTITY_ID.getAndDecrement() : candidate;
+    }
+
+    private static OuterLayerPart outerLayerPart(PlayerModelPart part) {
+        return switch (part) {
+            case HAT -> OuterLayerPart.HEAD;
+            case JACKET -> OuterLayerPart.BODY;
+            case LEFT_SLEEVE -> OuterLayerPart.LEFT_ARM;
+            case RIGHT_SLEEVE -> OuterLayerPart.RIGHT_ARM;
+            case LEFT_PANTS_LEG -> OuterLayerPart.LEFT_LEG;
+            case RIGHT_PANTS_LEG -> OuterLayerPart.RIGHT_LEG;
+            case CAPE -> throw new IllegalArgumentException("cape is not an outer-layer part");
+        };
+    }
+
     private static void configurePreviewState(
             AvatarRenderState state,
             PreviewAppearance appearance,
             PlayerSkin skin,
-            PreviewRequest request,
-            boolean entityBacked) {
+            PreviewRequest request) {
         state.skin = skin;
 
 
@@ -261,7 +303,7 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         state.showRightPants = appearance.outerLayerVisibility().visible(OuterLayerPart.RIGHT_LEG);
         state.showLeftSleeve = appearance.outerLayerVisibility().visible(OuterLayerPart.LEFT_ARM);
         state.showRightSleeve = appearance.outerLayerVisibility().visible(OuterLayerPart.RIGHT_ARM);
-        state.showCape = entityBacked && appearance.capeMode() == CapeMode.CAPE;
+        state.showCape = appearance.capeMode() == CapeMode.CAPE;
         state.showExtraEars = false;
 
         state.fallFlyingTimeInTicks = 0.0F;
@@ -294,10 +336,10 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         return new ItemStack(PREVIEW_ELYTRA_HOLDER);
     }
 
-    private static PlayerSkin playerSkin(PreviewAppearance appearance, boolean includeCape) {
+    private static PlayerSkin playerSkin(PreviewAppearance appearance) {
         ClientAsset.Texture body = texture(appearance.skin());
         ClientAsset.Texture selectedCape = appearance.cape().map(Minecraft262PreviewRenderer::texture).orElse(null);
-        ClientAsset.Texture cape = includeCape && appearance.capeMode() == CapeMode.CAPE
+        ClientAsset.Texture cape = appearance.capeMode() == CapeMode.CAPE
                 ? selectedCape
                 : null;
         ClientAsset.Texture elytra = appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null;
@@ -312,32 +354,32 @@ public final class Minecraft262PreviewRenderer implements PreviewRenderer<GuiGra
         return new ClientAsset.ResourceTexture(location, location);
     }
 
-
-    private record PreviewState(AvatarRenderState state, boolean entityBacked) {
-    }
-
-
     private static final class PreviewPlayer extends RemotePlayer {
         private PlayerSkin previewSkin;
 
-        private PreviewPlayer(ClientLevel level, GameProfile profile, PlayerSkin previewSkin) {
+        private PreviewPlayer(ClientLevel level, GameProfile profile) {
             super(level, profile);
-            this.previewSkin = previewSkin;
-            int modelParts = 0;
-            for (PlayerModelPart part : PlayerModelPart.values()) {
-                modelParts |= part.getMask();
-            }
-            getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION, (byte) modelParts);
-        }
-
-        private void setPreviewSkin(PlayerSkin previewSkin) {
-            this.previewSkin = previewSkin;
         }
 
         @Override
         public PlayerSkin getSkin() {
             return previewSkin;
         }
+
+        private void setPreviewSkin(PlayerSkin previewSkin) {
+            this.previewSkin = Objects.requireNonNull(previewSkin, "previewSkin");
+        }
+
+        private void setPreviewModelParts(byte modelParts) {
+            getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION, modelParts);
+        }
+    }
+
+    @Override
+    public void close() {
+        bakedRenderer.close();
+        previewPlayer = null;
+        previewLevel = null;
     }
 
 }

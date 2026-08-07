@@ -1,8 +1,10 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
 import com.naocraftlab.skins.client.TextureRegistry.TextureKind;
+
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -56,8 +58,16 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         }
         Entry entry = entries.computeIfAbsent(key, ignored -> new Entry());
         long now = monotonicNanos.getAsLong();
-        if (entry.handle != null
-                || entry.inFlight
+        if (entry.handle != null) {
+            Optional<NativePlayerSkinLifecycle.State> state = playerSkinState(entry.handle);
+            if (state.filter(value -> value == NativePlayerSkinLifecycle.State.FAILED).isPresent()) {
+                release(entry);
+                fail(entry, now);
+                notifyRegistrationFailure(registrationFailure);
+            }
+            return;
+        }
+        if (entry.inFlight
                 || (entry.failures > 0 && now - entry.retryAtNanos < 0L)) {
             return;
         }
@@ -76,7 +86,14 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     public synchronized Optional<TextureHandle> handle(K key) {
         Entry entry = entries.get(Objects.requireNonNull(key, "key"));
-        return entry == null ? Optional.empty() : Optional.ofNullable(entry.handle);
+        if (entry == null || entry.handle == null) {
+            return Optional.empty();
+        }
+        Optional<NativePlayerSkinLifecycle.State> state = playerSkinState(entry.handle);
+        if (state.isPresent() && state.orElseThrow() != NativePlayerSkinLifecycle.State.READY) {
+            return Optional.empty();
+        }
+        return Optional.of(entry.handle);
     }
 
 
@@ -168,6 +185,12 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
             }
         }
+    }
+
+    private Optional<NativePlayerSkinLifecycle.State> playerSkinState(TextureHandle handle) {
+        return kind == TextureKind.PLAYER_SKIN
+                ? NativePlayerSkinLifecycle.managedState(handle.location())
+                : Optional.empty();
     }
 
     private static String sha256(byte[] bytes) {

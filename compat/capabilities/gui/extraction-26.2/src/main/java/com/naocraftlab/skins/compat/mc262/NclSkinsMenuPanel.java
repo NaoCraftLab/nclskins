@@ -6,8 +6,10 @@ import com.naocraftlab.skins.compat.mc262.mixin.ScreenRenderablesAccessor;
 import com.naocraftlab.skins.runtime.Bounds;
 import com.naocraftlab.skins.runtime.MenuPanelPresenter;
 import java.util.Comparator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -30,6 +32,7 @@ public final class NclSkinsMenuPanel {
     private static final int MIN_MAIN_ROW_HEIGHT = 18;
     private static final int MAX_MAIN_ROW_HEIGHT = 24;
     private static final int CENTER_TOLERANCE = 8;
+    private static final Map<Screen, PlayerPreviewUnderlay> PREVIEWS = new WeakHashMap<>();
 
     private NclSkinsMenuPanel() {}
 
@@ -45,6 +48,12 @@ public final class NclSkinsMenuPanel {
         }
         NclSkinsScreen.warmSessionSnapshot();
 
+        PlayerPreviewUnderlay previous = PREVIEWS.remove(screen);
+        if (previous != null) {
+            previous.close();
+            ((ScreenRenderablesAccessor) screen).nclskins$renderables().remove(previous);
+        }
+
         PlayerPreviewUnderlay preview = new PlayerPreviewUnderlay(
                 screen,
                 () -> Minecraft26Api.setScreen(Minecraft.getInstance(), new NclSkinsScreen(screen)));
@@ -53,6 +62,19 @@ public final class NclSkinsMenuPanel {
         var renderables = ((ScreenRenderablesAccessor) screen).nclskins$renderables();
         renderables.remove(preview);
         renderables.add(0, preview);
+        PREVIEWS.put(screen, preview);
+    }
+
+    public static void removed(Screen screen) {
+        PlayerPreviewUnderlay preview = PREVIEWS.remove(screen);
+        if (preview != null) {
+            preview.close();
+        }
+    }
+
+    public static void clear() {
+        PREVIEWS.values().forEach(PlayerPreviewUnderlay::close);
+        PREVIEWS.clear();
     }
 
     private static Optional<Bounds> topMainAction(Screen screen, AbstractWidget excluded) {
@@ -75,7 +97,7 @@ public final class NclSkinsMenuPanel {
                         widget.getX(), widget.getY(), widget.getWidth(), widget.getHeight()));
     }
 
-    private static final class PlayerPreviewUnderlay implements Renderable {
+    private static final class PlayerPreviewUnderlay implements Renderable, AutoCloseable {
         private final Screen screen;
         private final Minecraft262SimplePreviewRenderer renderer =
                 new Minecraft262SimplePreviewRenderer();
@@ -144,6 +166,11 @@ public final class NclSkinsMenuPanel {
                     screen.width, screen.height, mouseX, mouseY, value));
             action.applyBounds(layout.map(MenuPanelPresenter.Layout::buttonBounds));
             return layout;
+        }
+
+        @Override
+        public void close() {
+            renderer.close();
         }
     }
 

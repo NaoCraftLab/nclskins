@@ -4,8 +4,12 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
+import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
+import com.naocraftlab.skins.client.EditorPreviewClock;
+import com.naocraftlab.skins.client.EditorPreviewSession;
 import com.naocraftlab.skins.client.LegacyPreviewDepth;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinModel;
@@ -15,15 +19,14 @@ import com.naocraftlab.skins.client.VanillaPlayerModelTransform;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.model.ElytraModel;
 import net.minecraft.client.model.PlayerModel;
-import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
@@ -46,6 +49,8 @@ import org.joml.Quaternionf;
 
 public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final AtomicInteger NEXT_PREVIEW_ID = new AtomicInteger(-1);
+    private static final System.Logger LOGGER =
+            System.getLogger(Minecraft1201PreviewRenderer.class.getName());
     private static final int FULL_BRIGHT = 0x00F000F0;
     private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
@@ -109,7 +114,11 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
             };
 
     private final Minecraft minecraft;
-    private final GameProfile previewProfile;
+    private final EditorPreviewSession session = new EditorPreviewSession();
+    private final EditorPreviewClock previewClock = new EditorPreviewClock();
+    private boolean layerFailureLogged;
+    private final GameProfile previewProfile =
+            new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
     private final PlayerModel<LivingEntity> classicModel;
     private final PlayerModel<LivingEntity> slimModel;
     private final ModelPart classicCloak;
@@ -118,38 +127,43 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
     private final ElytraModel<LivingEntity> elytraModel;
     private PreviewPlayer previewPlayer;
     private ClientLevel previewLevel;
-    private PreviewAppearance previewAppearance;
 
     public Minecraft1201PreviewRenderer() {
         minecraft = Minecraft.getInstance();
-
-
-        previewProfile = new GameProfile(
-                UUID.randomUUID(), minecraft.getUser().getGameProfile().getName());
-        ModelPart classicRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER);
-        ModelPart slimRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.PLAYER_SLIM);
-        classicModel = new PlayerModel<>(classicRoot, false);
-        slimModel = new PlayerModel<>(slimRoot, true);
-        classicCloak = classicRoot.getChild("cloak");
-        slimCloak = slimRoot.getChild("cloak");
-        elytraRoot = minecraft.getEntityModels().bakeLayer(ModelLayers.ELYTRA);
-        elytraModel = new ElytraModel<>(elytraRoot);
+        Minecraft1201VanillaPreviewModels models =
+                Minecraft1201VanillaPreviewModels.instance();
+        classicModel = models.classic;
+        slimModel = models.slim;
+        classicCloak = models.classicCloak;
+        slimCloak = models.slimCloak;
+        elytraRoot = models.elytraRoot;
+        elytraModel = models.elytra;
     }
 
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
         Objects.requireNonNull(graphics, "graphics");
         Objects.requireNonNull(request, "request");
+        LocalPlayer localPlayer = minecraft.player;
+        if (session.path(request.intent(), minecraft.level != null && localPlayer != null)
+                        == EditorPreviewSession.Path.BAKED
+                || !NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) {
+            renderFallback(graphics, request);
+            return;
+        }
+
         PreviewPlayer player = previewPlayer(request.appearance());
         if (player == null) {
             renderFallback(graphics, request);
             return;
         }
 
-        configureEntity(player, request);
-        PoseStack pose = graphics.pose();
-        pose.pushPose();
-        try {
+        try (Minecraft1201PreviewScope ignored = Minecraft1201PreviewScope.open(
+                minecraft, localPlayer, request.appearance())) {
+            configureEntity(player, request);
+            PoseStack pose = graphics.pose();
+            pose.pushPose();
+            try {
             CenteredPlayerPreviewGeometry.Layout layout =
                     CenteredPlayerPreviewGeometry.fit(
                             request.left(),
@@ -172,16 +186,33 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
                     .rotateZ((float) Math.PI)
                     .mul(cameraPitch);
 
-            InventoryScreen.renderEntityInInventory(
-                    graphics,
-                    Math.round(layout.centerX()),
-                    legacyAnchorY,
-                    renderedEntityScale,
-                    modelRotation,
-                    cameraPitch,
-                    player);
-        } finally {
-            pose.popPose();
+            try (EditorPreviewLayerGuard ignoredLayers =
+                    EditorPreviewLayerGuard.open(this::onLiveLayerFailure)) {
+                InventoryScreen.renderEntityInInventory(
+                        graphics,
+                        Math.round(layout.centerX()),
+                        legacyAnchorY,
+                        renderedEntityScale,
+                        modelRotation,
+                        cameraPitch,
+                        player);
+            }
+            } finally {
+                pose.popPose();
+            }
+        } catch (RuntimeException failure) {
+            if (session.disableLive(failure)) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "NCL Skins disabled live editor preview for this screen after a renderer failure");
+            }
+        }
+    }
+
+    private void onLiveLayerFailure(RuntimeException failure) {
+        if (!layerFailureLogged) {
+            layerFailureLogged = true;
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "NCL Skins skipped an incompatible third-party layer in editor preview");
         }
     }
 
@@ -190,28 +221,15 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
         if (level == null) {
             previewPlayer = null;
             previewLevel = null;
-            previewAppearance = null;
             return null;
         }
 
-        if (previewPlayer == null
-                || previewLevel != level
-                || !appearance.equals(previewAppearance)) {
-            ResourceLocation selectedCape = appearance.cape()
-                    .map(Minecraft1201PreviewRenderer::location)
-                    .orElse(null);
-            previewPlayer = new PreviewPlayer(
-                    level,
-                    previewProfile,
-                    location(appearance.skin()),
-                    appearance.capeMode() == CapeMode.OFF ? null : selectedCape,
-                    appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null,
-                    appearance.model() == SkinModel.SLIM ? "slim" : "default");
+        if (previewPlayer == null || previewLevel != level) {
+            previewPlayer = new PreviewPlayer(level, previewProfile);
             previewPlayer.setId(nextPreviewId());
             previewLevel = level;
-            previewAppearance = appearance;
         }
-
+        previewPlayer.setAppearance(appearance);
         previewPlayer.getEntityData().set(
                 Player.DATA_PLAYER_MODE_CUSTOMISATION,
                 previewModelParts(appearance));
@@ -229,14 +247,11 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
         if (cameraEntity != null) {
             player.setPos(cameraEntity.getX(), cameraEntity.getY(), cameraEntity.getZ());
         }
-
-
         float yaw = 180.0F - request.yawDegrees();
         player.setPose(Pose.STANDING);
         player.setInvisible(false);
         player.setCustomNameVisible(false);
 
-        player.tickCount = (int) (Util.getMillis() / 50L);
         player.yBodyRot = yaw;
         player.yBodyRotO = yaw;
         player.setYRot(yaw);
@@ -257,6 +272,7 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
         player.elytraRotX = 0.2617994F;
         player.elytraRotY = 0.0F;
         player.elytraRotZ = -0.2617994F;
+        player.tickCount = Math.max(0, (int) Math.floor(previewClock.ageTicks(player.tickCount)));
     }
 
     private static byte previewModelParts(PreviewAppearance appearance) {
@@ -278,6 +294,10 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
                 ? slimModel
                 : classicModel;
         configureLayers(model, appearance.outerLayerVisibility());
+        classicCloak.resetPose();
+        classicCloak.visible = false;
+        slimCloak.resetPose();
+        slimCloak.visible = false;
 
         PoseStack pose = graphics.pose();
         pose.pushPose();
@@ -344,12 +364,15 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
                         BACK_EQUIPMENT_OPERATIONS);
                 cloak.resetPose();
                 cloak.visible = true;
-                cloak.render(
-                        pose,
-                        buffers.getBuffer(RenderType.entitySolid(capeTexture)),
-                        FULL_BRIGHT,
-                        OverlayTexture.NO_OVERLAY);
-                cloak.visible = false;
+                try {
+                    cloak.render(
+                            pose,
+                            buffers.getBuffer(RenderType.entitySolid(capeTexture)),
+                            FULL_BRIGHT,
+                            OverlayTexture.NO_OVERLAY);
+                } finally {
+                    cloak.visible = false;
+                }
             } finally {
                 pose.popPose();
             }
@@ -386,10 +409,7 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
 
     private static int nextPreviewId() {
         int candidate = NEXT_PREVIEW_ID.getAndDecrement();
-        if (candidate == 0) {
-            candidate = NEXT_PREVIEW_ID.getAndDecrement();
-        }
-        return candidate;
+        return candidate == 0 ? NEXT_PREVIEW_ID.getAndDecrement() : candidate;
     }
 
     private static void configureLayers(PlayerModel<?> model, OuterLayerVisibility outerLayer) {
@@ -406,6 +426,7 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
         model.rightPants.resetPose();
         model.leftPants.resetPose();
         model.setAllVisible(true);
+        model.attackTime = 0.0F;
         model.crouching = false;
         model.riding = false;
         model.young = false;
@@ -431,23 +452,13 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
 
     private static final class PreviewPlayer extends RemotePlayer {
         private static final PlayerTeam HIDDEN_NAME_TEAM = hiddenNameTeam();
-        private final ResourceLocation previewSkin;
-        private final ResourceLocation previewCape;
-        private final ResourceLocation previewElytra;
-        private final String previewModel;
+        private ResourceLocation previewSkin;
+        private ResourceLocation previewCape;
+        private ResourceLocation previewElytra;
+        private String previewModel;
 
-        private PreviewPlayer(
-                ClientLevel level,
-                GameProfile profile,
-                ResourceLocation previewSkin,
-                ResourceLocation previewCape,
-                ResourceLocation previewElytra,
-                String previewModel) {
+        private PreviewPlayer(ClientLevel level, GameProfile profile) {
             super(level, profile);
-            this.previewSkin = previewSkin;
-            this.previewCape = previewCape;
-            this.previewElytra = previewElytra;
-            this.previewModel = previewModel;
         }
 
         @Override
@@ -505,6 +516,16 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
         @Override
         public Team getTeam() {
             return HIDDEN_NAME_TEAM;
+        }
+
+        private void setAppearance(PreviewAppearance appearance) {
+            previewSkin = location(appearance.skin());
+            ResourceLocation selectedCape = appearance.cape()
+                    .map(Minecraft1201PreviewRenderer::location)
+                    .orElse(null);
+            previewCape = appearance.capeMode() == CapeMode.CAPE ? selectedCape : null;
+            previewElytra = appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null;
+            previewModel = appearance.model() == SkinModel.SLIM ? "slim" : "default";
         }
 
         private static PlayerTeam hiddenNameTeam() {

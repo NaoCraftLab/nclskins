@@ -43,7 +43,13 @@ public final class MinecraftClientHookAdapter
     }
 
     @Override
+    public void screenRemoved(Screen screen) {
+        NclSkinsMenuPanel.removed(screen);
+    }
+
+    @Override
     public void close() {
+        NclSkinsMenuPanel.clear();
         NclSkinsScreen.closeClientRuntime();
     }
 }

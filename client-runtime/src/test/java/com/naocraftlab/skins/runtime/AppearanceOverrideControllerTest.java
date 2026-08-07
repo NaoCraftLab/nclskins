@@ -1,16 +1,17 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.ExpectedAppearance;
+import com.naocraftlab.skins.client.PlayerAppearanceSink.ApplyResult;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import com.naocraftlab.skins.client.ExpectedAppearance;
-import com.naocraftlab.skins.client.PlayerAppearanceSink.ApplyResult;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-import org.junit.jupiter.api.Test;
 
 final class AppearanceOverrideControllerTest {
     private static final UUID PROFILE_ID = UUID.fromString("30f7c0d5-1603-4b8f-b1de-74804ca4aef5");
@@ -230,6 +231,78 @@ final class AppearanceOverrideControllerTest {
         assertEquals(ApplyResult.UPDATED, controller.reattach(desired.expected()));
         assertEquals(List.of("attach:desired", "attach:desired"), events);
         assertSame(desired, controller.active().orElseThrow());
+    }
+
+    @Test
+    void deferredReplacementRetainsThePreviousAttachedHandlesUntilReady() {
+        List<String> events = new ArrayList<>();
+        boolean[] playerReady = {true};
+        AppearanceOverrideController<FakeOverride, String> controller =
+                readinessController(events, playerReady);
+        FakeOverride previous = override("previous", "previous-skin", "previous-cape");
+        FakeOverride desired = override("desired", "desired-skin", "desired-cape");
+        assertEquals(ApplyResult.UPDATED, controller.install(previous));
+        events.clear();
+
+        playerReady[0] = false;
+        assertEquals(ApplyResult.DEFERRED, controller.install(desired));
+        assertEquals(List.of("attach:desired"), events);
+        assertSame(desired, controller.active().orElseThrow());
+
+        events.clear();
+        playerReady[0] = true;
+        assertEquals(ApplyResult.UPDATED, controller.reattach(desired.expected()));
+        assertEquals(List.of(
+                "attach:desired", "release:previous-skin", "release:previous-cape"), events);
+    }
+
+    @Test
+    void supersedingAPendingReplacementReleasesOnlyThePendingHandles() {
+        List<String> events = new ArrayList<>();
+        boolean[] playerReady = {true};
+        AppearanceOverrideController<FakeOverride, String> controller =
+                readinessController(events, playerReady);
+        controller.install(override("attached", "attached-skin", null));
+        playerReady[0] = false;
+        controller.install(override("pending-one", "pending-one-skin", null));
+        events.clear();
+
+        FakeOverride pendingTwo = override("pending-two", "pending-two-skin", null);
+        assertEquals(ApplyResult.DEFERRED, controller.install(pendingTwo));
+
+        assertEquals(List.of("attach:pending-two", "release:pending-one-skin"), events);
+        assertSame(pendingTwo, controller.active().orElseThrow());
+    }
+
+    private static AppearanceOverrideController<FakeOverride, String> readinessController(
+            List<String> events, boolean[] playerReady) {
+        return new AppearanceOverrideController<>(new AppearanceOverrideController.Strategy<>() {
+            @Override
+            public ExpectedAppearance expected(FakeOverride override) {
+                return override.expected();
+            }
+
+            @Override
+            public List<String> handles(FakeOverride override) {
+                return override.handles();
+            }
+
+            @Override
+            public ApplyResult attach(FakeOverride override) {
+                events.add("attach:" + override.name());
+                return playerReady[0] ? ApplyResult.UPDATED : ApplyResult.DEFERRED;
+            }
+
+            @Override
+            public void restore() {
+                events.add("restore:" + PROFILE_ID);
+            }
+
+            @Override
+            public void release(String handle) {
+                events.add("release:" + handle);
+            }
+        });
     }
 
     private static AppearanceOverrideController<FakeOverride, String> controller(List<String> events) {

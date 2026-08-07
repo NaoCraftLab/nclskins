@@ -2,6 +2,7 @@ package com.naocraftlab.skins.compat.mc262;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.naocraftlab.skins.client.AbstractTextureRegistry;
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OwnedSkinFile;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -90,7 +91,9 @@ public final class Minecraft262TextureRegistry
         Identifier location = Identifier.fromNamespaceAndPath(
                 "nclskins", pathRoot + "/feature_skin/" + sha256);
         OwnedSkinFile staged = OwnedSkinFile.stage(sha256, pngBytes);
-        NativeTexture resource = NativeTexture.pending(location, staged);
+        NativePlayerSkinLifecycle.Registration lifecycle =
+                NativePlayerSkinLifecycle.pending(location.toString());
+        NativeTexture resource = NativeTexture.pending(location, staged, lifecycle);
         try {
             CompletableFuture<?> registration = new SkinTextureDownloader(
                     minecraft.getProxy(), minecraft.getTextureManager(), minecraft)
@@ -101,6 +104,8 @@ public final class Minecraft262TextureRegistry
                             true);
             resource.attach(registration);
         } catch (RuntimeException failure) {
+            lifecycle.failed();
+            lifecycle.retire();
             staged.close();
             throw failure;
         }
@@ -111,25 +116,36 @@ public final class Minecraft262TextureRegistry
     protected static final class NativeTexture {
         private final Identifier location;
         private final OwnedSkinFile stagedFile;
+        private final NativePlayerSkinLifecycle.Registration lifecycle;
         private CompletableFuture<?> registration;
         private boolean completed;
         private boolean retired;
         private boolean released;
 
         private NativeTexture(
-                Identifier location, OwnedSkinFile stagedFile, boolean completed) {
+                Identifier location,
+                OwnedSkinFile stagedFile,
+                NativePlayerSkinLifecycle.Registration lifecycle,
+                boolean completed) {
             this.location = Objects.requireNonNull(location, "location");
             this.stagedFile = stagedFile;
+            this.lifecycle = lifecycle;
             this.completed = completed;
         }
 
         private static NativeTexture loaded(Identifier location) {
-            return new NativeTexture(location, null, true);
+            return new NativeTexture(location, null, null, true);
         }
 
-        private static NativeTexture pending(Identifier location, OwnedSkinFile stagedFile) {
+        private static NativeTexture pending(
+                Identifier location,
+                OwnedSkinFile stagedFile,
+                NativePlayerSkinLifecycle.Registration lifecycle) {
             return new NativeTexture(
-                    location, Objects.requireNonNull(stagedFile, "stagedFile"), false);
+                    location,
+                    Objects.requireNonNull(stagedFile, "stagedFile"),
+                    Objects.requireNonNull(lifecycle, "lifecycle"),
+                    false);
         }
 
         private void attach(CompletableFuture<?> registration) {
@@ -139,10 +155,13 @@ public final class Minecraft262TextureRegistry
                 }
                 this.registration = Objects.requireNonNull(registration, "registration");
             }
-            registration.whenComplete((ignored, failure) -> complete());
+            registration.whenComplete((ignored, failure) -> complete(failure));
         }
 
         private void retire() {
+            if (lifecycle != null) {
+                lifecycle.retire();
+            }
             boolean releaseNow;
             synchronized (this) {
                 retired = true;
@@ -156,8 +175,13 @@ public final class Minecraft262TextureRegistry
             }
         }
 
-        private void complete() {
+        private void complete(Throwable failure) {
             stagedFile.close();
+            if (failure == null) {
+                lifecycle.ready();
+            } else {
+                lifecycle.failed();
+            }
             boolean releaseNow;
             synchronized (this) {
                 completed = true;
