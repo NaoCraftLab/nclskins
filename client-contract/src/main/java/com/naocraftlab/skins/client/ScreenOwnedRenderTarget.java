@@ -16,11 +16,14 @@ public final class ScreenOwnedRenderTarget implements AutoCloseable {
         if (closed) {
             throw new IllegalStateException("Render target is closed");
         }
+        if (owner != null && owner != expectedOwner) {
+            closeResource();
+            owner = null;
+        }
         if (owner == null) {
+            T created = Objects.requireNonNull(factory.get(), "resource");
             owner = expectedOwner;
-            resource = Objects.requireNonNull(factory.get(), "resource");
-        } else if (owner != expectedOwner) {
-            throw new IllegalStateException("Render target belongs to another dispatcher");
+            resource = created;
         }
         return type.cast(resource);
     }

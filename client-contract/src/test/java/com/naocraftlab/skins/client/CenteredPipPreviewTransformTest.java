@@ -19,7 +19,7 @@ class CenteredPipPreviewTransformTest {
 
         assertEquals(List.of("translate", "rotateY"), operations.names);
         assertArrayEquals(
-                new float[]{0.0F, -2.125F / 2.0F, 0.0F},
+                new float[]{0.0F, -0.5F, 0.0F},
                 operations.values.get(0),
                 EPSILON);
         assertArrayEquals(
@@ -50,8 +50,21 @@ class CenteredPipPreviewTransformTest {
                     CenteredPlayerPreviewGeometry.fit(40, 20, 160, 220, zoom);
             assertEquals(120.0F, layout.centerX(), EPSILON);
             assertEquals(130.0F, layout.centerY(), EPSILON);
-            assertEquals(-1.0625F, CenteredPipPreviewTransform.PLAYER_CENTER_Y, EPSILON);
+            assertEquals(-0.5F, CenteredPipPreviewTransform.PLAYER_CENTER_Y, EPSILON);
         }
+    }
+
+    @Test
+    void neutralElytraUsesTheVanillaStandingWingAngles() {
+        assertEquals(
+                (float) Math.toRadians(15.0F),
+                CenteredPipPreviewTransform.ELYTRA_ROT_X,
+                EPSILON);
+        assertEquals(0.0F, CenteredPipPreviewTransform.ELYTRA_ROT_Y, EPSILON);
+        assertEquals(
+                (float) Math.toRadians(-15.0F),
+                CenteredPipPreviewTransform.ELYTRA_ROT_Z,
+                EPSILON);
     }
 
     private static final class RecordingOperations

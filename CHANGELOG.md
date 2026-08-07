@@ -21,11 +21,13 @@
 - Empty player-model anchors from renderer packs no longer crash Ears features, including when Fresh Moves is active
 - A broken third-party layer is skipped without removing the rest of the in-world preview, while a broader renderer failure safely
   falls back to vanilla for that editor session
-- Worldless previews now zoom around their center and render the player, cape, and elytra with one shared rotation and depth
+- Worldless previews now keep the full player centered while zooming and render the player, cape, and elytra with one shared rotation
+  and depth
 - Static previews now use a shared vanilla model pool so renderer packs cannot bake a paused world pose into menus or gallery cards
 - Gallery skins and cape cards on 26.x now keep independent render targets instead of repeating the last visible preset
 - Pending preset skins now stay empty until their own native texture is ready instead of briefly showing the current player skin
 - Worldless capes on 26.x now use their vanilla attachment pose and remain fixed to the player while rotating and zooming
+- Elytra previews now use the vanilla folded standing pose on both equipped players and cape-list cards
 - Draft cape changes now appear immediately in both cape and elytra modes of the in-world editor
 
 ## 1.0.0-alpha.1

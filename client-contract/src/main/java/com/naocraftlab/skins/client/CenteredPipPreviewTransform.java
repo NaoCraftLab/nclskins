@@ -3,9 +3,12 @@ package com.naocraftlab.skins.client;
 import java.util.Objects;
 
 public final class CenteredPipPreviewTransform {
-    public static final float PLAYER_CENTER_Y = -CenteredPlayerPreviewGeometry.MODEL_HEIGHT / 2.0F;
+    public static final float PLAYER_CENTER_Y = -0.5F;
     public static final float EQUIPMENT_CENTER_Y = -0.625F;
     public static final float ELYTRA_ATTACHMENT_Z = 0.125F;
+    public static final float ELYTRA_ROT_X = (float) Math.PI / 12.0F;
+    public static final float ELYTRA_ROT_Y = 0.0F;
+    public static final float ELYTRA_ROT_Z = -(float) Math.PI / 12.0F;
 
     private CenteredPipPreviewTransform() {
     }

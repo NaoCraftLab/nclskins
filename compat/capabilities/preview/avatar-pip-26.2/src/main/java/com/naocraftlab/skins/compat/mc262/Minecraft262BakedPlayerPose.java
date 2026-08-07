@@ -43,9 +43,18 @@ public final class Minecraft262BakedPlayerPose {
             if (state.capePoseModel() != null) {
                 state.capePoseModel().setupAnim(new AvatarRenderState());
             } else if (state.elytraPoseModel() != null) {
-                state.elytraPoseModel().setupAnim(new HumanoidRenderState());
+                HumanoidRenderState neutral = new HumanoidRenderState();
+                neutral.elytraRotX = CenteredPipPreviewTransform.ELYTRA_ROT_X;
+                neutral.elytraRotY = CenteredPipPreviewTransform.ELYTRA_ROT_Y;
+                neutral.elytraRotZ = CenteredPipPreviewTransform.ELYTRA_ROT_Z;
+                state.elytraPoseModel().setupAnim(neutral);
             }
         }
+    }
+
+    public static void applyPitch(PoseStack pose, float pitchDegrees) {
+        pose.mulPose(new Quaternionf().rotateX(
+                CenteredPipPreviewTransform.pitchRadians(pitchDegrees)));
     }
 
     public static void applyPlayer(PoseStack pose, NclBakedPlayerRenderState state) {

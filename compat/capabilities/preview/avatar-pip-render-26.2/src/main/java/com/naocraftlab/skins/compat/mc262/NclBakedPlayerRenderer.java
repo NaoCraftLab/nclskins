@@ -1,9 +1,7 @@
 package com.naocraftlab.skins.compat.mc262;
 
 import com.mojang.blaze3d.platform.Lighting;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.naocraftlab.skins.client.CenteredPipPreviewTransform;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Set;
@@ -16,7 +14,6 @@ import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.client.renderer.state.gui.GuiRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Unit;
-import org.joml.Matrix4fStack;
 
 public final class NclBakedPlayerRenderer
         extends PictureInPictureRenderer<NclBakedPlayerRenderState> {
@@ -91,11 +88,9 @@ public final class NclBakedPlayerRenderer
                 SubmitNodeCollector collector) {
             Minecraft.getInstance().gameRenderer.lighting().setupFor(Lighting.Entry.PLAYER_SKIN);
             Minecraft262BakedPlayerPose.configure(state);
-            Matrix4fStack modelView = RenderSystem.getModelViewStack();
-            modelView.pushMatrix();
             pose.pushPose();
             try {
-                modelView.rotateX(CenteredPipPreviewTransform.pitchRadians(state.pitchDegrees()));
+                Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees());
                 if (state.standaloneEquipment()) {
                     Minecraft262BakedPlayerPose.applyStandaloneEquipment(pose, state);
                 } else {
@@ -132,7 +127,6 @@ public final class NclBakedPlayerRenderer
                 }
             } finally {
                 pose.popPose();
-                modelView.popMatrix();
             }
         }
 

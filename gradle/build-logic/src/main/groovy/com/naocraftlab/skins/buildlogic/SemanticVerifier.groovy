@@ -136,9 +136,17 @@ final class SemanticVerifier {
              'GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
              'ScreenOwnedRenderTarget', 'NclBakedPlayerTarget',
              'standaloneEquipment', 'PlayerCapeModel', 'ElytraModel',
-             'modelView.pushMatrix()', 'modelView.popMatrix()'].each { String required ->
+             'ELYTRA_ROT_X', 'ELYTRA_ROT_Z'].each { String required ->
                 if (!text.contains(required)) {
                     errors.add("${implementation}: 26.x preview lacks deferred/composite marker (${required})")
+                }
+            }
+            List<String> pitchMarkers = implementation == 'avatar-pip-26.1'
+                    ? ['modelView.pushMatrix()', 'modelView.rotateX(', 'modelView.popMatrix()']
+                    : ['Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees())']
+            pitchMarkers.each { String required ->
+                if (!text.contains(required)) {
+                    errors.add("${implementation}: 26.x preview lacks epoch-correct pitch marker (${required})")
                 }
             }
         } else {
