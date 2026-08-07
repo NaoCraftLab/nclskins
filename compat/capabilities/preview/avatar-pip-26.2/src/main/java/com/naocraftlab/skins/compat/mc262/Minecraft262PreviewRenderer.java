@@ -48,8 +48,6 @@ public final class Minecraft262PreviewRenderer
             System.getLogger(Minecraft262PreviewRenderer.class.getName());
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
-    private static final float ENTITY_Y_OFFSET = 0.0625F;
-    private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
     private static final Holder<Item> PREVIEW_ELYTRA_HOLDER = Holder.direct(
             Items.ELYTRA,
             DataComponentMap.builder()
@@ -106,17 +104,20 @@ public final class Minecraft262PreviewRenderer
             previewState.nclskins$setLayerFailureSink(this::onLiveLayerFailure);
             previewState.nclskins$setPreviewContext(context);
 
-            float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
+            float pitchRadians = Minecraft262LivePitch.radians(request.pitchDegrees());
             float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
             Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
             Quaternionf modelRotation = new Quaternionf()
                     .rotateZ((float) Math.PI)
                     .mul(cameraPitch);
+            CenteredPlayerPreviewGeometry.EntityTranslation centeredTranslation =
+                    CenteredPlayerPreviewGeometry.centeredEntityTranslation(
+                            CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT,
+                            pitchRadians);
             Vector3f translation = new Vector3f(
                     0.0F,
-                    CenteredPlayerPreviewGeometry.modernEntityTranslationY(
-                            CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT),
-                    0.0F);
+                    centeredTranslation.y(),
+                    centeredTranslation.z());
 
             graphics.entity(
                     state,

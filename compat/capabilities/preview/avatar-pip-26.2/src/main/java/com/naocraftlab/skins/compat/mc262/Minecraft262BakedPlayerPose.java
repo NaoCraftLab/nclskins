@@ -54,7 +54,7 @@ public final class Minecraft262BakedPlayerPose {
 
     public static void applyPitch(PoseStack pose, float pitchDegrees) {
         pose.mulPose(new Quaternionf().rotateX(
-                CenteredPipPreviewTransform.pitchRadians(pitchDegrees)));
+                CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees)));
     }
 
     public static void applyPlayer(PoseStack pose, NclBakedPlayerRenderState state) {

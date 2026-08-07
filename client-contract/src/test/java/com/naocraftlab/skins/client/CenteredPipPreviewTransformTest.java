@@ -67,6 +67,18 @@ class CenteredPipPreviewTransformTest {
                 EPSILON);
     }
 
+    @Test
+    void submittedModelPitchCompensatesThePipDepthAxis() {
+        assertEquals(
+                (float) Math.toRadians(-25.0F),
+                CenteredPipPreviewTransform.modelPitchRadians(25.0F),
+                EPSILON);
+        assertEquals(
+                (float) Math.toRadians(25.0F),
+                CenteredPipPreviewTransform.modelPitchRadians(-25.0F),
+                EPSILON);
+    }
+
     private static final class RecordingOperations
             implements CenteredPipPreviewTransform.Operations<Object> {
         private final List<String> names = new ArrayList<>();

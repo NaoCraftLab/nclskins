@@ -18,6 +18,10 @@ public final class CenteredPipPreviewTransform {
         return (float) Math.toRadians(pitchDegrees);
     }
 
+    public static float modelPitchRadians(float pitchDegrees) {
+        return -pitchRadians(pitchDegrees);
+    }
+
     public static <C> void applyPlayerPose(
             C context, float yawDegrees, Operations<C> operations) {
         applyCenteredYaw(context, PLAYER_CENTER_Y, yawDegrees, operations);

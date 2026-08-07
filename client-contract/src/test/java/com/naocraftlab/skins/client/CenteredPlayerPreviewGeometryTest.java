@@ -47,4 +47,23 @@ class CenteredPlayerPreviewGeometryTest {
 
         assertEquals(modernPixelTranslation, legacyAnchor - viewportCenterY, EPSILON);
     }
+
+    @Test
+    void pitchedEntityTranslationKeepsTheGeometricCenterAtThePipOrigin() {
+        float centerY = CenteredPlayerPreviewGeometry.modernEntityTranslationY(
+                CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT);
+
+        for (float pitchDegrees : new float[]{-30.0F, 0.0F, 30.0F}) {
+            float pitchRadians = (float) Math.toRadians(pitchDegrees);
+            CenteredPlayerPreviewGeometry.EntityTranslation translation =
+                    CenteredPlayerPreviewGeometry.centeredEntityTranslation(
+                            CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT,
+                            pitchRadians);
+            float rotatedCenterY = -centerY * (float) Math.cos(pitchRadians);
+            float rotatedCenterZ = centerY * (float) Math.sin(pitchRadians);
+
+            assertEquals(0.0F, translation.y() + rotatedCenterY, EPSILON);
+            assertEquals(0.0F, translation.z() + rotatedCenterZ, EPSILON);
+        }
+    }
 }

@@ -53,6 +53,17 @@ public final class CenteredPlayerPreviewGeometry {
         return entityHeight / 2.0F + ENTITY_Y_OFFSET;
     }
 
+    public static EntityTranslation centeredEntityTranslation(
+            float entityHeight, float pitchRadians) {
+        if (!Float.isFinite(pitchRadians)) {
+            throw new IllegalArgumentException("Entity pitch must be finite");
+        }
+        float centerY = modernEntityTranslationY(entityHeight);
+        return new EntityTranslation(
+                centerY * (float) Math.cos(pitchRadians),
+                -centerY * (float) Math.sin(pitchRadians));
+    }
+
     public record Layout(float centerX, float centerY, float scale) {
         public Layout {
             if (!Float.isFinite(centerX)
@@ -60,6 +71,14 @@ public final class CenteredPlayerPreviewGeometry {
                     || !Float.isFinite(scale)
                     || scale <= 0.0F) {
                 throw new IllegalArgumentException("Player preview layout must be finite and positive");
+            }
+        }
+    }
+
+    public record EntityTranslation(float y, float z) {
+        public EntityTranslation {
+            if (!Float.isFinite(y) || !Float.isFinite(z)) {
+                throw new IllegalArgumentException("Entity translation must be finite");
             }
         }
     }

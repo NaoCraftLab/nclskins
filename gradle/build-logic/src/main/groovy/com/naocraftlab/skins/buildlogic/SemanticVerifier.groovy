@@ -141,13 +141,20 @@ final class SemanticVerifier {
                     errors.add("${implementation}: 26.x preview lacks deferred/composite marker (${required})")
                 }
             }
-            List<String> pitchMarkers = implementation == 'avatar-pip-26.1'
-                    ? ['modelView.pushMatrix()', 'modelView.rotateX(', 'modelView.popMatrix()']
-                    : ['Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees())']
+            List<String> pitchMarkers = [
+                    'Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees())',
+                    'CenteredPlayerPreviewGeometry.centeredEntityTranslation('
+            ]
+            pitchMarkers.add(implementation == 'avatar-pip-26.1'
+                    ? 'return CenteredPipPreviewTransform.pitchRadians(pitchDegrees)'
+                    : 'return CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees)')
             pitchMarkers.each { String required ->
                 if (!text.contains(required)) {
                     errors.add("${implementation}: 26.x preview lacks epoch-correct pitch marker (${required})")
                 }
+            }
+            if (text.contains('modelView.rotateX(')) {
+                errors.add("${implementation}: 26.x preview pitch must stay in the centered submitted pose")
             }
         } else {
             ['tickCount', 'PreviewPlayer', 'PreviewScope.open'].each { String required ->
