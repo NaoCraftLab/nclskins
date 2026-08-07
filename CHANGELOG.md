@@ -16,6 +16,10 @@
     look editor
   - Capes and Elytra follow the preview model and update immediately while you edit the look
   - Worldless menus and galleries use stable vanilla previews, while rotation, tilt, and zoom stay centered
+- **Configuration screen**
+    - Open NCL Skins settings from Mod Menu or the installed mods screen
+    - Choose where the player preview appears and where the mod stores its data
+    - Server owners can enable live skin updates, allow trusted proxy connections, and limit profile checks
 
 ## 1.0.0-alpha.1
 
