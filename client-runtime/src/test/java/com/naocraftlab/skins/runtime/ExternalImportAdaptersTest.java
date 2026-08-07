@@ -9,6 +9,7 @@ import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.importing.SkinLocator;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
@@ -476,6 +477,71 @@ final class ExternalImportAdaptersTest {
     }
 
     @Test
+    void quickSkinTreatsExpandedLegacyPlayerSkinAsDuplicate(@TempDir Path root)
+            throws Exception {
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        NclSkinsStorage storage = new NclSkinsStorage(
+                root.resolve("ncl"), new PngValidator(), clock);
+        LibraryService library = new LibraryService(storage, clock);
+        byte[] playerPng = legacySkinPng();
+        byte[] quickPng = expandedLegacySkinPng(playerPng);
+        var saved = library.savePresetWithPersonalSkin(
+                ACCOUNT_ID,
+                Optional.empty(),
+                "jeb_",
+                "jeb_",
+                SkinVariant.CLASSIC,
+                PersonalSkinSource.PLAYER_NAME,
+                playerPng,
+                null);
+        ExternalImportAdapter adapter = new ExternalImportAdapter() {
+            @Override
+            public ExternalImportSource source() {
+                return ExternalImportSource.QUICK_SKIN;
+            }
+
+            @Override
+            public boolean probe(Path ignored, ExternalImportContext context) {
+                return true;
+            }
+
+            @Override
+            public ExternalImportBatch discover(Path ignored, ExternalImportContext context) {
+                return new ExternalImportBatch(source(), List.of(new ExternalAppearanceRecord(
+                        "quick-0",
+                        "jeb_",
+                        Optional.of(SkinVariant.CLASSIC),
+                        new SkinLocator.EmbeddedPng(quickPng),
+                        Optional.empty(),
+                        0)), List.of());
+            }
+        };
+        ExternalAppearanceImportService service = new ExternalAppearanceImportService(
+                library,
+                new PublicSkinImportService(
+                        new TextureCache(storage), (collection, skin, model) -> playerPng),
+                (collection, skin, model) -> playerPng,
+                new PngValidator(),
+                List.of(adapter));
+
+        ClientOperations.ExternalImportCandidate candidate = service.prepareAppearances(
+                        ACCOUNT_ID,
+                        ExternalImportSource.QUICK_SKIN,
+                        Optional.of(root),
+                        context(root),
+                        new OwnedCapeInventory(
+                                OwnedCapeInventory.CURRENT_SCHEMA_VERSION,
+                                ACCOUNT_ID,
+                                List.of(),
+                                NOW))
+                .candidates().get(0);
+
+        assertTrue(candidate.duplicate());
+        assertEquals(saved.personalSkin().sha256(), candidate.sha256());
+        assertTrue(MessageDigest.isEqual(playerPng, candidate.normalizedPng()));
+    }
+
+    @Test
     void expectedRootsKeepSkinShuffleOnCurrentInstance(@TempDir Path home) {
         Path game = home.resolve("instance/.minecraft");
         ExternalImportContext context = new ExternalImportContext(ACCOUNT_ID, "Player", game);
@@ -640,5 +706,62 @@ final class ExternalImportAdaptersTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ImageIO.write(image, "png", output);
         return output.toByteArray();
+    }
+
+    private static byte[] legacySkinPng() throws Exception {
+        BufferedImage image = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < 32; y++) {
+            for (int x = 0; x < 64; x++) {
+                image.setRGB(x, y, 0xff000000 | x << 8 | y);
+            }
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return output.toByteArray();
+    }
+
+    private static byte[] expandedLegacySkinPng(byte[] legacyPng) throws Exception {
+        BufferedImage source = ImageIO.read(new java.io.ByteArrayInputStream(legacyPng));
+        BufferedImage target = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        target.setRGB(0, 0, 64, 32, source.getRGB(0, 0, 64, 32, null, 0, 64), 0, 64);
+        mirrorLegacyLimb(source, target, 0, 16, 16, 48);
+        mirrorLegacyLimb(source, target, 40, 16, 32, 48);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(target, "png", output);
+        return output.toByteArray();
+    }
+
+    private static void mirrorLegacyLimb(
+            BufferedImage source,
+            BufferedImage target,
+            int sourceX,
+            int sourceY,
+            int targetX,
+            int targetY) {
+        copyMirrored(source, target, sourceX, sourceY, 4, 4, targetX, targetY);
+        copyMirrored(source, target, sourceX + 4, sourceY, 4, 4, targetX + 4, targetY);
+        copyMirrored(source, target, sourceX, sourceY + 4, 4, 12, targetX + 8, targetY + 4);
+        copyMirrored(source, target, sourceX + 4, sourceY + 4, 4, 12, targetX + 4, targetY + 4);
+        copyMirrored(source, target, sourceX + 8, sourceY + 4, 4, 12, targetX, targetY + 4);
+        copyMirrored(source, target, sourceX + 12, sourceY + 4, 4, 12, targetX + 12, targetY + 4);
+    }
+
+    private static void copyMirrored(
+            BufferedImage source,
+            BufferedImage target,
+            int sourceX,
+            int sourceY,
+            int width,
+            int height,
+            int targetX,
+            int targetY) {
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                target.setRGB(
+                        targetX + width - 1 - x,
+                        targetY + y,
+                        source.getRGB(sourceX + x, sourceY + y));
+            }
+        }
     }
 }

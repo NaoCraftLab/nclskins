@@ -20,6 +20,7 @@ import java.util.zip.DeflaterOutputStream;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -129,6 +130,30 @@ class PngValidatorTest {
 
         assertArrayEquals(withMetadata, validator.normalizeSkin(withMetadata));
         assertEquals(validator.pixelSha256(source), validator.pixelSha256(withMetadata));
+    }
+
+    @Test
+    void pixelIdentityMatchesLegacySkinWithItsModernUvExpansion() throws Exception {
+        BufferedImage legacy = coordinateImage(64, 32);
+        BufferedImage expanded = expandLegacy(legacy);
+
+        assertEquals(validator.pixelSha256(encode(legacy)), validator.pixelSha256(encode(expanded)));
+
+        expanded.setRGB(0, 32, 0xff123456);
+        assertNotEquals(validator.pixelSha256(encode(legacy)), validator.pixelSha256(encode(expanded)));
+    }
+
+    @Test
+    void pixelIdentityIgnoresRgbOfFullyTransparentPixelsOnly() throws Exception {
+        BufferedImage first = opaqueSkin(64, 64);
+        BufferedImage second = opaqueSkin(64, 64);
+        first.setRGB(0, 0, 0x00112233);
+        second.setRGB(0, 0, 0x00aabbcc);
+
+        assertEquals(validator.pixelSha256(encode(first)), validator.pixelSha256(encode(second)));
+
+        second.setRGB(0, 0, 0x01aabbcc);
+        assertNotEquals(validator.pixelSha256(encode(first)), validator.pixelSha256(encode(second)));
     }
 
     @Test
@@ -322,6 +347,58 @@ class PngValidatorTest {
             }
         }
         return image;
+    }
+
+    private static BufferedImage coordinateImage(int width, int height) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                image.setRGB(x, y, 0xff000000 | x << 8 | y);
+            }
+        }
+        return image;
+    }
+
+    private static BufferedImage expandLegacy(BufferedImage legacy) {
+        BufferedImage expanded = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        expanded.setRGB(0, 0, 64, 32, legacy.getRGB(0, 0, 64, 32, null, 0, 64), 0, 64);
+        mirrorLimb(legacy, expanded, 0, 16, 16, 48);
+        mirrorLimb(legacy, expanded, 40, 16, 32, 48);
+        return expanded;
+    }
+
+    private static void mirrorLimb(
+            BufferedImage source,
+            BufferedImage target,
+            int sourceX,
+            int sourceY,
+            int targetX,
+            int targetY) {
+        copyMirrored(source, target, sourceX, sourceY, 4, 4, targetX, targetY);
+        copyMirrored(source, target, sourceX + 4, sourceY, 4, 4, targetX + 4, targetY);
+        copyMirrored(source, target, sourceX, sourceY + 4, 4, 12, targetX + 8, targetY + 4);
+        copyMirrored(source, target, sourceX + 4, sourceY + 4, 4, 12, targetX + 4, targetY + 4);
+        copyMirrored(source, target, sourceX + 8, sourceY + 4, 4, 12, targetX, targetY + 4);
+        copyMirrored(source, target, sourceX + 12, sourceY + 4, 4, 12, targetX + 12, targetY + 4);
+    }
+
+    private static void copyMirrored(
+            BufferedImage source,
+            BufferedImage target,
+            int sourceX,
+            int sourceY,
+            int width,
+            int height,
+            int targetX,
+            int targetY) {
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                target.setRGB(
+                        targetX + width - 1 - x,
+                        targetY + y,
+                        source.getRGB(sourceX + x, sourceY + y));
+            }
+        }
     }
 
     private static byte[] withHeaderDimensions(byte[] source, int width, int height) {

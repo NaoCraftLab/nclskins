@@ -117,22 +117,79 @@ public final class PngValidator {
     public String pixelSha256(byte[] bytes) throws PngValidationException {
         Inspection inspection = inspect(bytes, true, true);
         BufferedImage image = inspection.image();
+        int identityHeight = isExpandedLegacyLayout(image) ? 32 : image.getHeight();
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             ByteBuffer pixel = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.BIG_ENDIAN);
             digest.update(pixel.putInt(image.getWidth()).array());
             pixel.clear();
-            digest.update(pixel.putInt(image.getHeight()).array());
-            for (int y = 0; y < image.getHeight(); y++) {
+            digest.update(pixel.putInt(identityHeight).array());
+            for (int y = 0; y < identityHeight; y++) {
                 for (int x = 0; x < image.getWidth(); x++) {
+                    int argb = visibleArgb(image.getRGB(x, y));
                     pixel.clear();
-                    digest.update(pixel.putInt(image.getRGB(x, y)).array());
+                    digest.update(pixel.putInt(argb).array());
                 }
             }
             return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
+    }
+
+    private static boolean isExpandedLegacyLayout(BufferedImage image) {
+        if (image.getWidth() != 64 || image.getHeight() != 64) {
+            return false;
+        }
+        BufferedImage expected = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        mirrorLegacyLimb(image, expected, 0, 16, 16, 48);
+        mirrorLegacyLimb(image, expected, 40, 16, 32, 48);
+        for (int y = 32; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                if (visibleArgb(image.getRGB(x, y)) != visibleArgb(expected.getRGB(x, y))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static void mirrorLegacyLimb(
+            BufferedImage source,
+            BufferedImage target,
+            int sourceX,
+            int sourceY,
+            int targetX,
+            int targetY) {
+        copyMirrored(source, target, sourceX, sourceY, 4, 4, targetX, targetY);
+        copyMirrored(source, target, sourceX + 4, sourceY, 4, 4, targetX + 4, targetY);
+        copyMirrored(source, target, sourceX, sourceY + 4, 4, 12, targetX + 8, targetY + 4);
+        copyMirrored(source, target, sourceX + 4, sourceY + 4, 4, 12, targetX + 4, targetY + 4);
+        copyMirrored(source, target, sourceX + 8, sourceY + 4, 4, 12, targetX, targetY + 4);
+        copyMirrored(source, target, sourceX + 12, sourceY + 4, 4, 12, targetX + 12, targetY + 4);
+    }
+
+    private static void copyMirrored(
+            BufferedImage source,
+            BufferedImage target,
+            int sourceX,
+            int sourceY,
+            int width,
+            int height,
+            int targetX,
+            int targetY) {
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                target.setRGB(
+                        targetX + width - 1 - x,
+                        targetY + y,
+                        source.getRGB(sourceX + x, sourceY + y));
+            }
+        }
+    }
+
+    private static int visibleArgb(int argb) {
+        return (argb >>> 24) == 0 ? 0 : argb;
     }
 
     public byte[] normalizeSkin(Path path) throws IOException, PngValidationException {
