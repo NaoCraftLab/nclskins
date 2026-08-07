@@ -20,7 +20,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(9, catalog.schemaVersion)
+        assertEquals(10, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
@@ -257,6 +257,54 @@ final class BuildLogicTest {
     }
 
     @Test
+    void sharedConfigurationScreenUsesPickerAndAllServerControls() {
+        String factory = new File(
+                repository,
+                'compat/config-screen/src/main/java/com/naocraftlab/skins/compat/config/YaclConfigurationScreenFactory.java').text
+        String bridge = new File(
+                repository,
+                'compat/config-screen/src/main/java/com/naocraftlab/skins/compat/config/MinecraftConfigurationBridge.java').text
+        String folderController = new File(
+                repository,
+                'compat/config-screen/src/main/java/com/naocraftlab/skins/compat/config/FolderPickerController.java').text
+
+        assertTrue(factory.contains('new FolderPickerController('))
+        assertTrue(factory.contains('.customController('))
+        assertFalse(factory.contains('StringControllerBuilder'))
+        [
+                'enabled.name',
+                'trusted_proxy_forwarding.name',
+                'max_concurrent_lookups.name',
+                'lookup_rate_per_second.name',
+                'lookup_burst.name'
+        ].each { String suffix ->
+            assertTrue(factory.contains("nclskins.config.server.realtime_refresh.${suffix}"), suffix)
+        }
+        assertEquals(2, occurrences(factory, '.flag(OptionFlag.GAME_RESTART)'))
+        assertFalse(factory.contains('.available('))
+        assertTrue(factory.contains('checkedServerAccess.visible()'))
+        assertTrue(factory.contains('if (serverDraft != null)'))
+        assertTrue(factory.contains('checkedServerAccess.restartRequired()'))
+        assertFalse(factory.contains('nclskins.config.server.unavailable'))
+        assertTrue(factory.contains('restartWhenServerRunning('))
+        assertTrue(folderController.contains('ActionController.ActionControllerElement'))
+        assertTrue(folderController.contains('option.pendingValue()'))
+        assertTrue(folderController.contains('draft.selectDataDirectory('))
+        assertTrue(folderController.contains('selected.ifPresent(option::requestSet)'))
+        assertTrue(folderController.contains('public boolean canReset()'))
+        assertTrue(folderController.contains('return true;'))
+        assertTrue(bridge.contains('new ConfirmLinkScreen(callback, YACL_URL, true)'))
+        assertFalse(bridge.contains('nclskins.config.missing_yacl'))
+        assertTrue(bridge.contains('screenSetter.accept(parent)'))
+        assertTrue(bridge.contains('linkOpener.accept(URI.create(YACL_URL))'))
+        assertTrue(bridge.contains('minecraft.getConnection() != null'))
+        assertTrue(bridge.contains('minecraft.getSingleplayerServer() != null'))
+        assertTrue(bridge.contains('ServerConfigurationAccess.from('))
+        assertFalse(bridge.contains('Minecraft.class.getMethod('))
+        assertFalse(bridge.contains('getMethod("openUri"'))
+    }
+
+    @Test
     void everyPublishedDependencyPredicateContainsOnlyItsMinimumVersion() {
         catalog.targets.each { Map target ->
             if (target.loader.id == 'fabric') {
@@ -343,12 +391,13 @@ final class BuildLogicTest {
             if (target.loader.id == 'fabric') {
                 Map metadata = new JsonSlurper().parseText(resources['fabric.mod.json']) as Map
                 assertEquals('*', metadata.environment)
-                assertEquals([main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint]], metadata.entrypoints)
+                assertEquals([main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint], modmenu: [target.metadata.modMenuEntrypoint]], metadata.entrypoints)
                 assertEquals(catalog.mod.descriptions.en_us, metadata.description)
                 assertEquals(catalog.mod.contact, metadata.contact)
                 assertEquals([
                         modmenu    : ">=${target.loader.modMenuVersion}".toString(),
-                        sqlite_jdbc: catalog.optionalDependencies.sqlite_jdbc.fabric
+                        sqlite_jdbc              : catalog.optionalDependencies.sqlite_jdbc.predicates.fabric,
+                        yet_another_config_lib_v3: CatalogTools.optionalDependencyPredicate(catalog, target, 'yet_another_config_lib_v3')
                 ], metadata.suggests)
                 assertEquals(true, metadata.custom.modmenu.update_checker)
                 assertEquals(['modmenu.modrinth': 'https://modrinth.com/mod/nclskins', 'modmenu.curseforge': 'https://www.curseforge.com/minecraft/mc-mods/nclskins'], metadata.custom.modmenu.links)
@@ -358,6 +407,7 @@ final class BuildLogicTest {
                 assertTrue(resources['META-INF/mods.toml'].contains('features={java_version="[17,)"}'))
                 assertTrue(resources['META-INF/mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json"'))
                 assertTrue(resources['META-INF/mods.toml'].contains('modId="sqlite_jdbc"'))
+                assertTrue(resources['META-INF/mods.toml'].contains('modId="yet_another_config_lib_v3"'))
                 assertTrue(resources['META-INF/mods.toml'].contains('mandatory=false'))
                 assertTrue(resources['META-INF/mods.toml'].contains('side="CLIENT"'))
                 assertFalse(resources['META-INF/mods.toml'].contains('[[mixins]]'))
@@ -367,6 +417,7 @@ final class BuildLogicTest {
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsDataPack=false'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json?neoforge=only"'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('modId="sqlite_jdbc"'))
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('modId="yet_another_config_lib_v3"'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('type="optional"'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('side="CLIENT"'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains("file=\"${target.metadata.accessTransformer}\""))

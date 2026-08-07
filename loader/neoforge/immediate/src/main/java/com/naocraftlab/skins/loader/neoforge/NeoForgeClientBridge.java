@@ -4,6 +4,7 @@ import com.naocraftlab.skins.compat.loader.MinecraftClientHookAdapter;
 import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.fml.loading.FMLPaths;
 
 
 final class NeoForgeClientBridge {
@@ -13,7 +14,7 @@ final class NeoForgeClientBridge {
     private NeoForgeClientBridge() {}
 
     static void install() {
-        NeoForgeClientLifecycle.install(CLIENT_HOOKS);
+        NeoForgeClientLifecycle.install(CLIENT_HOOKS, FMLPaths.CONFIGDIR.get());
         NeoForge.EVENT_BUS.addListener(NeoForgeClientBridge::afterScreenInit);
         NeoForge.EVENT_BUS.addListener(NeoForgeClientBridge::afterScreenRender);
     }

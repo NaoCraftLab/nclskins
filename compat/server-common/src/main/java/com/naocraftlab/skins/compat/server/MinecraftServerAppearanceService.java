@@ -1,6 +1,5 @@
 package com.naocraftlab.skins.compat.server;
 
-import com.naocraftlab.skins.compat.server.MinecraftServerRefreshConfig.ConfigException;
 import com.naocraftlab.skins.server.Admission;
 import com.naocraftlab.skins.server.ConnectionKey;
 import com.naocraftlab.skins.server.ConnectionSnapshot;
@@ -12,7 +11,6 @@ import com.naocraftlab.skins.server.runtime.OfficialSessionProfileClient;
 import com.naocraftlab.skins.server.runtime.ServerAppearanceRefreshCoordinator;
 import com.naocraftlab.skins.server.runtime.ServerAppearanceRefreshService;
 import com.naocraftlab.skins.server.runtime.ServerRefreshPolicy;
-import java.nio.file.Path;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -49,21 +47,21 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
         this.identityAttestor = identityAttestor;
     }
 
-    public static MinecraftServerAppearanceService register(
-            MinecraftServer server, Path configDirectory) throws ConfigException {
+    static MinecraftServerAppearanceService register(
+            MinecraftServer server, MinecraftServerRefreshConfig config) {
         return register(
                 server,
-                configDirectory,
+                config,
                 MinecraftServerIdentityAttestor.authenticatedOnly());
     }
 
 
-    public static MinecraftServerAppearanceService register(
+    static MinecraftServerAppearanceService register(
             MinecraftServer server,
-            Path configDirectory,
-            MinecraftServerIdentityAttestor identityAttestor) throws ConfigException {
+            MinecraftServerRefreshConfig config,
+            MinecraftServerIdentityAttestor identityAttestor) {
         Objects.requireNonNull(server, "server");
-        Objects.requireNonNull(configDirectory, "configDirectory");
+        Objects.requireNonNull(config, "config");
         Objects.requireNonNull(identityAttestor, "identityAttestor");
         if (!server.isSameThread()) {
             throw new IllegalStateException("Server appearance service must start on the server thread");
@@ -73,7 +71,6 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
             if (existing != null) {
                 return existing;
             }
-            MinecraftServerRefreshConfig config = MinecraftServerRefreshConfig.load(configDirectory);
             ServerRefreshPolicy policy = config.policy(server.getPlayerList().getMaxPlayers());
             MinecraftServerConnectionRegistry connections =
                     new MinecraftServerConnectionRegistry(server);

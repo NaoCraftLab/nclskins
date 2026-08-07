@@ -276,6 +276,7 @@ public final class ClientRuntime implements AutoCloseable {
     public static ClientRuntime createDefaultWithDeterministicAppearance(
             GameSessionTokenSource tokenSource,
             SkinCatalogSource bundledSkins,
+            Path dataRoot,
             CurrentPlayerAppearanceSource currentAppearanceSource,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
@@ -287,7 +288,7 @@ public final class ClientRuntime implements AutoCloseable {
         ExecutorService worker = newWorker("nclskins-client-runtime");
         ExecutorService reconciliationWorker = newWorker("nclskins-appearance-reconciliation");
         DefaultClientOperations operations = DefaultClientOperations
-                .createDefault(tokenSource, bundledSkins)
+                .createDefault(tokenSource, bundledSkins, dataRoot)
                 .enablePublicImports(signedTextureVerifier);
         AppearanceRefreshCoordinator<AcknowledgedAppearanceAssets> refresh =
                 new AppearanceRefreshCoordinator<>(

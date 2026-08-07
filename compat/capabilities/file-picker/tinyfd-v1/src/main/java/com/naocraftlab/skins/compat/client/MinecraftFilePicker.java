@@ -44,15 +44,30 @@ public final class MinecraftFilePicker implements FilePicker {
 
     @Override
     public CompletableFuture<Optional<Path>> chooseDirectory() {
+        return chooseDirectoryFrom(
+                null,
+                "nclskins.external_import.folder_picker_title");
+    }
+
+    @Override
+    public CompletableFuture<Optional<Path>> chooseDirectory(Path initialDirectory) {
+        return chooseDirectoryFrom(
+                Objects.requireNonNull(initialDirectory, "initialDirectory"),
+                "nclskins.config.client.storage.data_directory.picker_title");
+    }
+
+    private CompletableFuture<Optional<Path>> chooseDirectoryFrom(
+            Path initialDirectory,
+            String titleKey) {
         final String title;
         try {
-            title = Component.translatable("nclskins.external_import.folder_picker_title").getString();
+            title = Component.translatable(titleKey).getString();
         } catch (RuntimeException failure) {
             return CompletableFuture.failedFuture(
                     new IllegalStateException("The system directory picker could not be prepared", failure));
         }
         return COORDINATOR.chooseDirectory(
-                () -> selectLocalDirectory(title), clientExecutor::execute);
+                () -> selectLocalDirectory(title, initialDirectory), clientExecutor::execute);
     }
 
     @Override
@@ -86,14 +101,17 @@ public final class MinecraftFilePicker implements FilePicker {
         }
     }
 
-    private static Optional<Path> selectLocalDirectory(String title) {
+    private static Optional<Path> selectLocalDirectory(String title, Path initialDirectory) {
+        String initialPath = initialDirectory == null
+                ? null
+                : initialDirectory.toAbsolutePath().normalize().toString();
         try {
-            String selected = TinyFileDialogs.tinyfd_selectFolderDialog(title, null);
+            String selected = TinyFileDialogs.tinyfd_selectFolderDialog(title, initialPath);
             return selected == null ? Optional.empty() : Optional.of(Path.of(selected));
         } catch (LinkageError | RuntimeException unavailableFolderDialog) {
             String selected = TinyFileDialogs.tinyfd_openFileDialog(
                     title,
-                    null,
+                    initialPath,
                     null,
                     null,
                     false);

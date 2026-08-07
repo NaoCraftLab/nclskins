@@ -2,6 +2,28 @@ if (targetSpec.loader.id != 'neoforge') {
     throw new GradleException("NeoForge conventions cannot configure ${targetSpec.loader.id}")
 }
 
+repositories {
+    maven {
+        url = 'https://maven.quiltmc.org/repository/release'
+        content { includeGroup 'org.quiltmc.parsers' }
+    }
+    maven {
+        url = 'https://maven.isxander.dev/releases'
+        content { includeGroup 'dev.isxander' }
+    }
+}
+
+def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
+        targetCatalog, targetSpec, 'yet_another_config_lib_v3')
+def yaclRuntimeConfiguration = configurations.findByName('localRuntime') != null
+        ? 'localRuntime'
+        : 'runtimeOnly'
+
+dependencies {
+    compileOnly "dev.isxander:yet-another-config-lib:${yaclVersion}"
+    add(yaclRuntimeConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")
+}
+
 def serverPort = providers.gradleProperty('nclskinsServerPort')
 
 neoForge {

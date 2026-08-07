@@ -4,6 +4,20 @@ if (targetSpec.loader.id != 'fabric') {
 
 repositories {
     maven {
+        name = 'QuiltMaven'
+        url = 'https://maven.quiltmc.org/repository/release'
+        content {
+            includeGroup 'org.quiltmc.parsers'
+        }
+    }
+    maven {
+        name = 'XanderMaven'
+        url = 'https://maven.isxander.dev/releases'
+        content {
+            includeGroup 'dev.isxander'
+        }
+    }
+    maven {
         name = 'Modrinth'
         url = 'https://api.modrinth.com/maven'
         content {
@@ -23,6 +37,11 @@ def modMenuConfiguration = configurations.findByName('modLocalRuntime') != null
 if (modMenuConfiguration == null) {
     throw new GradleException('Fabric Loom does not provide a local runtime dependency scope')
 }
+def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
+        targetCatalog, targetSpec, 'yet_another_config_lib_v3')
+def clientCompileOnlyConfiguration = configurations.findByName('modCompileOnly') != null
+        ? 'modCompileOnly'
+        : 'compileOnly'
 
 loom {
     accessWidenerPath = nclskinsAccessFile
@@ -52,4 +71,9 @@ dependencies {
     add(
             modMenuConfiguration,
             "maven.modrinth:modmenu:${targetSpec.loader.modMenuVersion}")
+    add(
+            clientCompileOnlyConfiguration,
+            "maven.modrinth:modmenu:${targetSpec.loader.modMenuVersion}")
+    add(clientCompileOnlyConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")
+    add(modMenuConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")
 }

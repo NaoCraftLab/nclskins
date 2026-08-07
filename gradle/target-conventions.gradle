@@ -315,14 +315,18 @@ def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
             def metadata = new JsonSlurper().parse(
                 layout.buildDirectory.file('resources/main/fabric.mod.json').get().asFile)
             if (metadata.environment != '*' ||
-                    metadata.entrypoints.keySet() != ['main', 'client'] as Set) {
-                throw new GradleException('Fabric metadata must expose universal main/client entrypoints')
+                    metadata.entrypoints.keySet() != ['main', 'client', 'modmenu'] as Set) {
+                throw new GradleException(
+                    'Fabric metadata must expose universal main/client and Mod Menu entrypoints')
             }
             if (metadata.entrypoints.client != [spec.metadata.entrypoint]) {
                 throw new GradleException('Fabric client entrypoint differs from the target catalog')
             }
             if (metadata.entrypoints.main != [spec.metadata.serverEntrypoint]) {
                 throw new GradleException('Fabric common entrypoint differs from the target catalog')
+            }
+            if (metadata.entrypoints.modmenu != [spec.metadata.modMenuEntrypoint]) {
+                throw new GradleException('Fabric Mod Menu entrypoint differs from the target catalog')
             }
             if (metadata.depends.minecraft != spec.minecraft.predicate) {
                 throw new GradleException('Fabric Minecraft predicate differs from the target catalog')

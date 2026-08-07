@@ -15,7 +15,18 @@ def forgeMixinRefmapFile = forgeCompileJava.map {
 
 repositories {
     maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    maven {
+        url = 'https://maven.quiltmc.org/repository/release'
+        content { includeGroup 'org.quiltmc.parsers' }
+    }
+    maven {
+        url = 'https://maven.isxander.dev/releases'
+        content { includeGroup 'dev.isxander' }
+    }
 }
+
+def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
+        targetCatalog, targetSpec, 'yet_another_config_lib_v3')
 
 mixin {
     add sourceSets.main, forgeMixinRefmap
@@ -74,6 +85,8 @@ minecraft {
 
 dependencies {
     minecraft "net.minecraftforge:forge:${targetSpec.minecraft.version}-${targetSpec.loader.version}"
+    compileOnly fg.deobf("dev.isxander:yet-another-config-lib:${yaclVersion}")
+    runtimeOnly fg.deobf("dev.isxander:yet-another-config-lib:${yaclVersion}")
     annotationProcessor(
         "org.spongepowered:mixin:${targetCatalog.plugins.mixinProcessor}:processor")
 }

@@ -1,10 +1,13 @@
 package com.naocraftlab.skins.compat.loader;
 
 import com.naocraftlab.skins.client.MinecraftClientHooks;
+import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.compat.v1_20_1.client.NclSkinsMenuPreview;
 import com.naocraftlab.skins.compat.v1_20_1.client.Minecraft1201Client;
 import java.util.Objects;
+import java.nio.file.Path;
 import java.util.function.Consumer;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -23,8 +26,13 @@ public final class MinecraftClientHookAdapter
     }
 
     @Override
-    public void initialize() {
-        Minecraft1201Client.instance().initialize();
+    public void initialize(Path configurationDirectory) {
+        Minecraft1201Client client = Minecraft1201Client.instance();
+        client.initialize(MinecraftConfigurationBridge.initialize(
+                configurationDirectory,
+                client.nativeFileDialog(),
+                screen -> Minecraft.getInstance().setScreen(screen),
+                uri -> Util.getPlatform().openUri(uri)).activeDataRoot());
     }
 
     @Override
@@ -42,6 +50,10 @@ public final class MinecraftClientHookAdapter
         Objects.requireNonNull(client, "client");
         Objects.requireNonNull(widgets, "widgets");
         if (!NclSkinsMenuPreview.supports(screen)) {
+            return;
+        }
+        if (!MinecraftConfigurationBridge.previewEnabled(screen)) {
+            NclSkinsMenuPreview.removed(screen);
             return;
         }
         Minecraft1201Client.instance().warmSession();

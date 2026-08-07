@@ -10,7 +10,7 @@ abstract class LoaderBackend {
 
                 @Override
                 Set<String> metadataKeys() {
-                    ['files', 'entrypoint', 'serverEntrypoint', 'accessWidener',
+                    ['files', 'entrypoint', 'modMenuEntrypoint', 'serverEntrypoint', 'accessWidener',
                      'packFormat', 'mixins', 'serverMixins'] as Set
                 }
 

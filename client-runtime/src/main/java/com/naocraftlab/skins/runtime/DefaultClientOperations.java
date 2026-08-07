@@ -161,11 +161,16 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     public static DefaultClientOperations createDefault(
-            GameSessionTokenSource tokenSource, SkinCatalogSource bundledSkins) {
+            GameSessionTokenSource tokenSource,
+            SkinCatalogSource bundledSkins,
+            Path dataRoot) {
         return new DefaultClientOperations(
                 tokenSource,
                 new MinecraftProfileApi(),
-                new NclSkinsStorage(),
+                new NclSkinsStorage(
+                        Objects.requireNonNull(dataRoot, "dataRoot"),
+                        new PngValidator(),
+                        Clock.systemUTC()),
                 bundledSkins,
                 Clock.systemUTC());
     }

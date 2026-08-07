@@ -13,9 +13,12 @@ public final class MinecraftServerLifecycle {
 
     public static void started(MinecraftServer server, Path configDirectory) {
         try {
-            MinecraftServerAppearanceService.register(
-                    Objects.requireNonNull(server, "server"),
+            MinecraftServer checkedServer = Objects.requireNonNull(server, "server");
+            MinecraftServerRefreshConfig config = MinecraftServerRefreshConfig.load(
                     Objects.requireNonNull(configDirectory, "configDirectory"));
+            if (config.enabled()) {
+                MinecraftServerAppearanceService.register(checkedServer, config);
+            }
         } catch (ConfigException invalidConfig) {
             throw new IllegalStateException(
                     "NCL Skins server configuration is invalid", invalidConfig);

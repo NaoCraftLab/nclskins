@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import java.nio.file.Path;
 import java.util.Objects;
 
 
@@ -10,9 +11,11 @@ public final class ClientApplicationHost<C> implements AutoCloseable {
     public ClientApplicationHost(
             ClientCapabilitySet capabilities,
             TextResolver textResolver,
+            Path dataRoot,
             Runnable closeNativeResources) {
         Objects.requireNonNull(capabilities, "capabilities");
-        runtime = capabilities.createRuntime(textResolver);
+        runtime = capabilities.createRuntime(
+                textResolver, Objects.requireNonNull(dataRoot, "dataRoot"));
         process = new ClientProcessHost<>(runtime, closeNativeResources);
     }
 

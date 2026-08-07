@@ -3,6 +3,7 @@ package com.naocraftlab.skins.mc1211;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
+import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.compat.gui.immediate.ImmediateScreenCapabilities;
@@ -15,6 +16,7 @@ import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.TextResolver;
 import com.naocraftlab.skins.runtime.UiMessage;
 import com.naocraftlab.skins.runtime.ViewSpec;
+import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -31,12 +33,8 @@ public final class Minecraft1211Client implements ImmediateScreenCapabilities {
             TargetClientBindings.provision();
     private final CurrentPlayerAppearanceSource currentAppearance =
             provision.capabilities().currentAppearance();
-    private final ClientApplicationHost<Object> application = new ClientApplicationHost<>(
-            provision.capabilities(),
-            TextResolver.withCatalogTranslations(
-                    message -> resolve(message).getString(),
-                    (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
-            provision::closeNative);
+    private ClientApplicationHost<Object> application;
+    private boolean terminallyClosed;
 
     private Minecraft1211Client() {}
 
@@ -44,19 +42,36 @@ public final class Minecraft1211Client implements ImmediateScreenCapabilities {
         return INSTANCE;
     }
 
-    public void initialize() {
+    public FilePicker nativeFileDialog() {
+        return provision.capabilities().nativeFileDialog();
+    }
+
+    public synchronized void initialize(Path dataRoot) {
+        if (terminallyClosed) {
+            throw new IllegalStateException("NCL Skins client is terminally closed");
+        }
+        if (application == null) {
+            application = new ClientApplicationHost<>(
+                    provision.capabilities(),
+                    TextResolver.withCatalogTranslations(
+                            message -> resolve(message).getString(),
+                            (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
+                    Objects.requireNonNull(dataRoot, "dataRoot"),
+                    provision::closeNative);
+        }
         application.verifyStorageAccess();
     }
 
     public void warmSession() {
-        application.warmSession();
+        application().warmSession();
     }
 
     public void tick(Minecraft minecraft) {
         Objects.requireNonNull(minecraft, "minecraft");
 
 
-        if (application.closed()) {
+        ClientApplicationHost<Object> current = application();
+        if (current.closed()) {
             return;
         }
         provision.maintain();
@@ -64,7 +79,7 @@ public final class Minecraft1211Client implements ImmediateScreenCapabilities {
         boolean playerReady = connection != null
                 && minecraft.player != null
                 && minecraft.getConnection().getPlayerInfo(minecraft.player.getUUID()) != null;
-        application.tick(
+        current.tick(
                 connection,
                 playerReady);
     }
@@ -86,13 +101,22 @@ public final class Minecraft1211Client implements ImmediateScreenCapabilities {
         }
     }
 
-    public void close() {
-        application.close();
+    public synchronized void close() {
+        if (terminallyClosed) {
+            return;
+        }
+        terminallyClosed = true;
+        if (application != null) {
+            application.close();
+            application = null;
+        } else {
+            provision.closeNative();
+        }
     }
 
     @Override
     public ClientRuntime runtime() {
-        return application.runtime();
+        return application().runtime();
     }
 
     @Override
@@ -156,5 +180,12 @@ public final class Minecraft1211Client implements ImmediateScreenCapabilities {
                 .map(argument -> argument instanceof UiMessage nested ? resolve(nested) : argument)
                 .toArray();
         return Component.translatable(message.key(), arguments);
+    }
+
+    private synchronized ClientApplicationHost<Object> application() {
+        if (application == null) {
+            throw new IllegalStateException("NCL Skins client is not initialized");
+        }
+        return application;
     }
 }

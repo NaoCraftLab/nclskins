@@ -34,7 +34,11 @@ final class MetadataRenderer {
         if (metadata.accessWidener) {
             result.accessWidener = metadata.accessWidener
         }
-        result.entrypoints = [main: [metadata.serverEntrypoint], client: [metadata.entrypoint]]
+        result.entrypoints = [
+                main   : [metadata.serverEntrypoint],
+                client : [metadata.entrypoint],
+                modmenu: [metadata.modMenuEntrypoint]
+        ]
         List mixins = []
         (metadata.serverMixins as List).each { mixins.add([config: it]) }
         (metadata.mixins as List).each { mixins.add([config: it, environment: 'client']) }
@@ -48,8 +52,10 @@ final class MetadataRenderer {
             java: ">=${target.java.release}"
         ]
         result.suggests = [modmenu: ">=${target.loader.modMenuVersion}"]
-        (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
-            result.suggests[dependencyId.toString()] = (predicates as Map).fabric
+        (catalog.optionalDependencies as Map).each { Object dependencyId, Object ignored ->
+            String predicate = CatalogTools.optionalDependencyPredicate(
+                    catalog, target, dependencyId.toString())
+            if (predicate != null) result.suggests[dependencyId.toString()] = predicate
         }
         result.custom = [modmenu: [
                 links         : [
@@ -101,14 +107,17 @@ final class MetadataRenderer {
             'side="BOTH"',
             ''
         ]
-        (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
+        (catalog.optionalDependencies as Map).each { Object dependencyId, Object declaration ->
+            String predicate = CatalogTools.optionalDependencyPredicate(
+                    catalog, target, dependencyId.toString())
+            if (predicate == null) return
             lines.addAll([
                     "[[dependencies.${id}]]",
                     "modId=${quote(dependencyId)}",
                     'mandatory=false',
-                    "versionRange=${quote((predicates as Map).forge)}",
+                    "versionRange=${quote(predicate)}",
                     'ordering="NONE"',
-                    'side="CLIENT"',
+                    "side=${quote(((declaration as Map).side as String).toUpperCase(Locale.ROOT))}",
                     ''
             ])
         }
@@ -162,14 +171,17 @@ final class MetadataRenderer {
             'side="BOTH"',
             ''
         ])
-        (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
+        (catalog.optionalDependencies as Map).each { Object dependencyId, Object declaration ->
+            String predicate = CatalogTools.optionalDependencyPredicate(
+                    catalog, target, dependencyId.toString())
+            if (predicate == null) return
             lines.addAll([
                     "[[dependencies.${id}]]",
                     "modId=${quote(dependencyId)}",
                     'type="optional"',
-                    "versionRange=${quote((predicates as Map).neoforge)}",
+                    "versionRange=${quote(predicate)}",
                     'ordering="NONE"',
-                    'side="CLIENT"',
+                    "side=${quote(((declaration as Map).side as String).toUpperCase(Locale.ROOT))}",
                     ''
             ])
         }

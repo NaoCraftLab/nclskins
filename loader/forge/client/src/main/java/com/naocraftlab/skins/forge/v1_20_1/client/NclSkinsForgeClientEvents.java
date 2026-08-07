@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.forge.v1_20_1.client;
 
 import com.naocraftlab.skins.compat.loader.MinecraftClientHookAdapter;
+import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.forge.v1_20_1.NclSkinsForgeMod;
 import java.nio.file.Path;
 import net.minecraft.client.Minecraft;
@@ -9,6 +10,7 @@ import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.repository.Pack;
 import net.minecraft.server.packs.repository.PackSource;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.event.GameShuttingDownEvent;
 import net.minecraftforge.event.AddPackFindersEvent;
@@ -17,6 +19,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraftforge.resource.PathPackResources;
 
 
@@ -39,7 +42,15 @@ public final class NclSkinsForgeClientEvents {
 
         @SubscribeEvent
         public static void clientSetup(FMLClientSetupEvent event) {
-            CLIENT_HOOKS.initialize();
+            CLIENT_HOOKS.initialize(FMLPaths.CONFIGDIR.get());
+            ModList.get()
+                    .getModContainerById(NclSkinsForgeMod.MOD_ID)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "NCL Skins mod container is missing"))
+                    .registerExtensionPoint(
+                            ConfigScreenHandler.ConfigScreenFactory.class,
+                            () -> new ConfigScreenHandler.ConfigScreenFactory(
+                                    MinecraftConfigurationBridge::createScreen));
         }
 
         @SubscribeEvent

@@ -862,7 +862,7 @@ public final class NclSkinsStorage {
         initialize();
     }
 
-    private static Path defaultRoot() {
+    public static Path defaultRoot() {
         return defaultRoot(
                 System.getProperty("os.name", ""),
                 System.getProperty("user.home"),

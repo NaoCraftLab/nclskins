@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001"
   },
@@ -182,12 +182,28 @@
   },
   "optionalDependencies": {
     "sqlite_jdbc": {
-      "fabric": ">=3.36.0.3",
-      "forge": "[3.36.0.3,)",
-      "neoforge": "[3.53.0.0,)"
+      "side": "client",
+      "predicates": {
+        "fabric": ">=3.36.0.3",
+        "forge": "[3.36.0.3,)",
+        "neoforge": "[3.53.0.0,)"
+      }
+    },
+    "yet_another_config_lib_v3": {
+      "side": "client",
+      "versions": {
+        "fabric-1.20.1": "3.6.6+1.20.1-fabric",
+        "forge-1.20.1": "3.6.6+1.20.1-forge",
+        "fabric-1.21.1": "3.8.2+1.21.1-fabric",
+        "neoforge-1.21.1": "3.8.2+1.21.1-neoforge",
+        "fabric-26.1": "3.9.6+26.1-fabric",
+        "neoforge-26.1": "3.9.6+26.1-neoforge",
+        "fabric-26.2": "3.9.6+26.2-fabric",
+        "neoforge-26.2": "3.9.6+26.2-neoforge"
+      }
     }
   },
-  "baseBundles": ["portable-common", "canonical-resources", "mojang-collections-resources"],
+  "baseBundles": ["portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {
     "portable-common": {
       "java": [
@@ -200,6 +216,12 @@
       ],
       "resources": [],
       "side": "common",
+      "requires": []
+    },
+    "config-screen-common": {
+      "java": ["compat/config-screen/src/main/java"],
+      "resources": [],
+      "side": "client",
       "requires": []
     },
     "canonical-resources": {
@@ -648,6 +670,7 @@
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
         "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 15,
@@ -780,6 +803,7 @@
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
         "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 34,
@@ -915,6 +939,7 @@
           "resourcepacks/mojang_collections/pack.mcmeta"
         ],
         "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [
@@ -1088,6 +1113,7 @@
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
         "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [88, 0],

@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.client;
 
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -11,6 +12,11 @@ public interface FilePicker {
     default CompletableFuture<Optional<Path>> chooseDirectory() {
         return CompletableFuture.failedFuture(
                 new UnsupportedOperationException("Directory picker is unavailable"));
+    }
+
+    default CompletableFuture<Optional<Path>> chooseDirectory(Path initialDirectory) {
+        Objects.requireNonNull(initialDirectory, "initialDirectory");
+        return chooseDirectory();
     }
 
     default CompletableFuture<Optional<Path>> chooseSqliteDatabase() {

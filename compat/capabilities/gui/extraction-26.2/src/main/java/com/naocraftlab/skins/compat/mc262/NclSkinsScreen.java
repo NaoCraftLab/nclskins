@@ -3,6 +3,7 @@ package com.naocraftlab.skins.compat.mc262;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource.PlayerAppearance;
+import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
@@ -133,8 +134,12 @@ public final class NclSkinsScreen extends Screen {
     }
 
 
-    public static void initializeClientRuntime() {
-        NclSkins262ClientRuntime.verifyStorageAccess();
+    public static void initializeClientRuntime(java.nio.file.Path dataRoot) {
+        NclSkins262ClientRuntime.initialize(dataRoot);
+    }
+
+    public static FilePicker nativeFileDialog() {
+        return NclSkins262ClientRuntime.nativeFileDialog();
     }
 
 

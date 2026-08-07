@@ -1,10 +1,12 @@
 package com.naocraftlab.skins.compat.mc262;
 
+import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.generated.TargetClientBindings;
 import com.naocraftlab.skins.runtime.ClientApplicationHost;
 import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.TextResolver;
+import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
 import net.minecraft.locale.Language;
@@ -13,6 +15,7 @@ import net.minecraft.locale.Language;
 final class NclSkins262ClientRuntime {
     private static ClientCapabilityProvider.Provision provision;
     private static ClientApplicationHost<Object> application;
+    private static Path dataRoot;
     private static volatile boolean terminallyClosed;
 
     private NclSkins262ClientRuntime() {}
@@ -22,13 +25,17 @@ final class NclSkins262ClientRuntime {
             throw new IllegalStateException("NCL Skins client runtime is terminally closed");
         }
         if (application == null) {
-            provision = TargetClientBindings.provision();
+            if (dataRoot == null) {
+                throw new IllegalStateException("NCL Skins client is not initialized");
+            }
+            ensureProvision();
             application = new ClientApplicationHost<>(
                     provision.capabilities(),
                     TextResolver.withCatalogTranslations(
                             Minecraft262Components::resolveString,
                             (key, fallback) ->
                                     Language.getInstance().getOrDefault(key, fallback)),
+                    dataRoot,
                     provision::closeNative);
         }
         return application.runtime();
@@ -38,7 +45,20 @@ final class NclSkins262ClientRuntime {
         return terminallyClosed;
     }
 
-    static synchronized void verifyStorageAccess() {
+    static synchronized FilePicker nativeFileDialog() {
+        if (terminallyClosed) {
+            throw new IllegalStateException("NCL Skins client runtime is terminally closed");
+        }
+        ensureProvision();
+        return provision.capabilities().nativeFileDialog();
+    }
+
+    static synchronized void initialize(Path requestedDataRoot) {
+        Path checked = Objects.requireNonNull(requestedDataRoot, "dataRoot");
+        if (dataRoot != null && !dataRoot.equals(checked)) {
+            throw new IllegalStateException("NCL Skins data root changed during startup");
+        }
+        dataRoot = checked;
         runtime().verifyStorageAccess();
     }
 
@@ -81,8 +101,15 @@ final class NclSkins262ClientRuntime {
         ClientApplicationHost<Object> current = application;
         application = null;
         provision = null;
+        dataRoot = null;
         if (current != null) {
             current.close();
+        }
+    }
+
+    private static void ensureProvision() {
+        if (provision == null) {
+            provision = TargetClientBindings.provision();
         }
     }
 

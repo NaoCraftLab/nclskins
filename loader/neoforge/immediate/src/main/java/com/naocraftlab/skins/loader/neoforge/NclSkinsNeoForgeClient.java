@@ -36,6 +36,7 @@ public final class NclSkinsNeoForgeClient {
 
     @SubscribeEvent
     public static void clientSetup(FMLClientSetupEvent event) {
+        NeoForgeConfigScreenRegistrar.register();
         event.enqueueWork(NeoForgeClientBridge::install);
     }
 }

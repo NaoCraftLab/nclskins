@@ -321,11 +321,12 @@ final class ArtifactVerifier {
             Map expected = [schemaVersion: 1, id: catalog.mod.id, version: version, name: catalog.mod.name, description: catalog.mod.descriptions.en_us, authors: catalog.mod.authors, contact: catalog.mod.contact, license: catalog.mod.license, icon: catalog.mod.icon]
             expected.each { key, value -> if (metadata[key] != value) errors.add("${target.id}: Fabric ${key} differs from catalog") }
             if (metadata.environment != '*') errors.add("${target.id}: Fabric environment must be universal")
-            if (metadata.entrypoints != [main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint]]) errors.add("${target.id}: Fabric entrypoints differ from catalog")
+            if (metadata.entrypoints != [main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint], modmenu: [target.metadata.modMenuEntrypoint]]) errors.add("${target.id}: Fabric entrypoints differ from catalog")
             if (metadata.depends != ['fabricloader': target.loader.predicate, 'fabric-api': target.loader.apiPredicate, minecraft: target.minecraft.predicate, java: ">=${target.java.release}"]) errors.add("${target.id}: Fabric dependencies differ from catalog")
             Map expectedSuggestions = [modmenu: ">=${target.loader.modMenuVersion}".toString()]
-            (catalog.optionalDependencies as Map).each { Object dependencyId, Object predicates ->
-                expectedSuggestions[dependencyId.toString()] = (predicates as Map).fabric
+            (catalog.optionalDependencies as Map).each { Object dependencyId, Object ignored ->
+                String predicate = CatalogTools.optionalDependencyPredicate(catalog, target, dependencyId.toString())
+                if (predicate != null) expectedSuggestions[dependencyId.toString()] = predicate
             }
             if (metadata.suggests != expectedSuggestions) errors.add("${target.id}: Fabric suggestions differ from catalog")
             if (metadata.custom != [modmenu: [links: ['modmenu.modrinth': MetadataRenderer.modrinthUrl(catalog.mod as Map), 'modmenu.curseforge': MetadataRenderer.curseForgeUrl(catalog.mod as Map)], update_checker: true]]) errors.add("${target.id}: Fabric Mod Menu card metadata differs from catalog")

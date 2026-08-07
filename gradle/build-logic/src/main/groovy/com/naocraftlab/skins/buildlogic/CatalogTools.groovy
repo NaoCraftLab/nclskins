@@ -282,6 +282,25 @@ final class CatalogTools {
         bundle.toString()
     }
 
+    static String optionalDependencyVersion(Map catalog, Map target, String dependencyId) {
+        Map declaration = (catalog.optionalDependencies as Map)[dependencyId] as Map
+        Object raw = (declaration.versions as Map)[target.id]
+        raw == null ? null : raw.toString()
+    }
+
+    static String optionalDependencyPredicate(Map catalog, Map target, String dependencyId) {
+        Map declaration = (catalog.optionalDependencies as Map)[dependencyId] as Map
+        if (declaration.predicates instanceof Map) {
+            Object raw = (declaration.predicates as Map)[target.loader.id]
+            return raw == null ? null : raw.toString()
+        }
+        String version = optionalDependencyVersion(catalog, target, dependencyId)
+        if (version == null) return null
+        int qualifier = version.indexOf('+')
+        String baseVersion = qualifier < 0 ? version : version.substring(0, qualifier)
+        target.loader.id == 'fabric' ? ">=${baseVersion}" : "[${baseVersion},)"
+    }
+
     static void validate(File repositoryRoot, Map catalog) {
         List<String> errors = []
         Set expectedTop = [
@@ -289,7 +308,7 @@ final class CatalogTools {
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
                 'optionalDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 9) {
+        if (catalog.schemaVersion != 10) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -342,16 +361,31 @@ final class CatalogTools {
         }
         Map optionalDependencies = catalog.optionalDependencies instanceof Map
                 ? catalog.optionalDependencies as Map : [:]
-        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc'] as Set) {
-            errors.add('optionalDependencies must declare only sqlite_jdbc')
+        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc', 'yet_another_config_lib_v3'] as Set) {
+            errors.add('optionalDependencies must declare sqlite_jdbc and yet_another_config_lib_v3')
         } else {
             Map sqlite = optionalDependencies.sqlite_jdbc instanceof Map
                     ? optionalDependencies.sqlite_jdbc as Map : [:]
-            if ((sqlite.keySet() as Set) != LoaderBackend.ids() as Set
-                    || !(sqlite.fabric ==~ />=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)
-                    || !(sqlite.forge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)
-                    || !(sqlite.neoforge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)) {
+            Map sqlitePredicates = sqlite.predicates instanceof Map ? sqlite.predicates as Map : [:]
+            if ((sqlite.keySet() as Set) != ['side', 'predicates'] as Set
+                    || sqlite.side != 'client'
+                    || (sqlitePredicates.keySet() as Set) != LoaderBackend.ids() as Set
+                    || !(sqlitePredicates.fabric ==~ />=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)
+                    || !(sqlitePredicates.forge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)
+                    || !(sqlitePredicates.neoforge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)) {
                 errors.add('sqlite_jdbc must define explicit Fabric, Forge and NeoForge ranges')
+            }
+            Map yacl = optionalDependencies.yet_another_config_lib_v3 instanceof Map
+                    ? optionalDependencies.yet_another_config_lib_v3 as Map : [:]
+            Map versions = yacl.versions instanceof Map ? yacl.versions as Map : [:]
+            Set targetIds = (catalog.targets as List).collect { it.id.toString() } as Set
+            if ((yacl.keySet() as Set) != ['side', 'versions'] as Set
+                    || yacl.side != 'client'
+                    || (versions.keySet() as Set) != targetIds
+                    || versions.values().any { Object version ->
+                !(version instanceof String) || !(version ==~ /3\.[0-9]+\.[0-9]+\+[^\s]+/)
+            }) {
+                errors.add('yet_another_config_lib_v3 must define one exact client version per target')
             }
         }
         if (mod.icon instanceof String) {

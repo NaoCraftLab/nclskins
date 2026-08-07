@@ -10,6 +10,7 @@ import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 
+import java.nio.file.Path;
 import java.util.Objects;
 
 
@@ -36,10 +37,11 @@ public record ClientCapabilitySet(
         Objects.requireNonNull(serverSignal, "serverSignal");
     }
 
-    public ClientRuntime createRuntime(TextResolver textResolver) {
+    public ClientRuntime createRuntime(TextResolver textResolver, Path dataRoot) {
         return ClientRuntime.createDefaultWithDeterministicAppearance(
                 session,
                 resourcePackAccess,
+                Objects.requireNonNull(dataRoot, "dataRoot"),
                 currentAppearance,
                 clientExecutor,
                 nativeFileDialog,
