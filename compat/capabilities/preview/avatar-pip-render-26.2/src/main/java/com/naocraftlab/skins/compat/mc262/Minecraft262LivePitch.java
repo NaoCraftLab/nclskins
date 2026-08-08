@@ -7,6 +7,6 @@ final class Minecraft262LivePitch {
     }
 
     static float radians(float pitchDegrees) {
-        return CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees);
+        return CenteredPipPreviewTransform.pitchRadians(pitchDegrees);
     }
 }

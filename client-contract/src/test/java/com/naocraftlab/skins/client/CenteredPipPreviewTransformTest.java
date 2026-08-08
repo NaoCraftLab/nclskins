@@ -68,7 +68,15 @@ class CenteredPipPreviewTransformTest {
     }
 
     @Test
-    void submittedModelPitchCompensatesThePipDepthAxis() {
+    void liveEntityAndSubmittedModelPitchUseSeparateDepthConventions() {
+        assertEquals(
+                (float) Math.toRadians(25.0F),
+                CenteredPipPreviewTransform.pitchRadians(25.0F),
+                EPSILON);
+        assertEquals(
+                (float) Math.toRadians(-25.0F),
+                CenteredPipPreviewTransform.pitchRadians(-25.0F),
+                EPSILON);
         assertEquals(
                 (float) Math.toRadians(-25.0F),
                 CenteredPipPreviewTransform.modelPitchRadians(25.0F),

@@ -143,14 +143,13 @@ final class SemanticVerifier {
             }
             List<String> pitchMarkers = [
                     'Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees())',
-                    'CenteredPlayerPreviewGeometry.centeredEntityTranslation('
+                    'CenteredPlayerPreviewGeometry.centeredEntityTranslation(',
+                    'CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees)',
+                    'return CenteredPipPreviewTransform.pitchRadians(pitchDegrees)'
             ]
-            pitchMarkers.add(implementation == 'avatar-pip-26.1'
-                    ? 'return CenteredPipPreviewTransform.pitchRadians(pitchDegrees)'
-                    : 'return CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees)')
             pitchMarkers.each { String required ->
                 if (!text.contains(required)) {
-                    errors.add("${implementation}: 26.x preview lacks epoch-correct pitch marker (${required})")
+                    errors.add("${implementation}: 26.x preview lacks live/baked pitch split marker (${required})")
                 }
             }
             if (text.contains('modelView.rotateX(')) {

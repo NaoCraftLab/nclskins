@@ -535,6 +535,57 @@ final class BuildLogicTest {
     }
 
     @Test
+    void semanticVerifierRejectsBakedPitchConventionIn262LivePreview() {
+        Path sourceRoot = Files.createTempDirectory('nclskins-preview-pitch-')
+        try {
+            Files.writeString(
+                    sourceRoot.resolve('Preview.java'),
+                    '''
+                    class PreviewPlayer extends RemotePlayer {
+                        void render() {
+                            LocalPlayer player = minecraft.player;
+                            EditorPreviewSession session;
+                            ExactLocalPlayerScope scope;
+                            EditorPreviewClock clock;
+                            NativePlayerSkinLifecycle lifecycle;
+                            Minecraft262PreviewContext context;
+                            NclBakedPlayerRenderState state;
+                            NclBakedPlayerSubmission submission;
+                            GuiGraphicsExtractorPreviewMixin extractor;
+                            GuiRendererMixin renderer;
+                            @ModifyVariable Object registration;
+                            List.copyOf();
+                            ScreenOwnedRenderTarget target;
+                            NclBakedPlayerTarget playerTarget;
+                            standaloneEquipment();
+                            PlayerCapeModel cape;
+                            ElytraModel elytra;
+                            float x = ELYTRA_ROT_X + ELYTRA_ROT_Z;
+                            Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees());
+                            CenteredPlayerPreviewGeometry.centeredEntityTranslation();
+                            CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees);
+                        }
+
+                        float livePitch(float pitchDegrees) {
+                            return CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees);
+                        }
+                    }
+                    ''')
+            List<String> errors = []
+
+            SemanticVerifier.verifyPreviewBundle(
+                    'avatar-pip-26.2', [sourceRoot] as Set, errors)
+
+            assertTrue(errors.any {
+                it.contains('lacks live/baked pitch split marker') &&
+                        it.contains('return CenteredPipPreviewTransform.pitchRadians(pitchDegrees)')
+            }, errors.toString())
+        } finally {
+            sourceRoot.toFile().deleteDir()
+        }
+    }
+
+    @Test
     void classfileVerifierRejectsWrongTargetMajor() {
         Path jar = Files.createTempFile('nclskins-artifact-', '.jar')
         try {
