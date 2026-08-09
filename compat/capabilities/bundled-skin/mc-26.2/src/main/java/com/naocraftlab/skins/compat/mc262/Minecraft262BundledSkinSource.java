@@ -7,13 +7,18 @@ import com.naocraftlab.skins.client.ResourcePackSkinCatalog;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.resourcepack.ResourcePackCollectionIndex;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -88,19 +93,45 @@ public final class Minecraft262BundledSkinSource implements SkinCatalogSource {
     private static List<CollectionDescriptor> scanResourcePacks() {
         ResourceManager resources = Minecraft.getInstance().getResourceManager();
         Map<String, Integer> menuRanks = selectedPackMenuRanks();
+        Map<String, PackResources> packsById = new LinkedHashMap<>();
+        resources.listPacks().forEach(pack -> packsById.putIfAbsent(pack.packId(), pack));
+        Identifier indexLocation = Identifier.fromNamespaceAndPath(
+                ResourcePackCatalogDiscovery.INDEX_NAMESPACE,
+                ResourcePackCatalogDiscovery.INDEX_PATH);
+        Set<Identifier> effectiveLocations = new LinkedHashSet<>();
+        for (Resource index : resources.getResourceStack(indexLocation)) {
+            PackResources pack = packsById.get(index.sourcePackId());
+            if (pack == null) {
+                continue;
+            }
+            try (InputStream input = index.open()) {
+                for (String collectionId : ResourcePackCollectionIndex.read(input)) {
+                    pack.listResources(
+                            PackType.CLIENT_RESOURCES,
+                            collectionId,
+                            ResourcePackCatalogDiscovery.PLAYER_TEXTURE_ROOT,
+                            (location, supplier) -> {
+                                if (ResourcePackCatalogDiscovery.isCandidatePath(location.getPath())) {
+                                    effectiveLocations.add(location);
+                                }
+                            });
+                }
+            } catch (IOException | RuntimeException invalidIndex) {
+
+            }
+        }
         List<ResourcePackSkinCatalog.Variant> variants = new ArrayList<>();
-        resources.listResources(
-                        ResourcePackCatalogDiscovery.PLAYER_TEXTURE_ROOT,
-                        location -> ResourcePackCatalogDiscovery.isCandidatePath(location.getPath()))
-                .forEach((location, resource) -> {
-                    String sourcePackId = resource.sourcePackId();
-                    ResourcePackCatalogDiscovery.variant(
-                                    location.getNamespace(),
-                                    location.getPath(),
-                                    sourcePackId,
-                                    menuRanks.getOrDefault(sourcePackId, -1))
-                            .ifPresent(variants::add);
-                });
+        for (Identifier location : effectiveLocations) {
+            resources.getResource(location).ifPresent(resource -> {
+                String sourcePackId = resource.sourcePackId();
+                ResourcePackCatalogDiscovery.variant(
+                                location.getNamespace(),
+                                location.getPath(),
+                                sourcePackId,
+                                menuRanks.getOrDefault(sourcePackId, -1))
+                        .ifPresent(variants::add);
+            });
+        }
         return ResourcePackSkinCatalog.build(variants);
     }
 

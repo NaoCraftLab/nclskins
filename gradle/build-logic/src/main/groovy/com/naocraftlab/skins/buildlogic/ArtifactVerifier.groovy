@@ -16,6 +16,7 @@ final class ArtifactVerifier {
     static final Pattern FORBIDDEN_MIXIN = Pattern.compile('(?:User|Session|Authlib).*Mixin\\.class$')
     static final Pattern TOKEN = Pattern.compile('Bearer\\s+[A-Za-z0-9._~+/=-]{20,}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}')
     static final String COLLECTIONS = 'resourcepacks/mojang_collections/'
+    static final String COLLECTION_INDEX = COLLECTIONS + 'assets/nclskins/collections.json'
     static final String BUTTONS = 'assets/nclskins/textures/gui/icons/'
     static final Map<String, Map> FORGE_REFMAPS = [
         'forge-1.20.1': [
@@ -360,7 +361,7 @@ final class ArtifactVerifier {
     }
 
     static void verifyResources(File root, ZipFile archive, Map catalog, Map target, List<String> names, List<String> errors) {
-        Set<String> expected = [catalog.mod.icon, 'assets/nclskins/lang/en_us.json', 'assets/nclskins/lang/ru_ru.json', COLLECTIONS + 'assets/nclskins/lang/en_us.json', COLLECTIONS + 'assets/nclskins/lang/ru_ru.json', COLLECTIONS + 'NOTICE-MOJANG.md', COLLECTIONS + 'pack.mcmeta'] as Set
+        Set<String> expected = [catalog.mod.icon, 'assets/nclskins/lang/en_us.json', 'assets/nclskins/lang/ru_ru.json', COLLECTION_INDEX, COLLECTIONS + 'assets/nclskins/lang/en_us.json', COLLECTIONS + 'assets/nclskins/lang/ru_ru.json', COLLECTIONS + 'NOTICE-MOJANG.md', COLLECTIONS + 'pack.mcmeta'] as Set
         if (target.metadata.accessWidener) expected.add(target.metadata.accessWidener.toString())
         if (target.metadata.accessTransformer) expected.add(target.metadata.accessTransformer.toString())
         expected.addAll(target.metadata.serverMixins ?: [])
@@ -399,6 +400,17 @@ final class ArtifactVerifier {
         skins.each { File source -> compareResource(archive, COLLECTIONS + collections.toPath().relativize(source.toPath()).toString().replace(File.separatorChar, '/' as char), source, target, 64, 64, errors) }
         Set<String> collectionsIds = skins.collect { File skin -> collections.toPath().relativize(skin.toPath()).getName(1).toString() } as Set
         collectionsIds.each { String id -> if (!names.contains(COLLECTIONS + "assets/${id}/notice-mojang.md")) errors.add("${target.id}: missing collection provenance notice for ${id}") }
+        try {
+            Object parsedIndex = new JsonSlurper().parseText(
+                    new String(read(archive, COLLECTION_INDEX), StandardCharsets.UTF_8))
+            if (!(parsedIndex instanceof List) || parsedIndex.any { !(it instanceof String) } ||
+                    (parsedIndex as List).size() != ((parsedIndex as List) as Set).size() ||
+                    ((parsedIndex as List) as Set) != collectionsIds) {
+                errors.add("${target.id}: Mojang collection index differs from the skin namespaces")
+            }
+        } catch (Exception error) {
+            errors.add("${target.id}: invalid Mojang collection index: ${error.message}")
+        }
     }
 
     static void verifyNestedPackIcon(
