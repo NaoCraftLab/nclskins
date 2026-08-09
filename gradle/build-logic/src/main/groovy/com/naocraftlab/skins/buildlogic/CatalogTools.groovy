@@ -306,9 +306,9 @@ final class CatalogTools {
         Set expectedTop = [
                 'schemaVersion', 'development', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
-                'optionalDependencies', 'targets'
+                'optionalDependencies', 'publicationDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 10) {
+        if (catalog.schemaVersion != 11) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -342,9 +342,17 @@ final class CatalogTools {
             errors.add('mod.contact must define HTTPS homepage, sources and issues URLs')
         }
         Map platforms = mod.platforms instanceof Map ? mod.platforms as Map : [:]
+        Map modrinthPlatform = platforms.modrinth instanceof Map ? platforms.modrinth as Map : [:]
+        Map curseForgePlatform = platforms.curseforge instanceof Map ? platforms.curseforge as Map : [:]
         if ((platforms.keySet() as Set) != ['modrinth', 'curseforge'] as Set ||
-                platforms.values().any { !(it instanceof Map) || ((it as Map).keySet() as Set) != ['slug'] as Set || !((it as Map).slug ==~ /[a-z0-9][a-z0-9_-]*/) }) {
-            errors.add('mod.platforms must define valid Modrinth and CurseForge slugs')
+                (modrinthPlatform.keySet() as Set) != ['projectId', 'slug'] as Set ||
+                !(modrinthPlatform.projectId ==~ /[A-Za-z0-9]{8}/) ||
+                !(modrinthPlatform.slug ==~ /[a-z0-9][a-z0-9_-]*/) ||
+                (curseForgePlatform.keySet() as Set) != ['projectId', 'slug'] as Set ||
+                !(curseForgePlatform.projectId instanceof Integer) ||
+                (curseForgePlatform.projectId as int) <= 0 ||
+                !(curseForgePlatform.slug ==~ /[a-z0-9][a-z0-9_-]*/)) {
+            errors.add('mod.platforms must define exact Modrinth and CurseForge project IDs and slugs')
         }
         if (!(mod.authors instanceof List) || !(mod.authors as List) ||
             (mod.authors as List).any { !(it instanceof String) || !it }) {
@@ -388,6 +396,7 @@ final class CatalogTools {
                 errors.add('yet_another_config_lib_v3 must define one exact client version per target')
             }
         }
+        validatePublicationDependencies(catalog, errors)
         if (mod.icon instanceof String) {
             File icon = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/${mod.icon}")
             try {
@@ -870,6 +879,60 @@ final class CatalogTools {
 
     static boolean validAbiDeclarationHash(Object value) {
         value instanceof String && value ==~ /[0-9a-f]{64}/ && value != '0' * 64
+    }
+
+    static void validatePublicationDependencies(Map catalog, List<String> errors) {
+        Map dependencies = catalog.publicationDependencies instanceof Map
+                ? catalog.publicationDependencies as Map : [:]
+        Set<String> expectedIds = [
+                'fabric_api', 'modmenu', 'yet_another_config_lib_v3', 'sqlite_jdbc'
+        ] as Set
+        if ((dependencies.keySet() as Set) != expectedIds) {
+            errors.add('publicationDependencies must declare Fabric API, Mod Menu, YACL, and SQLite JDBC')
+            return
+        }
+        Set<String> loaderIds = LoaderBackend.ids()
+        dependencies.each { Object idRaw, Object declarationRaw ->
+            String id = idRaw.toString()
+            if (!(declarationRaw instanceof Map)) {
+                errors.add("${id}: publication dependency must be an object")
+                return
+            }
+            Map declaration = declarationRaw as Map
+            Map dependencyPlatforms = declaration.platforms instanceof Map
+                    ? declaration.platforms as Map : [:]
+            Map modrinth = dependencyPlatforms.modrinth instanceof Map
+                    ? dependencyPlatforms.modrinth as Map : [:]
+            Map curseforge = dependencyPlatforms.curseforge instanceof Map
+                    ? dependencyPlatforms.curseforge as Map : [:]
+            Set loaders = declaration.loaders instanceof List
+                    ? (declaration.loaders as List).collect { it.toString() } as Set : [] as Set
+            if ((declaration.keySet() as Set) != ['modId', 'loaders', 'type', 'platforms'] as Set ||
+                    !(declaration.modId instanceof String) || declaration.modId.isBlank() ||
+                    loaders.isEmpty() || !loaderIds.containsAll(loaders) ||
+                    !(declaration.type in ['required', 'optional']) ||
+                    (dependencyPlatforms.keySet() as Set) != ['modrinth', 'curseforge'] as Set ||
+                    (modrinth.keySet() as Set) != ['projectId'] as Set ||
+                    !(modrinth.projectId ==~ /[A-Za-z0-9]{8}/) ||
+                    (curseforge.keySet() as Set) != ['projectId', 'slug'] as Set ||
+                    !(curseforge.projectId instanceof Integer) ||
+                    (curseforge.projectId as int) <= 0 ||
+                    !(curseforge.slug ==~ /[a-z0-9][a-z0-9_-]*/)) {
+                errors.add("${id}: invalid publication dependency declaration")
+            }
+        }
+        Map fabric = dependencies.fabric_api as Map
+        Map modMenu = dependencies.modmenu as Map
+        if (fabric.type != 'required' || (fabric.loaders as Set) != ['fabric'] as Set ||
+                modMenu.type != 'optional' || (modMenu.loaders as Set) != ['fabric'] as Set) {
+            errors.add('Fabric API must be required for Fabric and Mod Menu optional for Fabric')
+        }
+        ['yet_another_config_lib_v3', 'sqlite_jdbc'].each { String id ->
+            Map declaration = dependencies[id] as Map
+            if (declaration.type != 'optional' || (declaration.loaders as Set) != loaderIds) {
+                errors.add("${id} must be optional for every loader")
+            }
+        }
     }
 
     static Map<String, Set<String>> classifyAffected(File repositoryRoot, Map catalog, Collection<String> rawPaths) {

@@ -28,18 +28,46 @@ abstract class AssembleReleaseTask extends DefaultTask {
     @Input
     abstract Property<String> getReleaseTag()
 
+    @Input
+    abstract Property<String> getReleaseMode()
+
+    @Optional
+    @InputDirectory
+    abstract DirectoryProperty getExistingAssetsDirectory()
+
     @OutputDirectory
     abstract DirectoryProperty getReleaseRoot()
 
     @TaskAction
     void assembleRelease() {
         File repository = repositoryDirectory.get().asFile
+        String mode = releaseMode.get()
+        if (!(mode in ['tag', 'backfill'])) {
+            throw new IllegalArgumentException("releaseMode must be tag or backfill, got '${mode}'")
+        }
         Map metadata = ReleaseMetadata.validate(
                 versionFile.get().asFile,
                 changelogFile.get().asFile,
                 releaseTag.get())
         Map catalog = CatalogTools.loadCatalog(repository)
         CatalogTools.validate(repository, catalog)
+
+        Map selection
+        if (mode == 'tag') {
+            selection = ReleaseSelection.selectTag(repository, catalog, metadata.version.toString())
+        } else {
+            selection = [
+                    sourceCommit: ReleaseSelection.git(repository, ['rev-parse', 'HEAD']).trim(),
+                    baseTag: null,
+                    paths: [],
+                    targetIds: (catalog.targets as List).collect { it.id.toString() },
+                    reasons: [:]
+            ]
+        }
+
+        File existingDirectory = mode == 'backfill' ? requiredExistingAssetsDirectory() : null
+        validateExistingAssetSet(existingDirectory, catalog, metadata.version.toString())
+
         File versionDirectory = ReleaseMetadata.write(releaseRoot.get().asFile, metadata)
         File assetsDirectory = new File(versionDirectory, 'assets')
         if (assetsDirectory.exists() && !assetsDirectory.deleteDir()) {
@@ -47,57 +75,125 @@ abstract class AssembleReleaseTask extends DefaultTask {
         }
         Files.createDirectories(assetsDirectory.toPath())
 
-        Set<String> names = [] as Set
+        Set<String> selectedIds = selection.targetIds as Set<String>
+        List<Map> publicationTargets = []
         List<Map> assets = []
-        (catalog.targets as List<Map>).each { Map target ->
-            String name = target.artifact.file.toString()
-                    .replace('{modVersion}', metadata.version.toString())
-            if (!names.add(name)) {
-                throw new IllegalStateException("Duplicate release artifact filename: ${name}")
-            }
-            File source = new File(repository, "${target.path}/build/libs/${name}")
+        (catalog.targets as List<Map>).findAll { selectedIds.contains(it.id.toString()) }.each { Map target ->
+            String name = artifactName(target, metadata.version.toString())
+            File built = new File(repository, "${target.path}/build/libs/${name}")
+            File existing = existingDirectory == null ? null : new File(existingDirectory, name)
+            File source = existing != null && existing.isFile() ? existing : built
             if (!Files.isRegularFile(source.toPath(), LinkOption.NOFOLLOW_LINKS)) {
                 throw new IllegalStateException("Missing production artifact for ${target.id}: ${source}")
             }
             File destination = new File(assetsDirectory, name)
             Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            assets.add(AssembleReleaseTask.assetMetadata(
-                    destination, 'mod', target.id.toString()))
+            Map asset = assetMetadata(destination, 'mod', target.id.toString())
+            assets.add(asset)
+            publicationTargets.add(publicationTarget(catalog, target, metadata, asset))
         }
+        requireUniqueArtifactContents(publicationTargets)
 
         String sourcesName = "nclskins-${metadata.version}-sources.jar"
-        if (!names.add(sourcesName)) {
-            throw new IllegalStateException("Duplicate release artifact filename: ${sourcesName}")
-        }
         File sources = ReleaseBundle.createSourcesJar(
-                repository,
-                catalog,
-                metadata.version.toString(),
-                new File(assetsDirectory, sourcesName))
-        assets.add(assetMetadata(sources, 'sources', null))
+                repository, catalog, metadata.version.toString(), new File(assetsDirectory, sourcesName))
+        Map sourcesAsset = assetMetadata(sources, 'sources', null)
+        assets.add(sourcesAsset)
 
-        int expectedCount = (catalog.targets as List).size() + 1
-        if (assets.size() != expectedCount) {
-            throw new IllegalStateException(
-                    "Release bundle must contain ${expectedCount} assets; found ${assets.size()}")
-        }
+        File notes = new File(versionDirectory, 'release-notes.md')
         Map manifest = [
-                schemaVersion: 1,
+                schemaVersion: 2,
+                mode         : mode,
                 version      : metadata.version,
+                channel      : metadata.channel,
                 prerelease   : metadata.prerelease,
-                targetCount  : (catalog.targets as List).size(),
+                sourceCommit : selection.sourceCommit,
+                baseTag      : selection.baseTag,
+                targetCount  : publicationTargets.size(),
+                selectedTargetIds: publicationTargets.collect { it.id },
+                selection    : [paths: selection.paths, reasons: selection.reasons],
+                platforms    : catalog.mod.platforms,
                 releaseNotes : [
                         file  : 'release-notes.md',
-                        sha256: ReleaseBundle.sha256(new File(versionDirectory, 'release-notes.md'))
+                        sha256: ReleaseBundle.sha256(notes),
+                        text  : metadata.notes
                 ],
+                targets      : publicationTargets,
                 assets       : assets
         ]
         Files.writeString(
                 new File(versionDirectory, 'release-manifest.json').toPath(),
                 JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n',
                 StandardCharsets.UTF_8)
-        logger.lifecycle(
-                "Release bundle ${metadata.version} contains ${assets.size()} verified assets")
+        logger.lifecycle("Release bundle ${metadata.version} (${mode}) contains " +
+                "${publicationTargets.size()} target artifacts and one sources JAR")
+    }
+
+    File requiredExistingAssetsDirectory() {
+        if (!existingAssetsDirectory.isPresent()) {
+            throw new IllegalArgumentException('backfill requires -PexistingReleaseAssets=<directory>')
+        }
+        File directory = existingAssetsDirectory.get().asFile
+        if (!directory.isDirectory() || Files.isSymbolicLink(directory.toPath())) {
+            throw new IllegalArgumentException("existing release asset directory is missing or unsafe: ${directory}")
+        }
+        directory
+    }
+
+    static void validateExistingAssetSet(File directory, Map catalog, String version) {
+        if (directory == null) return
+        Set<String> allowed = (catalog.targets as List).collect { artifactName(it as Map, version) } as Set<String>
+        allowed.add("nclskins-${version}-sources.jar".toString())
+        directory.eachFile { File file ->
+            if (!file.isFile() || Files.isSymbolicLink(file.toPath()) || !allowed.contains(file.name)) {
+                throw new IllegalStateException("Unexpected existing GitHub release asset: ${file.name}")
+            }
+        }
+    }
+
+    static Map publicationTarget(Map catalog, Map target, Map release, Map asset) {
+        String loader = target.loader.id.toString()
+        List<String> gameVersions = target.compatibility instanceof Map
+                ? (target.compatibility.minecraftVersions as List).collect { it.toString() }
+                : [target.minecraft.version.toString()]
+        List<Map> modrinthDependencies = []
+        List<Map> curseForgeDependencies = []
+        (catalog.publicationDependencies as Map).values().findAll { Object raw ->
+            (raw as Map).loaders.contains(loader)
+        }.each { Object raw ->
+            Map dependency = raw as Map
+            modrinthDependencies.add([
+                    projectId: dependency.platforms.modrinth.projectId,
+                    type: dependency.type
+            ])
+            curseForgeDependencies.add([
+                    projectId: dependency.platforms.curseforge.projectId,
+                    slug: dependency.platforms.curseforge.slug,
+                    type: dependency.type
+            ])
+        }
+        [
+                id           : target.id,
+                name         : "${release.version}+${target.id}".toString(),
+                versionNumber: release.version,
+                channel      : release.channel,
+                loader       : loader,
+                gameVersions : gameVersions,
+                dependencies : [modrinth: modrinthDependencies, curseforge: curseForgeDependencies],
+                asset        : asset
+        ]
+    }
+
+    static void requireUniqueArtifactContents(List<Map> targets) {
+        List<List<Map>> duplicates = targets.groupBy { it.asset.sha512 }.values().findAll { it.size() > 1 }
+        if (!duplicates.isEmpty()) {
+            String description = duplicates.collect { List<Map> group -> group.collect { it.id }.join(', ') }.join('; ')
+            throw new IllegalStateException("Different publication targets have identical artifacts: ${description}")
+        }
+    }
+
+    static String artifactName(Map target, String version) {
+        target.artifact.file.toString().replace('{modVersion}', version)
     }
 
     static Map assetMetadata(File file, String kind, String targetId) {
@@ -105,7 +201,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 file  : file.name,
                 kind  : kind,
                 size  : file.length(),
-                sha256: ReleaseBundle.sha256(file)
+                sha1  : ReleaseBundle.sha1(file),
+                sha256: ReleaseBundle.sha256(file),
+                sha512: ReleaseBundle.sha512(file)
         ]
         if (targetId != null) result.target = targetId
         result

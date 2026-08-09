@@ -23,6 +23,9 @@ def requestedTargetId = providers.gradleProperty('targetId').orNull
 def requestedMinecraftVersion = providers.gradleProperty('mcVersion').orNull
 def requestedCapabilityKey = providers.gradleProperty('capabilityKey').orNull
 def requestedReleaseTag = providers.gradleProperty('releaseTag').orNull
+def requestedReleaseMode = providers.gradleProperty('releaseMode').getOrElse('tag')
+def requestedExistingReleaseAssets = providers.gradleProperty('existingReleaseAssets').orNull
+def requestedReleaseBundle = providers.gradleProperty('releaseBundle').orNull
 def requestedFromRef = providers.gradleProperty('fromRef').orNull
 def requestedToRef = providers.gradleProperty('toRef').orNull
 def workerText = providers.environmentVariable('NCLSKINS_BUILD_JOBS').getOrElse('3')
@@ -302,7 +305,7 @@ def validateRelease = tasks.register('validateRelease', ValidateReleaseTask) {
 
 tasks.register('assembleRelease', AssembleReleaseTask) {
     group = 'release'
-    description = 'Runs the full gate and assembles every catalog artifact plus one all-target sources JAR.'
+    description = 'Runs the full gate and assembles a tag or backfill publication bundle.'
     dependsOn validateRelease
     dependsOn fullCheck
     repositoryDirectory.set(layout.projectDirectory)
@@ -310,6 +313,40 @@ tasks.register('assembleRelease', AssembleReleaseTask) {
     delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
     changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
     releaseTag.set(requestedReleaseTag ?: '')
+    releaseMode.set(requestedReleaseMode)
+    if (requestedExistingReleaseAssets != null) {
+        existingAssetsDirectory.set(layout.projectDirectory.dir(requestedExistingReleaseAssets))
+    }
     releaseRoot.set(layout.buildDirectory.dir('release'))
     outputs.upToDateWhen { false }
+}
+
+tasks.register('publishReleasePlatforms', PublishPlatformsTask) {
+    group = 'release'
+    description = 'Preflights Modrinth and CurseForge and uploads only missing exact target versions.'
+    doFirst {
+        if (requestedReleaseBundle == null) {
+            throw new GradleException('Use -PreleaseBundle=<verified release bundle directory>')
+        }
+    }
+    if (requestedReleaseBundle != null) {
+        bundleDirectory.set(layout.projectDirectory.dir(requestedReleaseBundle))
+    } else {
+        bundleDirectory.set(layout.buildDirectory.dir('missing-release-bundle'))
+    }
+}
+
+tasks.register('publishGithubRelease', PublishGithubReleaseTask) {
+    group = 'release'
+    description = 'Creates or reconciles the GitHub Release from a verified release bundle.'
+    doFirst {
+        if (requestedReleaseBundle == null) {
+            throw new GradleException('Use -PreleaseBundle=<verified release bundle directory>')
+        }
+    }
+    if (requestedReleaseBundle != null) {
+        bundleDirectory.set(layout.projectDirectory.dir(requestedReleaseBundle))
+    } else {
+        bundleDirectory.set(layout.buildDirectory.dir('missing-release-bundle'))
+    }
 }

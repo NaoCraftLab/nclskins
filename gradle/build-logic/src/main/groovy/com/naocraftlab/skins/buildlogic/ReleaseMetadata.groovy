@@ -54,9 +54,12 @@ final class ReleaseMetadata {
                     "CHANGELOG.md section '${expectedHeading}' must contain release notes")
         }
 
+        String channel = releaseTag.contains('-alpha.')
+                ? 'alpha' : releaseTag.contains('-beta.') ? 'beta' : 'release'
         [
                 version   : releaseTag,
-                prerelease: releaseTag.contains('-alpha.') || releaseTag.contains('-beta.'),
+                channel   : channel,
+                prerelease: channel != 'release',
                 notes     : body.join('\n') + '\n'
         ]
     }
@@ -69,8 +72,9 @@ final class ReleaseMetadata {
                 metadata.notes.toString(),
                 StandardCharsets.UTF_8)
         Map publicMetadata = [
-                schemaVersion: 1,
+                schemaVersion: 2,
                 version      : metadata.version,
+                channel      : metadata.channel,
                 prerelease   : metadata.prerelease,
                 releaseNotes : 'release-notes.md'
         ]

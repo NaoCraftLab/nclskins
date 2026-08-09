@@ -20,6 +20,7 @@ final class ReleaseLogicTest {
                 '1.0.0-alpha.2')
 
         assertEquals('1.0.0-alpha.2', metadata.version)
+        assertEquals('alpha', metadata.channel)
         assertTrue(metadata.prerelease)
         assertTrue(metadata.notes.startsWith(
                 '### Added\n\n- **Imports from launchers and other mods**'))
@@ -34,6 +35,8 @@ final class ReleaseLogicTest {
                     File versionFile, File changelogFile ->
                         Map metadata = ReleaseMetadata.validate(versionFile, changelogFile, version)
                         assertEquals(prerelease, metadata.prerelease)
+                        assertEquals(prerelease ? (version.contains('-alpha.') ? 'alpha' : 'beta') : 'release',
+                                metadata.channel)
                         assertEquals("Notes for ${version}\n".toString(), metadata.notes)
                 }
         }
@@ -96,7 +99,7 @@ final class ReleaseLogicTest {
                     Map json = new JsonSlurper().parse(
                             new File(versionDirectory, 'release-metadata.json')) as Map
                     assertEquals(
-                            [schemaVersion: 1, version: '1.1.0', prerelease: false,
+                            [schemaVersion: 2, version: '1.1.0', channel: 'release', prerelease: false,
                              releaseNotes : 'release-notes.md'],
                             json)
                 } finally {

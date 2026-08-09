@@ -81,9 +81,21 @@ final class ReleaseBundle {
     }
 
     static String sha256(File file) {
-        MessageDigest digest = MessageDigest.getInstance('SHA-256')
+        digest(file, 'SHA-256')
+    }
+
+    static String sha512(File file) {
+        digest(file, 'SHA-512')
+    }
+
+    static String sha1(File file) {
+        digest(file, 'SHA-1')
+    }
+
+    private static String digest(File file, String algorithm) {
+        MessageDigest digest = MessageDigest.getInstance(algorithm)
         file.withInputStream { input ->
-            byte[] buffer = new byte[8192]
+            byte[] buffer = new byte[1024 * 1024]
             int read
             while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read)
         }

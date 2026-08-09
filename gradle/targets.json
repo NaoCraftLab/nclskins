@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 10,
+  "schemaVersion": 11,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001"
   },
@@ -19,9 +19,11 @@
     },
     "platforms": {
       "modrinth": {
+        "projectId": "axxWLWkK",
         "slug": "nclskins"
       },
       "curseforge": {
+        "projectId": 1637371,
         "slug": "nclskins"
       }
     },
@@ -200,6 +202,44 @@
         "neoforge-26.1": "3.9.6+26.1-neoforge",
         "fabric-26.2": "3.9.6+26.2-fabric",
         "neoforge-26.2": "3.9.6+26.2-neoforge"
+      }
+    }
+  },
+  "publicationDependencies": {
+    "fabric_api": {
+      "modId": "fabric-api",
+      "loaders": ["fabric"],
+      "type": "required",
+      "platforms": {
+        "modrinth": {"projectId": "P7dR8mSH"},
+        "curseforge": {"projectId": 306612, "slug": "fabric-api"}
+      }
+    },
+    "modmenu": {
+      "modId": "modmenu",
+      "loaders": ["fabric"],
+      "type": "optional",
+      "platforms": {
+        "modrinth": {"projectId": "mOgUt4GM"},
+        "curseforge": {"projectId": 308702, "slug": "modmenu"}
+      }
+    },
+    "yet_another_config_lib_v3": {
+      "modId": "yet_another_config_lib_v3",
+      "loaders": ["fabric", "forge", "neoforge"],
+      "type": "optional",
+      "platforms": {
+        "modrinth": {"projectId": "1eAoo2KR"},
+        "curseforge": {"projectId": 667299, "slug": "yacl"}
+      }
+    },
+    "sqlite_jdbc": {
+      "modId": "sqlite_jdbc",
+      "loaders": ["fabric", "forge", "neoforge"],
+      "type": "optional",
+      "platforms": {
+        "modrinth": {"projectId": "bTTf2DEw"},
+        "curseforge": {"projectId": 560832, "slug": "sqlite-jdbc"}
       }
     }
   },
