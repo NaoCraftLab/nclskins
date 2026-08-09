@@ -151,16 +151,14 @@
       "tests": [
         "client-contract/src/test/java/com/naocraftlab/skins/client/ResourcePackSkinCatalogTest.java",
         "client-contract/src/test/java/com/naocraftlab/skins/client/ResourcePackCatalogDiscoveryTest.java",
-        "client-contract/src/test/java/com/naocraftlab/skins/client/CatalogGenerationTrackerTest.java",
-        "core/src/test/java/com/naocraftlab/skins/core/resourcepack/ResourcePackCollectionIndexTest.java"
+        "client-contract/src/test/java/com/naocraftlab/skins/client/CatalogGenerationTrackerTest.java"
       ],
       "supportSources": [],
       "semantics": [
         "vanilla-stack-order",
         "bounded-resource-read",
         "generation-pinning",
-        "identifier-neutral-discovery",
-        "indexed-pack-scoped-discovery"
+        "identifier-neutral-discovery"
       ]
     },
     "current-appearance-contract": {

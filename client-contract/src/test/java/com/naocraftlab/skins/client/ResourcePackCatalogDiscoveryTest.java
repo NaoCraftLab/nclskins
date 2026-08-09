@@ -11,12 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ResourcePackCatalogDiscoveryTest {
     @Test
-    void usesOneStableResourceStackLocationForCollectionIndexes() {
-        assertEquals("nclskins", ResourcePackCatalogDiscovery.INDEX_NAMESPACE);
-        assertEquals("collections.json", ResourcePackCatalogDiscovery.INDEX_PATH);
-    }
-
-    @Test
     void parsesOnlyDirectWideAndSlimVanillaPlayerPaths() {
         var wide = ResourcePackCatalogDiscovery.variant(
                         "event_pack",

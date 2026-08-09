@@ -727,16 +727,6 @@ final class BuildLogicTest {
         assertTrue(nestedPackIconErrors(repository, catalog, null).any {
             it.contains('missing required resource')
         })
-
-        List collectionsIndex = new JsonSlurper().parse(
-                new File(collections, 'assets/nclskins/collections.json')) as List
-        Set skinNamespaces = pngs.findAll {
-            it.toString().contains(File.separator + 'assets' + File.separator)
-        }.collect {
-            collections.toPath().relativize(it).getName(1).toString()
-        } as Set
-        assertEquals(skinNamespaces, collectionsIndex as Set)
-        assertEquals(collectionsIndex.size(), (collectionsIndex as Set).size())
     }
 
     @Test

@@ -8,8 +8,6 @@ import java.util.Optional;
 
 
 public final class ResourcePackCatalogDiscovery {
-    public static final String INDEX_NAMESPACE = "nclskins";
-    public static final String INDEX_PATH = "collections.json";
     public static final String PLAYER_TEXTURE_ROOT = "textures/entity/player";
     private static final String WIDE_DIRECTORY = PLAYER_TEXTURE_ROOT + "/wide/";
     private static final String SLIM_DIRECTORY = PLAYER_TEXTURE_ROOT + "/slim/";
