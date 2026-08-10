@@ -35,4 +35,8 @@ public record SessionValidation(
     public boolean tokenUnavailable() {
         return failureKind() == ApiFailureKind.TOKEN_UNAVAILABLE;
     }
+
+    public boolean restartRequired() {
+        return status == SessionStatus.EXPIRED || tokenUnavailable();
+    }
 }

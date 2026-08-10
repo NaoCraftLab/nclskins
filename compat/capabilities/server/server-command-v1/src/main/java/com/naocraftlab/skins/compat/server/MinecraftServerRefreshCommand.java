@@ -5,7 +5,6 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.naocraftlab.skins.server.Admission;
 import com.naocraftlab.skins.server.ServerRefreshCommandProtocol;
 import java.util.Objects;
-import java.util.Optional;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
@@ -23,15 +22,10 @@ public final class MinecraftServerRefreshCommand {
     }
 
     private static boolean canRefresh(CommandSourceStack source) {
-        if (!(source.getEntity() instanceof ServerPlayer player)) {
-            return ServerRefreshCommandProtocol.eligible(false, false, false);
-        }
-        Optional<MinecraftServerAppearanceService> service =
-                MinecraftServerAppearanceService.registered(source.getServer());
-        return ServerRefreshCommandProtocol.eligible(
-                true,
-                service.isPresent(),
-                service.map(registered -> registered.eligible(player)).orElse(false));
+        boolean playerSource = source.getEntity() instanceof ServerPlayer;
+        boolean serviceRegistered = playerSource
+                && MinecraftServerAppearanceService.registered(source.getServer()).isPresent();
+        return ServerRefreshCommandProtocol.advertised(playerSource, serviceRegistered);
     }
 
     private static int refresh(CommandSourceStack source) throws CommandSyntaxException {

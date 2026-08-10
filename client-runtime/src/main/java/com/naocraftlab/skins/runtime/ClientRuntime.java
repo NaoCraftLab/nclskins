@@ -2853,7 +2853,7 @@ public final class ClientRuntime implements AutoCloseable {
                 || state.syncInProgress
                 || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
                 || state.account == null
-                || (state.session != null && state.session.tokenUnavailable())) {
+                || (state.session != null && state.session.restartRequired())) {
             return false;
         }
         boolean offline = state.session == null || !state.session.valid();

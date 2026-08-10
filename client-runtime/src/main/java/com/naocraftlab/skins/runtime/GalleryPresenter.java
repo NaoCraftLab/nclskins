@@ -539,7 +539,7 @@ public final class GalleryPresenter {
         if (snapshot.lifecycle() == ClientSnapshot.Lifecycle.INITIALIZING) {
             return Optional.empty();
         }
-        if (tokenUnavailable(snapshot)) {
+        if (sessionRestartRequired(snapshot)) {
             return Optional.empty();
         }
         boolean retryVisible = snapshot.session().isEmpty()
@@ -581,9 +581,9 @@ public final class GalleryPresenter {
         return snapshot.rateLimited() || snapshot.rateLimitProgress().isPresent();
     }
 
-    private static boolean tokenUnavailable(ClientSnapshot snapshot) {
+    private static boolean sessionRestartRequired(ClientSnapshot snapshot) {
         return snapshot.session()
-                .map(session -> !session.valid() && session.tokenUnavailable())
+                .map(session -> !session.valid() && session.restartRequired())
                 .orElse(false);
     }
 

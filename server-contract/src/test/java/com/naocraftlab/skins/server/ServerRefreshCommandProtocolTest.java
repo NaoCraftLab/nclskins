@@ -1,12 +1,13 @@
 package com.naocraftlab.skins.server;
 
+import org.junit.jupiter.api.Test;
+
+import java.util.Locale;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.util.Locale;
-import org.junit.jupiter.api.Test;
 
 final class ServerRefreshCommandProtocolTest {
     @Test
@@ -27,11 +28,11 @@ final class ServerRefreshCommandProtocolTest {
     }
 
     @Test
-    void eligibilityRequiresAPlayerLiveServiceAndPolicyApproval() {
-        assertTrue(ServerRefreshCommandProtocol.eligible(true, true, true));
-        assertFalse(ServerRefreshCommandProtocol.eligible(false, true, true));
-        assertFalse(ServerRefreshCommandProtocol.eligible(true, false, true));
-        assertFalse(ServerRefreshCommandProtocol.eligible(true, true, false));
+    void advertisementRequiresOnlyAPlayerAndLiveService() {
+        assertTrue(ServerRefreshCommandProtocol.advertised(true, true));
+        assertFalse(ServerRefreshCommandProtocol.advertised(false, true));
+        assertFalse(ServerRefreshCommandProtocol.advertised(true, false));
+        assertFalse(ServerRefreshCommandProtocol.advertised(false, false));
     }
 
     @Test

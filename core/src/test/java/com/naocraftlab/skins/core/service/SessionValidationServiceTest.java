@@ -218,6 +218,7 @@ class SessionValidationServiceTest {
         assertEquals(SessionStatus.OFFLINE_OR_INVALID, result.status());
         assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, result.failureKind());
         assertTrue(result.tokenUnavailable());
+        assertTrue(result.restartRequired());
         assertEquals(0, api.profileCalls);
     }
 
@@ -254,7 +255,7 @@ class SessionValidationServiceTest {
         SessionValidationService service = new SessionValidationService(api, gate);
 
         assertEquals(SessionStatus.EXPIRED, service.currentStatus(tokens).status());
-        assertEquals(SessionStatus.EXPIRED, service.currentStatus(tokens).status());
+        assertTrue(service.currentStatus(tokens).restartRequired());
         assertEquals(1, tokens.calls);
 
         api.profileFailure = null;

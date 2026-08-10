@@ -319,7 +319,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void unavailableTokenShowsOnlyOfflineAndCannotDispatchSessionRetry() {
+    void unavailableOrExpiredTokenShowsOnlyOfflineAndCannotDispatchSessionRetry() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
         SessionValidation valid = TestFixtures.validSession();
@@ -346,6 +346,29 @@ final class ClientRuntimeTest {
                         .message());
         assertTrue(view.widget("gallery.retry_session").isEmpty());
         runtime.dispatchWidget("gallery.retry_session");
+        assertEquals(0, operations.retrySessionCalls);
+
+        operations.session = new SessionValidation(
+                SessionStatus.EXPIRED,
+                valid.sessionIdentity(),
+                null,
+                new SessionFailureContext(
+                        SessionCheckPhase.PROFILE,
+                        ApiFailureKind.SESSION_EXPIRED,
+                        401),
+                "restart required");
+        ClientRuntime expiredRuntime = runtime(operations, Runnable::run, Optional.empty());
+        expiredRuntime.initialize();
+        ViewSpec expiredView = expiredRuntime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                expiredView.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertTrue(expiredView.widget("gallery.retry_session").isEmpty());
+        expiredRuntime.dispatchWidget("gallery.retry_session");
         assertEquals(0, operations.retrySessionCalls);
     }
 

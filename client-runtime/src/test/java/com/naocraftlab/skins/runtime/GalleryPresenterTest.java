@@ -479,6 +479,28 @@ final class GalleryPresenterTest {
         assertTrue(noToken.widget("gallery.retry_session").isEmpty());
         assertTrue(noToken.widget("gallery.retry_cape").isEmpty());
 
+        SessionValidation expired = new SessionValidation(
+                SessionStatus.EXPIRED,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                new SessionFailureContext(
+                        SessionCheckPhase.PROFILE,
+                        ApiFailureKind.SESSION_EXPIRED,
+                        401),
+                "restart required");
+        ViewSpec expiredSession = presenter.present(
+                withState(
+                        valid,
+                        Optional.of(expired),
+                        false,
+                        false,
+                        AppearanceSyncStatus.LOCAL_ONLY),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                text(expiredSession, "gallery.offline").message());
+        assertTrue(expiredSession.widget("gallery.retry_session").isEmpty());
+
         ViewSpec validUnknownConnecting = presenter.present(
                 withStatus(
                         withState(

@@ -13,9 +13,8 @@ public final class ServerRefreshCommandProtocol {
     private ServerRefreshCommandProtocol() {}
 
 
-    public static boolean eligible(
-            boolean playerSource, boolean serviceRegistered, boolean serviceEligible) {
-        return playerSource && serviceRegistered && serviceEligible;
+    public static boolean advertised(boolean playerSource, boolean serviceRegistered) {
+        return playerSource && serviceRegistered;
     }
 
 
