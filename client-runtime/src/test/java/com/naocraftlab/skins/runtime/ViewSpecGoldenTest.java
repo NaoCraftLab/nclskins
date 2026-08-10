@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -103,6 +104,63 @@ final class ViewSpecGoldenTest {
                 golden("gallery-view-spec-427.txt"),
                 describe(galleryWithSessionState(427, 640, true, AppearanceSyncStatus.UNKNOWN))
                         .stripTrailing());
+    }
+
+    @Test
+    void rateLimitedPendingGalleryMatchesProgressGolden() {
+        AccountState account = TestFixtures.account(2);
+        UUID active = account.presets().get(0).id();
+        ClientSnapshot base = TestFixtures.ready(account, active, 0);
+        ClientSnapshot snapshot = new ClientSnapshot(
+                base.lifecycle(),
+                base.account(),
+                base.session(),
+                base.remoteProfile(),
+                base.lastMutation(),
+                base.selectedSkinId(),
+                Optional.of(active),
+                base.selectedCapeId(),
+                base.currentOfficialSkinId(),
+                Optional.of(active),
+                base.editor(),
+                base.addSource(),
+                base.status(),
+                false,
+                true,
+                Optional.of(new ClientSnapshot.RateLimitProgress(
+                        Duration.ofSeconds(30), Duration.ofSeconds(60), 0.5)),
+                base.galleryOffset(),
+                base.generation(),
+                7,
+                AppearanceSyncStatus.PARTIAL,
+                false);
+        ViewSpec view = GALLERY.present(
+                snapshot,
+                854,
+                480,
+                427,
+                180,
+                PreviewRenderer.CapeMode.CAPE);
+        StringBuilder actual = new StringBuilder("widgets\n");
+        for (ViewSpec.ProgressDecoration decoration : view.progressDecorations()) {
+            ViewSpec.Widget widget = view.widget(decoration.ownerWidgetId()).orElseThrow();
+            actual.append(widget.id())
+                    .append("|hint=")
+                    .append(widget.hint().map(ViewSpecGoldenTest::message).orElse("-"))
+                    .append("|enabled=").append(widget.enabled())
+                    .append("|clipped=").append(view.clipFor(widget.id()).isPresent())
+                    .append('\n');
+        }
+        actual.append("progress\n");
+        for (ViewSpec.ProgressDecoration decoration : view.progressDecorations()) {
+            actual.append(decoration.id())
+                    .append("|owner=").append(decoration.ownerWidgetId())
+                    .append("|fraction=").append(decoration.fraction())
+                    .append("|color=").append(String.format("%08X", decoration.color()))
+                    .append("|height=").append(decoration.height())
+                    .append('\n');
+        }
+        assertEquals(golden("gallery-view-spec-rate-limit.txt"), actual.toString().stripTrailing());
     }
 
     @Test

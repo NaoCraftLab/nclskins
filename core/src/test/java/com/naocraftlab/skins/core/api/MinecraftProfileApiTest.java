@@ -1,17 +1,14 @@
 package com.naocraftlab.skins.core.api;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.test.TestPng;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -26,8 +23,11 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MinecraftProfileApiTest {
     private static final String TOKEN = "test-access-token-never-persist";
@@ -154,7 +154,7 @@ class MinecraftProfileApiTest {
     }
 
     @Test
-    void doesNotRetryImmediate429InsideTheSameGet() throws Exception {
+    void zeroRetryAfterUsesMinimumCooldownWithoutImmediateRetryLoop() throws Exception {
         AtomicInteger calls = new AtomicInteger();
         server = server(exchange -> {
             if (calls.incrementAndGet() == 1) {
@@ -171,8 +171,12 @@ class MinecraftProfileApiTest {
         assertEquals(1, calls.get());
 
 
-        api.getProfile(TOKEN);
-        assertEquals(2, calls.get());
+        ProfileApiException blocked = assertThrows(
+                ProfileApiException.class,
+                () -> api.getProfile(TOKEN));
+        assertEquals(Duration.ofSeconds(1), limited.retryAfter().orElseThrow());
+        assertEquals(Duration.ofSeconds(1), blocked.retryAfter().orElseThrow());
+        assertEquals(1, calls.get());
     }
 
     @Test

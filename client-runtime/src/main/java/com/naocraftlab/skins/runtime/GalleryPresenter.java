@@ -3,10 +3,12 @@ package com.naocraftlab.skins.runtime;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
+import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.service.PresetGalleryOrder;
 import com.naocraftlab.skins.core.service.RecoveryAction;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -32,6 +34,8 @@ public final class GalleryPresenter {
     private static final int SESSION_STATE_TEXT_WIDTH = 84;
     private static final int VIEWPORT_TOP = 58;
     private static final int SCROLLBAR_BOTTOM_OFFSET = 43;
+    private static final int RATE_LIMIT_PROGRESS_COLOR = 0xFF5A8FCB;
+    private static final int RATE_LIMIT_PROGRESS_HEIGHT = 2;
 
     public ViewSpec present(
             ClientSnapshot snapshot,
@@ -225,6 +229,8 @@ public final class GalleryPresenter {
 
         Optional<RecoveryWidget> recovery = addGlobalWidgets(snapshot, width, height, widgets);
         addHeader(snapshot, width, recovery, texts);
+        List<ViewSpec.ProgressDecoration> progressDecorations =
+                rateLimitProgressDecorations(snapshot, widgets);
 
         Optional<ViewSpec.Scrollbar> scrollbar = maximum <= 0
                 ? Optional.empty()
@@ -260,7 +266,9 @@ public final class GalleryPresenter {
                         cardViewport,
                         ViewSpec.Scrollbar.Orientation.HORIZONTAL,
                         visualOffset * cardStep,
-                        maximum * (double) cardStep)));
+                        maximum * (double) cardStep)),
+                List.of(),
+                progressDecorations);
     }
 
     public int maximumScroll(ClientSnapshot snapshot, int width, int height, String query) {
@@ -433,7 +441,8 @@ public final class GalleryPresenter {
                 active
                         ? UiMessage.info("nclskins.gallery.active")
                         : UiMessage.info("nclskins.gallery.apply"),
-                !snapshot.busy() && !active), actionViewport);
+                rateLimitHint(snapshot, active),
+                !snapshot.busy() && (!active || rateLimitedPending(snapshot))), actionViewport);
         int editX = actionX + applyWidth + CARD_ACTION_GAP;
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
@@ -485,7 +494,8 @@ public final class GalleryPresenter {
                 active
                         ? UiMessage.info("nclskins.gallery.active")
                         : UiMessage.info("nclskins.gallery.apply"),
-                !snapshot.busy() && !active), actionViewport);
+                rateLimitHint(snapshot, active),
+                !snapshot.busy() && (!active || rateLimitedPending(snapshot))), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(editX, secondaryRow, outerWidth, ACTION_HEIGHT),
@@ -529,19 +539,22 @@ public final class GalleryPresenter {
         if (snapshot.lifecycle() == ClientSnapshot.Lifecycle.INITIALIZING) {
             return Optional.empty();
         }
+        if (tokenUnavailable(snapshot)) {
+            return Optional.empty();
+        }
         boolean retryVisible = snapshot.session().isEmpty()
                 || !snapshot.session().orElseThrow().valid()
                 || snapshot.recoveryActions().contains(RecoveryAction.REFRESH_REMOTE_PROFILE);
-        if (retryVisible) {
+        if (retryVisible && !rateLimitWaiting(snapshot)) {
             Bounds bounds = recoveryBounds(width);
             widgets.add(ViewSpec.Widget.button(
                     "gallery.retry_session",
                     bounds,
                     UiMessage.info("nclskins.session.retry"),
+                    rateLimitHint(snapshot, true),
                     !snapshot.busy()
                             && !snapshot.syncInProgress()
-                            && snapshot.account().isPresent()
-                            && !snapshot.rateLimited()));
+                            && snapshot.account().isPresent()));
             return Optional.of(new RecoveryWidget(bounds));
         }
         if (snapshot.recoveryActions().contains(RecoveryAction.RETRY_CAPE)) {
@@ -550,10 +563,65 @@ public final class GalleryPresenter {
                     "gallery.retry_cape",
                     bounds,
                     UiMessage.info("nclskins.recovery.retry_cape"),
-                    !snapshot.busy() && !snapshot.remoteControlsBlocked()));
+                    rateLimitHint(snapshot, true),
+                    !snapshot.busy()
+                            && (!snapshot.remoteControlsBlocked() || snapshot.rateLimited())));
             return Optional.of(new RecoveryWidget(bounds));
         }
         return Optional.empty();
+    }
+
+    private static Optional<UiMessage> rateLimitHint(ClientSnapshot snapshot, boolean owner) {
+        return owner && snapshot.rateLimitProgress().isPresent()
+                ? Optional.of(UiMessage.info("nclskins.rate_limit.delayed"))
+                : Optional.empty();
+    }
+
+    private static boolean rateLimitWaiting(ClientSnapshot snapshot) {
+        return snapshot.rateLimited() || snapshot.rateLimitProgress().isPresent();
+    }
+
+    private static boolean tokenUnavailable(ClientSnapshot snapshot) {
+        return snapshot.session()
+                .map(session -> !session.valid() && session.tokenUnavailable())
+                .orElse(false);
+    }
+
+    private static boolean rateLimitedPending(ClientSnapshot snapshot) {
+        if (snapshot.rateLimitProgress().isEmpty()) {
+            return false;
+        }
+        return snapshot.syncStatus() == AppearanceSyncStatus.PENDING
+                || snapshot.syncStatus() == AppearanceSyncStatus.ATTEMPTING
+                || snapshot.syncStatus() == AppearanceSyncStatus.PARTIAL;
+    }
+
+    private static List<ViewSpec.ProgressDecoration> rateLimitProgressDecorations(
+            ClientSnapshot snapshot, List<ViewSpec.Widget> widgets) {
+        if (snapshot.rateLimitProgress().isEmpty()) {
+            return List.of();
+        }
+        double fraction = snapshot.rateLimitProgress().orElseThrow().fraction();
+        String activeApply = rateLimitedPending(snapshot)
+                ? snapshot.activePresetId()
+                        .map(id -> "gallery.preset." + id + ".apply")
+                        .orElse(null)
+                : null;
+        List<ViewSpec.ProgressDecoration> decorations = new ArrayList<>();
+        for (ViewSpec.Widget widget : widgets) {
+            boolean retry = widget.id().equals("gallery.retry_session")
+                    || widget.id().equals("gallery.retry_cape");
+            if (!retry && !widget.id().equals(activeApply)) {
+                continue;
+            }
+            decorations.add(new ViewSpec.ProgressDecoration(
+                    widget.id() + ".rate_limit",
+                    widget.id(),
+                    fraction,
+                    RATE_LIMIT_PROGRESS_COLOR,
+                    RATE_LIMIT_PROGRESS_HEIGHT));
+        }
+        return List.copyOf(decorations);
     }
 
     private static Bounds recoveryBounds(int width) {
@@ -570,7 +638,7 @@ public final class GalleryPresenter {
                 && (snapshot.session().isEmpty() || !snapshot.session().orElseThrow().valid());
         boolean connecting = snapshot.busy()
                 && snapshot.status().equals(UiMessage.info("nclskins.status.checking_session"));
-        boolean showSessionState = offline || connecting;
+        boolean showSessionState = !rateLimitWaiting(snapshot) && (offline || connecting);
         int leftOccupied = showSessionState
                 ? Math.min(SESSION_STATE_TEXT_WIDTH + 12, Math.max(0, width - 1))
                 : 0;

@@ -41,6 +41,7 @@ import com.naocraftlab.skins.core.service.SessionValidation;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -95,6 +96,9 @@ public final class ClientRuntime implements AutoCloseable {
     private boolean sessionRetryFeedbackRendered;
     private int sessionRetryFeedbackTicksRemaining;
     private SessionRetrySettlement pendingSessionRetrySettlement;
+    private boolean rateLimitRecoveryArmed;
+    private UUID rateLimitRecoveryAccountId;
+    private Duration rateLimitTotal;
 
     private volatile ClientSnapshot snapshot = ClientSnapshot.initial();
     private volatile boolean disposed;
@@ -467,15 +471,17 @@ public final class ClientRuntime implements AutoCloseable {
 
     public void tick() {
         onClient(() -> {
-            if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
+            if (disposed) {
+                return;
+            }
+            boolean rateLimitChanged = observeRateLimit();
+            if (state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
+                if (rateLimitChanged) {
+                    publish();
+                }
                 return;
             }
             advanceSessionRetryFeedback();
-            boolean rateLimited = operations.rateLimited();
-            if (rateLimited != state.rateLimited) {
-                state.rateLimited = rateLimited;
-                publish();
-            }
             boolean scrollChanged = clampGalleryScroll();
             if (state.editor != null) {
                 scrollChanged |= clampEditorCapeScroll();
@@ -491,10 +497,69 @@ public final class ClientRuntime implements AutoCloseable {
                         || Math.abs(beforeTarget - addSourceScrollTarget) > 0.001
                         || beforeOffset != state.addSource.scrollOffset();
             }
-            if (scrollChanged) {
+            if (rateLimitChanged || scrollChanged) {
                 publish();
             }
         });
+    }
+
+    private boolean observeRateLimit() {
+        Optional<Duration> remaining = operations.rateLimitRemaining();
+        boolean limited = remaining.isPresent();
+        boolean changed = state.rateLimited != limited;
+        state.rateLimited = limited;
+        if (limited) {
+            Duration current = remaining.orElseThrow();
+            if (rateLimitTotal == null || current.compareTo(rateLimitTotal) > 0) {
+                rateLimitTotal = current;
+            }
+            double fraction = Math.min(1.0, Math.max(0.0,
+                    (double) current.toNanos() / (double) rateLimitTotal.toNanos()));
+            ClientSnapshot.RateLimitProgress progress =
+                    new ClientSnapshot.RateLimitProgress(current, rateLimitTotal, fraction);
+            changed |= !Optional.of(progress).equals(state.rateLimitProgress);
+            state.rateLimitProgress = Optional.of(progress);
+            armRateLimitRecovery();
+            return changed;
+        }
+
+        changed |= state.rateLimitProgress.isPresent();
+        state.rateLimitProgress = Optional.empty();
+        rateLimitTotal = null;
+        if (!rateLimitRecoveryArmed) {
+            return changed;
+        }
+        UUID accountId = rateLimitRecoveryAccountId;
+        rateLimitRecoveryArmed = false;
+        rateLimitRecoveryAccountId = null;
+        if (accountId != null && accountId.equals(currentSessionAccountId())) {
+            currentReconciliationKey()
+                    .filter(key -> key.accountId().equals(accountId))
+                    .ifPresent(key -> requestAppearanceReconciliation(
+                            key, ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED));
+        }
+        return true;
+    }
+
+    private void armRateLimitRecovery() {
+        UUID currentAccountId = currentSessionAccountId();
+        if (currentAccountId == null
+                || state.account == null
+                || !state.account.accountId().equals(currentAccountId)) {
+            rateLimitRecoveryArmed = false;
+            rateLimitRecoveryAccountId = null;
+            return;
+        }
+        rateLimitRecoveryArmed = true;
+        rateLimitRecoveryAccountId = currentAccountId;
+    }
+
+    private UUID currentSessionAccountId() {
+        try {
+            return operations.sessionIdentity().profileId();
+        } catch (RuntimeException unavailable) {
+            return null;
+        }
     }
 
 
@@ -2421,6 +2486,14 @@ public final class ClientRuntime implements AutoCloseable {
         if (findPreset(presetId) == null) {
             return;
         }
+        if (presetId.equals(state.activePresetId)
+                && state.syncStatus != AppearanceSyncStatus.OFFICIAL
+                && operations.rateLimitRemaining().isPresent()) {
+            state.selectedPresetId = presetId;
+            armRateLimitRecovery();
+            publish();
+            return;
+        }
         state.selectedPresetId = presetId;
         submitRemote(
                 UiMessage.info("nclskins.status.applying"),
@@ -2507,8 +2580,14 @@ public final class ClientRuntime implements AutoCloseable {
             ClientOperations.ReconciliationKey key,
             ClientOperations.ReconciliationTrigger trigger) {
         Objects.requireNonNull(localRebind, "localRebind").whenComplete(
-                (ignored, failure) -> onClient(() ->
-                        requestAppearanceReconciliation(key, trigger)));
+                (ignored, failure) -> onClient(() -> {
+                    if (operations.rateLimitRemaining().isPresent()) {
+                        armRateLimitRecovery();
+                        publish();
+                        return;
+                    }
+                    requestAppearanceReconciliation(key, trigger);
+                }));
     }
 
     private void requestAppearanceReconciliation(
@@ -2730,6 +2809,11 @@ public final class ClientRuntime implements AutoCloseable {
 
     private void retrySelectedCape() {
         if (!state.busy) {
+            if (operations.rateLimitRemaining().isPresent()) {
+                armRateLimitRecovery();
+                publish();
+                return;
+            }
             requestAppearanceReconciliation(
                     ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY);
         }
@@ -2737,6 +2821,11 @@ public final class ClientRuntime implements AutoCloseable {
 
     private void retrySession() {
         if (!canRetrySession()) {
+            return;
+        }
+        if (operations.rateLimitRemaining().isPresent()) {
+            armRateLimitRecovery();
+            publish();
             return;
         }
         long ticket = ++state.generation;
@@ -2763,14 +2852,8 @@ public final class ClientRuntime implements AutoCloseable {
                 || state.busy
                 || state.syncInProgress
                 || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
-                || state.account == null) {
-            return false;
-        }
-        if (state.rateLimited || operations.rateLimited()) {
-            if (!state.rateLimited) {
-                state.rateLimited = true;
-                publish();
-            }
+                || state.account == null
+                || (state.session != null && state.session.tokenUnavailable())) {
             return false;
         }
         boolean offline = state.session == null || !state.session.valid();
@@ -3336,6 +3419,7 @@ public final class ClientRuntime implements AutoCloseable {
                 state.status,
                 state.busy,
                 state.rateLimited,
+                state.rateLimitProgress,
                 state.galleryOffset,
                 state.generation,
                 state.intentRevision,
@@ -3478,6 +3562,7 @@ public final class ClientRuntime implements AutoCloseable {
             return "nclskins.session.message.check_failed";
         }
         return switch (failureKind) {
+            case TOKEN_UNAVAILABLE -> "nclskins.session.message.offline";
             case INVALID_SESSION -> "nclskins.session.message.offline";
             case NETWORK, SERVER_ERROR -> "nclskins.session.message.service_unavailable";
             case RATE_LIMITED -> "nclskins.session.message.rate_limited";
@@ -3681,6 +3766,7 @@ public final class ClientRuntime implements AutoCloseable {
         private UiMessage status = UiMessage.info("nclskins.status.loading");
         private boolean busy;
         private boolean rateLimited;
+        private Optional<ClientSnapshot.RateLimitProgress> rateLimitProgress = Optional.empty();
         private long intentRevision;
         private AppearanceSyncStatus syncStatus = AppearanceSyncStatus.LOCAL_ONLY;
         private boolean syncInProgress;
@@ -3723,6 +3809,7 @@ public final class ClientRuntime implements AutoCloseable {
             status = UiMessage.info("nclskins.status.loading");
             busy = false;
             rateLimited = false;
+            rateLimitProgress = Optional.empty();
             syncInProgress = false;
             galleryOffset = 0;
             galleryScrollPosition = 0.0;

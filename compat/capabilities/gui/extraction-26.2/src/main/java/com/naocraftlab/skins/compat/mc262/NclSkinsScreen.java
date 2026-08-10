@@ -570,10 +570,30 @@ public final class NclSkinsScreen extends Screen {
         drawScrollbar(graphics, view, mouseX, mouseY);
         graphics.nextStratum();
         extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);
+        drawProgressDecorations(graphics, view);
         drawIconDecorations(graphics, view, mouseX, mouseY);
         drawTexts(graphics, view, mouseX, mouseY);
         drawPreciseTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
+    }
+
+    private void drawProgressDecorations(GuiGraphicsExtractor graphics, ViewSpec view) {
+        for (ViewSpec.ProgressDecoration decoration : view.progressDecorations()) {
+            ViewSpec.Widget owner = view.widget(decoration.ownerWidgetId()).orElseThrow();
+            Bounds bounds = owner.bounds();
+            int innerWidth = Math.max(0, bounds.width() - 2);
+            int progressWidth = Math.min(
+                    innerWidth,
+                    Math.max(0, (int) Math.ceil(innerWidth * decoration.fraction())));
+            if (progressWidth == 0) {
+                continue;
+            }
+            int left = bounds.x() + 1;
+            int bottom = bounds.bottom() - 1;
+            int top = Math.max(bounds.y() + 1, bottom - decoration.height());
+            drawClipped(graphics, view, owner.id(), () -> graphics.fill(
+                    left, top, left + progressWidth, bottom, decoration.color()));
+        }
     }
 
     private void drawIconDecorations(

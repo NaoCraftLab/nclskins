@@ -8,6 +8,7 @@ import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.SessionValidation;
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,6 +32,7 @@ public record ClientSnapshot(
         UiMessage status,
         boolean busy,
         boolean rateLimited,
+        Optional<RateLimitProgress> rateLimitProgress,
         int galleryOffset,
         long generation,
         long intentRevision,
@@ -69,11 +71,57 @@ public record ClientSnapshot(
                 status,
                 busy,
                 rateLimited,
+                Optional.empty(),
                 galleryOffset,
                 generation,
                 0,
                 AppearanceSyncStatus.LOCAL_ONLY,
                 false);
+    }
+
+    public ClientSnapshot(
+            Lifecycle lifecycle,
+            Optional<AccountState> account,
+            Optional<SessionValidation> session,
+            Optional<RemoteProfile> remoteProfile,
+            Optional<PresetApplicationOutcome> lastMutation,
+            Optional<UUID> selectedSkinId,
+            Optional<UUID> selectedPresetId,
+            Optional<String> selectedCapeId,
+            Optional<UUID> currentOfficialSkinId,
+            Optional<UUID> activePresetId,
+            Optional<PresetEditorModel> editor,
+            Optional<AddSourceModel> addSource,
+            UiMessage status,
+            boolean busy,
+            boolean rateLimited,
+            int galleryOffset,
+            long generation,
+            long intentRevision,
+            AppearanceSyncStatus syncStatus,
+            boolean syncInProgress) {
+        this(
+                lifecycle,
+                account,
+                session,
+                remoteProfile,
+                lastMutation,
+                selectedSkinId,
+                selectedPresetId,
+                selectedCapeId,
+                currentOfficialSkinId,
+                activePresetId,
+                editor,
+                addSource,
+                status,
+                busy,
+                rateLimited,
+                Optional.empty(),
+                galleryOffset,
+                generation,
+                intentRevision,
+                syncStatus,
+                syncInProgress);
     }
 
     public ClientSnapshot(
@@ -110,6 +158,7 @@ public record ClientSnapshot(
                 status,
                 busy,
                 rateLimited,
+                Optional.empty(),
                 galleryOffset,
                 generation,
                 0,
@@ -137,10 +186,26 @@ public record ClientSnapshot(
         activePresetId = Objects.requireNonNull(activePresetId, "activePresetId");
         editor = Objects.requireNonNull(editor, "editor");
         addSource = Objects.requireNonNull(addSource, "addSource");
+        rateLimitProgress = Objects.requireNonNull(rateLimitProgress, "rateLimitProgress");
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(syncStatus, "syncStatus");
         if (galleryOffset < 0 || generation < 0 || intentRevision < 0) {
             throw new IllegalArgumentException("offset and revisions must not be negative");
+        }
+    }
+
+    public record RateLimitProgress(Duration remaining, Duration total, double fraction) {
+        public RateLimitProgress {
+            Objects.requireNonNull(remaining, "remaining");
+            Objects.requireNonNull(total, "total");
+            if (remaining.isNegative()
+                    || total.isZero()
+                    || total.isNegative()
+                    || !Double.isFinite(fraction)
+                    || fraction < 0.0
+                    || fraction > 1.0) {
+                throw new IllegalArgumentException("rate-limit progress is invalid");
+            }
         }
     }
 

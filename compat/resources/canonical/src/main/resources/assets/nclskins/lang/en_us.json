@@ -146,6 +146,7 @@
   "nclskins.session.offline": "Offline",
   "nclskins.session.connecting": "Connecting...",
   "nclskins.session.retry": "Refresh session",
+  "nclskins.rate_limit.delayed": "Minecraft is temporarily delaying skin and cape changes. Your latest choice will apply automatically.",
   "nclskins.session.message.valid": "Minecraft session is valid.",
   "nclskins.session.message.expired": "Minecraft session expired. Restart the game through a licensed launcher.",
   "nclskins.session.message.offline": "The Minecraft session is offline or invalid. Local looks remain available.",

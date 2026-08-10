@@ -20,6 +20,7 @@ import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.SessionValidation;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -300,6 +301,12 @@ public interface ClientOperations extends AutoCloseable {
 
     boolean rateLimited();
 
+    default Optional<Duration> rateLimitRemaining() {
+        return rateLimited()
+                ? Optional.of(Duration.ofSeconds(1))
+                : Optional.empty();
+    }
+
     GameSessionTokenSource.SessionIdentity sessionIdentity();
 
     default Optional<AppliedAppearance> acknowledgedAppearance() {
@@ -500,6 +507,7 @@ public interface ClientOperations extends AutoCloseable {
         PROCESS_START,
         GALLERY_OPEN,
         RECONNECT,
+        RATE_LIMIT_EXPIRED,
         EXPLICIT_RETRY,
         SESSION_REFRESHED
     }

@@ -1,11 +1,7 @@
 package com.naocraftlab.skins.core.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApiException;
@@ -14,13 +10,19 @@ import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import org.junit.jupiter.api.Test;
+
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SessionValidationServiceTest {
     private static final UUID ID = UUID.fromString("12345678-1234-5678-9abc-def012345678");
@@ -206,7 +208,7 @@ class SessionValidationServiceTest {
 
             @Override
             public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) {
-                throw new IllegalStateException("no active token");
+                throw new GameSessionTokenUnavailableException();
             }
         };
 
@@ -214,6 +216,8 @@ class SessionValidationServiceTest {
                 new SessionValidationService(api, new RemoteSessionGate()).currentStatus(missing);
 
         assertEquals(SessionStatus.OFFLINE_OR_INVALID, result.status());
+        assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, result.failureKind());
+        assertTrue(result.tokenUnavailable());
         assertEquals(0, api.profileCalls);
     }
 

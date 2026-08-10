@@ -258,11 +258,17 @@ final class BuildLogicTest {
         assertEquals('Search', english['nclskins.gallery.search_hint'])
         assertEquals('Refresh session', english['nclskins.session.retry'])
         assertEquals('Offline', english['nclskins.session.offline'])
+        assertEquals(
+                'Minecraft is temporarily delaying skin and cape changes. Your latest choice will apply automatically.',
+                english['nclskins.rate_limit.delayed'])
         assertEquals('Мои образы', russian['nclskins.gallery.title'])
         assertEquals('Новый образ', russian['nclskins.gallery.add_hint'])
         assertEquals('Поиск', russian['nclskins.gallery.search_hint'])
         assertEquals('Обновить сессию', russian['nclskins.session.retry'])
         assertEquals('Оффлайн', russian['nclskins.session.offline'])
+        assertEquals(
+                'Minecraft временно задерживает смену скина и плаща. Последний образ применится автоматически.',
+                russian['nclskins.rate_limit.delayed'])
         assertEquals(
                 'The site did not allow automatic downloading',
                 english['nclskins.add_source.url_site_blocked'])

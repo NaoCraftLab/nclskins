@@ -2028,7 +2028,7 @@ final class DefaultClientOperationsTest {
 
         api.rateLimitRemaining = Optional.empty();
         ClientOperations.ReconciliationResult afterCooldown = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, afterCooldown.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
@@ -2036,7 +2036,7 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void partialIntentWaitsForSessionRefreshedCapeOnlyRecoveryAndKeepsItsRevision() throws Exception {
+    void capeRateLimitRecoversOnlyCapeAfterCooldownAndKeepsItsRevision() throws Exception {
         byte[] skin = skinPng(0xFF395D7B);
         URI skinUri = URI.create("https://textures.minecraft.net/texture/partial-matching-skin");
         URI capeUri = URI.create("https://textures.minecraft.net/texture/partial-owned-cape");
@@ -2049,7 +2049,11 @@ final class DefaultClientOperationsTest {
                         "cape-owned", RemoteAssetState.INACTIVE, capeUri, "Owned cape")),
                 Set.of());
         api.capeFailure = new ProfileApiException(
-                ApiFailureKind.FORBIDDEN, "cape denied", 403, null, false);
+                ApiFailureKind.RATE_LIMITED,
+                "cape rate limited",
+                429,
+                Duration.ofSeconds(60),
+                false);
         NclSkinsStorage storage = storage();
         storage.initialize();
         Files.write(
@@ -2079,6 +2083,7 @@ final class DefaultClientOperationsTest {
         assertEquals(1, api.skinUploads.get());
         assertEquals(1, api.capeActivations.get());
 
+        api.rateLimitRemaining = Optional.of(Duration.ofSeconds(60));
         ClientOperations.ReconciliationResult automatic = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
                 .orElseThrow();
@@ -2090,6 +2095,7 @@ final class DefaultClientOperationsTest {
         assertEquals(1, api.capeActivations.get());
 
         api.capeFailure = null;
+        api.rateLimitRemaining = Optional.empty();
         api.profile = new RemoteProfile(
                 TestFixtures.ACCOUNT_ID,
                 "Renamed remotely",
@@ -2103,11 +2109,8 @@ final class DefaultClientOperationsTest {
                         "cape-owned", RemoteAssetState.INACTIVE, capeUri, "Owned cape")),
                 Set.of());
 
-        ClientOperations.InitialData refreshed = operations.retrySession();
-        assertTrue(refreshed.session().valid());
-        assertEquals(2, api.profileGets.get());
         ClientOperations.ReconciliationResult recovered = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());

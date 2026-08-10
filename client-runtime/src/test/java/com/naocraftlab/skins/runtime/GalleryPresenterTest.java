@@ -1,13 +1,17 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.service.SessionCheckPhase;
+import com.naocraftlab.skins.core.service.SessionFailureContext;
 import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -413,7 +417,10 @@ final class GalleryPresenterTest {
                 SessionStatus.OFFLINE_OR_INVALID,
                 TestFixtures.validSession().sessionIdentity(),
                 null,
-                null,
+                new SessionFailureContext(
+                        SessionCheckPhase.PROFILE,
+                        ApiFailureKind.NETWORK,
+                        null),
                 "offline");
         ViewSpec invalid = presenter.present(
                 withState(valid, Optional.of(invalidSession), false, true, AppearanceSyncStatus.LOCAL_ONLY),
@@ -447,7 +454,30 @@ final class GalleryPresenterTest {
                 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
         assertTrue(unverifiedRateLimited.texts().stream()
                 .noneMatch(text -> text.id().equals("gallery.offline")));
-        assertFalse(unverifiedRateLimited.widget("gallery.retry_session").orElseThrow().enabled());
+        assertTrue(unverifiedRateLimited.widget("gallery.retry_session").isEmpty());
+
+        SessionValidation tokenUnavailable = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                new SessionFailureContext(
+                        SessionCheckPhase.TOKEN_SOURCE,
+                        ApiFailureKind.TOKEN_UNAVAILABLE,
+                        null),
+                "no token");
+        ViewSpec noToken = presenter.present(
+                withState(
+                        valid,
+                        Optional.of(tokenUnavailable),
+                        false,
+                        false,
+                        AppearanceSyncStatus.LOCAL_ONLY),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                text(noToken, "gallery.offline").message());
+        assertTrue(noToken.widget("gallery.retry_session").isEmpty());
+        assertTrue(noToken.widget("gallery.retry_cape").isEmpty());
 
         ViewSpec validUnknownConnecting = presenter.present(
                 withStatus(
@@ -476,6 +506,66 @@ final class GalleryPresenterTest {
         assertTrue(validUnknownReconciling.texts().stream()
                 .noneMatch(text -> text.id().equals("gallery.offline")));
         assertFalse(validUnknownReconciling.widget("gallery.retry_session").orElseThrow().enabled());
+    }
+
+    @Test
+    void rateLimitProgressDecoratesOnlyPendingApplyAndVisibleRetry() {
+        AccountState account = TestFixtures.account(2);
+        UUID active = account.presets().get(0).id();
+        UUID other = account.presets().get(1).id();
+        ClientSnapshot base = TestFixtures.ready(account, active, 0);
+        SessionValidation invalidSession = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                null,
+                "offline");
+        ClientSnapshot snapshot = new ClientSnapshot(
+                base.lifecycle(),
+                base.account(),
+                Optional.of(invalidSession),
+                base.remoteProfile(),
+                base.lastMutation(),
+                base.selectedSkinId(),
+                Optional.of(active),
+                base.selectedCapeId(),
+                base.currentOfficialSkinId(),
+                Optional.of(active),
+                base.editor(),
+                base.addSource(),
+                base.status(),
+                false,
+                true,
+                Optional.of(new ClientSnapshot.RateLimitProgress(
+                        Duration.ofSeconds(30), Duration.ofSeconds(60), 0.5)),
+                base.galleryOffset(),
+                base.generation(),
+                7,
+                AppearanceSyncStatus.PENDING,
+                false);
+
+        ViewSpec view = presenter.present(
+                snapshot, 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        String activeApplyId = "gallery.preset." + active + ".apply";
+        String otherApplyId = "gallery.preset." + other + ".apply";
+        ViewSpec.Widget activeApply = view.widget(activeApplyId).orElseThrow();
+
+        assertTrue(activeApply.enabled());
+        assertEquals(
+                Optional.of(UiMessage.info("nclskins.rate_limit.delayed")),
+                activeApply.hint());
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+        assertTrue(view.widget("gallery.retry_session").isEmpty());
+        assertTrue(view.widget(otherApplyId).orElseThrow().hint().isEmpty());
+        assertEquals(
+                List.of(activeApplyId),
+                view.progressDecorations().stream()
+                        .map(ViewSpec.ProgressDecoration::ownerWidgetId)
+                        .toList());
+        assertTrue(view.progressDecorations().stream()
+                .allMatch(decoration -> decoration.fraction() == 0.5
+                        && decoration.color() == 0xFF5A8FCB
+                        && decoration.height() == 2));
     }
 
     @Test

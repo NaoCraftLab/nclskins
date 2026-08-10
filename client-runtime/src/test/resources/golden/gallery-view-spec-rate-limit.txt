@@ -1,0 +1,6 @@
+widgets
+gallery.preset.00000000-0000-0002-0000-000000000001.apply|hint=key:nclskins.rate_limit.delayed:INFO|enabled=true|clipped=true
+gallery.retry_cape|hint=key:nclskins.rate_limit.delayed:INFO|enabled=true|clipped=false
+progress
+gallery.preset.00000000-0000-0002-0000-000000000001.apply.rate_limit|owner=gallery.preset.00000000-0000-0002-0000-000000000001.apply|fraction=0.5|color=FF5A8FCB|height=2
+gallery.retry_cape.rate_limit|owner=gallery.retry_cape|fraction=0.5|color=FF5A8FCB|height=2

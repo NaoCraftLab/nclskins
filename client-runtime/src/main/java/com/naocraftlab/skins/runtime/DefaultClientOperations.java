@@ -1108,7 +1108,8 @@ public final class DefaultClientOperations implements ClientOperations {
                             || checkpointAppearance.intentRevision() != expected.intentRevision())) {
                 return Optional.empty();
             }
-            boolean explicitRecovery = trigger == ReconciliationTrigger.EXPLICIT_RETRY
+            boolean explicitRecovery = trigger == ReconciliationTrigger.RATE_LIMIT_EXPIRED
+                    || trigger == ReconciliationTrigger.EXPLICIT_RETRY
                     || trigger == ReconciliationTrigger.SESSION_REFRESHED;
 
 
@@ -1516,7 +1517,7 @@ public final class DefaultClientOperations implements ClientOperations {
             ReconciliationTrigger trigger,
             AppearanceSyncStatus status) {
         return switch (trigger) {
-            case EXPLICIT_RETRY -> sessions.manualRetry(context.tokens());
+            case RATE_LIMIT_EXPIRED, EXPLICIT_RETRY -> sessions.manualRetry(context.tokens());
             case SESSION_REFRESHED -> sessions.cachedStatus(context.identity());
             default -> status == AppearanceSyncStatus.ATTEMPTING
                     ? sessions.observeFreshAtCheckpoint(context.tokens())
@@ -1750,6 +1751,11 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public boolean rateLimited() {
         return profileApi.rateLimitRemaining().isPresent();
+    }
+
+    @Override
+    public Optional<java.time.Duration> rateLimitRemaining() {
+        return profileApi.rateLimitRemaining();
     }
 
     @Override

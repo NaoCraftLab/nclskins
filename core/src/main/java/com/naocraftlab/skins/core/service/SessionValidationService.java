@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.core.service;
 
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApiException;
@@ -251,9 +252,27 @@ public final class SessionValidationService {
                 gate.clearAfterSuccessfulManualRetry(identity.profileId());
             }
             return result;
+        } catch (GameSessionTokenUnavailableException unavailable) {
+            return rememberTokenUnavailable(identity);
         } catch (RuntimeException exception) {
             return rememberTokenSourceFailure(identity);
         }
+    }
+
+
+    public synchronized SessionValidation rememberTokenUnavailable(
+            GameSessionTokenSource.SessionIdentity identity) {
+        Objects.requireNonNull(identity, "identity");
+        SessionFailureContext context = new SessionFailureContext(
+                SessionCheckPhase.TOKEN_SOURCE, ApiFailureKind.TOKEN_UNAVAILABLE, null);
+        return remember(new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                identity,
+                null,
+                context,
+                withDiagnostic(
+                        context,
+                        "The running Minecraft session has no access token.")));
     }
 
 

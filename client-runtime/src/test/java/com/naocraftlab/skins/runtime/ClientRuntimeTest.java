@@ -14,6 +14,7 @@ import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedProfileResolver;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.PublicSkinImportException;
 import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
@@ -37,6 +38,7 @@ import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.RemoteAppearanceImpact;
+import com.naocraftlab.skins.core.service.SessionCheckPhase;
 import com.naocraftlab.skins.core.service.SessionFailureContext;
 import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
@@ -49,6 +51,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -316,6 +319,37 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void unavailableTokenShowsOnlyOfflineAndCannotDispatchSessionRetry() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        SessionValidation valid = TestFixtures.validSession();
+        operations.session = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                valid.sessionIdentity(),
+                null,
+                new SessionFailureContext(
+                        SessionCheckPhase.TOKEN_SOURCE,
+                        ApiFailureKind.TOKEN_UNAVAILABLE,
+                        null),
+                "no token");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+
+        runtime.initialize();
+        ViewSpec view = runtime.view(854, 480, 427, 180);
+
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                view.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertTrue(view.widget("gallery.retry_session").isEmpty());
+        runtime.dispatchWidget("gallery.retry_session");
+        assertEquals(0, operations.retrySessionCalls);
+    }
+
+    @Test
     void invalidSessionRetryResultReturnsOfflineWithoutReconciliationAfterSixTicks() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
@@ -456,7 +490,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void retryFailureRefreshesCooldownBeforePublishingAndBlocksDirectRedispatch() {
+    void retryFailureHidesSessionRecoveryDuringCooldownAndCoalescesDirectRedispatch() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
         operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
@@ -475,10 +509,10 @@ final class ClientRuntimeTest {
         advanceTicks(runtime, 6);
 
         assertTrue(runtime.snapshot().rateLimited());
-        assertFalse(runtime.view(854, 480, 427, 180)
-                .widget("gallery.retry_session")
-                .orElseThrow()
-                .enabled());
+        ViewSpec rateLimited = runtime.view(854, 480, 427, 180);
+        assertTrue(rateLimited.widget("gallery.retry_session").isEmpty());
+        assertTrue(rateLimited.texts().stream()
+                .noneMatch(text -> text.id().equals("gallery.offline")));
         runtime.dispatchWidget("gallery.retry_session");
         assertEquals(1, operations.retrySessionCalls);
     }
@@ -1697,19 +1731,86 @@ final class ClientRuntimeTest {
         assertEquals(Optional.of(presetId), pending.activePresetId());
         assertEquals(1, pending.intentRevision());
         assertEquals(AppearanceSyncStatus.PENDING, pending.syncStatus());
-        assertTrue(pending.syncInProgress());
+        assertFalse(pending.syncInProgress());
         assertTrue(installed.get().skinTexture().isEmpty());
         assertEquals(Optional.of("a".repeat(64)), installed.get().localSkinSha256());
         assertEquals(0, operations.applyCalls);
         assertEquals(0, notifications.get());
 
-        worker.runFirst();
-
-        assertEquals(1, operations.reconciliationCalls);
+        assertEquals(0, worker.size());
+        assertEquals(0, operations.reconciliationCalls);
         assertEquals(AppearanceSyncStatus.PENDING, runtime.snapshot().syncStatus());
         assertFalse(runtime.snapshot().syncInProgress());
         assertEquals(0, operations.applyCalls);
         assertEquals(0, notifications.get());
+    }
+
+    @Test
+    void rateLimitCountdownCoalescesLatestIntentAndRecoversAfterClosedGallery() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(3);
+        operations.localFirst = true;
+        operations.reconcileWithOutcome = true;
+        operations.rateLimited = true;
+        operations.rateLimitRemaining = Duration.ofSeconds(60);
+        QueuedExecutor reconciliation = new QueuedExecutor();
+        AtomicInteger notifications = new AtomicInteger();
+        ClientRuntime runtime = new ClientRuntime(
+                operations,
+                CLIENT,
+                CANCELLED_PICKER,
+                Runnable::run,
+                reconciliation,
+                TEXT,
+                Optional.empty(),
+                Optional.of(notifications::incrementAndGet),
+                IMMEDIATE_READINESS_SCHEDULER);
+        runtime.initialize();
+        runtime.tick();
+
+        UUID first = operations.account.presets().get(0).id();
+        UUID second = operations.account.presets().get(1).id();
+        UUID third = operations.account.presets().get(2).id();
+        runtime.dispatchWidget("gallery.preset." + first + ".apply");
+        runtime.dispatchWidget("gallery.preset." + second + ".apply");
+        runtime.dispatchWidget("gallery.preset." + third + ".apply");
+
+        assertEquals(0, reconciliation.size());
+        assertEquals(Optional.of(third), runtime.snapshot().activePresetId());
+        assertEquals(3, runtime.snapshot().intentRevision());
+        assertEquals(1.0, runtime.snapshot().rateLimitProgress().orElseThrow().fraction());
+
+        operations.rateLimitRemaining = Duration.ofSeconds(30);
+        runtime.tick();
+        assertEquals(0.5, runtime.snapshot().rateLimitProgress().orElseThrow().fraction());
+
+        operations.rateLimitRemaining = Duration.ofSeconds(90);
+        runtime.tick();
+        ClientSnapshot.RateLimitProgress extended =
+                runtime.snapshot().rateLimitProgress().orElseThrow();
+        assertEquals(Duration.ofSeconds(90), extended.remaining());
+        assertEquals(Duration.ofSeconds(90), extended.total());
+        assertEquals(1.0, extended.fraction());
+
+        operations.rateLimitRemaining = Duration.ofSeconds(45);
+        runtime.tick();
+        assertEquals(0.5, runtime.snapshot().rateLimitProgress().orElseThrow().fraction());
+
+        runtime.dispatchWidget("gallery.preset." + third + ".apply");
+        assertEquals(3, runtime.snapshot().intentRevision());
+        assertEquals(0, reconciliation.size());
+
+        runtime.closeScreen();
+        operations.rateLimited = false;
+        runtime.tick();
+        assertEquals(1, reconciliation.size());
+
+        reconciliation.runFirst();
+        assertEquals(
+                List.of(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED),
+                operations.reconciliationTriggers);
+        assertEquals(3, operations.reconciliationKeys.get(0).intentRevision());
+        assertEquals(1, notifications.get());
     }
 
     @Test
@@ -2494,6 +2595,7 @@ final class ClientRuntimeTest {
         private boolean localFirst;
         private boolean reconcileWithOutcome;
         private boolean rateLimited;
+        private Duration rateLimitRemaining = Duration.ofSeconds(1);
         private int sequence = 100;
         private int applyCalls;
         private int restoreCalls;
@@ -3035,6 +3137,11 @@ final class ClientRuntimeTest {
         @Override
         public boolean rateLimited() {
             return rateLimited;
+        }
+
+        @Override
+        public Optional<Duration> rateLimitRemaining() {
+            return rateLimited ? Optional.of(rateLimitRemaining) : Optional.empty();
         }
 
         @Override

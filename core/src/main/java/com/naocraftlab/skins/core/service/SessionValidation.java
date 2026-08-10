@@ -31,4 +31,8 @@ public record SessionValidation(
     public ApiFailureKind failureKind() {
         return failureContext == null ? null : failureContext.kind();
     }
+
+    public boolean tokenUnavailable() {
+        return failureKind() == ApiFailureKind.TOKEN_UNAVAILABLE;
+    }
 }

@@ -210,6 +210,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             renderClipped(graphics, view, entry.getKey(), () ->
                     entry.getValue().render(graphics, widgetMouseX, widgetMouseY, partialTick));
         }
+        renderProgressDecorations(graphics, view);
         renderIconDecorations(graphics, view, mouseX, mouseY);
         for (ViewSpec.Text text : view.texts()) {
             renderClipped(graphics, view, text.id(), () ->
@@ -217,6 +218,25 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         }
         renderPreciseTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
+    }
+
+    private void renderProgressDecorations(GuiGraphics graphics, ViewSpec view) {
+        for (ViewSpec.ProgressDecoration decoration : view.progressDecorations()) {
+            ViewSpec.Widget owner = view.widget(decoration.ownerWidgetId()).orElseThrow();
+            Bounds bounds = owner.bounds();
+            int innerWidth = Math.max(0, bounds.width() - 2);
+            int progressWidth = Math.min(
+                    innerWidth,
+                    Math.max(0, (int) Math.ceil(innerWidth * decoration.fraction())));
+            if (progressWidth == 0) {
+                continue;
+            }
+            int left = bounds.x() + 1;
+            int bottom = bounds.bottom() - 1;
+            int top = Math.max(bounds.y() + 1, bottom - decoration.height());
+            renderClipped(graphics, view, owner.id(), () -> graphics.fill(
+                    left, top, left + progressWidth, bottom, decoration.color()));
+        }
     }
 
 
@@ -1466,7 +1486,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             ViewSpec.WidgetKind kind,
             boolean visible,
             int height,
-            int maxLength) {
+            int maxLength,
+            Optional<UiMessage> hint) {
         private WidgetShape(ViewSpec.Widget widget) {
 
 
@@ -1475,7 +1496,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     widget.kind(),
                     widget.visible(),
                     widget.bounds().height(),
-                    widget.maxLength());
+                    widget.maxLength(),
+                    widget.hint());
         }
     }
 

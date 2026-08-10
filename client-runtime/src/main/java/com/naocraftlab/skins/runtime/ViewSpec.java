@@ -28,7 +28,8 @@ public record ViewSpec(
         List<BackEquipmentPreview> backEquipmentPreviews,
         List<IconDecoration> iconDecorations,
         List<ScrollSurface> scrollSurfaces,
-        List<TooltipRegion> tooltipRegions) {
+        List<TooltipRegion> tooltipRegions,
+        List<ProgressDecoration> progressDecorations) {
     public ViewSpec(
             String screenId,
             UiMessage title,
@@ -51,6 +52,7 @@ public record ViewSpec(
                 scrollbar,
                 List.of(),
                 Optional.empty(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -82,6 +84,7 @@ public record ViewSpec(
                 scrollbar,
                 tabGroups,
                 focusRequest,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -119,6 +122,7 @@ public record ViewSpec(
                 backEquipmentPreviews,
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of());
     }
 
@@ -152,6 +156,7 @@ public record ViewSpec(
                 clipRegions,
                 backEquipmentPreviews,
                 iconDecorations,
+                List.of(),
                 List.of(),
                 List.of());
     }
@@ -188,6 +193,44 @@ public record ViewSpec(
                 backEquipmentPreviews,
                 iconDecorations,
                 scrollSurfaces,
+                List.of(),
+                List.of());
+    }
+
+    public ViewSpec(
+            String screenId,
+            UiMessage title,
+            int width,
+            int height,
+            List<Panel> panels,
+            List<Text> texts,
+            List<Widget> widgets,
+            List<Preview> previews,
+            Optional<Scrollbar> scrollbar,
+            List<TabGroup> tabGroups,
+            Optional<FocusRequest> focusRequest,
+            List<ClipRegion> clipRegions,
+            List<BackEquipmentPreview> backEquipmentPreviews,
+            List<IconDecoration> iconDecorations,
+            List<ScrollSurface> scrollSurfaces,
+            List<TooltipRegion> tooltipRegions) {
+        this(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                widgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                focusRequest,
+                clipRegions,
+                backEquipmentPreviews,
+                iconDecorations,
+                scrollSurfaces,
+                tooltipRegions,
                 List.of());
     }
 
@@ -210,8 +253,39 @@ public record ViewSpec(
         iconDecorations = List.copyOf(Objects.requireNonNull(iconDecorations, "iconDecorations"));
         scrollSurfaces = List.copyOf(Objects.requireNonNull(scrollSurfaces, "scrollSurfaces"));
         tooltipRegions = List.copyOf(Objects.requireNonNull(tooltipRegions, "tooltipRegions"));
+        progressDecorations = List.copyOf(Objects.requireNonNull(
+                progressDecorations, "progressDecorations"));
         if (scrollSurfaces.stream().map(ScrollSurface::id).distinct().count() != scrollSurfaces.size()) {
             throw new IllegalArgumentException("scroll surface ids must be unique");
+        }
+        if (progressDecorations.stream().map(ProgressDecoration::id).distinct().count()
+                != progressDecorations.size()) {
+            throw new IllegalArgumentException("progress decoration ids must be unique");
+        }
+        List<Widget> checkedWidgets = widgets;
+        if (progressDecorations.stream().anyMatch(decoration -> checkedWidgets.stream()
+                .noneMatch(widget -> widget.id().equals(decoration.ownerWidgetId())))) {
+            throw new IllegalArgumentException("progress decoration owner must exist");
+        }
+    }
+
+    public record ProgressDecoration(
+            String id,
+            String ownerWidgetId,
+            double fraction,
+            int color,
+            int height) {
+        public ProgressDecoration {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(ownerWidgetId, "ownerWidgetId");
+            if (id.isBlank()
+                    || ownerWidgetId.isBlank()
+                    || !Double.isFinite(fraction)
+                    || fraction < 0.0
+                    || fraction > 1.0
+                    || height <= 0) {
+                throw new IllegalArgumentException("progress decoration is invalid");
+            }
         }
     }
 

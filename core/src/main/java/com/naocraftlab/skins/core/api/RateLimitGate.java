@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 
 final class RateLimitGate {
+    static final Duration MIN_COOLDOWN = Duration.ofSeconds(1);
     static final Duration DEFAULT_COOLDOWN = Duration.ofSeconds(60);
     static final Duration MAX_COOLDOWN = Duration.ofHours(24);
 
@@ -72,6 +73,9 @@ final class RateLimitGate {
         Duration checked = Objects.requireNonNull(duration, "duration");
         if (checked.isNegative()) {
             return DEFAULT_COOLDOWN;
+        }
+        if (checked.compareTo(MIN_COOLDOWN) < 0) {
+            return MIN_COOLDOWN;
         }
         return checked.compareTo(MAX_COOLDOWN) > 0 ? MAX_COOLDOWN : checked;
     }

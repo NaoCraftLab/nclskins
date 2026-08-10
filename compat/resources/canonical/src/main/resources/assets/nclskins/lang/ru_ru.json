@@ -146,6 +146,7 @@
   "nclskins.session.offline": "Оффлайн",
   "nclskins.session.connecting": "Подключение...",
   "nclskins.session.retry": "Обновить сессию",
+  "nclskins.rate_limit.delayed": "Minecraft временно задерживает смену скина и плаща. Последний образ применится автоматически.",
   "nclskins.session.message.valid": "Сессия Minecraft активна.",
   "nclskins.session.message.expired": "Сессия Minecraft истекла. Перезапустите игру через лицензированный лаунчер.",
   "nclskins.session.message.offline": "Сессия Minecraft недоступна или недействительна. Локальные образы продолжают работать.",

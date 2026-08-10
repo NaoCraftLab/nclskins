@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.compat.client;
 
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
@@ -35,7 +36,7 @@ public final class MinecraftGameSessionTokenSource implements GameSessionTokenSo
     private static String activeAccessToken(User user) {
         String accessToken = Objects.requireNonNull(user, "user").getAccessToken();
         if (accessToken == null || accessToken.isBlank()) {
-            throw new IllegalStateException("Minecraft access token is unavailable");
+            throw new GameSessionTokenUnavailableException();
         }
         return accessToken;
     }

@@ -7,11 +7,12 @@ IconDecoration:id,bounds,icon,ownerWidgetId,idleOpacity,activeOpacity
 MarqueeActivation:hoverBounds,focusWidgetIds
 Panel:id,bounds,style
 Preview:id,bounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent
+ProgressDecoration:id,ownerWidgetId,fraction,color,height
 ScrollSurface:id,viewport,orientation,offsetPixels,maximumPixels,wheelStepPixels
 Scrollbar:track,thumb,offset,maximum,orientation
 Tab:id,label,selected,enabled
 TabGroup:id,bounds,tabs
 Text:id,bounds,message,alignment,marqueeActivation
 TooltipRegion:id,textBounds,text,alignment,tooltip
-ViewSpec:screenId,title,width,height,panels,texts,widgets,previews,scrollbar,tabGroups,focusRequest,clipRegions,backEquipmentPreviews,iconDecorations,scrollSurfaces,tooltipRegions
+ViewSpec:screenId,title,width,height,panels,texts,widgets,previews,scrollbar,tabGroups,focusRequest,clipRegions,backEquipmentPreviews,iconDecorations,scrollSurfaces,tooltipRegions,progressDecorations
 Widget:id,kind,bounds,label,value,hint,enabled,visible,maxLength,selectAllOnPrimaryClick,submitActionId

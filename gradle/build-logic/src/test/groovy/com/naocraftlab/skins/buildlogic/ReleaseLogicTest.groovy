@@ -13,18 +13,18 @@ final class ReleaseLogicTest {
     private final File repository = new File('../..').canonicalFile
 
     @Test
-    void currentAlphaReleaseMatchesVersionAndChangelog() {
+    void currentReleaseMatchesVersionAndChangelog() {
         Map metadata = ReleaseMetadata.validate(
                 new File(repository, 'gradle/version.properties'),
                 new File(repository, 'CHANGELOG.md'),
-                '1.0.0-alpha.2')
+                '1.0.0-beta.1')
 
-        assertEquals('1.0.0-alpha.2', metadata.version)
-        assertEquals('alpha', metadata.channel)
+        assertEquals('1.0.0-beta.1', metadata.version)
+        assertEquals('beta', metadata.channel)
         assertTrue(metadata.prerelease)
         assertTrue(metadata.notes.startsWith(
-                '### Added\n\n- **Imports from launchers and other mods**'))
-        assertFalse(metadata.notes.contains('## 1.0.0-alpha.2'))
+                '### Changed\n\n- **Updated icons**'))
+        assertFalse(metadata.notes.contains('## 1.0.0-beta.1'))
     }
 
     @Test

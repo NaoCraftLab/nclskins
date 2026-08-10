@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.core.api;
 
 public enum ApiFailureKind {
+    TOKEN_UNAVAILABLE,
     INVALID_SESSION,
     SESSION_EXPIRED,
     FORBIDDEN,
