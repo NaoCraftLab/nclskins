@@ -27,4 +27,14 @@ public final class CatalogCardStyle {
                 ? TRANSPARENT_BACKGROUND_COLOR
                 : backgroundColor(active, hoveredOrFocused);
     }
+
+    public static boolean selectionBackgroundBehindContent(ViewSpec.WidgetKind kind) {
+        return kind == ViewSpec.WidgetKind.CAPE_CARD
+                || kind == ViewSpec.WidgetKind.SELECTABLE_CARD;
+    }
+
+    public static boolean selectionSelected(ViewSpec.Widget widget) {
+        return selectionBackgroundBehindContent(widget.kind())
+                && widget.value().filter("selected"::equals).isPresent();
+    }
 }

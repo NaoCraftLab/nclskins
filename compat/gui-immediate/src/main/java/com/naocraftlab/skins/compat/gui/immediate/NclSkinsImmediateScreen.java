@@ -489,7 +489,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 nativeWidget.setY(widget.bounds().y());
                 nativeWidget.setWidth(widget.bounds().width());
                 if (nativeWidget instanceof CapeCardWidget capeCard) {
-                    capeCard.setSelected(capeCardSelected(widget));
+                    capeCard.setSelected(CatalogCardStyle.selectionSelected(widget));
                 }
                 if (nativeWidget instanceof CollectionHeaderWidget header) {
                     header.setTrailingInfo(widget.collectionHeaderHasTrailingInfo());
@@ -543,8 +543,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.width(),
                     bounds.height(),
                     resolve(widget.label()),
-                    capeCardSelected(widget),
-                    widget.kind() == ViewSpec.WidgetKind.SELECTABLE_CARD);
+                    CatalogCardStyle.selectionSelected(widget),
+                    CatalogCardStyle.selectionBackgroundBehindContent(widget.kind()));
         }
         if (widget.kind() == ViewSpec.WidgetKind.COLLECTION_HEADER) {
             return new CollectionHeaderWidget(
@@ -638,10 +638,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         return editBox;
     }
 
-    private static boolean capeCardSelected(ViewSpec.Widget widget) {
-        return widget.value().filter("selected"::equals).isPresent();
-    }
-
     private static ResourceLocation actionIconTexture(ViewSpec.Widget widget) {
         String icon = widget.icon().orElseThrow(
                 () -> new IllegalArgumentException("Icon button has no icon: " + widget.id()));
@@ -698,11 +694,11 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
     private void renderSelectableCardBackgrounds(GuiGraphics graphics, ViewSpec view) {
         for (ViewSpec.Widget widget : view.widgets()) {
-            if (widget.kind() != ViewSpec.WidgetKind.SELECTABLE_CARD) {
+            if (!CatalogCardStyle.selectionBackgroundBehindContent(widget.kind())) {
                 continue;
             }
             int color = CatalogCardStyle.selectableBackgroundColor(
-                    widget.selectableCardSelected());
+                    CatalogCardStyle.selectionSelected(widget));
             if (color == CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
                 continue;
             }

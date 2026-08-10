@@ -282,8 +282,8 @@ public final class NclSkinsScreen extends Screen {
                 CapeCardWidget card = new CapeCardWidget(
                         bounds,
                         Minecraft262Components.resolve(spec.label()),
-                        capeCardSelected(spec),
-                        spec.kind() == ViewSpec.WidgetKind.SELECTABLE_CARD,
+                        CatalogCardStyle.selectionSelected(spec),
+                        CatalogCardStyle.selectionBackgroundBehindContent(spec.kind()),
                         () -> runtime.dispatchWidget(spec.id()));
                 card.active = spec.enabled();
                 widget = card;
@@ -426,7 +426,7 @@ public final class NclSkinsScreen extends Screen {
                         spec.hint().orElse(spec.label()))));
             }
             if (widget instanceof CapeCardWidget capeCard) {
-                capeCard.setSelected(capeCardSelected(spec));
+                capeCard.setSelected(CatalogCardStyle.selectionSelected(spec));
             }
             if (widget instanceof CollectionHeaderWidget header) {
                 header.setTrailingInfo(spec.collectionHeaderHasTrailingInfo());
@@ -439,10 +439,6 @@ public final class NclSkinsScreen extends Screen {
                 }
             }
         }
-    }
-
-    private static boolean capeCardSelected(ViewSpec.Widget spec) {
-        return spec.value().filter("selected"::equals).isPresent();
     }
 
     private void syncNativeTabState(ViewSpec view) {
@@ -635,11 +631,11 @@ public final class NclSkinsScreen extends Screen {
             GuiGraphicsExtractor graphics, ViewSpec view) {
         boolean rendered = false;
         for (ViewSpec.Widget widget : view.widgets()) {
-            if (widget.kind() != ViewSpec.WidgetKind.SELECTABLE_CARD) {
+            if (!CatalogCardStyle.selectionBackgroundBehindContent(widget.kind())) {
                 continue;
             }
             int color = CatalogCardStyle.selectableBackgroundColor(
-                    widget.selectableCardSelected());
+                    CatalogCardStyle.selectionSelected(widget));
             if (color == CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
                 continue;
             }
