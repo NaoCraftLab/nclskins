@@ -8,7 +8,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class EditorOuterLayerCycleTest {
     @Test
@@ -24,15 +23,21 @@ final class EditorOuterLayerCycleTest {
     }
 
     @Test
-    void bodyCycleUsesLiteralLeftThenRightOrderInBothDirections() {
+    void bodyCycleCoversAllEightMasksInExactForwardAndReverseOrder() {
         List<ExpectedStep> expected = List.of(
                 step(true, true, true, "body_all_on", "nclskins.editor.outer_body_all_on"),
                 step(false, false, false, "body_all_off", "nclskins.editor.outer_body_all_off"),
                 step(true, false, false, "body_both_arms_off", "nclskins.editor.outer_body_no_arms"),
-                step(true, false, true, "body_left_arm_off", "nclskins.editor.outer_body_no_left_arm"),
-                step(true, true, false, "body_right_arm_off", "nclskins.editor.outer_body_no_right_arm"),
                 step(false, true, true, "body_only_arms_on",
-                        "nclskins.editor.outer_body_arms_without_body"));
+                        "nclskins.editor.outer_body_arms_without_body"),
+                step(false, true, false, "body_only_left_arm",
+                        "nclskins.editor.outer_body_only_left_arm"),
+                step(false, false, true, "body_only_right_arm",
+                        "nclskins.editor.outer_body_only_right_arm"),
+                step(true, true, false, "body_right_arm_off",
+                        "nclskins.editor.outer_body_and_left_arm"),
+                step(true, false, true, "body_left_arm_off",
+                        "nclskins.editor.outer_body_and_right_arm"));
         OuterLayerVisibility visibility = OuterLayerVisibility.allVisible()
                 .with(OuterLayerPart.HEAD, false)
                 .with(OuterLayerPart.LEFT_LEG, false);
@@ -87,41 +92,6 @@ final class EditorOuterLayerCycleTest {
             assertState("legs", visibility, step.icon(), step.stateKey());
         }
         assertEquals(first, visibility);
-    }
-
-    @Test
-    void legacyNonCanonicalBodyMaskIsPreservedUntilTheFirstCycleClick() {
-        OuterLayerVisibility custom = OuterLayerVisibility.noneVisible()
-                .with(OuterLayerPart.HEAD, true)
-                .with(OuterLayerPart.LEFT_ARM, true)
-                .with(OuterLayerPart.LEFT_LEG, true);
-        assertState(
-                "body",
-                custom,
-                "body_only_arms_on",
-                "nclskins.editor.outer_body_custom");
-
-        OuterLayerVisibility forward = EditorOuterLayerCycle.cycle("body", custom, 1);
-        assertBody(forward, true, true, true);
-        assertTrue(forward.visible(OuterLayerPart.HEAD));
-        assertTrue(forward.visible(OuterLayerPart.LEFT_LEG));
-
-        OuterLayerVisibility reverse = EditorOuterLayerCycle.cycle("body", custom, -1);
-        assertBody(reverse, false, true, true);
-        assertTrue(reverse.visible(OuterLayerPart.HEAD));
-        assertTrue(reverse.visible(OuterLayerPart.LEFT_LEG));
-        assertEquals(custom, EditorOuterLayerCycle.cycle("body", custom, 0));
-
-        OuterLayerVisibility mirroredCustom = custom
-                .with(OuterLayerPart.LEFT_ARM, false)
-                .with(OuterLayerPart.RIGHT_ARM, true);
-        assertState(
-                "body",
-                mirroredCustom,
-                "body_only_arms_on",
-                "nclskins.editor.outer_body_custom");
-        assertBody(EditorOuterLayerCycle.cycle("body", mirroredCustom, 1), true, true, true);
-        assertBody(EditorOuterLayerCycle.cycle("body", mirroredCustom, -1), false, true, true);
     }
 
     private static OuterLayerVisibility maskBody(

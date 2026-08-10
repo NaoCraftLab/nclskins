@@ -91,6 +91,8 @@ public final class NclSkinsScreen extends Screen {
             "body_left_arm_off",
             "body_right_arm_off",
             "body_only_arms_on",
+            "body_only_left_arm",
+            "body_only_right_arm",
             "legs_all_on",
             "legs_all_off",
             "legs_left_off",

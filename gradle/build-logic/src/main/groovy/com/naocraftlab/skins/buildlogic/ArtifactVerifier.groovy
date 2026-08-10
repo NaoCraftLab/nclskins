@@ -23,6 +23,8 @@ final class ArtifactVerifier {
         'body_both_arms_off.png' : 20,
         'body_left_arm_off.png'  : 20,
         'body_only_arms_on.png'  : 20,
+        'body_only_left_arm.png' : 20,
+        'body_only_right_arm.png': 20,
         'body_right_arm_off.png' : 20,
         'cape.png'               : 20,
         'delete.png'             : 20,

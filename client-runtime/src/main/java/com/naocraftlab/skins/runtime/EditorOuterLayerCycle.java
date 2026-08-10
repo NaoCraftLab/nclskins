@@ -19,8 +19,7 @@ final class EditorOuterLayerCycle {
     static State state(String control, OuterLayerVisibility visibility) {
         Objects.requireNonNull(visibility, "visibility");
         Cycle cycle = cycle(control);
-        int current = cycle.indexOf(visibility);
-        return current >= 0 ? cycle.steps().get(current).state() : cycle.customState();
+        return cycle.steps().get(cycle.indexOf(visibility)).state();
     }
 
     static OuterLayerVisibility cycle(
@@ -49,8 +48,7 @@ final class EditorOuterLayerCycle {
                     HEAD,
                     List.of(
                             step(Set.of(OuterLayerPart.HEAD), "head_on", "nclskins.editor.outer_head_on"),
-                            step(Set.of(), "head_off", "nclskins.editor.outer_head_off")),
-                    null);
+                            step(Set.of(), "head_off", "nclskins.editor.outer_head_off")));
             case "body" -> bodyCycle();
             case "legs" -> legCycle();
             default -> throw new IllegalArgumentException("unknown outer-layer cycle: " + control);
@@ -71,16 +69,21 @@ final class EditorOuterLayerCycle {
                         step(Set.of(OuterLayerPart.BODY),
                                 "body_both_arms_off",
                                 "nclskins.editor.outer_body_no_arms"),
-                        step(Set.of(OuterLayerPart.BODY, OuterLayerPart.RIGHT_ARM),
-                                "body_left_arm_off",
-                                "nclskins.editor.outer_body_no_left_arm"),
-                        step(Set.of(OuterLayerPart.BODY, OuterLayerPart.LEFT_ARM),
-                                "body_right_arm_off",
-                                "nclskins.editor.outer_body_no_right_arm"),
                         step(Set.of(OuterLayerPart.LEFT_ARM, OuterLayerPart.RIGHT_ARM),
                                 "body_only_arms_on",
-                                "nclskins.editor.outer_body_arms_without_body")),
-                new State("body_only_arms_on", "nclskins.editor.outer_body_custom"));
+                                "nclskins.editor.outer_body_arms_without_body"),
+                        step(Set.of(OuterLayerPart.LEFT_ARM),
+                                "body_only_left_arm",
+                                "nclskins.editor.outer_body_only_left_arm"),
+                        step(Set.of(OuterLayerPart.RIGHT_ARM),
+                                "body_only_right_arm",
+                                "nclskins.editor.outer_body_only_right_arm"),
+                        step(Set.of(OuterLayerPart.BODY, OuterLayerPart.LEFT_ARM),
+                                "body_right_arm_off",
+                                "nclskins.editor.outer_body_and_left_arm"),
+                        step(Set.of(OuterLayerPart.BODY, OuterLayerPart.RIGHT_ARM),
+                                "body_left_arm_off",
+                                "nclskins.editor.outer_body_and_right_arm")));
     }
 
     private static Cycle legCycle() {
@@ -96,8 +99,7 @@ final class EditorOuterLayerCycle {
                                 "nclskins.editor.outer_legs_no_left_leg"),
                         step(Set.of(OuterLayerPart.LEFT_LEG),
                                 "legs_right_off",
-                                "nclskins.editor.outer_legs_no_right_leg")),
-                null);
+                                "nclskins.editor.outer_legs_no_right_leg")));
     }
 
     private static Step step(Set<OuterLayerPart> visibleParts, String icon, String stateKey) {
@@ -118,7 +120,7 @@ final class EditorOuterLayerCycle {
         }
     }
 
-    private record Cycle(List<OuterLayerPart> parts, List<Step> steps, State customState) {
+    private record Cycle(List<OuterLayerPart> parts, List<Step> steps) {
         Cycle {
             parts = List.copyOf(Objects.requireNonNull(parts, "parts"));
             steps = List.copyOf(Objects.requireNonNull(steps, "steps"));
@@ -137,10 +139,7 @@ final class EditorOuterLayerCycle {
                     return index;
                 }
             }
-            if (customState == null) {
-                throw new IllegalStateException("complete cycle has no matching state");
-            }
-            return -1;
+            throw new IllegalStateException("complete cycle has no matching state");
         }
     }
 }

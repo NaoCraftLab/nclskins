@@ -1636,8 +1636,8 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("editor.outer_layer.body", true);
 
         PresetEditorModel afterReverse = runtime.snapshot().editor().orElseThrow();
-        assertFalse(afterReverse.preview().outerLayerVisibility().visible(OuterLayerPart.BODY));
-        assertTrue(afterReverse.preview().outerLayerVisibility().visible(OuterLayerPart.LEFT_ARM));
+        assertTrue(afterReverse.preview().outerLayerVisibility().visible(OuterLayerPart.BODY));
+        assertFalse(afterReverse.preview().outerLayerVisibility().visible(OuterLayerPart.LEFT_ARM));
         assertTrue(afterReverse.preview().outerLayerVisibility().visible(OuterLayerPart.RIGHT_ARM));
 
         runtime.dispatchWidget("editor.outer_layer.body");

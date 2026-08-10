@@ -45,7 +45,7 @@ final class BuildLogicTest {
                 .findAll { it.name.endsWith('.png') }
                 .collect { it.name } as Set
         assertEquals(ArtifactVerifier.BUTTON_ICON_SIZES.keySet(), sourceNames)
-        assertEquals(18, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
+        assertEquals(20, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
         assertEquals(2, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 32 })
         ArtifactVerifier.BUTTON_ICON_SIZES.each { String name, int size ->
             def image = ImageIO.read(new File(icons, name))

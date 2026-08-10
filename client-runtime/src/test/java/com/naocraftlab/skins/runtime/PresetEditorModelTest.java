@@ -252,8 +252,8 @@ final class PresetEditorModelTest {
         ViewSpec changedView = changed.present(854, 480, 0.0);
         assertCycleButton(changedView, "head", new Bounds(2, 208, 20, 20), "head_off",
                 "nclskins.editor.outer_head_off");
-        assertCycleButton(changedView, "body", new Bounds(2, 230, 20, 20), "body_only_arms_on",
-                "nclskins.editor.outer_body_arms_without_body");
+        assertCycleButton(changedView, "body", new Bounds(2, 230, 20, 20), "body_left_arm_off",
+                "nclskins.editor.outer_body_and_right_arm");
         assertCycleButton(changedView, "legs", new Bounds(2, 252, 20, 20), "legs_right_off",
                 "nclskins.editor.outer_legs_no_right_leg");
     }
