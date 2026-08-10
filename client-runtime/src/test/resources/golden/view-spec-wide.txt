@@ -28,7 +28,7 @@ previews
 1|gallery.preset.00000000-0000-0002-0000-000000000005.preview|915,258,174,208|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=16.0|scale=0.88|preset=00000000-0000-0002-0000-000000000005
 back_equipment_previews
 icon_decorations
-0|gallery.add.icon|590,347,15,15|icon=plus|owner=gallery.add|idle=0.65|active=1.0
+0|gallery.add.icon|582,335,32,32|icon=plus|owner=gallery.add|idle=0.65|active=1.0
 clip_regions
 0|gallery.cards|0,58,1600,615|prefixes=gallery.card.,gallery.add,gallery.preset.
 scrollbar=40,677,1520,6|185,677,651,6|offset=1|maximum=6
@@ -61,7 +61,7 @@ previews
 back_equipment_previews
 0|editor.cape_card.1.equipment|1415,123,68,65|cape=cape-1|mode=ELYTRA
 icon_decorations
-0|editor.cape_card.0.empty|1357,141,15,15|icon=no_cape|owner=editor.cape_choice.0|idle=1.0|active=1.0
+0|editor.cape_card.0.empty|1349,133,32,32|icon=no_cape|owner=editor.cape_choice.0|idle=0.8|active=1.0
 clip_regions
 0|editor.capes|1324,106,250,576|prefixes=editor.cape_card.,editor.cape_choice.
 scrollbar=-

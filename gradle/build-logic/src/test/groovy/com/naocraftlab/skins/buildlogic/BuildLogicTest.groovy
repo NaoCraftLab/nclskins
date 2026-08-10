@@ -4,6 +4,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.junit.jupiter.api.Test
 
+import javax.imageio.ImageIO
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.regex.Pattern
@@ -29,6 +30,28 @@ final class BuildLogicTest {
                 catalog.targets.collect { "targets/${it.minecraft.version}/${it.loader.id}".toString() },
                 catalog.targets.collect { it.path })
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void canonicalIconDimensionsMatchTheRendererAndMetadataContracts() {
+        assertEquals(false, catalog.mod.iconBlur)
+        File resources = new File(repository, 'compat/resources/canonical/src/main/resources')
+        def modIcon = ImageIO.read(new File(resources, catalog.mod.icon.toString()))
+        assertEquals(128, modIcon.width)
+        assertEquals(128, modIcon.height)
+
+        File icons = new File(resources, ArtifactVerifier.BUTTONS)
+        Set<String> sourceNames = icons.listFiles()
+                .findAll { it.name.endsWith('.png') }
+                .collect { it.name } as Set
+        assertEquals(ArtifactVerifier.BUTTON_ICON_SIZES.keySet(), sourceNames)
+        assertEquals(18, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
+        assertEquals(2, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 32 })
+        ArtifactVerifier.BUTTON_ICON_SIZES.each { String name, int size ->
+            def image = ImageIO.read(new File(icons, name))
+            assertEquals(size, image.width, name)
+            assertEquals(size, image.height, name)
+        }
     }
 
     @Test
@@ -402,6 +425,7 @@ final class BuildLogicTest {
                 assertEquals(true, metadata.custom.modmenu.update_checker)
                 assertEquals(['modmenu.modrinth': 'https://modrinth.com/mod/nclskins', 'modmenu.curseforge': 'https://www.curseforge.com/minecraft/mc-mods/nclskins'], metadata.custom.modmenu.links)
             } else if (target.loader.id == 'forge') {
+                assertTrue(resources['META-INF/mods.toml'].contains('logoBlur=false'))
                 assertTrue(resources['META-INF/mods.toml'].contains('displayTest="IGNORE_SERVER_VERSION"'))
                 assertTrue(resources['META-INF/mods.toml'].contains('showAsResourcePack=false'))
                 assertTrue(resources['META-INF/mods.toml'].contains('features={java_version="[17,)"}'))
@@ -412,6 +436,7 @@ final class BuildLogicTest {
                 assertTrue(resources['META-INF/mods.toml'].contains('side="CLIENT"'))
                 assertFalse(resources['META-INF/mods.toml'].contains('[[mixins]]'))
             } else {
+                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('logoBlur=false'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains("javaVersion=\"[${target.java.release},)\""))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsResourcePack=false'))
                 assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsDataPack=false'))

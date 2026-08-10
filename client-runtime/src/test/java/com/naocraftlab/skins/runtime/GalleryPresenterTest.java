@@ -776,6 +776,15 @@ final class GalleryPresenterTest {
         assertEquals("gallery.add.icon", plus.id());
         assertEquals("gallery.add", plus.ownerWidgetId());
         assertEquals("plus", plus.icon());
+        assertEquals(32, plus.bounds().width());
+        assertEquals(32, plus.bounds().height());
+        assertEquals(add.bounds().x() + (add.bounds().width() - plus.bounds().width()) / 2,
+                plus.bounds().x());
+        ViewSpec.Text hint = view.texts().stream()
+                .filter(text -> text.id().equals("gallery.add.hint"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(8, hint.bounds().y() - plus.bounds().bottom());
         assertEquals(0.65F, plus.idleOpacity());
         assertEquals(1.0F, plus.activeOpacity());
         assertEquals(Optional.of(galleryViewport(view)), view.clipFor(plus.id()));

@@ -18,7 +18,7 @@ previews
 0|gallery.preset.00000000-0000-0002-0000-000000000004.preview|328,218,174,208|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=13.446401|scale=0.88|preset=00000000-0000-0002-0000-000000000004
 back_equipment_previews
 icon_decorations
-0|gallery.add.icon|205,307,15,15|icon=plus|owner=gallery.add|idle=0.65|active=1.0
+0|gallery.add.icon|197,295,32,32|icon=plus|owner=gallery.add|idle=0.65|active=1.0
 clip_regions
 0|gallery.cards|0,58,427,535|prefixes=gallery.card.,gallery.add,gallery.preset.
 scrollbar=40,597,347,6|40,597,139,6|offset=0|maximum=4

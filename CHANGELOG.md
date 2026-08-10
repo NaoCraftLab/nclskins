@@ -1,3 +1,11 @@
+## 1.0.0-beta.1
+
+### Changed
+
+- **Updated icons**
+    - Refreshed button icons throughout the mod
+    - Updated the NCL Skins icon
+
 ## 1.0.0-alpha.2
 
 ### Added

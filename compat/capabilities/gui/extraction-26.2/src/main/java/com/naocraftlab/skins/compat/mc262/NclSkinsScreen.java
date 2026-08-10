@@ -69,7 +69,9 @@ public final class NclSkinsScreen extends Screen {
             Identifier.withDefaultNamespace("widget/scroller");
     private static final Identifier SCROLLER_BACKGROUND_SPRITE =
             Identifier.withDefaultNamespace("widget/scroller_background");
-    private static final int ACTION_ICON_SIZE = 15;
+    private static final int ACTION_ICON_RENDER_SIZE = 16;
+    private static final int ACTION_ICON_TEXTURE_SIZE = 20;
+    private static final int DECORATION_ICON_SIZE = 32;
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
     private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
@@ -281,6 +283,7 @@ public final class NclSkinsScreen extends Screen {
                         bounds,
                         Minecraft262Components.resolve(spec.label()),
                         capeCardSelected(spec),
+                        spec.kind() == ViewSpec.WidgetKind.SELECTABLE_CARD,
                         () -> runtime.dispatchWidget(spec.id()));
                 card.active = spec.enabled();
                 widget = card;
@@ -554,6 +557,9 @@ public final class NclSkinsScreen extends Screen {
                         drawVanillaListPanel(graphics, panel.bounds()));
             }
         }
+        if (drawSelectableCardBackgrounds(graphics, view)) {
+            graphics.nextStratum();
+        }
         drawPreviews(graphics, view);
         drawBackEquipmentPreviews(graphics, view);
 
@@ -594,8 +600,8 @@ public final class NclSkinsScreen extends Screen {
                     0.0F,
                     bounds.width(),
                     bounds.height(),
-                    ACTION_ICON_SIZE,
-                    ACTION_ICON_SIZE,
+                    DECORATION_ICON_SIZE,
+                    DECORATION_ICON_SIZE,
                     color));
         }
     }
@@ -603,6 +609,26 @@ public final class NclSkinsScreen extends Screen {
     private static boolean ownsDecoration(ViewSpec view, String widgetId) {
         return view.iconDecorations().stream()
                 .anyMatch(decoration -> decoration.ownerWidgetId().equals(widgetId));
+    }
+
+    private boolean drawSelectableCardBackgrounds(
+            GuiGraphicsExtractor graphics, ViewSpec view) {
+        boolean rendered = false;
+        for (ViewSpec.Widget widget : view.widgets()) {
+            if (widget.kind() != ViewSpec.WidgetKind.SELECTABLE_CARD) {
+                continue;
+            }
+            int color = CatalogCardStyle.selectableBackgroundColor(
+                    widget.selectableCardSelected());
+            if (color == CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
+                continue;
+            }
+            Bounds bounds = widget.bounds();
+            drawClipped(graphics, view, widget.id(), () -> graphics.fill(
+                    bounds.x(), bounds.y(), bounds.right(), bounds.bottom(), color));
+            rendered = true;
+        }
+        return rendered;
     }
 
     private void extractRenderablesClipped(
@@ -1480,14 +1506,16 @@ public final class NclSkinsScreen extends Screen {
             graphics.blit(
                     RenderPipelines.GUI_TEXTURED,
                     icon,
-                    getX() + (getWidth() - ACTION_ICON_SIZE) / 2,
-                    getY() + (getHeight() - ACTION_ICON_SIZE) / 2,
+                    getX() + (getWidth() - ACTION_ICON_RENDER_SIZE) / 2,
+                    getY() + (getHeight() - ACTION_ICON_RENDER_SIZE) / 2,
                     0.0F,
                     0.0F,
-                    ACTION_ICON_SIZE,
-                    ACTION_ICON_SIZE,
-                    ACTION_ICON_SIZE,
-                    ACTION_ICON_SIZE);
+                    ACTION_ICON_RENDER_SIZE,
+                    ACTION_ICON_RENDER_SIZE,
+                    ACTION_ICON_TEXTURE_SIZE,
+                    ACTION_ICON_TEXTURE_SIZE,
+                    ACTION_ICON_TEXTURE_SIZE,
+                    ACTION_ICON_TEXTURE_SIZE);
         }
 
         @Override
@@ -1561,12 +1589,18 @@ public final class NclSkinsScreen extends Screen {
 
     private static final class CapeCardWidget extends AbstractButton {
         private final Runnable onPress;
+        private final boolean selectedBackgroundBehindPreview;
         private boolean selected;
 
         private CapeCardWidget(
-                Bounds bounds, Component message, boolean selected, Runnable onPress) {
+                Bounds bounds,
+                Component message,
+                boolean selected,
+                boolean selectedBackgroundBehindPreview,
+                Runnable onPress) {
             super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
             this.selected = selected;
+            this.selectedBackgroundBehindPreview = selectedBackgroundBehindPreview;
             this.onPress = Objects.requireNonNull(onPress, "onPress");
         }
 
@@ -1582,9 +1616,12 @@ public final class NclSkinsScreen extends Screen {
         @Override
         protected void extractContents(
                 GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-            int color = selected
-                    ? 0x665A8FCB
-                    : CatalogCardStyle.backgroundColor(active, isHoveredOrFocused());
+            int color = selectedBackgroundBehindPreview
+                    ? CatalogCardStyle.selectableForegroundColor(
+                            selected, active, isHoveredOrFocused())
+                    : selected
+                            ? CatalogCardStyle.SELECTED_BACKGROUND_COLOR
+                            : CatalogCardStyle.backgroundColor(active, isHoveredOrFocused());
             if (color != CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
                 graphics.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), color);
             }

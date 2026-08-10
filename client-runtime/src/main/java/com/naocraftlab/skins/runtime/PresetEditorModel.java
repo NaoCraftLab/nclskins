@@ -33,6 +33,7 @@ public final class PresetEditorModel {
     private static final int CAPE_CARD_MAX_WIDTH = 88;
     private static final int CAPE_SCROLLBAR_WIDTH = 6;
     private static final int CAPE_SCROLLBAR_GAP = 4;
+    private static final int EMPTY_CAPE_ICON_SIZE = 32;
     private final Optional<UUID> originalPresetId;
     private final String name;
     private final SkinReference skin;
@@ -858,13 +859,13 @@ public final class PresetEditorModel {
                 iconDecorations.add(new ViewSpec.IconDecoration(
                         prefix + ".empty",
                         new Bounds(
-                                card.x() + (card.width() - 15) / 2,
-                                card.y() + (card.height() - 15) / 2,
-                                15,
-                                15),
+                                card.x() + (card.width() - EMPTY_CAPE_ICON_SIZE) / 2,
+                                card.y() + (card.height() - EMPTY_CAPE_ICON_SIZE) / 2,
+                                EMPTY_CAPE_ICON_SIZE,
+                                EMPTY_CAPE_ICON_SIZE),
                         "no_cape",
                         choiceWidgetId,
-                        1.0F,
+                        0.8F,
                         1.0F));
             }
             widgets.add(new ViewSpec.Widget(

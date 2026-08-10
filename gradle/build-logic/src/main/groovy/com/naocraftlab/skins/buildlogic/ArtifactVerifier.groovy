@@ -17,6 +17,28 @@ final class ArtifactVerifier {
     static final Pattern TOKEN = Pattern.compile('Bearer\\s+[A-Za-z0-9._~+/=-]{20,}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}')
     static final String COLLECTIONS = 'resourcepacks/mojang_collections/'
     static final String BUTTONS = 'assets/nclskins/textures/gui/icons/'
+    static final Map<String, Integer> BUTTON_ICON_SIZES = [
+        'body_all_off.png'       : 20,
+        'body_all_on.png'        : 20,
+        'body_both_arms_off.png' : 20,
+        'body_left_arm_off.png'  : 20,
+        'body_only_arms_on.png'  : 20,
+        'body_right_arm_off.png' : 20,
+        'cape.png'               : 20,
+        'delete.png'             : 20,
+        'duplicate.png'          : 20,
+        'edit.png'               : 20,
+        'elytra.png'             : 20,
+        'folder.png'             : 20,
+        'head_off.png'           : 20,
+        'head_on.png'            : 20,
+        'legs_all_off.png'       : 20,
+        'legs_all_on.png'        : 20,
+        'legs_left_off.png'      : 20,
+        'legs_right_off.png'     : 20,
+        'no_cape.png'            : 32,
+        'plus.png'               : 32
+    ].asImmutable()
     static final Map<String, Map> FORGE_REFMAPS = [
         'forge-1.20.1': [
             path: 'nclskins.mc1201.refmap.json',
@@ -379,10 +401,15 @@ final class ArtifactVerifier {
         List<String> archiveButtons = names.findAll { it.startsWith(BUTTONS) && it.endsWith('.png') }.sort()
         File canonicalResources = new File(root, 'compat/resources/canonical/src/main/resources')
         List<File> sourceButtons = new File(canonicalResources, BUTTONS).listFiles()?.findAll { it.name.endsWith('.png') }?.sort { it.name } ?: []
-        Set<String> expectedButtons = sourceButtons.collect { BUTTONS + it.name } as Set
+        Set<String> sourceButtonNames = sourceButtons.collect { it.name } as Set
+        Set<String> expectedButtons = BUTTON_ICON_SIZES.keySet().collect { BUTTONS + it } as Set
+        if (sourceButtonNames != BUTTON_ICON_SIZES.keySet()) errors.add("${target.id}: source button icon manifest differs from the size contract")
         if ((archiveButtons as Set) != expectedButtons) errors.add("${target.id}: button icon manifest differs")
-        sourceButtons.each { File source -> compareResource(archive, BUTTONS + source.name, source, target, 15, 15, errors) }
-        compareResource(archive, catalog.mod.icon.toString(), new File(canonicalResources, catalog.mod.icon.toString()), target, 320, 320, errors)
+        sourceButtons.each { File source ->
+            Integer size = BUTTON_ICON_SIZES[source.name]
+            if (size != null) compareResource(archive, BUTTONS + source.name, source, target, size, size, errors)
+        }
+        compareResource(archive, catalog.mod.icon.toString(), new File(canonicalResources, catalog.mod.icon.toString()), target, 128, 128, errors)
         verifyNestedPackIcon(root, archive, catalog, target, errors)
         File collections = new File(root, 'compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections')
         List<File> skins = []
@@ -411,7 +438,7 @@ final class ArtifactVerifier {
         File canonical = new File(
                 root,
                 'compat/resources/canonical/src/main/resources/' + catalog.mod.icon.toString())
-        compareResource(archive, path, canonical, target, 320, 320, errors)
+        compareResource(archive, path, canonical, target, 128, 128, errors)
     }
 
     static void compareResource(ZipFile archive, String path, File source, Map target, int width, int height, List<String> errors) {

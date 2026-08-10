@@ -24,7 +24,8 @@ public final class GalleryPresenter {
     private static final int VIEWPORT_SCROLLBAR_GAP = 4;
     private static final int ONE_ROW_ACTION_MIN_WIDTH = 122;
     private static final int ACTION_HEIGHT = 20;
-    private static final int DECORATION_ICON_SIZE = 15;
+    private static final int DECORATION_ICON_SIZE = 32;
+    private static final int ADD_ICON_LABEL_GAP = 8;
     private static final int RECOVERY_BUTTON_WIDTH = 112;
     private static final int SCROLLBAR_HEIGHT = 6;
     private static final int FOOTER_HEIGHT = 33;
@@ -168,10 +169,8 @@ public final class GalleryPresenter {
             panels.add(new ViewSpec.Panel(card.id(), panelBounds, ViewSpec.Panel.Style.VANILLA_LIST));
             if (card.preset().isEmpty()) {
                 int iconX = x + (cardWidth - DECORATION_ICON_SIZE) / 2;
-                int iconY = layout.cardTop()
-                        + Math.max(
-                        24,
-                        (layout.cardHeight() - DECORATION_ICON_SIZE) / 2 - 10);
+                int hintY = layout.cardTop() + Math.max(44, layout.cardHeight() / 2 + 10);
+                int iconY = hintY - ADD_ICON_LABEL_GAP - DECORATION_ICON_SIZE;
                 iconDecorations.add(new ViewSpec.IconDecoration(
                         "gallery.add.icon",
                         new Bounds(iconX, iconY, DECORATION_ICON_SIZE, DECORATION_ICON_SIZE),
@@ -184,7 +183,7 @@ public final class GalleryPresenter {
                         "gallery.add.hint",
                         new Bounds(
                                 x,
-                                layout.cardTop() + Math.max(44, layout.cardHeight() / 2 + 10),
+                                hintY,
                                 cardWidth,
                                 10),
                         nameSeed

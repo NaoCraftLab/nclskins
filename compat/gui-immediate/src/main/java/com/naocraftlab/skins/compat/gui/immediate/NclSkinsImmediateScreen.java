@@ -51,7 +51,9 @@ import org.lwjgl.glfw.GLFW;
 
 
 public abstract class NclSkinsImmediateScreen extends Screen {
-    private static final int ACTION_ICON_SIZE = 15;
+    private static final int ACTION_ICON_RENDER_SIZE = 16;
+    private static final int ACTION_ICON_TEXTURE_SIZE = 20;
+    private static final int DECORATION_ICON_SIZE = 32;
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
     private static final String PRESET_EDITOR_SCREEN_ID = "preset_editor";
@@ -165,6 +167,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             }
             renderClipped(graphics, view, panel.id(), () -> capabilities.renderPanel(graphics, panel));
         }
+        renderSelectableCardBackgrounds(graphics, view);
         for (ViewSpec.Preview preview : view.previews()) {
             renderClipped(
                     graphics,
@@ -520,7 +523,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.width(),
                     bounds.height(),
                     resolve(widget.label()),
-                    capeCardSelected(widget));
+                    capeCardSelected(widget),
+                    widget.kind() == ViewSpec.WidgetKind.SELECTABLE_CARD);
         }
         if (widget.kind() == ViewSpec.WidgetKind.COLLECTION_HEADER) {
             return new CollectionHeaderWidget(
@@ -658,8 +662,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                             0.0F,
                             bounds.width(),
                             bounds.height(),
-                            ACTION_ICON_SIZE,
-                            ACTION_ICON_SIZE);
+                            DECORATION_ICON_SIZE,
+                            DECORATION_ICON_SIZE);
                 } finally {
                     graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
                 }
@@ -670,6 +674,22 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private static boolean ownsDecoration(ViewSpec view, String widgetId) {
         return view.iconDecorations().stream()
                 .anyMatch(decoration -> decoration.ownerWidgetId().equals(widgetId));
+    }
+
+    private void renderSelectableCardBackgrounds(GuiGraphics graphics, ViewSpec view) {
+        for (ViewSpec.Widget widget : view.widgets()) {
+            if (widget.kind() != ViewSpec.WidgetKind.SELECTABLE_CARD) {
+                continue;
+            }
+            int color = CatalogCardStyle.selectableBackgroundColor(
+                    widget.selectableCardSelected());
+            if (color == CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
+                continue;
+            }
+            Bounds bounds = widget.bounds();
+            renderClipped(graphics, view, widget.id(), () -> graphics.fill(
+                    bounds.x(), bounds.y(), bounds.right(), bounds.bottom(), color));
+        }
     }
 
 
@@ -703,21 +723,29 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         protected void renderWidget(
                 GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
             super.renderWidget(graphics, mouseX, mouseY, partialTick);
-            int iconX = getX() + (getWidth() - ACTION_ICON_SIZE) / 2;
-            int iconY = getY() + (getHeight() - ACTION_ICON_SIZE) / 2;
+            int iconX = getX() + (getWidth() - ACTION_ICON_RENDER_SIZE) / 2;
+            int iconY = getY() + (getHeight() - ACTION_ICON_RENDER_SIZE) / 2;
             float tint = active ? 1.0F : 0.5F;
             graphics.setColor(tint, tint, tint, 1.0F);
-            graphics.blit(
-                    iconTexture,
-                    iconX,
-                    iconY,
-                    0.0F,
-                    0.0F,
-                    ACTION_ICON_SIZE,
-                    ACTION_ICON_SIZE,
-                    ACTION_ICON_SIZE,
-                    ACTION_ICON_SIZE);
-            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+            graphics.pose().pushPose();
+            try {
+                graphics.pose().translate(iconX, iconY, 0.0F);
+                float scale = (float) ACTION_ICON_RENDER_SIZE / ACTION_ICON_TEXTURE_SIZE;
+                graphics.pose().scale(scale, scale, 1.0F);
+                graphics.blit(
+                        iconTexture,
+                        0,
+                        0,
+                        0.0F,
+                        0.0F,
+                        ACTION_ICON_TEXTURE_SIZE,
+                        ACTION_ICON_TEXTURE_SIZE,
+                        ACTION_ICON_TEXTURE_SIZE,
+                        ACTION_ICON_TEXTURE_SIZE);
+            } finally {
+                graphics.pose().popPose();
+                graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+            }
         }
 
         @Override
@@ -802,6 +830,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
     private final class CapeCardWidget extends AbstractButton {
         private final String widgetId;
+        private final boolean selectedBackgroundBehindPreview;
         private boolean selected;
 
         private CapeCardWidget(
@@ -811,10 +840,12 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 int width,
                 int height,
                 Component message,
-                boolean selected) {
+                boolean selected,
+                boolean selectedBackgroundBehindPreview) {
             super(x, y, width, height, message);
             this.widgetId = Objects.requireNonNull(widgetId, "widgetId");
             this.selected = selected;
+            this.selectedBackgroundBehindPreview = selectedBackgroundBehindPreview;
         }
 
         private void setSelected(boolean selected) {
@@ -829,9 +860,12 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         @Override
         protected void renderWidget(
                 GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-            int color = selected
-                    ? 0x665A8FCB
-                    : CatalogCardStyle.backgroundColor(active, isHoveredOrFocused());
+            int color = selectedBackgroundBehindPreview
+                    ? CatalogCardStyle.selectableForegroundColor(
+                            selected, active, isHoveredOrFocused())
+                    : selected
+                            ? CatalogCardStyle.SELECTED_BACKGROUND_COLOR
+                            : CatalogCardStyle.backgroundColor(active, isHoveredOrFocused());
             if (color != CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
                 graphics.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), color);
             }

@@ -364,8 +364,8 @@ final class CatalogTools {
         }
         if (!(mod.iconBlur instanceof Boolean)) {
             errors.add('mod.iconBlur must be a boolean')
-        } else if (!mod.iconBlur) {
-            errors.add('mod.iconBlur must remain true for the smooth 320x320 artwork')
+        } else if (mod.iconBlur) {
+            errors.add('mod.iconBlur must remain false for the crisp 128x128 pixel artwork')
         }
         Map optionalDependencies = catalog.optionalDependencies instanceof Map
                 ? catalog.optionalDependencies as Map : [:]
@@ -401,8 +401,8 @@ final class CatalogTools {
             File icon = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/${mod.icon}")
             try {
                 def image = ImageIO.read(icon)
-                if (image == null || image.width != 320 || image.height != 320) {
-                    errors.add('mod.icon must resolve to the canonical 320x320 PNG')
+                if (image == null || image.width != 128 || image.height != 128) {
+                    errors.add('mod.icon must resolve to the canonical 128x128 PNG')
                 }
             } catch (Exception error) {
                 errors.add("cannot read mod.icon: ${error.message}")

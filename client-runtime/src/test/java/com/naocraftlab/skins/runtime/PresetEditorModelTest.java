@@ -373,8 +373,14 @@ final class PresetEditorModelTest {
                 .orElseThrow();
         assertEquals("editor.cape_choice.0", noCape.ownerWidgetId());
         Bounds noCapeCard = start.widget("editor.cape_choice.0").orElseThrow().bounds();
+        assertEquals(32, noCape.bounds().width());
+        assertEquals(32, noCape.bounds().height());
+        assertEquals(noCapeCard.x() + (noCapeCard.width() - noCape.bounds().width()) / 2,
+                noCape.bounds().x());
         assertEquals(noCapeCard.y() + (noCapeCard.height() - noCape.bounds().height()) / 2,
                 noCape.bounds().y());
+        assertEquals(0.8F, noCape.idleOpacity());
+        assertEquals(1.0F, noCape.activeOpacity());
         assertEquals(2, distinctCapeCardColumns(start));
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL,
                 start.scrollbar().orElseThrow().orientation());

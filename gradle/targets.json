@@ -29,7 +29,7 @@
     },
     "authors": ["NaoCraftLab"],
     "icon": "icon.png",
-    "iconBlur": true
+    "iconBlur": false
   },
   "plugins": {
     "loom": "1.17.17",
