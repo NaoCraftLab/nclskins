@@ -1,10 +1,24 @@
 ## 1.0.0-beta.1
 
+### Added
+
+- **More outer-layer controls**
+    - Choose any combination of the body, left arm, and right arm in the look editor
+
 ### Changed
 
-- **Updated icons**
-    - Refreshed button icons throughout the mod
-    - Updated the NCL Skins icon
+- **Smoother delayed updates**
+    - Automatically apply your latest skin or cape choice after a temporary Minecraft limit
+    - Show waiting progress on the affected action
+- **Updated visuals**
+    - Refreshed button icons and the NCL Skins icon
+    - Made selected capes and imported looks easier to see
+
+### Fixed
+
+- **Session and server refresh**
+    - Hide `Refresh session` when Minecraft must be restarted
+    - Fixed live skin updates after opening a singleplayer world to LAN
 
 ## 1.0.0-alpha.2
 
