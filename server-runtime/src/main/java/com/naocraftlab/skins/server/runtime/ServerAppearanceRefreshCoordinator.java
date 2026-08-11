@@ -45,7 +45,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
     private final Jitter jitter;
     private final AutoCloseable ownedInfrastructure;
     private final Map<UUID, Cycle> cycles = new LinkedHashMap<>();
-    private final Map<UUID, Long> lastCycleStarts = new LinkedHashMap<>();
+    private final Map<UUID, Long> lastLookupStarts = new LinkedHashMap<>();
     private final ArrayDeque<Cycle> ready = new ArrayDeque<>();
     private final LinkedHashMap<UUID, PendingPublication> pendingPublications =
             new LinkedHashMap<>();
@@ -152,7 +152,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                 return immediate(Admission.CLOSED, RefreshResult.CLOSED);
             }
             long now = nanoTime.getAsLong();
-            purgeCooldownsLocked(now);
+            purgeLookupCooldownsLocked(now);
             UUID profileId = connection.key().profileId();
             Cycle existing = cycles.get(profileId);
             if (existing != null && existing.connection.key().equals(connection.key())) {
@@ -160,6 +160,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                 existing.completion = new CompletableFuture<>();
                 existing.connection = connection;
                 existing.revision++;
+                existing.sawResolvedUnchanged = false;
                 completion = existing.completion;
                 if (existing.state == State.BATCH_QUEUED
                         || existing.state == State.PUBLISHING) {
@@ -177,7 +178,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                     return immediate(Admission.OVERLOADED, RefreshResult.OVERLOADED);
                 }
                 long eligibleAt = now;
-                Long lastStart = lastCycleStarts.get(profileId);
+                Long lastStart = lastLookupStarts.get(profileId);
                 if (lastStart != null) {
                     eligibleAt = Math.max(
                             eligibleAt,
@@ -287,7 +288,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             cycles.clear();
             ready.clear();
             pendingPublications.clear();
-            lastCycleStarts.clear();
+            lastLookupStarts.clear();
             pumpSchedule.cancel();
             pumpSchedule = NO_SCHEDULE;
             batchSchedule.cancel();
@@ -346,6 +347,12 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             if (isExpiredLocked(cycle, now)) {
                 finishLater(cycle, RefreshResult.EXPIRED);
                 return;
+            }
+            Long lastStart = lastLookupStarts.get(cycle.connection.key().profileId());
+            if (lastStart != null) {
+                dueAt = Math.max(
+                        dueAt,
+                        saturatedAdd(lastStart, nanos(policy.independentCycleCooldown())));
             }
             previous = cycle.schedule;
             cycle.schedule = token;
@@ -438,12 +445,14 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                     cycle.activeStartedAt = now;
                     cycle.attemptOriginAt = now;
                     cycle.deadlineAt = saturatedAdd(now, nanos(policy.lookupCycleDeadline()));
-                    lastCycleStarts.put(cycle.connection.key().profileId(), now);
-                    while (lastCycleStarts.size() > policy.maxPendingConnections()) {
-                        Iterator<UUID> oldest = lastCycleStarts.keySet().iterator();
-                        oldest.next();
-                        oldest.remove();
-                    }
+                }
+                UUID profileId = cycle.connection.key().profileId();
+                lastLookupStarts.remove(profileId);
+                lastLookupStarts.put(profileId, now);
+                while (lastLookupStarts.size() > policy.maxPendingConnections()) {
+                    Iterator<UUID> oldest = lastLookupStarts.keySet().iterator();
+                    oldest.next();
+                    oldest.remove();
                 }
                 int attempt = cycle.attemptsDispatched++;
                 cycle.state = State.LOOKUP;
@@ -545,7 +554,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                     && dispatch.cycle.revision == dispatch.revision;
         }
         if (!currentRevision) {
-            retrySuperseded(dispatch.cycle);
+            scheduleCoalescedFollowUp(dispatch.cycle);
             pump();
             return;
         }
@@ -671,7 +680,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             }
         }
         for (Cycle cycle : superseded) {
-            retrySuperseded(cycle);
+            scheduleCoalescedFollowUp(cycle);
         }
         for (Cycle cycle : expired) {
             finish(cycle, RefreshResult.EXPIRED);
@@ -784,14 +793,16 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
     private void handlePublication(
             PendingPublication pending,
             PublicationOutcome outcome) {
+        boolean superseded;
         synchronized (lock) {
             if (!isCurrentLocked(pending.cycle)) {
                 return;
             }
-            if (pending.cycle.revision != pending.revision) {
-                retrySuperseded(pending.cycle);
-                return;
-            }
+            superseded = pending.cycle.revision != pending.revision;
+        }
+        if (superseded) {
+            scheduleCoalescedFollowUp(pending.cycle);
+            return;
         }
         switch (outcome) {
             case UPDATED -> finish(pending.cycle, RefreshResult.UPDATED);
@@ -806,17 +817,27 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         }
     }
 
-    private void retrySuperseded(Cycle cycle) {
+    private void scheduleCoalescedFollowUp(Cycle cycle) {
+        long dueAt;
+        boolean expired;
         synchronized (lock) {
             if (!isCurrentLocked(cycle)) {
                 return;
             }
-            cycle.attemptsDispatched = 0;
-            cycle.sawResolvedUnchanged = false;
-            cycle.waitingForRetry = false;
-            cycle.attemptOriginAt = nanoTime.getAsLong();
+            long now = nanoTime.getAsLong();
+            expired = isExpiredLocked(cycle, now);
+            Long lastStart = lastLookupStarts.get(cycle.connection.key().profileId());
+            long cooldownEnds = lastStart == null
+                    ? now
+                    : saturatedAdd(lastStart, nanos(policy.independentCycleCooldown()));
+            dueAt = Math.max(now, cooldownEnds);
+            cycle.waitingForRetry = true;
         }
-        scheduleAttempt(cycle, 0);
+        if (expired) {
+            finish(cycle, RefreshResult.EXPIRED);
+        } else {
+            scheduleCycleAt(cycle, dueAt);
+        }
     }
 
     private void retryOrFinish(Cycle cycle, RefreshResult terminal) {
@@ -964,9 +985,9 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         ready.removeIf(cycle -> !isCurrentLocked(cycle) || cycle.state != State.READY);
     }
 
-    private void purgeCooldownsLocked(long now) {
+    private void purgeLookupCooldownsLocked(long now) {
         long retention = nanos(policy.independentCycleCooldown());
-        lastCycleStarts.entrySet().removeIf(
+        lastLookupStarts.entrySet().removeIf(
                 entry -> saturatedAdd(entry.getValue(), retention) <= now);
     }
 

@@ -1,13 +1,14 @@
 package com.naocraftlab.skins.server.runtime;
 
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.time.Duration;
-import java.util.List;
-import org.junit.jupiter.api.Test;
 
 final class ServerRefreshPolicyTest {
     @Test
@@ -31,6 +32,7 @@ final class ServerRefreshPolicyTest {
                 small.attemptOffsets());
         assertEquals(Duration.ofMinutes(5), small.maxQueueAge());
         assertEquals(Duration.ofSeconds(30), small.lookupCycleDeadline());
+        assertEquals(Duration.ofSeconds(5), small.independentCycleCooldown());
         assertEquals(Duration.ofMillis(50), small.batchWindow());
         assertEquals(64, small.maxBatchActors());
         assertEquals(2, small.maxReconciliationAttempts());

@@ -1,9 +1,5 @@
 package com.naocraftlab.skins.server.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.server.Admission;
 import com.naocraftlab.skins.server.BatchAppearancePublisher;
 import com.naocraftlab.skins.server.BatchPublicationResult;
@@ -16,10 +12,11 @@ import com.naocraftlab.skins.server.PublicationOutcome;
 import com.naocraftlab.skins.server.PublicationRequest;
 import com.naocraftlab.skins.server.RefreshResult;
 import com.naocraftlab.skins.server.RefreshSubmission;
-import com.naocraftlab.skins.server.ServerPlayerIdentity;
 import com.naocraftlab.skins.server.SignedTexturesProperty;
 import com.naocraftlab.skins.server.TextureAppearance;
 import com.naocraftlab.skins.server.VerifiedOfficialProfile;
+import org.junit.jupiter.api.Test;
+
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -37,11 +34,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ServerAppearanceRefreshCoordinatorTest {
     @Test
-    void retriesAtDeterministicOffsetsAndPublishesThroughOneBatch() {
+    void retriesRespectDeterministicOffsetsAndPerProfileCooldown() {
         ManualTime time = new ManualTime();
         SequenceResolver resolver = new SequenceResolver(time);
         resolver.add(OfficialProfileResolver.Resolution.transientFailure());
@@ -53,16 +53,16 @@ final class ServerAppearanceRefreshCoordinatorTest {
                 time, resolver, publisher, defaultPolicy());
 
         RefreshSubmission submission = coordinator.request(connection(1, 1L));
-        time.advance(Duration.ofSeconds(11));
+        time.advance(Duration.ofSeconds(16));
 
         assertEquals(Admission.ACCEPTED, submission.admission());
         assertEquals(RefreshResult.UPDATED, result(submission));
         assertEquals(
                 List.of(
                         Duration.ofMillis(500).toNanos(),
-                        Duration.ofMillis(2_500).toNanos(),
                         Duration.ofMillis(5_500).toNanos(),
-                        Duration.ofMillis(10_500).toNanos()),
+                        Duration.ofMillis(10_500).toNanos(),
+                        Duration.ofMillis(15_500).toNanos()),
                 resolver.callTimes);
         assertEquals(List.of(1), publisher.batchSizes);
         assertEquals(4L, coordinator.health().lookups());
@@ -72,7 +72,7 @@ final class ServerAppearanceRefreshCoordinatorTest {
     }
 
     @Test
-    void retryOffsetsStartAtDelayedFirstDispatchInsteadOfOriginalQueueTime() {
+    void retryCooldownStartsAtDelayedFirstDispatchInsteadOfOriginalQueueTime() {
         ManualTime time = new ManualTime();
         ConnectionSnapshot blocker = connection(2, 1L);
         ConnectionSnapshot target = connection(3, 1L);
@@ -116,14 +116,14 @@ final class ServerAppearanceRefreshCoordinatorTest {
         held.complete(OfficialProfileResolver.Resolution.transientFailure());
         assertEquals(1, targetCalls.get());
 
-        time.advance(Duration.ofMillis(1_999));
+        time.advance(Duration.ofMillis(4_999));
         assertEquals(1, targetCalls.get());
         time.advance(Duration.ofMillis(1));
         time.advance(Duration.ofMillis(50));
 
         assertEquals(2, targetCalls.get());
         assertEquals(
-                Duration.ofSeconds(2).toNanos(),
+                Duration.ofSeconds(5).toNanos(),
                 targetTimes.get(1) - targetTimes.get(0));
         assertEquals(RefreshResult.UPDATED, result(targetSubmission));
         coordinator.close();
@@ -221,7 +221,7 @@ final class ServerAppearanceRefreshCoordinatorTest {
     }
 
     @Test
-    void retryOffsetsBeginAtFirstDispatchAfterADeepGlobalThrottleQueue() {
+    void retryCooldownBeginsAtFirstDispatchAfterADeepGlobalThrottleQueue() {
         ManualTime time = new ManualTime();
         ConnectionSnapshot throttler = connection(13, 1L);
         ConnectionSnapshot queued = connection(14, 1L);
@@ -254,13 +254,13 @@ final class ServerAppearanceRefreshCoordinatorTest {
         time.advance(Duration.ofMillis(100_500));
         assertEquals(List.of(Duration.ofMillis(100_500).toNanos()), queuedCallTimes);
 
-        time.advance(Duration.ofMillis(1_999));
+        time.advance(Duration.ofMillis(4_999));
         assertEquals(1, queuedCallTimes.size());
         time.advance(Duration.ofMillis(1));
         assertEquals(
                 List.of(
                         Duration.ofMillis(100_500).toNanos(),
-                        Duration.ofMillis(102_500).toNanos()),
+                        Duration.ofMillis(105_500).toNanos()),
                 queuedCallTimes);
         time.advance(Duration.ofMillis(50));
 
@@ -426,7 +426,7 @@ final class ServerAppearanceRefreshCoordinatorTest {
     }
 
     @Test
-    void coalescingDuringTheFinalLookupAlwaysFetchesTheNewestRevision() {
+    void coalescingDuringTheFinalLookupWaitsForPerProfileCooldownAndFetchesNewestRevision() {
         ManualTime time = new ManualTime();
         List<CompletableFuture<OfficialProfileResolver.Resolution>> lookups = new ArrayList<>();
         AtomicInteger calls = new AtomicInteger();
@@ -457,13 +457,48 @@ final class ServerAppearanceRefreshCoordinatorTest {
         time.advance(Duration.ZERO);
 
         assertEquals(1, calls.get());
-        time.advance(Duration.ofMillis(500));
+        time.advance(Duration.ofMillis(4_999));
+        assertEquals(1, calls.get());
+        time.advance(Duration.ofMillis(1));
         assertEquals(2, calls.get());
         lookups.get(1).complete(resolved(connection, 'a'));
         time.advance(Duration.ofMillis(50));
 
         assertEquals(RefreshResult.UPDATED, result(latest));
         assertEquals(1, publisher.actorCount.get());
+        coordinator.close();
+    }
+
+    @Test
+    void completedCycleKeepsCooldownFromItsLastLookup() {
+        ManualTime time = new ManualTime();
+        List<Long> callTimes = new ArrayList<>();
+        ConnectionSnapshot connection = connection(58, 1L);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                ignored -> {
+                    callTimes.add(time.now());
+                    return OfficialProfileResolver.completed(resolved(connection, 'd'));
+                },
+                new RecordingPublisher(),
+                defaultPolicy());
+
+        RefreshSubmission first = coordinator.request(connection);
+        time.advance(Duration.ofMillis(550));
+        assertEquals(RefreshResult.UPDATED, result(first));
+
+        RefreshSubmission second = coordinator.request(connection);
+        time.advance(Duration.ofMillis(5_449));
+        assertEquals(List.of(Duration.ofMillis(500).toNanos()), callTimes);
+        time.advance(Duration.ofMillis(1));
+        time.advance(Duration.ofMillis(50));
+
+        assertEquals(
+                List.of(
+                        Duration.ofMillis(500).toNanos(),
+                        Duration.ofSeconds(6).toNanos()),
+                callTimes);
+        assertEquals(RefreshResult.UPDATED, result(second));
         coordinator.close();
     }
 
@@ -492,6 +527,234 @@ final class ServerAppearanceRefreshCoordinatorTest {
         assertEquals(1, calls.get());
         assertEquals(RefreshResult.UPDATED, result(latest));
         coordinator.close();
+    }
+
+    @Test
+    void signalFloodDuringActiveLookupCreatesOneCooldownBoundFollowUp() {
+        ManualTime time = new ManualTime();
+        List<CompletableFuture<OfficialProfileResolver.Resolution>> lookups = new ArrayList<>();
+        List<Long> callTimes = new ArrayList<>();
+        OfficialProfileResolver resolver = ignored -> {
+            callTimes.add(time.now());
+            CompletableFuture<OfficialProfileResolver.Resolution> lookup =
+                    new CompletableFuture<>();
+            lookups.add(lookup);
+            return lookup;
+        };
+        RecordingPublisher publisher = new RecordingPublisher();
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time, resolver, publisher, defaultPolicy());
+        ConnectionSnapshot connection = connection(52, 1L);
+
+        RefreshSubmission latest = coordinator.request(connection);
+        time.advance(Duration.ofMillis(500));
+        for (int index = 0; index < 10_000; index++) {
+            latest = coordinator.request(connection);
+        }
+        lookups.get(0).complete(OfficialProfileResolver.Resolution.transientFailure());
+
+        assertEquals(1, time.pendingTasks());
+        time.advance(Duration.ofMillis(4_999));
+        assertEquals(1, lookups.size());
+        time.advance(Duration.ofMillis(1));
+        assertEquals(
+                List.of(Duration.ofMillis(500).toNanos(), Duration.ofMillis(5_500).toNanos()),
+                callTimes);
+
+        lookups.get(1).complete(resolved(connection, 'a'));
+        time.advance(Duration.ofMillis(50));
+
+        assertEquals(RefreshResult.UPDATED, result(latest));
+        assertEquals(2L, coordinator.health().lookups());
+        assertEquals(10_000L, coordinator.health().coalesced());
+        assertEquals(1, publisher.actorCount.get());
+        coordinator.close();
+    }
+
+    @Test
+    void continuousSignalFloodCannotExceedThePerProfileCooldownOrCycleDeadline() {
+        ManualTime time = new ManualTime();
+        List<CompletableFuture<OfficialProfileResolver.Resolution>> lookups = new ArrayList<>();
+        List<Long> callTimes = new ArrayList<>();
+        OfficialProfileResolver resolver = ignored -> {
+            callTimes.add(time.now());
+            CompletableFuture<OfficialProfileResolver.Resolution> lookup =
+                    new CompletableFuture<>();
+            lookups.add(lookup);
+            return lookup;
+        };
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time, resolver, new RecordingPublisher(), defaultPolicy());
+        ConnectionSnapshot connection = connection(53, 1L);
+
+        RefreshSubmission latest = coordinator.request(connection);
+        time.advance(Duration.ofMillis(500));
+        for (int lookup = 0; lookup < 6; lookup++) {
+            for (int signal = 0; signal < 100; signal++) {
+                latest = coordinator.request(connection);
+            }
+            lookups.get(lookup).complete(
+                    OfficialProfileResolver.Resolution.transientFailure());
+            time.advance(Duration.ofSeconds(5));
+        }
+
+        assertEquals(
+                List.of(
+                        Duration.ofMillis(500).toNanos(),
+                        Duration.ofMillis(5_500).toNanos(),
+                        Duration.ofMillis(10_500).toNanos(),
+                        Duration.ofMillis(15_500).toNanos(),
+                        Duration.ofMillis(20_500).toNanos(),
+                        Duration.ofMillis(25_500).toNanos()),
+                callTimes);
+        assertEquals(6L, coordinator.health().lookups());
+        assertEquals(RefreshResult.EXPIRED, result(latest));
+        assertEquals(0, coordinator.health().pending());
+        assertEquals(0, time.pendingTasks());
+        coordinator.close();
+    }
+
+    @Test
+    void readyLatestIntentRunsBeforeAnAttackersCooldownFollowUp() {
+        ManualTime time = new ManualTime();
+        ConnectionSnapshot attacker = connection(54, 1L);
+        ConnectionSnapshot legitimate = connection(55, 1L);
+        CompletableFuture<OfficialProfileResolver.Resolution> attackerLookup =
+                new CompletableFuture<>();
+        List<ConnectionKey> callOrder = new ArrayList<>();
+        OfficialProfileResolver resolver = connection -> {
+            callOrder.add(connection.key());
+            if (connection.key().equals(attacker.key()) && callOrder.size() == 1) {
+                return attackerLookup;
+            }
+            return connection.key().equals(legitimate.key())
+                    ? OfficialProfileResolver.completed(resolved(connection, 'b'))
+                    : OfficialProfileResolver.completed(
+                            OfficialProfileResolver.Resolution.transientFailure());
+        };
+        ServerRefreshPolicy policy = policy(
+                16, 1, 10_000.0d, 20, List.of(Duration.ofMillis(500)),
+                Duration.ofMinutes(5), Duration.ofSeconds(30), Duration.ofMillis(50), 64, 0);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time, resolver, new RecordingPublisher(), policy);
+
+        coordinator.request(attacker);
+        RefreshSubmission originalLegitimate = coordinator.request(legitimate);
+        time.advance(Duration.ofMillis(500));
+        RefreshSubmission latestAttacker = coordinator.request(attacker);
+        RefreshSubmission latestLegitimate = coordinator.request(legitimate);
+        assertEquals(RefreshResult.SUPERSEDED, result(originalLegitimate));
+
+        attackerLookup.complete(OfficialProfileResolver.Resolution.transientFailure());
+        assertEquals(List.of(attacker.key(), legitimate.key()), callOrder);
+        time.advance(Duration.ofMillis(50));
+
+        assertEquals(RefreshResult.UPDATED, result(latestLegitimate));
+        time.advance(Duration.ofMillis(4_949));
+        assertEquals(2, callOrder.size());
+        time.advance(Duration.ofMillis(1));
+        assertEquals(List.of(attacker.key(), legitimate.key(), attacker.key()), callOrder);
+        assertEquals(RefreshResult.EXHAUSTED, result(latestAttacker));
+        coordinator.close();
+    }
+
+    @Test
+    void coalescingABatchQueuedPublicationWaitsForTheProfileCooldown() {
+        ManualTime time = new ManualTime();
+        AtomicInteger calls = new AtomicInteger();
+        ConnectionSnapshot connection = connection(56, 1L);
+        RecordingPublisher publisher = new RecordingPublisher();
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                ignored -> {
+                    calls.incrementAndGet();
+                    return OfficialProfileResolver.completed(resolved(connection, 'c'));
+                },
+                publisher,
+                defaultPolicy());
+
+        RefreshSubmission first = coordinator.request(connection);
+        time.advance(Duration.ofMillis(500));
+        RefreshSubmission latest = coordinator.request(connection);
+        assertEquals(RefreshResult.SUPERSEDED, result(first));
+        assertEquals(List.of(connection.key()), publisher.superseded);
+
+        time.advance(Duration.ofMillis(50));
+        assertEquals(0, publisher.batchSizes.size());
+        time.advance(Duration.ofMillis(4_949));
+        assertEquals(1, calls.get());
+        time.advance(Duration.ofMillis(1));
+        assertEquals(2, calls.get());
+        time.advance(Duration.ofMillis(50));
+
+        assertEquals(RefreshResult.UPDATED, result(latest));
+        assertEquals(List.of(1), publisher.batchSizes);
+        coordinator.close();
+    }
+
+    @Test
+    void disconnectCancelsACooldownBoundFollowUp() {
+        ManualTime time = new ManualTime();
+        List<CompletableFuture<OfficialProfileResolver.Resolution>> lookups = new ArrayList<>();
+        ConnectionSnapshot connection = connection(57, 1L);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                ignored -> {
+                    CompletableFuture<OfficialProfileResolver.Resolution> lookup =
+                            new CompletableFuture<>();
+                    lookups.add(lookup);
+                    return lookup;
+                },
+                new RecordingPublisher(),
+                defaultPolicy());
+
+        RefreshSubmission first = coordinator.request(connection);
+        time.advance(Duration.ofMillis(500));
+        RefreshSubmission latest = coordinator.request(connection);
+        assertEquals(RefreshResult.SUPERSEDED, result(first));
+        lookups.get(0).complete(OfficialProfileResolver.Resolution.transientFailure());
+        assertEquals(1, time.pendingTasks());
+
+        coordinator.disconnected(connection.key());
+        assertEquals(RefreshResult.DISCONNECTED, result(latest));
+        time.advance(Duration.ofSeconds(10));
+
+        assertEquals(1, lookups.size());
+        assertEquals(0, coordinator.health().pending());
+        assertEquals(0, time.pendingTasks());
+        coordinator.close();
+    }
+
+    @Test
+    void closeCancelsACooldownBoundFollowUp() {
+        ManualTime time = new ManualTime();
+        List<CompletableFuture<OfficialProfileResolver.Resolution>> lookups = new ArrayList<>();
+        ConnectionSnapshot connection = connection(59, 1L);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                ignored -> {
+                    CompletableFuture<OfficialProfileResolver.Resolution> lookup =
+                            new CompletableFuture<>();
+                    lookups.add(lookup);
+                    return lookup;
+                },
+                new RecordingPublisher(),
+                defaultPolicy());
+
+        RefreshSubmission first = coordinator.request(connection);
+        time.advance(Duration.ofMillis(500));
+        RefreshSubmission latest = coordinator.request(connection);
+        assertEquals(RefreshResult.SUPERSEDED, result(first));
+        lookups.get(0).complete(OfficialProfileResolver.Resolution.transientFailure());
+        assertEquals(1, time.pendingTasks());
+
+        coordinator.close();
+        assertEquals(RefreshResult.CLOSED, result(latest));
+        time.advance(Duration.ofSeconds(10));
+
+        assertEquals(1, lookups.size());
+        assertEquals(0, coordinator.health().pending());
+        assertEquals(0, time.pendingTasks());
     }
 
     @Test
@@ -537,7 +800,9 @@ final class ServerAppearanceRefreshCoordinatorTest {
 
         firstBatch.complete(BatchPublicationResult.all(
                 firstRequests, PublicationOutcome.UPDATED));
-        time.advance(Duration.ofMillis(500));
+        time.advance(Duration.ofMillis(4_449));
+        assertEquals(1, batches.get());
+        time.advance(Duration.ofMillis(1));
         time.advance(Duration.ofMillis(50));
 
         assertEquals(2, batches.get());
@@ -546,7 +811,7 @@ final class ServerAppearanceRefreshCoordinatorTest {
     }
 
     @Test
-    void coalescedSignalUsesANewAttemptOriginWithoutExtendingTheCycleDeadline() {
+    void coalescedSignalKeepsTheOriginalAttemptOriginAndCycleDeadline() {
         ManualTime time = new ManualTime();
         List<CompletableFuture<OfficialProfileResolver.Resolution>> lookups = new ArrayList<>();
         List<Long> callTimes = new ArrayList<>();
@@ -569,16 +834,78 @@ final class ServerAppearanceRefreshCoordinatorTest {
         assertEquals(RefreshResult.SUPERSEDED, result(first));
         lookups.get(0).complete(OfficialProfileResolver.Resolution.transientFailure());
 
-        time.advance(Duration.ofMillis(499));
-        assertEquals(1, callTimes.size());
-        time.advance(Duration.ofMillis(1));
+        time.advance(Duration.ZERO);
         assertEquals(
-                List.of(Duration.ofMillis(500).toNanos(), Duration.ofMillis(11_500).toNanos()),
+                List.of(Duration.ofMillis(500).toNanos(), Duration.ofSeconds(11).toNanos()),
                 callTimes);
         lookups.get(1).complete(resolved(connection, 'b'));
         time.advance(Duration.ofMillis(50));
 
         assertEquals(RefreshResult.UPDATED, result(latest));
+        coordinator.close();
+    }
+
+    @Test
+    void coalescedFollowUpDoesNotRestoreUsedRetryBudget() {
+        ManualTime time = new ManualTime();
+        CompletableFuture<OfficialProfileResolver.Resolution> held = new CompletableFuture<>();
+        AtomicInteger calls = new AtomicInteger();
+        OfficialProfileResolver resolver = ignored -> calls.incrementAndGet() == 1
+                ? held
+                : OfficialProfileResolver.completed(
+                        OfficialProfileResolver.Resolution.transientFailure());
+        ServerRefreshPolicy policy = policy(
+                16, 1, 10_000.0d, 20,
+                List.of(Duration.ofMillis(500), Duration.ofSeconds(2)),
+                Duration.ofMinutes(5), Duration.ofSeconds(30),
+                Duration.ofMillis(50), 64, 0);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time, resolver, new RecordingPublisher(), policy);
+        ConnectionSnapshot connection = connection(60, 1L);
+
+        RefreshSubmission first = coordinator.request(connection);
+        time.advance(Duration.ofMillis(500));
+        RefreshSubmission latest = coordinator.request(connection);
+        assertEquals(RefreshResult.SUPERSEDED, result(first));
+        held.complete(OfficialProfileResolver.Resolution.transientFailure());
+
+        time.advance(Duration.ofSeconds(5));
+        assertEquals(2, calls.get());
+        assertEquals(RefreshResult.EXHAUSTED, result(latest));
+        time.advance(Duration.ofSeconds(10));
+
+        assertEquals(2, calls.get());
+        coordinator.close();
+    }
+
+    @Test
+    void revisionChangeClearsOnlyResolvedUnchangedState() {
+        ManualTime time = new ManualTime();
+        SequenceResolver resolver = new SequenceResolver(time);
+        ConnectionSnapshot connection = connection(61, 1L);
+        resolver.add(resolved(connection, 'e'));
+        resolver.add(OfficialProfileResolver.Resolution.transientFailure());
+        RecordingPublisher publisher = new RecordingPublisher();
+        publisher.outcomes.add(PublicationOutcome.UNCHANGED);
+        ServerRefreshPolicy policy = policy(
+                16, 1, 10_000.0d, 20,
+                List.of(Duration.ofMillis(500), Duration.ofSeconds(2)),
+                Duration.ofMinutes(5), Duration.ofSeconds(30),
+                Duration.ofMillis(50), 64, 0);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time, resolver, publisher, policy);
+
+        RefreshSubmission first = coordinator.request(connection);
+        time.advance(Duration.ofMillis(550));
+        RefreshSubmission latest = coordinator.request(connection);
+        assertEquals(RefreshResult.SUPERSEDED, result(first));
+        assertEquals(1, time.pendingTasks());
+
+        time.advance(Duration.ofMillis(4_950));
+
+        assertEquals(2, resolver.calls.get());
+        assertEquals(RefreshResult.EXHAUSTED, result(latest));
+        assertEquals(1, publisher.actorCount.get());
         coordinator.close();
     }
 
