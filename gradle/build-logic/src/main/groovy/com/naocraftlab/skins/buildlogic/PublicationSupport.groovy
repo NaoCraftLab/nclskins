@@ -70,6 +70,10 @@ final class PublicationSupport {
                             target.minecraftVersion.toString(), target.loader?.toString()) ||
                     target.versionNumber != manifest.version || target.channel != manifest.channel ||
                     !(target.loader in ['fabric', 'forge', 'neoforge']) ||
+                    !(target.javaRelease instanceof Number) ||
+                    (target.javaRelease as Number).intValue() <= 0 ||
+                    (target.javaRelease as Number).doubleValue() !=
+                            (target.javaRelease as Number).intValue() ||
                     !(target.gameVersions instanceof List) || (target.gameVersions as List).isEmpty() ||
                     (target.gameVersions as List).first() != target.minecraftVersion ||
                     assets[fileName] != asset || asset.kind != 'mod' || asset.target != target.id ||
@@ -113,10 +117,15 @@ final class PublicationSupport {
             return [action: 'conflict', reason: 'multiple remote entries use the publication coordinate']
         }
         if (coordinates.size() == 1) {
-            List<String> mismatches = metadataMismatches(platform, desired, coordinates.first())
-            return mismatches.isEmpty()
-                    ? [action: 'skip', reason: 'exact publication exists', remoteId: normalizedId(coordinates.first())]
-                    : [action: 'conflict', reason: mismatches.join('; '), remoteId: normalizedId(coordinates.first())]
+            Map coordinate = coordinates.first()
+            List<String> mismatches = metadataMismatches(platform, desired, coordinate)
+            if (!mismatches.isEmpty()) {
+                return [action: 'conflict', reason: mismatches.join('; '), remoteId: normalizedId(coordinate)]
+            }
+            if (platform == 'curseforge') {
+                return curseForgeSourcesState(desired, coordinate, remoteEntries)
+            }
+            return [action: 'skip', reason: 'exact publication exists', remoteId: normalizedId(coordinate)]
         }
 
         Set<String> desiredGames = desired.gameVersions as Set<String>
@@ -141,6 +150,14 @@ final class PublicationSupport {
         }
         if (normalizedLoaders(platform, remote) != [desired.loader.toString()] as Set<String>) {
             mismatches.add('loader differs')
+        }
+        if (platform == 'modrinth' && remote.environment?.toString() != 'client_only_server_optional') {
+            mismatches.add('environment differs')
+        }
+        if (platform == 'curseforge' &&
+                normalizedCurseForgeJavaReleases(remote) !=
+                        [(desired.javaRelease as Number).intValue()] as Set<Integer>) {
+            mismatches.add('Java version differs')
         }
         if (normalizedDependencies(platform, remote) != desiredDependencies(platform, desired)) {
             mismatches.add('dependencies differ')
@@ -184,7 +201,7 @@ final class PublicationSupport {
                 file_parts    : ['file', 'sources'],
                 primary_file  : 'file',
                 file_types    : [sources: 'sources-jar'],
-                environment   : 'client_and_server'
+                environment   : 'client_only_server_optional'
         ]
     }
 
@@ -192,6 +209,7 @@ final class PublicationSupport {
         List<String> gameVersionNames = new ArrayList<>(target.gameVersions as List)
         gameVersionNames.add(loaderDisplayName(target.loader.toString()))
         gameVersionNames.addAll(['Client', 'Server'])
+        gameVersionNames.add("Java ${(target.javaRelease as Number).intValue()}".toString())
         [
                 changelog               : manifest.releaseNotes.text,
                 changelogType           : 'markdown',
@@ -204,6 +222,43 @@ final class PublicationSupport {
                      type: it.type == 'required' ? 'requiredDependency' : 'optionalDependency']
                 }]
         ]
+    }
+
+    static Map curseForgeSourcesMetadata(Map target, String parentFileId) {
+        long parentId
+        try {
+            parentId = Long.parseLong(parentFileId)
+        } catch (NumberFormatException error) {
+            throw new IllegalStateException("invalid CurseForge parent file ID: ${parentFileId}", error)
+        }
+        [
+                changelog               : "Sources for ${target.name}.",
+                changelogType           : 'text',
+                displayName             : "${target.name} Sources",
+                parentFileID            : parentId,
+                releaseType             : target.channel,
+                isMarkedForManualRelease: false
+        ]
+    }
+
+    static Map curseForgeSourcesState(Map desired, Map primary, List<Map> remoteEntries) {
+        String parentId = normalizedId(primary)
+        String sourceFile = desired.sourcesAsset.file.toString()
+        List<Map> sources = remoteEntries.findAll { Map remote ->
+            remote.parentProjectFileId?.toString() == parentId && remote.fileName?.toString() == sourceFile
+        }
+        if (sources.size() > 1) {
+            return [action: 'conflict', reason: 'multiple CurseForge sources additional files exist',
+                    remoteId: parentId]
+        }
+        if (sources.isEmpty()) {
+            return [action: 'upload-sources', reason: 'sources additional file is missing', remoteId: parentId]
+        }
+        String hash = normalizedHash('curseforge', sources.first())
+        if (hash == null || hash != desired.sourcesAsset.sha1) {
+            return [action: 'conflict', reason: 'sources additional file hash differs', remoteId: parentId]
+        }
+        [action: 'skip', reason: 'exact publication and sources additional file exist', remoteId: parentId]
     }
 
     static byte[] multipart(List<Map> parts, String boundary) {
@@ -268,10 +323,19 @@ final class PublicationSupport {
         Set<String> values = (raw as List).collect { it.toString() } as Set<String>
         if (platform == 'curseforge') {
             values = values.findAll {
-                !(it.toLowerCase(Locale.ROOT) in ['fabric', 'forge', 'neoforge', 'client', 'server'])
+                String normalized = it.toLowerCase(Locale.ROOT)
+                !(normalized in ['fabric', 'forge', 'neoforge', 'client', 'server']) &&
+                        !(normalized ==~ /java\s+[0-9]+/)
             } as Set<String>
         }
         values
+    }
+
+    static Set<Integer> normalizedCurseForgeJavaReleases(Map remote) {
+        if (!(remote.gameVersions instanceof List)) return [] as Set<Integer>
+        (remote.gameVersions as List).collect { it.toString().toLowerCase(Locale.ROOT) }
+                .findAll { it ==~ /java\s+[0-9]+/ }
+                .collect { Integer.parseInt(it.substring('java '.length())) } as Set<Integer>
     }
 
     static String publicationName(String version, String minecraftVersion, String loader) {

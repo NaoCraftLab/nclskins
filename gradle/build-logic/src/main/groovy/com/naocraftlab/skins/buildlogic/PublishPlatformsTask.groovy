@@ -81,10 +81,21 @@ abstract class PublishPlatformsTask extends DefaultTask {
                 }
                 File artifact = new File(bundle, "assets/${target.asset.file}")
                 File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
-                String remoteId = platform == 'modrinth'
-                        ? uploadModrinth(manifest, target, artifact, sources, modrinthToken)
-                        : uploadCurseForge(manifest, target, artifact, curseForgeUploadToken)
-                results.add([target.name.toString(), platform, 'uploaded', remoteId])
+                String remoteId
+                String result
+                if (platform == 'modrinth') {
+                    remoteId = uploadModrinth(manifest, target, artifact, sources, modrinthToken)
+                    result = 'uploaded'
+                } else if (state.action == 'upload-sources') {
+                    remoteId = uploadCurseForgeSources(
+                            manifest, target, sources, state.remoteId.toString(), curseForgeUploadToken)
+                    result = 'sources uploaded'
+                } else {
+                    remoteId = uploadCurseForge(
+                            manifest, target, artifact, sources, curseForgeUploadToken)
+                    result = 'uploaded'
+                }
+                results.add([target.name.toString(), platform, result, remoteId])
             }
         }
         appendResultSummary(results)
@@ -171,8 +182,21 @@ abstract class PublishPlatformsTask extends DefaultTask {
         payload.id.toString()
     }
 
-    String uploadCurseForge(Map manifest, Map target, File artifact, String token) {
-        Map metadata = PublicationSupport.curseForgeMetadata(manifest, target)
+    String uploadCurseForge(Map manifest, Map target, File artifact, File sources, String token) {
+        String primaryId = uploadCurseForgeFile(
+                manifest, target, artifact, PublicationSupport.curseForgeMetadata(manifest, target), token)
+        uploadCurseForgeSources(manifest, target, sources, primaryId, token)
+        primaryId
+    }
+
+    String uploadCurseForgeSources(
+            Map manifest, Map target, File sources, String parentFileId, String token) {
+        uploadCurseForgeFile(
+                manifest, target, sources,
+                PublicationSupport.curseForgeSourcesMetadata(target, parentFileId), token)
+    }
+
+    String uploadCurseForgeFile(Map manifest, Map target, File artifact, Map metadata, String token) {
         String boundary = "NclSkins${UUID.randomUUID().toString().replace('-', '')}"
         byte[] body = PublicationSupport.multipart([
                 [name: 'metadata', filename: null, contentType: 'application/json',

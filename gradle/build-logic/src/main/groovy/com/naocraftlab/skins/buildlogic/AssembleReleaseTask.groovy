@@ -179,6 +179,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 versionNumber: release.version,
                 channel      : release.channel,
                 loader       : loader,
+                javaRelease  : target.java.release,
                 minecraftVersion: target.minecraft.version,
                 gameVersions : gameVersions,
                 dependencies : [modrinth: modrinthDependencies, curseforge: curseForgeDependencies],
