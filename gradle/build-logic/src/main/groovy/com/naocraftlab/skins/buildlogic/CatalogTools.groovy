@@ -1052,7 +1052,7 @@ final class CatalogTools {
                 return
             }
             if (path in ['CHANGELOG.md', 'README.md', '.gitignore'] ||
-                path.startsWith('.github/') || path.startsWith('.idea/') ||
+                path.startsWith('.github/') || path.startsWith('.idea/') || path.startsWith('pub/') ||
                 path.contains('/src/test/') || path.contains('/src/testFixtures/')) {
                 return
             }

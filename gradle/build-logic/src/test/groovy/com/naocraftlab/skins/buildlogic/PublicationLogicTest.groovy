@@ -17,14 +17,16 @@ final class PublicationLogicTest {
     private final Map release = [version: '1.2.3-beta.4', channel: 'beta']
 
     @Test
-    void releaseSelectionUsesCatalogOwnershipAndIgnoresVersionPromotion() {
+    void releaseSelectionUsesCatalogOwnershipAndIgnoresNonProductionPaths() {
         assertEquals(['forge-1.20.1'], ReleaseSelection.selectFromPaths(
                 repository, catalog, ['targets/1.20.1/forge/build.gradle',
-                                      'gradle/version.properties', 'CHANGELOG.md'], true).targetIds)
+                                      'gradle/version.properties', 'CHANGELOG.md',
+                                      'pub/description.md', 'pub/gallery/editor.png'], true).targetIds)
         assertEquals(catalog.targets*.id, ReleaseSelection.selectFromPaths(
                 repository, catalog, ['core/src/main/java/example/Shared.java'], true).targetIds)
         assertEquals(catalog.targets*.id, ReleaseSelection.selectFromPaths(
-                repository, catalog, ['gradle/version.properties', 'CHANGELOG.md'], true).targetIds)
+                repository, catalog, ['gradle/version.properties', 'CHANGELOG.md',
+                                      'pub/description.md'], true).targetIds)
         assertEquals(catalog.targets*.id, ReleaseSelection.selectFromPaths(
                 repository, catalog, [], false).targetIds)
         assertThrows(IllegalArgumentException) {
