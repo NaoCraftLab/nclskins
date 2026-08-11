@@ -1,0 +1,14 @@
+plugins {
+    id 'com.naocraftlab.skins.build-tools'
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.143'
+    id 'maven-publish'
+}
+
+apply from: '../../../gradle/target-conventions.gradle'
+
+neoForge {
+    version = targetSpec.loader.version
+}
+
+apply from: '../../../gradle/loader-conventions/neoforge.gradle'

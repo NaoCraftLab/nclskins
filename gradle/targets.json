@@ -104,6 +104,33 @@
           "serverPlayerInfoPublication": "player-info-initialize-v1"
         }
       },
+      "identifier-submission-authlib7": {
+        "minecraftEpoch": "1.21.11",
+        "javaRelease": 21,
+        "clientProviderClass": "com.naocraftlab.skins.compat.mc262.Minecraft262ClientCapabilityProvider",
+        "clientProviderBundle": "client-provider-extraction",
+        "accessBundles": {
+          "fabric": "access-submission-fabric",
+          "neoforge": "access-extraction-neoforge"
+        },
+        "capabilities": {
+          "gui": "submission-1.21.11",
+          "textures": "identifier-26.2",
+          "preview": "avatar-pip-1.21.11",
+          "appearance": "local-player-skin-26.2",
+          "session": "minecraft-user-v1",
+          "clientExecutor": "minecraft-client-executor-v1",
+          "filePicker": "tinyfd-safe-v1",
+          "bundledSkin": "vanilla-pack-bundled-26.2",
+          "currentAppearance": "player-skin-current-26.2",
+          "serverSignal": "command-v1",
+          "serverCommand": "server-command-v1",
+          "serverProfileVerification": "profile-verification-authlib-v7",
+          "serverProfileMutation": "profile-mutation-authlib-v7",
+          "serverTracking": "tracking-chunkmap-level-v2",
+          "serverPlayerInfoPublication": "player-info-initialize-v1"
+        }
+      },
       "identifier-extraction-authlib7": {
         "minecraftEpoch": "26.1",
         "javaRelease": 25,
@@ -168,6 +195,7 @@
       "fabric-immediate": {"loader": "fabric", "loaderScreen": "fabric-immediate"},
       "forge-immediate": {"loader": "forge", "loaderScreen": "forge47"},
       "neoforge-immediate": {"loader": "neoforge", "loaderScreen": "neoforge-immediate"},
+      "fabric-submission": {"loader": "fabric", "loaderScreen": "fabric-submission"},
       "fabric-extraction": {"loader": "fabric", "loaderScreen": "fabric-extraction"},
       "neoforge-extraction": {"loader": "neoforge", "loaderScreen": "neoforge-extraction"}
     },
@@ -198,6 +226,8 @@
         "forge-1.20.1": "3.6.6+1.20.1-forge",
         "fabric-1.21.1": "3.8.2+1.21.1-fabric",
         "neoforge-1.21.1": "3.8.2+1.21.1-neoforge",
+        "fabric-1.21.11": "3.8.2+1.21.11-fabric",
+        "neoforge-1.21.11": "3.8.2+1.21.11-neoforge",
         "fabric-26.1": "3.9.6+26.1-fabric",
         "neoforge-26.1": "3.9.6+26.1-neoforge",
         "fabric-26.2": "3.9.6+26.2-fabric",
@@ -312,6 +342,12 @@
       "side": "common",
       "requires": []
     },
+    "access-submission-fabric": {
+      "java": [],
+      "resources": ["compat/capabilities/access/submission-fabric/src/main/resources"],
+      "side": "common",
+      "requires": []
+    },
     "client-provider-legacy": {
       "java": ["compat/client-providers/legacy/src/main/java"],
       "resources": [],
@@ -326,6 +362,12 @@
     },
     "client-provider-extraction": {
       "java": ["compat/client-providers/extraction/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["signed-texture-authlib7"]
+    },
+    "signed-texture-authlib7": {
+      "java": ["compat/capabilities/signed-texture/authlib7/src/main/java"],
       "resources": [],
       "side": "client",
       "requires": []
@@ -347,6 +389,12 @@
       "resources": ["compat/capabilities/gui/immediate-1.21/src/main/resources"],
       "side": "client",
       "requires": ["gui-immediate-common"]
+    },
+    "submission-1.21.11": {
+      "java": ["compat/capabilities/gui/submission-1.21.11/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
     },
     "extraction-26.2": {
       "java": ["compat/capabilities/gui/extraction-26.2/src/main/java"],
@@ -396,6 +444,12 @@
       "side": "client",
       "requires": ["avatar-pip-common"]
     },
+    "avatar-pip-1.21.11": {
+      "java": ["compat/capabilities/preview/avatar-pip-1.21.11/src/main/java"],
+      "resources": ["compat/capabilities/preview/avatar-pip-1.21.11/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
     "avatar-pip-26.2": {
       "java": ["compat/capabilities/preview/avatar-pip-render-26.2/src/main/java"],
       "resources": [],
@@ -434,6 +488,12 @@
     },
     "fabric-extraction": {
       "java": ["loader/fabric/extraction/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["fabric-client-common"]
+    },
+    "fabric-submission": {
+      "java": ["loader/fabric/submission/src/main/java"],
       "resources": [],
       "side": "client",
       "requires": ["fabric-client-common"]
@@ -606,12 +666,14 @@
   "capabilityImplementations": {
     "immediate-1.20": {"bundle": "immediate-1.20", "abiImplementation": "immediate-1.20"},
     "immediate-1.21": {"bundle": "immediate-1.21", "abiImplementation": "immediate-1.21"},
+    "submission-1.21.11": {"bundle": "submission-1.21.11", "abiImplementation": "submission-1.21.11"},
     "extraction-26.2": {"bundle": "extraction-26.2", "abiImplementation": "extraction-26.2"},
     "resource-location-legacy": {"bundle": "resource-location-legacy", "abiImplementation": "resource-location-legacy"},
     "resource-location-modern": {"bundle": "resource-location-modern", "abiImplementation": "resource-location-modern"},
     "identifier-26.2": {"bundle": "identifier-26.2", "abiImplementation": "identifier-26.2"},
     "remote-player-1.20": {"bundle": "remote-player-1.20", "abiImplementation": "remote-player-1.20"},
     "player-skin-1.21": {"bundle": "player-skin-1.21", "abiImplementation": "player-skin-1.21"},
+    "avatar-pip-1.21.11": {"bundle": "avatar-pip-1.21.11", "abiImplementation": "avatar-pip-1.21.11"},
     "avatar-pip-26.2": {"bundle": "avatar-pip-26.2", "abiImplementation": "avatar-pip-26.2"},
     "avatar-pip-26.1": {
       "bundle": "avatar-pip-26.1",
@@ -621,6 +683,7 @@
     "skin-lookup-1.21": {"bundle": "skin-lookup-1.21", "abiImplementation": "skin-lookup-1.21"},
     "local-player-skin-26.2": {"bundle": "local-player-skin-26.2", "abiImplementation": "local-player-skin-26.2"},
     "fabric-immediate": {"bundle": "fabric-immediate", "abiImplementation": "fabric-immediate"},
+    "fabric-submission": {"bundle": "fabric-submission", "abiImplementation": "fabric-submission"},
     "fabric-extraction": {"bundle": "fabric-extraction", "abiImplementation": "fabric-extraction"},
     "forge47": {"bundle": "forge47", "abiImplementation": "forge47"},
     "neoforge-immediate": {"bundle": "neoforge-immediate", "abiImplementation": "neoforge-immediate"},
@@ -922,6 +985,139 @@
         "remapJar": false,
         "mavenArtifactId": "nclskins-neoforge-1.21.1",
         "automaticModuleName": "com.naocraftlab.skins.neoforge.mc1211"
+      }
+    },
+    {
+      "id": "fabric-1.21.11",
+      "epochProfile": "identifier-submission-authlib7",
+      "loaderProfile": "fabric-loader",
+      "integrationProfile": "fabric-submission",
+      "buildProfile": "fabric-loom-split",
+      "path": "targets/1.21.11/fabric",
+      "minecraft": {
+        "version": "1.21.11",
+        "predicate": ">=1.21.11",
+        "epoch": "1.21.11"
+      },
+      "loader": {
+        "id": "fabric",
+        "version": "0.19.3",
+        "predicate": ">=0.19.3",
+        "apiVersion": "0.141.6+1.21.11",
+        "apiPredicate": ">=0.141.6+1.21.11",
+        "modMenuVersion": "17.0.0"
+      },
+      "java": {
+        "release": 21,
+        "classfileMajor": 65,
+        "buildJdk": 21
+      },
+      "development": {
+        "serverPort": 25573
+      },
+      "gradleFamily": "modern",
+      "sourceLayout": "fabricSplit",
+      "capabilities": {
+        "gui": "submission-1.21.11",
+        "textures": "identifier-26.2",
+        "preview": "avatar-pip-1.21.11",
+        "appearance": "local-player-skin-26.2",
+        "loaderScreen": "fabric-submission",
+        "session": "minecraft-user-v1",
+        "clientExecutor": "minecraft-client-executor-v1",
+        "filePicker": "tinyfd-safe-v1",
+        "bundledSkin": "vanilla-pack-bundled-26.2",
+        "currentAppearance": "player-skin-current-26.2",
+        "serverSignal": "command-v1",
+        "serverCommand": "server-command-v1",
+        "serverProfileVerification": "profile-verification-authlib-v7",
+        "serverProfileMutation": "profile-mutation-authlib-v7",
+        "serverTracking": "tracking-chunkmap-level-v2",
+        "serverPlayerInfoPublication": "player-info-initialize-v1",
+        "serverLoader": "fabric-server-v1"
+      },
+      "metadata": {
+        "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
+        "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
+        "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
+        "accessWidener": "nclskins.accesswidener",
+        "packFormat": [75, 0],
+        "mixins": ["nclskins.mc12111.mixins.json"],
+        "serverMixins": ["nclskins.authlib9.mixins.json"]
+      },
+      "artifact": {
+        "file": "nclskins-{modVersion}+1.21.11-fabric.jar",
+        "remapJar": true,
+        "mavenArtifactId": "nclskins-fabric-1.21.11",
+        "automaticModuleName": "com.naocraftlab.skins.fabric.mc12111"
+      }
+    },
+    {
+      "id": "neoforge-1.21.11",
+      "epochProfile": "identifier-submission-authlib7",
+      "loaderProfile": "neoforge-loader",
+      "integrationProfile": "neoforge-extraction",
+      "buildProfile": "neoforge-moddev",
+      "path": "targets/1.21.11/neoforge",
+      "minecraft": {
+        "version": "1.21.11",
+        "predicate": "[1.21.11,)",
+        "epoch": "1.21.11"
+      },
+      "loader": {
+        "id": "neoforge",
+        "version": "21.11.45",
+        "predicate": "[21.11.45,)",
+        "apiVersion": null,
+        "apiPredicate": null,
+        "modMenuVersion": null
+      },
+      "java": {
+        "release": 21,
+        "classfileMajor": 65,
+        "buildJdk": 21
+      },
+      "development": {
+        "serverPort": 25574
+      },
+      "gradleFamily": "modern",
+      "sourceLayout": "single",
+      "capabilities": {
+        "gui": "submission-1.21.11",
+        "textures": "identifier-26.2",
+        "preview": "avatar-pip-1.21.11",
+        "appearance": "local-player-skin-26.2",
+        "loaderScreen": "neoforge-extraction",
+        "session": "minecraft-user-v1",
+        "clientExecutor": "minecraft-client-executor-v1",
+        "filePicker": "tinyfd-safe-v1",
+        "bundledSkin": "vanilla-pack-bundled-26.2",
+        "currentAppearance": "player-skin-current-26.2",
+        "serverSignal": "command-v1",
+        "serverCommand": "server-command-v1",
+        "serverProfileVerification": "profile-verification-authlib-v7",
+        "serverProfileMutation": "profile-mutation-authlib-v7",
+        "serverTracking": "tracking-chunkmap-level-v2",
+        "serverPlayerInfoPublication": "player-info-initialize-v1",
+        "serverLoader": "neoforge-server-v1"
+      },
+      "metadata": {
+        "files": ["META-INF/neoforge.mods.toml", "resourcepacks/mojang_collections/pack.mcmeta"],
+        "modLoader": "javafml",
+        "loaderVersion": "[4,)",
+        "entrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeMod.class",
+        "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
+        "accessTransformer": "META-INF/accesstransformer.cfg",
+        "packFormat": [75, 0],
+        "mixins": ["nclskins.mc12111.mixins.json"],
+        "serverMixins": ["nclskins.authlib9.mixins.json"]
+      },
+      "artifact": {
+        "file": "nclskins-{modVersion}+1.21.11-neoforge.jar",
+        "remapJar": false,
+        "mavenArtifactId": "nclskins-neoforge-1.21.11",
+        "automaticModuleName": "com.naocraftlab.skins.neoforge.mc12111"
       }
     },
     {

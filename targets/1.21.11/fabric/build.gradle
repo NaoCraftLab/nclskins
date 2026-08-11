@@ -1,0 +1,19 @@
+plugins {
+    id 'com.naocraftlab.skins.build-tools'
+    id 'fabric-loom' version '1.17.17'
+    id 'maven-publish'
+}
+
+loom {
+    splitEnvironmentSourceSets()
+
+    mods {
+        nclskins {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+apply from: '../../../gradle/target-conventions.gradle'
+apply from: '../../../gradle/loader-conventions/fabric.gradle'

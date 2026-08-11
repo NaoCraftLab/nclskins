@@ -101,12 +101,42 @@ final class SemanticVerifier {
             if (previousRoots != null && previousRoots.intersect(roots).isEmpty()) errors.add("${implementation}: shared leaf source ${root.relativize(source)} must be selected through one intentional common bundle")
             if (roots.isEmpty() || !roots.any { source.startsWith(it) }) errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
             verifyLeaf(implementation, key, Files.readString(source), errors)
+            if (implementation == 'submission-1.21.11') {
+                verifySubmission12111GuiBundle(roots, errors)
+            }
             if (key == 'preview') verifyPreviewBundle(implementation, roots, errors)
         }
         verifySuites(root, coverage.sharedSuites, usedSuites, errors)
         verifyRuntimeBoundary(root, errors)
         verifyPublicationBoundary(root, errors)
         errors
+    }
+
+    static void verifySubmission12111GuiBundle(Set<Path> roots, List<String> errors) {
+        StringBuilder sources = new StringBuilder()
+        roots.findAll(Files::isDirectory).each { Path sourceRoot ->
+            Files.walk(sourceRoot).withCloseable { stream ->
+                stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.java') }
+                        .forEach { sources.append(Files.readString(it)).append('\n') }
+            }
+        }
+        String text = sources.toString().replaceAll('\\s+', ' ')
+        [
+                'ACTION_ICON_RENDER_SIZE, ACTION_ICON_RENDER_SIZE, ACTION_ICON_TEXTURE_SIZE, ACTION_ICON_TEXTURE_SIZE, ACTION_ICON_TEXTURE_SIZE, ACTION_ICON_TEXTURE_SIZE);',
+                'extends AbstractScrollArea',
+                'super.mouseScrolled(mouseX, mouseY, 0.0, amount)',
+                'protected double scrollRate() { return wheelStep;',
+                'public int maxScrollAmount() { return maximum;',
+                'PointerRouting.scrollSurface(current, x, y)',
+                'runtime.nativeScrollPositionChanged(surface.id(), offset)',
+                'synchronization.acceptedRuntimeOffset(offsetPixels)',
+                'renderScrollbar(graphics, mouseX, mouseY)',
+                'scrollController.render( graphics, OFFSCREEN_MOUSE_COORDINATE, OFFSCREEN_MOUSE_COORDINATE, partialTick)'
+        ].each { String required ->
+            if (!text.contains(required)) {
+                errors.add("submission-1.21.11: native icon/scroll host lacks required marker '${required}'")
+            }
+        }
     }
 
     static void verifyPreviewBundle(
@@ -130,7 +160,35 @@ final class SemanticVerifier {
                 errors.add("${implementation}: editor preview lacks readiness/animation marker (${required})")
             }
         }
-        if (implementation.startsWith('avatar-pip-')) {
+        if (implementation == 'avatar-pip-1.21.11') {
+            ['submitEntityRenderState', 'submitSkinRenderState',
+             'NclPreviewState', 'LivingEntityRendererPreviewMixin',
+             'EntityRenderState state',
+             'PlayerSkin.insecure', 'CenteredPlayerPreviewGeometry.centeredEntityTranslation(',
+             'Minecraft12111SimplePreviewRenderer', 'ItemStack.EMPTY',
+             'Minecraft12111BakedPreviewRenderState',
+             'Minecraft12111BakedPreviewSubmission', 'GuiGraphicsPreviewMixin',
+             'GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
+             'Minecraft12111PreviewContext', 'Minecraft12111PreviewScope',
+             'GuiEntityRendererMixin', 'EditorPreviewLayerGuard',
+             'Minecraft12111PreviewModelAnchors', 'ModelPartPreviewMixin',
+             'renderPlayer.tickCount =', 'renderPlayer.avatarState().tick(',
+             'ScreenOwnedRenderTarget', 'standaloneEquipment',
+             'PlayerCapeModel', 'ElytraModel', 'ELYTRA_ROT_X', 'ELYTRA_ROT_Z',
+             'ElytraModel.createLayer().bakeRoot()', 'Model<?> attachmentModel',
+             'state.elytraRotX = CenteredPipPreviewTransform.ELYTRA_ROT_X',
+             'state.elytraRotY = CenteredPipPreviewTransform.ELYTRA_ROT_Y',
+             'state.elytraRotZ = CenteredPipPreviewTransform.ELYTRA_ROT_Z',
+             'CenteredPipPreviewTransform.modelPitchRadians(state.pitchDegrees())',
+             'CenteredPipPreviewTransform.applyPlayerPose('].each { String required ->
+                if (!text.contains(required)) {
+                    errors.add("${implementation}: 1.21.11 submission preview lacks required marker (${required})")
+                }
+            }
+            if (text.contains('LivingEntityRenderState state')) {
+                errors.add("${implementation}: layer redirect must match the erased EntityRenderState descriptor")
+            }
+        } else if (implementation.startsWith('avatar-pip-')) {
             ['Minecraft262PreviewContext', 'NclBakedPlayerRenderState',
              'NclBakedPlayerSubmission', 'GuiGraphicsExtractorPreviewMixin',
              'GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
@@ -230,6 +288,26 @@ final class SemanticVerifier {
             serverLoader: ['MinecraftServerLifecycle', 'MinecraftServerRefreshCommand.register']
         ]
         markers.getOrDefault(key, []).each { String marker -> if (!compact.contains(marker)) errors.add("${implementation}: ${key} leaf lacks required marker '${marker}'") }
+        if (implementation == 'submission-1.21.11'
+                && compact.contains('renderBackground(graphics, mouseX, mouseY, partialTick)')) {
+            errors.add('submission-1.21.11: Screen renders its native background twice')
+        }
+        if (implementation == 'submission-1.21.11') {
+            ['Map<String, Minecraft12111SimplePreviewRenderer> bakedRenderers',
+             'bakedRenderers.computeIfAbsent(', 'closeMissingBakedRenderers(',
+             'Minecraft12111ScrollController', 'NativeWidgetSignature',
+             'NativeTabGroup', 'maskWidgetsOutsideClip('].each { String marker ->
+                if (!compact.contains(marker)) {
+                    errors.add("submission-1.21.11: native host lacks marker '${marker}'")
+                }
+            }
+            if (compact.contains('ViewHostCoordinator')) {
+                errors.add('submission-1.21.11: native host must not reuse the common UI coordinator')
+            }
+            if (compact.contains('setRectangle(')) {
+                errors.add('submission-1.21.11: ambiguous 1.21.11 setRectangle argument order is forbidden')
+            }
+        }
         if (key == 'textures') {
             ['NativePlayerSkinLifecycle', 'OwnedSkinFile'].each { String marker ->
                 if (!compact.contains(marker)) errors.add("${implementation}: texture lifecycle lacks required marker '${marker}'")
@@ -245,6 +323,28 @@ final class SemanticVerifier {
         if (implementation == 'fabric-server-v1') {
             if (!compact.contains('ServerLifecycleEvents.SERVER_STARTED.register')) errors.add("${implementation}: Fabric service must start after server setup")
             if (compact.contains('ServerLifecycleEvents.SERVER_STARTING.register')) errors.add("${implementation}: Fabric service must not read server services before setup")
+            ['ServerPlayConnectionEvents.JOIN.register',
+             'MinecraftServerLifecycle.connected(server, handler.player)',
+             'ServerPlayConnectionEvents.DISCONNECT.register',
+             'MinecraftServerLifecycle.disconnected(server, handler)'].each { String marker ->
+                if (!compact.contains(marker)) {
+                    errors.add("${implementation}: Fabric connection lifecycle lacks marker '${marker}'")
+                }
+            }
+        }
+        if (implementation == 'neoforge-server-v1') {
+            ['ServerStartingEvent', 'ServerStoppedEvent',
+             'PlayerEvent.PlayerLoggedInEvent',
+             'MinecraftServerLifecycle.connected(player.level().getServer(), player)',
+             'PlayerEvent.PlayerLoggedOutEvent',
+             'MinecraftServerLifecycle.disconnected(player.level().getServer(), player)'].each { String marker ->
+                if (!compact.contains(marker)) {
+                    errors.add("${implementation}: NeoForge server lifecycle lacks marker '${marker}'")
+                }
+            }
+            if (compact.contains('ServerAboutToStartEvent')) {
+                errors.add("${implementation}: NeoForge service must not read the player list before level setup")
+            }
         }
     }
 

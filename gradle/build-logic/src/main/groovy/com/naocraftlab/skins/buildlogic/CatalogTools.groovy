@@ -635,6 +635,26 @@ final class CatalogTools {
             }
             try {
                 Map resolvedSources = resolveTargetSources(repositoryRoot, catalog, target)
+                Set<String> selectedMixinResources = [] as Set
+                (resolvedSources.resources as List).each { String root ->
+                    Path resourceRoot = new File(repositoryRoot, root).toPath()
+                    Files.walk(resourceRoot).withCloseable { stream ->
+                        stream.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith('.mixins.json') }
+                                .forEach { Path resource ->
+                                    selectedMixinResources.add(resourceRoot.relativize(resource)
+                                            .toString()
+                                            .replace(File.separatorChar, '/' as char))
+                                }
+                    }
+                }
+                Set<String> declaredMixinResources = ((metadata.serverMixins ?: [])
+                        + (metadata.mixins ?: []))
+                        .collect { it.toString() } as Set
+                if (selectedMixinResources != declaredMixinResources) {
+                    errors.add("${target.id}: selected Mixin resources "
+                            + "${selectedMixinResources.sort()} differ from metadata "
+                            + "${declaredMixinResources.sort()}")
+                }
                 Map<String, List<String>> classes = [:].withDefault { [] }
                 (resolvedSources.java as List).each { String root ->
                     Path sourceRoot = new File(repositoryRoot, root).toPath()

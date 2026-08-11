@@ -13,6 +13,9 @@ import org.gradle.api.tasks.TaskAction
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.security.MessageDigest
 
 abstract class TargetBuildTask extends DefaultTask {
     @Internal
@@ -71,7 +74,12 @@ abstract class TargetBuildTask extends DefaultTask {
         File targetDirectory = new File(root, target.path.toString())
         File wrapper = TargetRuntime.wrapper(root, catalog, target)
         String javaHome = TargetRuntime.resolveJavaHome(target.java.buildJdk as int)
-        List<String> command = [wrapper.absolutePath, '-p', targetDirectory.absolutePath] + targetTasks.get()
+        List<String> command = [
+                wrapper.absolutePath,
+                "-PnclskinsSourceGraph=${sourceGraphFingerprint(root)}".toString(),
+                '-p',
+                targetDirectory.absolutePath
+        ] + targetTasks.get()
         ProcessBuilder builder = new ProcessBuilder(command).directory(root)
         builder.redirectErrorStream(true)
         TargetRuntime.configureEnvironment(builder, javaHome)
@@ -89,6 +97,29 @@ abstract class TargetBuildTask extends DefaultTask {
             if (collectArtifacts.get()) collect(catalog, target, version)
         }
         "${target.id}: ${targetTasks.get().join(' ')} passed"
+    }
+
+    static String sourceGraphFingerprint(File root) {
+        MessageDigest digest = MessageDigest.getInstance('SHA-256')
+        ['core', 'client-contract', 'client-runtime', 'server-contract', 'server-runtime',
+         'server-vanilla-publication', 'compat', 'loader', 'targets'].each { String topLevel ->
+            File directory = new File(root, topLevel)
+            if (!directory.isDirectory()) return
+            def stream = Files.walk(directory.toPath())
+            try {
+                stream.filter { Files.isRegularFile(it) }
+                        .map { root.toPath().relativize(it).toString().replace(File.separatorChar, '/' as char) }
+                        .filter { !it.contains('/build/') && !it.contains('/.gradle/') }
+                        .sorted()
+                        .forEach { String path ->
+                            digest.update(path.getBytes(StandardCharsets.UTF_8))
+                            digest.update((byte) 0)
+                        }
+            } finally {
+                stream.close()
+            }
+        }
+        digest.digest().encodeHex().toString()
     }
 
     void collect(Map catalog, Map target, String version) {

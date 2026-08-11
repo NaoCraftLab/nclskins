@@ -549,6 +549,412 @@
       ],
       "baselineSha256": "4706db06c302c92b5fff48bb24ac5a08480cafcae1a41eee8ec7c3af6d90ffc8"
     },
+    "submission-1.21.11": {
+      "kind": "gui",
+      "epochs": [
+        "1.21.11"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.gui.screens.Screen",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "method", "name": "renderWithTooltipAndSubtitles", "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V", "access": "public final", "finality": "final"},
+            {"kind": "method", "name": "render", "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "keyPressed", "descriptor": "(Lnet/minecraft/client/input/KeyEvent;)Z", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.GuiGraphics",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "pose", "descriptor": "()Lorg/joml/Matrix3x2fStack;", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "blit", "descriptor": "(Lcom/mojang/blaze3d/pipeline/RenderPipeline;Lnet/minecraft/resources/Identifier;IIFFIIIIII)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "submitEntityRenderState", "descriptor": "(Lnet/minecraft/client/renderer/entity/state/EntityRenderState;FLorg/joml/Vector3f;Lorg/joml/Quaternionf;Lorg/joml/Quaternionf;IIII)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "submitSkinRenderState", "descriptor": "(Lnet/minecraft/client/model/player/PlayerModel;Lnet/minecraft/resources/Identifier;FFFFIIII)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractButton",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "method", "name": "onPress", "descriptor": "(Lnet/minecraft/client/input/InputWithModifiers;)V", "access": "public abstract", "finality": "abstract"},
+            {"kind": "method", "name": "renderContents", "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V", "access": "protected abstract", "finality": "abstract"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractWidget",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "method", "name": "render", "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V", "access": "public final", "finality": "final"},
+            {"kind": "method", "name": "setWidth", "descriptor": "(I)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "setHeight", "descriptor": "(I)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "setX", "descriptor": "(I)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "setY", "descriptor": "(I)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.AbstractScrollArea",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "constructor", "name": "<init>", "descriptor": "(IIIILnet/minecraft/network/chat/Component;)V", "access": "public", "finality": "n/a"},
+            {"kind": "method", "name": "mouseScrolled", "descriptor": "(DDDD)Z", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "scrollAmount", "descriptor": "()D", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "setScrollAmount", "descriptor": "(D)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "maxScrollAmount", "descriptor": "()I", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "contentHeight", "descriptor": "()I", "access": "protected abstract", "finality": "abstract"},
+            {"kind": "method", "name": "scrollRate", "descriptor": "()D", "access": "protected abstract", "finality": "abstract"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.tabs.TabNavigationBar",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "builder", "descriptor": "(Lnet/minecraft/client/gui/components/tabs/TabManager;I)Lnet/minecraft/client/gui/components/tabs/TabNavigationBar$Builder;", "access": "public static", "finality": "static"},
+            {"kind": "method", "name": "arrangeElements", "descriptor": "()V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "setTabActiveState", "descriptor": "(IZ)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "keyPressed", "descriptor": "(Lnet/minecraft/client/input/KeyEvent;)Z", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.components.tabs.TabManager",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "constructor", "name": "<init>", "descriptor": "(Ljava/util/function/Consumer;Ljava/util/function/Consumer;Ljava/util/function/Consumer;Ljava/util/function/Consumer;)V", "access": "public", "finality": "n/a"},
+            {"kind": "method", "name": "setCurrentTab", "descriptor": "(Lnet/minecraft/client/gui/components/tabs/Tab;Z)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.screens.options.OptionsScreen",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "init", "descriptor": "()V", "access": "protected", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "options", "descriptor": "(Lnet/minecraft/client/Options;)[Lnet/minecraft/client/OptionInstance;", "access": "private static", "finality": "static"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.Options",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "mainHand", "descriptor": "()Lnet/minecraft/client/OptionInstance;", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "bobView", "descriptor": "()Lnet/minecraft/client/OptionInstance;", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "autoJump", "descriptor": "()Lnet/minecraft/client/OptionInstance;", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.input.InputWithModifiers",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {"kind": "method", "name": "hasShiftDown", "descriptor": "()Z", "access": "public default", "finality": "default"}
+          ]
+        }
+      ],
+      "mixinAnchors": [
+        {
+          "kind": "invoke",
+          "owner": "net.minecraft.client.gui.screens.options.OptionsScreen",
+          "method": "init",
+          "descriptor": "()V",
+          "opcode": "invokevirtual",
+          "targetOwner": "net.minecraft.client.gui.layouts.GridLayout$RowHelper",
+          "targetMethod": "addChild",
+          "targetDescriptor": "(Lnet/minecraft/client/gui/layouts/LayoutElement;)Lnet/minecraft/client/gui/layouts/LayoutElement;",
+          "count": 10
+        },
+        {
+          "kind": "head",
+          "owner": "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen",
+          "method": "options",
+          "descriptor": "(Lnet/minecraft/client/Options;)[Lnet/minecraft/client/OptionInstance;"
+        },
+        {
+          "kind": "head",
+          "owner": "net.minecraft.client.gui.screens.Screen",
+          "method": "renderWithTooltipAndSubtitles",
+          "descriptor": "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V"
+        }
+      ],
+      "baselineSha256": "d65c5687da5c8739c9e36b3759c1ac60fba21c3657c89923cf5285006faeb1b0"
+    },
+    "avatar-pip-1.21.11": {
+      "kind": "preview",
+      "epochs": [
+        "1.21.11"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.gui.GuiGraphics",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "submitSkinRenderState", "descriptor": "(Lnet/minecraft/client/model/player/PlayerModel;Lnet/minecraft/resources/Identifier;FFFFIIII)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.render.GuiRenderer",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "constructor", "name": "<init>", "descriptor": "(Lnet/minecraft/client/gui/render/state/GuiRenderState;Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;Ljava/util/List;)V", "access": "public", "finality": "n/a"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.render.pip.GuiEntityRenderer",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "renderToTexture", "descriptor": "(Lnet/minecraft/client/gui/render/state/pip/GuiEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;)V", "access": "protected", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.render.state.GuiRenderState",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "submitPicturesInPictureState", "descriptor": "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState;)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.gui.render.pip.PictureInPictureRenderer",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "constructor", "name": "<init>", "descriptor": "(Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;)V", "access": "protected", "finality": "n/a"},
+            {"kind": "method", "name": "prepare", "descriptor": "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState;Lnet/minecraft/client/gui/render/state/GuiRenderState;I)V", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "getTranslateY", "descriptor": "(II)F", "access": "protected", "finality": "virtual"},
+            {"kind": "method", "name": "renderToTexture", "descriptor": "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;)V", "access": "protected abstract", "finality": "abstract"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.model.Model",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "method", "name": "renderType", "descriptor": "(Lnet/minecraft/resources/Identifier;)Lnet/minecraft/client/renderer/rendertype/RenderType;", "access": "public final", "finality": "final"},
+            {"kind": "method", "name": "renderToBuffer", "descriptor": "(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;II)V", "access": "public final", "finality": "final"},
+            {"kind": "method", "name": "resetPose", "descriptor": "()V", "access": "public final", "finality": "final"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.model.geom.ModelPart",
+          "access": "public",
+          "finality": "final",
+          "members": [
+            {"kind": "method", "name": "getRandomCube", "descriptor": "(Lnet/minecraft/util/RandomSource;)Lnet/minecraft/client/model/geom/ModelPart$Cube;", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.model.geom.ModelPart$Cube",
+          "access": "public static",
+          "finality": "concrete",
+          "members": [
+            {"kind": "constructor", "name": "<init>", "descriptor": "(IIFFFFFFFFFZFFLjava/util/Set;)V", "access": "public", "finality": "n/a"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.model.player.PlayerModel",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "constructor", "name": "<init>", "descriptor": "(Lnet/minecraft/client/model/geom/ModelPart;Z)V", "access": "public", "finality": "n/a"},
+            {"kind": "method", "name": "createMesh", "descriptor": "(Lnet/minecraft/client/model/geom/builders/CubeDeformation;Z)Lnet/minecraft/client/model/geom/builders/MeshDefinition;", "access": "public static", "finality": "static"},
+            {"kind": "method", "name": "setAllVisible", "descriptor": "(Z)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.model.player.PlayerCapeModel",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "createCapeLayer", "descriptor": "()Lnet/minecraft/client/model/geom/builders/LayerDefinition;", "access": "public static", "finality": "static"},
+            {"kind": "method", "name": "setupAnim", "descriptor": "(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.model.object.equipment.ElytraModel",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "createLayer", "descriptor": "()Lnet/minecraft/client/model/geom/builders/LayerDefinition;", "access": "public static", "finality": "static"},
+            {"kind": "method", "name": "setupAnim", "descriptor": "(Lnet/minecraft/client/renderer/entity/state/HumanoidRenderState;)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.entity.state.AvatarRenderState",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "field", "name": "skin", "descriptor": "Lnet/minecraft/world/entity/player/PlayerSkin;", "access": "public", "finality": "mutable"},
+            {"kind": "field", "name": "showCape", "descriptor": "Z", "access": "public", "finality": "mutable"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.entity.state.HumanoidRenderState",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "field", "name": "elytraRotX", "descriptor": "F", "access": "public", "finality": "mutable"},
+            {"kind": "field", "name": "elytraRotY", "descriptor": "F", "access": "public", "finality": "mutable"},
+            {"kind": "field", "name": "elytraRotZ", "descriptor": "F", "access": "public", "finality": "mutable"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.entity.LivingEntityRenderer",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "field", "name": "model", "descriptor": "Lnet/minecraft/client/model/EntityModel;", "access": "protected", "finality": "mutable"},
+            {"kind": "method", "name": "submit", "descriptor": "(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/CameraRenderState;)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.entity.layers.RenderLayer",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "method", "name": "submit", "descriptor": "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;ILnet/minecraft/client/renderer/entity/state/EntityRenderState;FF)V", "access": "public abstract", "finality": "abstract"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.entity.EntityRenderDispatcher",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "extractEntity", "descriptor": "(Lnet/minecraft/world/entity/Entity;F)Lnet/minecraft/client/renderer/entity/state/EntityRenderState;", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.player.AbstractClientPlayer",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "method", "name": "getSkin", "descriptor": "()Lnet/minecraft/world/entity/player/PlayerSkin;", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.world.entity.Avatar",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "isModelPartShown", "descriptor": "(Lnet/minecraft/world/entity/player/PlayerModelPart;)Z", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.world.entity.LivingEntity",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {"kind": "method", "name": "getItemBySlot", "descriptor": "(Lnet/minecraft/world/entity/EquipmentSlot;)Lnet/minecraft/world/item/ItemStack;", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.world.entity.player.PlayerSkin",
+          "access": "public",
+          "finality": "record",
+          "members": [
+            {"kind": "method", "name": "insecure", "descriptor": "(Lnet/minecraft/core/ClientAsset$Texture;Lnet/minecraft/core/ClientAsset$Texture;Lnet/minecraft/core/ClientAsset$Texture;Lnet/minecraft/world/entity/player/PlayerModelType;)Lnet/minecraft/world/entity/player/PlayerSkin;", "access": "public static", "finality": "static"}
+          ]
+        }
+      ],
+      "mixinAnchors": [
+        {
+          "kind": "head",
+          "owner": "net.minecraft.client.gui.render.pip.GuiEntityRenderer",
+          "method": "renderToTexture",
+          "descriptor": "(Lnet/minecraft/client/gui/render/state/pip/GuiEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;)V"
+        },
+        {
+          "kind": "head",
+          "owner": "net.minecraft.client.model.geom.ModelPart",
+          "method": "getRandomCube",
+          "descriptor": "(Lnet/minecraft/util/RandomSource;)Lnet/minecraft/client/model/geom/ModelPart$Cube;"
+        },
+        {
+          "kind": "head",
+          "owner": "net.minecraft.client.player.AbstractClientPlayer",
+          "method": "getSkin",
+          "descriptor": "()Lnet/minecraft/world/entity/player/PlayerSkin;"
+        },
+        {
+          "kind": "head",
+          "owner": "net.minecraft.world.entity.Avatar",
+          "method": "isModelPartShown",
+          "descriptor": "(Lnet/minecraft/world/entity/player/PlayerModelPart;)Z"
+        },
+        {
+          "kind": "head",
+          "owner": "net.minecraft.world.entity.LivingEntity",
+          "method": "getItemBySlot",
+          "descriptor": "(Lnet/minecraft/world/entity/EquipmentSlot;)Lnet/minecraft/world/item/ItemStack;"
+        },
+        {
+          "kind": "invoke",
+          "owner": "net.minecraft.client.gui.GuiGraphics",
+          "method": "submitSkinRenderState",
+          "descriptor": "(Lnet/minecraft/client/model/player/PlayerModel;Lnet/minecraft/resources/Identifier;FFFFIIII)V",
+          "opcode": "invokevirtual",
+          "targetOwner": "net.minecraft.client.gui.render.state.GuiRenderState",
+          "targetMethod": "submitPicturesInPictureState",
+          "targetDescriptor": "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState;)V",
+          "count": 1
+        },
+        {
+          "kind": "invoke",
+          "owner": "net.minecraft.client.renderer.entity.LivingEntityRenderer",
+          "method": "submit",
+          "descriptor": "(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/CameraRenderState;)V",
+          "opcode": "invokevirtual",
+          "targetOwner": "net.minecraft.client.renderer.entity.layers.RenderLayer",
+          "targetMethod": "submit",
+          "targetDescriptor": "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;ILnet/minecraft/client/renderer/entity/state/EntityRenderState;FF)V",
+          "count": 1
+        }
+      ],
+      "baselineSha256": "7104be5faad89acf2f8aa12811bd7d8191b7abe5f72673109ea166f5390e6613"
+    },
+    "fabric-submission": {
+      "kind": "loaderScreen",
+      "epochs": [
+        "1.21.11"
+      ],
+      "classes": [
+        {
+          "name": "net.fabricmc.fabric.api.client.screen.v1.Screens",
+          "access": "public",
+          "finality": "final",
+          "members": [
+            {"kind": "method", "name": "getButtons", "descriptor": "(Lnet/minecraft/client/gui/screens/Screen;)Ljava/util/List;", "access": "public static", "finality": "static"}
+          ]
+        },
+        {
+          "name": "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents",
+          "access": "public",
+          "finality": "final",
+          "members": [
+            {"kind": "method", "name": "remove", "descriptor": "(Lnet/minecraft/client/gui/screens/Screen;)Lnet/fabricmc/fabric/api/event/Event;", "access": "public static", "finality": "static"}
+          ]
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "e9da788cb52081828758fa006894ce66240bcc8bf7d171cb277390dc2410f4cb"
+    },
     "extraction-26.2": {
       "kind": "gui",
       "epochs": [
@@ -966,6 +1372,7 @@
     "identifier-26.2": {
       "kind": "textures",
       "epochs": [
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -1511,6 +1918,7 @@
     "local-player-skin-26.2": {
       "kind": "appearance",
       "epochs": [
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -1774,6 +2182,7 @@
     "neoforge-extraction": {
       "kind": "loaderScreen",
       "epochs": [
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -1815,6 +2224,7 @@
       "epochs": [
         "1.20.1",
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -1877,6 +2287,7 @@
       "epochs": [
         "1.20.1",
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -1911,6 +2322,7 @@
       "epochs": [
         "1.20.1",
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -2040,6 +2452,7 @@
     "vanilla-pack-bundled-26.2": {
       "kind": "bundledSkin",
       "epochs": [
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -2218,6 +2631,7 @@
     "player-skin-current-26.2": {
       "kind": "currentAppearance",
       "epochs": [
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -2273,6 +2687,7 @@
       "epochs": [
         "1.20.1",
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -2486,6 +2901,7 @@
     "profile-verification-authlib-v7": {
       "kind": "serverProfileVerification",
       "epochs": [
+        "1.21.11",
         "26.1"
       ],
       "classes": [
@@ -2778,6 +3194,7 @@
     "profile-mutation-authlib-v7": {
       "kind": "serverProfileMutation",
       "epochs": [
+        "1.21.11",
         "26.1"
       ],
       "classes": [
@@ -3192,6 +3609,7 @@
     "tracking-chunkmap-level-v2": {
       "kind": "serverTracking",
       "epochs": [
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -3342,6 +3760,13 @@
           "finality": "concrete",
           "members": [
             {
+              "kind": "field",
+              "name": "seenBy",
+              "descriptor": "Ljava/util/Set;",
+              "access": "public final",
+              "finality": "final"
+            },
+            {
               "kind": "method",
               "name": "removePlayer",
               "descriptor": "(Lnet/minecraft/server/level/ServerPlayer;)V",
@@ -3380,6 +3805,7 @@
       "epochs": [
         "1.20.1",
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -3421,6 +3847,7 @@
       "epochs": [
         "1.20.1",
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -3537,6 +3964,7 @@
       "epochs": [
         "1.20.1",
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -3797,6 +4225,7 @@
       "kind": "serverLoader",
       "epochs": [
         "1.21.1",
+        "1.21.11",
         "26.1",
         "26.2"
       ],
@@ -4168,6 +4597,145 @@
         "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
       }
     },
+    "identifier-submission-authlib7": {
+      "avatar-pip-1.21.11": {
+        "net.minecraft.client.gui.GuiGraphics": "60ec18cbbbf06f8381a8cf86185ce1aa9be7e360069000b3a7bf56e3670e64d3",
+        "net.minecraft.client.gui.render.GuiRenderer": "a810591708f742d21a42d463a829d0482ac930f96213b5d51828de030a257a9c",
+        "net.minecraft.client.gui.render.pip.GuiEntityRenderer": "4852132716bd7aa88a89cb0f406a7e7d0fbf348df86badbdf78fdba05c53efd0",
+        "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "ac3b823dc06f82c88a78ea223e4a84fc62dba08700a1379e9c753aeb60691b99",
+        "net.minecraft.client.gui.render.state.GuiRenderState": "e43fa7f85228c3456c673ec5521cadbd8c860a01096990a9f17867fa8b365c09",
+        "net.minecraft.client.model.Model": "82182f62fad116d84a6e3fc2b998549e01647223a1a9f560724850fcc5452198",
+        "net.minecraft.client.model.geom.ModelPart": "b598dbab84c631f06505b597f37dfcf332b9f5f0b60dc861bc6ceea1f1d37f95",
+        "net.minecraft.client.model.geom.ModelPart$Cube": "579c4ff6896208fdb935b52d712b86dfa9c4fc42ad8b2b116e5fe5a31e3ccdde",
+        "net.minecraft.client.model.object.equipment.ElytraModel": "aaecd0e9116f3ab5b46f45b927c5c03451aedc45244cfd2d7dd682ccac1cd6de",
+        "net.minecraft.client.model.player.PlayerCapeModel": "c399d1a69d81df73e5fc0b26e00acfacaec829c6dae90fa42a7d8ca093a70efb",
+        "net.minecraft.client.model.player.PlayerModel": "eb131431b4f2129ccaf43086bbba7d360be03ca2d644539616650ad0f8f9cab8",
+        "net.minecraft.client.player.AbstractClientPlayer": "5b479e3162243c8fd023fbfad7505570a1a34e2c58f20e335daec585fbc8be37",
+        "net.minecraft.client.renderer.entity.EntityRenderDispatcher": "9839e7df6bb334b70c73be9a20db2e6d4762035b545dc13097a765a41dd5da23",
+        "net.minecraft.client.renderer.entity.LivingEntityRenderer": "a798330ced9bf1776d2e089c38d0ff42913708a1a9c6b70f00212945c1a108eb",
+        "net.minecraft.client.renderer.entity.layers.RenderLayer": "4d9132deeeb1bb6d890a63a11777be02f318b070406e0fcd8a63da9d27901128",
+        "net.minecraft.client.renderer.entity.state.AvatarRenderState": "cc23cf6edcbee056d3e49c049645ce9f3be9279369a218a632fe2270af5f56c2",
+        "net.minecraft.client.renderer.entity.state.HumanoidRenderState": "00539d39b4fae6aef4c66cd95a949dd44ceef950d646467a6916843941b78350",
+        "net.minecraft.world.entity.Avatar": "9e31c421e399c007fb3a86db7d4cdfb1d0cf3e793434818a4a0e596b26c369b0",
+        "net.minecraft.world.entity.LivingEntity": "e207cc8a4be1edada77661ae00773148aa26fb163b8d466a666e69394bdb57b6",
+        "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c"
+      },
+      "command-v1": {
+        "com.mojang.brigadier.CommandDispatcher": "bd205ccba66efd0ffcc97d7b8938c433d530ceadcab39f26fe220d4eb9747f82",
+        "com.mojang.brigadier.tree.CommandNode": "8149cdbe489b728e6d122378f629f5acb38e4fc2b712b198c7e8d9dcfa3d41d4",
+        "com.mojang.brigadier.tree.LiteralCommandNode": "64074e5b49516a65a91eb31a6f6b5c7e275fb4fb9ec7ba47ded9531c4d5099bb",
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
+        "net.minecraft.client.multiplayer.ClientPacketListener": "d1b99777bda33d0f0bc29c1552513732300201dccfa8b17d44860ef07de2bd89"
+      },
+      "fabric-server-v1": {
+        "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
+        "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback": "069c9a45a46b1c5193e94d523de4f52c877ef39faea4a483239511cfb398aa14",
+        "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
+        "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
+      },
+      "fabric-submission": {
+        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "9c2a9b5500582209346bbac23c9161e6a12707d779e7ff9788e8190b264b5f0d",
+        "net.fabricmc.fabric.api.client.screen.v1.Screens": "243f2e1c373f8e47af62b830e89a0b4117d40106352b9499f1f82025b39c8759"
+      },
+      "identifier-26.2": {
+        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
+        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
+        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
+      },
+      "local-player-skin-26.2": {
+        "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
+        "net.minecraft.client.multiplayer.PlayerInfo": "e4cceaf3cd2c90fea083deb548785256a2ee261455988f27c44bb9fa4cd7ed3c",
+        "net.minecraft.client.resources.SkinManager": "b734ca6e29a1a01e4357de1ca0e1597b23d8ce36c90f1b79de1779c4866c1456",
+        "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c"
+      },
+      "minecraft-client-executor-v1": {
+        "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
+      },
+      "minecraft-user-v1": {
+        "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
+        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
+      },
+      "neoforge-extraction": {
+        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
+        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
+        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
+      },
+      "neoforge-server-v1": {
+        "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
+        "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
+        "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
+        "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
+        "net.neoforged.neoforge.event.RegisterCommandsEvent": "feec2694911d8517c91f8c64ddc5ae65defee964a0f3c7d1fa971c753a5c5ca2",
+        "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
+        "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
+        "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
+      },
+      "player-info-initialize-v1": {
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
+      },
+      "player-skin-current-26.2": {
+        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
+        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
+      },
+      "profile-mutation-authlib-v7": {
+        "com.mojang.authlib.GameProfile": "98cbf5bdebabf73a53f24809043819168bece00fc02f3cba36d0fd4329442ce1",
+        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
+        "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
+        "net.minecraft.world.entity.player.Player": "58f6413f8ada78c1ec02da34be23545ace89a0597dfbd4af8ae802f3c155c637"
+      },
+      "profile-verification-authlib-v7": {
+        "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
+        "com.mojang.authlib.properties.Property": "1628436859dc7657629b503086f795b2823f056e3fe15bd18c5e86870e000456",
+        "net.minecraft.server.MinecraftServer": "48449518b82ddf3df2f6879a1918aaaa2dbba0ee78a1383d767f103b51126f0b",
+        "net.minecraft.server.Services": "b116cac026cc65ea233bdce16a5a6781a935c89f7751efaf15e69e3199be3bba"
+      },
+      "server-command-v1": {
+        "com.mojang.brigadier.CommandDispatcher": "a1890fcc9a241cb9af25757ab55a94fffce00471a2ec0ed5fd172e2850677be6",
+        "com.mojang.brigadier.builder.ArgumentBuilder": "9ed4a6c1f10bdfdffb80d83df92a8b74748331d98a09aaf34b883c49d717d8d0",
+        "com.mojang.brigadier.context.CommandContext": "31943bdc59fd4c96a98b82898d91d2cd1aa5c582cba2f7c2bca2cf7245505e5e",
+        "net.minecraft.commands.CommandSourceStack": "5f1d1a059f619166ba93e7fb40e766141c921d902b0a5f2eb6e6f2fbc1a8649b",
+        "net.minecraft.commands.Commands": "a0498709fe89eaf7b95e18f519d77154b25986026aad542299d05fa035e967c3",
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      },
+      "submission-1.21.11": {
+        "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
+        "net.minecraft.client.gui.GuiGraphics": "a6f0d39439974f4a81d89b1491ea98ec43f22fd06b09414780e1c4a41c506587",
+        "net.minecraft.client.gui.components.AbstractButton": "5585f3601cf1bd3644bc6637da8a95a06494444a42e0c84e7cff3f5521613a86",
+        "net.minecraft.client.gui.components.AbstractScrollArea": "97e0b03c0ccc01c7491236c2f99dc98c0908d0a27a8b42153db94655743adc59",
+        "net.minecraft.client.gui.components.AbstractWidget": "70c25c55d7ca9e6be5889fe86d14490b9eef292c4710157ab6b75f9b497adcfb",
+        "net.minecraft.client.gui.components.tabs.TabManager": "9a368c293637b9fd4e4232eaa5fc33eafe33094321847a15ca6d550da71f09bb",
+        "net.minecraft.client.gui.components.tabs.TabNavigationBar": "469d91d8f89aa820b26d5d18cc2bfaa7697557d27a679f7c03a2cbe8e130fe46",
+        "net.minecraft.client.gui.screens.Screen": "19e0ae1352bd498a88b0ab352fb2b38ad68ca168690066a240b23d01fbe2f886",
+        "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "76d98632148ed4cc60e8a6fa7de0b8f7b872d30887dad12e97f4bc804f726d1c",
+        "net.minecraft.client.gui.screens.options.OptionsScreen": "de9519bdb43d6f69cf0b4d05711d118816810abc8059d8b0808690f7668ab180",
+        "net.minecraft.client.input.InputWithModifiers": "756f86d5852ac6cc69cc7a8dc778de7ad6ba81eabaeec189194a166240a8ea2c"
+      },
+      "tinyfd-safe-v1": {
+        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
+        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
+      },
+      "tracking-chunkmap-level-v2": {
+        "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
+        "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
+        "net.minecraft.server.level.ChunkMap": "1d683e8f6d4abbb8e7d03ebf8915c581958773017e4f0bbd586e253f39d9072b",
+        "net.minecraft.server.level.ChunkMap$TrackedEntity": "7316ad43949bc7c3397ebfb56e3a3e70aad2eb998db6fe823b21818c27396ddd",
+        "net.minecraft.server.level.ServerChunkCache": "a83a652e2950fda9974d303055626d8a7bf5282b7ccbca6af6b147df105439f5",
+        "net.minecraft.server.level.ServerLevel": "1344965d95402b64e034f5a77e34f1a528652dd384a5c3e5b96134562d8f0e2d",
+        "net.minecraft.server.level.ServerPlayer": "c0008c1286b718970cec0f0f058e7ef45924cf843d22b1cb1d9f69a3f6369087",
+        "net.minecraft.server.network.ServerPlayerConnection": "5768e661d1a8698cced7c9cc20f3537abdddf7679c9419f99b42037341624f5e",
+        "net.minecraft.server.players.PlayerList": "b36807ccb904ae025b82553cda87bc79d17bd27e86837b248d14590e62e9bae3",
+        "net.minecraft.util.thread.BlockableEventLoop": "e396e02b3b43c0aba796994cb54f5fdedad7992667d1e66eaa1223efa9d2a7f4",
+        "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
+      },
+      "vanilla-pack-bundled-26.2": {
+        "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
+        "net.minecraft.server.packs.PackResources": "5b204a6813ff7f9d7cf2c45a83b96e741cc2d7bd2608cafba406f8975fb94a14"
+      }
+    },
     "identifier-extraction-authlib7": {
       "avatar-pip-26.1": {
         "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "a78289d9e15d5f4164197a1c68012186e2df7f48f52a221573853089e9e56cd8",
@@ -4275,7 +4843,7 @@
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
         "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
         "net.minecraft.server.level.ChunkMap": "1d683e8f6d4abbb8e7d03ebf8915c581958773017e4f0bbd586e253f39d9072b",
-        "net.minecraft.server.level.ChunkMap$TrackedEntity": "4f90fc5fc052118e29a556cc817ec9ac6bef8cfe7db892fa6520a3e19bfda2c2",
+        "net.minecraft.server.level.ChunkMap$TrackedEntity": "7316ad43949bc7c3397ebfb56e3a3e70aad2eb998db6fe823b21818c27396ddd",
         "net.minecraft.server.level.ServerChunkCache": "a83a652e2950fda9974d303055626d8a7bf5282b7ccbca6af6b147df105439f5",
         "net.minecraft.server.level.ServerLevel": "1344965d95402b64e034f5a77e34f1a528652dd384a5c3e5b96134562d8f0e2d",
         "net.minecraft.server.level.ServerPlayer": "c0008c1286b718970cec0f0f058e7ef45924cf843d22b1cb1d9f69a3f6369087",
@@ -4369,7 +4937,7 @@
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
         "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
         "net.minecraft.server.level.ChunkMap": "1d683e8f6d4abbb8e7d03ebf8915c581958773017e4f0bbd586e253f39d9072b",
-        "net.minecraft.server.level.ChunkMap$TrackedEntity": "4f90fc5fc052118e29a556cc817ec9ac6bef8cfe7db892fa6520a3e19bfda2c2",
+        "net.minecraft.server.level.ChunkMap$TrackedEntity": "7316ad43949bc7c3397ebfb56e3a3e70aad2eb998db6fe823b21818c27396ddd",
         "net.minecraft.server.level.ServerChunkCache": "a83a652e2950fda9974d303055626d8a7bf5282b7ccbca6af6b147df105439f5",
         "net.minecraft.server.level.ServerLevel": "1344965d95402b64e034f5a77e34f1a528652dd384a5c3e5b96134562d8f0e2d",
         "net.minecraft.server.level.ServerPlayer": "c0008c1286b718970cec0f0f058e7ef45924cf843d22b1cb1d9f69a3f6369087",

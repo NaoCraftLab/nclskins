@@ -23,7 +23,7 @@ final class ReleaseLogicTest {
         assertEquals('beta', metadata.channel)
         assertTrue(metadata.prerelease)
         assertTrue(metadata.notes.startsWith(
-                '### Changed\n\n- **Updated icons**'))
+                '### Added\n\n- **More outer-layer controls**'))
         assertFalse(metadata.notes.contains('## 1.0.0-beta.1'))
     }
 

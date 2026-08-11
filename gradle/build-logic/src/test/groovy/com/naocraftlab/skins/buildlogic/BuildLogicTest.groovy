@@ -51,6 +51,18 @@ final class BuildLogicTest {
             def image = ImageIO.read(new File(icons, name))
             assertEquals(size, image.width, name)
             assertEquals(size, image.height, name)
+            if (size == 20) {
+                for (int y = 0; y < size; y++) {
+                    for (int x = 0; x < size; x++) {
+                        if (x < 2 || y < 2 || x >= size - 2 || y >= size - 2) {
+                            assertEquals(
+                                    0,
+                                    image.getRGB(x, y) >>> 24,
+                                    "${name} must keep a transparent two-pixel source border at ${x},${y}")
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -98,6 +110,21 @@ final class BuildLogicTest {
             CatalogTools.validate(repository, changed)
         }
         assertTrue(failure.message.contains('textures differs from epoch profile'))
+    }
+
+    @Test
+    void selectedMixinResourcesMustBeRegisteredInTargetMetadata() {
+        Map changed = cloneMap(catalog)
+        changed.targets.find { it.id == 'fabric-1.21.11' }
+                .metadata.serverMixins = []
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException) {
+            CatalogTools.validate(repository, changed)
+        }
+        assertTrue(failure.message.contains(
+                'fabric-1.21.11: selected Mixin resources'))
+        assertTrue(failure.message.contains('nclskins.authlib9.mixins.json'))
+        assertTrue(failure.message.contains('differ from metadata'))
     }
 
     @Test
@@ -417,6 +444,15 @@ final class BuildLogicTest {
             Map<String, String> resources = MetadataRenderer.render(catalog, target, version)
             assertEquals(target.metadata.files as Set, resources.keySet() as Set, target.id.toString())
             assertTrue(resources.values().any { it.contains('GPL-3.0-only') }, target.id.toString())
+            Map bundledPack = new JsonSlurper().parseText(
+                    resources['resourcepacks/mojang_collections/pack.mcmeta']) as Map
+            if (target.metadata.packFormat instanceof List) {
+                assertEquals(target.metadata.packFormat, bundledPack.pack.min_format, target.id.toString())
+                assertEquals(target.metadata.packFormat, bundledPack.pack.max_format, target.id.toString())
+                assertFalse(bundledPack.pack.containsKey('pack_format'), target.id.toString())
+            } else {
+                assertEquals(target.metadata.packFormat, bundledPack.pack.pack_format, target.id.toString())
+            }
             if (target.loader.id == 'fabric') {
                 Map metadata = new JsonSlurper().parseText(resources['fabric.mod.json']) as Map
                 assertEquals('*', metadata.environment)
@@ -474,7 +510,7 @@ final class BuildLogicTest {
                 assertFalse(rendered.contains('scr' + 'ipts/'))
             }
         }
-        assertEquals(16, taskNames.size())
+        assertEquals(20, taskNames.size())
     }
 
     @Test
@@ -560,6 +596,213 @@ final class BuildLogicTest {
 
             assertTrue(errors.any { it.contains('lacks required isolated-proxy marker') })
             assertTrue(errors.any { it.contains('lacks readiness/animation marker') })
+        } finally {
+            sourceRoot.toFile().deleteDir()
+        }
+    }
+
+    @Test
+    void semanticVerifierRejectsSecond12111ScreenBackgroundPass() {
+        List<String> errors = []
+
+        SemanticVerifier.verifyLeaf(
+                'submission-1.21.11',
+                'gui',
+                '''
+                class ScreenLeaf {
+                    ClientRuntime runtime;
+                    void render(Object graphics, int mouseX, int mouseY, float partialTick) {
+                        renderBackground(graphics, mouseX, mouseY, partialTick);
+                    }
+                }
+                ''',
+                errors)
+
+        assertTrue(errors.any { it.contains('renders its native background twice') }, errors.toString())
+    }
+
+    @Test
+    void semanticVerifierRejectsOneShared12111BakedTexture() {
+        List<String> errors = []
+
+        SemanticVerifier.verifyLeaf(
+                'submission-1.21.11',
+                'gui',
+                'class ScreenLeaf { ClientRuntime runtime; '
+                        + 'Minecraft12111SimplePreviewRenderer bakedRenderer; }',
+                errors)
+
+        assertTrue(errors.any {
+            it.contains('native host lacks marker')
+                    && it.contains('bakedRenderers.computeIfAbsent(')
+        }, errors.toString())
+    }
+
+    @Test
+    void submission12111OwnsNativeUiAndExactSettingsHooks() {
+        File screen = new File(
+                repository,
+                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/NclSkinsScreen.java')
+        File menu = new File(
+                repository,
+                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/NclSkinsMenuPanel.java')
+        File mixins = new File(
+                repository,
+                'compat/capabilities/preview/avatar-pip-1.21.11/src/main/resources/nclskins.mc12111.mixins.json')
+        String screenSource = screen.text
+        String menuSource = menu.text
+        String mixinSource = mixins.text
+
+        assertFalse(screenSource.contains('ViewHostCoordinator'))
+        assertFalse(screenSource.contains('setRectangle('))
+        assertFalse(menuSource.contains('setRectangle('))
+        assertTrue(screenSource.contains('Minecraft12111ScrollController'))
+        assertTrue(screenSource.contains('''scrollController.render(
+                graphics,
+                OFFSCREEN_MOUSE_COORDINATE,
+                OFFSCREEN_MOUSE_COORDINATE,
+                partialTick);'''))
+        assertTrue(new File(
+                repository,
+                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/Minecraft12111ScrollController.java')
+                .text.contains('renderScrollbar(graphics, mouseX, mouseY);'))
+        assertTrue(screenSource.contains('NativeWidgetSignature'))
+        assertTrue(screenSource.contains('NativeTabGroup'))
+        assertTrue(screenSource.contains('maskWidgetsOutsideClip('))
+        assertTrue(screenSource.contains('''
+                            ACTION_ICON_RENDER_SIZE,
+                            ACTION_ICON_RENDER_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE);'''))
+        assertTrue(menuSource.contains('panelBounds().contains(mouseX, mouseY)'))
+        assertTrue(mixinSource.contains('"OptionsScreenMixin"'))
+        assertTrue(mixinSource.contains('"AccessibilityOptionsScreenMixin"'))
+        assertTrue(new File(
+                repository,
+                'client-runtime/src/main/java/com/naocraftlab/skins/runtime/ViewHostCoordinator.java').exists())
+    }
+
+    @Test
+    void submission12111PreviewPreservesDeferredRendererContextAndPlayerAnchors() {
+        File previewRoot = new File(
+                repository,
+                'compat/capabilities/preview/avatar-pip-1.21.11/src/main')
+        File renderer = new File(
+                previewRoot,
+                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewRenderer.java')
+        File scope = new File(
+                previewRoot,
+                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewScope.java')
+        File guiMixin = new File(
+                previewRoot,
+                'java/com/naocraftlab/skins/compat/mc12111/mixin/GuiEntityRendererMixin.java')
+        File layerMixin = new File(
+                previewRoot,
+                'java/com/naocraftlab/skins/compat/mc12111/mixin/LivingEntityRendererPreviewMixin.java')
+        File modelPartMixin = new File(
+                previewRoot,
+                'java/com/naocraftlab/skins/compat/mc12111/mixin/ModelPartPreviewMixin.java')
+        File mixins = new File(previewRoot, 'resources/nclskins.mc12111.mixins.json')
+
+        assertTrue(scope.exists())
+        assertTrue(guiMixin.exists())
+        assertTrue(modelPartMixin.exists())
+        assertTrue(renderer.text.contains('renderPlayer.tickCount ='))
+        assertTrue(renderer.text.contains('renderPlayer.avatarState().tick('))
+        assertTrue(renderer.text.contains('nclskins$setPreviewContext(context)'))
+        assertTrue(scope.text.contains('minecraft.player != player'))
+        assertTrue(guiMixin.text.contains('EditorPreviewLayerGuard.open('))
+        assertTrue(guiMixin.text.contains('previewContext.open(Minecraft.getInstance())'))
+        assertTrue(layerMixin.text.contains('Minecraft12111PreviewModelAnchors.open('))
+        assertTrue(layerMixin.text.contains('state instanceof AvatarRenderState'))
+        assertTrue(modelPartMixin.text.contains('cubes.isEmpty()'))
+        assertTrue(mixins.text.contains('"GuiEntityRendererMixin"'))
+        assertTrue(mixins.text.contains('"ModelPartPreviewMixin"'))
+    }
+
+    @Test
+    void submission12111UsesVanillaElytraGeometryAndNeutralPoseInBothPreviewPaths() {
+        File previewRoot = new File(
+                repository,
+                'compat/capabilities/preview/avatar-pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111')
+        String liveRenderer = new File(previewRoot, 'Minecraft12111PreviewRenderer.java').text
+        String simpleRenderer = new File(previewRoot, 'Minecraft12111SimplePreviewRenderer.java').text
+        String bakedRenderer = new File(previewRoot, 'Minecraft12111BakedPreviewRenderer.java').text
+        String bakedState = new File(previewRoot, 'Minecraft12111BakedPreviewRenderState.java').text
+
+        assertTrue(simpleRenderer.contains('ElytraModel.createLayer().bakeRoot()'))
+        assertFalse(simpleRenderer.contains('mesh.getRoot().addOrReplaceChild('))
+        assertTrue(bakedState.contains('Model<?> attachmentModel'))
+        assertTrue(bakedRenderer.contains('Model<?> attachment = state.attachmentModel()'))
+        assertTrue(liveRenderer.contains(
+                'state.elytraRotX = CenteredPipPreviewTransform.ELYTRA_ROT_X'))
+        assertTrue(liveRenderer.contains(
+                'state.elytraRotY = CenteredPipPreviewTransform.ELYTRA_ROT_Y'))
+        assertTrue(liveRenderer.contains(
+                'state.elytraRotZ = CenteredPipPreviewTransform.ELYTRA_ROT_Z'))
+    }
+
+    @Test
+    void cleanTargetBuildsCannotReuseAStaleNestedSourceGraph() {
+        Path sourceRoot = Files.createTempDirectory('nclskins-source-graph-')
+        try {
+            Files.createDirectories(sourceRoot.resolve('compat/capabilities/gui/example/src/main/java'))
+            String empty = TargetBuildTask.sourceGraphFingerprint(sourceRoot.toFile())
+            Files.writeString(
+                    sourceRoot.resolve('compat/capabilities/gui/example/src/main/java/Example.java'),
+                    'class Example {}')
+            String added = TargetBuildTask.sourceGraphFingerprint(sourceRoot.toFile())
+            assertNotEquals(empty, added)
+            Files.delete(sourceRoot.resolve('compat/capabilities/gui/example/src/main/java/Example.java'))
+            assertEquals(empty, TargetBuildTask.sourceGraphFingerprint(sourceRoot.toFile()))
+        } finally {
+            sourceRoot.toFile().deleteDir()
+        }
+
+        String source = new File(
+                repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/TargetBuildTask.groovy').text
+        assertTrue(source.contains('"-PnclskinsSourceGraph=${sourceGraphFingerprint(root)}".toString()'))
+        assertFalse(source.contains("'--no-configuration-cache'"))
+    }
+
+    @Test
+    void semanticVerifierRejectsVanillaOnly12111BakedPitch() {
+        Path sourceRoot = Files.createTempDirectory('nclskins-12111-preview-pitch-')
+        try {
+            Files.writeString(
+                    sourceRoot.resolve('Preview.java'),
+                    '''
+                    class PreviewPlayer extends RemotePlayer {
+                        void render() {
+                            LocalPlayer player = minecraft.player;
+                            EditorPreviewSession session;
+                            ExactLocalPlayerScope scope;
+                            EditorPreviewClock clock;
+                            NativePlayerSkinLifecycle lifecycle;
+                            submitEntityRenderState();
+                            submitSkinRenderState();
+                            NclPreviewState state;
+                            LivingEntityRendererPreviewMixin layers;
+                            EntityRenderState state2;
+                            PlayerSkin.insecure();
+                            CenteredPlayerPreviewGeometry.centeredEntityTranslation();
+                            Minecraft12111SimplePreviewRenderer baked;
+                            ItemStack empty = ItemStack.EMPTY;
+                        }
+                    }
+                    ''')
+            List<String> errors = []
+
+            SemanticVerifier.verifyPreviewBundle(
+                    'avatar-pip-1.21.11', [sourceRoot] as Set, errors)
+
+            assertTrue(errors.any {
+                it.contains('1.21.11 submission preview lacks required marker')
+                        && it.contains('Minecraft12111BakedPreviewRenderState')
+            }, errors.toString())
         } finally {
             sourceRoot.toFile().deleteDir()
         }
