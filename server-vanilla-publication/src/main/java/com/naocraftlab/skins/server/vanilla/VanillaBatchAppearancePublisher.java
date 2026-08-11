@@ -39,6 +39,7 @@ public final class VanillaBatchAppearancePublisher
     private final PlatformScheduler scheduler;
     private final OfficialTextureSignatureVerifier signatureVerifier;
     private final VanillaPublicationPolicy policy;
+    private final AdvanceProbe advanceProbe;
     private final ExecutorService semanticWorker;
     private final ArrayDeque<PublicationJob> jobs = new ArrayDeque<>();
     private final Map<ConnectionKey, Long> latestIntentRevisions = new LinkedHashMap<>();
@@ -47,6 +48,7 @@ public final class VanillaBatchAppearancePublisher
     private boolean active;
     private volatile boolean advancingPlatformJob;
     private boolean nextTickScheduled;
+    private boolean terminalRecoveryRequested;
     private long budgetTickId = Long.MIN_VALUE;
     private TickBudget budgetForTick;
     private boolean closed;
@@ -59,6 +61,26 @@ public final class VanillaBatchAppearancePublisher
             PlatformScheduler scheduler,
             OfficialTextureSignatureVerifier signatureVerifier,
             VanillaPublicationPolicy policy) {
+        this(
+                connections,
+                profiles,
+                tracking,
+                transport,
+                scheduler,
+                signatureVerifier,
+                policy,
+                AdvanceProbe.NOOP);
+    }
+
+    VanillaBatchAppearancePublisher(
+            ConnectionRegistry connections,
+            ProfileAccess profiles,
+            TrackingAccess tracking,
+            PlayerInfoTransport transport,
+            PlatformScheduler scheduler,
+            OfficialTextureSignatureVerifier signatureVerifier,
+            VanillaPublicationPolicy policy,
+            AdvanceProbe advanceProbe) {
         this.connections = Objects.requireNonNull(connections, "connections");
         this.profiles = Objects.requireNonNull(profiles, "profiles");
         this.tracking = Objects.requireNonNull(tracking, "tracking");
@@ -66,6 +88,7 @@ public final class VanillaBatchAppearancePublisher
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.signatureVerifier = Objects.requireNonNull(signatureVerifier, "signatureVerifier");
         this.policy = Objects.requireNonNull(policy, "policy");
+        this.advanceProbe = Objects.requireNonNull(advanceProbe, "advanceProbe");
         ThreadFactory threads = action -> {
             Thread thread = new Thread(action, "nclskins-publication-planner");
             thread.setDaemon(true);
@@ -151,6 +174,7 @@ public final class VanillaBatchAppearancePublisher
             outstandingIntentJobs.clear();
             active = false;
             nextTickScheduled = false;
+            terminalRecoveryRequested = false;
         }
         semanticWorker.shutdownNow();
         for (PublicationJob job : pending) {
@@ -228,6 +252,16 @@ public final class VanillaBatchAppearancePublisher
                     tickId, budget.elapsed(scheduler.nanoTime()));
         }
 
+        boolean recoverTerminally;
+        synchronized (lock) {
+            recoverTerminally = terminalRecoveryRequested;
+            terminalRecoveryRequested = false;
+        }
+        if (recoverTerminally) {
+            failAllJobsOnPlatform();
+            return;
+        }
+
         switch (next) {
             case FINISH -> finish(job);
             case NEXT_TICK -> scheduleNextTick(job);
@@ -278,7 +312,6 @@ public final class VanillaBatchAppearancePublisher
                 }
             }
             wakeWaitingSemantic = head
-                    && !advancingPlatformJob
                     && job.waitingForSemantic();
         }
         if (wakeWaitingSemantic) {
@@ -345,9 +378,7 @@ public final class VanillaBatchAppearancePublisher
             }
             job.cancelled = true;
             if (scheduler.isPlatformThread()) {
-                if (job.abortAndRetrack(TickBudget.unlimited())) {
-                    finish(job);
-                }
+                failAllJobsOnPlatform();
             } else {
                 schedulingRejected();
             }
@@ -370,35 +401,27 @@ public final class VanillaBatchAppearancePublisher
             return;
         }
         synchronized (lock) {
-            boolean cleanupRequired = jobs.stream()
-                    .anyMatch(PublicationJob::hasCleanupObligations);
-            if (cleanupRequired) {
-                for (PublicationJob job : jobs) {
-                    job.cancelled = true;
-                }
-
-
-                return;
+            for (PublicationJob job : jobs) {
+                job.cancelled = true;
             }
         }
         failAllJobsWithoutCleanup();
     }
 
     private void failAllJobsOnPlatform() {
-        PublicationJob head;
+        List<PublicationJob> failed;
         synchronized (lock) {
             for (PublicationJob job : jobs) {
                 job.cancelled = true;
             }
             if (advancingPlatformJob) {
+                terminalRecoveryRequested = true;
                 return;
             }
-            head = jobs.peekFirst();
+            failed = new ArrayList<>(jobs);
         }
-        if (head != null && !head.abortAndRetrack(TickBudget.unlimited())) {
-
-
-            return;
+        for (PublicationJob job : failed) {
+            job.abortAndRetrackForClose();
         }
         failAllJobsWithoutCleanup();
     }
@@ -412,6 +435,7 @@ public final class VanillaBatchAppearancePublisher
             outstandingIntentJobs.clear();
             active = false;
             nextTickScheduled = false;
+            terminalRecoveryRequested = false;
         }
         for (PublicationJob job : failed) {
             job.completeRemaining(PublicationOutcome.FAILED);
@@ -700,6 +724,7 @@ public final class VanillaBatchAppearancePublisher
                     }
                     execute(() -> semanticCompleted(this, List.copyOf(decisions)));
                 });
+                advanceProbe.semanticWaiting(owner.completion);
                 return true;
             } catch (RuntimeException rejected) {
                 phase = Phase.SNAPSHOT;
@@ -1286,6 +1311,13 @@ public final class VanillaBatchAppearancePublisher
     private record SemanticDecision(
             ConnectionKey connection,
             boolean matches) {}
+
+    @FunctionalInterface
+    interface AdvanceProbe {
+        AdvanceProbe NOOP = completion -> {};
+
+        void semanticWaiting(CompletableFuture<BatchPublicationResult> completion);
+    }
 
     private static final class TickBudget {
         private final int maxDeliveries;

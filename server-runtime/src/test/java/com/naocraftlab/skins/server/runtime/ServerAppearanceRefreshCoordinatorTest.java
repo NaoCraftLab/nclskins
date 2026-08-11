@@ -32,7 +32,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,6 +43,214 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ServerAppearanceRefreshCoordinatorTest {
+    @Test
+    void lookupRevisionAdvanceImmediatelyBeforeCommitCannotFinishOrOrphanLatestCycle()
+            throws Exception {
+        List<Function<ConnectionSnapshot, OfficialProfileResolver.Resolution>> staleResults = List.of(
+                ignored -> OfficialProfileResolver.Resolution.rejected(),
+                ignored -> OfficialProfileResolver.Resolution.transientFailure(),
+                ignored -> OfficialProfileResolver.Resolution.throttled(Duration.ZERO),
+                connection -> resolved(connection, 'a'),
+                ignored -> resolved(connection(901, 1L), 'b'));
+
+        for (int caseIndex = 0; caseIndex < staleResults.size(); caseIndex++) {
+            Function<ConnectionSnapshot, OfficialProfileResolver.Resolution> staleResult =
+                    staleResults.get(caseIndex);
+            ManualTime time = new ManualTime();
+            ConnectionSnapshot connection = connection(900, 1L);
+            CompletableFuture<OfficialProfileResolver.Resolution> firstLookup =
+                    new CompletableFuture<>();
+            AtomicInteger calls = new AtomicInteger();
+            OfficialProfileResolver resolver = current -> calls.incrementAndGet() == 1
+                    ? firstLookup
+                    : OfficialProfileResolver.completed(resolved(current, 'c'));
+            RecordingPublisher publisher = new RecordingPublisher();
+            AtomicReference<ServerAppearanceRefreshCoordinator> coordinatorRef =
+                    new AtomicReference<>();
+            AtomicReference<RefreshSubmission> latest = new AtomicReference<>();
+            AtomicBoolean advanced = new AtomicBoolean();
+            ServerAppearanceRefreshCoordinator.CommitProbe probe = (kind, revision) -> {
+                if (kind == ServerAppearanceRefreshCoordinator.CommitKind.LOOKUP
+                        && revision == 1L
+                        && advanced.compareAndSet(false, true)) {
+                    latest.set(coordinatorRef.get().request(connection));
+                }
+            };
+            ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                    time, resolver, publisher, defaultPolicy(), probe);
+            coordinatorRef.set(coordinator);
+
+            RefreshSubmission stale = coordinator.request(connection);
+            time.advance(Duration.ofMillis(500));
+            firstLookup.complete(staleResult.apply(connection));
+
+            assertEquals(RefreshResult.SUPERSEDED, result(stale));
+            assertFalse(latest.get().completion().toCompletableFuture().isDone());
+            time.advance(Duration.ofSeconds(5));
+            time.advance(Duration.ofMillis(50));
+
+            assertEquals(2, calls.get());
+            assertTrue(
+                    latest.get().completion().toCompletableFuture().isDone(),
+                    "case=" + caseIndex + ", calls=" + calls.get()
+                            + ", health=" + coordinator.health()
+                            + ", pendingTasks=" + time.pendingTasks());
+            assertEquals(RefreshResult.UPDATED, result(latest.get()));
+            assertEquals(1, publisher.actorCount.get());
+            assertEquals(0, coordinator.health().pending());
+            assertEquals(0, coordinator.health().lookupsInFlight());
+            assertEquals(0, time.pendingTasks());
+            coordinator.close();
+        }
+    }
+
+    @Test
+    void publicationRevisionAdvanceImmediatelyBeforeCommitCannotFinishLatestCycle()
+            throws Exception {
+        for (PublicationOutcome staleOutcome : PublicationOutcome.values()) {
+            ManualTime time = new ManualTime();
+            ConnectionSnapshot connection = connection(902, 1L);
+            AtomicInteger calls = new AtomicInteger();
+            CompletableFuture<BatchPublicationResult> firstBatch = new CompletableFuture<>();
+            AtomicInteger batches = new AtomicInteger();
+            BatchAppearancePublisher publisher = new BatchAppearancePublisher() {
+                @Override
+                public CompletionStage<BatchPublicationResult> publishBatch(
+                        List<PublicationRequest> requests) {
+                    return batches.incrementAndGet() == 1
+                            ? firstBatch
+                            : CompletableFuture.completedFuture(
+                                    BatchPublicationResult.all(
+                                            requests, PublicationOutcome.UPDATED));
+                }
+
+                @Override
+                public void supersede(ConnectionKey connection) {
+
+                }
+            };
+            AtomicReference<ServerAppearanceRefreshCoordinator> coordinatorRef =
+                    new AtomicReference<>();
+            AtomicReference<RefreshSubmission> latest = new AtomicReference<>();
+            AtomicBoolean advanced = new AtomicBoolean();
+            ServerAppearanceRefreshCoordinator.CommitProbe probe = (kind, revision) -> {
+                if (kind == ServerAppearanceRefreshCoordinator.CommitKind.PUBLICATION
+                        && revision == 1L
+                        && advanced.compareAndSet(false, true)) {
+                    latest.set(coordinatorRef.get().request(connection));
+                }
+            };
+            ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                    time,
+                    current -> {
+                        calls.incrementAndGet();
+                        return OfficialProfileResolver.completed(resolved(current, 'd'));
+                    },
+                    publisher,
+                    defaultPolicy(),
+                    probe);
+            coordinatorRef.set(coordinator);
+
+            RefreshSubmission stale = coordinator.request(connection);
+            time.advance(Duration.ofMillis(550));
+            firstBatch.complete(BatchPublicationResult.all(
+                    List.of(new PublicationRequest(connection.key(),
+                            resolved(connection, 'd').profile().orElseThrow())),
+                    staleOutcome));
+
+            assertEquals(RefreshResult.SUPERSEDED, result(stale));
+            assertFalse(latest.get().completion().toCompletableFuture().isDone());
+            time.advance(Duration.ofMillis(4_950));
+            time.advance(Duration.ofMillis(50));
+
+            assertEquals(2, calls.get());
+            assertEquals(2, batches.get());
+            assertEquals(
+                    RefreshResult.UPDATED,
+                    latest.get().completion().toCompletableFuture().get(1L, TimeUnit.SECONDS));
+            assertEquals(0, coordinator.health().pending());
+            assertEquals(0, time.pendingTasks());
+            coordinator.close();
+        }
+    }
+
+    @Test
+    void disconnectDuringLookupCommitSettlesOnceAndReleasesTheSlot() {
+        ManualTime time = new ManualTime();
+        ConnectionSnapshot connection = connection(903, 1L);
+        CompletableFuture<OfficialProfileResolver.Resolution> lookup = new CompletableFuture<>();
+        AtomicReference<ServerAppearanceRefreshCoordinator> coordinatorRef =
+                new AtomicReference<>();
+        AtomicBoolean disconnected = new AtomicBoolean();
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                ignored -> lookup,
+                new RecordingPublisher(),
+                defaultPolicy(),
+                (kind, revision) -> {
+                    if (kind == ServerAppearanceRefreshCoordinator.CommitKind.LOOKUP
+                            && disconnected.compareAndSet(false, true)) {
+                        coordinatorRef.get().disconnected(connection.key());
+                    }
+                });
+        coordinatorRef.set(coordinator);
+
+        RefreshSubmission submission = coordinator.request(connection);
+        time.advance(Duration.ofMillis(500));
+        lookup.complete(resolved(connection, 'a'));
+
+        assertEquals(RefreshResult.DISCONNECTED, result(submission));
+        assertEquals(0, coordinator.health().lookupsInFlight());
+        assertEquals(0, coordinator.health().pending());
+        assertEquals(0, time.pendingTasks());
+        coordinator.close();
+    }
+
+    @Test
+    void closeDuringPublicationCommitSettlesOnceAndReleasesTheSlot() {
+        ManualTime time = new ManualTime();
+        ConnectionSnapshot connection = connection(904, 1L);
+        CompletableFuture<BatchPublicationResult> batch = new CompletableFuture<>();
+        AtomicReference<ServerAppearanceRefreshCoordinator> coordinatorRef =
+                new AtomicReference<>();
+        AtomicBoolean closed = new AtomicBoolean();
+        BatchAppearancePublisher publisher = new BatchAppearancePublisher() {
+            @Override
+            public CompletionStage<BatchPublicationResult> publishBatch(
+                    List<PublicationRequest> requests) {
+                return batch;
+            }
+
+            @Override
+            public void supersede(ConnectionKey connection) {
+
+            }
+        };
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                current -> OfficialProfileResolver.completed(resolved(current, 'b')),
+                publisher,
+                defaultPolicy(),
+                (kind, revision) -> {
+                    if (kind == ServerAppearanceRefreshCoordinator.CommitKind.PUBLICATION
+                            && closed.compareAndSet(false, true)) {
+                        coordinatorRef.get().close();
+                    }
+                });
+        coordinatorRef.set(coordinator);
+
+        RefreshSubmission submission = coordinator.request(connection);
+        time.advance(Duration.ofMillis(550));
+        batch.complete(BatchPublicationResult.all(
+                List.of(new PublicationRequest(
+                        connection.key(), resolved(connection, 'b').profile().orElseThrow())),
+                PublicationOutcome.UPDATED));
+
+        assertEquals(RefreshResult.CLOSED, result(submission));
+        assertEquals(0, coordinator.health().publicationsInFlight());
+        assertEquals(0, coordinator.health().pending());
+        assertEquals(0, time.pendingTasks());
+    }
     @Test
     void retriesRespectDeterministicOffsetsAndPerProfileCooldown() {
         ManualTime time = new ManualTime();
@@ -1136,6 +1347,22 @@ final class ServerAppearanceRefreshCoordinatorTest {
                 time::now,
                 time,
                 ServerAppearanceRefreshCoordinator.Jitter.none());
+    }
+
+    private static ServerAppearanceRefreshCoordinator coordinator(
+            ManualTime time,
+            OfficialProfileResolver resolver,
+            BatchAppearancePublisher publisher,
+            ServerRefreshPolicy policy,
+            ServerAppearanceRefreshCoordinator.CommitProbe commitProbe) {
+        return new ServerAppearanceRefreshCoordinator(
+                resolver,
+                publisher,
+                policy,
+                time::now,
+                time,
+                ServerAppearanceRefreshCoordinator.Jitter.none(),
+                commitProbe);
     }
 
     private static ServerRefreshPolicy defaultPolicy() {

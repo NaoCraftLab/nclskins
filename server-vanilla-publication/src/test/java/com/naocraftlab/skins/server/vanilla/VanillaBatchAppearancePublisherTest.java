@@ -1,9 +1,5 @@
 package com.naocraftlab.skins.server.vanilla;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.server.BatchPublicationResult;
 import com.naocraftlab.skins.server.ConnectionKey;
 import com.naocraftlab.skins.server.OfficialTextureSignatureVerifier;
@@ -13,6 +9,8 @@ import com.naocraftlab.skins.server.ServerPlayerIdentity;
 import com.naocraftlab.skins.server.SignedTexturesProperty;
 import com.naocraftlab.skins.server.TextureAppearance;
 import com.naocraftlab.skins.server.VerifiedOfficialProfile;
+import org.junit.jupiter.api.Test;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,15 +20,104 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class VanillaBatchAppearancePublisherTest {
+    @Test
+    void cancellationDuringSemanticHandoffWakesTheCancelledHeadAndStartsNextJob()
+            throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey cancelledActor = platform.connect("semantic-cancelled");
+        ConnectionKey nextActor = platform.connect("semantic-next");
+        platform.current.put(
+                cancelledActor,
+                LiveProfileTextures.signed(
+                        new SignedTexturesProperty("live-value", "live-signature")));
+        platform.verifiedCurrent = appearance('a');
+        AtomicBoolean cancelled = new AtomicBoolean();
+        VanillaBatchAppearancePublisher publisher = publisher(
+                platform,
+                64,
+                5_000_000L,
+                2,
+                completion -> {
+                    if (cancelled.compareAndSet(false, true)) {
+                        completion.cancel(true);
+                    }
+                });
+
+        CompletionStage<BatchPublicationResult> cancelledStage = publisher.publishBatch(List.of(
+                request(
+                        cancelledActor,
+                        "semantic-cancelled",
+                        appearance('b'),
+                        Optional.of(new SignedTexturesProperty(
+                                "target-value", "target-signature")))));
+        platform.runImmediate();
+        assertTrue(cancelledStage.toCompletableFuture().isCancelled());
+
+        BatchPublicationResult next = platform.await(publisher.publishBatch(List.of(
+                defaultRequest(nextActor, "semantic-next"))));
+
+        assertEquals(PublicationOutcome.UPDATED, next.outcome(nextActor).orElseThrow());
+        publisher.close();
+    }
+
+    @Test
+    void nextTickRejectionUsesBoundedRecoveryAndAllowsLaterPublication() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey failedActor = platform.connect("recovered-actor");
+        ConnectionKey observer = platform.connect("recovered-observer");
+        ConnectionKey nextActor = platform.connect("recovered-next");
+        platform.observers.put(failedActor, List.of(observer));
+        platform.retrackFailuresRemaining = 1;
+        platform.onUntrack = () -> platform.nextTickRejectionsRemaining = 1;
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 1L, 2);
+
+        BatchPublicationResult failed = platform.await(publisher.publishBatch(List.of(
+                defaultRequest(failedActor, "recovered-actor"))));
+
+        assertEquals(PublicationOutcome.FAILED, failed.outcome(failedActor).orElseThrow());
+        assertEquals(1, platform.events.stream().filter("retrack-failed"::equals).count());
+        assertEquals(1, platform.events.stream().filter("retrack"::equals).count());
+        platform.onUntrack = () -> {};
+        BatchPublicationResult next = platform.await(publisher.publishBatch(List.of(
+                defaultRequest(nextActor, "recovered-next"))));
+        assertEquals(PublicationOutcome.UPDATED, next.outcome(nextActor).orElseThrow());
+        publisher.close();
+    }
+
+    @Test
+    void persistentRetrackFailureStillSettlesAndReleasesQueueOwnership() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey failedActor = platform.connect("persistent-actor");
+        ConnectionKey observer = platform.connect("persistent-observer");
+        ConnectionKey nextActor = platform.connect("persistent-next");
+        platform.observers.put(failedActor, List.of(observer));
+        platform.retrackFailuresRemaining = 100;
+        platform.onUntrack = () -> platform.nextTickRejectionsRemaining = 1;
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 1L, 2);
+
+        BatchPublicationResult failed = platform.await(publisher.publishBatch(List.of(
+                defaultRequest(failedActor, "persistent-actor"))));
+
+        assertEquals(PublicationOutcome.FAILED, failed.outcome(failedActor).orElseThrow());
+        assertEquals(4, platform.events.stream().filter("retrack-failed"::equals).count());
+        platform.onUntrack = () -> {};
+        BatchPublicationResult next = platform.await(publisher.publishBatch(List.of(
+                defaultRequest(nextActor, "persistent-next"))));
+        assertEquals(PublicationOutcome.UPDATED, next.outcome(nextActor).orElseThrow());
+        publisher.close();
+    }
     @Test
     void continuesAcrossTicksAndNeverExceedsDeliveryBudget() throws Exception {
         FakePlatform platform = new FakePlatform();
@@ -494,6 +581,20 @@ final class VanillaBatchAppearancePublisherTest {
             int deliveries,
             long nanos,
             int reconciliationAttempts) {
+        return publisher(
+                platform,
+                deliveries,
+                nanos,
+                reconciliationAttempts,
+                VanillaBatchAppearancePublisher.AdvanceProbe.NOOP);
+    }
+
+    private static VanillaBatchAppearancePublisher publisher(
+            FakePlatform platform,
+            int deliveries,
+            long nanos,
+            int reconciliationAttempts,
+            VanillaBatchAppearancePublisher.AdvanceProbe advanceProbe) {
         return new VanillaBatchAppearancePublisher(
                 platform,
                 platform,
@@ -507,7 +608,8 @@ final class VanillaBatchAppearancePublisherTest {
                         deliveries,
                         Duration.ofNanos(nanos),
                         reconciliationAttempts,
-                        128));
+                        128),
+                advanceProbe);
     }
 
     private static PublicationRequest defaultRequest(ConnectionKey key, String name) {
@@ -573,6 +675,7 @@ final class VanillaBatchAppearancePublisherTest {
         private long operationCostNanos;
         private long generation;
         private boolean rejectExecute;
+        private int nextTickRejectionsRemaining;
 
         private ConnectionKey connect(String name) {
             ConnectionKey key = new ConnectionKey(UUID.randomUUID(), ++generation);
@@ -710,6 +813,10 @@ final class VanillaBatchAppearancePublisherTest {
 
         @Override
         public void nextTick(Runnable action) {
+            if (nextTickRejectionsRemaining > 0) {
+                nextTickRejectionsRemaining--;
+                throw new IllegalStateException("synthetic next-tick rejection");
+            }
             nextTick.add(action);
         }
 

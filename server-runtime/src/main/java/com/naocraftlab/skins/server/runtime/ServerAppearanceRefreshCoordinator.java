@@ -43,6 +43,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
     private final LongSupplier nanoTime;
     private final Scheduler scheduler;
     private final Jitter jitter;
+    private final CommitProbe commitProbe;
     private final AutoCloseable ownedInfrastructure;
     private final Map<UUID, Cycle> cycles = new LinkedHashMap<>();
     private final Map<UUID, Long> lastLookupStarts = new LinkedHashMap<>();
@@ -100,7 +101,26 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             LongSupplier nanoTime,
             Scheduler scheduler,
             Jitter jitter) {
-        this(resolver, publisher, policy, nanoTime, scheduler, jitter, null);
+        this(
+                resolver,
+                publisher,
+                policy,
+                nanoTime,
+                scheduler,
+                jitter,
+                CommitProbe.NOOP,
+                null);
+    }
+
+    ServerAppearanceRefreshCoordinator(
+            OfficialProfileResolver resolver,
+            BatchAppearancePublisher publisher,
+            ServerRefreshPolicy policy,
+            LongSupplier nanoTime,
+            Scheduler scheduler,
+            Jitter jitter,
+            CommitProbe commitProbe) {
+        this(resolver, publisher, policy, nanoTime, scheduler, jitter, commitProbe, null);
     }
 
     private ServerAppearanceRefreshCoordinator(
@@ -115,6 +135,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                 System::nanoTime,
                 infrastructure,
                 Jitter.randomTwentyPercent(),
+                CommitProbe.NOOP,
                 infrastructure);
     }
 
@@ -125,6 +146,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             LongSupplier nanoTime,
             Scheduler scheduler,
             Jitter jitter,
+            CommitProbe commitProbe,
             AutoCloseable ownedInfrastructure) {
         this.resolver = Objects.requireNonNull(resolver, "resolver");
         this.publisher = Objects.requireNonNull(publisher, "publisher");
@@ -132,6 +154,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.jitter = Objects.requireNonNull(jitter, "jitter");
+        this.commitProbe = Objects.requireNonNull(commitProbe, "commitProbe");
         this.ownedInfrastructure = ownedInfrastructure;
         long now = nanoTime.getAsLong();
         this.tokensUpdatedAt = now;
@@ -145,7 +168,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         CompletableFuture<RefreshResult> completion;
         Admission admission;
         Cycle scheduleInitial = null;
-        Cycle disconnected = null;
+        CycleRemoval disconnected = null;
         ConnectionKey publisherFence = null;
         synchronized (lock) {
             if (closed) {
@@ -199,7 +222,8 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             previousCompletion.complete(RefreshResult.SUPERSEDED);
         }
         if (disconnected != null) {
-            disconnected.completion.complete(RefreshResult.DISCONNECTED);
+            cancelRemoval(disconnected);
+            disconnected.cycle.completion.complete(RefreshResult.DISCONNECTED);
         }
         if (scheduleInitial != null) {
             scheduleAttempt(scheduleInitial, 0);
@@ -211,7 +235,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
 
     public void disconnected(ConnectionKey connection) {
         Objects.requireNonNull(connection, "connection");
-        Cycle removed = null;
+        CycleRemoval removed = null;
         synchronized (lock) {
             Cycle candidate = cycles.get(connection.profileId());
             if (candidate != null && candidate.connection.key().equals(connection)) {
@@ -220,7 +244,8 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         }
         if (removed != null) {
             publisher.supersede(connection);
-            removed.completion.complete(RefreshResult.DISCONNECTED);
+            cancelRemoval(removed);
+            removed.cycle.completion.complete(RefreshResult.DISCONNECTED);
         }
         pump();
     }
@@ -273,25 +298,26 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
 
     @Override
     public void close() {
-        List<Cycle> pending;
+        List<CycleRemoval> pending;
         PublicationDispatch publication;
+        Cancellable lookupPump;
+        Cancellable publicationBatch;
         synchronized (lock) {
             if (closed) {
                 return;
             }
             closed = true;
-            pending = new ArrayList<>(cycles.values());
-            for (Cycle cycle : pending) {
-                cycle.schedule.cancel();
-                cancelLookupLocked(cycle);
+            pending = new ArrayList<>();
+            for (Cycle cycle : new ArrayList<>(cycles.values())) {
+                pending.add(removeCycleLocked(cycle));
             }
             cycles.clear();
             ready.clear();
             pendingPublications.clear();
             lastLookupStarts.clear();
-            pumpSchedule.cancel();
+            lookupPump = pumpSchedule;
             pumpSchedule = NO_SCHEDULE;
-            batchSchedule.cancel();
+            publicationBatch = batchSchedule;
             batchSchedule = NO_SCHEDULE;
             publication = activePublication;
             activePublication = null;
@@ -301,12 +327,15 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                 publication = null;
             }
         }
+        lookupPump.cancel();
+        publicationBatch.cancel();
         if (publication != null) {
             publication.timeout.cancel();
             publication.cancelStage();
         }
-        for (Cycle cycle : pending) {
-            cycle.completion.complete(RefreshResult.CLOSED);
+        for (CycleRemoval removal : pending) {
+            cancelRemoval(removal);
+            removal.cycle.completion.complete(RefreshResult.CLOSED);
         }
         if (ownedInfrastructure != null) {
             try {
@@ -318,62 +347,116 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
     }
 
     private void scheduleAttempt(Cycle cycle, int attemptIndex) {
-        Duration nominal = policy.attemptOffsets().get(attemptIndex);
-        Duration offset = Objects.requireNonNull(
-                jitter.apply(nominal, attemptIndex), "jittered attempt offset");
-        if (offset.isNegative()) {
-            throw new IllegalArgumentException("Jitter must not produce a negative delay");
-        }
-        long dueAt;
+        PostCommit action;
         synchronized (lock) {
             if (!isCurrentLocked(cycle)) {
                 return;
             }
             cycle.waitingForRetry = attemptIndex > 0;
-            dueAt = saturatedAdd(cycle.attemptOriginAt, nanos(offset));
+            action = PostCommit.scheduleAttempt(
+                    reserveScheduleLocked(cycle), attemptIndex);
         }
-        scheduleCycleAt(cycle, dueAt);
+        applyPostCommit(action);
     }
 
     private void scheduleCycleAt(Cycle cycle, long dueAt) {
-        PendingSchedule token = new PendingSchedule();
-        Cancellable previous;
-        long delay;
+        PostCommit action;
         synchronized (lock) {
             if (!isCurrentLocked(cycle)) {
                 return;
             }
             long now = nanoTime.getAsLong();
             if (isExpiredLocked(cycle, now)) {
-                finishLater(cycle, RefreshResult.EXPIRED);
-                return;
+                action = terminalActionLocked(cycle, RefreshResult.EXPIRED);
+            } else {
+                action = PostCommit.scheduleAt(reserveScheduleLocked(cycle), dueAt);
             }
-            Long lastStart = lastLookupStarts.get(cycle.connection.key().profileId());
-            if (lastStart != null) {
-                dueAt = Math.max(
-                        dueAt,
-                        saturatedAdd(lastStart, nanos(policy.independentCycleCooldown())));
-            }
-            previous = cycle.schedule;
-            cycle.schedule = token;
-            cycle.state = State.DELAYED;
-            delay = nonNegativeDifference(dueAt, now);
         }
-        previous.cancel();
+        applyPostCommit(action);
+    }
+
+    private ScheduleReservation reserveScheduleLocked(Cycle cycle) {
+        PendingSchedule token = new PendingSchedule();
+        Cancellable previous = cycle.schedule;
+        cycle.schedule = token;
+        cycle.state = State.DELAYED;
+        return new ScheduleReservation(cycle, token, previous);
+    }
+
+    private void armAttempt(ScheduleReservation reservation, int attemptIndex) {
+        Duration nominal = policy.attemptOffsets().get(attemptIndex);
+        final Duration offset;
+        try {
+            offset = Objects.requireNonNull(
+                    jitter.apply(nominal, attemptIndex), "jittered attempt offset");
+        } catch (RuntimeException invalidJitter) {
+            finish(reservation.cycle, RefreshResult.FAILED);
+            return;
+        }
+        if (offset.isNegative()) {
+            finish(reservation.cycle, RefreshResult.FAILED);
+            return;
+        }
+        armSchedule(
+                reservation,
+                saturatedAdd(reservation.cycle.attemptOriginAt, nanos(offset)));
+    }
+
+    private void armSchedule(ScheduleReservation reservation, long dueAt) {
+        reservation.previous.cancel();
+        long delay;
+        PostCommit expired = PostCommit.none();
+        boolean cancelled = false;
+        synchronized (lock) {
+            Cycle cycle = reservation.cycle;
+            if (!isCurrentLocked(cycle) || cycle.schedule != reservation.token) {
+                cancelled = true;
+                delay = 0L;
+            } else {
+                long now = nanoTime.getAsLong();
+                if (isExpiredLocked(cycle, now)) {
+                    expired = terminalActionLocked(cycle, RefreshResult.EXPIRED);
+                    delay = 0L;
+                } else {
+                    Long lastStart = lastLookupStarts.get(cycle.connection.key().profileId());
+                    if (lastStart != null) {
+                        dueAt = Math.max(
+                                dueAt,
+                                saturatedAdd(
+                                        lastStart,
+                                        nanos(policy.independentCycleCooldown())));
+                    }
+                    delay = nonNegativeDifference(dueAt, now);
+                }
+            }
+        }
+        if (cancelled) {
+            reservation.token.cancel();
+            return;
+        }
+        if (expired.kind != PostCommitKind.NONE) {
+            applyPostCommit(expired);
+            return;
+        }
         Cancellable scheduled;
         try {
             scheduled = Objects.requireNonNull(
-                    scheduler.schedule(Duration.ofNanos(delay), () -> makeReady(cycle, token)),
+                    scheduler.schedule(
+                            Duration.ofNanos(delay),
+                            () -> makeReady(reservation.cycle, reservation.token)),
                     "scheduled attempt");
         } catch (RuntimeException rejected) {
-            finish(cycle, RefreshResult.FAILED);
+            finish(reservation.cycle, RefreshResult.FAILED);
             return;
         }
-        token.attach(scheduled);
+        reservation.token.attach(scheduled);
+        boolean cancelToken;
         synchronized (lock) {
-            if (!isCurrentLocked(cycle) || cycle.schedule != token) {
-                token.cancel();
-            }
+            cancelToken = !isCurrentLocked(reservation.cycle)
+                    || reservation.cycle.schedule != reservation.token;
+        }
+        if (cancelToken) {
+            reservation.token.cancel();
         }
     }
 
@@ -533,10 +616,14 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         OfficialProfileResolver.Resolution safe = !timedOut
                 ? observed
                 : OfficialProfileResolver.Resolution.transientFailure();
-        boolean currentRevision;
+        commitProbe.beforeCommit(CommitKind.LOOKUP, dispatch.revision);
+        PostCommit action;
         synchronized (lock) {
             if (dispatch.cycle.lookupDispatch == dispatch) {
                 dispatch.cycle.lookupDispatch = null;
+            }
+            if (lookupsInFlight <= 0) {
+                throw new IllegalStateException("Lookup slot accounting underflow");
             }
             lookupsInFlight--;
             long latency = nonNegativeDifference(completedAt, dispatch.startedAtNanos);
@@ -550,20 +637,22 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
 
                 }
             }
-            currentRevision = isCurrentLocked(dispatch.cycle)
-                    && dispatch.cycle.revision == dispatch.revision;
+            if (!isCurrentLocked(dispatch.cycle)) {
+                action = PostCommit.none();
+            } else if (dispatch.cycle.revision != dispatch.revision) {
+                action = coalescedFollowUpActionLocked(dispatch.cycle);
+            } else {
+                action = switch (safe.status()) {
+                    case REJECTED -> terminalActionLocked(
+                            dispatch.cycle, RefreshResult.REJECTED);
+                    case TRANSIENT_FAILURE, THROTTLED -> retryOrFinishActionLocked(
+                            dispatch.cycle, RefreshResult.EXHAUSTED, completedAt);
+                    case RESOLVED -> resolvedActionLocked(
+                            dispatch, safe.profile().orElseThrow());
+                };
+            }
         }
-        if (!currentRevision) {
-            scheduleCoalescedFollowUp(dispatch.cycle);
-            pump();
-            return;
-        }
-        switch (safe.status()) {
-            case REJECTED -> finish(dispatch.cycle, RefreshResult.REJECTED);
-            case TRANSIENT_FAILURE -> retryOrFinish(dispatch.cycle, RefreshResult.EXHAUSTED);
-            case THROTTLED -> retryOrFinish(dispatch.cycle, RefreshResult.EXHAUSTED);
-            case RESOLVED -> handleResolved(dispatch, safe.profile().orElseThrow());
-        }
+        applyPostCommit(action);
         pump();
     }
 
@@ -582,42 +671,40 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         }
     }
 
-    private void handleResolved(LookupDispatch dispatch, VerifiedOfficialProfile profile) {
+    private PostCommit resolvedActionLocked(
+            LookupDispatch dispatch,
+            VerifiedOfficialProfile profile) {
         if (!dispatch.connection.identity().equals(profile.identity())) {
-            finish(dispatch.cycle, RefreshResult.REJECTED);
-            return;
+            return terminalActionLocked(dispatch.cycle, RefreshResult.REJECTED);
         }
-        enqueuePublication(new PendingPublication(
+        PendingPublication pending = new PendingPublication(
                 dispatch.cycle,
                 dispatch.revision,
-                profile));
-    }
-
-    private void enqueuePublication(PendingPublication pending) {
-        boolean schedule;
-        synchronized (lock) {
-            if (!isCurrentLocked(pending.cycle)
-                    || pending.cycle.revision != pending.revision) {
-                return;
-            }
-            pendingPublications.put(pending.cycle.connection.key().profileId(), pending);
-            pending.cycle.state = State.BATCH_QUEUED;
-            schedule = publicationsInFlight == 0 && batchSchedule == NO_SCHEDULE;
+                profile);
+        pendingPublications.put(dispatch.connection.key().profileId(), pending);
+        dispatch.cycle.state = State.BATCH_QUEUED;
+        if (publicationsInFlight == 0 && batchSchedule == NO_SCHEDULE) {
+            PendingSchedule token = new PendingSchedule();
+            batchSchedule = token;
+            return PostCommit.scheduleBatch(token);
         }
-        if (schedule) {
-            scheduleBatch();
-        }
+        return PostCommit.none();
     }
 
     private void scheduleBatch() {
-        PendingSchedule token = new PendingSchedule();
+        PendingSchedule token;
         synchronized (lock) {
             if (closed || publicationsInFlight != 0 || pendingPublications.isEmpty()
                     || batchSchedule != NO_SCHEDULE) {
                 return;
             }
+            token = new PendingSchedule();
             batchSchedule = token;
         }
+        armBatch(token);
+    }
+
+    private void armBatch(PendingSchedule token) {
         Cancellable scheduled;
         try {
             scheduled = Objects.requireNonNull(
@@ -628,10 +715,12 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             return;
         }
         token.attach(scheduled);
+        boolean cancelToken;
         synchronized (lock) {
-            if (batchSchedule != token) {
-                token.cancel();
-            }
+            cancelToken = batchSchedule != token;
+        }
+        if (cancelToken) {
+            token.cancel();
         }
     }
 
@@ -771,152 +860,140 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             }
         }
         for (PendingPublication pending : batch) {
-            boolean expired;
-            synchronized (lock) {
-                expired = isCurrentLocked(pending.cycle)
-                        && isExpiredLocked(pending.cycle, nanoTime.getAsLong());
-            }
-            if (expired) {
-                finish(pending.cycle, RefreshResult.EXPIRED);
-                continue;
-            }
             PublicationOutcome outcome = !failure && result != null
                     ? result.outcome(pending.cycle.connection.key())
                             .orElse(PublicationOutcome.FAILED)
                     : PublicationOutcome.FAILED;
-            handlePublication(pending, outcome);
+            applyPostCommit(commitPublicationOutcome(pending, outcome));
         }
         scheduleBatch();
         pump();
     }
 
-    private void handlePublication(
+    private PostCommit commitPublicationOutcome(
             PendingPublication pending,
             PublicationOutcome outcome) {
-        boolean superseded;
+        commitProbe.beforeCommit(CommitKind.PUBLICATION, pending.revision);
         synchronized (lock) {
             if (!isCurrentLocked(pending.cycle)) {
-                return;
+                return PostCommit.none();
             }
-            superseded = pending.cycle.revision != pending.revision;
-        }
-        if (superseded) {
-            scheduleCoalescedFollowUp(pending.cycle);
-            return;
-        }
-        switch (outcome) {
-            case UPDATED -> finish(pending.cycle, RefreshResult.UPDATED);
-            case UNCHANGED -> {
-                synchronized (lock) {
+            long now = nanoTime.getAsLong();
+            if (isExpiredLocked(pending.cycle, now)) {
+                return terminalActionLocked(pending.cycle, RefreshResult.EXPIRED);
+            }
+            if (pending.cycle.revision != pending.revision) {
+                return coalescedFollowUpActionLocked(pending.cycle);
+            }
+            return switch (outcome) {
+                case UPDATED -> terminalActionLocked(
+                        pending.cycle, RefreshResult.UPDATED);
+                case UNCHANGED -> {
                     pending.cycle.sawResolvedUnchanged = true;
+                    yield retryOrFinishActionLocked(
+                            pending.cycle, RefreshResult.UNCHANGED, now);
                 }
-                retryOrFinish(pending.cycle, RefreshResult.UNCHANGED);
-            }
-            case STALE -> finish(pending.cycle, RefreshResult.STALE_CONNECTION);
-            case FAILED -> finish(pending.cycle, RefreshResult.FAILED);
+                case STALE -> terminalActionLocked(
+                        pending.cycle, RefreshResult.STALE_CONNECTION);
+                case FAILED -> terminalActionLocked(
+                        pending.cycle, RefreshResult.FAILED);
+            };
         }
     }
 
     private void scheduleCoalescedFollowUp(Cycle cycle) {
-        long dueAt;
-        boolean expired;
+        PostCommit action;
         synchronized (lock) {
             if (!isCurrentLocked(cycle)) {
                 return;
             }
-            long now = nanoTime.getAsLong();
-            expired = isExpiredLocked(cycle, now);
-            Long lastStart = lastLookupStarts.get(cycle.connection.key().profileId());
-            long cooldownEnds = lastStart == null
-                    ? now
-                    : saturatedAdd(lastStart, nanos(policy.independentCycleCooldown()));
-            dueAt = Math.max(now, cooldownEnds);
-            cycle.waitingForRetry = true;
+            action = coalescedFollowUpActionLocked(cycle);
         }
-        if (expired) {
-            finish(cycle, RefreshResult.EXPIRED);
-        } else {
-            scheduleCycleAt(cycle, dueAt);
-        }
+        applyPostCommit(action);
     }
 
-    private void retryOrFinish(Cycle cycle, RefreshResult terminal) {
-        int nextAttempt;
+    private PostCommit coalescedFollowUpActionLocked(Cycle cycle) {
         long now = nanoTime.getAsLong();
-        synchronized (lock) {
-            if (!isCurrentLocked(cycle)) {
-                return;
-            }
-            if (isExpiredLocked(cycle, now)) {
-                terminal = RefreshResult.EXPIRED;
-                nextAttempt = -1;
-            } else {
-                nextAttempt = cycle.attemptsDispatched;
-                if (nextAttempt >= policy.attemptOffsets().size()) {
-                    if (cycle.sawResolvedUnchanged && terminal == RefreshResult.EXHAUSTED) {
-                        terminal = RefreshResult.UNCHANGED;
-                    }
-                    nextAttempt = -1;
-                }
-            }
+        if (isExpiredLocked(cycle, now)) {
+            return terminalActionLocked(cycle, RefreshResult.EXPIRED);
         }
-        if (nextAttempt < 0) {
-            finish(cycle, terminal);
-        } else {
-            scheduleAttempt(cycle, nextAttempt);
+        Long lastStart = lastLookupStarts.get(cycle.connection.key().profileId());
+        long cooldownEnds = lastStart == null
+                ? now
+                : saturatedAdd(lastStart, nanos(policy.independentCycleCooldown()));
+        cycle.waitingForRetry = true;
+        return PostCommit.scheduleAt(
+                reserveScheduleLocked(cycle), Math.max(now, cooldownEnds));
+    }
+
+    private PostCommit retryOrFinishActionLocked(
+            Cycle cycle,
+            RefreshResult terminal,
+            long now) {
+        if (isExpiredLocked(cycle, now)) {
+            return terminalActionLocked(cycle, RefreshResult.EXPIRED);
         }
+        int nextAttempt = cycle.attemptsDispatched;
+        if (nextAttempt >= policy.attemptOffsets().size()) {
+            if (cycle.sawResolvedUnchanged && terminal == RefreshResult.EXHAUSTED) {
+                terminal = RefreshResult.UNCHANGED;
+            }
+            return terminalActionLocked(cycle, terminal);
+        }
+        cycle.waitingForRetry = true;
+        return PostCommit.scheduleAttempt(
+                reserveScheduleLocked(cycle), nextAttempt);
     }
 
     private void finish(Cycle cycle, RefreshResult result) {
-        CompletableFuture<RefreshResult> completion;
+        PostCommit action;
         synchronized (lock) {
             if (!isCurrentLocked(cycle)) {
                 return;
             }
-            removeCycleLocked(cycle);
-            if (result == RefreshResult.EXPIRED) {
-                expiredCount++;
-            }
-            completion = cycle.completion;
+            action = terminalActionLocked(cycle, result);
         }
-        completion.complete(result);
+        applyPostCommit(action);
     }
 
-    private void finishLater(Cycle cycle, RefreshResult result) {
-        try {
-            scheduler.schedule(Duration.ZERO, () -> finish(cycle, result));
-        } catch (RuntimeException failure) {
-            finish(cycle, result);
+    private PostCommit terminalActionLocked(Cycle cycle, RefreshResult result) {
+        CompletableFuture<RefreshResult> completion = cycle.completion;
+        CycleRemoval removal = removeCycleLocked(cycle);
+        if (result == RefreshResult.EXPIRED) {
+            expiredCount++;
         }
+        return PostCommit.complete(removal, completion, result);
     }
 
-    private Cycle removeCycleLocked(Cycle cycle) {
+    private CycleRemoval removeCycleLocked(Cycle cycle) {
         UUID profileId = cycle.connection.key().profileId();
         if (cycles.get(profileId) == cycle) {
             cycles.remove(profileId);
         }
-        cancelLookupLocked(cycle);
-        pendingPublications.remove(profileId);
-        ready.removeIf(candidate -> candidate == cycle);
-        cycle.schedule.cancel();
-        cycle.schedule = NO_SCHEDULE;
-        cycle.state = State.TERMINAL;
-        return cycle;
-    }
-
-
-    private void cancelLookupLocked(Cycle cycle) {
         LookupDispatch dispatch = cycle.lookupDispatch;
         cycle.lookupDispatch = null;
-        if (dispatch == null || !dispatch.settled.compareAndSet(false, true)) {
-            return;
+        if (dispatch != null && dispatch.settled.compareAndSet(false, true)) {
+            if (lookupsInFlight <= 0) {
+                throw new IllegalStateException("Lookup slot accounting underflow");
+            }
+            lookupsInFlight--;
+        } else {
+            dispatch = null;
         }
-        dispatch.timeout.cancel();
-        dispatch.cancelStage();
-        if (lookupsInFlight <= 0) {
-            throw new IllegalStateException("Lookup slot accounting underflow");
+        pendingPublications.remove(profileId);
+        ready.removeIf(candidate -> candidate == cycle);
+        Cancellable schedule = cycle.schedule;
+        cycle.schedule = NO_SCHEDULE;
+        cycle.state = State.TERMINAL;
+        return new CycleRemoval(cycle, schedule, dispatch);
+    }
+
+    private void cancelRemoval(CycleRemoval removal) {
+        removal.schedule.cancel();
+        if (removal.lookup != null) {
+            removal.lookup.timeout.cancel();
+            removal.lookup.cancelStage();
         }
-        lookupsInFlight--;
     }
 
     private void failPendingPublications() {
@@ -927,7 +1004,24 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             pendingPublications.clear();
         }
         for (PendingPublication item : pending) {
-            finish(item.cycle, RefreshResult.FAILED);
+            applyPostCommit(commitPublicationOutcome(item, PublicationOutcome.FAILED));
+        }
+        pump();
+    }
+
+    private void applyPostCommit(PostCommit action) {
+        switch (action.kind) {
+            case NONE -> {
+
+            }
+            case SCHEDULE_AT -> armSchedule(action.schedule, action.dueAt);
+            case SCHEDULE_ATTEMPT -> armAttempt(action.schedule, action.attemptIndex);
+            case SCHEDULE_BATCH -> armBatch(action.batchToken);
+            case COMPLETE -> {
+                cancelRemoval(action.removal);
+                action.completion.complete(action.result);
+            }
+            default -> throw new AssertionError("Unhandled post-commit action");
         }
     }
 
@@ -1069,6 +1163,128 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             };
         }
     }
+
+    enum CommitKind {
+        LOOKUP,
+        PUBLICATION
+    }
+
+    @FunctionalInterface
+    interface CommitProbe {
+        CommitProbe NOOP = (kind, revision) -> {};
+
+        void beforeCommit(CommitKind kind, long revision);
+    }
+
+    private enum PostCommitKind {
+        NONE,
+        SCHEDULE_AT,
+        SCHEDULE_ATTEMPT,
+        SCHEDULE_BATCH,
+        COMPLETE
+    }
+
+    private static final class PostCommit {
+        private static final PostCommit NONE = new PostCommit(
+                PostCommitKind.NONE, null, 0L, -1, null, null, null, null);
+
+        private final PostCommitKind kind;
+        private final ScheduleReservation schedule;
+        private final long dueAt;
+        private final int attemptIndex;
+        private final PendingSchedule batchToken;
+        private final CycleRemoval removal;
+        private final CompletableFuture<RefreshResult> completion;
+        private final RefreshResult result;
+
+        private PostCommit(
+                PostCommitKind kind,
+                ScheduleReservation schedule,
+                long dueAt,
+                int attemptIndex,
+                PendingSchedule batchToken,
+                CycleRemoval removal,
+                CompletableFuture<RefreshResult> completion,
+                RefreshResult result) {
+            this.kind = kind;
+            this.schedule = schedule;
+            this.dueAt = dueAt;
+            this.attemptIndex = attemptIndex;
+            this.batchToken = batchToken;
+            this.removal = removal;
+            this.completion = completion;
+            this.result = result;
+        }
+
+        private static PostCommit none() {
+            return NONE;
+        }
+
+        private static PostCommit scheduleAt(
+                ScheduleReservation schedule,
+                long dueAt) {
+            return new PostCommit(
+                    PostCommitKind.SCHEDULE_AT,
+                    schedule,
+                    dueAt,
+                    -1,
+                    null,
+                    null,
+                    null,
+                    null);
+        }
+
+        private static PostCommit scheduleAttempt(
+                ScheduleReservation schedule,
+                int attemptIndex) {
+            return new PostCommit(
+                    PostCommitKind.SCHEDULE_ATTEMPT,
+                    schedule,
+                    0L,
+                    attemptIndex,
+                    null,
+                    null,
+                    null,
+                    null);
+        }
+
+        private static PostCommit scheduleBatch(PendingSchedule batchToken) {
+            return new PostCommit(
+                    PostCommitKind.SCHEDULE_BATCH,
+                    null,
+                    0L,
+                    -1,
+                    batchToken,
+                    null,
+                    null,
+                    null);
+        }
+
+        private static PostCommit complete(
+                CycleRemoval removal,
+                CompletableFuture<RefreshResult> completion,
+                RefreshResult result) {
+            return new PostCommit(
+                    PostCommitKind.COMPLETE,
+                    null,
+                    0L,
+                    -1,
+                    null,
+                    removal,
+                    completion,
+                    result);
+        }
+    }
+
+    private record ScheduleReservation(
+            Cycle cycle,
+            PendingSchedule token,
+            Cancellable previous) {}
+
+    private record CycleRemoval(
+            Cycle cycle,
+            Cancellable schedule,
+            LookupDispatch lookup) {}
 
     private static final class Cycle {
         private ConnectionSnapshot connection;

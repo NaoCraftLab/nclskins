@@ -1,3 +1,11 @@
+## 1.0.0-beta.2
+
+### Fixed
+
+- **More reliable live skin updates**
+    - Keep rapid skin changes working correctly during disconnects and server shutdown
+    - Prevent one failed update from blocking later player updates
+
 ## 1.0.0-beta.1
 
 ### Added
