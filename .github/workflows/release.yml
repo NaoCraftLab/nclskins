@@ -205,6 +205,10 @@ jobs:
   platforms:
     name: Publish Modrinth and CurseForge
     needs: build
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.build.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -247,6 +251,11 @@ jobs:
   github:
     name: Publish GitHub Release
     needs: [build, platforms]
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      needs.platforms.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

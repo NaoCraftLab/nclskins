@@ -28,6 +28,29 @@ final class ReleaseLogicTest {
     }
 
     @Test
+    void tagPublicationJobsBypassTheExpectedSkippedBackfillDependency() {
+        String workflow = new File(repository, '.github/workflows/release.yml').text
+
+        assertTrue(workflow.contains('''  platforms:
+    name: Publish Modrinth and CurseForge
+    needs: build
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.build.result == 'success'
+'''))
+        assertTrue(workflow.contains('''  github:
+    name: Publish GitHub Release
+    needs: [build, platforms]
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      needs.platforms.result == 'success'
+'''))
+    }
+
+    @Test
     void stableAlphaAndBetaTagsAreClassifiedStrictly() {
         ['1.0.0': false, '1.0.0-alpha.1': true, '1.1.0-beta.2': true].each {
             String version, boolean prerelease ->
