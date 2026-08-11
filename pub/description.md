@@ -19,10 +19,14 @@ Your library is shared across every Minecraft instance on your computer that use
 
 ## 🔎 Discover and import skins
 
-Import a local file, look up a player's current skin by name or UUID, or download one from a direct public file URL.
+Import a skin from a file or direct link, or find a player's current skin by name or UUID. NCL Skins automatically detects whether it
+uses the Classic or Slim model, and you can change it in the editor when needed.
 
-The built-in Catalog includes the standard Minecraft characters and optional collections of Mojang event skins. Active Java resource
-packs can add their own named collections using ordinary textures and resource-pack localization files.
+Bring over saved looks from Minecraft Launcher, Modrinth App, CurseForge App, Prism Launcher, Skin Shuffle, Simple/SkinSwapper, and
+Quick Skin. Before importing, NCL Skins shows new skins and those already in your catalog, then lets you choose only the ones you want.
+
+The built-in Catalog includes the standard Minecraft characters and optional collections of official Mojang event skins. Resource packs
+can add their own skin collections.
 
 ## 🌐 Client and server use
 
@@ -35,6 +39,9 @@ rejoin.
 Your gallery remains available even when Minecraft Services are temporarily unavailable. You can create, edit, and preview looks, apply
 your appearance locally, and keep playing. NCL Skins can synchronize your official skin and cape when the service becomes available
 again.
+
+If Minecraft temporarily limits skin or cape changes, NCL Skins keeps your latest choice, shows the waiting progress on the affected
+action, and applies it automatically when the limit ends.
 
 Data is isolated by account but shared by all Minecraft instances launched with the same account on this computer. You will not have to
 recreate your looks for every Minecraft setup.

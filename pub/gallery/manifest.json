@@ -7,14 +7,14 @@
       "featured": false,
       "title": "My looks",
       "description": "Keep complete looks in one in-game gallery and switch between them with one click",
-      "alt": "The My looks gallery in NCL Skins with several saved player looks"
+      "alt": "The My looks gallery in NCL Skins with saved player looks"
     },
     {
       "file": "02-editor-and-preview.png",
       "order": 2,
       "featured": false,
-      "title": "Edit and preview a complete look",
-      "description": "Check the skin, Classic or Slim model, Cape or Elytra, and Second layer settings before saving",
+      "title": "Edit and preview your complete look",
+      "description": "Customize the skin, Classic or Slim model, Cape or Elytra, and individual Second layer parts before saving",
       "alt": "The Edit look screen in NCL Skins with a large player preview and appearance controls"
     },
     {
@@ -22,24 +22,32 @@
       "order": 3,
       "featured": false,
       "title": "Browse skin collections",
-      "description": "Find Minecraft characters and skins from collections provided by active Java resource packs",
-      "alt": "The NCL Skins Catalog with Search and multiple skin cards"
+      "description": "Find standard Minecraft characters, Mojang event skins, and collections from active resourcepacks",
+      "alt": "The NCL Skins Catalog with Search, a model filter, and skin cards from the Standard collection"
     },
     {
       "file": "04-skin-import.png",
       "order": 4,
       "featured": false,
       "title": "Import a skin from your preferred source",
-      "description": "Choose a local skin file, find a Player skin by name or UUID, or enter a direct public Skin file URL",
-      "alt": "The NCL Skins Import screen with options for a local file, player name or UUID, and a direct Skin file URL"
+      "description": "Choose a file, find a player skin by name or UUID, add a direct link, or import from other apps",
+      "alt": "The NCL Skins Import screen with options for a file, player name or UUID, direct link, and other apps"
     },
     {
-      "file": "05-minecraft-integration.png",
+      "file": "05-import-review.png",
       "order": 5,
+      "featured": false,
+      "title": "Review looks before importing",
+      "description": "Separate new looks from ones you already have and select only the ones you want to add",
+      "alt": "The NCL Skins import review screen with new and duplicate looks and selected cards"
+    },
+    {
+      "file": "06-minecraft-integration.png",
+      "order": 6,
       "featured": false,
       "title": "Built into Minecraft",
       "description": "Open My looks by clicking your player on the Main Menu or Game Menu",
-      "alt": "Minecraft Main Menu with the integrated Current player appearance preview from NCL Skins"
+      "alt": "The Minecraft Main Menu with the integrated current-player preview from NCL Skins"
     }
   ]
 }
