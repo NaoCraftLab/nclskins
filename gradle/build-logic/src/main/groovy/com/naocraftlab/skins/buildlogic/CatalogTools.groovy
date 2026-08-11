@@ -33,6 +33,11 @@ final class CatalogTools {
         '(?:-(?:alpha|beta)\\.[1-9][0-9]*)?$')
     static final Pattern UUID_PATTERN = Pattern.compile(
             '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+    static final Pattern PARCHMENT_VERSION_PATTERN = Pattern.compile(
+            '^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}(?:-nightly-SNAPSHOT)?$')
+    static final Pattern PARCHMENT_ARTIFACT_VERSION_PATTERN = Pattern.compile(
+            '^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}' +
+                    '(?:-nightly-[0-9]{8}\\.[0-9]{6}-[1-9][0-9]*)?$')
 
     static Map loadCatalog(File repositoryRoot) {
         def value = new JsonSlurper().parse(new File(repositoryRoot, 'gradle/targets.json'))
@@ -288,6 +293,37 @@ final class CatalogTools {
         raw == null ? null : raw.toString()
     }
 
+    static String parchmentVersion(Map catalog, Map target) {
+        Map declaration = parchmentDeclaration(catalog, target)
+        Object raw = declaration?.version
+        raw == null ? null : raw.toString()
+    }
+
+    static String parchmentArtifactUrl(Map catalog, Map target) {
+        Map declaration = parchmentDeclaration(catalog, target)
+        if (declaration == null) return null
+        String minecraftVersion = target.minecraft.version.toString()
+        String version = declaration.version.toString()
+        String artifactVersion = declaration.artifactVersion.toString()
+        "https://maven.parchmentmc.org/org/parchmentmc/data/parchment-${minecraftVersion}/" +
+                "${version}/parchment-${minecraftVersion}-${artifactVersion}.zip"
+    }
+
+    static String parchmentArtifactVersion(Map catalog, Map target) {
+        Map declaration = parchmentDeclaration(catalog, target)
+        Object raw = declaration?.artifactVersion
+        raw == null ? null : raw.toString()
+    }
+
+    private static Map parchmentDeclaration(Map catalog, Map target) {
+        Object mappings = catalog.mappings
+        if (!(mappings instanceof Map) || !((mappings as Map).parchment instanceof Map)) {
+            return null
+        }
+        Object raw = ((mappings as Map).parchment as Map)[target.minecraft.version]
+        raw instanceof Map ? raw as Map : null
+    }
+
     static String optionalDependencyPredicate(Map catalog, Map target, String dependencyId) {
         Map declaration = (catalog.optionalDependencies as Map)[dependencyId] as Map
         if (declaration.predicates instanceof Map) {
@@ -304,11 +340,12 @@ final class CatalogTools {
     static void validate(File repositoryRoot, Map catalog) {
         List<String> errors = []
         Set expectedTop = [
-                'schemaVersion', 'development', 'mod', 'plugins', 'gradleFamilies', 'gsonCompatibility',
+                'schemaVersion', 'development', 'mod', 'plugins', 'mappings',
+                'gradleFamilies', 'gsonCompatibility',
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
                 'optionalDependencies', 'publicationDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 11) {
+        if (catalog.schemaVersion != 12) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -437,10 +474,46 @@ final class CatalogTools {
         if ((gson.keySet() as Set) != ['minimum', 'maximum'] as Set || gson.values().any { !(it instanceof String) || it.isBlank() }) {
             errors.add('gsonCompatibility must define non-empty minimum and maximum versions')
         }
-        Set pluginKeys = ['loom', 'modDevGradle', 'forgeGradle', 'mixinGradle', 'mixinProcessor'] as Set
+        Set pluginKeys = [
+                'loom', 'modDevGradle', 'forgeGradle', 'librarian',
+                'mixinGradle', 'mixinProcessor'
+        ] as Set
         if (!(catalog.plugins instanceof Map) || ((catalog.plugins as Map).keySet() as Set) != pluginKeys ||
             (catalog.plugins as Map).values().any { !(it instanceof String) || !it }) {
             errors.add('plugins must pin every supported build plugin')
+        }
+        Map mappings = catalog.mappings instanceof Map ? catalog.mappings as Map : [:]
+        Map parchment = mappings.parchment instanceof Map ? mappings.parchment as Map : [:]
+        Set parchmentMinecraftVersions = ['1.20.1', '1.21.1', '1.21.11'] as Set
+        Set targetMinecraftVersions = (catalog.targets as List)
+                .collect { (it.minecraft as Map).version.toString() } as Set
+        if ((mappings.keySet() as Set) != ['parchment'] as Set ||
+                (parchment.keySet() as Set) != parchmentMinecraftVersions ||
+                !targetMinecraftVersions.containsAll(parchmentMinecraftVersions) ||
+                parchment.values().any { Object raw ->
+                    if (!(raw instanceof Map) ||
+                            ((raw as Map).keySet() as Set) != ['version', 'artifactVersion'] as Set) {
+                        return true
+                    }
+                    Map declaration = raw as Map
+                    if (!(declaration.version instanceof String) ||
+                            !(declaration.artifactVersion instanceof String) ||
+                            !PARCHMENT_VERSION_PATTERN.matcher(declaration.version as String).matches() ||
+                            !PARCHMENT_ARTIFACT_VERSION_PATTERN.matcher(
+                                    declaration.artifactVersion as String).matches()) {
+                        return true
+                    }
+                    boolean snapshot = (declaration.version as String).endsWith('-SNAPSHOT')
+                    String version = declaration.version as String
+                    String artifactVersion = declaration.artifactVersion as String
+                    if (snapshot) {
+                        String snapshotPrefix = version.substring(
+                                0, version.length() - '-SNAPSHOT'.length())
+                        return !artifactVersion.startsWith(snapshotPrefix)
+                    }
+                    artifactVersion != version
+                }) {
+            errors.add('mappings.parchment must pin exact supported releases or unique dated nightly artifacts')
         }
         Map families = catalog.gradleFamilies instanceof Map ? catalog.gradleFamilies as Map : [:]
         Set<Path> wrapperRoots = [] as Set

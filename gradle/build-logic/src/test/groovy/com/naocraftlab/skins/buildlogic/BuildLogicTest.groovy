@@ -21,7 +21,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(11, catalog.schemaVersion)
+        assertEquals(12, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
@@ -30,6 +30,70 @@ final class BuildLogicTest {
                 catalog.targets.collect { "targets/${it.minecraft.version}/${it.loader.id}".toString() },
                 catalog.targets.collect { it.path })
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void parchmentMappingsAreExactCatalogOwnedAndLimitedToPre261Targets() {
+        Map<String, Map<String, String>> expected = [
+                '1.20.1' : [
+                        version: '2023.09.03', artifactVersion: '2023.09.03'],
+                '1.21.1' : [version: '2024.11.17', artifactVersion: '2024.11.17'],
+                '1.21.11': [
+                        version: '2025.12.21-nightly-SNAPSHOT',
+                        artifactVersion: '2025.12.21-nightly-20251221.125209-1']
+        ]
+        assertEquals(expected, catalog.mappings.parchment)
+        assertEquals('1.2.0', catalog.plugins.librarian)
+
+        catalog.targets.each { Map target ->
+            Map<String, String> expectedMapping = expected[target.minecraft.version]
+            assertEquals(
+                    expectedMapping?.version,
+                    CatalogTools.parchmentVersion(catalog, target),
+                    target.id.toString())
+            String expectedUrl = expectedMapping == null ? null :
+                    "https://maven.parchmentmc.org/org/parchmentmc/data/" +
+                            "parchment-${target.minecraft.version}/${expectedMapping.version}/" +
+                            "parchment-${target.minecraft.version}-${expectedMapping.artifactVersion}.zip"
+            assertEquals(
+                    expectedUrl,
+                    CatalogTools.parchmentArtifactUrl(catalog, target),
+                    target.id.toString())
+            assertEquals(
+                    expectedMapping?.artifactVersion,
+                    CatalogTools.parchmentArtifactVersion(catalog, target),
+                    target.id.toString())
+        }
+
+        ['latest', 'BLEEDING-SNAPSHOT', '2025.12.+', '[2025.12.20,)'].each { String dynamic ->
+            Map invalid = cloneMap(catalog)
+            invalid.mappings.parchment['1.21.11'].version = dynamic
+            assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, invalid) }
+        }
+
+        Map mutableSnapshot = cloneMap(catalog)
+        mutableSnapshot.mappings.parchment['1.21.11'].artifactVersion =
+                '2025.12.21-nightly-SNAPSHOT'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mutableSnapshot) }
+    }
+
+    @Test
+    void everyMappedLoaderUsesItsCatalogOwnedParchmentIntegration() {
+        String fabric = new File(repository, 'gradle/loader-conventions/fabric.gradle').text
+        String forge = new File(repository, 'gradle/loader-conventions/forge.gradle').text
+        String neoforge = new File(repository, 'gradle/loader-conventions/neoforge.gradle').text
+        String forgeTarget = new File(repository, 'targets/1.20.1/forge/build.gradle').text
+        String settings = new File(repository, 'settings.gradle').text
+
+        assertTrue(fabric.contains('mappings loom.layered()'))
+        assertTrue(fabric.contains('officialMojangMappings()'))
+        assertTrue(fabric.contains('parchment(parchmentArtifactUrl)'))
+        assertTrue(forge.contains("mappings channel: 'parchment'"))
+        assertTrue(neoforge.contains('parchment {'))
+        assertTrue(neoforge.contains('parchmentArtifact ='))
+        assertTrue(settings.contains("maven { url = 'https://maven.parchmentmc.org' }"))
+        assertTrue(forgeTarget.contains(
+                "id 'org.parchmentmc.librarian.forgegradle' version '${catalog.plugins.librarian}'"))
     }
 
     @Test

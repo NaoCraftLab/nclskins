@@ -15,6 +15,9 @@ repositories {
 
 def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
         targetCatalog, targetSpec, 'yet_another_config_lib_v3')
+def parchmentVersion = nclskinsCatalogTools.parchmentVersion(targetCatalog, targetSpec)
+def parchmentArtifactVersion =
+        nclskinsCatalogTools.parchmentArtifactVersion(targetCatalog, targetSpec)
 def yaclRuntimeConfiguration = configurations.findByName('localRuntime') != null
         ? 'localRuntime'
         : 'runtimeOnly'
@@ -27,6 +30,13 @@ dependencies {
 def serverPort = providers.gradleProperty('nclskinsServerPort')
 
 neoForge {
+    if (parchmentVersion != null) {
+        parchment {
+            parchmentArtifact = "org.parchmentmc.data:" +
+                    "parchment-${targetSpec.minecraft.version}:${parchmentArtifactVersion}@zip"
+        }
+    }
+
     accessTransformers.from(nclskinsAccessFile)
 
     runs {

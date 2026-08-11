@@ -5,6 +5,12 @@ if (targetSpec.loader.id != 'forge') {
     throw new GradleException("Forge conventions cannot configure ${targetSpec.loader.id}")
 }
 
+def parchmentVersion = nclskinsCatalogTools.parchmentVersion(targetCatalog, targetSpec)
+if (parchmentVersion == null) {
+    throw new GradleException("Missing Parchment mappings for Forge target ${targetSpec.id}")
+}
+def forgeParchmentVersion = "${parchmentVersion}-${targetSpec.minecraft.version}"
+
 def forgeMixinConfigs = targetSpec.metadata.serverMixins + targetSpec.metadata.mixins
 def forgeMixinRefmap =
     "nclskins.mc${targetSpec.minecraft.epoch.toString().replaceAll('[^0-9]', '')}.refmap.json"
@@ -52,7 +58,8 @@ tasks.named(forgeMixinRuntime.processResourcesTaskName, ProcessResources).config
 }
 
 minecraft {
-    mappings channel: 'official', version: targetSpec.minecraft.version
+    mappings channel: 'parchment',
+        version: forgeParchmentVersion
     copyIdeResources = true
     accessTransformer = nclskinsAccessFile
 

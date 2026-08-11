@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001"
   },
@@ -35,8 +35,25 @@
     "loom": "1.17.17",
     "modDevGradle": "2.0.143",
     "forgeGradle": "6.0.54",
+    "librarian": "1.2.0",
     "mixinGradle": "0.7.38",
     "mixinProcessor": "0.8.5"
+  },
+  "mappings": {
+    "parchment": {
+      "1.20.1": {
+        "version": "2023.09.03",
+        "artifactVersion": "2023.09.03"
+      },
+      "1.21.1": {
+        "version": "2024.11.17",
+        "artifactVersion": "2024.11.17"
+      },
+      "1.21.11": {
+        "version": "2025.12.21-nightly-SNAPSHOT",
+        "artifactVersion": "2025.12.21-nightly-20251221.125209-1"
+      }
+    }
   },
   "gradleFamilies": {
     "modern": {
