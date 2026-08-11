@@ -21,8 +21,14 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(12, catalog.schemaVersion)
+        assertEquals(13, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
+        assertEquals([
+                fabric  : 'nclskins-fabric',
+                forge   : 'nclskins-forge-family',
+                neoforge: 'nclskins-forge-family'
+        ], catalog.development.licensedProfiles)
+        assertEquals('0.1.0.5', catalog.plugins.devLogin)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
         assertEquals(LinkedHashMap, catalog.targets.first().getClass())
@@ -259,6 +265,22 @@ final class BuildLogicTest {
             assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, invalid) }
             assertThrows(IllegalArgumentException) { CatalogTools.clientArguments(invalid) }
         }
+
+        assertEquals('nclskins-fabric', CatalogTools.licensedClientProfile(catalog, 'fabric'))
+        assertEquals('nclskins-forge-family', CatalogTools.licensedClientProfile(catalog, 'forge'))
+        assertEquals('nclskins-forge-family', CatalogTools.licensedClientProfile(catalog, 'neoforge'))
+
+        Map sharedAll = cloneMap(catalog)
+        sharedAll.development.licensedProfiles.fabric = 'nclskins-forge-family'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, sharedAll) }
+
+        Map splitForgeFamily = cloneMap(catalog)
+        splitForgeFamily.development.licensedProfiles.neoforge = 'nclskins-neoforge'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, splitForgeFamily) }
+
+        Map unsafeProfile = cloneMap(catalog)
+        unsafeProfile.development.licensedProfiles.fabric = '../tokens'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, unsafeProfile) }
     }
 
     @Test
@@ -270,18 +292,37 @@ final class BuildLogicTest {
         ]
         loaderScripts.each { String loader, String script ->
             String helperCall = 'nclskinsCatalogTools.clientArguments(targetCatalog)'
+            String licensedHelperCall = 'nclskinsCatalogTools.licensedClientProfile('
             assertEquals(1, occurrences(script, helperCall), loader)
+            assertEquals(1, occurrences(script, licensedHelperCall), loader)
+            assertTrue(script.contains(".devlogin/\${licensedClientProfile}"), loader)
+            assertTrue(script.contains("'devlogin.launch_profile', licensedClientProfile"), loader)
+            assertTrue(script.contains("'devlogin.storage', licensedClientStorage"), loader)
+            assertTrue(script.contains('clientLicensed {'), loader)
             int clientStart = script.indexOf('client {')
             int serverStart = script.indexOf('server {', clientStart)
             int helperStart = script.indexOf(helperCall)
-            assertTrue(clientStart >= 0 && helperStart > clientStart, loader)
-            if (serverStart >= 0) {
+            assertTrue(clientStart >= 0, loader)
+            if (loader == 'forge') {
+                int offlineTaskStart = script.indexOf("candidate.name == 'runClient'")
+                assertTrue(offlineTaskStart >= 0 && helperStart > offlineTaskStart, loader)
+                assertFalse(script.substring(clientStart, serverStart).contains(helperCall), loader)
+                assertFalse(script.substring(script.indexOf('clientLicensed {'), serverStart)
+                        .contains(helperCall), loader)
+            } else if (serverStart >= 0) {
+                assertFalse(script.substring(script.indexOf('clientLicensed {')).contains(helperCall), loader)
+                assertTrue(helperStart > clientStart, loader)
                 assertTrue(helperStart < serverStart, loader)
                 assertFalse(script.substring(serverStart).contains(helperCall), loader)
             } else {
                 assertEquals('fabric', loader)
             }
         }
+        assertTrue(loaderScripts.fabric.contains('net.fabricmc.loader.impl.launch.knot.KnotClient'))
+        assertTrue(loaderScripts.fabric.contains('net.covers1624.devlogin.DevLogin'))
+        assertTrue(loaderScripts.forge.contains('net.minecraftforge.bootstrap.ForgeBootstrap'))
+        assertTrue(loaderScripts.forge.contains('net.covers1624.devlogin.DevLogin'))
+        assertTrue(loaderScripts.neoforge.contains('devLogin = true'))
 
         File fixtureJar = new File(repository, 'build/compatibility-runs/test-fixture.jar')
         catalog.targets.findAll { it.containsKey('compatibility') }.each { Map target ->
@@ -297,7 +338,12 @@ final class BuildLogicTest {
             String serverRun = script.substring(serverStart)
             assertFalse(serverRun.contains('--uuid'), target.id.toString())
             assertFalse(serverRun.contains('00000000-0000-0000-0000-000000000001'), target.id.toString())
+            assertFalse(script.contains('DevLogin'), target.id.toString())
         }
+        assertTrue(ArtifactVerifier.FORBIDDEN_DEV_RUNTIME_PREFIXES.contains(
+                'net/covers1624/devlogin/'))
+        assertTrue(ArtifactVerifier.FORBIDDEN_DEV_RUNTIME_PREFIXES.contains(
+                'META-INF/jars/DevLogin'))
     }
 
     @Test
@@ -655,9 +701,17 @@ final class BuildLogicTest {
 
     @Test
     void ideaRunsUseOnlyRootGradleTasks() {
+        assertEquals(['Client', 'LicensedClient', 'Server'], IdeaRunConfigurations.RUN_KINDS)
         Set<String> taskNames = [] as Set
         catalog.targets.each { Map target ->
-            ['Client', 'Server'].each { String runKind ->
+            assertEquals([
+                    "${target.minecraft.version}:${target.loader.id}:runClient".toString(),
+                    "${target.minecraft.version}:${target.loader.id}:runClient (licensed)".toString(),
+                    "${target.minecraft.version}:${target.loader.id}:runServer".toString()
+            ], IdeaRunConfigurations.RUN_KINDS.collect { String runKind ->
+                IdeaRunConfigurations.configurationName(target, runKind)
+            })
+            IdeaRunConfigurations.RUN_KINDS.each { String runKind ->
                 String taskName = IdeaRunConfigurations.taskName(target, runKind)
                 assertTrue(taskNames.add(taskName))
                 String rendered = IdeaRunConfigurations.render(target, runKind)
@@ -670,7 +724,7 @@ final class BuildLogicTest {
                 assertFalse(rendered.contains('scr' + 'ipts/'))
             }
         }
-        assertEquals(20, taskNames.size())
+        assertEquals(30, taskNames.size())
     }
 
     @Test
@@ -688,6 +742,11 @@ final class BuildLogicTest {
             assertEquals('runClient', client[-2])
             assertEquals('--dry-run', client[-1])
             assertEquals(TargetRuntime.wrapper(repository, catalog, target).absolutePath, client.first())
+            List<String> licensed = TargetRunTask.command(
+                    repository, catalog, target, 'LicensedClient', true)
+            assertEquals('runClientLicensed', licensed[-2])
+            assertEquals('--dry-run', licensed[-1])
+            assertEquals(TargetRuntime.wrapper(repository, catalog, target).absolutePath, licensed.first())
             List<String> server = TargetRunTask.command(repository, catalog, target, 'Server', true)
             assertTrue(server.contains('runServer'))
             int port = target.development.serverPort as int

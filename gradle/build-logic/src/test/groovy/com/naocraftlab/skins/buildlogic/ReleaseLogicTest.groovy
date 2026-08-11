@@ -17,14 +17,14 @@ final class ReleaseLogicTest {
         Map metadata = ReleaseMetadata.validate(
                 new File(repository, 'gradle/version.properties'),
                 new File(repository, 'CHANGELOG.md'),
-                '1.0.0-beta.1')
+                '1.0.0-beta.2')
 
-        assertEquals('1.0.0-beta.1', metadata.version)
+        assertEquals('1.0.0-beta.2', metadata.version)
         assertEquals('beta', metadata.channel)
         assertTrue(metadata.prerelease)
         assertTrue(metadata.notes.startsWith(
-                '### Added\n\n- **More outer-layer controls**'))
-        assertFalse(metadata.notes.contains('## 1.0.0-beta.1'))
+                '### Fixed\n\n- **More reliable live skin updates**'))
+        assertFalse(metadata.notes.contains('## 1.0.0-beta.2'))
     }
 
     @Test

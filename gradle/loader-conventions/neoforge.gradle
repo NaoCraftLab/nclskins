@@ -21,6 +21,10 @@ def parchmentArtifactVersion =
 def yaclRuntimeConfiguration = configurations.findByName('localRuntime') != null
         ? 'localRuntime'
         : 'runtimeOnly'
+def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(
+        targetCatalog, targetSpec.loader.id)
+def licensedClientStorage = new File(
+        System.getProperty('user.home'), ".devlogin/${licensedClientProfile}").absolutePath
 
 dependencies {
     compileOnly "dev.isxander:yet-another-config-lib:${yaclVersion}"
@@ -45,6 +49,12 @@ neoForge {
             nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
                 programArgument argument
             }
+        }
+        clientLicensed {
+            client()
+            devLogin = true
+            systemProperty 'devlogin.launch_profile', licensedClientProfile
+            systemProperty 'devlogin.storage', licensedClientStorage
         }
         server {
             server()

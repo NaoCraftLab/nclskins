@@ -1,14 +1,15 @@
 package com.naocraftlab.skins.buildlogic
 
 import groovy.xml.XmlSlurper
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 
 abstract class GenerateIdeaRunConfigurationsTask extends DefaultTask {
     @InputFile
@@ -24,7 +25,7 @@ abstract class GenerateIdeaRunConfigurationsTask extends DefaultTask {
         output.mkdirs()
         Set<String> names = [] as Set
         catalog.targets.each { Map target ->
-            ['Client', 'Server'].each { String runKind ->
+            IdeaRunConfigurations.RUN_KINDS.each { String runKind ->
                 String name = IdeaRunConfigurations.configurationName(target, runKind)
                 if (!names.add(name)) throw new IllegalStateException("Duplicate IDEA run configuration ${name}")
                 File destination = new File(output, IdeaRunConfigurations.fileName(target, runKind))
@@ -32,7 +33,8 @@ abstract class GenerateIdeaRunConfigurationsTask extends DefaultTask {
                     String existingName
                     try { existingName = new XmlSlurper().parse(destination).configuration.@name.toString() }
                     catch (Exception error) { throw new IllegalStateException("Cannot parse existing IDEA run configuration ${destination}", error) }
-                    if (existingName != name) throw new IllegalStateException("IDEA run configuration path is occupied by ${existingName}: ${destination}")
+                    String previousName = IdeaRunConfigurations.previousConfigurationName(target, runKind)
+                    if (existingName != name && existingName != previousName) throw new IllegalStateException("IDEA run configuration path is occupied by ${existingName}: ${destination}")
                 }
                 String content = IdeaRunConfigurations.render(target, runKind)
                 if (!destination.isFile() || destination.getText('UTF-8') != content) Files.writeString(destination.toPath(), content, StandardCharsets.UTF_8)

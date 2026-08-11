@@ -167,10 +167,11 @@ tasks.register('generateIdeaRunConfigurations', GenerateIdeaRunConfigurationsTas
 }
 
 targetCatalog.targets.each { Map target ->
-    ['Client', 'Server'].each { String runKind ->
+    IdeaRunConfigurations.RUN_KINDS.each { String runKind ->
         tasks.register(IdeaRunConfigurations.taskName(target, runKind), TargetRunTask) {
             group = 'application'
-            description = "Runs the ${target.id} ${runKind.toLowerCase()} with its catalog wrapper and JDK."
+            def runLabel = runKind == 'LicensedClient' ? 'licensed client' : runKind.toLowerCase()
+            description = "Runs the ${target.id} ${runLabel} with its catalog wrapper and JDK."
             repositoryDirectory.set(layout.projectDirectory)
             delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
             targetId.set(target.id.toString())

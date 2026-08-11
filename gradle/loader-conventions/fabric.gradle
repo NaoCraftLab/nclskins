@@ -6,6 +6,11 @@ def parchmentVersion = nclskinsCatalogTools.parchmentVersion(targetCatalog, targ
 def parchmentArtifactUrl = nclskinsCatalogTools.parchmentArtifactUrl(targetCatalog, targetSpec)
 
 repositories {
+    maven {
+        name = 'Covers1624Maven'
+        url = 'https://maven.covers1624.net/'
+        content { includeGroup 'net.covers1624' }
+    }
     if (parchmentVersion != null) {
         maven {
             name = 'ParchmentMC'
@@ -54,6 +59,13 @@ def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
 def clientCompileOnlyConfiguration = configurations.findByName('modCompileOnly') != null
         ? 'modCompileOnly'
         : 'compileOnly'
+def devLoginConfiguration = configurations.findByName('localRuntime') != null
+        ? 'localRuntime'
+        : 'runtimeOnly'
+def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(
+        targetCatalog, targetSpec.loader.id)
+def licensedClientStorage = new File(
+        System.getProperty('user.home'), ".devlogin/${licensedClientProfile}").absolutePath
 
 loom {
     accessWidenerPath = nclskinsAccessFile
@@ -62,6 +74,14 @@ loom {
             nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
                 programArg argument
             }
+        }
+        clientLicensed {
+            client()
+            mainClass.set('net.covers1624.devlogin.DevLogin')
+            property 'devlogin.launch_target',
+                    'net.fabricmc.loader.impl.launch.knot.KnotClient'
+            property 'devlogin.launch_profile', licensedClientProfile
+            property 'devlogin.storage', licensedClientStorage
         }
     }
 }
@@ -95,4 +115,5 @@ dependencies {
             "maven.modrinth:modmenu:${targetSpec.loader.modMenuVersion}")
     add(clientCompileOnlyConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")
     add(modMenuConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")
+    add(devLoginConfiguration, "net.covers1624:DevLogin:${targetCatalog.plugins.devLogin}")
 }

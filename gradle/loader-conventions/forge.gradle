@@ -20,6 +20,11 @@ def forgeMixinRefmapFile = forgeCompileJava.map {
 }
 
 repositories {
+    maven {
+        name = 'Covers1624Maven'
+        url = 'https://maven.covers1624.net/'
+        content { includeGroup 'net.covers1624' }
+    }
     maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
     maven {
         url = 'https://maven.quiltmc.org/repository/release'
@@ -33,6 +38,10 @@ repositories {
 
 def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
         targetCatalog, targetSpec, 'yet_another_config_lib_v3')
+def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(
+        targetCatalog, targetSpec.loader.id)
+def licensedClientStorage = new File(
+        System.getProperty('user.home'), ".devlogin/${licensedClientProfile}").absolutePath
 
 mixin {
     add sourceSets.main, forgeMixinRefmap
@@ -80,9 +89,13 @@ minecraft {
         }
 
         client {
-            nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
-                args argument
-            }
+        }
+        clientLicensed {
+            parent minecraft.runs.client
+            main 'net.covers1624.devlogin.DevLogin'
+            property 'devlogin.launch_target', 'net.minecraftforge.bootstrap.ForgeBootstrap'
+            property 'devlogin.launch_profile', licensedClientProfile
+            property 'devlogin.storage', licensedClientStorage
         }
         server {
             args '--nogui'
@@ -90,10 +103,17 @@ minecraft {
     }
 }
 
+tasks.configureEach { candidate ->
+    if (candidate.name == 'runClient') {
+        candidate.args nclskinsCatalogTools.clientArguments(targetCatalog)
+    }
+}
+
 dependencies {
     minecraft "net.minecraftforge:forge:${targetSpec.minecraft.version}-${targetSpec.loader.version}"
     compileOnly fg.deobf("dev.isxander:yet-another-config-lib:${yaclVersion}")
     runtimeOnly fg.deobf("dev.isxander:yet-another-config-lib:${yaclVersion}")
+    runtimeOnly "net.covers1624:DevLogin:${targetCatalog.plugins.devLogin}"
     annotationProcessor(
         "org.spongepowered:mixin:${targetCatalog.plugins.mixinProcessor}:processor")
 }

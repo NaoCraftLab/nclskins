@@ -4,21 +4,30 @@ import groovy.xml.MarkupBuilder
 
 final class IdeaRunConfigurations {
     static final Map<String, String> LOADERS = [fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge']
+    static final List<String> RUN_KINDS = ['Client', 'LicensedClient', 'Server'].asImmutable()
 
     static String taskName(Map target, String runKind) {
         String loader = LOADERS[target.loader.id.toString()]
         if (loader == null) throw new IllegalArgumentException("Unsupported loader ${target.loader.id}")
-        if (!(runKind in ['Client', 'Server'])) throw new IllegalArgumentException("Unsupported run kind ${runKind}")
+        if (!(runKind in RUN_KINDS)) throw new IllegalArgumentException("Unsupported run kind ${runKind}")
         String version = target.minecraft.version.toString().replaceAll('[^A-Za-z0-9]', '')
         "run${runKind}${loader}${version}"
     }
 
     static String configurationName(Map target, String runKind) {
-        "${target.minecraft.version}:${target.loader.id}:run${runKind}"
+        String suffix = runKind == 'LicensedClient' ? 'runClient (licensed)' : "run${runKind}"
+        "${target.minecraft.version}:${target.loader.id}:${suffix}"
     }
 
     static String fileName(Map target, String runKind) {
-        configurationName(target, runKind).replaceAll('[^A-Za-z0-9]', '_') + '.xml'
+        "${target.minecraft.version}:${target.loader.id}:run${runKind}"
+                .replaceAll('[^A-Za-z0-9]', '_') + '.xml'
+    }
+
+    static String previousConfigurationName(Map target, String runKind) {
+        runKind == 'LicensedClient'
+                ? "${target.minecraft.version}:${target.loader.id}:runLicensedClient"
+                : null
     }
 
     static String render(Map target, String runKind) {

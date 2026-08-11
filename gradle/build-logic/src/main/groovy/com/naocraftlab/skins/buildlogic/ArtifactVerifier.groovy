@@ -11,7 +11,12 @@ import java.util.zip.ZipFile
 
 final class ArtifactVerifier {
     static final List<String> FORBIDDEN_PREFIXES = ['com/microsoft/aad', 'com/nimbusds/', 'com/sun/jna/', 'com/fasterxml/jackson/', 'com/google/gson/', 'org/sqlite/']
-    static final List<String> FORBIDDEN_DEV_RUNTIME_PREFIXES = ['com/terraformersmc/modmenu/', 'META-INF/jars/modmenu']
+    static final List<String> FORBIDDEN_DEV_RUNTIME_PREFIXES = [
+            'com/terraformersmc/modmenu/',
+            'META-INF/jars/modmenu',
+            'net/covers1624/devlogin/',
+            'META-INF/jars/DevLogin'
+    ]
     static final Pattern FORBIDDEN_CONTENT = Pattern.compile('login' + '\\.microsoftonline\\.com|refresh' + '_token|launcher' + '_accounts\\.json|accounts\\.json')
     static final Pattern FORBIDDEN_MIXIN = Pattern.compile('(?:User|Session|Authlib).*Mixin\\.class$')
     static final Pattern TOKEN = Pattern.compile('Bearer\\s+[A-Za-z0-9._~+/=-]{20,}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}')

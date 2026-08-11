@@ -31,7 +31,9 @@ abstract class TargetRunTask extends DefaultTask {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
         Map target = CatalogTools.selectTarget(catalog, targetId.get())
         String kind = runKind.get()
-        if (!(kind in ['Client', 'Server'])) throw new IllegalStateException("Unsupported target run kind ${kind}")
+        if (!(kind in IdeaRunConfigurations.RUN_KINDS)) {
+            throw new IllegalStateException("Unsupported target run kind ${kind}")
+        }
         String javaHome = TargetRuntime.resolveJavaHome(target.java.buildJdk as int)
         List<String> command = command(root, catalog, target, kind, dryRun.get())
         ProcessBuilder builder = new ProcessBuilder(command).directory(root).inheritIO()
@@ -50,7 +52,7 @@ abstract class TargetRunTask extends DefaultTask {
     static List<String> command(File root, Map catalog, Map target, String kind, boolean dryRun) {
         File targetDirectory = new File(root, target.path.toString())
         File wrapper = TargetRuntime.wrapper(root, catalog, target)
-        String nativeTask = "run${kind}".toString()
+        String nativeTask = kind == 'LicensedClient' ? 'runClientLicensed' : "run${kind}".toString()
         List<String> command = [wrapper.absolutePath, '-p', targetDirectory.absolutePath, '--no-daemon', nativeTask]
         if (kind == 'Server') {
             int port = target.development.serverPort as int

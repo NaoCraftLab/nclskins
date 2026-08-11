@@ -1,7 +1,12 @@
 {
-  "schemaVersion": 12,
+  "schemaVersion": 13,
   "development": {
-    "clientUuid": "00000000-0000-0000-0000-000000000001"
+    "clientUuid": "00000000-0000-0000-0000-000000000001",
+    "licensedProfiles": {
+      "fabric": "nclskins-fabric",
+      "forge": "nclskins-forge-family",
+      "neoforge": "nclskins-forge-family"
+    }
   },
   "mod": {
     "id": "nclskins",
@@ -37,7 +42,8 @@
     "forgeGradle": "6.0.54",
     "librarian": "1.2.0",
     "mixinGradle": "0.7.38",
-    "mixinProcessor": "0.8.5"
+    "mixinProcessor": "0.8.5",
+    "devLogin": "0.1.0.5"
   },
   "mappings": {
     "parchment": {

@@ -145,8 +145,10 @@ final class CatalogTools {
 
     static List<String> clientArguments(Map catalog) {
         if (!(catalog.development instanceof Map) ||
-                ((catalog.development as Map).keySet() as Set) != ['clientUuid'] as Set) {
-            throw new IllegalArgumentException('development must define exactly clientUuid')
+                ((catalog.development as Map).keySet() as Set) !=
+                ['clientUuid', 'licensedProfiles'] as Set) {
+            throw new IllegalArgumentException(
+                    'development must define exactly clientUuid and licensedProfiles')
         }
         Map development = catalog.development as Map
         Object rawUuid = development.clientUuid
@@ -154,6 +156,28 @@ final class CatalogTools {
             throw new IllegalArgumentException('development.clientUuid must be a canonical lowercase UUID')
         }
         ['--uuid', rawUuid as String]
+    }
+
+    static String licensedClientProfile(Map catalog, Object rawLoader) {
+        clientArguments(catalog)
+        String loader = rawLoader.toString()
+        Map profiles = (catalog.development as Map).licensedProfiles as Map
+        if ((profiles.keySet() as Set) != ['fabric', 'forge', 'neoforge'] as Set ||
+                profiles.any { Object key, Object value ->
+                    !(value instanceof String) || !(value ==~ /[a-z][a-z0-9-]{2,63}/)
+                }) {
+            throw new IllegalArgumentException(
+                    'development.licensedProfiles must map fabric, forge, and neoforge to safe profile labels')
+        }
+        if (profiles.fabric == profiles.forge || profiles.forge != profiles.neoforge) {
+            throw new IllegalArgumentException(
+                    'development.licensedProfiles must separate Fabric and share one Forge-family profile')
+        }
+        Object profile = profiles[loader]
+        if (profile == null) {
+            throw new IllegalArgumentException("unsupported licensed client loader: ${loader}")
+        }
+        profile.toString()
     }
 
     static String repositoryRelative(File repositoryRoot, Object rawPath, String label) {
@@ -345,7 +369,7 @@ final class CatalogTools {
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
                 'optionalDependencies', 'publicationDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 12) {
+        if (catalog.schemaVersion != 13) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -353,6 +377,7 @@ final class CatalogTools {
         }
         try {
             clientArguments(catalog)
+            ['fabric', 'forge', 'neoforge'].each { licensedClientProfile(catalog, it) }
         } catch (IllegalArgumentException error) {
             errors.add(error.message)
         }
@@ -476,7 +501,7 @@ final class CatalogTools {
         }
         Set pluginKeys = [
                 'loom', 'modDevGradle', 'forgeGradle', 'librarian',
-                'mixinGradle', 'mixinProcessor'
+                'mixinGradle', 'mixinProcessor', 'devLogin'
         ] as Set
         if (!(catalog.plugins instanceof Map) || ((catalog.plugins as Map).keySet() as Set) != pluginKeys ||
             (catalog.plugins as Map).values().any { !(it instanceof String) || !it }) {
