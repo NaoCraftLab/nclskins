@@ -4,7 +4,6 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
 import com.naocraftlab.skins.compat.mc262.Minecraft262PreviewModelAnchors;
 import net.minecraft.client.model.EntityModel;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
@@ -35,17 +34,14 @@ abstract class LivingEntityRendererPreviewMixin {
             float yRot,
             float xRot) {
         boolean editorPreview = EditorPreviewLayerGuard.isActive();
-        boolean localPlayer = state instanceof AvatarRenderState avatar
-                && Minecraft.getInstance().player != null
-                && avatar.id == Minecraft.getInstance().player.getId();
-        if (!editorPreview && !localPlayer) {
+        if (!(state instanceof AvatarRenderState)) {
             layer.submit(poseStack, collector, light, state, yRot, xRot);
             return;
         }
         try (Minecraft262PreviewModelAnchors ignored = Minecraft262PreviewModelAnchors.open(model)) {
             layer.submit(poseStack, collector, light, state, yRot, xRot);
         } catch (RuntimeException failure) {
-            if (!EditorPreviewLayerGuard.handle(failure)) {
+            if (!editorPreview || !EditorPreviewLayerGuard.handle(failure)) {
                 throw failure;
             }
         }

@@ -2,6 +2,8 @@ package com.naocraftlab.skins.compat.mc12111.mixin;
 
 import com.naocraftlab.skins.compat.mc12111.Minecraft12111BakedPreviewRenderState;
 import com.naocraftlab.skins.compat.mc12111.Minecraft12111BakedPreviewRenderer;
+import com.naocraftlab.skins.compat.mc12111.Minecraft12111LivePreviewRenderState;
+import com.naocraftlab.skins.compat.mc12111.Minecraft12111LivePreviewRenderer;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.render.GuiRenderer;
@@ -21,7 +23,7 @@ abstract class GuiRendererMixin {
             method = "<init>",
             at = @At(value = "LOAD", ordinal = 0),
             argsOnly = true)
-    private List<PictureInPictureRenderer<?>> nclskins$registerBakedPreviewRenderer(
+    private List<PictureInPictureRenderer<?>> nclskins$registerPreviewRenderers(
             List<PictureInPictureRenderer<?>> renderers,
             GuiRenderState renderState,
             MultiBufferSource.BufferSource bufferSource,
@@ -31,13 +33,17 @@ abstract class GuiRendererMixin {
         if (renderers.isEmpty()) {
             throw new IllegalStateException("Vanilla PIP renderer registrations are missing");
         }
-        if (renderers.stream().anyMatch(renderer -> renderer.getRenderStateClass()
-                == Minecraft12111BakedPreviewRenderState.class)) {
-            throw new IllegalStateException("NCL baked preview PIP renderer is already registered");
+        if (renderers.stream().anyMatch(renderer -> {
+            Class<?> stateClass = renderer.getRenderStateClass();
+            return stateClass == Minecraft12111BakedPreviewRenderState.class
+                    || stateClass == Minecraft12111LivePreviewRenderState.class;
+        })) {
+            throw new IllegalStateException("An NCL preview PIP renderer is already registered");
         }
 
         List<PictureInPictureRenderer<?>> extended = new ArrayList<>(renderers);
         extended.add(new Minecraft12111BakedPreviewRenderer(bufferSource));
+        extended.add(new Minecraft12111LivePreviewRenderer(bufferSource));
         return List.copyOf(extended);
     }
 }

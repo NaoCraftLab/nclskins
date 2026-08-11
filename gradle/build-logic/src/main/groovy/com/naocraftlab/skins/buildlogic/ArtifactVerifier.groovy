@@ -141,6 +141,31 @@ final class ArtifactVerifier {
         if (hasFabric12111Mixin != (target.id == 'fabric-1.21.11')) {
             errors.add("${target.id}: Fabric 1.21.11 constructor mixin presence is incorrect")
         }
+        List<String> removedPreviewClasses = [
+                'com/naocraftlab/skins/compat/mc12111/NclPreviewState.class',
+                'com/naocraftlab/skins/compat/mc12111/mixin/AvatarRenderStateMixin.class',
+                'com/naocraftlab/skins/compat/mc12111/mixin/GuiEntityRendererMixin.class'
+        ]
+        removedPreviewClasses.findAll { names.contains(it) }.each { String name ->
+            errors.add("${target.id}: artifact retains removed global preview hook ${name}")
+        }
+        if (target.minecraft.epoch == '1.21.11') {
+            [
+                    'com/naocraftlab/skins/compat/mc12111/Minecraft12111BakedPreviewRenderer.class',
+                    'com/naocraftlab/skins/compat/mc12111/Minecraft12111LivePreviewRenderer.class'
+            ].findAll { !names.contains(it) }.each { String name ->
+                errors.add("${target.id}: artifact lacks required dedicated PIP renderer ${name}")
+            }
+        }
+        ['com/unascribed/ears', 'traben/entity_model_features',
+         'traben/entity_texture_features'].each { String forbidden ->
+            names.findAll { it.endsWith('.class') }.each { String name ->
+                if (new String(read(archive, name), StandardCharsets.ISO_8859_1)
+                        .contains(forbidden)) {
+                    errors.add("${target.id}:${name}: preview compatibility references ${forbidden}")
+                }
+            }
+        }
     }
 
     static void verifyContentClosure(

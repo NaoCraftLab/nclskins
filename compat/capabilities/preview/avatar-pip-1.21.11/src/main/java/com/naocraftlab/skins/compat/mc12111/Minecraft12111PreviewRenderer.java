@@ -27,7 +27,6 @@ import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -74,38 +73,40 @@ public final class Minecraft12111PreviewRenderer
                 return;
             }
             float previewAge = previewClock.ageTicks(renderPlayer.tickCount);
-            renderPlayer.tickCount = Math.max(0, (int) Math.floor(previewAge));
-            renderPlayer.avatarState().tick(renderPlayer.position(), Vec3.ZERO);
-            float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(false);
-            AvatarRenderState state;
-            try (Minecraft12111PreviewScope ignored = context.open(minecraft)) {
-                state = (AvatarRenderState)
-                        minecraft.getEntityRenderDispatcher().extractEntity(renderPlayer, partialTick);
-            }
-            configure(state, request);
-            state.ageInTicks = previewAge;
-            NclPreviewState previewState = (NclPreviewState) state;
-            previewState.nclskins$setEditorPreview(true);
-            previewState.nclskins$setPreviewContext(context);
-            previewState.nclskins$setFailureSink(this::onLiveRenderFailure);
-            previewState.nclskins$setLayerFailureSink(this::onLiveLayerFailure);
-
             float pitch = (float) Math.toRadians(request.pitchDegrees());
             Quaternionf cameraPitch = new Quaternionf().rotateX(pitch);
             Quaternionf modelRotation = new Quaternionf().rotateZ((float) Math.PI).mul(cameraPitch);
             var centered = CenteredPlayerPreviewGeometry.centeredEntityTranslation(
                     CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT, pitch);
             float scale = 0.97F * request.height() / MODEL_HEIGHT * request.scale();
-            graphics.submitEntityRenderState(
-                    state,
-                    scale,
-                    new Vector3f(0.0F, centered.y(), centered.z()),
-                    modelRotation,
-                    cameraPitch,
-                    request.left(),
-                    request.top(),
-                    request.left() + request.width(),
-                    request.top() + request.height());
+            Vector3f translation = new Vector3f(0.0F, centered.y(), centered.z());
+            Minecraft12111LivePreviewRenderState state =
+                    new Minecraft12111LivePreviewRenderState(
+                            renderPlayer,
+                            context,
+                            request,
+                            previewAge,
+                            translation,
+                            modelRotation,
+                            cameraPitch,
+                            scale,
+                            this::onLiveRenderFailure,
+                            this::onLiveLayerFailure,
+                            null);
+            try (Minecraft12111LivePreviewSubmission submission =
+                    Minecraft12111LivePreviewSubmission.open(graphics, state)) {
+                graphics.submitEntityRenderState(
+                        new AvatarRenderState(),
+                        scale,
+                        translation,
+                        modelRotation,
+                        cameraPitch,
+                        request.left(),
+                        request.top(),
+                        request.left() + request.width(),
+                        request.top() + request.height());
+                submission.requireConsumed();
+            }
         } catch (RuntimeException failure) {
             onLiveRenderFailure(failure);
             baked.render(graphics, request);
@@ -165,7 +166,7 @@ public final class Minecraft12111PreviewRenderer
         }
     }
 
-    private static void configure(AvatarRenderState state, PreviewRequest request) {
+    static void configure(AvatarRenderState state, PreviewRequest request) {
         PreviewAppearance appearance = request.appearance();
         state.skin = playerSkin(appearance);
         state.bodyRot = 180.0F - request.yawDegrees();
@@ -256,7 +257,7 @@ public final class Minecraft12111PreviewRenderer
         previewLevel = null;
     }
 
-    private static final class PreviewPlayer extends RemotePlayer {
+    static final class PreviewPlayer extends RemotePlayer {
         private PlayerSkin skin;
 
         private PreviewPlayer(ClientLevel level, GameProfile profile) {

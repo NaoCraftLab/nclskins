@@ -845,13 +845,43 @@ final class BuildLogicTest {
     }
 
     @Test
-    void submission12111PreviewPreservesDeferredRendererContextAndPlayerAnchors() {
+    void playerLayerAnchorsCoverRemotePlayersWithoutSuppressingWorldFailures() {
+        Map<String, String> layerMixins = [
+                '1.20.1': 'compat/capabilities/gui/immediate-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/mixin/LivingEntityRendererPreviewMixin.java',
+                '1.21.1': 'compat/capabilities/gui/immediate-1.21/src/main/java/com/naocraftlab/skins/mc1211/mixin/LivingEntityRendererPreviewMixin.java',
+                '1.21.11': 'compat/capabilities/preview/avatar-pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/LivingEntityRendererPreviewMixin.java',
+                '26.1': 'compat/capabilities/preview/avatar-pip-26.1/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/LivingEntityRendererPreviewMixin.java',
+                '26.2': 'compat/capabilities/preview/avatar-pip-render-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/LivingEntityRendererPreviewMixin.java'
+        ]
+
+        layerMixins.each { String epoch, String relativePath ->
+            String source = new File(repository, relativePath).text
+            if (epoch in ['1.20.1', '1.21.1']) {
+                assertTrue(source.contains('if (!(entity instanceof Player))'), epoch)
+            } else {
+                assertTrue(source.contains('if (!(state instanceof AvatarRenderState'),
+                        epoch)
+            }
+            assertFalse(source.contains('boolean localPlayer'), epoch)
+            assertTrue(source.contains('EditorPreviewLayerGuard.isActive()'), epoch)
+            assertTrue(source.contains('EditorPreviewLayerGuard.handle(failure)'), epoch)
+        }
+    }
+
+    @Test
+    void submission12111PreviewExtractsAndSubmitsInsideDedicatedDeferredRenderer() {
         File previewRoot = new File(
                 repository,
                 'compat/capabilities/preview/avatar-pip-1.21.11/src/main')
         File renderer = new File(
                 previewRoot,
                 'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewRenderer.java')
+        File liveRenderer = new File(
+                previewRoot,
+                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111LivePreviewRenderer.java')
+        File liveState = new File(
+                previewRoot,
+                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111LivePreviewRenderState.java')
         File scope = new File(
                 previewRoot,
                 'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewScope.java')
@@ -867,19 +897,48 @@ final class BuildLogicTest {
         File mixins = new File(previewRoot, 'resources/nclskins.mc12111.mixins.json')
 
         assertTrue(scope.exists())
-        assertTrue(guiMixin.exists())
+        assertFalse(guiMixin.exists())
+        assertTrue(liveRenderer.exists())
+        assertTrue(liveState.exists())
         assertTrue(modelPartMixin.exists())
-        assertTrue(renderer.text.contains('renderPlayer.tickCount ='))
-        assertTrue(renderer.text.contains('renderPlayer.avatarState().tick('))
-        assertTrue(renderer.text.contains('nclskins$setPreviewContext(context)'))
+        assertTrue(renderer.text.contains('Minecraft12111LivePreviewRenderState'))
         assertTrue(scope.text.contains('minecraft.player != player'))
-        assertTrue(guiMixin.text.contains('EditorPreviewLayerGuard.open('))
-        assertTrue(guiMixin.text.contains('previewContext.open(Minecraft.getInstance())'))
+        assertTrue(liveRenderer.text.contains('EditorPreviewLayerGuard.open('))
+        assertTrue(liveRenderer.text.contains('state.previewContext().open(minecraft)'))
+        int extract = liveRenderer.text.indexOf('.extractEntity(')
+        int submit = liveRenderer.text.indexOf('.submit(')
+        assertTrue(extract >= 0 && submit > extract)
+        assertTrue(liveRenderer.text.contains('renderAllFeatures()'))
         assertTrue(layerMixin.text.contains('Minecraft12111PreviewModelAnchors.open('))
         assertTrue(layerMixin.text.contains('state instanceof AvatarRenderState'))
         assertTrue(modelPartMixin.text.contains('cubes.isEmpty()'))
-        assertTrue(mixins.text.contains('"GuiEntityRendererMixin"'))
+        assertFalse(mixins.text.contains('"GuiEntityRendererMixin"'))
+        assertFalse(mixins.text.contains('"AvatarRenderStateMixin"'))
         assertTrue(mixins.text.contains('"ModelPartPreviewMixin"'))
+
+        String fabricRegistration = new File(
+                repository,
+                'loader/fabric/pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/GuiRendererMixin.java').text
+        String neoForgeRegistration = new File(
+                repository,
+                'loader/neoforge/pip-1.21.11/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.java').text
+        assertEquals(1, fabricRegistration.count('new Minecraft12111BakedPreviewRenderer(bufferSource)'))
+        assertEquals(1, fabricRegistration.count('new Minecraft12111LivePreviewRenderer(bufferSource)'))
+        assertEquals(1, neoForgeRegistration.count('Minecraft12111BakedPreviewRenderer::new'))
+        assertEquals(1, neoForgeRegistration.count('Minecraft12111LivePreviewRenderer::new'))
+
+        StringBuilder productionSources = new StringBuilder()
+        [previewRoot,
+         new File(repository, 'loader/fabric/pip-1.21.11/src/main/java'),
+         new File(repository, 'loader/neoforge/pip-1.21.11/src/main/java')].each { File root ->
+            root.eachFileRecurse(groovy.io.FileType.FILES) { File source ->
+                if (source.name.endsWith('.java')) productionSources.append(source.text).append('\n')
+            }
+        }
+        ['java.lang.reflect', 'com.unascribed.ears', 'traben.entity_model_features',
+         'traben.entity_texture_features', 'NclPreviewState'].each { String forbidden ->
+            assertFalse(productionSources.toString().contains(forbidden), forbidden)
+        }
     }
 
     @Test

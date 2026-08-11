@@ -6,8 +6,6 @@
     "AbstractClientPlayerPreviewMixin",
     "AccessibilityOptionsScreenMixin",
     "AvatarPreviewMixin",
-    "AvatarRenderStateMixin",
-    "GuiEntityRendererMixin",
     "GuiGraphicsPreviewMixin",
     "LivingEntityPreviewMixin",
     "LivingEntityRendererPreviewMixin",

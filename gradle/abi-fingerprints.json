@@ -704,6 +704,7 @@
           "access": "public",
           "finality": "concrete",
           "members": [
+            {"kind": "method", "name": "submitEntityRenderState", "descriptor": "(Lnet/minecraft/client/renderer/entity/state/EntityRenderState;FLorg/joml/Vector3f;Lorg/joml/Quaternionf;Lorg/joml/Quaternionf;IIII)V", "access": "public", "finality": "virtual"},
             {"kind": "method", "name": "submitSkinRenderState", "descriptor": "(Lnet/minecraft/client/model/player/PlayerModel;Lnet/minecraft/resources/Identifier;FFFFIIII)V", "access": "public", "finality": "virtual"}
           ]
         },
@@ -713,14 +714,6 @@
           "finality": "concrete",
           "members": [
             {"kind": "constructor", "name": "<init>", "descriptor": "(Lnet/minecraft/client/gui/render/state/GuiRenderState;Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;Ljava/util/List;)V", "access": "public", "finality": "n/a"}
-          ]
-        },
-        {
-          "name": "net.minecraft.client.gui.render.pip.GuiEntityRenderer",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {"kind": "method", "name": "renderToTexture", "descriptor": "(Lnet/minecraft/client/gui/render/state/pip/GuiEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;)V", "access": "protected", "finality": "virtual"}
           ]
         },
         {
@@ -837,7 +830,33 @@
           "access": "public",
           "finality": "concrete",
           "members": [
-            {"kind": "method", "name": "extractEntity", "descriptor": "(Lnet/minecraft/world/entity/Entity;F)Lnet/minecraft/client/renderer/entity/state/EntityRenderState;", "access": "public", "finality": "virtual"}
+            {"kind": "method", "name": "extractEntity", "descriptor": "(Lnet/minecraft/world/entity/Entity;F)Lnet/minecraft/client/renderer/entity/state/EntityRenderState;", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "submit", "descriptor": "(Lnet/minecraft/client/renderer/entity/state/EntityRenderState;Lnet/minecraft/client/renderer/state/CameraRenderState;DDDLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;)V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.GameRenderer",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "getFeatureRenderDispatcher", "descriptor": "()Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.feature.FeatureRenderDispatcher",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "method", "name": "getSubmitNodeStorage", "descriptor": "()Lnet/minecraft/client/renderer/SubmitNodeStorage;", "access": "public", "finality": "virtual"},
+            {"kind": "method", "name": "renderAllFeatures", "descriptor": "()V", "access": "public", "finality": "virtual"}
+          ]
+        },
+        {
+          "name": "net.minecraft.client.renderer.state.CameraRenderState",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {"kind": "field", "name": "orientation", "descriptor": "Lorg/joml/Quaternionf;", "access": "public", "finality": "mutable"}
           ]
         },
         {
@@ -876,12 +895,6 @@
       "mixinAnchors": [
         {
           "kind": "head",
-          "owner": "net.minecraft.client.gui.render.pip.GuiEntityRenderer",
-          "method": "renderToTexture",
-          "descriptor": "(Lnet/minecraft/client/gui/render/state/pip/GuiEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;)V"
-        },
-        {
-          "kind": "head",
           "owner": "net.minecraft.client.model.geom.ModelPart",
           "method": "getRandomCube",
           "descriptor": "(Lnet/minecraft/util/RandomSource;)Lnet/minecraft/client/model/geom/ModelPart$Cube;"
@@ -907,6 +920,17 @@
         {
           "kind": "invoke",
           "owner": "net.minecraft.client.gui.GuiGraphics",
+          "method": "submitEntityRenderState",
+          "descriptor": "(Lnet/minecraft/client/renderer/entity/state/EntityRenderState;FLorg/joml/Vector3f;Lorg/joml/Quaternionf;Lorg/joml/Quaternionf;IIII)V",
+          "opcode": "invokevirtual",
+          "targetOwner": "net.minecraft.client.gui.render.state.GuiRenderState",
+          "targetMethod": "submitPicturesInPictureState",
+          "targetDescriptor": "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState;)V",
+          "count": 1
+        },
+        {
+          "kind": "invoke",
+          "owner": "net.minecraft.client.gui.GuiGraphics",
           "method": "submitSkinRenderState",
           "descriptor": "(Lnet/minecraft/client/model/player/PlayerModel;Lnet/minecraft/resources/Identifier;FFFFIIII)V",
           "opcode": "invokevirtual",
@@ -927,7 +951,7 @@
           "count": 1
         }
       ],
-      "baselineSha256": "7104be5faad89acf2f8aa12811bd7d8191b7abe5f72673109ea166f5390e6613"
+      "baselineSha256": "a8601f016713bb577d222afa8499236d8b0498c56c8a186a24b734fb79c7ef58"
     },
     "fabric-submission": {
       "kind": "loaderScreen",
@@ -4599,9 +4623,8 @@
     },
     "identifier-submission-authlib7": {
       "avatar-pip-1.21.11": {
-        "net.minecraft.client.gui.GuiGraphics": "60ec18cbbbf06f8381a8cf86185ce1aa9be7e360069000b3a7bf56e3670e64d3",
+        "net.minecraft.client.gui.GuiGraphics": "50176603ae7a33011b4996339d90d8a45466f1447411deeb3fd55e90ae1c4fee",
         "net.minecraft.client.gui.render.GuiRenderer": "a810591708f742d21a42d463a829d0482ac930f96213b5d51828de030a257a9c",
-        "net.minecraft.client.gui.render.pip.GuiEntityRenderer": "4852132716bd7aa88a89cb0f406a7e7d0fbf348df86badbdf78fdba05c53efd0",
         "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "ac3b823dc06f82c88a78ea223e4a84fc62dba08700a1379e9c753aeb60691b99",
         "net.minecraft.client.gui.render.state.GuiRenderState": "e43fa7f85228c3456c673ec5521cadbd8c860a01096990a9f17867fa8b365c09",
         "net.minecraft.client.model.Model": "82182f62fad116d84a6e3fc2b998549e01647223a1a9f560724850fcc5452198",
@@ -4611,11 +4634,14 @@
         "net.minecraft.client.model.player.PlayerCapeModel": "c399d1a69d81df73e5fc0b26e00acfacaec829c6dae90fa42a7d8ca093a70efb",
         "net.minecraft.client.model.player.PlayerModel": "eb131431b4f2129ccaf43086bbba7d360be03ca2d644539616650ad0f8f9cab8",
         "net.minecraft.client.player.AbstractClientPlayer": "5b479e3162243c8fd023fbfad7505570a1a34e2c58f20e335daec585fbc8be37",
-        "net.minecraft.client.renderer.entity.EntityRenderDispatcher": "9839e7df6bb334b70c73be9a20db2e6d4762035b545dc13097a765a41dd5da23",
+        "net.minecraft.client.renderer.GameRenderer": "6d3fcea51e3f58901b04d95d6e97348883502885d4fb1edce71da4a6bbd0a9b0",
+        "net.minecraft.client.renderer.entity.EntityRenderDispatcher": "11009b25fcbabdcfb0e44beb8b8f0603ae2f41b0beb56ceae20a4b68f5b5e38e",
         "net.minecraft.client.renderer.entity.LivingEntityRenderer": "a798330ced9bf1776d2e089c38d0ff42913708a1a9c6b70f00212945c1a108eb",
         "net.minecraft.client.renderer.entity.layers.RenderLayer": "4d9132deeeb1bb6d890a63a11777be02f318b070406e0fcd8a63da9d27901128",
         "net.minecraft.client.renderer.entity.state.AvatarRenderState": "cc23cf6edcbee056d3e49c049645ce9f3be9279369a218a632fe2270af5f56c2",
         "net.minecraft.client.renderer.entity.state.HumanoidRenderState": "00539d39b4fae6aef4c66cd95a949dd44ceef950d646467a6916843941b78350",
+        "net.minecraft.client.renderer.feature.FeatureRenderDispatcher": "682945a952fe64b1bcced8650da4a2d19b47bf5c1159794270e70820f62502df",
+        "net.minecraft.client.renderer.state.CameraRenderState": "540914af786a0e58748632b68a742a0f8ad5aeb324c7832e6fe8908842d0524b",
         "net.minecraft.world.entity.Avatar": "9e31c421e399c007fb3a86db7d4cdfb1d0cf3e793434818a4a0e596b26c369b0",
         "net.minecraft.world.entity.LivingEntity": "e207cc8a4be1edada77661ae00773148aa26fb163b8d466a666e69394bdb57b6",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c"

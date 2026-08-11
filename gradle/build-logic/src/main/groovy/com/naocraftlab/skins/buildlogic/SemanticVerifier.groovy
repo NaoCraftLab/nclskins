@@ -162,16 +162,20 @@ final class SemanticVerifier {
         }
         if (implementation.startsWith('avatar-pip-1.21.11-')) {
             ['submitEntityRenderState', 'submitSkinRenderState',
-             'NclPreviewState', 'LivingEntityRendererPreviewMixin',
+             'LivingEntityRendererPreviewMixin',
              'EntityRenderState state',
              'PlayerSkin.insecure', 'CenteredPlayerPreviewGeometry.centeredEntityTranslation(',
              'Minecraft12111SimplePreviewRenderer', 'ItemStack.EMPTY',
              'Minecraft12111BakedPreviewRenderState',
              'Minecraft12111BakedPreviewSubmission', 'GuiGraphicsPreviewMixin',
+             'Minecraft12111LivePreviewRenderState',
+             'Minecraft12111LivePreviewSubmission',
+             'Minecraft12111LivePreviewRenderer',
              'Minecraft12111PreviewContext', 'Minecraft12111PreviewScope',
-             'GuiEntityRendererMixin', 'EditorPreviewLayerGuard',
+             'state.previewContext().open(minecraft)', 'EditorPreviewLayerGuard.open(',
              'Minecraft12111PreviewModelAnchors', 'ModelPartPreviewMixin',
              'renderPlayer.tickCount =', 'renderPlayer.avatarState().tick(',
+             '.extractEntity(', '.submit(', 'renderAllFeatures()',
              'ScreenOwnedRenderTarget', 'standaloneEquipment',
              'PlayerCapeModel', 'ElytraModel', 'ELYTRA_ROT_X', 'ELYTRA_ROT_Z',
              'ElytraModel.createLayer().bakeRoot()', 'Model<?> attachmentModel',
@@ -227,7 +231,8 @@ final class SemanticVerifier {
             if (implementation.endsWith('-fabric')) {
                 List<String> registrationMarkers = implementation.contains('1.21.11')
                         ? ['GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
-                           'Minecraft12111BakedPreviewRenderer(bufferSource)']
+                           'Minecraft12111BakedPreviewRenderer(bufferSource)',
+                           'Minecraft12111LivePreviewRenderer(bufferSource)']
                         : ['PictureInPictureRendererRegistry.register',
                            'new NclBakedPlayerRenderer(']
                 registrationMarkers.each { String required ->
@@ -240,6 +245,10 @@ final class SemanticVerifier {
                     if (!text.contains(required)) {
                         errors.add("${implementation}: NeoForge preview lacks native registration marker (${required})")
                     }
+                }
+                if (implementation.contains('1.21.11')
+                        && !text.contains('Minecraft12111LivePreviewRenderer::new')) {
+                    errors.add("${implementation}: NeoForge preview lacks native live registration")
                 }
             } else {
                 errors.add("${implementation}: PIP preview implementation must identify its loader")

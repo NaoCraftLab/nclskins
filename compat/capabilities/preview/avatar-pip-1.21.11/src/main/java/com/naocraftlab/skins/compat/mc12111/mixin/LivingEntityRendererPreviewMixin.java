@@ -3,7 +3,6 @@ package com.naocraftlab.skins.compat.mc12111.mixin;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
 import com.naocraftlab.skins.compat.mc12111.Minecraft12111PreviewModelAnchors;
-import com.naocraftlab.skins.compat.mc12111.NclPreviewState;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
@@ -36,6 +35,7 @@ abstract class LivingEntityRendererPreviewMixin {
             EntityRenderState state,
             float yRot,
             float xRot) {
+        boolean editorPreview = EditorPreviewLayerGuard.isActive();
         if (!(state instanceof AvatarRenderState avatar)) {
             layer.submit(poseStack, nodes, light, state, yRot, xRot);
             return;
@@ -45,8 +45,6 @@ abstract class LivingEntityRendererPreviewMixin {
                 Minecraft12111PreviewModelAnchors.open(model, slim)) {
             layer.submit(poseStack, nodes, light, state, yRot, xRot);
         } catch (RuntimeException failure) {
-            boolean editorPreview = state instanceof NclPreviewState preview
-                    && preview.nclskins$isEditorPreview();
             if (!editorPreview || !EditorPreviewLayerGuard.handle(failure)) {
                 throw failure;
             }

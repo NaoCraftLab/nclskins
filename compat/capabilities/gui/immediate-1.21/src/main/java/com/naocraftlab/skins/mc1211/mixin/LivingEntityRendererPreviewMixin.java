@@ -4,11 +4,11 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
 import com.naocraftlab.skins.mc1211.Minecraft1211PreviewModelAnchors;
 import net.minecraft.client.model.EntityModel;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -38,8 +38,7 @@ abstract class LivingEntityRendererPreviewMixin {
             float netHeadYaw,
             float headPitch) {
         boolean editorPreview = EditorPreviewLayerGuard.isActive();
-        boolean localPlayer = entity == Minecraft.getInstance().player;
-        if (!editorPreview && !localPlayer) {
+        if (!(entity instanceof Player)) {
             layer.render(
                     poseStack, buffers, light, entity, limbSwing, limbSwingAmount,
                     partialTick, ageInTicks, netHeadYaw, headPitch);
@@ -58,7 +57,7 @@ abstract class LivingEntityRendererPreviewMixin {
                     netHeadYaw,
                     headPitch);
         } catch (RuntimeException failure) {
-            if (!EditorPreviewLayerGuard.handle(failure)) {
+            if (!editorPreview || !EditorPreviewLayerGuard.handle(failure)) {
                 throw failure;
             }
         }
