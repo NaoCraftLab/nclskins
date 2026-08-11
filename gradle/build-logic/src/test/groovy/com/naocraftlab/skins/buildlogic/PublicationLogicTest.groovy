@@ -320,6 +320,19 @@ final class PublicationLogicTest {
         }
     }
 
+    @Test
+    void publisherHttpClientsAreExecutionScopedForConfigurationCache() {
+        ['PublishPlatformsTask.groovy', 'PublishGithubReleaseTask.groovy'].each { String name ->
+            String source = new File(
+                    repository,
+                    "gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/${name}").text
+            assertTrue(source.contains('private transient HttpClient client'))
+            assertTrue(source.contains('private HttpClient httpClient()'))
+            assertTrue(source.contains('response = httpClient().send('))
+            assertFalse(source.contains('private final HttpClient client'))
+        }
+    }
+
     private Map desired(String targetId) {
         Map target = CatalogTools.selectTarget(catalog, targetId)
         String fileName = AssembleReleaseTask.artifactName(target, release.version)

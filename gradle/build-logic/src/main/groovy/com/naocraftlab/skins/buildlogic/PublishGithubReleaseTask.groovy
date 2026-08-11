@@ -21,10 +21,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
     @InputDirectory
     abstract DirectoryProperty getBundleDirectory()
 
-    private final HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(30))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build()
+    private transient HttpClient client
 
     PublishGithubReleaseTask() {
         outputs.upToDateWhen { false }
@@ -149,7 +146,8 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body)
         HttpResponse<byte[]> response
         try {
-            response = client.send(builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofByteArray())
+            response = httpClient().send(
+                    builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofByteArray())
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt()
             throw new IllegalStateException("${method} ${url} was interrupted", error)
@@ -198,6 +196,16 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
 
     String uploadBase() {
         (System.getenv('GITHUB_UPLOAD_URL') ?: 'https://uploads.github.com').replaceAll('/+$', '')
+    }
+
+    private HttpClient httpClient() {
+        if (client == null) {
+            client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(30))
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build()
+        }
+        client
     }
 
     void requireNoConflicts(Map plan) {
