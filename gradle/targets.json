@@ -286,6 +286,15 @@
         "curseforge": {"projectId": 308702, "slug": "modmenu"}
       }
     },
+    "better_modlist": {
+      "modId": "better_modlist",
+      "loaders": ["forge", "neoforge"],
+      "type": "optional",
+      "platforms": {
+        "modrinth": {"projectId": "sbpqhzIG"},
+        "curseforge": {"projectId": 1089803, "slug": "better-modlist-neoforge"}
+      }
+    },
     "yet_another_config_lib_v3": {
       "modId": "yet_another_config_lib_v3",
       "loaders": ["fabric", "forge", "neoforge"],

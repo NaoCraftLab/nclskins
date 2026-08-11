@@ -64,10 +64,13 @@ final class PublicationSupport {
             Map asset = target.asset instanceof Map ? target.asset as Map : [:]
             String fileName = asset.file?.toString()
             if (!(target.id instanceof String) || !targetIds.add(target.id.toString()) ||
-                    target.name != "${manifest.version}+${target.id}".toString() ||
+                    !(target.minecraftVersion instanceof String) ||
+                    target.name != publicationName(manifest.version.toString(),
+                            target.minecraftVersion.toString(), target.loader?.toString()) ||
                     target.versionNumber != manifest.version || target.channel != manifest.channel ||
                     !(target.loader in ['fabric', 'forge', 'neoforge']) ||
                     !(target.gameVersions instanceof List) || (target.gameVersions as List).isEmpty() ||
+                    (target.gameVersions as List).first() != target.minecraftVersion ||
                     assets[fileName] != asset || asset.kind != 'mod' || asset.target != target.id ||
                     !targetHashes.add(asset.sha512.toString())) {
                 throw new IllegalStateException("invalid publication target: ${target.id}")
@@ -171,6 +174,7 @@ final class PublicationSupport {
     static Map curseForgeMetadata(Map manifest, Map target) {
         List<String> gameVersionNames = new ArrayList<>(target.gameVersions as List)
         gameVersionNames.add(loaderDisplayName(target.loader.toString()))
+        gameVersionNames.addAll(['Client', 'Server'])
         [
                 changelog               : manifest.releaseNotes.text,
                 changelogType           : 'markdown',
@@ -245,8 +249,16 @@ final class PublicationSupport {
         Object raw = platform == 'modrinth' ? remote.game_versions : remote.gameVersions
         if (!(raw instanceof List)) return [] as Set<String>
         Set<String> values = (raw as List).collect { it.toString() } as Set<String>
-        if (platform == 'curseforge') values.removeAll(['Fabric', 'Forge', 'NeoForge'])
+        if (platform == 'curseforge') {
+            values = values.findAll {
+                !(it.toLowerCase(Locale.ROOT) in ['fabric', 'forge', 'neoforge', 'client', 'server'])
+            } as Set<String>
+        }
         values
+    }
+
+    static String publicationName(String version, String minecraftVersion, String loader) {
+        "${version}+${minecraftVersion}-${loader}".toString()
     }
 
     static Set<String> normalizedLoaders(String platform, Map remote) {

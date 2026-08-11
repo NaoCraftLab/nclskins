@@ -174,10 +174,12 @@ abstract class AssembleReleaseTask extends DefaultTask {
         }
         [
                 id           : target.id,
-                name         : "${release.version}+${target.id}".toString(),
+                name         : PublicationSupport.publicationName(
+                        release.version.toString(), target.minecraft.version.toString(), loader),
                 versionNumber: release.version,
                 channel      : release.channel,
                 loader       : loader,
+                minecraftVersion: target.minecraft.version,
                 gameVersions : gameVersions,
                 dependencies : [modrinth: modrinthDependencies, curseforge: curseForgeDependencies],
                 asset        : asset

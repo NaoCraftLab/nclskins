@@ -45,7 +45,7 @@ final class PublicationLogicTest {
         Map fabric = desired('fabric-26.1')
         assertEquals(['26.1', '26.1.1', '26.1.2'], fabric.gameVersions)
         assertEquals('fabric', fabric.loader)
-        assertEquals('1.2.3-beta.4+fabric-26.1', fabric.name)
+        assertEquals('1.2.3-beta.4+26.1-fabric', fabric.name)
         assertEquals('1.2.3-beta.4', fabric.versionNumber)
         assertEquals([
                 [projectId: 'P7dR8mSH', type: 'required'],
@@ -57,9 +57,15 @@ final class PublicationLogicTest {
         Map neoForge = desired('neoforge-1.21.1')
         assertEquals(['1.21.1'], neoForge.gameVersions)
         assertEquals([
+                [projectId: 'sbpqhzIG', type: 'optional'],
                 [projectId: '1eAoo2KR', type: 'optional'],
                 [projectId: 'bTTf2DEw', type: 'optional']
         ] as Set, neoForge.dependencies.modrinth as Set)
+        assertEquals([
+                [projectId: 1089803, slug: 'better-modlist-neoforge', type: 'optional'],
+                [projectId: 667299, slug: 'yacl', type: 'optional'],
+                [projectId: 560832, slug: 'sqlite-jdbc', type: 'optional']
+        ] as Set, neoForge.dependencies.curseforge as Set)
     }
 
     @Test
@@ -96,7 +102,7 @@ final class PublicationLogicTest {
         assertEquals('client_and_server', modrinth.environment)
 
         Map curseForge = PublicationSupport.curseForgeMetadata(manifest, target)
-        assertEquals(['1.20.1', 'Fabric'], curseForge.gameVersionNames)
+        assertEquals(['1.20.1', 'Fabric', 'Client', 'Server'], curseForge.gameVersionNames)
         assertEquals('beta', curseForge.releaseType)
         assertTrue((curseForge.relations.projects as List).every { it.projectID instanceof Integer })
         String json = JsonOutput.toJson(curseForge)
@@ -374,7 +380,8 @@ final class PublicationLogicTest {
     private static Map exactCurseForge(Map target) {
         [
                 id: 42, displayName: target.name, releaseType: 2,
-                gameVersions: (target.gameVersions as List) + [PublicationSupport.loaderDisplayName(target.loader)],
+                gameVersions: (target.gameVersions as List) +
+                        [PublicationSupport.loaderDisplayName(target.loader), 'Client', 'Server'],
                 fileName: target.asset.file,
                 dependencies: (target.dependencies.curseforge as List).collect {
                     [modId: it.projectId, relationType: it.type == 'required' ? 3 : 2]
