@@ -80,8 +80,9 @@ abstract class PublishPlatformsTask extends DefaultTask {
                     return
                 }
                 File artifact = new File(bundle, "assets/${target.asset.file}")
+                File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
                 String remoteId = platform == 'modrinth'
-                        ? uploadModrinth(manifest, target, artifact, modrinthToken)
+                        ? uploadModrinth(manifest, target, artifact, sources, modrinthToken)
                         : uploadCurseForge(manifest, target, artifact, curseForgeUploadToken)
                 results.add([target.name.toString(), platform, 'uploaded', remoteId])
             }
@@ -149,14 +150,16 @@ abstract class PublishPlatformsTask extends DefaultTask {
         files
     }
 
-    String uploadModrinth(Map manifest, Map target, File artifact, String token) {
+    String uploadModrinth(Map manifest, Map target, File artifact, File sources, String token) {
         Map metadata = PublicationSupport.modrinthMetadata(manifest, target)
         String boundary = "NclSkins${UUID.randomUUID().toString().replace('-', '')}"
         byte[] body = PublicationSupport.multipart([
                 [name: 'data', filename: null, contentType: 'application/json',
                  bytes: JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8)],
                 [name: 'file', filename: artifact.name, contentType: 'application/java-archive',
-                 bytes: artifact.bytes]
+                 bytes: artifact.bytes],
+                [name: 'sources', filename: sources.name, contentType: 'application/java-archive',
+                 bytes: sources.bytes]
         ], boundary)
         Object payload = json(request(
                 'POST', "${apiBase('MODRINTH_API_BASE', 'https://api.modrinth.com/v2')}/version",

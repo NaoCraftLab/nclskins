@@ -109,15 +109,22 @@ final class PublicationLogicTest {
         assertTrue(json.contains('"projectID":306612'))
         assertFalse(json.contains('"projectID":"'))
 
+        assertEquals(['file', 'sources'], modrinth.file_parts)
+        assertEquals([sources: 'sources-jar'], modrinth.file_types)
+
         byte[] multipart = PublicationSupport.multipart([
                 [name: 'metadata', filename: null, contentType: 'application/json',
                  bytes: json.getBytes(StandardCharsets.UTF_8)],
                 [name: 'file', filename: target.asset.file,
-                 contentType: 'application/java-archive', bytes: 'jar'.bytes]
+                 contentType: 'application/java-archive', bytes: 'jar'.bytes],
+                [name: 'sources', filename: target.sourcesAsset.file,
+                 contentType: 'application/java-archive', bytes: 'sources'.bytes]
         ], 'NclSkinsBoundary')
         String body = new String(multipart, StandardCharsets.UTF_8)
         assertTrue(body.contains('name="metadata"'))
         assertTrue(body.contains("filename=\"${target.asset.file}\""))
+        assertTrue(body.contains('name="sources"'))
+        assertTrue(body.contains("filename=\"${target.sourcesAsset.file}\""))
     }
 
     @Test
@@ -157,7 +164,8 @@ final class PublicationLogicTest {
             Map modAsset = asset(mod, 'mod', 'fabric-1.20.1')
             Map sourcesAsset = asset(sources, 'sources', null)
             Map target = AssembleReleaseTask.publicationTarget(
-                    catalog, CatalogTools.selectTarget(catalog, 'fabric-1.20.1'), release, modAsset)
+                    catalog, CatalogTools.selectTarget(catalog, 'fabric-1.20.1'), release,
+                    modAsset, sourcesAsset)
             Map manifest = [
                     schemaVersion: 2, mode: 'tag', version: release.version, channel: release.channel,
                     prerelease: true, sourceCommit: 'abc', baseTag: '1.2.3-beta.3', targetCount: 1,
@@ -347,7 +355,11 @@ final class PublicationLogicTest {
                 sha1: "sha1-${targetId}", sha256: "sha256-${targetId}",
                 sha512: "sha512-${targetId}"
         ]
-        AssembleReleaseTask.publicationTarget(catalog, target, release, asset)
+        Map sourcesAsset = [
+                file: "nclskins-${release.version}-sources.jar".toString(), kind: 'sources', size: 7,
+                sha1: 'sources-sha1', sha256: 'sources-sha256', sha512: 'sources-sha512'
+        ]
+        AssembleReleaseTask.publicationTarget(catalog, target, release, asset, sourcesAsset)
     }
 
     private static Map asset(File file, String kind, String targetId) {
@@ -373,7 +385,12 @@ final class PublicationLogicTest {
                 dependencies: (target.dependencies.modrinth as List).collect {
                     [project_id: it.projectId, dependency_type: it.type]
                 },
-                files: [[filename: target.asset.file, hashes: [sha512: target.asset.sha512]]]
+                files: [
+                        [filename: target.asset.file, primary: true,
+                         file_type: null, hashes: [sha512: target.asset.sha512]],
+                        [filename: target.sourcesAsset.file, primary: false,
+                         file_type: 'sources-jar', hashes: [sha512: target.sourcesAsset.sha512]]
+                ]
         ]
     }
 
@@ -403,7 +420,7 @@ final class PublicationLogicTest {
         List<Map> fetchCurseForge(Map manifest, String token) { curseForge }
 
         @Override
-        String uploadModrinth(Map manifest, Map target, File artifact, String token) {
+        String uploadModrinth(Map manifest, Map target, File artifact, File sources, String token) {
             uploads.add('modrinth')
             'modrinth-upload'
         }

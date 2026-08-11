@@ -78,6 +78,10 @@ abstract class AssembleReleaseTask extends DefaultTask {
         Set<String> selectedIds = selection.targetIds as Set<String>
         List<Map> publicationTargets = []
         List<Map> assets = []
+        String sourcesName = "nclskins-${metadata.version}-sources.jar"
+        File sources = ReleaseBundle.createSourcesJar(
+                repository, catalog, metadata.version.toString(), new File(assetsDirectory, sourcesName))
+        Map sourcesAsset = assetMetadata(sources, 'sources', null)
         (catalog.targets as List<Map>).findAll { selectedIds.contains(it.id.toString()) }.each { Map target ->
             String name = artifactName(target, metadata.version.toString())
             File built = new File(repository, "${target.path}/build/libs/${name}")
@@ -90,14 +94,10 @@ abstract class AssembleReleaseTask extends DefaultTask {
             Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
             Map asset = assetMetadata(destination, 'mod', target.id.toString())
             assets.add(asset)
-            publicationTargets.add(publicationTarget(catalog, target, metadata, asset))
+            publicationTargets.add(publicationTarget(catalog, target, metadata, asset, sourcesAsset))
         }
         requireUniqueArtifactContents(publicationTargets)
 
-        String sourcesName = "nclskins-${metadata.version}-sources.jar"
-        File sources = ReleaseBundle.createSourcesJar(
-                repository, catalog, metadata.version.toString(), new File(assetsDirectory, sourcesName))
-        Map sourcesAsset = assetMetadata(sources, 'sources', null)
         assets.add(sourcesAsset)
 
         File notes = new File(versionDirectory, 'release-notes.md')
@@ -151,7 +151,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
         }
     }
 
-    static Map publicationTarget(Map catalog, Map target, Map release, Map asset) {
+    static Map publicationTarget(Map catalog, Map target, Map release, Map asset, Map sourcesAsset) {
         String loader = target.loader.id.toString()
         List<String> gameVersions = target.compatibility instanceof Map
                 ? (target.compatibility.minecraftVersions as List).collect { it.toString() }
@@ -182,7 +182,8 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 minecraftVersion: target.minecraft.version,
                 gameVersions : gameVersions,
                 dependencies : [modrinth: modrinthDependencies, curseforge: curseForgeDependencies],
-                asset        : asset
+                asset        : asset,
+                sourcesAsset : sourcesAsset
         ]
     }
 

@@ -49,6 +49,7 @@ final class PublicationSupport {
                 assets.values().count { it.kind == 'sources' } != 1) {
             throw new IllegalStateException('release manifest must contain one source JAR and one JAR per target')
         }
+        Map sourcesAsset = assets.values().find { it.kind == 'sources' } as Map
         File assetsDirectory = new File(bundleDirectory, 'assets')
         if (!assetsDirectory.isDirectory() || Files.isSymbolicLink(assetsDirectory.toPath()) ||
                 (assetsDirectory.listFiles() as List<File>).any {
@@ -72,6 +73,7 @@ final class PublicationSupport {
                     !(target.gameVersions instanceof List) || (target.gameVersions as List).isEmpty() ||
                     (target.gameVersions as List).first() != target.minecraftVersion ||
                     assets[fileName] != asset || asset.kind != 'mod' || asset.target != target.id ||
+                    target.sourcesAsset != sourcesAsset ||
                     !targetHashes.add(asset.sha512.toString())) {
                 throw new IllegalStateException("invalid publication target: ${target.id}")
             }
@@ -148,6 +150,20 @@ final class PublicationSupport {
         String actualHash = normalizedHash(platform, remote)
         String expectedHash = platform == 'modrinth' ? desired.asset.sha512 : desired.asset.sha1
         if (actualHash == null || actualHash != expectedHash) mismatches.add('file hash differs')
+        if (platform == 'modrinth') {
+            List<Map> files = remote.files instanceof List
+                    ? (remote.files as List).findAll { it instanceof Map } as List<Map> : []
+            Map sourcesAsset = desired.sourcesAsset instanceof Map ? desired.sourcesAsset as Map : [:]
+            Set<String> expectedFiles = [desired.asset.file?.toString(), sourcesAsset.file?.toString()] as Set<String>
+            Set<String> actualFiles = files.collect { it.filename?.toString() } as Set<String>
+            if (files.size() != 2 || actualFiles != expectedFiles) mismatches.add('file set differs')
+            List<Map> sourceFiles = files.findAll { it.file_type == 'sources-jar' }
+            if (sourceFiles.size() != 1 || sourceFiles.first().filename != sourcesAsset.file) {
+                mismatches.add('sources filename or type differs')
+            } else if (((sourceFiles.first().hashes as Map)?.sha512?.toString()) != sourcesAsset.sha512) {
+                mismatches.add('sources file hash differs')
+            }
+        }
         mismatches
     }
 
@@ -165,8 +181,9 @@ final class PublicationSupport {
                 featured      : false,
                 status        : 'listed',
                 project_id    : manifest.platforms.modrinth.projectId,
-                file_parts    : ['file'],
+                file_parts    : ['file', 'sources'],
                 primary_file  : 'file',
+                file_types    : [sources: 'sources-jar'],
                 environment   : 'client_and_server'
         ]
     }
@@ -274,14 +291,19 @@ final class PublicationSupport {
 
     static String normalizedFileName(String platform, Map remote) {
         if (platform == 'curseforge') return remote.fileName?.toString()
-        if (!(remote.files instanceof List) || (remote.files as List).size() != 1) return null
-        (remote.files as List).first().filename?.toString()
+        if (!(remote.files instanceof List)) return null
+        List<Map> primary = (remote.files as List).findAll { it instanceof Map && it.primary == true } as List<Map>
+        primary.size() == 1 ? primary.first().filename?.toString() : null
     }
 
     static String normalizedHash(String platform, Map remote) {
         if (platform == 'modrinth') {
-            if (!(remote.files instanceof List) || (remote.files as List).size() != 1) return null
-            return ((remote.files as List).first().hashes as Map)?.sha512?.toString()
+            if (!(remote.files instanceof List)) return null
+            List<Map> primary = (remote.files as List).findAll {
+                it instanceof Map && it.primary == true
+            } as List<Map>
+            return primary.size() == 1
+                    ? ((primary.first().hashes as Map)?.sha512?.toString()) : null
         }
         if (!(remote.hashes instanceof List)) return null
         Map sha1 = (remote.hashes as List).find { it instanceof Map && (it.algo as Number)?.intValue() == 1 } as Map
