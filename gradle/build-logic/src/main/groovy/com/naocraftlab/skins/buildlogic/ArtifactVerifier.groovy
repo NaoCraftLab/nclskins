@@ -69,7 +69,7 @@ final class ArtifactVerifier {
                 ],
                 'com/naocraftlab/skins/compat/v1_20_1/client/mixin/OptionsScreenMixin': [
                     init: 'Lnet/minecraft/client/gui/screens/OptionsScreen;m_7856_()V',
-                    'Lnet/minecraft/client/gui/layouts/GridLayout$RowHelper;addChild(Lnet/minecraft/client/gui/layouts/LayoutElement;)Lnet/minecraft/client/gui/layouts/LayoutElement;': 'Lnet/minecraft/client/gui/layouts/GridLayout$RowHelper;m_264139_(Lnet/minecraft/client/gui/layouts/LayoutElement;)Lnet/minecraft/client/gui/layouts/LayoutElement;'
+                    'Lnet/minecraft/client/gui/screens/OptionsScreen;openScreenButton(Lnet/minecraft/network/chat/Component;Ljava/util/function/Supplier;)Lnet/minecraft/client/gui/components/Button;': 'Lnet/minecraft/client/gui/screens/OptionsScreen;m_260993_(Lnet/minecraft/network/chat/Component;Ljava/util/function/Supplier;)Lnet/minecraft/client/gui/components/Button;'
                 ],
                 'com/naocraftlab/skins/compat/v1_20_1/client/mixin/PlayerPreviewMixin'              : [
                         isModelPartShown: 'Lnet/minecraft/world/entity/player/Player;m_36170_(Lnet/minecraft/world/entity/player/PlayerModelPart;)Z',
@@ -106,12 +106,40 @@ final class ArtifactVerifier {
             verifyManifest(archive, target, errors)
             verifyForgeRefmap(archive, target, names, errors)
             verifyMenuPreviewCompatibility(archive, target, errors)
+            verifyPreviewRegistration(archive, target, names, errors)
             names.findAll { !it.endsWith('/') }.each { String name ->
                 byte[] bytes = read(archive, name)
                 String content = new String(bytes, StandardCharsets.ISO_8859_1)
                 if (FORBIDDEN_CONTENT.matcher(content).find()) errors.add("${target.id}:${name}: forbidden OAuth/launcher reference")
                 if (TOKEN.matcher(content).find()) errors.add("${target.id}:${name}: credential-like value found")
             }
+        }
+    }
+
+    static void verifyPreviewRegistration(
+            ZipFile archive, Map target, List<String> names, List<String> errors) {
+        if (!target.capabilities.preview.toString().startsWith('avatar-pip-')) return
+        String constructorMixin = 'com/naocraftlab/skins/compat/mc12111/mixin/GuiRendererMixin.class'
+        String fabricRegistration = 'com/naocraftlab/skins/loader/fabric/FabricPipRendererRegistration.class'
+        String neoForgeRegistration = 'com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.class'
+        List<String> registrations = [constructorMixin, fabricRegistration, neoForgeRegistration]
+                .findAll { names.contains(it) }
+        String expected = target.id == 'fabric-1.21.11'
+                ? constructorMixin
+                : target.loader.id == 'fabric' ? fabricRegistration : neoForgeRegistration
+        if (registrations != [expected]) {
+            errors.add("${target.id}: expected exactly one native PIP registration ${expected}, found ${registrations}")
+            return
+        }
+        String registrationBytecode = new String(read(archive, expected), StandardCharsets.ISO_8859_1)
+        ['java/lang/reflect', 'getDeclaredMethod', 'getDeclaredConstructor'].each { String forbidden ->
+            if (registrationBytecode.contains(forbidden)) {
+                errors.add("${target.id}:${expected}: PIP registration contains reflection (${forbidden})")
+            }
+        }
+        boolean hasFabric12111Mixin = names.contains('nclskins.mc12111.fabric.mixins.json')
+        if (hasFabric12111Mixin != (target.id == 'fabric-1.21.11')) {
+            errors.add("${target.id}: Fabric 1.21.11 constructor mixin presence is incorrect")
         }
     }
 

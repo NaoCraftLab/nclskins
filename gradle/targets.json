@@ -76,10 +76,13 @@
           "fabric": "access-legacy-fabric",
           "forge": "access-legacy-forge"
         },
+        "previewCapabilities": {
+          "fabric": "remote-player-1.20",
+          "forge": "remote-player-1.20"
+        },
         "capabilities": {
           "gui": "immediate-1.20",
           "textures": "resource-location-legacy",
-          "preview": "remote-player-1.20",
           "appearance": "player-info-cache-1.20",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
@@ -103,10 +106,13 @@
           "fabric": "access-modern-fabric",
           "neoforge": "access-modern-neoforge"
         },
+        "previewCapabilities": {
+          "fabric": "player-skin-1.21",
+          "neoforge": "player-skin-1.21"
+        },
         "capabilities": {
           "gui": "immediate-1.21",
           "textures": "resource-location-modern",
-          "preview": "player-skin-1.21",
           "appearance": "skin-lookup-1.21",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
@@ -130,10 +136,13 @@
           "fabric": "access-submission-fabric",
           "neoforge": "access-extraction-neoforge"
         },
+        "previewCapabilities": {
+          "fabric": "avatar-pip-1.21.11-fabric",
+          "neoforge": "avatar-pip-1.21.11-neoforge"
+        },
         "capabilities": {
           "gui": "submission-1.21.11",
           "textures": "identifier-26.2",
-          "preview": "avatar-pip-1.21.11",
           "appearance": "local-player-skin-26.2",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
@@ -157,10 +166,13 @@
           "fabric": "access-extraction-fabric",
           "neoforge": "access-extraction-neoforge"
         },
+        "previewCapabilities": {
+          "fabric": "avatar-pip-26.1-fabric",
+          "neoforge": "avatar-pip-26.1-neoforge"
+        },
         "capabilities": {
           "gui": "extraction-26.2",
           "textures": "identifier-26.2",
-          "preview": "avatar-pip-26.1",
           "appearance": "local-player-skin-26.2",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
@@ -184,10 +196,13 @@
           "fabric": "access-extraction-fabric",
           "neoforge": "access-extraction-neoforge"
         },
+        "previewCapabilities": {
+          "fabric": "avatar-pip-26.2-fabric",
+          "neoforge": "avatar-pip-26.2-neoforge"
+        },
         "capabilities": {
           "gui": "extraction-26.2",
           "textures": "identifier-26.2",
-          "preview": "avatar-pip-26.2",
           "appearance": "local-player-skin-26.2",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
@@ -455,23 +470,59 @@
       "side": "client",
       "requires": []
     },
-    "avatar-pip-26.1": {
+    "avatar-pip-26.1-core": {
       "java": ["compat/capabilities/preview/avatar-pip-26.1/src/main/java"],
       "resources": [],
       "side": "client",
       "requires": ["avatar-pip-common"]
     },
-    "avatar-pip-1.21.11": {
+    "avatar-pip-1.21.11-core": {
       "java": ["compat/capabilities/preview/avatar-pip-1.21.11/src/main/java"],
       "resources": ["compat/capabilities/preview/avatar-pip-1.21.11/src/main/resources"],
       "side": "client",
       "requires": []
     },
-    "avatar-pip-26.2": {
+    "avatar-pip-26.2-core": {
       "java": ["compat/capabilities/preview/avatar-pip-render-26.2/src/main/java"],
       "resources": [],
       "side": "client",
       "requires": ["avatar-pip-common"]
+    },
+    "avatar-pip-1.21.11-fabric": {
+      "java": ["loader/fabric/pip-1.21.11/src/main/java"],
+      "resources": ["loader/fabric/pip-1.21.11/src/main/resources"],
+      "side": "client",
+      "requires": ["avatar-pip-1.21.11-core"]
+    },
+    "avatar-pip-1.21.11-neoforge": {
+      "java": ["loader/neoforge/pip-1.21.11/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-1.21.11-core"]
+    },
+    "avatar-pip-26.1-fabric": {
+      "java": ["loader/fabric/pip-26.1/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-26.1-core"]
+    },
+    "avatar-pip-26.1-neoforge": {
+      "java": ["loader/neoforge/pip-26.1/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-26.1-core"]
+    },
+    "avatar-pip-26.2-fabric": {
+      "java": ["loader/fabric/pip-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-26.2-core"]
+    },
+    "avatar-pip-26.2-neoforge": {
+      "java": ["loader/neoforge/pip-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-26.2-core"]
     },
     "player-info-cache-1.20": {
       "java": ["compat/capabilities/appearance/player-info-cache-1.20/src/main/java"],
@@ -690,12 +741,12 @@
     "identifier-26.2": {"bundle": "identifier-26.2", "abiImplementation": "identifier-26.2"},
     "remote-player-1.20": {"bundle": "remote-player-1.20", "abiImplementation": "remote-player-1.20"},
     "player-skin-1.21": {"bundle": "player-skin-1.21", "abiImplementation": "player-skin-1.21"},
-    "avatar-pip-1.21.11": {"bundle": "avatar-pip-1.21.11", "abiImplementation": "avatar-pip-1.21.11"},
-    "avatar-pip-26.2": {"bundle": "avatar-pip-26.2", "abiImplementation": "avatar-pip-26.2"},
-    "avatar-pip-26.1": {
-      "bundle": "avatar-pip-26.1",
-      "abiImplementation": "avatar-pip-26.1"
-    },
+    "avatar-pip-1.21.11-fabric": {"bundle": "avatar-pip-1.21.11-fabric", "abiImplementation": "avatar-pip-1.21.11"},
+    "avatar-pip-1.21.11-neoforge": {"bundle": "avatar-pip-1.21.11-neoforge", "abiImplementation": "avatar-pip-1.21.11"},
+    "avatar-pip-26.1-fabric": {"bundle": "avatar-pip-26.1-fabric", "abiImplementation": "avatar-pip-26.1"},
+    "avatar-pip-26.1-neoforge": {"bundle": "avatar-pip-26.1-neoforge", "abiImplementation": "avatar-pip-26.1"},
+    "avatar-pip-26.2-fabric": {"bundle": "avatar-pip-26.2-fabric", "abiImplementation": "avatar-pip-26.2"},
+    "avatar-pip-26.2-neoforge": {"bundle": "avatar-pip-26.2-neoforge", "abiImplementation": "avatar-pip-26.2"},
     "player-info-cache-1.20": {"bundle": "player-info-cache-1.20", "abiImplementation": "player-info-cache-1.20"},
     "skin-lookup-1.21": {"bundle": "skin-lookup-1.21", "abiImplementation": "skin-lookup-1.21"},
     "local-player-skin-26.2": {"bundle": "local-player-skin-26.2", "abiImplementation": "local-player-skin-26.2"},
@@ -1037,7 +1088,7 @@
       "capabilities": {
         "gui": "submission-1.21.11",
         "textures": "identifier-26.2",
-        "preview": "avatar-pip-1.21.11",
+        "preview": "avatar-pip-1.21.11-fabric",
         "appearance": "local-player-skin-26.2",
         "loaderScreen": "fabric-submission",
         "session": "minecraft-user-v1",
@@ -1060,7 +1111,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.mc12111.mixins.json"],
+        "mixins": ["nclskins.mc12111.mixins.json", "nclskins.mc12111.fabric.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -1103,7 +1154,7 @@
       "capabilities": {
         "gui": "submission-1.21.11",
         "textures": "identifier-26.2",
-        "preview": "avatar-pip-1.21.11",
+        "preview": "avatar-pip-1.21.11-neoforge",
         "appearance": "local-player-skin-26.2",
         "loaderScreen": "neoforge-extraction",
         "session": "minecraft-user-v1",
@@ -1170,7 +1221,7 @@
       "capabilities": {
         "gui": "extraction-26.2",
         "textures": "identifier-26.2",
-        "preview": "avatar-pip-26.1",
+        "preview": "avatar-pip-26.1-fabric",
         "appearance": "local-player-skin-26.2",
         "loaderScreen": "fabric-extraction",
         "session": "minecraft-user-v1",
@@ -1258,7 +1309,7 @@
       "capabilities": {
         "gui": "extraction-26.2",
         "textures": "identifier-26.2",
-        "preview": "avatar-pip-26.1",
+        "preview": "avatar-pip-26.1-neoforge",
         "appearance": "local-player-skin-26.2",
         "loaderScreen": "neoforge-extraction",
         "session": "minecraft-user-v1",
@@ -1347,7 +1398,7 @@
       "capabilities": {
         "gui": "extraction-26.2",
         "textures": "identifier-26.2",
-        "preview": "avatar-pip-26.2",
+        "preview": "avatar-pip-26.2-fabric",
         "appearance": "local-player-skin-26.2",
         "loaderScreen": "fabric-extraction",
         "session": "minecraft-user-v1",
@@ -1413,7 +1464,7 @@
       "capabilities": {
         "gui": "extraction-26.2",
         "textures": "identifier-26.2",
-        "preview": "avatar-pip-26.2",
+        "preview": "avatar-pip-26.2-neoforge",
         "appearance": "local-player-skin-26.2",
         "loaderScreen": "neoforge-extraction",
         "session": "minecraft-user-v1",

@@ -13,6 +13,7 @@ final class FabricClientBridge {
     private FabricClientBridge() {}
 
     static void install() {
+        FabricPipRendererRegistration.register();
         FabricClientLifecycle.install(
                 CLIENT_HOOKS, FabricLoader.getInstance().getConfigDir());
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) ->

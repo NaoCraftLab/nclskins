@@ -9,6 +9,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.neoforge.client.event.RegisterPictureInPictureRenderersEvent;
 import net.neoforged.neoforge.event.AddPackFindersEvent;
 
 
@@ -28,6 +29,12 @@ public final class NclSkinsNeoForgeClient {
                 PackSource.BUILT_IN,
                 false,
                 Pack.Position.BOTTOM);
+    }
+
+    @SubscribeEvent
+    public static void registerPictureInPictureRenderers(
+            RegisterPictureInPictureRenderersEvent event) {
+        NeoForgePipRendererRegistration.register(event);
     }
 
     @SubscribeEvent

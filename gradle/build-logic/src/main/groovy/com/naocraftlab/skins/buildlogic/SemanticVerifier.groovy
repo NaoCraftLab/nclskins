@@ -160,7 +160,7 @@ final class SemanticVerifier {
                 errors.add("${implementation}: editor preview lacks readiness/animation marker (${required})")
             }
         }
-        if (implementation == 'avatar-pip-1.21.11') {
+        if (implementation.startsWith('avatar-pip-1.21.11-')) {
             ['submitEntityRenderState', 'submitSkinRenderState',
              'NclPreviewState', 'LivingEntityRendererPreviewMixin',
              'EntityRenderState state',
@@ -168,7 +168,6 @@ final class SemanticVerifier {
              'Minecraft12111SimplePreviewRenderer', 'ItemStack.EMPTY',
              'Minecraft12111BakedPreviewRenderState',
              'Minecraft12111BakedPreviewSubmission', 'GuiGraphicsPreviewMixin',
-             'GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
              'Minecraft12111PreviewContext', 'Minecraft12111PreviewScope',
              'GuiEntityRendererMixin', 'EditorPreviewLayerGuard',
              'Minecraft12111PreviewModelAnchors', 'ModelPartPreviewMixin',
@@ -191,7 +190,6 @@ final class SemanticVerifier {
         } else if (implementation.startsWith('avatar-pip-')) {
             ['Minecraft262PreviewContext', 'NclBakedPlayerRenderState',
              'NclBakedPlayerSubmission', 'GuiGraphicsExtractorPreviewMixin',
-             'GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
              'ScreenOwnedRenderTarget', 'NclBakedPlayerTarget',
              'standaloneEquipment', 'PlayerCapeModel', 'ElytraModel',
              'ELYTRA_ROT_X', 'ELYTRA_ROT_Z'].each { String required ->
@@ -223,6 +221,28 @@ final class SemanticVerifier {
                 if (text.contains(forbidden)) {
                     errors.add("${implementation}: static legacy preview must bypass intercepted model baking (${forbidden})")
                 }
+            }
+        }
+        if (implementation.startsWith('avatar-pip-')) {
+            if (implementation.endsWith('-fabric')) {
+                List<String> registrationMarkers = implementation.contains('1.21.11')
+                        ? ['GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
+                           'Minecraft12111BakedPreviewRenderer(bufferSource)']
+                        : ['PictureInPictureRendererRegistry.register',
+                           'new NclBakedPlayerRenderer(']
+                registrationMarkers.each { String required ->
+                    if (!text.contains(required)) {
+                        errors.add("${implementation}: Fabric preview lacks native registration marker (${required})")
+                    }
+                }
+            } else if (implementation.endsWith('-neoforge')) {
+                ['RegisterPictureInPictureRenderersEvent', 'event.register('].each { String required ->
+                    if (!text.contains(required)) {
+                        errors.add("${implementation}: NeoForge preview lacks native registration marker (${required})")
+                    }
+                }
+            } else {
+                errors.add("${implementation}: PIP preview implementation must identify its loader")
             }
         }
         ['minecraft.player.set', 'minecraft.player.getInventory()',

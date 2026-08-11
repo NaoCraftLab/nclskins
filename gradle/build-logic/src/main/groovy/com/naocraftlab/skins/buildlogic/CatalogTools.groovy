@@ -793,12 +793,13 @@ final class CatalogTools {
         }
 
         Map epoch = selected.epochProfile instanceof Map ? selected.epochProfile as Map : [:]
-        Set<String> epochCapabilities = REQUIRED_CAPABILITIES - ['loaderScreen', 'serverLoader'] as Set
-        if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass', 'clientProviderBundle', 'accessBundles', 'capabilities'] as Set ||
+        Set<String> epochCapabilities = REQUIRED_CAPABILITIES - ['loaderScreen', 'serverLoader', 'preview'] as Set
+        if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass', 'clientProviderBundle', 'accessBundles', 'previewCapabilities', 'capabilities'] as Set ||
                 !(epoch.clientProviderClass instanceof String) ||
                 !(epoch.clientProviderClass ==~ /[a-zA-Z_$][a-zA-Z0-9_$]*(\.[a-zA-Z_$][a-zA-Z0-9_$]*)+/) ||
                 !(epoch.clientProviderBundle instanceof String) ||
                 !(epoch.accessBundles instanceof Map) ||
+                !(epoch.previewCapabilities instanceof Map) ||
                 !(epoch.capabilities instanceof Map) ||
                 ((epoch.capabilities as Map).keySet() as Set) != epochCapabilities) {
             errors.add("${target.id}: invalid epoch profile shape")
@@ -814,6 +815,12 @@ final class CatalogTools {
             Object accessBundle = (epoch.accessBundles as Map)[loader]
             if (!(accessBundle instanceof String) || accessBundle.isBlank()) {
                 errors.add("${target.id}: epoch profile has no access bundle for loader")
+            }
+            Object previewImplementation = (epoch.previewCapabilities as Map)[loader]
+            if (!(previewImplementation instanceof String) || previewImplementation.isBlank()) {
+                errors.add("${target.id}: epoch profile has no preview capability for loader")
+            } else if ((target.capabilities as Map).preview != previewImplementation) {
+                errors.add("${target.id}: preview differs from epoch/loader profile")
             }
         }
 

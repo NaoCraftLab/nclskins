@@ -9,6 +9,7 @@ import net.minecraft.client.renderer.state.gui.pip.PictureInPictureRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Group;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArgs;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -26,6 +27,7 @@ abstract class PictureInPictureRendererMixin {
             method = "prepare(Lnet/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;I)V",
             at = @At("HEAD"),
             require = 0)
+    @Group(name = "nclskins$captureDepthMode", min = 1, max = 1)
     private void nclskins$captureDepthMode261(
             PictureInPictureRenderState state,
             GuiRenderState guiRenderState,
@@ -38,6 +40,7 @@ abstract class PictureInPictureRendererMixin {
             method = "prepare(Lnet/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;I)V",
             at = @At("HEAD"),
             require = 0)
+    @Group(name = "nclskins$captureDepthMode", min = 1, max = 1)
     private void nclskins$captureDepthMode262(
             PictureInPictureRenderState state,
             GuiRenderState guiRenderState,

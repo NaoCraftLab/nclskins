@@ -476,6 +476,102 @@ final class BuildLogicTest {
     }
 
     @Test
+    void everyPipTargetSelectsExactlyOneLoaderNativeRegistration() {
+        Map<String, String> expected = [
+                'fabric-1.21.11'  : 'avatar-pip-1.21.11-fabric',
+                'neoforge-1.21.11': 'avatar-pip-1.21.11-neoforge',
+                'fabric-26.1'     : 'avatar-pip-26.1-fabric',
+                'neoforge-26.1'   : 'avatar-pip-26.1-neoforge',
+                'fabric-26.2'     : 'avatar-pip-26.2-fabric',
+                'neoforge-26.2'   : 'avatar-pip-26.2-neoforge'
+        ]
+        Set<String> registrationBundles = expected.values() as Set
+
+        List<Map> targets = catalog.targets.findAll {
+            it.capabilities.preview.toString().startsWith('avatar-pip-')
+        } as List<Map>
+        assertEquals(expected.keySet(), targets.collect { it.id } as Set)
+        targets.each { Map target ->
+            assertEquals(expected[target.id], target.capabilities.preview, target.id.toString())
+            Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
+            assertEquals(
+                    [expected[target.id]],
+                    (resolved.bundles as List).findAll { registrationBundles.contains(it) },
+                    target.id.toString())
+        }
+    }
+
+    @Test
+    void onlyFabric12111UsesTheGuiRendererConstructorMixin() {
+        List<Map> targets = catalog.targets.findAll {
+            it.capabilities.preview.toString().startsWith('avatar-pip-')
+        } as List<Map>
+        targets.each { Map target ->
+            Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
+            boolean hasConstructorMixin = (resolved.java as List).contains(
+                    'loader/fabric/pip-1.21.11/src/main/java')
+            boolean declaresMixinConfig = (target.metadata.mixins as List).contains(
+                    'nclskins.mc12111.fabric.mixins.json')
+            assertEquals(target.id == 'fabric-1.21.11', hasConstructorMixin, target.id.toString())
+            assertEquals(target.id == 'fabric-1.21.11', declaresMixinConfig, target.id.toString())
+        }
+        String constructorMixin = new File(
+                repository,
+                'loader/fabric/pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/GuiRendererMixin.java').text
+        assertTrue(constructorMixin.contains('List<PictureInPictureRenderer<?>>'))
+        assertFalse(constructorMixin.contains('java.lang.reflect'))
+        assertFalse(constructorMixin.contains('getMethod('))
+        assertFalse(constructorMixin.contains('getConstructor('))
+    }
+
+    @Test
+    void modernPipRegistrationsUseLoaderOwnedApisWithoutReflection() {
+        ['26.1', '26.2'].each { String epoch ->
+            String fabric = new File(
+                    repository,
+                    "loader/fabric/pip-${epoch}/src/main/java/com/naocraftlab/skins/loader/fabric/FabricPipRendererRegistration.java").text
+            String neoForge = new File(
+                    repository,
+                    "loader/neoforge/pip-${epoch}/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.java").text
+            assertTrue(fabric.contains('PictureInPictureRendererRegistry.register'))
+            assertTrue(neoForge.contains('RegisterPictureInPictureRenderersEvent'))
+            assertTrue(neoForge.contains('event.register('))
+            [fabric, neoForge].each { String source ->
+                assertFalse(source.contains('java.lang.reflect'))
+                assertFalse(source.contains('getMethod('))
+                assertFalse(source.contains('getConstructor('))
+            }
+        }
+    }
+
+    @Test
+    void settingsMixinsReplaceTheOpenScreenSupplierByMeaning() {
+        [
+                'compat/capabilities/gui/immediate-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/mixin/OptionsScreenMixin.java',
+                'compat/capabilities/gui/immediate-1.21/src/main/java/com/naocraftlab/skins/mc1211/mixin/OptionsScreenMixin.java',
+                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/OptionsScreenMixin.java',
+                'compat/capabilities/gui/extraction-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/OptionsScreenMixin.java'
+        ].each { String path ->
+            String source = new File(repository, path).text
+            assertTrue(source.contains('OptionsScreen;openScreenButton'), path)
+            assertTrue(source.contains('index = 1'), path)
+            assertFalse(source.contains('GridLayout\$RowHelper'), path)
+            assertFalse(source.contains('addChild'), path)
+        }
+    }
+
+    @Test
+    void modernDepthHookRequiresExactlyOnePrepareSignature() {
+        String source = new File(
+                repository,
+                'compat/capabilities/preview/avatar-pip-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/PictureInPictureRendererMixin.java').text
+        assertEquals(2, source.count('@Group(name = "nclskins$captureDepthMode", min = 1, max = 1)'))
+        assertEquals(2, source.count('require = 0'))
+        assertTrue(source.contains('PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;I)V'))
+        assertTrue(source.contains('PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;I)V'))
+    }
+
+    @Test
     void missingBundleAndCyclesAreRejected() {
         Map missing = cloneMap(catalog)
         missing.sourceBundles['portable-common'].requires = ['missing']
@@ -861,7 +957,7 @@ final class BuildLogicTest {
             List<String> errors = []
 
             SemanticVerifier.verifyPreviewBundle(
-                    'avatar-pip-1.21.11', [sourceRoot] as Set, errors)
+                    'avatar-pip-1.21.11-fabric', [sourceRoot] as Set, errors)
 
             assertTrue(errors.any {
                 it.contains('1.21.11 submission preview lacks required marker')
@@ -912,7 +1008,7 @@ final class BuildLogicTest {
             List<String> errors = []
 
             SemanticVerifier.verifyPreviewBundle(
-                    'avatar-pip-26.2', [sourceRoot] as Set, errors)
+                    'avatar-pip-26.2-fabric', [sourceRoot] as Set, errors)
 
             assertTrue(errors.any {
                 it.contains('lacks live/baked pitch split marker') &&

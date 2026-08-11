@@ -9,7 +9,6 @@
     "AvatarRenderStateMixin",
     "GuiEntityRendererMixin",
     "GuiGraphicsExtractorPreviewMixin",
-    "GuiRendererMixin",
     "LivingEntityPreviewMixin",
     "LivingEntityRendererPreviewMixin",
     "ModelPartPreviewMixin",
