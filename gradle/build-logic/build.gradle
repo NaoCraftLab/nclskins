@@ -2,6 +2,15 @@ plugins {
     id 'groovy-gradle-plugin'
 }
 
+def buildLogicWorkspace = providers.gradleProperty('nclskinsBuildLogicWorkspace').orNull
+if (buildLogicWorkspace != null) {
+    if (!(buildLogicWorkspace ==~ /[a-z0-9][a-z0-9.-]*/)) {
+        throw new GradleException(
+                "nclskinsBuildLogicWorkspace must be a safe target ID, got '${buildLogicWorkspace}'")
+    }
+    layout.buildDirectory.set(layout.projectDirectory.dir("build/workspaces/${buildLogicWorkspace}"))
+}
+
 group = 'com.naocraftlab.skins.build'
 
 repositories {

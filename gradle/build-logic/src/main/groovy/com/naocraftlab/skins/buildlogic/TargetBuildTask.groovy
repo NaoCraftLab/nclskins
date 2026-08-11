@@ -10,12 +10,12 @@ import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
 
-import java.util.concurrent.Callable
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 abstract class TargetBuildTask extends DefaultTask {
     @Internal
@@ -77,6 +77,7 @@ abstract class TargetBuildTask extends DefaultTask {
         List<String> command = [
                 wrapper.absolutePath,
                 "-PnclskinsSourceGraph=${sourceGraphFingerprint(root)}".toString(),
+                "-PnclskinsBuildLogicWorkspace=${target.id}".toString(),
                 '-p',
                 targetDirectory.absolutePath
         ] + targetTasks.get()

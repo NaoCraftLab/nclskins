@@ -988,6 +988,22 @@ final class BuildLogicTest {
     }
 
     @Test
+    void parallelTargetBuildsIsolateCompositeBuildOutputs() {
+        String targetBuild = new File(
+                repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/TargetBuildTask.groovy').text
+        String buildLogic = new File(repository, 'gradle/build-logic/build.gradle').text
+
+        assertTrue(targetBuild.contains(
+                '"-PnclskinsBuildLogicWorkspace=${target.id}".toString()'))
+        assertTrue(buildLogic.contains(
+                "providers.gradleProperty('nclskinsBuildLogicWorkspace').orNull"))
+        assertTrue(buildLogic.contains(
+                'layout.buildDirectory.set(layout.projectDirectory.dir("build/workspaces/${buildLogicWorkspace}"))'))
+        assertTrue(buildLogic.contains('/[a-z0-9][a-z0-9.-]*/'))
+    }
+
+    @Test
     void semanticVerifierRejectsVanillaOnly12111BakedPitch() {
         Path sourceRoot = Files.createTempDirectory('nclskins-12111-preview-pitch-')
         try {
