@@ -23,6 +23,8 @@ final class ReleaseLogicTest {
         assertEquals('beta', metadata.channel)
         assertTrue(metadata.prerelease)
         assertTrue(metadata.notes.startsWith(
+                '### Changed\n\n- **Improved mod menu presentation**'))
+        assertTrue(metadata.notes.contains(
                 '### Fixed\n\n- **More reliable live skin updates**'))
         assertFalse(metadata.notes.contains('## 1.0.0-beta.2'))
     }

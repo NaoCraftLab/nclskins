@@ -50,7 +50,6 @@ final class PublicationLogicTest {
         assertEquals('1.2.3-beta.4', fabric.versionNumber)
         assertEquals([
                 [projectId: 'P7dR8mSH', type: 'required'],
-                [projectId: 'mOgUt4GM', type: 'optional'],
                 [projectId: '1eAoo2KR', type: 'optional'],
                 [projectId: 'bTTf2DEw', type: 'optional']
         ] as Set, fabric.dependencies.modrinth as Set)
@@ -59,15 +58,19 @@ final class PublicationLogicTest {
         assertEquals(['1.21.1'], neoForge.gameVersions)
         assertEquals(21, neoForge.javaRelease)
         assertEquals([
-                [projectId: 'sbpqhzIG', type: 'optional'],
                 [projectId: '1eAoo2KR', type: 'optional'],
                 [projectId: 'bTTf2DEw', type: 'optional']
         ] as Set, neoForge.dependencies.modrinth as Set)
         assertEquals([
-                [projectId: 1089803, slug: 'better-modlist-neoforge', type: 'optional'],
                 [projectId: 667299, slug: 'yacl', type: 'optional'],
                 [projectId: 560832, slug: 'sqlite-jdbc', type: 'optional']
         ] as Set, neoForge.dependencies.curseforge as Set)
+        assertFalse((fabric.dependencies.modrinth + neoForge.dependencies.modrinth).any {
+            it.projectId in ['mOgUt4GM', 'sbpqhzIG']
+        })
+        assertFalse((fabric.dependencies.curseforge + neoForge.dependencies.curseforge).any {
+            it.projectId in [308702, 1089803]
+        })
     }
 
     @Test

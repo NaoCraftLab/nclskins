@@ -1034,11 +1034,10 @@ final class CatalogTools {
         Map dependencies = catalog.publicationDependencies instanceof Map
                 ? catalog.publicationDependencies as Map : [:]
         Set<String> expectedIds = [
-                'fabric_api', 'modmenu', 'better_modlist',
-                'yet_another_config_lib_v3', 'sqlite_jdbc'
+                'fabric_api', 'yet_another_config_lib_v3', 'sqlite_jdbc'
         ] as Set
         if ((dependencies.keySet() as Set) != expectedIds) {
-            errors.add('publicationDependencies must declare Fabric API, Mod Menu, Better ModList, YACL, and SQLite JDBC')
+            errors.add('publicationDependencies must declare Fabric API, YACL, and SQLite JDBC')
             return
         }
         Set<String> loaderIds = LoaderBackend.ids()
@@ -1072,13 +1071,8 @@ final class CatalogTools {
             }
         }
         Map fabric = dependencies.fabric_api as Map
-        Map modMenu = dependencies.modmenu as Map
-        Map betterModList = dependencies.better_modlist as Map
-        if (fabric.type != 'required' || (fabric.loaders as Set) != ['fabric'] as Set ||
-                modMenu.type != 'optional' || (modMenu.loaders as Set) != ['fabric'] as Set ||
-                betterModList.type != 'optional' ||
-                (betterModList.loaders as Set) != ['forge', 'neoforge'] as Set) {
-            errors.add('Fabric API must be required for Fabric, Mod Menu optional for Fabric, and Better ModList optional for Forge and NeoForge')
+        if (fabric.type != 'required' || (fabric.loaders as Set) != ['fabric'] as Set) {
+            errors.add('Fabric API must be required only for Fabric')
         }
         ['yet_another_config_lib_v3', 'sqlite_jdbc'].each { String id ->
             Map declaration = dependencies[id] as Map

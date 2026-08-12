@@ -1,5 +1,11 @@
 ## 1.0.0-beta.2
 
+### Changed
+
+- **Improved mod menu presentation**
+    - Added useful links and clearer icons across installed mods screens
+    - Adapted the mod card for Catalogue and the latest NeoForge menu
+
 ### Fixed
 
 - **More reliable live skin updates**
