@@ -8,19 +8,23 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 
 public final class TextureAppearance {
     private static final TextureAppearance ACCOUNT_DEFAULT =
-            new TextureAppearance(Kind.ACCOUNT_DEFAULT, null);
-    private static final TextureAppearance UNKNOWN = new TextureAppearance(Kind.UNKNOWN, null);
+            new TextureAppearance(Kind.ACCOUNT_DEFAULT, null, null);
+    private static final TextureAppearance UNKNOWN =
+            new TextureAppearance(Kind.UNKNOWN, null, null);
 
     private final Kind kind;
     private final byte[] digest;
+    private final Long verifiedSourceTimestamp;
 
-    private TextureAppearance(Kind kind, byte[] digest) {
+    private TextureAppearance(Kind kind, byte[] digest, Long verifiedSourceTimestamp) {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.digest = digest == null ? null : digest.clone();
+        this.verifiedSourceTimestamp = verifiedSourceTimestamp;
     }
 
     public static TextureAppearance accountDefault() {
@@ -65,7 +69,7 @@ public final class TextureAppearance {
             updateOptional(sha256, skinModel == null ? null : skinModel.name());
             updateOptional(sha256, cape);
             updateOptional(sha256, elytra);
-            return new TextureAppearance(Kind.VERIFIED, sha256.digest());
+            return new TextureAppearance(Kind.VERIFIED, sha256.digest(), null);
         } catch (NoSuchAlgorithmException impossible) {
             throw new AssertionError("Required SHA-256 implementation is unavailable", impossible);
         }
@@ -81,6 +85,22 @@ public final class TextureAppearance {
 
     public boolean isVerified() {
         return kind == Kind.VERIFIED;
+    }
+
+
+    public TextureAppearance withVerifiedSourceTimestamp(long timestamp) {
+        if (isUnknown() || timestamp < 0L) {
+            throw new IllegalArgumentException(
+                    "Only verified official appearances may carry a source timestamp");
+        }
+        return new TextureAppearance(kind, digest, timestamp);
+    }
+
+
+    public OptionalLong verifiedSourceTimestamp() {
+        return verifiedSourceTimestamp == null
+                ? OptionalLong.empty()
+                : OptionalLong.of(verifiedSourceTimestamp);
     }
 
     @Override

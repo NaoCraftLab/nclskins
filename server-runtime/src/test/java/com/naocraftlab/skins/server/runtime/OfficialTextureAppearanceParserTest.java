@@ -1,17 +1,18 @@
 package com.naocraftlab.skins.server.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.server.ServerPlayerIdentity;
 import com.naocraftlab.skins.server.TextureAppearance;
+import org.junit.jupiter.api.Test;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class OfficialTextureAppearanceParserTest {
     private static final String SKIN_A = "a".repeat(64);
@@ -42,6 +43,8 @@ final class OfficialTextureAppearanceParserTest {
         TextureAppearance secondKey = parse(second).orElseThrow();
 
         assertEquals(firstKey, secondKey);
+        assertEquals(1L, firstKey.verifiedSourceTimestamp().orElseThrow());
+        assertEquals(999_999L, secondKey.verifiedSourceTimestamp().orElseThrow());
         assertTrue(firstKey.isVerified());
         assertEquals("TextureAppearance[verified]", firstKey.toString());
         assertFalse(firstKey.toString().contains(SKIN_A));
@@ -108,6 +111,14 @@ final class OfficialTextureAppearanceParserTest {
                 + expectedId.substring(1);
         for (String invalid : new String[] {
             "{}",
+            payloadWithIdentity(
+                    IDENTITY.profileId().toString().replace("-", ""),
+                    IDENTITY.profileName(),
+                    "{}").replace("\"timestamp\":0,", ""),
+            payloadWithIdentity(
+                    IDENTITY.profileId().toString().replace("-", ""),
+                    IDENTITY.profileName(),
+                    "{}").replace("\"timestamp\":0", "\"timestamp\":-1"),
             payloadWithIdentity(mismatchedId, IDENTITY.profileName(), "{}"),
             payloadWithIdentity(expectedId, "OtherPlayer", "{}"),
             payload(1L, "{\"SKIN\":"

@@ -496,6 +496,94 @@ final class VanillaBatchAppearancePublisherTest {
     }
 
     @Test
+    void disconnectDuringUntrackDoesNotPoisonReconnectOrLaterRefreshes() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        UUID profileId = UUID.randomUUID();
+        ConnectionKey oldActor = platform.connect(profileId, "actor");
+        ConnectionKey observer = platform.connect("observer");
+        platform.observers.put(oldActor, List.of(observer));
+        platform.operationCostNanos = 1L;
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 1L, 2);
+        CompletionStage<BatchPublicationResult> oldStage = publisher.publishBatch(List.of(
+                defaultRequest(oldActor, "actor")));
+
+        platform.runImmediate();
+        while (!platform.events.contains("untrack")) {
+            platform.runNextTick();
+        }
+        platform.disconnect(oldActor);
+        publisher.supersede(oldActor);
+        ConnectionKey reconnected = platform.connect(profileId, "actor");
+        platform.observers.put(reconnected, List.of(observer));
+        CompletionStage<BatchPublicationResult> reconnectedStage = publisher.publishBatch(List.of(
+                request(
+                        reconnected,
+                        "actor",
+                        appearance('b'),
+                        Optional.of(new SignedTexturesProperty(
+                                "reconnected-value", "reconnected-signature")))));
+
+        assertEquals(
+                PublicationOutcome.STALE,
+                platform.await(oldStage).outcome(oldActor).orElseThrow());
+        assertEquals(
+                PublicationOutcome.UPDATED,
+                platform.await(reconnectedStage).outcome(reconnected).orElseThrow());
+        assertEquals(
+                PublicationOutcome.UPDATED,
+                platform.await(publisher.publishBatch(List.of(
+                        defaultRequest(reconnected, "actor"))))
+                        .outcome(reconnected)
+                        .orElseThrow());
+        assertEquals(2, platform.events.stream().filter("install"::equals).count());
+        publisher.close();
+    }
+
+    @Test
+    void staleOfficialProfileAfterReconnectCannotRollBackNewerLiveAppearance()
+            throws Exception {
+        FakePlatform platform = new FakePlatform();
+        UUID profileId = UUID.randomUUID();
+        ConnectionKey oldActor = platform.connect(profileId, "actor");
+        platform.disconnect(oldActor);
+        ConnectionKey reconnected = platform.connect(profileId, "actor");
+        platform.current.put(
+                reconnected,
+                LiveProfileTextures.signed(
+                        new SignedTexturesProperty("live-newer", "live-newer-signature")));
+        platform.verifiedCurrent = appearance('b').withVerifiedSourceTimestamp(200L);
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 5_000_000L, 2);
+
+        BatchPublicationResult stale = platform.await(publisher.publishBatch(List.of(
+                request(
+                        reconnected,
+                        "actor",
+                        appearance('a').withVerifiedSourceTimestamp(100L),
+                        Optional.of(new SignedTexturesProperty(
+                                "fetched-older", "fetched-older-signature"))))));
+
+        assertEquals(
+                PublicationOutcome.UNCHANGED,
+                stale.outcome(reconnected).orElseThrow());
+        assertEquals(0, platform.events.stream().filter("untrack"::equals).count());
+        assertEquals(0, platform.events.stream().filter("install"::equals).count());
+
+        BatchPublicationResult fresh = platform.await(publisher.publishBatch(List.of(
+                request(
+                        reconnected,
+                        "actor",
+                        appearance('c').withVerifiedSourceTimestamp(300L),
+                        Optional.of(new SignedTexturesProperty(
+                                "fetched-newer", "fetched-newer-signature"))))));
+
+        assertEquals(
+                PublicationOutcome.UPDATED,
+                fresh.outcome(reconnected).orElseThrow());
+        assertEquals(1, platform.events.stream().filter("install"::equals).count());
+        publisher.close();
+    }
+
+    @Test
     void concurrentIntentCannotEnterBetweenLatestCheckAndProfileInstall() throws Exception {
         FakePlatform platform = new FakePlatform();
         ConnectionKey actor = platform.connect("actor");
@@ -678,11 +766,22 @@ final class VanillaBatchAppearancePublisherTest {
         private int nextTickRejectionsRemaining;
 
         private ConnectionKey connect(String name) {
-            ConnectionKey key = new ConnectionKey(UUID.randomUUID(), ++generation);
+            return connect(UUID.randomUUID(), name);
+        }
+
+        private ConnectionKey connect(UUID profileId, String name) {
+            ConnectionKey key = new ConnectionKey(profileId, ++generation);
             connected.add(key);
             names.put(key, name);
             current.put(key, LiveProfileTextures.invalid());
             return key;
+        }
+
+        private void disconnect(ConnectionKey key) {
+            connected.remove(key);
+            names.remove(key);
+            current.remove(key);
+            observers.remove(key);
         }
 
         @Override

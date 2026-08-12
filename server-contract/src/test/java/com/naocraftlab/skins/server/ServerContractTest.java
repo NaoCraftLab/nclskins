@@ -1,10 +1,6 @@
 package com.naocraftlab.skins.server;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -13,7 +9,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ServerContractTest {
     private static final UUID PROFILE_ID = UUID.nameUUIDFromBytes(
@@ -81,6 +82,24 @@ final class ServerContractTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new VerifiedOfficialProfile(IDENTITY, APPEARANCE, Optional.empty()));
+    }
+
+    @Test
+    void verifiedSourceTimestampOrdersProfilesWithoutChangingSemanticIdentity() {
+        TextureAppearance older = APPEARANCE.withVerifiedSourceTimestamp(100L);
+        TextureAppearance newer = APPEARANCE.withVerifiedSourceTimestamp(200L);
+
+        assertEquals(APPEARANCE, older);
+        assertEquals(older, newer);
+        assertEquals(100L, older.verifiedSourceTimestamp().orElseThrow());
+        assertEquals(200L, newer.verifiedSourceTimestamp().orElseThrow());
+        assertFalse(older.toString().contains("100"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TextureAppearance.unknown().withVerifiedSourceTimestamp(1L));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> APPEARANCE.withVerifiedSourceTimestamp(-1L));
     }
 
     @Test

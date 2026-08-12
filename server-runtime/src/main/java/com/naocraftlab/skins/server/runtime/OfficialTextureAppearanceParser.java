@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.naocraftlab.skins.server.ServerPlayerIdentity;
 import com.naocraftlab.skins.server.TextureAppearance;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -52,17 +53,20 @@ public final class OfficialTextureAppearanceParser {
             if (!matchesIdentity(object, expectedIdentity)) {
                 return Optional.empty();
             }
+            long sourceTimestamp = requiredTimestamp(object);
 
             JsonElement texturesElement = object.get("textures");
             if (texturesElement == null) {
-                return Optional.of(TextureAppearance.accountDefault());
+                return Optional.of(TextureAppearance.accountDefault()
+                        .withVerifiedSourceTimestamp(sourceTimestamp));
             }
             if (!texturesElement.isJsonObject()) {
                 return Optional.empty();
             }
             JsonObject textures = texturesElement.getAsJsonObject();
             if (textures.size() == 0) {
-                return Optional.of(TextureAppearance.accountDefault());
+                return Optional.of(TextureAppearance.accountDefault()
+                        .withVerifiedSourceTimestamp(sourceTimestamp));
             }
             if (!TEXTURE_KEYS.containsAll(textures.keySet())) {
                 return Optional.empty();
@@ -93,7 +97,7 @@ public final class OfficialTextureAppearanceParser {
                     skinIdentity,
                     model,
                     cape,
-                    elytra));
+                    elytra).withVerifiedSourceTimestamp(sourceTimestamp));
         } catch (RuntimeException | CharacterCodingException invalidPayload) {
             return Optional.empty();
         }
@@ -202,6 +206,21 @@ public final class OfficialTextureAppearanceParser {
         String result = value.getAsString();
         if (result.isBlank()) {
             throw new IllegalArgumentException("Required verified payload member is blank");
+        }
+        return result;
+    }
+
+    private static long requiredTimestamp(JsonObject object) {
+        JsonElement value = object.get("timestamp");
+        if (value == null
+                || !value.isJsonPrimitive()
+                || !value.getAsJsonPrimitive().isNumber()) {
+            throw new IllegalArgumentException("Verified payload timestamp is invalid");
+        }
+        BigDecimal timestamp = value.getAsBigDecimal();
+        long result = timestamp.longValueExact();
+        if (result < 0L) {
+            throw new IllegalArgumentException("Verified payload timestamp is negative");
         }
         return result;
     }

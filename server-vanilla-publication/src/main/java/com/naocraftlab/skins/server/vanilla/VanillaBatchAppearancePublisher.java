@@ -712,10 +712,15 @@ public final class VanillaBatchAppearancePublisher
                             Optional<TextureAppearance> current = signatureVerifier.verify(
                                     item.property,
                                     item.request.profile().identity());
-                            matches = current != null
-                                    && current.isPresent()
-                                    && current.orElseThrow().equals(
-                                            item.request.profile().appearance());
+                            if (current != null && current.isPresent()) {
+                                TextureAppearance currentAppearance = current.orElseThrow();
+                                TextureAppearance targetAppearance =
+                                        item.request.profile().appearance();
+                                matches = currentAppearance.equals(targetAppearance)
+                                        || sourcePredatesCurrent(
+                                                targetAppearance,
+                                                currentAppearance);
+                            }
                         } catch (RuntimeException verificationFailure) {
 
                         }
@@ -731,6 +736,17 @@ public final class VanillaBatchAppearancePublisher
                 actorIndex = 0;
                 return false;
             }
+        }
+
+        private static boolean sourcePredatesCurrent(
+                TextureAppearance target,
+                TextureAppearance current) {
+            if (target.verifiedSourceTimestamp().isEmpty()
+                    || current.verifiedSourceTimestamp().isEmpty()) {
+                return false;
+            }
+            return target.verifiedSourceTimestamp().orElseThrow()
+                    < current.verifiedSourceTimestamp().orElseThrow();
         }
 
         private void applySemanticDecisions(List<SemanticDecision> decisions) {
