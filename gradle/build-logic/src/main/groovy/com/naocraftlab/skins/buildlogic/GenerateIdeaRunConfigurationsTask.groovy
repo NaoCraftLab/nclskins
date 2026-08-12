@@ -29,11 +29,21 @@ abstract class GenerateIdeaRunConfigurationsTask extends DefaultTask {
                 String name = IdeaRunConfigurations.configurationName(target, runKind)
                 if (!names.add(name)) throw new IllegalStateException("Duplicate IDEA run configuration ${name}")
                 File destination = new File(output, IdeaRunConfigurations.fileName(target, runKind))
+                String previousName = IdeaRunConfigurations.previousConfigurationName(target, runKind)
+                String previousFileName = IdeaRunConfigurations.previousFileName(target, runKind)
+                if (previousFileName != null) {
+                    File previousDestination = new File(output, previousFileName)
+                    if (previousDestination.isFile()) {
+                        String existingPreviousName
+                        try { existingPreviousName = new XmlSlurper().parse(previousDestination).configuration.@name.toString() }
+                        catch (Exception error) { throw new IllegalStateException("Cannot parse existing IDEA run configuration ${previousDestination}", error) }
+                        if (existingPreviousName == previousName) Files.delete(previousDestination.toPath())
+                    }
+                }
                 if (destination.isFile()) {
                     String existingName
                     try { existingName = new XmlSlurper().parse(destination).configuration.@name.toString() }
                     catch (Exception error) { throw new IllegalStateException("Cannot parse existing IDEA run configuration ${destination}", error) }
-                    String previousName = IdeaRunConfigurations.previousConfigurationName(target, runKind)
                     if (existingName != name && existingName != previousName) throw new IllegalStateException("IDEA run configuration path is occupied by ${existingName}: ${destination}")
                 }
                 String content = IdeaRunConfigurations.render(target, runKind)

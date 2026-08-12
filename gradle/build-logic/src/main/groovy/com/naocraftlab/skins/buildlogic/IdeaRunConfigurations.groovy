@@ -15,8 +15,7 @@ final class IdeaRunConfigurations {
     }
 
     static String configurationName(Map target, String runKind) {
-        String suffix = runKind == 'LicensedClient' ? 'runClient (licensed)' : "run${runKind}"
-        "${target.minecraft.version}:${target.loader.id}:${suffix}"
+        "${target.minecraft.version}:${target.loader.id}:run${runKind}"
     }
 
     static String fileName(Map target, String runKind) {
@@ -26,8 +25,13 @@ final class IdeaRunConfigurations {
 
     static String previousConfigurationName(Map target, String runKind) {
         runKind == 'LicensedClient'
-                ? "${target.minecraft.version}:${target.loader.id}:runLicensedClient"
+                ? "${target.minecraft.version}:${target.loader.id}:runClient (licensed)"
                 : null
+    }
+
+    static String previousFileName(Map target, String runKind) {
+        String previousName = previousConfigurationName(target, runKind)
+        previousName == null ? null : previousName.replaceAll('[^A-Za-z0-9]', '_') + '.xml'
     }
 
     static String render(Map target, String runKind) {

@@ -8,8 +8,15 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
+import org.gradle.process.ExecResult
+
+import javax.inject.Inject
 
 abstract class TargetRunTask extends DefaultTask {
+    @Inject
+    abstract ExecOperations getExecOperations()
+
     @Internal
     abstract DirectoryProperty getRepositoryDirectory()
 
@@ -36,17 +43,20 @@ abstract class TargetRunTask extends DefaultTask {
         }
         String javaHome = TargetRuntime.resolveJavaHome(target.java.buildJdk as int)
         List<String> command = command(root, catalog, target, kind, dryRun.get())
-        ProcessBuilder builder = new ProcessBuilder(command).directory(root).inheritIO()
-        TargetRuntime.configureEnvironment(builder, javaHome)
-        Process process = builder.start()
-        try {
-            int exit = process.waitFor()
-            if (exit != 0) throw new IllegalStateException("${target.id} run${kind} failed (${exit})")
-        } catch (InterruptedException error) {
-            process.destroy()
-            Thread.currentThread().interrupt()
-            throw new IllegalStateException("${target.id} run${kind} interrupted", error)
+        String path = new File(javaHome, 'bin').absolutePath + File.pathSeparator +
+                (System.getenv('PATH') ?: '')
+        ExecResult result = execOperations.exec {
+            commandLine command
+            workingDir root
+            environment 'JAVA_HOME', javaHome
+            environment 'PATH', path
+            standardInput = System.in
+            standardOutput = System.out
+            errorOutput = System.err
+            ignoreExitValue = true
         }
+        int exit = result.exitValue
+        if (exit != 0) throw new IllegalStateException("${target.id} run${kind} failed (${exit})")
     }
 
     static List<String> command(File root, Map catalog, Map target, String kind, boolean dryRun) {

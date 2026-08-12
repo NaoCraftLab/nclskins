@@ -706,11 +706,17 @@ final class BuildLogicTest {
         catalog.targets.each { Map target ->
             assertEquals([
                     "${target.minecraft.version}:${target.loader.id}:runClient".toString(),
-                    "${target.minecraft.version}:${target.loader.id}:runClient (licensed)".toString(),
+                    "${target.minecraft.version}:${target.loader.id}:runLicensedClient".toString(),
                     "${target.minecraft.version}:${target.loader.id}:runServer".toString()
             ], IdeaRunConfigurations.RUN_KINDS.collect { String runKind ->
                 IdeaRunConfigurations.configurationName(target, runKind)
             })
+            assertEquals(
+                    "${target.minecraft.version}:${target.loader.id}:runClient (licensed)".toString(),
+                    IdeaRunConfigurations.previousConfigurationName(target, 'LicensedClient'))
+            assertEquals(
+                    "${target.minecraft.version.toString().replaceAll('[^A-Za-z0-9]', '_')}_${target.loader.id}_runClient__licensed_.xml".toString(),
+                    IdeaRunConfigurations.previousFileName(target, 'LicensedClient'))
             IdeaRunConfigurations.RUN_KINDS.each { String runKind ->
                 String taskName = IdeaRunConfigurations.taskName(target, runKind)
                 assertTrue(taskNames.add(taskName))
@@ -753,6 +759,17 @@ final class BuildLogicTest {
             if (target.loader.id == 'neoforge') assertTrue(server.contains("-PnclskinsServerPort=${port}".toString()))
             else assertTrue(server.contains("--args=--port ${port}".toString()))
         }
+    }
+
+    @Test
+    void targetRunsUseTheCurrentGradleConsoleForInteractiveIo() {
+        String source = new File(repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/TargetRunTask.groovy').text
+        assertTrue(source.contains('ExecOperations'))
+        assertTrue(source.contains('standardInput = System.in'))
+        assertTrue(source.contains('standardOutput = System.out'))
+        assertTrue(source.contains('errorOutput = System.err'))
+        assertFalse(source.contains('inheritIO()'))
     }
 
     @Test
