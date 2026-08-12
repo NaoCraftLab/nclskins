@@ -380,7 +380,7 @@ final class CatalogTools {
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
                 'optionalDependencies', 'publicationDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 15) {
+        if (catalog.schemaVersion != 16) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -689,7 +689,7 @@ final class CatalogTools {
             Set minecraftKeys = minecraftDeclaration.keySet() as Set
             if (!(minecraftKeys in [
                     ['version', 'predicate', 'epoch'] as Set,
-                    ['version', 'compileVersion', 'runtimeVersion', 'predicate', 'epoch'] as Set
+                    ['version', 'compileVersion', 'runtimeVersion', 'minimumRuntimeVersion', 'predicate', 'epoch'] as Set
             ]) || minecraftDeclaration.values().any { !(it instanceof String) || it.isBlank() }) {
                 errors.add("${target.id}: invalid Minecraft declaration")
             }
@@ -699,11 +699,21 @@ final class CatalogTools {
             String compileVersion = minecraftDeclaration.compileVersion?.toString()
             if (compileVersion != null) {
                 String runtimeVersion = minecraftDeclaration.runtimeVersion?.toString()
+                String minimumRuntimeVersion = minecraftDeclaration.minimumRuntimeVersion?.toString()
+                def compileMatch = compileVersion =~ /${java.util.regex.Pattern.quote(minecraft)}-snapshot-([0-9]+)/
+                def runtimeMatch = runtimeVersion =~ /${java.util.regex.Pattern.quote(minecraft)}-alpha\.([0-9]+)/
+                def minimumRuntimeMatch = minimumRuntimeVersion =~ /${java.util.regex.Pattern.quote(minecraft)}-alpha\.([0-9]+)/
                 if (compileVersion == minecraft ||
-                        !compileVersion.startsWith("${minecraft}-snapshot-") ||
-                        !(runtimeVersion ==~ /${java.util.regex.Pattern.quote(minecraft)}-alpha\.[0-9]+/) ||
-                        minecraftDeclaration.predicate != runtimeVersion) {
-                    errors.add("${target.id}: snapshot compileVersion must use an explicit exact runtimeVersion predicate")
+                        !compileMatch.matches() ||
+                        !runtimeMatch.matches() ||
+                        !minimumRuntimeMatch.matches() ||
+                        minecraftDeclaration.predicate != ">=${minimumRuntimeVersion}" ||
+                        (compileMatch.matches() && runtimeMatch.matches()
+                                && compileMatch.group(1) != runtimeMatch.group(1)) ||
+                        (runtimeMatch.matches() && minimumRuntimeMatch.matches()
+                                && Integer.parseInt(minimumRuntimeMatch.group(1))
+                                > Integer.parseInt(runtimeMatch.group(1)))) {
+                    errors.add("${target.id}: snapshot compileVersion must map to its runtimeVersion and use an explicit lower-only minimumRuntimeVersion predicate")
                 }
                 if (target.releaseEligible != false) {
                     errors.add("${target.id}: snapshot compileVersion target must not be release eligible")

@@ -101,7 +101,8 @@ public final class NclSkinsScreen extends Screen {
     private static final int MUTED_COLOR = 0xFF9BA8BC;
     private static final int ERROR_COLOR = 0xFFFF9A9A;
     private static final int ACTIVE_TEXT_COLOR = 0xFF8EE6A5;
-    private static final int LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;
+    private static final int NATIVE_LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;
+    private static final int PRODUCT_PRIMARY_POINTER_BUTTON = 0;
 
     private final Screen parent;
     private final ClientRuntime runtime;
@@ -1128,7 +1129,7 @@ public final class NclSkinsScreen extends Screen {
         currentView = view;
         Optional<ViewSpec.Widget> pointerOwner = pointerOwnerAt(view, event.x(), event.y());
         Optional<String> selectAllField = pointerOwner
-                .filter(widget -> event.button() == LEFT_MOUSE_BUTTON)
+                .filter(widget -> event.button() == NATIVE_LEFT_MOUSE_BUTTON)
                 .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
                 .filter(ViewSpec.Widget::selectAllOnPrimaryClick)
                 .filter(ViewSpec.Widget::enabled)
@@ -1138,13 +1139,13 @@ public final class NclSkinsScreen extends Screen {
                         || widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE);
         if (priorityAction.isPresent()) {
             ViewSpec.Widget action = priorityAction.orElseThrow();
-            if (event.button() == LEFT_MOUSE_BUTTON && action.enabled()) {
+            if (event.button() == NATIVE_LEFT_MOUSE_BUTTON && action.enabled()) {
                 runtime.dispatchWidget(action.id(), event.hasShiftDown());
             }
             reassertFocusRequest(currentView);
             return true;
         }
-        if (event.button() == LEFT_MOUSE_BUTTON && pointerOwner.isEmpty()) {
+        if (event.button() == NATIVE_LEFT_MOUSE_BUTTON && pointerOwner.isEmpty()) {
             for (ViewSpec.Widget widget : view.widgets()) {
                 if (!widget.visible()
                         && widget.enabled()
@@ -1181,9 +1182,9 @@ public final class NclSkinsScreen extends Screen {
 
             return true;
         }
-        if (event.button() == LEFT_MOUSE_BUTTON && capturesPointer(view, event.x(), event.y())) {
+        if (event.button() == NATIVE_LEFT_MOUSE_BUTTON && capturesPointer(view, event.x(), event.y())) {
             pointerCaptured = true;
-            runtime.pointerPressed(event.x(), event.y(), event.button());
+            runtime.pointerPressed(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);
             return true;
         }
         return false;
@@ -1231,8 +1232,9 @@ public final class NclSkinsScreen extends Screen {
             pointerCaptured = false;
             return false;
         }
-        if (pointerCaptured && event.button() == LEFT_MOUSE_BUTTON) {
-            runtime.pointerDragged(event.x(), event.y(), event.button(), dragX, dragY);
+        if (pointerCaptured && event.button() == NATIVE_LEFT_MOUSE_BUTTON) {
+            runtime.pointerDragged(
+                    event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON, dragX, dragY);
             return true;
         }
         return super.mouseDragged(event, dragX, dragY);
@@ -1244,9 +1246,9 @@ public final class NclSkinsScreen extends Screen {
             pointerCaptured = false;
             return false;
         }
-        if (pointerCaptured && event.button() == LEFT_MOUSE_BUTTON) {
+        if (pointerCaptured && event.button() == NATIVE_LEFT_MOUSE_BUTTON) {
             pointerCaptured = false;
-            runtime.pointerReleased(event.x(), event.y(), event.button());
+            runtime.pointerReleased(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);
             return true;
         }
         return super.mouseReleased(event);

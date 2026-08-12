@@ -21,7 +21,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(15, catalog.schemaVersion)
+        assertEquals(16, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
@@ -44,9 +44,11 @@ final class BuildLogicTest {
         assertEquals(10, CatalogTools.releaseTargets(catalog).size())
         Map experimental = catalog.targets.find { it.id == 'fabric-26.3' } as Map
         assertFalse(experimental.releaseEligible as boolean)
-        assertEquals('26.3-snapshot-7', CatalogTools.minecraftCompileVersion(experimental))
-        assertEquals('26.3-alpha.7', experimental.minecraft.runtimeVersion)
-        assertEquals('26.3-alpha.7', experimental.minecraft.predicate)
+        assertEquals('26.3-snapshot-8', CatalogTools.minecraftCompileVersion(experimental))
+        assertEquals('26.3-alpha.8', experimental.minecraft.runtimeVersion)
+        assertEquals('26.3-alpha.7', experimental.minecraft.minimumRuntimeVersion)
+        assertEquals('>=26.3-alpha.7', experimental.minecraft.predicate)
+        assertEquals('0.157.1+26.3', experimental.loader.apiVersion)
         CatalogTools.validate(repository, catalog)
     }
 
@@ -490,7 +492,9 @@ final class BuildLogicTest {
                 assertEquals(">=${target.loader.version}".toString(), target.loader.predicate)
                 assertEquals(">=${target.loader.apiVersion}".toString(), target.loader.apiPredicate)
                 assertEquals(
-                        target.minecraft.runtimeVersion ?: ">=${target.minecraft.version}".toString(),
+                        target.minecraft.minimumRuntimeVersion
+                                ? ">=${target.minecraft.minimumRuntimeVersion}".toString()
+                                : ">=${target.minecraft.version}".toString(),
                         target.minecraft.predicate)
             } else {
                 assertEquals("[${target.loader.version},)".toString(), target.loader.predicate)
@@ -508,8 +512,9 @@ final class BuildLogicTest {
         assertEquals(['fabric', 'forge', 'neoforge'] as Set, LoaderBackend.ids())
         catalog.targets.each { Map target ->
             LoaderBackend backend = LoaderBackend.require(target.loader.id.toString())
-            String expectedPredicate = target.minecraft.runtimeVersion
-                    ?: backend.minecraftPredicate(target.minecraft.version.toString())
+            String expectedPredicate = target.minecraft.minimumRuntimeVersion
+                    ? ">=${target.minecraft.minimumRuntimeVersion}".toString()
+                    : backend.minecraftPredicate(target.minecraft.version.toString())
             assertEquals(target.minecraft.predicate, expectedPredicate)
             assertEquals(target.metadata.keySet() as Set, backend.metadataKeys())
             assertFalse(backend.metadata(catalog, target, '1.0.0').isEmpty())
@@ -528,6 +533,17 @@ final class BuildLogicTest {
         Map mismatchedLoader = cloneMap(catalog)
         mismatchedLoader.targets.find { it.id == 'fabric-26.2' }.loader.predicate = '>=0.19.0'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedLoader) }
+        Map exactSnapshot = cloneMap(catalog)
+        exactSnapshot.targets.find { it.id == 'fabric-26.3' }.minecraft.predicate = '26.3-alpha.8'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, exactSnapshot) }
+        Map mismatchedSnapshotAlias = cloneMap(catalog)
+        mismatchedSnapshotAlias.targets.find { it.id == 'fabric-26.3' }.minecraft.runtimeVersion = '26.3-alpha.7'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedSnapshotAlias) }
+        Map futureSnapshotFloor = cloneMap(catalog)
+        Map futureMinecraft = futureSnapshotFloor.targets.find { it.id == 'fabric-26.3' }.minecraft
+        futureMinecraft.minimumRuntimeVersion = '26.3-alpha.9'
+        futureMinecraft.predicate = '>=26.3-alpha.9'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, futureSnapshotFloor) }
     }
 
     @Test
@@ -961,8 +977,15 @@ final class BuildLogicTest {
 
         assertTrue(screen262.text.contains('private static final int LEFT_MOUSE_BUTTON = 0;'))
         assertTrue(screen263.text.contains(
-                'private static final int LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;'))
-        assertFalse(screen263.text.contains('private static final int LEFT_MOUSE_BUTTON = 0;'))
+                'private static final int NATIVE_LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;'))
+        assertTrue(screen263.text.contains(
+                'private static final int PRODUCT_PRIMARY_POINTER_BUTTON = 0;'))
+        assertTrue(screen263.text.contains(
+                'runtime.pointerPressed(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);'))
+        assertTrue(screen263.text.contains('''runtime.pointerDragged(
+                    event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON, dragX, dragY);'''))
+        assertTrue(screen263.text.contains(
+                'runtime.pointerReleased(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);'))
     }
 
     @Test

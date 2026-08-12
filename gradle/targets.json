@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 15,
+  "schemaVersion": 16,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
@@ -1636,17 +1636,18 @@
       "path": "targets/26.3/fabric",
       "minecraft": {
         "version": "26.3",
-        "compileVersion": "26.3-snapshot-7",
-        "runtimeVersion": "26.3-alpha.7",
-        "predicate": "26.3-alpha.7",
+        "compileVersion": "26.3-snapshot-8",
+        "runtimeVersion": "26.3-alpha.8",
+        "minimumRuntimeVersion": "26.3-alpha.7",
+        "predicate": ">=26.3-alpha.7",
         "epoch": "26.3"
       },
       "loader": {
         "id": "fabric",
         "version": "0.19.3",
         "predicate": ">=0.19.3",
-        "apiVersion": "0.157.0+26.3",
-        "apiPredicate": ">=0.157.0+26.3",
+        "apiVersion": "0.157.1+26.3",
+        "apiPredicate": ">=0.157.1+26.3",
         "modMenuVersion": "21.0.0-alpha.1"
       },
       "java": {
@@ -1684,7 +1685,7 @@
         "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
-        "packFormat": [95, 0],
+        "packFormat": [96, 0],
         "mixins": ["nclskins.mc262.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
