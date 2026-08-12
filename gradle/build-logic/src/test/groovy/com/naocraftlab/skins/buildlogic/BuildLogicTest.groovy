@@ -21,7 +21,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(13, catalog.schemaVersion)
+        assertEquals(14, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
@@ -29,6 +29,11 @@ final class BuildLogicTest {
                 neoforge: 'nclskins-forge-family'
         ], catalog.development.licensedProfiles)
         assertEquals('0.1.0.5', catalog.plugins.devLogin)
+        assertEquals([
+                youtube    : 'https://www.youtube.com/@NaoCraftLab',
+                telegramBot: 'https://t.me/naocraftlab_bot?start=c_yWYd4ACA',
+                x          : 'https://x.com/naocraftlab'
+        ], catalog.mod.links)
         assertEquals(LinkedHashMap, catalog.getClass())
         assertEquals(LinkedHashMap, catalog.gradleFamilies.getClass())
         assertEquals(LinkedHashMap, catalog.targets.first().getClass())
@@ -484,6 +489,9 @@ final class BuildLogicTest {
             }
         }
         assertEquals(['0.19.3'] as Set, catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
+        Map neoForge262 = catalog.targets.find { it.id == 'neoforge-26.2' } as Map
+        assertEquals('26.2.0.57', neoForge262.loader.version)
+        assertEquals('[26.2.0.57,)', neoForge262.loader.predicate)
     }
 
     @Test
@@ -519,6 +527,31 @@ final class BuildLogicTest {
             assertFalse(resolved.java.isEmpty(), target.id.toString())
             assertFalse(resolved.resources.isEmpty(), target.id.toString())
         }
+    }
+
+    @Test
+    void modListMetadataRemainsResourceOnly() {
+        catalog.targets.each { Map target ->
+            Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
+            (resolved.java as List).each { String sourceRoot ->
+                File directory = new File(repository, sourceRoot)
+                directory.eachFileRecurse { File source ->
+                    if (source.name.endsWith('.java')) {
+                        String text = source.text
+                        assertFalse(text.contains('neoforged.neoforge.client.gui.modlist.ModDisplayInfo'), source.path)
+                        assertFalse(text.contains('neoforged.neoforge.client.gui.modlist.DefaultModDisplayInfo'), source.path)
+                    }
+                }
+            }
+        }
+
+        assertFalse(new File(
+                repository,
+                'loader/neoforge/mod-list-26.2/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForge262ModDisplayInfo.java').exists())
+        String configScreenSource = new File(
+                repository,
+                'loader/neoforge/common/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgeConfigScreenRegistrar.java').text
+        assertTrue(configScreenSource.contains('registerExtensionPoint(IConfigScreenFactory.class'))
     }
 
     @Test
@@ -671,30 +704,57 @@ final class BuildLogicTest {
                         yet_another_config_lib_v3: CatalogTools.optionalDependencyPredicate(catalog, target, 'yet_another_config_lib_v3')
                 ], metadata.suggests)
                 assertEquals(true, metadata.custom.modmenu.update_checker)
-                assertEquals(['modmenu.modrinth': 'https://modrinth.com/mod/nclskins', 'modmenu.curseforge': 'https://www.curseforge.com/minecraft/mc-mods/nclskins'], metadata.custom.modmenu.links)
+                assertEquals([
+                        'modmenu.modrinth'              : 'https://modrinth.com/mod/nclskins',
+                        'modmenu.curseforge'            : 'https://www.curseforge.com/minecraft/mc-mods/nclskins',
+                        'nclskins.modmenu.youtube'      : catalog.mod.links.youtube,
+                        'nclskins.modmenu.telegram_bot' : catalog.mod.links.telegramBot,
+                        'nclskins.modmenu.x'            : catalog.mod.links.x
+                ], metadata.custom.modmenu.links)
             } else if (target.loader.id == 'forge') {
-                assertTrue(resources['META-INF/mods.toml'].contains('logoBlur=false'))
-                assertTrue(resources['META-INF/mods.toml'].contains('displayTest="IGNORE_SERVER_VERSION"'))
-                assertTrue(resources['META-INF/mods.toml'].contains('showAsResourcePack=false'))
-                assertTrue(resources['META-INF/mods.toml'].contains('features={java_version="[17,)"}'))
-                assertTrue(resources['META-INF/mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json"'))
-                assertTrue(resources['META-INF/mods.toml'].contains('modId="sqlite_jdbc"'))
-                assertTrue(resources['META-INF/mods.toml'].contains('modId="yet_another_config_lib_v3"'))
-                assertTrue(resources['META-INF/mods.toml'].contains('mandatory=false'))
-                assertTrue(resources['META-INF/mods.toml'].contains('side="CLIENT"'))
-                assertFalse(resources['META-INF/mods.toml'].contains('[[mixins]]'))
+                String metadata = resources['META-INF/mods.toml']
+                assertEquals('legacy-logo', target.metadata.modListBranding)
+                assertEquals(2, metadata.readLines().count { it == 'issueTrackerURL="https://github.com/NaoCraftLab/nclskins/issues"' })
+                assertTrue(metadata.contains('logoFile="icon.png"'))
+                assertTrue(metadata.contains('logoBlur=false'))
+                assertTrue(metadata.contains('[modproperties.nclskins]\ncatalogueImageIcon="icon.png"'))
+                assertTrue(metadata.contains('displayTest="IGNORE_SERVER_VERSION"'))
+                assertTrue(metadata.contains('showAsResourcePack=false'))
+                assertTrue(metadata.contains('features={java_version="[17,)"}'))
+                assertTrue(metadata.contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json"'))
+                assertTrue(metadata.contains('modId="sqlite_jdbc"'))
+                assertTrue(metadata.contains('modId="yet_another_config_lib_v3"'))
+                assertTrue(metadata.contains('mandatory=false'))
+                assertTrue(metadata.contains('side="CLIENT"'))
+                assertFalse(metadata.contains('[[mixins]]'))
             } else {
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('logoBlur=false'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains("javaVersion=\"[${target.java.release},)\""))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsResourcePack=false'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('showAsDataPack=false'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json?neoforge=only"'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('modId="sqlite_jdbc"'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('modId="yet_another_config_lib_v3"'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('type="optional"'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains('side="CLIENT"'))
-                assertTrue(resources['META-INF/neoforge.mods.toml'].contains("file=\"${target.metadata.accessTransformer}\""))
-                assertEquals((target.metadata.serverMixins ?: []) + target.metadata.mixins, resources['META-INF/neoforge.mods.toml'].readLines().findAll { it.startsWith('config=') }.collect { it.substring('config="'.length(), it.length() - 1) })
+                String metadata = resources['META-INF/neoforge.mods.toml']
+                assertEquals(2, metadata.readLines().count { it == 'issueTrackerURL="https://github.com/NaoCraftLab/nclskins/issues"' })
+                assertTrue(metadata.contains('[modproperties.nclskins]\ncatalogueImageIcon="icon.png"'))
+                if (target.metadata.modListBranding == 'icon-only') {
+                    assertEquals('neoforge-26.2', target.id)
+                    assertFalse(metadata.contains('logoFile='))
+                    assertFalse(metadata.contains('logoBlur='))
+                    assertTrue(metadata.contains('iconFile="icon.png"'))
+                    assertTrue(metadata.contains('iconBlur=false'))
+                    assertTrue(metadata.contains('bannerFile=false'))
+                } else {
+                    assertEquals('legacy-logo', target.metadata.modListBranding)
+                    assertTrue(metadata.contains('logoFile="icon.png"'))
+                    assertTrue(metadata.contains('logoBlur=false'))
+                    assertFalse(metadata.contains('iconFile='))
+                    assertFalse(metadata.contains('bannerFile='))
+                }
+                assertTrue(metadata.contains("javaVersion=\"[${target.java.release},)\""))
+                assertTrue(metadata.contains('showAsResourcePack=false'))
+                assertTrue(metadata.contains('showAsDataPack=false'))
+                assertTrue(metadata.contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json?neoforge=only"'))
+                assertTrue(metadata.contains('modId="sqlite_jdbc"'))
+                assertTrue(metadata.contains('modId="yet_another_config_lib_v3"'))
+                assertTrue(metadata.contains('type="optional"'))
+                assertTrue(metadata.contains('side="CLIENT"'))
+                assertTrue(metadata.contains("file=\"${target.metadata.accessTransformer}\""))
+                assertEquals((target.metadata.serverMixins ?: []) + target.metadata.mixins, metadata.readLines().findAll { it.startsWith('config=') }.collect { it.substring('config="'.length(), it.length() - 1) })
             }
         }
     }

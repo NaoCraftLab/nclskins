@@ -58,10 +58,7 @@ final class MetadataRenderer {
             if (predicate != null) result.suggests[dependencyId.toString()] = predicate
         }
         result.custom = [modmenu: [
-                links         : [
-                        'modmenu.modrinth'  : modrinthUrl(mod),
-                        'modmenu.curseforge': curseForgeUrl(mod)
-                ],
+                links         : modMenuLinks(mod),
                 update_checker: true
         ]]
         CatalogTools.json(result)
@@ -84,6 +81,7 @@ final class MetadataRenderer {
             "version=${quote(version)}",
             "displayName=${quote(mod.name)}",
             "displayURL=${quote(contact.homepage)}",
+            "issueTrackerURL=${quote(contact.issues)}",
             "updateJSONURL=${quote(forgeUpdatesUrl(mod, false))}",
             "authors=${quote((mod.authors as List).join(', '))}",
             "logoFile=${quote(mod.icon)}",
@@ -91,6 +89,9 @@ final class MetadataRenderer {
             'displayTest="IGNORE_SERVER_VERSION"',
             "features={java_version=${quote("[${target.java.release},)")}}",
             "description=${quote(mod.descriptions.en_us)}",
+            '',
+            "[modproperties.${id}]",
+            "catalogueImageIcon=${quote(mod.icon)}",
             '',
             "[[dependencies.${id}]]",
             'modId="forge"',
@@ -142,13 +143,29 @@ final class MetadataRenderer {
             "version=${quote(version)}",
             "displayName=${quote(mod.name)}",
             "displayURL=${quote(contact.homepage)}",
+            "issueTrackerURL=${quote(contact.issues)}",
             "updateJSONURL=${quote(forgeUpdatesUrl(mod, true))}",
-            "authors=${quote((mod.authors as List).join(', '))}",
-            "logoFile=${quote(mod.icon)}",
-            "logoBlur=${booleanValue(mod.iconBlur)}",
-            "description=${quote(mod.descriptions.en_us)}",
-            ''
+            "authors=${quote((mod.authors as List).join(', '))}"
         ]
+        if (metadata.modListBranding == 'icon-only') {
+            lines.addAll([
+                    "iconFile=${quote(mod.icon)}",
+                    "iconBlur=${booleanValue(mod.iconBlur)}",
+                    'bannerFile=false'
+            ])
+        } else {
+            lines.addAll([
+                    "logoFile=${quote(mod.icon)}",
+                    "logoBlur=${booleanValue(mod.iconBlur)}"
+            ])
+        }
+        lines.addAll([
+            "description=${quote(mod.descriptions.en_us)}",
+            '',
+            "[modproperties.${id}]",
+            "catalogueImageIcon=${quote(mod.icon)}",
+            ''
+        ])
         ((metadata.serverMixins as List) + (metadata.mixins as List)).each {
             lines.addAll(['[[mixins]]', "config=${quote(it)}", ''])
         }
@@ -232,6 +249,16 @@ final class MetadataRenderer {
 
     static String curseForgeUrl(Map mod) {
         "https://www.curseforge.com/minecraft/mc-mods/${mod.platforms.curseforge.slug}"
+    }
+
+    static Map<String, String> modMenuLinks(Map mod) {
+        [
+                'modmenu.modrinth'             : modrinthUrl(mod),
+                'modmenu.curseforge'           : curseForgeUrl(mod),
+                'nclskins.modmenu.youtube'     : mod.links.youtube.toString(),
+                'nclskins.modmenu.telegram_bot': mod.links.telegramBot.toString(),
+                'nclskins.modmenu.x'           : mod.links.x.toString()
+        ]
     }
 
     static String forgeUpdatesUrl(Map mod, boolean neoForge) {

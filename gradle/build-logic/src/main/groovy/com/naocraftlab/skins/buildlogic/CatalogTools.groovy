@@ -25,7 +25,7 @@ final class CatalogTools {
     ] as Set
     static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility'] as Set
     static final Set<String> MOD_KEYS = [
-            'id', 'name', 'group', 'license', 'descriptions', 'contact', 'platforms',
+            'id', 'name', 'group', 'license', 'descriptions', 'contact', 'links', 'platforms',
             'authors', 'icon', 'iconBlur'
     ] as Set
     static final Pattern VERSION_PATTERN = Pattern.compile(
@@ -369,7 +369,7 @@ final class CatalogTools {
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
                 'optionalDependencies', 'publicationDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 13) {
+        if (catalog.schemaVersion != 14) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -402,6 +402,11 @@ final class CatalogTools {
         if ((contact.keySet() as Set) != ['homepage', 'sources', 'issues'] as Set ||
                 contact.values().any { !(it instanceof String) || !(it ==~ /https:\/\/[^\s]+/) }) {
             errors.add('mod.contact must define HTTPS homepage, sources and issues URLs')
+        }
+        Map links = mod.links instanceof Map ? mod.links as Map : [:]
+        if ((links.keySet() as Set) != ['youtube', 'telegramBot', 'x'] as Set ||
+                links.values().any { !(it instanceof String) || !(it ==~ /https:\/\/[^\s]+/) }) {
+            errors.add('mod.links must define HTTPS YouTube, Telegram Bot and X URLs')
         }
         Map platforms = mod.platforms instanceof Map ? mod.platforms as Map : [:]
         Map modrinthPlatform = platforms.modrinth instanceof Map ? platforms.modrinth as Map : [:]
@@ -477,8 +482,20 @@ final class CatalogTools {
                 values.findAll { key, value -> value instanceof String && (value.contains('\u2014') || value.contains('\u2013')) }
                         .keySet()
                         .each { String key -> errors.add("${locale}: ${key} must not use long dashes") }
-                ['modmenu.descriptionTranslation.nclskins', 'fml.menu.mods.info.description.nclskins'].each { String key ->
+                ['modmenu.descriptionTranslation.nclskins',
+                 'fml.menu.mods.info.description.nclskins',
+                 'neoforge.screen.mods.info.description.nclskins'].each { String key ->
                     if (values[key] != '@NCLSKINS_DESCRIPTION@') errors.add("${locale}: ${key} must use the catalog description template token")
+                }
+                Map expectedLinkLabels = locale == 'en_us'
+                        ? ['nclskins.modmenu.youtube': 'YouTube',
+                           'nclskins.modmenu.telegram_bot': 'Telegram Bot',
+                           'nclskins.modmenu.x': 'X']
+                        : ['nclskins.modmenu.youtube': 'YouTube',
+                           'nclskins.modmenu.telegram_bot': 'Telegram-бот',
+                           'nclskins.modmenu.x': 'X']
+                expectedLinkLabels.each { String key, String value ->
+                    if (values[key] != value) errors.add("${locale}: ${key} must equal ${value}")
                 }
             } catch (Exception error) {
                 errors.add("cannot read ${locale} translations: ${error.message}")
@@ -716,6 +733,13 @@ final class CatalogTools {
                     : [] as Set
             if ((metadata.keySet() as Set) != expectedMetadataKeys) {
                 errors.add("${target.id}: metadata keys differ from loader schema")
+            }
+            if (loader != 'fabric') {
+                String expectedBranding = loader == 'neoforge' && minecraftDeclaration.epoch == '26.2'
+                        ? 'icon-only' : 'legacy-logo'
+                if (metadata.modListBranding != expectedBranding) {
+                    errors.add("${target.id}: modListBranding must be ${expectedBranding}")
+                }
             }
             if (loader != 'fabric' && !(metadata.loaderVersion ==~ /\[[1-9][0-9]*,\)/)) {
                 errors.add("${target.id}: language loader range must contain only a major lower bound")

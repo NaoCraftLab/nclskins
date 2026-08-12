@@ -411,7 +411,7 @@ final class ArtifactVerifier {
                 if (predicate != null) expectedSuggestions[dependencyId.toString()] = predicate
             }
             if (metadata.suggests != expectedSuggestions) errors.add("${target.id}: Fabric suggestions differ from catalog")
-            if (metadata.custom != [modmenu: [links: ['modmenu.modrinth': MetadataRenderer.modrinthUrl(catalog.mod as Map), 'modmenu.curseforge': MetadataRenderer.curseForgeUrl(catalog.mod as Map)], update_checker: true]]) errors.add("${target.id}: Fabric Mod Menu card metadata differs from catalog")
+            if (metadata.custom != [modmenu: [links: MetadataRenderer.modMenuLinks(catalog.mod as Map), update_checker: true]]) errors.add("${target.id}: Fabric Mod Menu card metadata differs from catalog")
             if (metadata.accessWidener != target.metadata.accessWidener) errors.add("${target.id}: Fabric access widener differs from catalog")
             List expectedMixins = (target.metadata.serverMixins ?: []).collect { [config: it] } + (target.metadata.mixins ?: []).collect { [config: it, environment: 'client'] }
             if ((metadata.mixins ?: []) != expectedMixins) errors.add("${target.id}: Fabric mixin list differs from catalog")
@@ -452,12 +452,36 @@ final class ArtifactVerifier {
             Map language = json(archive, "assets/nclskins/lang/${locale}.json", target, errors)
             if (language != null) {
                 String description = catalog.mod.descriptions[locale].toString()
-                ['modmenu.descriptionTranslation.nclskins', 'fml.menu.mods.info.description.nclskins'].each { String key ->
+                ['modmenu.descriptionTranslation.nclskins',
+                 'fml.menu.mods.info.description.nclskins',
+                 'neoforge.screen.mods.info.description.nclskins'].each { String key ->
                     if (language[key] != description) errors.add("${target.id}: ${locale} ${key} differs from catalog")
+                }
+                Map expectedLinkLabels = locale == 'en_us'
+                        ? ['nclskins.modmenu.youtube': 'YouTube',
+                           'nclskins.modmenu.telegram_bot': 'Telegram Bot',
+                           'nclskins.modmenu.x': 'X']
+                        : ['nclskins.modmenu.youtube': 'YouTube',
+                           'nclskins.modmenu.telegram_bot': 'Telegram-бот',
+                           'nclskins.modmenu.x': 'X']
+                expectedLinkLabels.each { String key, String value ->
+                    if (language[key] != value) errors.add("${target.id}: ${locale} ${key} differs from catalog")
                 }
             }
         }
         if (names.any { it.endsWith('.pixel.json') }) errors.add("${target.id}: artifact contains pixel-grid agent data")
+        if (target.loader.id == 'neoforge') {
+            List<String> forbiddenModListApis = [
+                    'net/neoforged/neoforge/client/gui/modlist/ModDisplayInfo',
+                    'net/neoforged/neoforge/client/gui/modlist/DefaultModDisplayInfo'
+            ]
+            names.findAll { it.startsWith('com/naocraftlab/skins/') && it.endsWith('.class') }.each { String classEntry ->
+                String bytecode = new String(read(archive, classEntry), StandardCharsets.ISO_8859_1)
+                forbiddenModListApis.findAll { bytecode.contains(it) }.each { String forbiddenApi ->
+                    errors.add("${target.id}: ${classEntry} contains forbidden code-driven mod-list metadata API ${forbiddenApi}")
+                }
+            }
+        }
         List<String> archiveButtons = names.findAll { it.startsWith(BUTTONS) && it.endsWith('.png') }.sort()
         File canonicalResources = new File(root, 'compat/resources/canonical/src/main/resources')
         List<File> sourceButtons = new File(canonicalResources, BUTTONS).listFiles()?.findAll { it.name.endsWith('.png') }?.sort { it.name } ?: []

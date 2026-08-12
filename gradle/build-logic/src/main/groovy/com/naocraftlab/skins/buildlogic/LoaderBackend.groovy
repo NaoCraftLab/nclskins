@@ -101,6 +101,7 @@ abstract class LoaderBackend {
 
     private static Set<String> forgeLikeMetadataKeys() {
         ['files', 'modLoader', 'loaderVersion', 'entrypointClass', 'clientEntrypointClass',
-         'accessTransformer', 'packFormat', 'mixins', 'serverMixins'] as Set
+         'accessTransformer', 'packFormat', 'mixins', 'serverMixins',
+         'modListBranding'] as Set
     }
 }

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 13,
+  "schemaVersion": 14,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
@@ -14,13 +14,18 @@
     "group": "com.naocraftlab.skins",
     "license": "GPL-3.0-only",
     "descriptions": {
-      "en_us": "Skin management that feels like part of Minecraft.",
-      "ru_ru": "Управление скинами как часть Minecraft."
+      "en_us": "Skin management that feels like part of Minecraft",
+      "ru_ru": "Управление скинами как часть Minecraft"
     },
     "contact": {
       "homepage": "https://naocraftlab.com",
       "sources": "https://github.com/NaoCraftLab/nclskins",
       "issues": "https://github.com/NaoCraftLab/nclskins/issues"
+    },
+    "links": {
+      "youtube": "https://www.youtube.com/@NaoCraftLab",
+      "telegramBot": "https://t.me/naocraftlab_bot?start=c_yWYd4ACA",
+      "x": "https://x.com/naocraftlab"
     },
     "platforms": {
       "modrinth": {
@@ -923,6 +928,7 @@
         "files": ["META-INF/mods.toml", "pack.mcmeta", "resourcepacks/mojang_collections/pack.mcmeta"],
         "modLoader": "javafml",
         "loaderVersion": "[47,)",
+        "modListBranding": "legacy-logo",
         "entrypointClass": "com/naocraftlab/skins/forge/v1_20_1/NclSkinsForgeMod.class",
         "clientEntrypointClass": "com/naocraftlab/skins/forge/v1_20_1/client/NclSkinsForgeClientEvents$ForgeBus.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
@@ -1056,6 +1062,7 @@
         "files": ["META-INF/neoforge.mods.toml", "resourcepacks/mojang_collections/pack.mcmeta"],
         "modLoader": "javafml",
         "loaderVersion": "[4,)",
+        "modListBranding": "legacy-logo",
         "entrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeMod.class",
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
@@ -1189,6 +1196,7 @@
         "files": ["META-INF/neoforge.mods.toml", "resourcepacks/mojang_collections/pack.mcmeta"],
         "modLoader": "javafml",
         "loaderVersion": "[4,)",
+        "modListBranding": "legacy-logo",
         "entrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeMod.class",
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
@@ -1347,6 +1355,7 @@
         ],
         "modLoader": "javafml",
         "loaderVersion": "[11,)",
+        "modListBranding": "legacy-logo",
         "entrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeMod.class",
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
@@ -1460,8 +1469,8 @@
       },
       "loader": {
         "id": "neoforge",
-        "version": "26.2.0.45-beta",
-        "predicate": "[26.2.0.45-beta,)",
+        "version": "26.2.0.57",
+        "predicate": "[26.2.0.57,)",
         "apiVersion": null,
         "apiPredicate": null,
         "modMenuVersion": null
@@ -1499,6 +1508,7 @@
         "files": ["META-INF/neoforge.mods.toml", "resourcepacks/mojang_collections/pack.mcmeta"],
         "modLoader": "javafml",
         "loaderVersion": "[11,)",
+        "modListBranding": "icon-only",
         "entrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeMod.class",
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
