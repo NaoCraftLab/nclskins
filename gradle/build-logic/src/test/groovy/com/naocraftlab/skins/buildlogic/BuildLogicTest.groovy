@@ -21,7 +21,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(14, catalog.schemaVersion)
+        assertEquals(15, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
@@ -40,6 +40,13 @@ final class BuildLogicTest {
         assertEquals(
                 catalog.targets.collect { "targets/${it.minecraft.version}/${it.loader.id}".toString() },
                 catalog.targets.collect { it.path })
+        assertEquals(11, catalog.targets.size())
+        assertEquals(10, CatalogTools.releaseTargets(catalog).size())
+        Map experimental = catalog.targets.find { it.id == 'fabric-26.3' } as Map
+        assertFalse(experimental.releaseEligible as boolean)
+        assertEquals('26.3-snapshot-7', CatalogTools.minecraftCompileVersion(experimental))
+        assertEquals('26.3-alpha.7', experimental.minecraft.runtimeVersion)
+        assertEquals('26.3-alpha.7', experimental.minecraft.predicate)
         CatalogTools.validate(repository, catalog)
     }
 
@@ -482,7 +489,9 @@ final class BuildLogicTest {
                 assertTrue(target.loader.version ==~ /[0-9]+\.[0-9]+\.[0-9]+/)
                 assertEquals(">=${target.loader.version}".toString(), target.loader.predicate)
                 assertEquals(">=${target.loader.apiVersion}".toString(), target.loader.apiPredicate)
-                assertEquals(">=${target.minecraft.version}".toString(), target.minecraft.predicate)
+                assertEquals(
+                        target.minecraft.runtimeVersion ?: ">=${target.minecraft.version}".toString(),
+                        target.minecraft.predicate)
             } else {
                 assertEquals("[${target.loader.version},)".toString(), target.loader.predicate)
                 assertEquals("[${target.minecraft.version},)".toString(), target.minecraft.predicate)
@@ -499,8 +508,9 @@ final class BuildLogicTest {
         assertEquals(['fabric', 'forge', 'neoforge'] as Set, LoaderBackend.ids())
         catalog.targets.each { Map target ->
             LoaderBackend backend = LoaderBackend.require(target.loader.id.toString())
-            assertEquals(target.minecraft.predicate,
-                    backend.minecraftPredicate(target.minecraft.version.toString()))
+            String expectedPredicate = target.minecraft.runtimeVersion
+                    ?: backend.minecraftPredicate(target.minecraft.version.toString())
+            assertEquals(target.minecraft.predicate, expectedPredicate)
             assertEquals(target.metadata.keySet() as Set, backend.metadataKeys())
             assertFalse(backend.metadata(catalog, target, '1.0.0').isEmpty())
         }
@@ -562,7 +572,8 @@ final class BuildLogicTest {
                 'fabric-26.1'     : 'avatar-pip-26.1-fabric',
                 'neoforge-26.1'   : 'avatar-pip-26.1-neoforge',
                 'fabric-26.2'     : 'avatar-pip-26.2-fabric',
-                'neoforge-26.2'   : 'avatar-pip-26.2-neoforge'
+                'neoforge-26.2'   : 'avatar-pip-26.2-neoforge',
+                'fabric-26.3'     : 'avatar-pip-26.3-fabric'
         ]
         Set<String> registrationBundles = expected.values() as Set
 
@@ -790,7 +801,7 @@ final class BuildLogicTest {
                 assertFalse(rendered.contains('scr' + 'ipts/'))
             }
         }
-        assertEquals(30, taskNames.size())
+        assertEquals(catalog.targets.size() * IdeaRunConfigurations.RUN_KINDS.size(), taskNames.size())
     }
 
     @Test
@@ -915,6 +926,43 @@ final class BuildLogicTest {
                 errors)
 
         assertTrue(errors.any { it.contains('renders its native background twice') }, errors.toString())
+    }
+
+    @Test
+    void semanticVerifierAcceptsAuthlib10SessionServiceOnlyForItsDedicatedLeaf() {
+        String source = '''
+            class Verifier implements OfficialTextureSignatureVerifier {
+                SessionService service;
+                void verify(Object property) {
+                    service.getSecurePropertyValue(property);
+                    new OfficialTextureAppearanceParser();
+                    Optional.empty();
+                }
+            }
+        '''
+        List<String> authlib10Errors = []
+        List<String> authlib9Errors = []
+
+        SemanticVerifier.verifyLeaf('profile-verification-authlib-v10', 'serverProfileVerification', source, authlib10Errors)
+        SemanticVerifier.verifyLeaf('profile-verification-authlib-v9', 'serverProfileVerification', source, authlib9Errors)
+
+        assertEquals([], authlib10Errors)
+        assertTrue(authlib9Errors.any { it.contains("lacks required marker 'MinecraftSessionService'") })
+    }
+
+    @Test
+    void fabric263ScreenUsesSdlMouseButtonIdentityWithoutChanging262() {
+        File screen262 = new File(
+                repository,
+                'compat/capabilities/gui/extraction-screen-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java')
+        File screen263 = new File(
+                repository,
+                'compat/capabilities/gui/extraction-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java')
+
+        assertTrue(screen262.text.contains('private static final int LEFT_MOUSE_BUTTON = 0;'))
+        assertTrue(screen263.text.contains(
+                'private static final int LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;'))
+        assertFalse(screen263.text.contains('private static final int LEFT_MOUSE_BUTTON = 0;'))
     }
 
     @Test

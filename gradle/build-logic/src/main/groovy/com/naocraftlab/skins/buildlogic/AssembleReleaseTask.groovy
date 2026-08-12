@@ -60,7 +60,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
                     sourceCommit: ReleaseSelection.git(repository, ['rev-parse', 'HEAD']).trim(),
                     baseTag: null,
                     paths: [],
-                    targetIds: (catalog.targets as List).collect { it.id.toString() },
+                    targetIds: CatalogTools.releaseTargets(catalog).collect { it.id.toString() },
                     reasons: [:]
             ]
         }
@@ -82,7 +82,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
         File sources = ReleaseBundle.createSourcesJar(
                 repository, catalog, metadata.version.toString(), new File(assetsDirectory, sourcesName))
         Map sourcesAsset = assetMetadata(sources, 'sources', null)
-        (catalog.targets as List<Map>).findAll { selectedIds.contains(it.id.toString()) }.each { Map target ->
+        CatalogTools.releaseTargets(catalog)
+                .findAll { selectedIds.contains(it.id.toString()) }
+                .each { Map target ->
             String name = artifactName(target, metadata.version.toString())
             File built = new File(repository, "${target.path}/build/libs/${name}")
             File existing = existingDirectory == null ? null : new File(existingDirectory, name)
@@ -142,7 +144,8 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
     static void validateExistingAssetSet(File directory, Map catalog, String version) {
         if (directory == null) return
-        Set<String> allowed = (catalog.targets as List).collect { artifactName(it as Map, version) } as Set<String>
+        Set<String> allowed = CatalogTools.releaseTargets(catalog)
+                .collect { artifactName(it as Map, version) } as Set<String>
         allowed.add("nclskins-${version}-sources.jar".toString())
         directory.eachFile { File file ->
             if (!file.isFile() || Files.isSymbolicLink(file.toPath()) || !allowed.contains(file.name)) {
@@ -152,6 +155,10 @@ abstract class AssembleReleaseTask extends DefaultTask {
     }
 
     static Map publicationTarget(Map catalog, Map target, Map release, Map asset, Map sourcesAsset) {
+        if (target.releaseEligible != true) {
+            throw new IllegalArgumentException(
+                    "${target.id}: non-release-eligible target cannot enter publication metadata")
+        }
         String loader = target.loader.id.toString()
         List<String> gameVersions = target.compatibility instanceof Map
                 ? (target.compatibility.minecraftVersions as List).collect { it.toString() }

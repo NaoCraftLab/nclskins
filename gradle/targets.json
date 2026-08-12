@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 14,
+  "schemaVersion": 15,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
@@ -227,6 +227,34 @@
           "serverTracking": "tracking-chunkmap-level-v2",
           "serverPlayerInfoPublication": "player-info-initialize-v1"
         }
+      },
+      "identifier-extraction-authlib10": {
+        "minecraftEpoch": "26.3",
+        "javaRelease": 25,
+        "clientProviderClass": "com.naocraftlab.skins.compat.mc262.Minecraft262ClientCapabilityProvider",
+        "clientProviderBundle": "client-provider-extraction",
+        "accessBundles": {
+          "fabric": "access-extraction-fabric"
+        },
+        "previewCapabilities": {
+          "fabric": "avatar-pip-26.3-fabric"
+        },
+        "capabilities": {
+          "gui": "extraction-26.3",
+          "textures": "identifier-26.2",
+          "appearance": "local-player-skin-26.2",
+          "session": "minecraft-user-v1",
+          "clientExecutor": "minecraft-client-executor-v1",
+          "filePicker": "tinyfd-safe-v1",
+          "bundledSkin": "vanilla-pack-bundled-26.3",
+          "currentAppearance": "player-skin-current-26.2",
+          "serverSignal": "command-v1",
+          "serverCommand": "server-command-v1",
+          "serverProfileVerification": "profile-verification-authlib-v10",
+          "serverProfileMutation": "profile-mutation-authlib-v9",
+          "serverTracking": "tracking-chunkmap-level-v2",
+          "serverPlayerInfoPublication": "player-info-initialize-v1"
+        }
       }
     },
     "loaders": {
@@ -274,7 +302,8 @@
         "fabric-26.1": "3.9.6+26.1-fabric",
         "neoforge-26.1": "3.9.6+26.1-neoforge",
         "fabric-26.2": "3.9.6+26.2-fabric",
-        "neoforge-26.2": "3.9.6+26.2-neoforge"
+        "neoforge-26.2": "3.9.6+26.2-neoforge",
+        "fabric-26.3": "3.9.6+26.3-fabric"
       }
     }
   },
@@ -430,11 +459,35 @@
       "side": "client",
       "requires": []
     },
-    "extraction-26.2": {
+    "extraction-shared": {
       "java": ["compat/capabilities/gui/extraction-26.2/src/main/java"],
       "resources": [],
       "side": "client",
       "requires": []
+    },
+    "extraction-screen-26.2": {
+      "java": ["compat/capabilities/gui/extraction-screen-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "extraction-26.2": {
+      "java": [],
+      "resources": [],
+      "side": "client",
+      "requires": ["extraction-shared", "extraction-screen-26.2"]
+    },
+    "extraction-screen-26.3": {
+      "java": ["compat/capabilities/gui/extraction-26.3/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "extraction-26.3": {
+      "java": [],
+      "resources": [],
+      "side": "client",
+      "requires": ["extraction-shared", "extraction-screen-26.3"]
     },
     "resource-location-legacy": {
       "java": ["compat/capabilities/textures/resource-location-legacy/src/main/java"],
@@ -466,11 +519,23 @@
       "side": "client",
       "requires": []
     },
-    "avatar-pip-common": {
+    "avatar-pip-shared": {
       "java": ["compat/capabilities/preview/avatar-pip-26.2/src/main/java"],
       "resources": ["compat/capabilities/preview/avatar-pip-26.2/src/main/resources"],
       "side": "client",
       "requires": []
+    },
+    "avatar-pip-render-state-26.2": {
+      "java": ["compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
+    },
+    "avatar-pip-common": {
+      "java": [],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-render-state-26.2"]
     },
     "avatar-pip-26.1-core": {
       "java": ["compat/capabilities/preview/avatar-pip-26.1/src/main/java"],
@@ -488,7 +553,31 @@
       "java": ["compat/capabilities/preview/avatar-pip-render-26.2/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-common"]
+      "requires": ["avatar-pip-common", "avatar-pip-submit-26.2"]
+    },
+    "avatar-pip-submit-26.2": {
+      "java": ["compat/capabilities/preview/avatar-pip-submit-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
+    },
+    "avatar-pip-render-state-26.3": {
+      "java": ["compat/capabilities/preview/avatar-pip-render-state-26.3/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
+    },
+    "avatar-pip-submit-26.3": {
+      "java": ["compat/capabilities/preview/avatar-pip-submit-26.3/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
+    },
+    "avatar-pip-26.3-core": {
+      "java": ["compat/capabilities/preview/avatar-pip-render-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-render-state-26.3", "avatar-pip-submit-26.3"]
     },
     "avatar-pip-1.21.11-fabric": {
       "java": ["loader/fabric/pip-1.21.11/src/main/java"],
@@ -519,6 +608,12 @@
       "resources": [],
       "side": "client",
       "requires": ["avatar-pip-26.2-core"]
+    },
+    "avatar-pip-26.3-fabric": {
+      "java": ["loader/fabric/pip-26.2/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-26.3-core"]
     },
     "avatar-pip-26.2-neoforge": {
       "java": ["loader/neoforge/pip-26.2/src/main/java"],
@@ -628,6 +723,12 @@
       "side": "client",
       "requires": []
     },
+    "vanilla-pack-bundled-26.3": {
+      "java": ["compat/capabilities/bundled-skin/mc-26.3/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
     "resource-location-current-1.20": {
       "java": ["compat/capabilities/current-appearance/mc-1.20/src/main/java"],
       "resources": [],
@@ -660,6 +761,12 @@
     },
     "profile-verification-authlib-v9": {
       "java": ["compat/capabilities/server/profile-verification-authlib-v9/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": []
+    },
+    "profile-verification-authlib-v10": {
+      "java": ["compat/capabilities/server/profile-verification-authlib-v10/src/main/java"],
       "resources": [],
       "side": "common",
       "requires": []
@@ -738,6 +845,7 @@
     "immediate-1.21": {"bundle": "immediate-1.21", "abiImplementation": "immediate-1.21"},
     "submission-1.21.11": {"bundle": "submission-1.21.11", "abiImplementation": "submission-1.21.11"},
     "extraction-26.2": {"bundle": "extraction-26.2", "abiImplementation": "extraction-26.2"},
+    "extraction-26.3": {"bundle": "extraction-26.3", "abiImplementation": "extraction-26.3"},
     "resource-location-legacy": {"bundle": "resource-location-legacy", "abiImplementation": "resource-location-legacy"},
     "resource-location-modern": {"bundle": "resource-location-modern", "abiImplementation": "resource-location-modern"},
     "identifier-26.2": {"bundle": "identifier-26.2", "abiImplementation": "identifier-26.2"},
@@ -749,6 +857,7 @@
     "avatar-pip-26.1-neoforge": {"bundle": "avatar-pip-26.1-neoforge", "abiImplementation": "avatar-pip-26.1"},
     "avatar-pip-26.2-fabric": {"bundle": "avatar-pip-26.2-fabric", "abiImplementation": "avatar-pip-26.2"},
     "avatar-pip-26.2-neoforge": {"bundle": "avatar-pip-26.2-neoforge", "abiImplementation": "avatar-pip-26.2"},
+    "avatar-pip-26.3-fabric": {"bundle": "avatar-pip-26.3-fabric", "abiImplementation": "avatar-pip-26.3"},
     "player-info-cache-1.20": {"bundle": "player-info-cache-1.20", "abiImplementation": "player-info-cache-1.20"},
     "skin-lookup-1.21": {"bundle": "skin-lookup-1.21", "abiImplementation": "skin-lookup-1.21"},
     "local-player-skin-26.2": {"bundle": "local-player-skin-26.2", "abiImplementation": "local-player-skin-26.2"},
@@ -764,6 +873,7 @@
     "resource-stack-bundled-1.20": {"bundle": "resource-stack-bundled-1.20", "abiImplementation": "resource-stack-bundled-1.20"},
     "vanilla-pack-bundled-1.21": {"bundle": "vanilla-pack-bundled-1.21", "abiImplementation": "vanilla-pack-bundled-1.21"},
     "vanilla-pack-bundled-26.2": {"bundle": "vanilla-pack-bundled-26.2", "abiImplementation": "vanilla-pack-bundled-26.2"},
+    "vanilla-pack-bundled-26.3": {"bundle": "vanilla-pack-bundled-26.3", "abiImplementation": "vanilla-pack-bundled-26.3"},
     "resource-location-current-1.20": {"bundle": "resource-location-current-1.20", "abiImplementation": "resource-location-current-1.20"},
     "player-skin-current-1.21": {"bundle": "player-skin-current-1.21", "abiImplementation": "player-skin-current-1.21"},
     "player-skin-current-26.2": {"bundle": "player-skin-current-26.2", "abiImplementation": "player-skin-current-26.2"},
@@ -771,6 +881,7 @@
     "profile-verification-authlib-v4": {"bundle": "profile-verification-authlib-v4-v6", "abiImplementation": "profile-verification-authlib-v4"},
     "profile-verification-authlib-v6": {"bundle": "profile-verification-authlib-v4-v6", "abiImplementation": "profile-verification-authlib-v6"},
     "profile-verification-authlib-v9": {"bundle": "profile-verification-authlib-v9", "abiImplementation": "profile-verification-authlib-v9"},
+    "profile-verification-authlib-v10": {"bundle": "profile-verification-authlib-v10", "abiImplementation": "profile-verification-authlib-v10"},
     "profile-verification-authlib-v7": {
       "bundle": "profile-verification-authlib-v9",
       "abiImplementation": "profile-verification-authlib-v7"
@@ -793,6 +904,7 @@
   "targets": [
     {
       "id": "fabric-1.20.1",
+      "releaseEligible": true,
       "epochProfile": "legacy-resource-location-authlib4",
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-immediate",
@@ -859,6 +971,7 @@
     },
     {
       "id": "forge-1.20.1",
+      "releaseEligible": true,
       "epochProfile": "legacy-resource-location-authlib4",
       "loaderProfile": "forge47-loader",
       "integrationProfile": "forge-immediate",
@@ -927,6 +1040,7 @@
     },
     {
       "id": "fabric-1.21.1",
+      "releaseEligible": true,
       "epochProfile": "modern-resource-location-authlib6",
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-immediate",
@@ -993,6 +1107,7 @@
     },
     {
       "id": "neoforge-1.21.1",
+      "releaseEligible": true,
       "epochProfile": "modern-resource-location-authlib6",
       "loaderProfile": "neoforge-loader",
       "integrationProfile": "neoforge-immediate",
@@ -1061,6 +1176,7 @@
     },
     {
       "id": "fabric-1.21.11",
+      "releaseEligible": true,
       "epochProfile": "identifier-submission-authlib7",
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-submission",
@@ -1127,6 +1243,7 @@
     },
     {
       "id": "neoforge-1.21.11",
+      "releaseEligible": true,
       "epochProfile": "identifier-submission-authlib7",
       "loaderProfile": "neoforge-loader",
       "integrationProfile": "neoforge-extraction",
@@ -1195,6 +1312,7 @@
     },
     {
       "id": "fabric-26.1",
+      "releaseEligible": true,
       "epochProfile": "identifier-extraction-authlib7",
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-extraction",
@@ -1283,6 +1401,7 @@
     },
     {
       "id": "neoforge-26.1",
+      "releaseEligible": true,
       "epochProfile": "identifier-extraction-authlib7",
       "loaderProfile": "neoforge-loader",
       "integrationProfile": "neoforge-extraction",
@@ -1373,6 +1492,7 @@
     },
     {
       "id": "fabric-26.2",
+      "releaseEligible": true,
       "epochProfile": "identifier-extraction-authlib9",
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-extraction",
@@ -1439,6 +1559,7 @@
     },
     {
       "id": "neoforge-26.2",
+      "releaseEligible": true,
       "epochProfile": "identifier-extraction-authlib9",
       "loaderProfile": "neoforge-loader",
       "integrationProfile": "neoforge-extraction",
@@ -1503,6 +1624,75 @@
         "remapJar": false,
         "mavenArtifactId": "nclskins-neoforge-26.2",
         "automaticModuleName": "com.naocraftlab.skins.neoforge.mc262"
+      }
+    },
+    {
+      "id": "fabric-26.3",
+      "releaseEligible": false,
+      "epochProfile": "identifier-extraction-authlib10",
+      "loaderProfile": "fabric-loader",
+      "integrationProfile": "fabric-extraction",
+      "buildProfile": "fabric-loom-single",
+      "path": "targets/26.3/fabric",
+      "minecraft": {
+        "version": "26.3",
+        "compileVersion": "26.3-snapshot-7",
+        "runtimeVersion": "26.3-alpha.7",
+        "predicate": "26.3-alpha.7",
+        "epoch": "26.3"
+      },
+      "loader": {
+        "id": "fabric",
+        "version": "0.19.3",
+        "predicate": ">=0.19.3",
+        "apiVersion": "0.157.0+26.3",
+        "apiPredicate": ">=0.157.0+26.3",
+        "modMenuVersion": "21.0.0-alpha.1"
+      },
+      "java": {
+        "release": 25,
+        "classfileMajor": 69,
+        "buildJdk": 25
+      },
+      "development": {
+        "serverPort": 25575
+      },
+      "gradleFamily": "modern",
+      "sourceLayout": "single",
+      "capabilities": {
+        "gui": "extraction-26.3",
+        "textures": "identifier-26.2",
+        "preview": "avatar-pip-26.3-fabric",
+        "appearance": "local-player-skin-26.2",
+        "loaderScreen": "fabric-extraction",
+        "session": "minecraft-user-v1",
+        "clientExecutor": "minecraft-client-executor-v1",
+        "filePicker": "tinyfd-safe-v1",
+        "bundledSkin": "vanilla-pack-bundled-26.3",
+        "currentAppearance": "player-skin-current-26.2",
+        "serverSignal": "command-v1",
+        "serverCommand": "server-command-v1",
+        "serverProfileVerification": "profile-verification-authlib-v10",
+        "serverProfileMutation": "profile-mutation-authlib-v9",
+        "serverTracking": "tracking-chunkmap-level-v2",
+        "serverPlayerInfoPublication": "player-info-initialize-v1",
+        "serverLoader": "fabric-server-v1"
+      },
+      "metadata": {
+        "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
+        "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
+        "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
+        "accessWidener": "nclskins.accesswidener",
+        "packFormat": [95, 0],
+        "mixins": ["nclskins.mc262.mixins.json"],
+        "serverMixins": ["nclskins.authlib9.mixins.json"]
+      },
+      "artifact": {
+        "file": "nclskins-{modVersion}+26.3-fabric.jar",
+        "remapJar": false,
+        "mavenArtifactId": "nclskins-fabric-26.3",
+        "automaticModuleName": "com.naocraftlab.skins.fabric.mc263"
       }
     }
   ]

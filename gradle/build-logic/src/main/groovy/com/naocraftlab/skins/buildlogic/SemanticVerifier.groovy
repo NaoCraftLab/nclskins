@@ -310,13 +310,21 @@ final class SemanticVerifier {
                 currentAppearance: ['implements CurrentPlayerAppearanceSource'],
             serverSignal: ['implements ServerAppearanceRefreshNotifier', 'getConnection()', 'if (connection == null)', 'getChild(ServerRefreshCommandProtocol.ROOT_COMMAND)', 'root.getChild(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'ServerAppearanceRefreshCommandPath.isExactExecutableLeaf', 'sendCommand(ServerRefreshCommandProtocol.COMMAND)'],
             serverCommand: ['Commands.literal(ServerRefreshCommandProtocol.ROOT_COMMAND)', '.requires(MinecraftServerRefreshCommand::canRefresh)', 'Commands.literal(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'source.getEntity() instanceof ServerPlayer', 'boolean serviceRegistered', 'MinecraftServerAppearanceService.registered(source.getServer())', 'ServerRefreshCommandProtocol.advertised(', 'service.request(source.getPlayerOrException()).admission()', 'ServerRefreshCommandProtocol.result(admission)'],
-            serverProfileVerification: ['implements OfficialTextureSignatureVerifier', 'MinecraftSessionService', 'getSecurePropertyValue(property)', 'OfficialTextureAppearanceParser', 'Optional.empty()'],
+            serverProfileVerification: ['implements OfficialTextureSignatureVerifier', 'getSecurePropertyValue(property)', 'OfficialTextureAppearanceParser', 'Optional.empty()'],
             serverProfileMutation: ['implements ProfilePropertyAccess', 'currentTextures(ServerPlayer player)', 'installTextures(', 'SignedTexturesProperty', 'CurrentProfileTextures'],
             serverTracking: ['implements ServerTrackingAccess', 'tracked.seenBy', 'tracked.removePlayer(observer)', 'tracked.updatePlayer(observer)', 'scheduleNextTick('],
             serverPlayerInfoPublication: ['implements NativePlayerInfoTransport', 'ClientboundPlayerInfoRemovePacket', 'ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(actors)', 'actors.stream().map(ServerPlayer::getUUID).toList()'],
             serverLoader: ['MinecraftServerLifecycle', 'MinecraftServerRefreshCommand.register']
         ]
         markers.getOrDefault(key, []).each { String marker -> if (!compact.contains(marker)) errors.add("${implementation}: ${key} leaf lacks required marker '${marker}'") }
+        if (key == 'serverProfileVerification') {
+            String sessionServiceType = implementation == 'profile-verification-authlib-v10'
+                    ? 'SessionService'
+                    : 'MinecraftSessionService'
+            if (!compact.contains(sessionServiceType)) {
+                errors.add("${implementation}: ${key} leaf lacks required marker '${sessionServiceType}'")
+            }
+        }
         if (implementation == 'submission-1.21.11'
                 && compact.contains('renderBackground(graphics, mouseX, mouseY, partialTick)')) {
             errors.add('submission-1.21.11: Screen renders its native background twice')

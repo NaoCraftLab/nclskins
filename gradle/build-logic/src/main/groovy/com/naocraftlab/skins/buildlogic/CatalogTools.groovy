@@ -21,7 +21,7 @@ final class CatalogTools {
     static final Set<String> REQUIRED_TARGET_KEYS = [
         'id', 'path', 'minecraft', 'loader', 'java', 'development', 'gradleFamily',
         'sourceLayout', 'capabilities', 'metadata', 'artifact', 'epochProfile',
-        'loaderProfile', 'integrationProfile', 'buildProfile'
+        'loaderProfile', 'integrationProfile', 'buildProfile', 'releaseEligible'
     ] as Set
     static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility'] as Set
     static final Set<String> MOD_KEYS = [
@@ -105,6 +105,17 @@ final class CatalogTools {
             throw new IllegalArgumentException("unknown target: ${targetId}")
         }
         selected[0] as Map
+    }
+
+    static String minecraftCompileVersion(Map target) {
+        Object raw = (target.minecraft as Map).compileVersion
+        raw == null ? target.minecraft.version.toString() : raw.toString()
+    }
+
+    static List<Map> releaseTargets(Map catalog) {
+        (catalog.targets as List<Map>).findAll { Map target ->
+            target.releaseEligible == true
+        }
     }
 
     static Map withCapabilityProbe(Map catalog, Map target, String rawOverride) {
@@ -369,7 +380,7 @@ final class CatalogTools {
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
                 'optionalDependencies', 'publicationDependencies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 14) {
+        if (catalog.schemaVersion != 15) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -675,8 +686,28 @@ final class CatalogTools {
                 errors.add("${target.id}: target identity/path differs from loader and Minecraft version")
             }
             Map minecraftDeclaration = target.minecraft instanceof Map ? target.minecraft as Map : [:]
-            if ((minecraftDeclaration.keySet() as Set) != ['version', 'predicate', 'epoch'] as Set || minecraftDeclaration.values().any { !(it instanceof String) || it.isBlank() }) {
+            Set minecraftKeys = minecraftDeclaration.keySet() as Set
+            if (!(minecraftKeys in [
+                    ['version', 'predicate', 'epoch'] as Set,
+                    ['version', 'compileVersion', 'runtimeVersion', 'predicate', 'epoch'] as Set
+            ]) || minecraftDeclaration.values().any { !(it instanceof String) || it.isBlank() }) {
                 errors.add("${target.id}: invalid Minecraft declaration")
+            }
+            if (!(target.releaseEligible instanceof Boolean)) {
+                errors.add("${target.id}: releaseEligible must be a boolean")
+            }
+            String compileVersion = minecraftDeclaration.compileVersion?.toString()
+            if (compileVersion != null) {
+                String runtimeVersion = minecraftDeclaration.runtimeVersion?.toString()
+                if (compileVersion == minecraft ||
+                        !compileVersion.startsWith("${minecraft}-snapshot-") ||
+                        !(runtimeVersion ==~ /${java.util.regex.Pattern.quote(minecraft)}-alpha\.[0-9]+/) ||
+                        minecraftDeclaration.predicate != runtimeVersion) {
+                    errors.add("${target.id}: snapshot compileVersion must use an explicit exact runtimeVersion predicate")
+                }
+                if (target.releaseEligible != false) {
+                    errors.add("${target.id}: snapshot compileVersion target must not be release eligible")
+                }
             }
             Map loaderDeclaration = target.loader instanceof Map ? target.loader as Map : [:]
             if ((loaderDeclaration.keySet() as Set) != ['id', 'version', 'predicate', 'apiVersion', 'apiPredicate', 'modMenuVersion'] as Set || !(loader in LoaderBackend.ids()) || !(loaderDeclaration.version instanceof String) || loaderDeclaration.version.isBlank() || !(loaderDeclaration.predicate instanceof String) || loaderDeclaration.predicate.isBlank()) {
@@ -690,7 +721,7 @@ final class CatalogTools {
                 if (loaderDeclaration.apiVersion != null || loaderDeclaration.apiPredicate != null || loaderDeclaration.modMenuVersion != null) errors.add("${target.id}: non-Fabric target must not declare Fabric API or Mod Menu")
                 if (loaderDeclaration.predicate != "[${loaderDeclaration.version},)") errors.add("${target.id}: loader predicate must contain only the build-version lower bound")
             }
-            if (loader in LoaderBackend.ids() &&
+            if (compileVersion == null && loader in LoaderBackend.ids() &&
                     minecraftDeclaration.predicate != LoaderBackend.require(loader)
                     .minecraftPredicate(minecraftDeclaration.version.toString())) {
                 errors.add("${target.id}: Minecraft predicate must contain only the target-version lower bound")

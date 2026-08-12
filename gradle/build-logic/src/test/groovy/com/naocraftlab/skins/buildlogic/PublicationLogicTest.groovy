@@ -18,17 +18,23 @@ final class PublicationLogicTest {
 
     @Test
     void releaseSelectionUsesCatalogOwnershipAndIgnoresNonProductionPaths() {
+        List<String> releaseTargetIds = CatalogTools.releaseTargets(catalog)*.id
         assertEquals(['forge-1.20.1'], ReleaseSelection.selectFromPaths(
                 repository, catalog, ['targets/1.20.1/forge/build.gradle',
                                       'gradle/version.properties', 'CHANGELOG.md',
                                       'pub/description.md', 'pub/gallery/editor.png'], true).targetIds)
-        assertEquals(catalog.targets*.id, ReleaseSelection.selectFromPaths(
+        assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
                 repository, catalog, ['core/src/main/java/example/Shared.java'], true).targetIds)
-        assertEquals(catalog.targets*.id, ReleaseSelection.selectFromPaths(
+        assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
                 repository, catalog, ['gradle/version.properties', 'CHANGELOG.md',
                                       'pub/description.md'], true).targetIds)
-        assertEquals(catalog.targets*.id, ReleaseSelection.selectFromPaths(
+        assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
                 repository, catalog, [], false).targetIds)
+        assertThrows(IllegalStateException) {
+            ReleaseSelection.selectFromPaths(
+                    repository, catalog, ['targets/26.3/fabric/build.gradle'], true)
+        }
+        assertFalse(releaseTargetIds.contains('fabric-26.3'))
         assertThrows(IllegalArgumentException) {
             ReleaseSelection.selectFromPaths(repository, catalog, ['unknown-runtime/Main.java'], true)
         }
@@ -139,6 +145,8 @@ final class PublicationLogicTest {
         assertFalse(curseForgeSources.containsKey('gameVersionNames'))
         assertFalse(curseForgeSources.containsKey('relations'))
 
+        assertThrows(IllegalArgumentException) { desired('fabric-26.3') }
+
         assertEquals(['file', 'sources'], modrinth.file_parts)
         assertEquals([sources: 'sources-jar'], modrinth.file_types)
 
@@ -170,7 +178,8 @@ final class PublicationLogicTest {
         try {
             new File(directory, "nclskins-${release.version}-sources.jar".toString()).bytes = 'sources'.bytes
             AssembleReleaseTask.validateExistingAssetSet(directory, catalog, release.version)
-            new File(directory, 'unexpected.jar').bytes = 'x'.bytes
+            new File(directory,
+                    "nclskins-${release.version}+26.3-fabric.jar".toString()).bytes = 'x'.bytes
             assertThrows(IllegalStateException) {
                 AssembleReleaseTask.validateExistingAssetSet(directory, catalog, release.version)
             }

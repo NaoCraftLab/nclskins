@@ -286,7 +286,12 @@
     "extraction-26.2": {
       "capabilityKey": "gui",
       "sharedSuite": "view-host-contract",
-      "leafSource": "compat/capabilities/gui/extraction-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkins262ClientRuntime.java"
+      "leafSource": "compat/capabilities/gui/extraction-screen-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java"
+    },
+    "extraction-26.3": {
+      "capabilityKey": "gui",
+      "sharedSuite": "view-host-contract",
+      "leafSource": "compat/capabilities/gui/extraction-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java"
     },
     "resource-location-legacy": {
       "capabilityKey": "textures",
@@ -326,22 +331,27 @@
     "avatar-pip-26.1-fabric": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
     },
     "avatar-pip-26.1-neoforge": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
     },
     "avatar-pip-26.2-fabric": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
     },
     "avatar-pip-26.2-neoforge": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+    },
+    "avatar-pip-26.3-fabric": {
+      "capabilityKey": "preview",
+      "sharedSuite": "scoped-preview-contract",
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
     },
     "player-info-cache-1.20": {
       "capabilityKey": "appearance",
@@ -418,6 +428,11 @@
       "sharedSuite": "resource-pack-access-contract",
       "leafSource": "compat/capabilities/bundled-skin/mc-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262BundledSkinSource.java"
     },
+    "vanilla-pack-bundled-26.3": {
+      "capabilityKey": "bundledSkin",
+      "sharedSuite": "resource-pack-access-contract",
+      "leafSource": "compat/capabilities/bundled-skin/mc-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262BundledSkinSource.java"
+    },
     "resource-location-current-1.20": {
       "capabilityKey": "currentAppearance",
       "sharedSuite": "current-appearance-contract",
@@ -457,6 +472,11 @@
       "capabilityKey": "serverProfileVerification",
       "sharedSuite": "official-server-profile",
       "leafSource": "compat/capabilities/server/profile-verification-authlib-v9/src/main/java/com/naocraftlab/skins/compat/server/MinecraftOfficialTextureSignatureVerifier.java"
+    },
+    "profile-verification-authlib-v10": {
+      "capabilityKey": "serverProfileVerification",
+      "sharedSuite": "official-server-profile",
+      "leafSource": "compat/capabilities/server/profile-verification-authlib-v10/src/main/java/com/naocraftlab/skins/compat/server/MinecraftOfficialTextureSignatureVerifier.java"
     },
     "profile-verification-authlib-v7": {
       "capabilityKey": "serverProfileVerification",

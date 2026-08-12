@@ -87,7 +87,7 @@ loom {
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${targetSpec.minecraft.version}"
+    minecraft "com.mojang:minecraft:${nclskinsCatalogTools.minecraftCompileVersion(targetSpec)}"
     if (dependencyConfiguration == 'modImplementation') {
         if (parchmentVersion == null) {
             throw new GradleException(

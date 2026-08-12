@@ -21,11 +21,16 @@ final class ReleaseSelection {
             it != 'gradle/version.properties'
         } as List<String>
         Map result = CatalogTools.affectedResult(repository, catalog, productionPaths)
-        List<String> allTargets = (catalog.targets as List).collect { it.id.toString() }
+        List<String> allTargets = CatalogTools.releaseTargets(catalog).collect { it.id.toString() }
         if (!hasBaseTag || (result.targetIds as List).isEmpty()) {
             return [targetIds: allTargets, reasons: result.reasons]
         }
-        [targetIds: result.targetIds, reasons: result.reasons]
+        List<String> selected = (result.targetIds as List).findAll { it in allTargets }
+        if (selected.isEmpty()) {
+            throw new IllegalStateException(
+                    'Release diff affects only non-release-eligible targets')
+        }
+        [targetIds: selected, reasons: result.reasons]
     }
 
     static String nearestPreviousTag(File repository, String releaseTag) {
