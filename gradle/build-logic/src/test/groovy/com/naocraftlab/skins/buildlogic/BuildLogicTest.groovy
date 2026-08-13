@@ -1195,18 +1195,20 @@ final class BuildLogicTest {
         expectedNames.each { String version, List<String> names ->
             List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)
             assertEquals(names, entries*.name)
-            assertEquals('localhost:25565', entries.first().ip)
+            assertEquals('127.0.0.1:25565', entries.first().ip)
+            assertTrue(entries.every { it.ip.startsWith('127.0.0.1:') })
+            assertFalse(entries.any { it.ip.startsWith('localhost:') })
             assertEquals(entries.size(), entries*.name.toSet().size())
         }
-        assertEquals('localhost:26000', RunDirectorySupport.serverEntries(catalog, '1.20.1')
+        assertEquals('127.0.0.1:26000', RunDirectorySupport.serverEntries(catalog, '1.20.1')
                 .find { it.name == 'CraftBukkit' }.ip)
-        assertEquals('localhost:26017', RunDirectorySupport.serverEntries(catalog, '1.20.1')
+        assertEquals('127.0.0.1:26017', RunDirectorySupport.serverEntries(catalog, '1.20.1')
                 .find { it.name == 'Velocity Paper' }.ip)
-        assertEquals('localhost:26053', RunDirectorySupport.serverEntries(catalog, '26.2')
+        assertEquals('127.0.0.1:26053', RunDirectorySupport.serverEntries(catalog, '26.2')
                 .find { it.name == 'BungeeCord Paper' }.ip)
-        assertEquals('localhost:26010', RunDirectorySupport.serverEntries(catalog, '26.1.1')
+        assertEquals('127.0.0.1:26010', RunDirectorySupport.serverEntries(catalog, '26.1.1')
                 .find { it.name == 'Paper' }.ip)
-        assertEquals('localhost:25578', RunDirectorySupport.serverEntries(catalog, '26.1.2')
+        assertEquals('127.0.0.1:25578', RunDirectorySupport.serverEntries(catalog, '26.1.2')
                 .find { it.name == 'Fabric' }.ip)
     }
 

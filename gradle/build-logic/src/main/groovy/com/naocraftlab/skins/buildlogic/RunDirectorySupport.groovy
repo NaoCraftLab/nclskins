@@ -9,6 +9,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 final class RunDirectorySupport {
+    private static final String LOOPBACK_ADDRESS = '127.0.0.1'
     static final List<String> LOADER_ORDER = ['fabric', 'neoforge', 'forge'].asImmutable()
     static final List<String> KERNEL_ORDER = [
             'craftbukkit', 'spigot', 'paper', 'purpur', 'folia'
@@ -61,7 +62,7 @@ final class RunDirectorySupport {
     }
 
     static List<Map<String, String>> serverEntries(Map catalog, String version) {
-        List<Map<String, String>> result = [[name: 'LAN', ip: 'localhost:25565']]
+        List<Map<String, String>> result = [[name: 'LAN', ip: "${LOOPBACK_ADDRESS}:25565".toString()]]
         LOADER_ORDER.each { String loader ->
             Map runtime = catalog.targets.collectMany { Map target ->
                 CatalogTools.targetRuntimeSpecs(target)
@@ -71,13 +72,14 @@ final class RunDirectorySupport {
             } as Map
             if (runtime != null) result.add([
                     name: DISPLAY_NAMES[loader],
-                    ip: "localhost:${runtime.serverPort}".toString()
+                    ip: "${LOOPBACK_ADDRESS}:${runtime.serverPort}".toString()
             ])
         }
         KERNEL_ORDER.each { String kernel ->
             Map topology = selectTopology(catalog, version, 'standalone', kernel)
             if (topology != null) result.add([
-                    name: DISPLAY_NAMES[kernel], ip: "localhost:${topology.ports.server}".toString()
+                    name: DISPLAY_NAMES[kernel],
+                    ip: "${LOOPBACK_ADDRESS}:${topology.ports.server}".toString()
             ])
         }
         PROXY_ORDER.each { String proxy ->
@@ -85,7 +87,7 @@ final class RunDirectorySupport {
                 Map topology = selectTopology(catalog, version, proxy, kernel)
                 if (topology != null) result.add([
                         name: "${DISPLAY_NAMES[proxy]} ${DISPLAY_NAMES[kernel]}".toString(),
-                        ip: "localhost:${topology.ports.proxy}".toString()
+                        ip: "${LOOPBACK_ADDRESS}:${topology.ports.proxy}".toString()
                 ])
             }
         }
