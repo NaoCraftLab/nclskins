@@ -4,7 +4,7 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import com.mojang.authlib.properties.PropertyMap;
-import com.naocraftlab.skins.compat.server.mixin.GameProfilePropertiesAccessor;
+import com.naocraftlab.skins.compat.server.mixin.PlayerGameProfileAccessor;
 import com.naocraftlab.skins.server.SignedTexturesProperty;
 import java.util.Collection;
 import java.util.Map;
@@ -57,7 +57,9 @@ final class MinecraftProfilePropertyAccess implements ProfilePropertyAccess {
         officialTextures.ifPresent(textures -> replacement.put(
                 TEXTURES,
                 new Property(TEXTURES, textures.value(), textures.signature())));
-        ((GameProfilePropertiesAccessor) (Object) current)
-                .nclskins$setProperties(new PropertyMap(replacement.build()));
+        GameProfile replacementProfile = new GameProfile(
+                current.id(), current.name(), new PropertyMap(replacement.build()));
+        ((PlayerGameProfileAccessor) (Object) player)
+                .nclskins$setGameProfile(replacementProfile);
     }
 }

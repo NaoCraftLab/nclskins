@@ -11,10 +11,8 @@ final class GithubReleaseSupport {
             if (entries.size() > 1) {
                 actions.add([action: 'conflict', file: name, reason: 'multiple GitHub assets use the same name'])
             } else if (!desired.containsKey(name)) {
-                actions.add(manifest.mode == 'backfill'
-                        ? [action: 'conflict', file: name, remoteId: requiredId(entries.first()),
-                           reason: 'unknown existing backfill asset']
-                        : [action: 'delete', file: name, remoteId: requiredId(entries.first())])
+                actions.add([action: 'conflict', file: name, remoteId: requiredId(entries.first()),
+                             reason: 'unknown existing release asset'])
             }
         }
         desired.each { String name, Map asset ->
@@ -29,12 +27,9 @@ final class GithubReleaseSupport {
             if (actual == asset.sha256) {
                 actions.add([action: 'keep', file: name, kind: asset.kind,
                              remoteId: requiredId(remote)])
-            } else if (manifest.mode == 'backfill' && asset.kind == 'mod') {
-                actions.add([action: 'conflict', file: name, kind: asset.kind,
-                             remoteId: requiredId(remote), reason: 'existing backfill production JAR differs'])
             } else {
-                actions.add([action: 'replace', file: name, kind: asset.kind,
-                             remoteId: requiredId(remote)])
+                actions.add([action: 'conflict', file: name, kind: asset.kind,
+                             remoteId: requiredId(remote), reason: 'existing release asset differs'])
             }
         }
         [actions: actions, conflicts: actions.findAll { it.action == 'conflict' }]

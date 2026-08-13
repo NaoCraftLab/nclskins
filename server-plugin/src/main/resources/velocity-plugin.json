@@ -1,0 +1,9 @@
+{
+  "id": "nclskins-plugin",
+  "name": "${pluginName}",
+  "version": "${pluginVersion}",
+  "main": "com.naocraftlab.skins.server.plugin.velocity.NclSkinsVelocityPlugin",
+  "authors": ["NaoCraftLab"],
+  "description": "Proxy relay for NCL Skins realtime appearance refresh",
+  "url": "https://naocraftlab.com/skins"
+}

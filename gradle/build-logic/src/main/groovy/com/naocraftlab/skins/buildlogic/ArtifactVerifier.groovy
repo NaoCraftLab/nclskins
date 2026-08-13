@@ -244,6 +244,7 @@ final class ArtifactVerifier {
         }
         selectedResources.removeIf { it.endsWith('.pixel.json') }
         selectedResources.addAll(target.metadata.files as List)
+        selectedResources.add('nclskins-server-compatibility.json')
         selectedResources.addAll(['META-INF/MANIFEST.MF', 'META-INF/LICENSE', 'META-INF/NOTICE'])
         if (forgeRefmap != null) selectedResources.add(forgeRefmap.path.toString())
         Set<String> foreignResources = actualResources - selectedResources

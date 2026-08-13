@@ -25,6 +25,9 @@ abstract class CompatibilityRunTask extends DefaultTask {
     @Input
     abstract Property<String> getRunKind()
 
+    @Input
+    abstract Property<Boolean> getDryRun()
+
     @TaskAction
     void runCompatibility() {
         File root = repositoryDirectory.get().asFile
@@ -36,6 +39,7 @@ abstract class CompatibilityRunTask extends DefaultTask {
                 target,
                 CatalogTools.loadVersion(root),
                 minecraftVersion.get(),
-                runKind.get())
+                runKind.get(),
+                dryRun.get())
     }
 }

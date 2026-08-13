@@ -1,0 +1,6 @@
+{
+  "serverImplementationVersion": "${pluginVersion}",
+  "protocolIds": ["command-v1", "capabilities-v1", "proxy-refresh-v1"],
+  "matrixId": "${pluginMatrixId}",
+  "serverFingerprint": "${serverFingerprint}"
+}

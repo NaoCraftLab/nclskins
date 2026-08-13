@@ -21,14 +21,39 @@ def parchmentArtifactVersion =
 def yaclRuntimeConfiguration = configurations.findByName('localRuntime') != null
         ? 'localRuntime'
         : 'runtimeOnly'
+def yaclCoordinate = "dev.isxander:yet-another-config-lib:${yaclVersion}"
+def yaclRuntimeGraph = configurations.detachedConfiguration(
+        dependencies.create(yaclCoordinate))
+yaclRuntimeGraph.transitive = false
+def patchYaclRuntimeMetadataTaskType = nclskinsCatalogTools.getClassLoader().loadClass(
+        'com.naocraftlab.skins.buildlogic.PatchNeoForgeRuntimeMetadataTask')
+def patchedYaclRuntime = targetSpec.minecraft.version == '26.2'
+        ? tasks.register('patchYaclRuntimeMetadata',
+        patchYaclRuntimeMetadataTaskType) {
+            inputArtifact.set(layout.file(providers.provider {
+                yaclRuntimeGraph.singleFile
+            }))
+            outputArtifact.set(layout.buildDirectory.file(
+                    "nclskins-runtime/yacl-${yaclVersion}-icon-metadata.jar"))
+        }
+        : null
 def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(
         targetCatalog, targetSpec.loader.id)
 def licensedClientStorage = new File(
         System.getProperty('user.home'), ".devlogin/${licensedClientProfile}").absolutePath
+def neoForgeRepositoryRoot = project.layout.projectDirectory.dir('../../..').asFile
+def neoForgeClientRun = nclskinsRunLayout.modDirectory(neoForgeRepositoryRoot, targetSpec, 'Client')
+def neoForgeLicensedClientRun = nclskinsRunLayout.modDirectory(
+        neoForgeRepositoryRoot, targetSpec, 'LicensedClient')
+def neoForgeServerRun = nclskinsRunLayout.modDirectory(neoForgeRepositoryRoot, targetSpec, 'Server')
 
 dependencies {
-    compileOnly "dev.isxander:yet-another-config-lib:${yaclVersion}"
-    add(yaclRuntimeConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")
+    compileOnly yaclCoordinate
+    if (patchedYaclRuntime != null) {
+        add(yaclRuntimeConfiguration, files(patchedYaclRuntime))
+    } else {
+        add(yaclRuntimeConfiguration, yaclCoordinate)
+    }
 }
 
 def serverPort = providers.gradleProperty('nclskinsServerPort')
@@ -46,18 +71,21 @@ neoForge {
     runs {
         client {
             client()
+            gameDirectory = neoForgeClientRun
             nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
                 programArgument argument
             }
         }
         clientLicensed {
             client()
+            gameDirectory = neoForgeLicensedClientRun
             devLogin = true
             systemProperty 'devlogin.launch_profile', licensedClientProfile
             systemProperty 'devlogin.storage', licensedClientStorage
         }
         server {
             server()
+            gameDirectory = neoForgeServerRun
             programArgument '--nogui'
             if (serverPort.isPresent()) {
                 programArgument '--port'

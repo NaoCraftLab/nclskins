@@ -72,12 +72,25 @@ final class ReleaseMetadata {
                 metadata.notes.toString(),
                 StandardCharsets.UTF_8)
         Map publicMetadata = [
-                schemaVersion: 2,
+                schemaVersion: 3,
                 version      : metadata.version,
                 channel      : metadata.channel,
                 prerelease   : metadata.prerelease,
                 releaseNotes : 'release-notes.md'
         ]
+        if (metadata.serverPlugin instanceof Map) {
+            Map server = new LinkedHashMap(metadata.serverPlugin as Map)
+            String notes = server.remove('notes')
+            if (server.publish == true) {
+                File serverNotes = new File(versionDirectory, 'server-plugin-release-notes.md')
+                Files.writeString(
+                        serverNotes.toPath(), notes ?: '', StandardCharsets.UTF_8)
+                server.releaseNotes = serverNotes.name
+            } else {
+                server.releaseNotes = null
+            }
+            publicMetadata.serverPlugin = server
+        }
         Files.writeString(
                 new File(versionDirectory, 'release-metadata.json').toPath(),
                 JsonOutput.prettyPrint(JsonOutput.toJson(publicMetadata)) + '\n',

@@ -179,6 +179,12 @@ tasks.withType(Test).configureEach {
     }
 }
 
+tasks.matching { it.name in ['runClient', 'runClientLicensed', 'runServer'] }.configureEach {
+    if (it.hasProperty('standardInput')) {
+        standardInput = System.in
+    }
+}
+
 tasks.withType(Jar).configureEach {
     reproducibleFileOrder = true
     preserveFileTimestamps = false

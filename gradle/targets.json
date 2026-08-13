@@ -1,12 +1,26 @@
 {
-  "schemaVersion": 16,
+  "schemaVersion": 19,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
       "fabric": "nclskins-fabric",
       "forge": "nclskins-forge-family",
       "neoforge": "nclskins-forge-family"
-    }
+    },
+    "operators": [
+      {
+        "uuid": "00f36371-8f11-4183-8151-bb74d0f72394",
+        "name": "NaoCraftLab",
+        "level": 4,
+        "bypassesPlayerLimit": false
+      },
+      {
+        "uuid": "60151dd6-1ea5-4531-89e8-d95981953a9b",
+        "name": "NaoBurnLab",
+        "level": 4,
+        "bypassesPlayerLimit": false
+      }
+    ]
   },
   "mod": {
     "id": "nclskins",
@@ -336,12 +350,131 @@
       }
     }
   },
+  "serverPlugin": {
+    "name": "NCL Skins Plugin",
+    "slug": "nclskins-plugin",
+    "artifact": "nclskins-server-{pluginVersion}.jar",
+    "sourcesArtifact": "nclskins-server-{pluginVersion}-sources.jar",
+    "matrixId": "official-v1",
+    "javaRelease": 17,
+    "packaging": {
+      "buildJdk": 25,
+      "gson": "2.10",
+      "shadow": "9.6.1",
+      "paperApi": "1.20.1-R0.1-20230921.165944-178",
+      "velocityApi": "4.0.0",
+      "bungeeApi": "1.21-R0.4",
+      "gsonRelocation": "com.naocraftlab.skins.server.lib.gson"
+    },
+    "protocols": ["command-v1", "capabilities-v1", "proxy-refresh-v1"],
+    "compatibility": {
+      "1.20.1": ["craftbukkit", "spigot", "paper", "purpur", "folia"],
+      "1.21.1": ["paper", "purpur"],
+      "1.21.11": ["paper", "purpur", "folia"],
+      "26.1.1": ["paper"],
+      "26.1.2": ["paper", "purpur", "folia"],
+      "26.2": ["paper", "purpur", "folia"]
+    },
+    "excluded": ["waterfall", "sponge", "geyser", "26.3"],
+    "productionInputs": {
+      "server": [
+        "server-configuration/src/main",
+        "server-contract/src/main",
+        "server-runtime/src/main",
+        "server-vanilla-publication/src/main",
+        "server-plugin-common/src/main",
+        "server-plugin-bukkit/src/main",
+        "server-plugin-velocity/src/main",
+        "server-plugin-bungee/src/main",
+        "server-plugin/src/main",
+        "server-plugin-adapters"
+      ],
+      "shared": [
+        "compat/resources/canonical/src/main/resources/assets/nclskins/lang/en_us.json",
+        "LICENSE",
+        "NOTICE"
+      ],
+      "release-only": [
+        "gradle/targets.json",
+        "gradle/build-logic/src/main"
+      ],
+      "mod": [
+        "client-contract/src/main",
+        "client-runtime/src/main",
+        "core/src/main"
+      ],
+      "test-run": [
+        "gradle/server-plugin-characterization.json",
+        "server-plugin-runtime",
+        ".idea/runConfigurations"
+      ]
+    },
+    "platforms": {
+      "modrinth": {"projectId": null, "slug": "nclskins-plugin"},
+      "curseforge": {"projectId": null, "slug": "nclskins-plugin"}
+    }
+  },
+  "serverPluginRuntimes": [
+    {"id":"paper-1.20.1","platform":"paper","version":"1.20.1","build":"196","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/234a9b32098100c6fc116664d64e36ccdb58b5b649af0f80bcccb08b0255eaea/paper-1.20.1-196.jar","sha256":"234a9b32098100c6fc116664d64e36ccdb58b5b649af0f80bcccb08b0255eaea","javaRelease":21},
+    {"id":"paper-1.21.1","platform":"paper","version":"1.21.1","build":"133","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/39bd8c00b9e18de91dcabd3cc3dcfa5328685a53b7187a2f63280c22e2d287b9/paper-1.21.1-133.jar","sha256":"39bd8c00b9e18de91dcabd3cc3dcfa5328685a53b7187a2f63280c22e2d287b9","javaRelease":21},
+    {"id":"paper-1.21.11","platform":"paper","version":"1.21.11","build":"132","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar","sha256":"5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba","javaRelease":21},
+    {"id":"paper-26.1.1","platform":"paper","version":"26.1.1","build":"4","channel":"ALPHA","url":"https://fill-data.papermc.io/v1/objects/92f15b7f4eb26df1bb464356cd7c1b10d4858b89673edeb4de13b5423d4e9681/paper-26.1.1-4.jar","sha256":"92f15b7f4eb26df1bb464356cd7c1b10d4858b89673edeb4de13b5423d4e9681","javaRelease":25},
+    {"id":"paper-26.1.2","platform":"paper","version":"26.1.2","build":"74","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7/paper-26.1.2-74.jar","sha256":"1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7","javaRelease":25},
+    {"id":"paper-26.2","platform":"paper","version":"26.2","build":"112","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/bd3a58cf96874e5ea6643f5f6fe9b4f5bf9e34b795fa078c2f0ee8b98b2f907e/paper-26.2-112.jar","sha256":"bd3a58cf96874e5ea6643f5f6fe9b4f5bf9e34b795fa078c2f0ee8b98b2f907e","javaRelease":25},
+    {"id":"purpur-1.20.1","platform":"purpur","version":"1.20.1","build":"2062","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/1.20.1/2062/download","sha256":"238e64b33e5c7c9b87506cf1a23f239e6ce7fb71edd9d31837f229c94f4dfa1a","javaRelease":21},
+    {"id":"purpur-1.21.1","platform":"purpur","version":"1.21.1","build":"2329","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/1.21.1/2329/download","sha256":"30403cf54f981f16e1403f172645e82d3e4a59ad6c9f1d8e98df99edb1f8ae4c","javaRelease":21},
+    {"id":"purpur-1.21.11","platform":"purpur","version":"1.21.11","build":"2568","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/1.21.11/2568/download","sha256":"ee199511bf0a970ee8459fe3a351703fec37293f00bc2de1c5cb746c7e4acc34","javaRelease":21},
+    {"id":"purpur-26.1.2","platform":"purpur","version":"26.1.2","build":"2592","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/26.1.2/2592/download","sha256":"d88e3826a7f3ad3cb4b07be02fc732ba732bf1a1b113d96b605e9f8d1d119608","javaRelease":25},
+    {"id":"purpur-26.2","platform":"purpur","version":"26.2","build":"2620","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/26.2/2620/download","sha256":"21003a8bf180855bf8b3cdd7212d6b6ff76f06de5dcba84740c3ed433ba6c34d","javaRelease":25},
+    {"id":"folia-1.20.1","platform":"folia","version":"1.20.1","build":"17","channel":"ALPHA","url":"https://fill-data.papermc.io/v1/objects/c533d8886c60e1db17ebcf841b862731ab0a18d72377f37189930c3324eb7759/folia-1.20.1-17.jar","sha256":"c533d8886c60e1db17ebcf841b862731ab0a18d72377f37189930c3324eb7759","javaRelease":21},
+    {"id":"folia-1.21.11","platform":"folia","version":"1.21.11","build":"14","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39/folia-1.21.11-14.jar","sha256":"f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39","javaRelease":21},
+    {"id":"folia-26.1.2","platform":"folia","version":"26.1.2","build":"8","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/607afd1c3320008e1ffd2eaee6780ace4419d5f8c527b75e79f259be79ebf57b/folia-26.1.2-8.jar","sha256":"607afd1c3320008e1ffd2eaee6780ace4419d5f8c527b75e79f259be79ebf57b","javaRelease":25},
+    {"id":"folia-26.2","platform":"folia","version":"26.2","build":"4","channel":"BETA","url":"https://fill-data.papermc.io/v1/objects/19c81c308ba4de4b9fc0a61860c86281836d26ac046f696ea241766eea4b2468/folia-26.2-4.jar","sha256":"19c81c308ba4de4b9fc0a61860c86281836d26ac046f696ea241766eea4b2468","javaRelease":25},
+    {"id":"velocity-4.0.0-6","platform":"velocity","version":"4.0.0","build":"6","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/4540289f48c83e305fc2f2c495a84d1f4d0b7f360830251e169dd5a208740e70/velocity-4.0.0-6.jar","sha256":"4540289f48c83e305fc2f2c495a84d1f4d0b7f360830251e169dd5a208740e70","javaRelease":25},
+    {"id":"bungeecord-2086","platform":"bungeecord","version":"1.21","build":"2086","channel":"STABLE","url":"https://ci.md-5.net/job/BungeeCord/2086/artifact/bootstrap/target/BungeeCord.jar","sha256":"81eafeb17629f3c056912b5ecb4c9a89b8d8a399ebfeaf2d1a17ae4e07fc34c4","javaRelease":17},
+    {"id":"bungeeguard-1.4.0","platform":"bungeeguard","version":"1.4.0","build":"1.4.0","channel":"STABLE","url":"https://github.com/lucko/BungeeGuard/releases/download/v1.4.0/BungeeGuard.jar","sha256":"f2f3a3df266b0d3cc241f67bf87d6cdb6f12ecd0d556bd8e07a5e58dcf7e1d47","javaRelease":17},
+    {"id":"protocollib-5.4.0","platform":"protocollib","version":"5.4.0","build":"5.4.0","channel":"STABLE","url":"https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar","sha256":"ee2e7ab9b5386f2d103081c4d108e61b1035df2ca692b53d6e2409fb1f5caccf","javaRelease":17},
+    {"id":"buildtools-200","platform":"buildtools","version":"1.20.1","build":"200","channel":"STABLE","url":"https://hub.spigotmc.org/jenkins/job/BuildTools/200/artifact/target/BuildTools.jar","sha256":"b61fa90158f594ee95bea1a27399eb64d439b4c8ae9345bd4476a02ce49b06ff","javaRelease":17}
+  ],
+  "serverPluginTopologies": [
+    {"id":"1.20.1-craftbukkit-standalone","minecraft":"1.20.1","kernel":"craftbukkit","mode":"standalone","ports":{"server":26000},"dependencies":[]},
+    {"id":"1.20.1-spigot-standalone","minecraft":"1.20.1","kernel":"spigot","mode":"standalone","ports":{"server":26001},"dependencies":[]},
+    {"id":"1.20.1-paper-standalone","minecraft":"1.20.1","kernel":"paper","mode":"standalone","ports":{"server":26002},"dependencies":[]},
+    {"id":"1.20.1-purpur-standalone","minecraft":"1.20.1","kernel":"purpur","mode":"standalone","ports":{"server":26003},"dependencies":[]},
+    {"id":"1.20.1-folia-standalone","minecraft":"1.20.1","kernel":"folia","mode":"standalone","ports":{"server":26004},"dependencies":[]},
+    {"id":"1.21.1-paper-standalone","minecraft":"1.21.1","kernel":"paper","mode":"standalone","ports":{"server":26005},"dependencies":[]},
+    {"id":"1.21.1-purpur-standalone","minecraft":"1.21.1","kernel":"purpur","mode":"standalone","ports":{"server":26006},"dependencies":[]},
+    {"id":"1.21.11-paper-standalone","minecraft":"1.21.11","kernel":"paper","mode":"standalone","ports":{"server":26007},"dependencies":[]},
+    {"id":"1.21.11-purpur-standalone","minecraft":"1.21.11","kernel":"purpur","mode":"standalone","ports":{"server":26008},"dependencies":[]},
+    {"id":"1.21.11-folia-standalone","minecraft":"1.21.11","kernel":"folia","mode":"standalone","ports":{"server":26009},"dependencies":[]},
+    {"id":"26.1.1-paper-standalone","minecraft":"26.1.1","kernel":"paper","mode":"standalone","ports":{"server":26010},"dependencies":[]},
+    {"id":"26.1.2-paper-standalone","minecraft":"26.1.2","kernel":"paper","mode":"standalone","ports":{"server":26011},"dependencies":[]},
+    {"id":"26.1.2-purpur-standalone","minecraft":"26.1.2","kernel":"purpur","mode":"standalone","ports":{"server":26012},"dependencies":[]},
+    {"id":"26.1.2-folia-standalone","minecraft":"26.1.2","kernel":"folia","mode":"standalone","ports":{"server":26013},"dependencies":[]},
+    {"id":"26.2-paper-standalone","minecraft":"26.2","kernel":"paper","mode":"standalone","ports":{"server":26014},"dependencies":[]},
+    {"id":"26.2-purpur-standalone","minecraft":"26.2","kernel":"purpur","mode":"standalone","ports":{"server":26015},"dependencies":[]},
+    {"id":"26.2-folia-standalone","minecraft":"26.2","kernel":"folia","mode":"standalone","ports":{"server":26016},"dependencies":[]},
+    {"id":"1.20.1-paper-velocity","minecraft":"1.20.1","kernel":"paper","mode":"velocity","ports":{"proxy":26017,"lobby":26018,"target":26019},"dependencies":["velocity"]},
+    {"id":"1.21.1-paper-velocity","minecraft":"1.21.1","kernel":"paper","mode":"velocity","ports":{"proxy":26020,"lobby":26021,"target":26022},"dependencies":["velocity"]},
+    {"id":"1.21.11-paper-velocity","minecraft":"1.21.11","kernel":"paper","mode":"velocity","ports":{"proxy":26023,"lobby":26024,"target":26025},"dependencies":["velocity"]},
+    {"id":"26.1.1-paper-velocity","minecraft":"26.1.1","kernel":"paper","mode":"velocity","ports":{"proxy":26026,"lobby":26027,"target":26028},"dependencies":["velocity"]},
+    {"id":"26.1.2-paper-velocity","minecraft":"26.1.2","kernel":"paper","mode":"velocity","ports":{"proxy":26029,"lobby":26030,"target":26031},"dependencies":["velocity"]},
+    {"id":"26.2-paper-velocity","minecraft":"26.2","kernel":"paper","mode":"velocity","ports":{"proxy":26032,"lobby":26033,"target":26034},"dependencies":["velocity"]},
+    {"id":"1.20.1-spigot-bungeecord","minecraft":"1.20.1","kernel":"spigot","mode":"bungeecord","ports":{"proxy":26035,"lobby":26036,"target":26037},"dependencies":["bungeecord","bungeeguard","protocollib"]},
+    {"id":"1.20.1-paper-bungeecord","minecraft":"1.20.1","kernel":"paper","mode":"bungeecord","ports":{"proxy":26038,"lobby":26039,"target":26040},"dependencies":["bungeecord","bungeeguard"]},
+    {"id":"1.21.1-paper-bungeecord","minecraft":"1.21.1","kernel":"paper","mode":"bungeecord","ports":{"proxy":26041,"lobby":26042,"target":26043},"dependencies":["bungeecord","bungeeguard"]},
+    {"id":"1.21.11-paper-bungeecord","minecraft":"1.21.11","kernel":"paper","mode":"bungeecord","ports":{"proxy":26044,"lobby":26045,"target":26046},"dependencies":["bungeecord","bungeeguard"]},
+    {"id":"26.1.1-paper-bungeecord","minecraft":"26.1.1","kernel":"paper","mode":"bungeecord","ports":{"proxy":26047,"lobby":26048,"target":26049},"dependencies":["bungeecord","bungeeguard"]},
+    {"id":"26.1.2-paper-bungeecord","minecraft":"26.1.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26050,"lobby":26051,"target":26052},"dependencies":["bungeecord","bungeeguard"]},
+    {"id":"26.2-paper-bungeecord","minecraft":"26.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26053,"lobby":26054,"target":26055},"dependencies":["bungeecord","bungeeguard"]}
+  ],
   "baseBundles": ["portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {
     "portable-common": {
       "java": [
         "client-contract/src/main/java",
         "core/src/main/java",
+        "server-configuration/src/main/java",
         "client-runtime/src/main/java",
         "server-contract/src/main/java",
         "server-runtime/src/main/java",
@@ -1396,6 +1529,11 @@
           "26.1": "0.19.3",
           "26.1.1": "0.19.3",
           "26.1.2": "0.19.3"
+        },
+        "serverPorts": {
+          "26.1": 25569,
+          "26.1.1": 25576,
+          "26.1.2": 25578
         }
       }
     },
@@ -1487,6 +1625,11 @@
           "26.1": "26.1.0.19-beta",
           "26.1.1": "26.1.1.15-beta",
           "26.1.2": "26.1.2.94"
+        },
+        "serverPorts": {
+          "26.1": 25570,
+          "26.1.1": 25577,
+          "26.1.2": 25579
         }
       }
     },

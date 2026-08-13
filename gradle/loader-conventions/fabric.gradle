@@ -66,22 +66,32 @@ def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(
         targetCatalog, targetSpec.loader.id)
 def licensedClientStorage = new File(
         System.getProperty('user.home'), ".devlogin/${licensedClientProfile}").absolutePath
+def fabricRepositoryRoot = project.layout.projectDirectory.dir('../../..').asFile
+def fabricClientRun = nclskinsRunLayout.modDirectory(fabricRepositoryRoot, targetSpec, 'Client')
+def fabricLicensedClientRun = nclskinsRunLayout.modDirectory(
+        fabricRepositoryRoot, targetSpec, 'LicensedClient')
+def fabricServerRun = nclskinsRunLayout.modDirectory(fabricRepositoryRoot, targetSpec, 'Server')
 
 loom {
     accessWidenerPath = nclskinsAccessFile
     runs {
         client {
+            runDir fabricClientRun.absolutePath
             nclskinsCatalogTools.clientArguments(targetCatalog).each { argument ->
                 programArg argument
             }
         }
         clientLicensed {
             client()
+            runDir fabricLicensedClientRun.absolutePath
             mainClass.set('net.covers1624.devlogin.DevLogin')
             property 'devlogin.launch_target',
                     'net.fabricmc.loader.impl.launch.knot.KnotClient'
             property 'devlogin.launch_profile', licensedClientProfile
             property 'devlogin.storage', licensedClientStorage
+        }
+        server {
+            runDir fabricServerRun.absolutePath
         }
     }
 }

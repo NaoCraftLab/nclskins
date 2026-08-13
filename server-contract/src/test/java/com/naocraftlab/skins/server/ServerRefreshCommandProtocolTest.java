@@ -19,8 +19,15 @@ final class ServerRefreshCommandProtocolTest {
         assertEquals(
                 "nclskin _refresh_official_profile_v1",
                 ServerRefreshCommandProtocol.COMMAND);
+        assertEquals(
+                "nclskinsplugin:nclskin",
+                ServerRefreshCommandProtocol.BUKKIT_ROOT_COMMAND);
+        assertEquals(
+                "nclskinsplugin:nclskin _refresh_official_profile_v1",
+                ServerRefreshCommandProtocol.BUKKIT_COMMAND);
 
-        String commandPath = ServerRefreshCommandProtocol.COMMAND.toLowerCase(Locale.ROOT);
+        String commandPath = (ServerRefreshCommandProtocol.COMMAND + " "
+                + ServerRefreshCommandProtocol.BUKKIT_COMMAND).toLowerCase(Locale.ROOT);
         assertFalse(commandPath.contains("account"));
         assertFalse(commandPath.contains("profile_id"));
         assertFalse(commandPath.contains("uuid"));

@@ -44,23 +44,19 @@ abstract class PublishPlatformsTask extends DefaultTask {
             String curseForgeApiKey,
             String curseForgeUploadToken) {
 
-        Map<String, List<Map>> remote = [
-                modrinth : fetchModrinth(manifest, modrinthToken),
-                curseforge: fetchCurseForge(manifest, curseForgeApiKey)
-        ]
-        Map plan = classifyAll(manifest.targets as List<Map>, remote)
+        List<Map> targets = publicationTargets(manifest)
+        Map<String, Map<String, List<Map>>> remote = fetchAll(
+                manifest, targets, modrinthToken, curseForgeApiKey)
+        Map plan = classifyPerTarget(targets, remote)
         requireNoConflicts(plan)
         appendSummary('Publication preflight', plan)
 
-        remote = [
-                modrinth : fetchModrinth(manifest, modrinthToken),
-                curseforge: fetchCurseForge(manifest, curseForgeApiKey)
-        ]
-        Map recheck = classifyAll(manifest.targets as List<Map>, remote)
+        remote = fetchAll(manifest, targets, modrinthToken, curseForgeApiKey)
+        Map recheck = classifyPerTarget(targets, remote)
         requireNoConflicts(recheck)
         List<String> disappeared = []
         ['modrinth', 'curseforge'].each { String platform ->
-            (manifest.targets as List<Map>).each { Map target ->
+            targets.each { Map target ->
                 if (plan[platform][target.id].action == 'skip' &&
                         recheck[platform][target.id].action != 'skip') {
                     disappeared.add("${platform} ${target.name}")
@@ -73,7 +69,7 @@ abstract class PublishPlatformsTask extends DefaultTask {
 
         List<List<String>> results = []
         ['modrinth', 'curseforge'].each { String platform ->
-            (manifest.targets as List<Map>).each { Map target ->
+            targets.each { Map target ->
                 Map state = recheck[platform][target.id] as Map
                 if (state.action == 'skip') {
                     results.add([target.name.toString(), platform, 'skipped', state.remoteId?.toString() ?: ''])
@@ -83,22 +79,68 @@ abstract class PublishPlatformsTask extends DefaultTask {
                 File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
                 String remoteId
                 String result
+                Map targetManifest = manifestForTarget(manifest, target)
                 if (platform == 'modrinth') {
-                    remoteId = uploadModrinth(manifest, target, artifact, sources, modrinthToken)
+                    remoteId = uploadModrinth(targetManifest, target, artifact, sources, modrinthToken)
                     result = 'uploaded'
                 } else if (state.action == 'upload-sources') {
                     remoteId = uploadCurseForgeSources(
-                            manifest, target, sources, state.remoteId.toString(), curseForgeUploadToken)
+                            targetManifest, target, sources, state.remoteId.toString(), curseForgeUploadToken)
                     result = 'sources uploaded'
                 } else {
                     remoteId = uploadCurseForge(
-                            manifest, target, artifact, sources, curseForgeUploadToken)
+                            targetManifest, target, artifact, sources, curseForgeUploadToken)
                     result = 'uploaded'
                 }
                 results.add([target.name.toString(), platform, result, remoteId])
             }
         }
         appendResultSummary(results)
+    }
+
+    static List<Map> publicationTargets(Map manifest) {
+        List<Map> targets = new ArrayList<>(manifest.targets as List<Map>)
+        if (manifest.serverPlugin instanceof Map && manifest.serverPlugin.publish == true) {
+            targets.add(manifest.serverPlugin.publication as Map)
+        }
+        targets
+    }
+
+    Map<String, Map<String, List<Map>>> fetchAll(
+            Map manifest, List<Map> targets, String modrinthToken, String curseForgeApiKey) {
+        Map<String, Map<String, List<Map>>> result = [modrinth: [:], curseforge: [:]]
+        ['modrinth', 'curseforge'].each { String platform ->
+            Map<String, List<Map>> byProject = [:]
+            targets.each { Map target ->
+                Map view = manifestForTarget(manifest, target)
+                String projectId = view.platforms[platform].projectId.toString()
+                if (!byProject.containsKey(projectId)) {
+                    byProject[projectId] = platform == 'modrinth'
+                            ? fetchModrinth(view, modrinthToken)
+                            : fetchCurseForge(view, curseForgeApiKey)
+                }
+                result[platform][target.id.toString()] = byProject[projectId]
+            }
+        }
+        result
+    }
+
+    Map classifyPerTarget(List<Map> targets, Map<String, Map<String, List<Map>>> remote) {
+        Map result = [modrinth: [:], curseforge: [:]]
+        result.each { String platform, Map states ->
+            targets.each { Map target ->
+                states[target.id] = PublicationSupport.classify(
+                        platform, target, remote[platform][target.id.toString()])
+            }
+        }
+        result
+    }
+
+    static Map manifestForTarget(Map manifest, Map target) {
+        if (!(target.platforms instanceof Map)) return manifest
+        Map notes = new LinkedHashMap(manifest.releaseNotes as Map)
+        if (target.releaseNotes instanceof String) notes.text = target.releaseNotes
+        new LinkedHashMap(manifest) + [platforms: target.platforms, releaseNotes: notes]
     }
 
     Map classifyAll(List<Map> targets, Map<String, List<Map>> remote) {

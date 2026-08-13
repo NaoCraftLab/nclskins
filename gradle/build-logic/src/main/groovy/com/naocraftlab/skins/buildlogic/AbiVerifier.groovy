@@ -104,12 +104,14 @@ final class AbiVerifier {
         (entry.mixinAnchors ?: []).findAll { it.owner == declaredName }.each { Map anchor ->
             String kind = anchor.kind.toString()
             if (kind == 'interface-injection') {
-                List<String> expectedInterfaces = (anchor.targetInterfaces as List).collect { it.toString() }.sort()
-                if ((surface.interfaces as List).sort() != expectedInterfaces) throw new IllegalStateException("${implementation}/${declaredName}: direct target interfaces differ from interface-injection declaration")
+                List<String> expectedInterfaces = anchor.containsKey('targetInterfaces')
+                        ? (anchor.targetInterfaces as List).collect { it.toString() }.sort()
+                        : null
+                if (expectedInterfaces != null && (surface.interfaces as List).sort() != expectedInterfaces) throw new IllegalStateException("${implementation}/${declaredName}: direct target interfaces differ from interface-injection declaration")
                 List<String> injected = (anchor.members as List).collect { "${it.name}${it.descriptor}" }.sort()
                 List conflicts = (surface.members as List).findAll { it.kind == 'method' && injected.contains("${it.name}${it.descriptor}") }
                 if (!conflicts.isEmpty()) throw new IllegalStateException("${implementation}/${declaredName}: target already declares interface-injection members")
-                canonical.add(['anchor', 'interface-injection', declaredName, anchor.interface, 'target-interfaces=' + expectedInterfaces.join(','), 'members=' + injected.join(',')].join('|'))
+                canonical.add(['anchor', 'interface-injection', declaredName, anchor.interface, 'target-interfaces=' + (expectedInterfaces == null ? '*' : expectedInterfaces.join(',')), 'members=' + injected.join(',')].join('|'))
                 return
             }
             String method = anchor.method.toString()

@@ -22,4 +22,27 @@ final class ServerAppearanceRefreshCommandPathTest {
         assertFalse(ServerAppearanceRefreshCommandPath.isExactExecutableLeaf(
                 true, true, true, true, true, true));
     }
+
+    @Test
+    void acceptsOnlyTheExactNamespacedBukkitGreedyArgumentShape() {
+        assertTrue(ServerAppearanceRefreshCommandPath.isExactBukkitWrapper(
+                true, true, true, 1,
+                true, true, true, true, false));
+
+        assertFalse(ServerAppearanceRefreshCommandPath.isExactBukkitWrapper(
+                false, false, false, 0,
+                false, false, false, false, false));
+        assertFalse(ServerAppearanceRefreshCommandPath.isExactBukkitWrapper(
+                true, true, true, 2,
+                true, true, true, true, false));
+        assertFalse(ServerAppearanceRefreshCommandPath.isExactBukkitWrapper(
+                true, true, true, 1,
+                true, false, true, true, false));
+        assertFalse(ServerAppearanceRefreshCommandPath.isExactBukkitWrapper(
+                true, true, true, 1,
+                true, true, true, false, false));
+        assertFalse(ServerAppearanceRefreshCommandPath.isExactBukkitWrapper(
+                true, true, true, 1,
+                true, true, true, true, true));
+    }
 }

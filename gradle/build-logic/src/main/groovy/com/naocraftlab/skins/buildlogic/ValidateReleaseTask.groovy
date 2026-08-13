@@ -1,20 +1,30 @@
 package com.naocraftlab.skins.buildlogic
 
+import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.*
 
 abstract class ValidateReleaseTask extends DefaultTask {
+    @Internal
+    abstract DirectoryProperty getRepositoryDirectory()
+
+    @InputFile
+    abstract RegularFileProperty getCatalogFile()
+
     @InputFile
     abstract RegularFileProperty getVersionFile()
 
     @InputFile
     abstract RegularFileProperty getChangelogFile()
+
+    @InputFile
+    abstract RegularFileProperty getServerChangelogFile()
+
+    @InputFile
+    abstract RegularFileProperty getServerPluginStateFile()
 
     @Input
     abstract Property<String> getReleaseTag()
@@ -28,6 +38,23 @@ abstract class ValidateReleaseTask extends DefaultTask {
                 versionFile.get().asFile,
                 changelogFile.get().asFile,
                 releaseTag.get())
+        Map state = new JsonSlurper().parse(serverPluginStateFile.get().asFile) as Map
+        if (state.sealed != true || state.currentVersion != metadata.version) {
+            throw new IllegalArgumentException('Server plugin release state is not sealed for this release')
+        }
+        Map catalog = CatalogTools.loadJson(catalogFile.get().asFile)
+        CatalogTools.validate(repositoryDirectory.get().asFile, catalog)
+        if (state.publish == true) {
+            ['modrinth', 'curseforge'].each { String platform ->
+                if (catalog.serverPlugin.platforms[platform].projectId == null) {
+                    throw new IllegalArgumentException(
+                            "NCL Skins Plugin ${platform} projectId is required for publication")
+                }
+            }
+        }
+        String serverNotes = ServerPluginChangelog.validate(
+                serverChangelogFile.get().asFile, state)
+        metadata.serverPlugin = state + [notes: serverNotes]
         ReleaseMetadata.write(releaseRoot.get().asFile, metadata)
         logger.lifecycle(
                 "Release ${metadata.version} is valid (${metadata.prerelease ? 'prerelease' : 'stable'})")

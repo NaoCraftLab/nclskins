@@ -41,6 +41,11 @@ abstract class TargetRunTask extends DefaultTask {
         if (!(kind in IdeaRunConfigurations.RUN_KINDS)) {
             throw new IllegalStateException("Unsupported target run kind ${kind}")
         }
+        if (!dryRun.get()) {
+            if (kind == 'Server') RunDirectorySupport.prepareTargetServer(
+                    root, catalog, target, target.minecraft.version.toString())
+            else RunDirectorySupport.prepareClients(root, catalog, target.minecraft.version.toString())
+        }
         String javaHome = TargetRuntime.resolveJavaHome(target.java.buildJdk as int)
         List<String> command = command(root, catalog, target, kind, dryRun.get())
         String path = new File(javaHome, 'bin').absolutePath + File.pathSeparator +

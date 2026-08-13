@@ -21,13 +21,19 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(16, catalog.schemaVersion)
+        assertEquals(19, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
                 forge   : 'nclskins-forge-family',
                 neoforge: 'nclskins-forge-family'
         ], catalog.development.licensedProfiles)
+        assertEquals([
+                [uuid: '00f36371-8f11-4183-8151-bb74d0f72394', name: 'NaoCraftLab',
+                 level: 4, bypassesPlayerLimit: false],
+                [uuid: '60151dd6-1ea5-4531-89e8-d95981953a9b', name: 'NaoBurnLab',
+                 level: 4, bypassesPlayerLimit: false]
+        ], CatalogTools.developmentOperators(catalog))
         assertEquals('0.1.0.5', catalog.plugins.devLogin)
         assertEquals([
                 youtube    : 'https://www.youtube.com/@NaoCraftLab',
@@ -42,6 +48,36 @@ final class BuildLogicTest {
                 catalog.targets.collect { it.path })
         assertEquals(11, catalog.targets.size())
         assertEquals(10, CatalogTools.releaseTargets(catalog).size())
+        assertEquals('NCL Skins Plugin', catalog.serverPlugin.name)
+        assertEquals('nclskins-plugin', catalog.serverPlugin.slug)
+        assertEquals(25, catalog.serverPlugin.packaging.buildJdk)
+        assertEquals(17, catalog.serverPlugin.javaRelease)
+        assertNotEquals(catalog.mod.platforms.modrinth.projectId,
+                catalog.serverPlugin.platforms.modrinth.projectId)
+        assertNotEquals(catalog.mod.platforms.curseforge.projectId,
+                catalog.serverPlugin.platforms.curseforge.projectId)
+        assertEquals(20, catalog.serverPluginRuntimes.size())
+        assertEquals(
+                'https://fill-data.papermc.io/v1/objects/' +
+                        '4540289f48c83e305fc2f2c495a84d1f4d0b7f360830251e169dd5a208740e70/' +
+                        'velocity-4.0.0-6.jar',
+                catalog.serverPluginRuntimes.find { it.id == 'velocity-4.0.0-6' }.url)
+        assertEquals(
+                'https://github.com/lucko/BungeeGuard/releases/download/v1.4.0/BungeeGuard.jar',
+                catalog.serverPluginRuntimes.find { it.id == 'bungeeguard-1.4.0' }.url)
+        assertEquals(30, catalog.serverPluginTopologies.size())
+        assertEquals(56, catalog.serverPluginTopologies.collectMany {
+            (it.ports as Map).values()
+        }.toSet().size())
+        Map characterization = CatalogTools.loadJson(
+                new File(repository, 'gradle/server-plugin-characterization.json'))
+        assertEquals(1, characterization.schemaVersion)
+        assertEquals(catalog.targets.collect { it.id } as Set,
+                (characterization.productionJarSha256 as Map).keySet() as Set)
+        assertEquals(catalog.targets.collect { it.id } as Set,
+                (characterization.sortedEntryNamesSha256 as Map).keySet() as Set)
+        assertTrue((characterization.invariants as List)
+                .contains('actor-receives-no-respawn-or-self-refresh'))
         Map experimental = catalog.targets.find { it.id == 'fabric-26.3' } as Map
         assertFalse(experimental.releaseEligible as boolean)
         assertEquals('26.3-snapshot-8', CatalogTools.minecraftCompileVersion(experimental))
@@ -295,6 +331,19 @@ final class BuildLogicTest {
         Map unsafeProfile = cloneMap(catalog)
         unsafeProfile.development.licensedProfiles.fabric = '../tokens'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, unsafeProfile) }
+
+        Map duplicateOperator = cloneMap(catalog)
+        duplicateOperator.development.operators[1].uuid =
+                duplicateOperator.development.operators[0].uuid
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.validate(repository, duplicateOperator)
+        }
+
+        Map unsafeOperator = cloneMap(catalog)
+        unsafeOperator.development.operators[0].name = '../NaoCraftLab'
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.validate(repository, unsafeOperator)
+        }
     }
 
     @Test
@@ -304,6 +353,9 @@ final class BuildLogicTest {
                 forge   : new File(repository, 'gradle/loader-conventions/forge.gradle').text,
                 neoforge: new File(repository, 'gradle/loader-conventions/neoforge.gradle').text
         ]
+        assertTrue(loaderScripts.forge.contains(
+                "property 'devlogin.launch_target', 'cpw.mods.bootstraplauncher.BootstrapLauncher'"))
+        assertFalse(loaderScripts.forge.contains('net.minecraftforge.bootstrap.ForgeBootstrap'))
         loaderScripts.each { String loader, String script ->
             String helperCall = 'nclskinsCatalogTools.clientArguments(targetCatalog)'
             String licensedHelperCall = 'nclskinsCatalogTools.licensedClientProfile('
@@ -334,7 +386,7 @@ final class BuildLogicTest {
         }
         assertTrue(loaderScripts.fabric.contains('net.fabricmc.loader.impl.launch.knot.KnotClient'))
         assertTrue(loaderScripts.fabric.contains('net.covers1624.devlogin.DevLogin'))
-        assertTrue(loaderScripts.forge.contains('net.minecraftforge.bootstrap.ForgeBootstrap'))
+        assertTrue(loaderScripts.forge.contains('cpw.mods.bootstraplauncher.BootstrapLauncher'))
         assertTrue(loaderScripts.forge.contains('net.covers1624.devlogin.DevLogin'))
         assertTrue(loaderScripts.neoforge.contains('devLogin = true'))
 
@@ -352,7 +404,18 @@ final class BuildLogicTest {
             String serverRun = script.substring(serverStart)
             assertFalse(serverRun.contains('--uuid'), target.id.toString())
             assertFalse(serverRun.contains('00000000-0000-0000-0000-000000000001'), target.id.toString())
-            assertFalse(script.contains('DevLogin'), target.id.toString())
+            assertTrue(script.contains(target.loader.id == 'fabric'
+                    ? 'DevLogin' : 'devLogin = true'), target.id.toString())
+            String licensedRun = script.substring(script.indexOf('clientLicensed {'), serverStart)
+            assertFalse(licensedRun.contains('--uuid'), target.id.toString())
+            assertFalse(licensedRun.contains('00000000-0000-0000-0000-000000000001'),
+                    target.id.toString())
+            assertFalse(script.contains('nclskins-compatibility-server-stop'),
+                    target.id.toString())
+            assertFalse(script.contains('new PipedInputStream()'), target.id.toString())
+            assertTrue(script.contains("tasks.named('runServer', JavaExec)"),
+                    target.id.toString())
+            assertTrue(script.contains('standardInput = System.in'), target.id.toString())
         }
         assertTrue(ArtifactVerifier.FORBIDDEN_DEV_RUNTIME_PREFIXES.contains(
                 'net/covers1624/devlogin/'))
@@ -367,7 +430,7 @@ final class BuildLogicTest {
         Map family = catalog.targets.find { it.id == 'fabric-26.1' } as Map
         assertEquals(['26.1', '26.1.1', '26.1.2'], family.compatibility.minecraftVersions)
         assertEquals(
-                [minecraftVersion: '26.1.2', loaderVersion: '0.19.3'],
+                [minecraftVersion: '26.1.2', loaderVersion: '0.19.3', serverPort: 25578],
                 CatalogTools.compatibilityRuntime(family, '26.1.2'))
         assertThrows(IllegalArgumentException) {
             CatalogTools.compatibilityRuntime(family, '26.1.3')
@@ -708,8 +771,16 @@ final class BuildLogicTest {
         String version = CatalogTools.loadVersion(repository)
         catalog.targets.each { Map target ->
             Map<String, String> resources = MetadataRenderer.render(catalog, target, version)
-            assertEquals(target.metadata.files as Set, resources.keySet() as Set, target.id.toString())
+            assertEquals(((target.metadata.files as List) +
+                    'nclskins-server-compatibility.json') as Set,
+                    resources.keySet() as Set, target.id.toString())
             assertTrue(resources.values().any { it.contains('GPL-3.0-only') }, target.id.toString())
+            Map compatibility = new JsonSlurper().parseText(
+                    resources['nclskins-server-compatibility.json']) as Map
+            assertEquals(version, compatibility.requiredServerPluginVersion)
+            assertEquals(['command-v1', 'capabilities-v1', 'proxy-refresh-v1'],
+                    compatibility.protocolIds)
+            assertEquals('official-v1', compatibility.matrixId)
             Map bundledPack = new JsonSlurper().parseText(
                     resources['resourcepacks/mojang_collections/pack.mcmeta']) as Map
             if (target.metadata.packFormat instanceof List) {
@@ -790,34 +861,198 @@ final class BuildLogicTest {
     void ideaRunsUseOnlyRootGradleTasks() {
         assertEquals(['Client', 'LicensedClient', 'Server'], IdeaRunConfigurations.RUN_KINDS)
         Set<String> taskNames = [] as Set
-        catalog.targets.each { Map target ->
+        IdeaRunConfigurations.orderedModRuntimes(catalog).each { Map runtime ->
+            Map target = runtime.target as Map
+            String minecraftVersion = runtime.minecraftVersion.toString()
             assertEquals([
-                    "${target.minecraft.version}:${target.loader.id}:runClient".toString(),
-                    "${target.minecraft.version}:${target.loader.id}:runLicensedClient".toString(),
-                    "${target.minecraft.version}:${target.loader.id}:runServer".toString()
+                    "${minecraftVersion}:${target.loader.id}:runClient".toString(),
+                    "${minecraftVersion}:${target.loader.id}:runClientLicensed".toString(),
+                    "${minecraftVersion}:${target.loader.id}:runServer".toString()
             ], IdeaRunConfigurations.RUN_KINDS.collect { String runKind ->
-                IdeaRunConfigurations.configurationName(target, runKind)
+                IdeaRunConfigurations.configurationName(target, minecraftVersion, runKind)
             })
-            assertEquals(
-                    "${target.minecraft.version}:${target.loader.id}:runClient (licensed)".toString(),
-                    IdeaRunConfigurations.previousConfigurationName(target, 'LicensedClient'))
-            assertEquals(
-                    "${target.minecraft.version.toString().replaceAll('[^A-Za-z0-9]', '_')}_${target.loader.id}_runClient__licensed_.xml".toString(),
-                    IdeaRunConfigurations.previousFileName(target, 'LicensedClient'))
+            if (runtime.baseline) {
+                assertEquals([
+                        "${target.minecraft.version}:${target.loader.id}:runLicensedClient".toString(),
+                        "${target.minecraft.version}:${target.loader.id}:runClient (licensed)".toString()
+                ], IdeaRunConfigurations.previousConfigurationNames(target, 'LicensedClient'))
+            }
             IdeaRunConfigurations.RUN_KINDS.each { String runKind ->
-                String taskName = IdeaRunConfigurations.taskName(target, runKind)
+                String taskName = IdeaRunConfigurations.taskName(
+                        target, minecraftVersion, runKind)
                 assertTrue(taskNames.add(taskName))
-                String rendered = IdeaRunConfigurations.render(target, runKind)
+                String rendered = IdeaRunConfigurations.render(
+                        target, minecraftVersion, runKind)
                 def configuration = new groovy.xml.XmlSlurper().parseText(rendered).configuration
                 assertEquals('GradleRunConfiguration', configuration.@type.toString())
                 assertEquals('$PROJECT_DIR$', configuration.ExternalSystemSettings.option.find { it.@name == 'externalProjectPath' }.@value.toString())
                 assertEquals(taskName, configuration.ExternalSystemSettings.option.find { it.@name == 'taskNames' }.list.option.@value.toString())
+                assertEquals(IdeaRunConfigurations.displayFolder(minecraftVersion),
+                        configuration.@folderName.toString())
                 assertFalse(rendered.contains('python'))
                 assertFalse(rendered.contains('do' + 'cs/'))
                 assertFalse(rendered.contains('scr' + 'ipts/'))
             }
         }
-        assertEquals(catalog.targets.size() * IdeaRunConfigurations.RUN_KINDS.size(), taskNames.size())
+        catalog.serverPluginTopologies.each { Map topology ->
+            String taskName = ServerPluginRuntimeSupport.taskName(topology)
+            assertTrue(taskNames.add(taskName), topology.id.toString())
+            String rendered = IdeaRunConfigurations.renderServerPlugin(topology)
+            def configuration = new groovy.xml.XmlSlurper().parseText(rendered).configuration
+            assertEquals(ServerPluginRuntimeSupport.configurationName(topology),
+                    configuration.@name.toString())
+            assertEquals(IdeaRunConfigurations.displayFolder(topology.minecraft.toString()),
+                    configuration.@folderName.toString())
+            assertEquals(taskName, configuration.ExternalSystemSettings.option
+                    .find { it.@name == 'taskNames' }.list.option.@value.toString())
+            assertTrue(rendered.contains(IdeaRunConfigurations.GENERATED_MARKER))
+        }
+        assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
+                IdeaRunConfigurations.RUN_KINDS.size() +
+                catalog.serverPluginTopologies.size(), taskNames.size())
+        assertEquals(75, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
+        assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
+        assertEquals('26.1.1', IdeaRunConfigurations.displayFolder('26.1.1'))
+        assertEquals('26.1.2', IdeaRunConfigurations.displayFolder('26.1.2'))
+    }
+
+    @Test
+    void serverPluginManagedConfigsAreSecureAndExact() {
+        Map standalone = catalog.serverPluginTopologies.find {
+            it.id == '1.20.1-craftbukkit-standalone'
+        } as Map
+        Map<String, String> standaloneFiles = ServerPluginRuntimeSupport.managedFiles(
+                standalone, 'velocity-secret', 'bungee-token')
+        assertEquals([
+                'server/server.properties',
+                'server/plugins/NCLSkinsPlugin/nclskins-server.json5'
+        ] as Set, standaloneFiles.keySet())
+        assertTrue(standaloneFiles['server/server.properties'].contains('server-ip=127.0.0.1'))
+        assertTrue(standaloneFiles['server/server.properties'].contains('online-mode=true'))
+        assertTrue(standaloneFiles['server/plugins/NCLSkinsPlugin/nclskins-server.json5']
+                .contains('"trustedProxyForwarding": false'))
+
+        Map velocity = catalog.serverPluginTopologies.find {
+            it.id == '1.20.1-paper-velocity'
+        } as Map
+        Map<String, String> velocityFiles = ServerPluginRuntimeSupport.managedFiles(
+                velocity, 'velocity-secret', 'bungee-token')
+        assertTrue(velocityFiles['proxy/velocity.toml'].contains('config-version = "2.8"'))
+        assertTrue(velocityFiles['proxy/velocity.toml'].contains('player-info-forwarding-mode = "modern"'))
+        assertTrue(velocityFiles['proxy/velocity.toml'].contains('forwarding-secret-file = "forwarding.secret"'))
+        assertFalse(velocityFiles['proxy/velocity.toml'].contains('\nforwarding-secret ='))
+        assertTrue(velocityFiles['proxy/velocity.toml'].endsWith('[forced-hosts]\n'))
+        assertFalse(velocityFiles['proxy/velocity.toml'].contains('factions.example.com'))
+        assertFalse(velocityFiles['proxy/velocity.toml'].contains('minigames.example.com'))
+        assertTrue(velocityFiles['lobby/server.properties'].contains('online-mode=false'))
+        assertTrue(velocityFiles['lobby/config/paper-global.yml'].contains("secret: 'velocity-secret'"))
+        assertTrue(velocityFiles['lobby/plugins/NCLSkinsPlugin/nclskins-server.json5']
+                .contains('"trustedProxyForwarding": true'))
+        assertFalse(velocityFiles.values().any { it.contains('bungee-token') })
+
+        Map bungee = catalog.serverPluginTopologies.find {
+            it.id == '1.20.1-spigot-bungeecord'
+        } as Map
+        Map<String, String> bungeeFiles = ServerPluginRuntimeSupport.managedFiles(
+                bungee, 'velocity-secret', 'bungee-token')
+        assertTrue(bungeeFiles['proxy/config.yml'].contains('ip_forward: true'))
+        assertTrue(bungeeFiles['proxy/config.yml'].contains('forced_hosts: {}'))
+        assertFalse(bungeeFiles['proxy/config.yml'].contains('pvp.md-5.net'))
+        assertTrue(bungeeFiles['lobby/spigot.yml'].contains('bungeecord: true'))
+        assertTrue(bungeeFiles['lobby/bukkit.yml'].contains('connection-throttle: -1'))
+        assertTrue(bungeeFiles['lobby/plugins/BungeeGuard/config.yml'].contains('bungee-token'))
+        assertTrue(bungeeFiles['target/plugins/NCLSkinsPlugin/nclskins-server.json5']
+                .contains('"trustedProxyForwarding": true'))
+        assertFalse(bungeeFiles.values().any { it.contains('velocity-secret') })
+        String bungeeToken = ServerPluginRuntimeSupport.randomBungeeToken(new RandomSecure())
+        String velocitySecret = ServerPluginRuntimeSupport.randomVelocitySecret(new RandomSecure())
+        assertTrue(ServerPluginRuntimeSupport.validBungeeToken(bungeeToken))
+        assertTrue(ServerPluginRuntimeSupport.validVelocitySecret(velocitySecret))
+        assertFalse(ServerPluginRuntimeSupport.validBungeeToken('placeholder'))
+        assertFalse(ServerPluginRuntimeSupport.validVelocitySecret('placeholder'))
+    }
+
+    @Test
+    void serverPluginRunTaskDoesNotShadowRuntimeLookupWithResolvedRuntimeMap() {
+        String source = Files.readString(Path.of(
+                'src/main/groovy/com/naocraftlab/skins/buildlogic/ServerPluginRunTask.groovy'))
+        assertFalse(source.contains('Map runtime = runtime(catalog'))
+        assertTrue(source.contains("runtime(catalog, 'bungeeguard-1.4.0')"))
+        assertTrue(source.contains("runtime(catalog, 'protocollib-5.4.0')"))
+    }
+
+    @Test
+    void serverRuntimeEulaMarkerRequiresTheExplicitStructuredRecord() {
+        Path directory = Files.createTempDirectory('nclskins-eula-marker-')
+        try {
+            Path marker = directory.resolve('eula.json')
+            Files.writeString(marker, '{}')
+            assertFalse(ServerPluginRuntimeSupport.validEulaMarker(marker))
+            Files.writeString(marker, ServerPluginRuntimeSupport.eulaMarker(
+                    '2026-08-12T00:00:00Z'))
+            assertTrue(ServerPluginRuntimeSupport.validEulaMarker(marker))
+        } finally {
+            directory.toFile().deleteDir()
+        }
+    }
+
+    @Test
+    void serverRuntimeEulaTaskUsesAConfigurationCacheSafeOutputProperty() {
+        String task = new File(
+                repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/AcceptServerRuntimeEulaTask.groovy').text
+        String rootBuild = new File(repository, 'build.gradle').text
+
+        assertTrue(task.contains('abstract RegularFileProperty getMarkerFile()'))
+        assertFalse(task.contains('project.rootDir'))
+        assertTrue(rootBuild.contains(
+                'markerFile.set(layout.projectDirectory.file(ServerPluginRuntimeSupport.EULA_MARKER))'))
+    }
+
+    @Test
+    void serverPluginRunTaskUsesStaticPortPreflightAndConfiguredArtifact() {
+        String task = new File(
+                repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/ServerPluginRunTask.groovy').text
+        String rootBuild = new File(repository, 'build.gradle').text
+
+        assertTrue(task.contains('ServerPluginRunTask.requirePortFree(port)'))
+        assertTrue(task.contains('abstract RegularFileProperty getPluginArtifact()'))
+        assertTrue(task.contains('File plugin = pluginArtifact.get().asFile'))
+        assertFalse(task.contains('project.version'))
+        assertTrue(rootBuild.contains('pluginArtifact.set(layout.projectDirectory.file('))
+    }
+
+    @Test
+    void serverPluginSupervisorUsesBlockingForwardedStdinWithoutLosingProcessMonitoring() {
+        String task = new File(
+                repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/ServerPluginRunTask.groovy').text
+
+        assertTrue(task.contains('new LinkedBlockingQueue<>()'))
+        assertTrue(task.contains('reader.readLine()'))
+        assertTrue(task.contains('commands.poll(100, TimeUnit.MILLISECONDS)'))
+        assertTrue(task.contains('processes.entrySet().find'))
+        assertFalse(task.contains('reader.ready()'))
+    }
+
+    @Test
+    void legacyServerPluginKernelsResolveThroughBuildToolsWithoutFakeRuntimeRows() {
+        String task = new File(
+                repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/ServerPluginRunTask.groovy').text
+
+        assertTrue(task.contains("topology.kernel in ['craftbukkit', 'spigot']"))
+        assertTrue(task.contains("? 'buildtools-200'"))
+        assertTrue(task.contains('resolveRuntime(root, catalog, runtimeSpec, topology.kernel.toString())'))
+        assertTrue(task.contains('ServerPluginRunTask.gitCommit(checkout)'))
+    }
+
+    private static final class RandomSecure extends java.security.SecureRandom {
+        @Override
+        void nextBytes(byte[] bytes) {
+            Arrays.fill(bytes, (byte) 0x5a)
+        }
     }
 
     @Test
@@ -831,6 +1066,15 @@ final class BuildLogicTest {
     @Test
     void targetRunCommandsUseCatalogWrappersPortsAndNativeTasks() {
         catalog.targets.each { Map target ->
+            assertEquals(new File(repository,
+                    "runs/${target.minecraft.version}/${target.loader.id}/client").canonicalFile,
+                    RunLayout.modDirectory(repository, target, 'Client').canonicalFile)
+            assertEquals(new File(repository,
+                    "runs/${target.minecraft.version}/${target.loader.id}/client-licensed").canonicalFile,
+                    RunLayout.modDirectory(repository, target, 'LicensedClient').canonicalFile)
+            assertEquals(new File(repository,
+                    "runs/${target.minecraft.version}/${target.loader.id}/server").canonicalFile,
+                    RunLayout.modDirectory(repository, target, 'Server').canonicalFile)
             List<String> client = TargetRunTask.command(repository, catalog, target, 'Client', true)
             assertEquals('runClient', client[-2])
             assertEquals('--dry-run', client[-1])
@@ -849,6 +1093,197 @@ final class BuildLogicTest {
     }
 
     @Test
+    void serverPluginRunLayoutUsesVersionAndTargetDirectories() {
+        catalog.serverPluginTopologies.each { Map topology ->
+            String target = topology.mode == 'standalone'
+                    ? topology.kernel.toString()
+                    : "${topology.mode}-${topology.kernel}".toString()
+            assertEquals(new File(repository,
+                    "runs/${topology.minecraft}/${target}").canonicalFile,
+                    RunLayout.topologyDirectory(repository, topology).canonicalFile)
+        }
+    }
+
+    @Test
+    void ideaWorkspaceOrderingChangesOnlyManagedRunItems() {
+        Path workspace = Files.createTempFile('nclskins-workspace-', '.xml')
+        workspace.toFile().text = '''<project version="4">
+  <component name="RunManager" selected="Gradle.26.2:paper:runServerPlugin">
+    <list>
+      <item itemvalue="Gradle.user-before" />
+      <item itemvalue="Gradle.26.2:paper:runServerPlugin" />
+      <item itemvalue="Gradle.user-after" />
+    </list>
+  </component>
+</project>
+'''
+        GenerateIdeaRunConfigurationsTask.updateWorkspace(workspace.toFile(),
+                ['26.2:paper:runServerPlugin'] as Set,
+                ['26.3:fabric:runClient', '26.2:paper:runServer'],
+                ['26.2:paper:runServerPlugin': '26.2:paper:runServer'])
+        String result = workspace.toFile().text
+        assertTrue(result.contains('selected="Gradle.26.2:paper:runServer"'))
+        assertTrue(result.indexOf('Gradle.user-before') < result.indexOf('Gradle.user-after'))
+        assertTrue(result.indexOf('Gradle.user-after') <
+                result.indexOf('Gradle.26.3:fabric:runClient'))
+        assertTrue(result.indexOf('itemvalue="Gradle.26.3:fabric:runClient"') <
+                result.indexOf('itemvalue="Gradle.26.2:paper:runServer"'))
+        assertFalse(result.contains('itemvalue="Gradle.26.2:paper:runServerPlugin"'))
+    }
+
+    @Test
+    void modServerEulaRequiresExplicitManagedAcceptance() {
+        Path root = Files.createTempDirectory('nclskins-mod-eula-')
+        Map target = catalog.targets.first() as Map
+        assertThrows(org.gradle.api.GradleException) {
+            RunDirectorySupport.ensureTargetEula(root.toFile(), target)
+        }
+        File marker = new File(root.toFile(), ServerPluginRuntimeSupport.EULA_MARKER)
+        Files.createDirectories(marker.parentFile.toPath())
+        marker.text = ServerPluginRuntimeSupport.eulaMarker('2026-08-12T00:00:00Z')
+        RunDirectorySupport.ensureTargetEula(root.toFile(), target)
+        File eula = new File(RunLayout.modDirectory(root.toFile(), target, 'Server'), 'eula.txt')
+        assertEquals('eula=true\n', eula.text)
+        eula.text = 'eula=false\n'
+        RunDirectorySupport.ensureTargetEula(root.toFile(), target)
+        assertEquals('eula=true\n', eula.text)
+    }
+
+    @Test
+    void managedOperatorMergeIsExactAndPreservesUnmanagedEntries() {
+        Path root = Files.createTempDirectory('nclskins-operators-')
+        Path file = root.resolve('ops.json')
+        file.toFile().text = JsonOutput.prettyPrint(JsonOutput.toJson([
+                [uuid: '00f36371-8f11-4183-8151-bb74d0f72394', name: 'OldNaoName',
+                 level: 1, bypassesPlayerLimit: true, legacy: 'remove-with-managed-uuid'],
+                [uuid: '11111111-1111-4111-8111-111111111111', name: 'ExistingOperator',
+                 level: 2, bypassesPlayerLimit: true, preserved: 'yes']
+        ])) + '\n'
+        List<Map> desired = CatalogTools.developmentOperators(catalog)
+        RunDirectorySupport.ensureOperators(file, desired)
+        List actual = new JsonSlurper().parse(file.toFile()) as List
+        assertEquals(desired, actual.take(2))
+        assertEquals([
+                uuid: '11111111-1111-4111-8111-111111111111',
+                name: 'ExistingOperator', level: 2,
+                bypassesPlayerLimit: true, preserved: 'yes'
+        ], actual[2])
+        String once = file.toFile().text
+        RunDirectorySupport.ensureOperators(file, desired)
+        assertEquals(once, file.toFile().text)
+    }
+
+    @Test
+    void clientServerListsAreExactForEveryRunVersion() {
+        Map<String, List<String>> expectedNames = [
+                '1.20.1': ['LAN', 'Fabric', 'Forge', 'CraftBukkit', 'Spigot', 'Paper',
+                           'Purpur', 'Folia', 'Velocity Paper',
+                           'BungeeCord Spigot', 'BungeeCord Paper'],
+                '1.21.1': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur',
+                           'Velocity Paper', 'BungeeCord Paper'],
+                '1.21.11': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
+                            'Velocity Paper', 'BungeeCord Paper'],
+                '26.1': ['LAN', 'Fabric', 'NeoForge'],
+                '26.1.1': ['LAN', 'Fabric', 'NeoForge', 'Paper',
+                           'Velocity Paper', 'BungeeCord Paper'],
+                '26.1.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
+                           'Velocity Paper', 'BungeeCord Paper'],
+                '26.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
+                         'Velocity Paper', 'BungeeCord Paper'],
+                '26.3': ['LAN', 'Fabric']
+        ]
+        expectedNames.each { String version, List<String> names ->
+            List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)
+            assertEquals(names, entries*.name)
+            assertEquals('localhost:25565', entries.first().ip)
+            assertEquals(entries.size(), entries*.name.toSet().size())
+        }
+        assertEquals('localhost:26000', RunDirectorySupport.serverEntries(catalog, '1.20.1')
+                .find { it.name == 'CraftBukkit' }.ip)
+        assertEquals('localhost:26017', RunDirectorySupport.serverEntries(catalog, '1.20.1')
+                .find { it.name == 'Velocity Paper' }.ip)
+        assertEquals('localhost:26053', RunDirectorySupport.serverEntries(catalog, '26.2')
+                .find { it.name == 'BungeeCord Paper' }.ip)
+        assertEquals('localhost:26010', RunDirectorySupport.serverEntries(catalog, '26.1.1')
+                .find { it.name == 'Paper' }.ip)
+        assertEquals('localhost:25578', RunDirectorySupport.serverEntries(catalog, '26.1.2')
+                .find { it.name == 'Fabric' }.ip)
+    }
+
+    @Test
+    void minecraftServerListMergePreservesUserEntriesAndUnknownFields() {
+        Path file = Files.createTempFile('nclskins-servers-', '.dat')
+        Files.delete(file)
+        MinecraftServerList.merge(file, [
+                [name: 'LAN', ip: 'localhost:25565'],
+                [name: 'User Server', ip: 'example.test']
+        ])
+        MinecraftServerList.NbtTag root = MinecraftServerList.read(file)
+        MinecraftServerList.NbtList servers =
+                ((root.value as Map).servers.value as MinecraftServerList.NbtList)
+        Map first = servers.values.first().value as Map
+        first.icon = new MinecraftServerList.NbtTag(MinecraftServerList.STRING, 'preserved-icon')
+        MinecraftServerList.writeAtomic(file, root)
+
+        MinecraftServerList.merge(file, [
+                [name: 'LAN', ip: 'localhost:25565'],
+                [name: 'Paper', ip: 'localhost:26002']
+        ], RunDirectorySupport.managedServerNames())
+        assertEquals([
+                [name: 'LAN', ip: 'localhost:25565'],
+                [name: 'Paper', ip: 'localhost:26002'],
+                [name: 'User Server', ip: 'example.test']
+        ], MinecraftServerList.entries(file))
+        root = MinecraftServerList.read(file)
+        servers = ((root.value as Map).servers.value as MinecraftServerList.NbtList)
+        first = servers.values.first().value as Map
+        assertEquals('preserved-icon', first.icon.value)
+
+        MinecraftServerList.merge(file, [
+                [name: 'LAN', ip: 'localhost:25565']
+        ], RunDirectorySupport.managedServerNames())
+        assertEquals([
+                [name: 'LAN', ip: 'localhost:25565'],
+                [name: 'User Server', ip: 'example.test']
+        ], MinecraftServerList.entries(file))
+    }
+
+    @Test
+    void neoForgeRuntimeYaclMetadataPatchIsNarrowAndReproducible() {
+        Path directory = Files.createTempDirectory('nclskins-yacl-metadata-')
+        Path input = directory.resolve('yacl.jar')
+        new ZipOutputStream(Files.newOutputStream(input)).withCloseable { ZipOutputStream zip ->
+            zip.putNextEntry(new ZipEntry('META-INF/neoforge.mods.toml'))
+            zip.write(('''modLoader = "javafml"\n[[mods]]\n\t''' +
+                    NeoForgeRuntimeMetadata.LEGACY_ICON + '\n').getBytes('UTF-8'))
+            zip.closeEntry()
+            zip.putNextEntry(new ZipEntry('yacl-128x.png'))
+            zip.write(new byte[]{1, 2, 3})
+            zip.closeEntry()
+        }
+        Path first = directory.resolve('first.jar')
+        Path second = directory.resolve('second.jar')
+        NeoForgeRuntimeMetadata.patchYacl(input, first)
+        NeoForgeRuntimeMetadata.patchYacl(input, second)
+        assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second))
+        new ZipFile(first.toFile()).withCloseable { ZipFile zip ->
+            String metadata = zip.getInputStream(zip.getEntry(NeoForgeRuntimeMetadata.METADATA))
+                    .withCloseable { new String(it.readAllBytes(), 'UTF-8') }
+            assertTrue(metadata.contains(NeoForgeRuntimeMetadata.SQUARE_ICON))
+            assertFalse(metadata.contains(NeoForgeRuntimeMetadata.LEGACY_ICON))
+            assertArrayEquals(new byte[]{1, 2, 3},
+                    zip.getInputStream(zip.getEntry('yacl-128x.png')).readAllBytes())
+        }
+
+        String convention = new File(repository,
+                'gradle/loader-conventions/neoforge.gradle').text
+        assertTrue(convention.contains("targetSpec.minecraft.version == '26.2'"))
+        assertTrue(convention.contains("tasks.register('patchYaclRuntimeMetadata'"))
+        assertTrue(convention.contains('add(yaclRuntimeConfiguration, files(patchedYaclRuntime))'))
+        assertTrue(convention.contains('yaclRuntimeGraph.transitive = false'))
+    }
+
+    @Test
     void targetRunsUseTheCurrentGradleConsoleForInteractiveIo() {
         String source = new File(repository,
                 'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/TargetRunTask.groovy').text
@@ -857,6 +1292,21 @@ final class BuildLogicTest {
         assertTrue(source.contains('standardOutput = System.out'))
         assertTrue(source.contains('errorOutput = System.err'))
         assertFalse(source.contains('inheritIO()'))
+    }
+
+    @Test
+    void managedModServersAreAlwaysAuthenticated() {
+        Path root = Files.createTempDirectory('nclskins-mod-server-auth')
+        Path properties = root.resolve('server.properties')
+        Files.writeString(properties, '# preserved\nonline-mode=false\nview-distance=12\n')
+
+        RunDirectorySupport.ensureServerOnlineMode(properties)
+
+        assertEquals(
+                '# preserved\nonline-mode=true\nview-distance=12\n',
+                Files.readString(properties))
+        RunDirectorySupport.ensureServerOnlineMode(properties)
+        assertEquals(1, Files.readAllLines(properties).count { it == 'online-mode=true' })
     }
 
     @Test

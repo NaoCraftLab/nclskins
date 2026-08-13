@@ -61,8 +61,7 @@ replay_pid*
 **/.ijwb/
 
 ### Minecraft Development ###
-**/run/
-**/runs/
+/runs/
 **/logs/
 **/crash-reports/
 *.log

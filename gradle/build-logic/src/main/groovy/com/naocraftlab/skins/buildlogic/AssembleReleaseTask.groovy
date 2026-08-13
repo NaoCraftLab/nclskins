@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
@@ -11,6 +12,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
+import java.util.zip.ZipFile
 
 abstract class AssembleReleaseTask extends DefaultTask {
     @Internal
@@ -24,6 +26,12 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
     @InputFile
     abstract RegularFileProperty getChangelogFile()
+
+    @InputFile
+    abstract RegularFileProperty getServerChangelogFile()
+
+    @InputFile
+    abstract RegularFileProperty getServerPluginStateFile()
 
     @Input
     abstract Property<String> getReleaseTag()
@@ -42,8 +50,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
     void assembleRelease() {
         File repository = repositoryDirectory.get().asFile
         String mode = releaseMode.get()
-        if (!(mode in ['tag', 'backfill'])) {
-            throw new IllegalArgumentException("releaseMode must be tag or backfill, got '${mode}'")
+        if (!(mode in ['tag', 'backfill', 'reconcile-tag'])) {
+            throw new IllegalArgumentException(
+                    "releaseMode must be tag, backfill, or reconcile-tag, got '${mode}'")
         }
         Map metadata = ReleaseMetadata.validate(
                 versionFile.get().asFile,
@@ -51,6 +60,17 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 releaseTag.get())
         Map catalog = CatalogTools.loadCatalog(repository)
         CatalogTools.validate(repository, catalog)
+        Map sealedState = CatalogTools.materialize(
+                new JsonSlurper().parse(serverPluginStateFile.get().asFile)) as Map
+        Map recomputedState = ServerPluginReleaseState.compute(
+                repository, catalog, metadata.version.toString())
+        if (sealedState != recomputedState || sealedState.sealed != true) {
+            throw new IllegalStateException(
+                    'Server plugin release state differs from independent assembleRelease computation')
+        }
+        String serverNotes = ServerPluginChangelog.validate(
+                serverChangelogFile.get().asFile, recomputedState)
+        metadata.serverPlugin = new LinkedHashMap(recomputedState) + [notes: serverNotes]
 
         Map selection
         if (mode == 'tag') {
@@ -65,7 +85,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
             ]
         }
 
-        File existingDirectory = mode == 'backfill' ? requiredExistingAssetsDirectory() : null
+        File existingDirectory = mode == 'tag' ? null : requiredExistingAssetsDirectory()
         validateExistingAssetSet(existingDirectory, catalog, metadata.version.toString())
 
         File versionDirectory = ReleaseMetadata.write(releaseRoot.get().asFile, metadata)
@@ -81,7 +101,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
         String sourcesName = "nclskins-${metadata.version}-sources.jar"
         File sources = ReleaseBundle.createSourcesJar(
                 repository, catalog, metadata.version.toString(), new File(assetsDirectory, sourcesName))
-        Map sourcesAsset = assetMetadata(sources, 'sources', null)
+        Map sourcesAsset = assetMetadata(sources, 'mod-sources', null)
         CatalogTools.releaseTargets(catalog)
                 .findAll { selectedIds.contains(it.id.toString()) }
                 .each { Map target ->
@@ -94,6 +114,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
             }
             File destination = new File(assetsDirectory, name)
             Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            requireServerPluginBaseline(destination, recomputedState.activeVersion.toString())
             Map asset = assetMetadata(destination, 'mod', target.id.toString())
             assets.add(asset)
             publicationTargets.add(publicationTarget(catalog, target, metadata, asset, sourcesAsset))
@@ -102,9 +123,17 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
         assets.add(sourcesAsset)
 
+        Map serverPublication = serverPluginPublication(
+                repository, catalog, metadata, recomputedState, serverNotes,
+                assetsDirectory, existingDirectory, mode != 'backfill')
+        if (serverPublication.publish == true) {
+            assets.add(serverPublication.artifact)
+            assets.add(serverPublication.sourcesArtifact)
+        }
+
         File notes = new File(versionDirectory, 'release-notes.md')
         Map manifest = [
-                schemaVersion: 2,
+                schemaVersion: 3,
                 mode         : mode,
                 version      : metadata.version,
                 channel      : metadata.channel,
@@ -121,6 +150,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
                         text  : metadata.notes
                 ],
                 targets      : publicationTargets,
+                serverPlugin : serverPublication,
                 assets       : assets
         ]
         Files.writeString(
@@ -128,12 +158,14 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n',
                 StandardCharsets.UTF_8)
         logger.lifecycle("Release bundle ${metadata.version} (${mode}) contains " +
-                "${publicationTargets.size()} target artifacts and one sources JAR")
+                "${publicationTargets.size()} mod target artifacts, one mod sources JAR, " +
+                "serverPlugin=${serverPublication.publish ? 'published' : 'unchanged'}")
     }
 
     File requiredExistingAssetsDirectory() {
         if (!existingAssetsDirectory.isPresent()) {
-            throw new IllegalArgumentException('backfill requires -PexistingReleaseAssets=<directory>')
+            throw new IllegalArgumentException(
+                    'backfill/reconcile-tag requires -PexistingReleaseAssets=<directory>')
         }
         File directory = existingAssetsDirectory.get().asFile
         if (!directory.isDirectory() || Files.isSymbolicLink(directory.toPath())) {
@@ -147,6 +179,8 @@ abstract class AssembleReleaseTask extends DefaultTask {
         Set<String> allowed = CatalogTools.releaseTargets(catalog)
                 .collect { artifactName(it as Map, version) } as Set<String>
         allowed.add("nclskins-${version}-sources.jar".toString())
+        allowed.add("nclskins-server-${version}.jar".toString())
+        allowed.add("nclskins-server-${version}-sources.jar".toString())
         directory.eachFile { File file ->
             if (!file.isFile() || Files.isSymbolicLink(file.toPath()) || !allowed.contains(file.name)) {
                 throw new IllegalStateException("Unexpected existing GitHub release asset: ${file.name}")
@@ -218,5 +252,100 @@ abstract class AssembleReleaseTask extends DefaultTask {
         ]
         if (targetId != null) result.target = targetId
         result
+    }
+
+    static void requireServerPluginBaseline(File artifact, String expectedVersion) {
+        new ZipFile(artifact).withCloseable { ZipFile zip ->
+            def entry = zip.getEntry('nclskins-server-compatibility.json')
+            if (entry == null) {
+                throw new IllegalStateException(
+                        "${artifact.name} has no nclskins-server-compatibility.json")
+            }
+            Map compatibility = new JsonSlurper().parse(zip.getInputStream(entry)) as Map
+            if (compatibility.requiredServerPluginVersion != expectedVersion) {
+                throw new IllegalStateException(
+                        "${artifact.name} requires server plugin " +
+                        "${compatibility.requiredServerPluginVersion}, expected active ${expectedVersion}")
+            }
+        }
+    }
+
+    static Map serverPluginPublication(
+            File repository,
+            Map catalog,
+            Map release,
+            Map state,
+            String notes,
+            File assetsDirectory,
+            File existingDirectory,
+            boolean allowBuild) {
+        Map base = [
+                publish              : state.publish,
+                reason               : state.reason,
+                activeVersion        : state.activeVersion,
+                previousActiveVersion: state.previousActiveVersion,
+                currentFingerprint   : state.currentFingerprint,
+                activeFingerprint    : state.activeFingerprint,
+                protocolIds          : state.protocolIds,
+                matrixId             : state.matrixId,
+                artifact             : null,
+                sourcesArtifact      : null,
+                publication          : null,
+                publications         : [:]
+        ]
+        if (state.publish != true) return base
+        ['modrinth', 'curseforge'].each { String platform ->
+            if (catalog.serverPlugin.platforms[platform].projectId == null) {
+                throw new IllegalStateException(
+                        "NCL Skins Plugin ${platform} projectId is required for publication")
+            }
+        }
+        String version = release.version.toString()
+        String jarName = catalog.serverPlugin.artifact.toString()
+                .replace('{pluginVersion}', version)
+        String sourcesName = catalog.serverPlugin.sourcesArtifact.toString()
+                .replace('{pluginVersion}', version)
+        File jar = copyServerArtifact(existingDirectory, assetsDirectory,
+                jarName, new File(repository, "server-plugin/build/libs/${jarName}"), allowBuild)
+        File sources = copyServerArtifact(existingDirectory, assetsDirectory,
+                sourcesName, new File(repository, "server-plugin/build/libs/${sourcesName}"), allowBuild)
+        Map artifact = assetMetadata(jar, 'server-plugin', null)
+        Map sourcesArtifact = assetMetadata(sources, 'server-plugin-sources', null)
+        List<String> games = (catalog.serverPlugin.compatibility as Map).keySet() as List<String>
+        Map publication = [
+                id              : 'server-plugin',
+                kind            : 'server-plugin',
+                name            : "NCL Skins Plugin ${version}".toString(),
+                versionNumber   : version,
+                channel         : release.channel,
+                minecraftVersion: games.first(),
+                gameVersions    : games,
+                loaders         : ['paper', 'purpur', 'velocity', 'bungeecord'],
+                javaRelease     : catalog.serverPlugin.javaRelease,
+                environment     : 'server',
+                dependencies    : [modrinth: [], curseforge: []],
+                platforms       : catalog.serverPlugin.platforms,
+                releaseNotes    : notes,
+                asset           : artifact,
+                sourcesAsset    : sourcesArtifact
+        ]
+        base + [artifact: artifact, sourcesArtifact: sourcesArtifact, publication: publication]
+    }
+
+    private static File copyServerArtifact(
+            File existingDirectory, File assetsDirectory, String name, File built, boolean allowBuild) {
+        File existing = existingDirectory == null ? null : new File(existingDirectory, name)
+        File source = existing != null && existing.isFile() ? existing : allowBuild ? built : null
+        if (source == null) {
+            throw new IllegalStateException(
+                    "Current-main compatibility backfill cannot create historical server plugin ${name}; " +
+                    'use reconcile-tag')
+        }
+        if (!Files.isRegularFile(source.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("Missing server plugin artifact: ${source}")
+        }
+        File destination = new File(assetsDirectory, name)
+        Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        destination
     }
 }

@@ -19,4 +19,25 @@ public final class ServerAppearanceRefreshCommandPath {
                 && refreshExecutable
                 && !refreshHasChildren;
     }
+
+    public static boolean isExactBukkitWrapper(
+            boolean rootPresent,
+            boolean rootLiteral,
+            boolean rootExecutable,
+            int rootChildCount,
+            boolean argumentsPresent,
+            boolean argumentsNode,
+            boolean argumentsGreedyString,
+            boolean argumentsExecutable,
+            boolean argumentsHasChildren) {
+        return rootPresent
+                && rootLiteral
+                && rootExecutable
+                && rootChildCount == 1
+                && argumentsPresent
+                && argumentsNode
+                && argumentsGreedyString
+                && argumentsExecutable
+                && !argumentsHasChildren;
+    }
 }

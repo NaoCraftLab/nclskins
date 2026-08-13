@@ -7,6 +7,8 @@ public final class ServerRefreshCommandProtocol {
     public static final String ROOT_COMMAND = "nclskin";
     public static final String REFRESH_COMMAND = "_refresh_official_profile_v1";
     public static final String COMMAND = ROOT_COMMAND + " " + REFRESH_COMMAND;
+    public static final String BUKKIT_ROOT_COMMAND = "nclskinsplugin:" + ROOT_COMMAND;
+    public static final String BUKKIT_COMMAND = BUKKIT_ROOT_COMMAND + " " + REFRESH_COMMAND;
     public static final int SUCCESS = 1;
     public static final int FAILURE = 0;
 

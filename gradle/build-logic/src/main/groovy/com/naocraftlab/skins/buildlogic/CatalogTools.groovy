@@ -157,9 +157,9 @@ final class CatalogTools {
     static List<String> clientArguments(Map catalog) {
         if (!(catalog.development instanceof Map) ||
                 ((catalog.development as Map).keySet() as Set) !=
-                ['clientUuid', 'licensedProfiles'] as Set) {
+                ['clientUuid', 'licensedProfiles', 'operators'] as Set) {
             throw new IllegalArgumentException(
-                    'development must define exactly clientUuid and licensedProfiles')
+                    'development must define exactly clientUuid, licensedProfiles, and operators')
         }
         Map development = catalog.development as Map
         Object rawUuid = development.clientUuid
@@ -167,6 +167,35 @@ final class CatalogTools {
             throw new IllegalArgumentException('development.clientUuid must be a canonical lowercase UUID')
         }
         ['--uuid', rawUuid as String]
+    }
+
+    static List<Map> developmentOperators(Map catalog) {
+        clientArguments(catalog)
+        Object raw = (catalog.development as Map).operators
+        if (!(raw instanceof List) || (raw as List).size() != 2) {
+            throw new IllegalArgumentException('development.operators must define exactly two operators')
+        }
+        List<Map> operators = (raw as List).collect { Object entry ->
+            if (!(entry instanceof Map) || ((entry as Map).keySet() as Set) !=
+                    ['uuid', 'name', 'level', 'bypassesPlayerLimit'] as Set) {
+                throw new IllegalArgumentException('development operator keys differ from schema')
+            }
+            Map operator = entry as Map
+            if (!(operator.uuid instanceof String) ||
+                    !UUID_PATTERN.matcher(operator.uuid.toString()).matches() ||
+                    !(operator.name instanceof String) ||
+                    !(operator.name.toString() ==~ /[A-Za-z0-9_]{3,16}/) ||
+                    operator.level != 4 || operator.bypassesPlayerLimit != false) {
+                throw new IllegalArgumentException('development operator is invalid')
+            }
+            operator
+        }
+        if (operators*.uuid.toSet().size() != operators.size() ||
+                operators*.name.collect { it.toString().toLowerCase(Locale.ROOT) }.toSet().size() !=
+                operators.size()) {
+            throw new IllegalArgumentException('development operators must have unique UUIDs and names')
+        }
+        operators.asImmutable()
     }
 
     static String licensedClientProfile(Map catalog, Object rawLoader) {
@@ -378,9 +407,10 @@ final class CatalogTools {
                 'schemaVersion', 'development', 'mod', 'plugins', 'mappings',
                 'gradleFamilies', 'gsonCompatibility',
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
-                'optionalDependencies', 'publicationDependencies', 'targets'
+                'optionalDependencies', 'publicationDependencies',
+                'serverPlugin', 'serverPluginRuntimes', 'serverPluginTopologies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 16) {
+        if (catalog.schemaVersion != 19) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -389,6 +419,7 @@ final class CatalogTools {
         try {
             clientArguments(catalog)
             ['fabric', 'forge', 'neoforge'].each { licensedClientProfile(catalog, it) }
+            developmentOperators(catalog)
         } catch (IllegalArgumentException error) {
             errors.add(error.message)
         }
@@ -837,7 +868,7 @@ final class CatalogTools {
             }
             ids.add(target.id)
             paths.add(target.path)
-            ports.add(development.serverPort)
+            ports.addAll(targetRuntimeSpecs(target).collect { it.serverPort })
             artifacts.add(artifact.file)
             coordinates.add(artifact.mavenArtifactId)
             modules.add(artifact.automaticModuleName)
@@ -851,9 +882,206 @@ final class CatalogTools {
                 errors.add("target uniqueness constraint failed: ${values}")
             }
         }
+        validateServerPlugin(repositoryRoot, catalog, errors)
         validateAbi(repositoryRoot, catalog, errors)
         if (errors) {
             throw new IllegalArgumentException(errors.collect { "- ${it}" }.join('\n'))
+        }
+    }
+
+    private static void validateServerPlugin(File repositoryRoot, Map catalog, List<String> errors) {
+        Map plugin = catalog.serverPlugin instanceof Map ? catalog.serverPlugin as Map : [:]
+        Set<String> pluginKeys = [
+                'name', 'slug', 'artifact', 'sourcesArtifact', 'matrixId', 'javaRelease', 'packaging',
+                'protocols', 'compatibility', 'excluded', 'productionInputs', 'platforms'
+        ] as Set
+        if ((plugin.keySet() as Set) != pluginKeys) {
+            errors.add('serverPlugin keys differ from schema')
+            return
+        }
+        if (plugin.name != 'NCL Skins Plugin' || plugin.slug != 'nclskins-plugin' ||
+                plugin.artifact != 'nclskins-server-{pluginVersion}.jar' ||
+                plugin.sourcesArtifact != 'nclskins-server-{pluginVersion}-sources.jar' ||
+                plugin.matrixId != 'official-v1' || plugin.javaRelease != 17) {
+            errors.add('serverPlugin identity, artifacts, matrix, and Java release must be exact')
+        }
+        if (plugin.protocols != ['command-v1', 'capabilities-v1', 'proxy-refresh-v1']) {
+            errors.add('serverPlugin protocols must retain the ordered v1 compatibility set')
+        }
+        if (plugin.packaging != [
+                buildJdk      : 25,
+                gson          : '2.10',
+                shadow        : '9.6.1',
+                paperApi      : '1.20.1-R0.1-20230921.165944-178',
+                velocityApi   : '4.0.0',
+                bungeeApi     : '1.21-R0.4',
+                gsonRelocation: 'com.naocraftlab.skins.server.lib.gson']) {
+            errors.add('serverPlugin packaging dependencies and relocation must be exact')
+        }
+        Map expectedCompatibility = [
+                '1.20.1' : ['craftbukkit', 'spigot', 'paper', 'purpur', 'folia'],
+                '1.21.1' : ['paper', 'purpur'],
+                '1.21.11': ['paper', 'purpur', 'folia'],
+                '26.1.1' : ['paper'],
+                '26.1.2' : ['paper', 'purpur', 'folia'],
+                '26.2'   : ['paper', 'purpur', 'folia']
+        ]
+        if (plugin.compatibility != expectedCompatibility ||
+                plugin.excluded != ['waterfall', 'sponge', 'geyser', '26.3']) {
+            errors.add('serverPlugin compatibility and exclusions differ from the approved matrix')
+        }
+        Map inputs = plugin.productionInputs instanceof Map ? plugin.productionInputs as Map : [:]
+        if ((inputs.keySet() as Set) !=
+                ['mod', 'server', 'shared', 'release-only', 'test-run'] as Set ||
+                inputs.any { Object ignored, Object value ->
+                    !(value instanceof List) || (value as List).isEmpty() ||
+                            (value as List).size() != (value as List).toSet().size() ||
+                            (value as List).any { !(it instanceof String) || !it }
+                }) {
+            errors.add('serverPlugin productionInputs must classify unique paths by ownership')
+        } else {
+            List<String> allInputs = inputs.values().flatten().collect { it.toString() }
+            if (allInputs.size() != allInputs.toSet().size()) {
+                errors.add('serverPlugin productionInputs cannot assign one path to multiple owners')
+            }
+            ['server', 'shared'].each { String owner ->
+                (inputs[owner] as List).each { Object raw ->
+                    if (!new File(repositoryRoot, raw.toString()).exists()) {
+                        errors.add("serverPlugin ${owner} production input does not exist: ${raw}")
+                    }
+                }
+            }
+        }
+        Map platforms = plugin.platforms instanceof Map ? plugin.platforms as Map : [:]
+        Map modrinth = platforms.modrinth instanceof Map ? platforms.modrinth as Map : [:]
+        Map curseforge = platforms.curseforge instanceof Map ? platforms.curseforge as Map : [:]
+        boolean validModrinthId = modrinth.projectId == null ||
+                modrinth.projectId ==~ /[A-Za-z0-9]{8}/
+        boolean validCurseForgeId = curseforge.projectId == null ||
+                (curseforge.projectId instanceof Integer && curseforge.projectId as int > 0)
+        if ((platforms.keySet() as Set) != ['modrinth', 'curseforge'] as Set ||
+                (modrinth.keySet() as Set) != ['projectId', 'slug'] as Set ||
+                (curseforge.keySet() as Set) != ['projectId', 'slug'] as Set ||
+                !validModrinthId || !validCurseForgeId ||
+                modrinth.slug != 'nclskins-plugin' || curseforge.slug != 'nclskins-plugin') {
+            errors.add('serverPlugin platforms must reserve nclskins-plugin with null or exact project IDs')
+        }
+        if ((modrinth.projectId != null &&
+                modrinth.projectId == catalog.mod.platforms.modrinth.projectId) ||
+                (curseforge.projectId != null &&
+                        curseforge.projectId == catalog.mod.platforms.curseforge.projectId)) {
+            errors.add('serverPlugin platform project IDs must differ from the mod projects')
+        }
+
+        List rawRuntimes = catalog.serverPluginRuntimes instanceof List
+                ? catalog.serverPluginRuntimes as List : []
+        List<Map> runtimes = rawRuntimes.findAll { it instanceof Map } as List<Map>
+        Set<String> runtimeKeys = [
+                'id', 'platform', 'version', 'build', 'channel', 'url', 'sha256', 'javaRelease'
+        ] as Set
+        Set runtimeIds = [] as Set
+        if (runtimes.size() != 20 || runtimes.size() != rawRuntimes.size()) {
+            errors.add('serverPluginRuntimes must define exactly 20 immutable artifacts')
+        }
+        runtimes.each { Map runtime ->
+            if ((runtime.keySet() as Set) != runtimeKeys ||
+                    !(runtime.id ==~ /[a-z0-9][a-z0-9.-]*/) ||
+                    !runtimeIds.add(runtime.id) ||
+                    !(runtime.platform in [
+                            'paper', 'purpur', 'folia', 'velocity', 'bungeecord',
+                            'bungeeguard', 'protocollib', 'buildtools']) ||
+                    !(runtime.version instanceof String) || !runtime.version ||
+                    !(runtime.build instanceof String) || !runtime.build ||
+                    !(runtime.channel in ['STABLE', 'ALPHA', 'BETA']) ||
+                    !(runtime.url ==~ /https:\/\/[^\s]+/) ||
+                    !(runtime.sha256 ==~ /[0-9a-f]{64}/) ||
+                    !(runtime.javaRelease in [17, 21, 25])) {
+                errors.add("${runtime.id}: invalid immutable server runtime declaration")
+            }
+            if (runtime.platform in ['paper', 'folia'] &&
+                    !runtime.url.toString().contains("/objects/${runtime.sha256}/")) {
+                errors.add("${runtime.id}: Fill artifact URL must be content addressed")
+            }
+        }
+        Set expectedBackendRuntimeIds = [] as Set
+        expectedCompatibility.each { String minecraft, List<String> kernels ->
+            kernels.findAll { it in ['paper', 'purpur', 'folia'] }.each { String kernel ->
+                expectedBackendRuntimeIds.add("${kernel}-${minecraft}".toString())
+            }
+        }
+        if (!runtimeIds.containsAll(expectedBackendRuntimeIds + [
+                'velocity-4.0.0-6', 'bungeecord-2086', 'bungeeguard-1.4.0',
+                'protocollib-5.4.0', 'buildtools-200'] as Set) ||
+                runtimes.find { it.id == 'paper-26.1.1' }?.channel != 'ALPHA' ||
+                runtimes.find { it.id == 'folia-1.20.1' }?.channel != 'ALPHA' ||
+                runtimes.find { it.id == 'folia-26.2' }?.channel != 'BETA') {
+            errors.add('serverPluginRuntimes do not cover exact pins or Folia upstream channels')
+        }
+
+        List rawTopologies = catalog.serverPluginTopologies instanceof List
+                ? catalog.serverPluginTopologies as List : []
+        List<Map> topologies = rawTopologies.findAll { it instanceof Map } as List<Map>
+        Set<String> topologyKeys = ['id', 'minecraft', 'kernel', 'mode', 'ports', 'dependencies'] as Set
+        Map<String, Integer> counts = [standalone: 0, velocity: 0, bungeecord: 0]
+        Set topologyIds = [] as Set
+        List<Integer> ports = []
+        topologies.each { Map topology ->
+            String mode = topology.mode?.toString()
+            String minecraft = topology.minecraft?.toString()
+            String kernel = topology.kernel?.toString()
+            Map topologyPorts = topology.ports instanceof Map ? topology.ports as Map : [:]
+            List dependencies = topology.dependencies instanceof List ? topology.dependencies as List : []
+            if ((topology.keySet() as Set) != topologyKeys || !(mode in counts.keySet()) ||
+                    topology.id != "${minecraft}-${kernel}-${mode}" ||
+                    !topologyIds.add(topology.id) || !expectedCompatibility.containsKey(minecraft) ||
+                    !(kernel in expectedCompatibility[minecraft]) ||
+                    dependencies.size() != dependencies.toSet().size()) {
+                errors.add("${topology.id}: invalid server plugin topology identity")
+                return
+            }
+            counts[mode] = counts[mode] + 1
+            Set expectedPortKeys = mode == 'standalone'
+                    ? ['server'] as Set : ['proxy', 'lobby', 'target'] as Set
+            if ((topologyPorts.keySet() as Set) != expectedPortKeys ||
+                    topologyPorts.values().any { !(it instanceof Integer) }) {
+                errors.add("${topology.id}: topology ports differ from mode schema")
+            } else {
+                ports.addAll(topologyPorts.values().collect { it as int })
+            }
+            if (mode == 'standalone' && dependencies != []) {
+                errors.add("${topology.id}: standalone topology must not install proxy dependencies")
+            }
+            if (mode == 'velocity' &&
+                    (kernel != 'paper' || dependencies != ['velocity'])) {
+                errors.add("${topology.id}: Velocity representative topology requires Paper")
+            }
+            if (mode == 'bungeecord') {
+                List expectedDependencies = minecraft == '1.20.1' && kernel == 'spigot'
+                        ? ['bungeecord', 'bungeeguard', 'protocollib']
+                        : ['bungeecord', 'bungeeguard']
+                boolean representative = kernel == 'paper' ||
+                        (minecraft == '1.20.1' && kernel == 'spigot')
+                if (!representative || dependencies != expectedDependencies) {
+                    errors.add("${topology.id}: invalid BungeeCord dependency set")
+                }
+            }
+            if (kernel == 'craftbukkit' && mode != 'standalone') {
+                errors.add("${topology.id}: CraftBukkit is standalone-only")
+            }
+            if (kernel == 'spigot' && !(minecraft == '1.20.1' && mode != 'velocity')) {
+                errors.add("${topology.id}: Spigot is supported only on 1.20.1 outside Velocity")
+            }
+        }
+        if (topologies.size() != rawTopologies.size() || topologies.size() != 30 ||
+                counts != [standalone: 17, velocity: 6, bungeecord: 7]) {
+            errors.add('serverPluginTopologies must contain 17 standalone, 6 Velocity, and 7 BungeeCord runs')
+        }
+        Set<Integer> modPorts = (catalog.targets as List).collectMany { Map target ->
+            targetRuntimeSpecs(target).collect { (it.serverPort as Number).intValue() }
+        } as Set<Integer>
+        if (ports != (26000..26055).toList() || ports.toSet().size() != 56 ||
+                !ports.toSet().intersect(modPorts).isEmpty()) {
+            errors.add('server plugin ports must be ordered, unique 26000..26055, and disjoint from mod runs')
         }
     }
 
@@ -952,14 +1180,17 @@ final class CatalogTools {
             return
         }
         Map compatibility = raw as Map
-        if ((compatibility.keySet() as Set) != ['minecraftVersions', 'loaderVersions'] as Set ||
+        if ((compatibility.keySet() as Set) !=
+                ['minecraftVersions', 'loaderVersions', 'serverPorts'] as Set ||
                 !(compatibility.minecraftVersions instanceof List) ||
-                !(compatibility.loaderVersions instanceof Map)) {
+                !(compatibility.loaderVersions instanceof Map) ||
+                !(compatibility.serverPorts instanceof Map)) {
             errors.add("${target.id}: invalid compatibility declaration")
             return
         }
         List versions = compatibility.minecraftVersions as List
         Map loaderVersions = compatibility.loaderVersions as Map
+        Map serverPorts = compatibility.serverPorts as Map
         if (!versions || versions.any { !(it instanceof String) || it.isBlank() } ||
                 versions.size() != versions.toSet().size()) {
             errors.add("${target.id}: compatibility Minecraft versions must be unique non-empty strings")
@@ -971,8 +1202,17 @@ final class CatalogTools {
                 loaderVersions.values().any { !(it instanceof String) || it.isBlank() }) {
             errors.add("${target.id}: compatibility loader versions must exactly follow Minecraft versions")
         }
+        if ((serverPorts.keySet() as List) != versions ||
+                serverPorts.values().any { !(it instanceof Number) ||
+                    (it as int) < 1 || (it as int) > 65535 } ||
+                serverPorts.values().size() != serverPorts.values().toSet().size()) {
+            errors.add("${target.id}: compatibility server ports must exactly follow Minecraft versions")
+        }
         if (loaderVersions[minecraft] != loaderDeclaration.version) {
             errors.add("${target.id}: compatibility baseline loader must equal the build dependency")
+        }
+        if (serverPorts[minecraft] != target.development.serverPort) {
+            errors.add("${target.id}: compatibility baseline port must equal the development port")
         }
         if (!(loader in ['fabric', 'neoforge'])) {
             errors.add("${target.id}: compatibility is supported only for Fabric and NeoForge")
@@ -988,7 +1228,29 @@ final class CatalogTools {
             throw new IllegalArgumentException(
                     "${target.id}: unsupported compatibility Minecraft version ${minecraftVersion}")
         }
-        [minecraftVersion: minecraftVersion, loaderVersion: compatibility.loaderVersions[minecraftVersion]]
+        [minecraftVersion: minecraftVersion,
+         loaderVersion: compatibility.loaderVersions[minecraftVersion],
+         serverPort: compatibility.serverPorts[minecraftVersion]]
+    }
+
+    static List<Map> targetRuntimeSpecs(Map target) {
+        if (!(target.compatibility instanceof Map)) {
+            return [[target: target,
+                     minecraftVersion: target.minecraft.version.toString(),
+                     loaderVersion: target.loader.version.toString(),
+                     serverPort: (target.development.serverPort as Number).intValue(),
+                     baseline: true]]
+        }
+        String baseline = target.minecraft.version.toString()
+        (target.compatibility.minecraftVersions as List).collect { Object rawVersion ->
+            String version = rawVersion.toString()
+            Map runtime = compatibilityRuntime(target, version)
+            [target: target,
+             minecraftVersion: version,
+             loaderVersion: runtime.loaderVersion.toString(),
+             serverPort: (runtime.serverPort as Number).intValue(),
+             baseline: version == baseline]
+        }
     }
 
     static void validateAbi(File repositoryRoot, Map catalog, List<String> errors) {

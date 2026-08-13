@@ -28,14 +28,17 @@ final class CompatibilityHarness {
         ])) + '\n', StandardCharsets.UTF_8.name())
     }
 
-    static void run(File root, Map catalog, Map target, String modVersion, String minecraftVersion, String kind) {
+    static void run(
+            File root, Map catalog, Map target, String modVersion,
+            String minecraftVersion, String kind, boolean dryRun) {
         Map result = prepareAndResolve(root, catalog, target, modVersion, minecraftVersion)
         File harness = result.directory as File
-        if (kind == 'Server') {
-            File eula = new File(harness, 'run/eula.txt')
-            eula.parentFile.mkdirs()
-            eula.setText('eula=true\n', StandardCharsets.UTF_8.name())
-            new File(harness, 'run/logs/latest.log').delete()
+        File gameDirectory = RunLayout.modDirectory(root, target, minecraftVersion, kind)
+        if (!dryRun && kind == 'Server') {
+            RunDirectorySupport.prepareTargetServer(root, catalog, target, minecraftVersion)
+            new File(gameDirectory, 'logs/latest.log').delete()
+        } else if (!dryRun) {
+            RunDirectorySupport.prepareClients(root, catalog, minecraftVersion)
         }
         File wrapper = TargetRuntime.wrapper(root, catalog, target)
         List<String> command = [
@@ -43,10 +46,11 @@ final class CompatibilityHarness {
                 '-p',
                 harness.absolutePath,
                 '--no-daemon',
-                "run${kind}".toString()]
+                kind == 'LicensedClient' ? 'runClientLicensed' : "run${kind}".toString()]
         if (kind == 'Server' && target.loader.id == 'fabric') {
-            command.add("--args=--nogui --port ${target.development.serverPort}".toString())
+            command.add("--args=--nogui --port ${result.serverPort}".toString())
         }
+        if (dryRun) command.add('--dry-run')
         execute(command, root, target, "compatibility ${minecraftVersion} run${kind}")
     }
 
@@ -85,7 +89,8 @@ final class CompatibilityHarness {
         if (before != after) {
             throw new IllegalStateException("${target.id}: production JAR changed during compatibility resolution")
         }
-        [directory: harness, minecraftVersion: minecraftVersion, loaderVersion: runtime.loaderVersion, sha256: after]
+        [directory: harness, minecraftVersion: minecraftVersion,
+         loaderVersion: runtime.loaderVersion, serverPort: runtime.serverPort, sha256: after]
     }
 
     private static String settings(Map target) {
@@ -105,7 +110,19 @@ rootProject.name = 'nclskins-${target.id}-compatibility'
 
     static String buildFile(File root, Map catalog, Map target, Map runtime, File production) {
         String escapedJar = production.canonicalPath.replace('\\', '\\\\').replace("'", "\\'")
+        Map<String, String> runDirectories = [
+                client: RunLayout.modDirectory(root, target, runtime.minecraftVersion.toString(), 'Client')
+                        .canonicalPath,
+                licensed: RunLayout.modDirectory(root, target, runtime.minecraftVersion.toString(), 'LicensedClient')
+                        .canonicalPath,
+                server: RunLayout.modDirectory(root, target, runtime.minecraftVersion.toString(), 'Server')
+                        .canonicalPath
+        ].collectEntries { String key, String value ->
+            [(key): value.replace('\\', '\\\\').replace("'", "\\'")]
+        }
         List<String> clientArguments = CatalogTools.clientArguments(catalog)
+        String licensedProfile = CatalogTools.licensedClientProfile(
+                catalog, target.loader.id.toString())
         if (target.loader.id == 'fabric') {
             return """plugins {
     id 'net.fabricmc.fabric-loom' version '${targetCatalogPlugin(root, 'loom')}'
@@ -114,11 +131,28 @@ loom {
     accessWidenerPath = file('src/main/resources/${target.metadata.accessWidener}')
     runs {
         client {
+            runDir '${runDirectories.client}'
             programArgs ${groovyStringList(clientArguments)}
+        }
+        clientLicensed {
+            client()
+            runDir '${runDirectories.licensed}'
+            mainClass.set('net.covers1624.devlogin.DevLogin')
+            property 'devlogin.launch_target', 'net.fabricmc.loader.impl.launch.knot.KnotClient'
+            property 'devlogin.launch_profile', '${licensedProfile}'
+            property 'devlogin.storage', new File(System.getProperty('user.home'),
+                    '.devlogin/${licensedProfile}').absolutePath
+        }
+        server {
+            runDir '${runDirectories.server}'
         }
     }
 }
+tasks.named('runServer', JavaExec) {
+    standardInput = System.in
+}
 repositories {
+    maven { url = 'https://maven.covers1624.net/' }
     maven { url = 'https://maven.fabricmc.net/' }
     maven { url = 'https://api.modrinth.com/maven' }
     mavenCentral()
@@ -128,9 +162,9 @@ dependencies {
     implementation 'net.fabricmc:fabric-loader:${runtime.loaderVersion}'
     implementation 'net.fabricmc.fabric-api:fabric-api:${target.loader.apiVersion}'
     localRuntime 'maven.modrinth:modmenu:${target.loader.modMenuVersion}'
+    localRuntime 'net.covers1624:DevLogin:${catalog.plugins.devLogin}'
     runtimeOnly files('${escapedJar}')
 }
-${serverStopHarness()}
 tasks.register('resolveCompatibilityRuntime') {
     doLast {
         configurations.runtimeClasspath.resolve()
@@ -157,20 +191,32 @@ neoForge {
     runs {
         client {
             client()
+            gameDirectory = file('${runDirectories.client}')
             ${clientArguments.collect { "programArgument '${it}'" }.join('\n            ')}
+        }
+        clientLicensed {
+            client()
+            gameDirectory = file('${runDirectories.licensed}')
+            devLogin = true
+            systemProperty 'devlogin.launch_profile', '${licensedProfile}'
+            systemProperty 'devlogin.storage', new File(System.getProperty('user.home'),
+                    '.devlogin/${licensedProfile}').absolutePath
         }
         server {
             server()
+            gameDirectory = file('${runDirectories.server}')
             programArgument '--nogui'
             programArgument '--port'
-            programArgument '${target.development.serverPort}'
+            programArgument '${runtime.serverPort}'
         }
     }
+}
+tasks.named('runServer', JavaExec) {
+    standardInput = System.in
 }
 dependencies {
     runtimeOnly files('${escapedJar}')
 }
-${serverStopHarness()}
 tasks.register('resolveCompatibilityRuntime') {
     dependsOn tasks.named('createMinecraftArtifacts')
     doLast {
@@ -193,28 +239,6 @@ tasks.register('resolveCompatibilityRuntime') {
             if (entry == null) throw new IllegalStateException("${target.id}: production JAR lacks ${path}")
             output.bytes = archive.getInputStream(entry).bytes
         }
-    }
-
-    private static String serverStopHarness() {
-        """def nclskinsServerInput = new PipedInputStream()
-def nclskinsServerCommands = new PipedOutputStream(nclskinsServerInput)
-tasks.named('runServer', JavaExec) {
-    standardInput = nclskinsServerInput
-    doFirst {
-        Thread.startDaemon('nclskins-compatibility-server-stop') {
-            File log = file('run/logs/latest.log')
-            for (int attempt = 0; attempt < 600; attempt++) {
-                if (log.isFile() && log.getText('UTF-8').contains('Done (')) {
-                    nclskinsServerCommands.write('stop\\n'.getBytes('UTF-8'))
-                    nclskinsServerCommands.flush()
-                    return
-                }
-                Thread.sleep(500)
-            }
-        }
-    }
-}
-"""
     }
 
     private static String targetCatalogPlugin(File root, String key) {

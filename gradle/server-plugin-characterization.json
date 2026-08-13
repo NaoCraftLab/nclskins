@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "modVersion": "1.0.0-beta.2",
+  "capturedBeforeServerPluginImplementation": true,
+  "productionJarSha256": {
+    "fabric-1.20.1": "1c5bf5a10d11055a120ffaa405899acb8012ad0dd0fa97d6bd9b5225438b51d0",
+    "forge-1.20.1": "35906cc3d65ac534d3bb568f70af52910712a7dcf1ccb8b02716196bc095d53d",
+    "fabric-1.21.1": "ebb42778b85471af5f5e47213ec4739fa7b0df0fbb3c0f794d4bc242273b85b4",
+    "neoforge-1.21.1": "d9bf8d1bf3c6bbdd2f6c7e1aa3284bb588bcf87e64d3c9b0a56c04f59d38b3bf",
+    "fabric-1.21.11": "53bc9a6b223dbae68111294b6d2f62dc4471c8c2cbb5ff0dee173987ff09463c",
+    "neoforge-1.21.11": "08b2aaf312975fa081570d49644d0930f9519fdae772693142c48f5905347e38",
+    "fabric-26.1": "fea866cc32eda0f9d0b843d442f51d3ffd474798bea9c9081733f9b542221b62",
+    "neoforge-26.1": "4b8410007f699713fd79c628bf7b25058e71df3f49b9b76d416bb888c7d2e664",
+    "fabric-26.2": "aeb1db4733fb8a120d3b585cf6a612880044e1475d3d2e8cffdf43c868919827",
+    "neoforge-26.2": "ed632eff2734fa9bc34ba30f8670867d5c345db099f47f63825e83a098a0b492",
+    "fabric-26.3": "319833b63fd4dbfcad23b139f2b7ba0741081569ed8f7ce5a70d5decdf581eef"
+  },
+  "sortedEntryNamesSha256": {
+    "fabric-1.20.1": "c34d6829a0412e19ff001dfcc5eee65688ac711b1f4184b6f7c59286c16ad3d7",
+    "forge-1.20.1": "a1f57e8c6ba219254ac88f8e021823bfe94d45b0a9c96f3764943bcf9fda7fb3",
+    "fabric-1.21.1": "c2f10d98f4fa7c1252d888f0d174a5cd0cc59d9845c2293c1122ea3254753678",
+    "neoforge-1.21.1": "13d2599061b326c89ae288ff1b7ce02c815d6ea57f1967b3a2e88cd253a88576",
+    "fabric-1.21.11": "ad59465e4787c729b85a824715291954f3f7464f0109cde444ecb4d18d28ee95",
+    "neoforge-1.21.11": "aca95525644b135883192ac90ae91c27a49fa0ec19dd5aa7a79ed25edda5f4c6",
+    "fabric-26.1": "3a2e99f2036788bb3c649b7ae1a3594b610cd1b5e244b8d3d5fb4484c6f980ff",
+    "neoforge-26.1": "01bdec35a2d01e11b0ef35fa7b37ceff30ad1011a2453c3c12bb6c26ac6ae379",
+    "fabric-26.2": "3a2e99f2036788bb3c649b7ae1a3594b610cd1b5e244b8d3d5fb4484c6f980ff",
+    "neoforge-26.2": "01bdec35a2d01e11b0ef35fa7b37ceff30ad1011a2453c3c12bb6c26ac6ae379",
+    "fabric-26.3": "3a2e99f2036788bb3c649b7ae1a3594b610cd1b5e244b8d3d5fb4484c6f980ff"
+  },
+  "invariants": [
+    "actor-is-never-an-observer-recipient",
+    "actor-receives-no-respawn-or-self-refresh",
+    "observer-failure-does-not-block-other-observers",
+    "late-tracking-uses-the-updated-live-profile"
+  ]
+}

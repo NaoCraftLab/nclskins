@@ -166,6 +166,70 @@ final class PublicationLogicTest {
     }
 
     @Test
+    void serverPluginUsesSeparateProjectsAndOneTruthfulUniversalUpload() {
+        Map artifact = [file: 'nclskins-server-1.2.3-beta.4.jar', kind: 'server-plugin',
+                        size: 3, sha1: 'a' * 40, sha256: 'b' * 64, sha512: 'c' * 128]
+        Map sources = [file: 'nclskins-server-1.2.3-beta.4-sources.jar',
+                       kind: 'server-plugin-sources', size: 4,
+                       sha1: 'd' * 40, sha256: 'e' * 64, sha512: 'f' * 128]
+        Map target = [
+                id: 'server-plugin', kind: 'server-plugin',
+                name: 'NCL Skins Plugin 1.2.3-beta.4', versionNumber: '1.2.3-beta.4',
+                channel: 'beta', environment: 'server', javaRelease: 17,
+                minecraftVersion: '1.20.1',
+                gameVersions: [
+                    '1.20.1', '1.21.1', '1.21.11', '26.1.1', '26.1.2', '26.2'],
+                loaders: ['paper', 'purpur', 'velocity', 'bungeecord'],
+                dependencies: [modrinth: [], curseforge: []],
+                platforms: [modrinth: [projectId: 'plugin-modrinth', slug: 'nclskins-plugin'],
+                            curseforge: [projectId: 999, slug: 'nclskins-plugin']],
+                releaseNotes: 'Server changes\n', asset: artifact, sourcesAsset: sources]
+        Map rootManifest = [targets: [], releaseNotes: [text: 'Mod changes\n'],
+                            platforms: catalog.mod.platforms,
+                            serverPlugin: [publish: true, publication: target]]
+
+        assertEquals([target], PublishPlatformsTask.publicationTargets(rootManifest))
+        Map view = PublishPlatformsTask.manifestForTarget(rootManifest, target)
+        assertEquals('plugin-modrinth', view.platforms.modrinth.projectId)
+        assertEquals('Server changes\n', view.releaseNotes.text)
+
+        Map modrinth = PublicationSupport.modrinthMetadata(view, target)
+        assertEquals(['paper', 'purpur', 'velocity', 'bungeecord'] as Set,
+                modrinth.loaders as Set)
+        assertEquals(target.gameVersions, modrinth.game_versions)
+        assertEquals('server_only', modrinth.environment)
+        assertEquals('plugin-modrinth', modrinth.project_id)
+
+        Map curseForge = PublicationSupport.curseForgeMetadata(view, target)
+        assertEquals(target.gameVersions + ['Server', 'Java 17'], curseForge.gameVersionNames)
+        assertEquals(999, view.platforms.curseforge.projectId)
+        assertFalse(curseForge.gameVersionNames.any {
+            it in ['Paper', 'Purpur', 'Velocity', 'BungeeCord', 'Folia']
+        })
+
+        Map exactModrinth = [
+                id: 'plugin-version', name: target.name,
+                version_number: target.versionNumber, version_type: target.channel,
+                game_versions: target.gameVersions, loaders: target.loaders,
+                environment: 'server_only', dependencies: [],
+                files: [[filename: artifact.file, primary: true, file_type: null,
+                         hashes: [sha512: artifact.sha512]],
+                        [filename: sources.file, primary: false, file_type: 'sources-jar',
+                         hashes: [sha512: sources.sha512]]]]
+        Map exactCurse = [id: 71, displayName: target.name, releaseType: 2,
+                          gameVersions: curseForge.gameVersionNames, fileName: artifact.file,
+                          dependencies: [], hashes: [[algo: 1, value: artifact.sha1]]]
+        Map exactCurseSources = [id: 72, parentProjectFileId: 71,
+                                 displayName: "${target.name} Sources",
+                                 releaseType: 2, gameVersions: [], fileName: sources.file,
+                                 dependencies: [], hashes: [[algo: 1, value: sources.sha1]]]
+        assertEquals('skip', PublicationSupport.classify(
+                'modrinth', target, [exactModrinth]).action)
+        assertEquals('skip', PublicationSupport.classify(
+                'curseforge', target, [exactCurse, exactCurseSources]).action)
+    }
+
+    @Test
     void duplicateTargetContentsAndUnexpectedBackfillAssetsFail() {
         Map first = desired('fabric-1.20.1')
         Map second = desired('forge-1.20.1')
@@ -201,15 +265,21 @@ final class PublicationLogicTest {
             Files.write(sources.toPath(), 'sources'.bytes)
             Files.writeString(notes.toPath(), 'Changes\n')
             Map modAsset = asset(mod, 'mod', 'fabric-1.20.1')
-            Map sourcesAsset = asset(sources, 'sources', null)
+            Map sourcesAsset = asset(sources, 'mod-sources', null)
             Map target = AssembleReleaseTask.publicationTarget(
                     catalog, CatalogTools.selectTarget(catalog, 'fabric-1.20.1'), release,
                     modAsset, sourcesAsset)
             Map manifest = [
-                    schemaVersion: 2, mode: 'tag', version: release.version, channel: release.channel,
+                    schemaVersion: 3, mode: 'tag', version: release.version, channel: release.channel,
                     prerelease: true, sourceCommit: 'abc', baseTag: '1.2.3-beta.3', targetCount: 1,
                     selectedTargetIds: ['fabric-1.20.1'], platforms: catalog.mod.platforms,
                     releaseNotes: [file: notes.name, sha256: ReleaseBundle.sha256(notes), text: 'Changes\n'],
+                    serverPlugin: [publish: false, reason: 'unchanged',
+                                   activeVersion: '1.0.0', previousActiveVersion: '1.0.0',
+                                   currentFingerprint: 'a' * 64, activeFingerprint: 'a' * 64,
+                                   protocolIds: ['command-v1'], matrixId: 'official-v1',
+                                   artifact: null, sourcesArtifact: null, publication: null,
+                                   publications: [:]],
                     targets: [target], assets: [modAsset, sourcesAsset]
             ]
             Files.writeString(new File(bundle, 'release-manifest.json').toPath(), JsonOutput.toJson(manifest))
@@ -225,7 +295,7 @@ final class PublicationLogicTest {
     @Test
     void githubPlanKeepsExactAssetsAddsMissingAndProtectsBackfillJars() {
         Map mod = [file: 'nclskins-1.2.3-fabric.jar', kind: 'mod', sha256: 'a' * 64]
-        Map sources = [file: 'nclskins-1.2.3-sources.jar', kind: 'sources', sha256: 'b' * 64]
+        Map sources = [file: 'nclskins-1.2.3-sources.jar', kind: 'mod-sources', sha256: 'b' * 64]
         Map manifest = [mode: 'backfill', assets: [mod, sources]]
         Closure<String> hash = { Map remote -> remote.sha256 }
 
@@ -246,9 +316,9 @@ final class PublicationLogicTest {
                 [id: 2, name: sources.file, sha256: 'd' * 64],
                 [id: 3, name: 'old-target.jar', sha256: 'e' * 64]
         ], hash)
-        assertEquals(2, conflict.conflicts.size())
+        assertEquals(3, conflict.conflicts.size())
         assertEquals('conflict', conflict.actions.find { it.file == mod.file }.action)
-        assertEquals('replace', conflict.actions.find { it.file == sources.file }.action)
+        assertEquals('conflict', conflict.actions.find { it.file == sources.file }.action)
         assertEquals('conflict', conflict.actions.find { it.file == 'old-target.jar' }.action)
 
         manifest.mode = 'tag'
@@ -256,8 +326,8 @@ final class PublicationLogicTest {
                 [id: 1, name: mod.file, sha256: 'c' * 64],
                 [id: 3, name: 'old-target.jar', sha256: 'e' * 64]
         ], hash)
-        assertEquals('replace', tagPlan.actions.find { it.file == mod.file }.action)
-        assertEquals('delete', tagPlan.actions.find { it.file == 'old-target.jar' }.action)
+        assertEquals('conflict', tagPlan.actions.find { it.file == mod.file }.action)
+        assertEquals('conflict', tagPlan.actions.find { it.file == 'old-target.jar' }.action)
     }
 
     @Test

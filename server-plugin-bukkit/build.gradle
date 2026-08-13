@@ -1,0 +1,31 @@
+plugins {
+    id 'java-library'
+}
+
+def packaging = rootProject.extensions.extraProperties
+        .get('nclskinsTargetCatalog').serverPlugin.packaging
+
+repositories {
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    api project(':server-plugin-common')
+    implementation project(':server-configuration')
+    implementation project(':server-runtime')
+    implementation project(':server-vanilla-publication')
+    compileOnly "io.papermc.paper:paper-api:${packaging.paperApi}"
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+sourceSets.main.java.srcDirs += [
+    rootProject.file('server-plugin-adapters/legacy-1.20.1/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-1.20.1/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-1.21.1/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-1.21.11/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-26.1/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-26.2/src/main/java')
+]

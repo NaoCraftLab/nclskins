@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
 
 public final class Json5ConfigurationRepository {
     public static final String CLIENT_FILE_NAME = "nclskins-client.json5";
-    public static final String SERVER_FILE_NAME = "nclskins-server.json5";
+    public static final String SERVER_FILE_NAME = ServerConfigurationRepository.FILE_NAME;
 
     private static final long MAX_DOCUMENT_BYTES = 256L * 1024L;
     private static final Pattern SCALAR_ASSIGNMENT = Pattern.compile(
@@ -57,13 +57,7 @@ public final class Json5ConfigurationRepository {
     }
 
     public synchronized ServerConfiguration loadServer() {
-        Path file = configurationDirectory.resolve(SERVER_FILE_NAME);
-        String existing = read(file);
-        ServerConfiguration configuration = existing == null
-                ? ServerConfiguration.defaults()
-                : parseServer(existing);
-        rewriteIfNeeded(file, existing, writeServer(configuration));
-        return configuration;
+        return serverRepository().load();
     }
 
     public synchronized void saveClient(ClientConfiguration configuration) {
@@ -72,8 +66,7 @@ public final class Json5ConfigurationRepository {
     }
 
     public synchronized void saveServer(ServerConfiguration configuration) {
-        rewrite(configurationDirectory.resolve(SERVER_FILE_NAME), writeServer(
-                Objects.requireNonNull(configuration, "configuration")));
+        serverRepository().save(configuration);
     }
 
     public String canonicalClient(ClientConfiguration configuration) {
@@ -81,7 +74,11 @@ public final class Json5ConfigurationRepository {
     }
 
     public String canonicalServer(ServerConfiguration configuration) {
-        return writeServer(Objects.requireNonNull(configuration, "configuration"));
+        return serverRepository().canonical(configuration);
+    }
+
+    private ServerConfigurationRepository serverRepository() {
+        return new ServerConfigurationRepository(configurationDirectory, descriptions::get);
     }
 
     private String read(Path file) {
@@ -127,46 +124,6 @@ public final class Json5ConfigurationRepository {
         return new ClientConfiguration(
                 new ClientConfiguration.MenuPreview(titleScreen, pauseMenu),
                 new ClientConfiguration.Storage(dataDirectory));
-    }
-
-    private ServerConfiguration parseServer(String document) {
-        ServerConfiguration defaults = ServerConfiguration.defaults();
-        ScalarScanner scanner = new ScalarScanner(document);
-        JsonObject root = parseObject(document).orElse(null);
-        ServerConfiguration.RealtimeRefresh defaultRefresh = defaults.realtimeRefresh();
-
-        boolean enabled = booleanValue(
-                root, scanner, defaultRefresh.enabled(), "enabled", "realtimeRefresh");
-        boolean trustedProxy = booleanValue(
-                root,
-                scanner,
-                defaultRefresh.trustedProxyForwarding(),
-                "trustedProxyForwarding",
-                "realtimeRefresh");
-        int maxConcurrent = positiveIntegerValue(
-                root,
-                scanner,
-                defaultRefresh.maxConcurrentLookups(),
-                "maxConcurrentLookups",
-                "realtimeRefresh");
-        double lookupRate = positiveDoubleValue(
-                root,
-                scanner,
-                defaultRefresh.lookupRatePerSecond(),
-                "lookupRatePerSecond",
-                "realtimeRefresh");
-        int lookupBurst = positiveIntegerValue(
-                root,
-                scanner,
-                defaultRefresh.lookupBurst(),
-                "lookupBurst",
-                "realtimeRefresh");
-        return new ServerConfiguration(new ServerConfiguration.RealtimeRefresh(
-                enabled,
-                trustedProxy,
-                maxConcurrent,
-                lookupRate,
-                lookupBurst));
     }
 
     private static Optional<JsonObject> parseObject(String document) {
@@ -216,54 +173,6 @@ public final class Json5ConfigurationRepository {
                 .orElse(fallback);
     }
 
-    private static int positiveIntegerValue(
-            JsonObject root,
-            ScalarScanner scanner,
-            int fallback,
-            String field,
-            String... parents) {
-        if (scanner.count(field) != 1) {
-            return fallback;
-        }
-        JsonElement value = nested(root, field, parents);
-        Integer parsed = null;
-        try {
-            if (value != null && value.isJsonPrimitive()
-                    && value.getAsJsonPrimitive().isNumber()) {
-                parsed = value.getAsInt();
-            } else {
-                parsed = scanner.single(field).map(Integer::valueOf).orElse(null);
-            }
-        } catch (RuntimeException invalid) {
-            parsed = null;
-        }
-        return parsed != null && parsed > 0 ? parsed : fallback;
-    }
-
-    private static double positiveDoubleValue(
-            JsonObject root,
-            ScalarScanner scanner,
-            double fallback,
-            String field,
-            String... parents) {
-        if (scanner.count(field) != 1) {
-            return fallback;
-        }
-        JsonElement value = nested(root, field, parents);
-        Double parsed = null;
-        try {
-            if (value != null && value.isJsonPrimitive()
-                    && value.getAsJsonPrimitive().isNumber()) {
-                parsed = value.getAsDouble();
-            } else {
-                parsed = scanner.single(field).map(Double::valueOf).orElse(null);
-            }
-        } catch (RuntimeException invalid) {
-            parsed = null;
-        }
-        return parsed != null && Double.isFinite(parsed) && parsed > 0.0d ? parsed : fallback;
-    }
-
     private static JsonElement nested(JsonObject root, String field, String... parents) {
         if (root == null) {
             return null;
@@ -308,29 +217,6 @@ public final class Json5ConfigurationRepository {
         appendComment(out, 4, ConfigurationDescriptions.CLIENT_DATA_DIRECTORY);
         out.append("    \"dataDirectory\": ")
                 .append(quote(configuration.storage().dataDirectory())).append("\n");
-        out.append("  }\n");
-        out.append("}\n");
-        return out.toString();
-    }
-
-    private String writeServer(ServerConfiguration configuration) {
-        ServerConfiguration.RealtimeRefresh refresh = configuration.realtimeRefresh();
-        StringBuilder out = new StringBuilder(1_024);
-        out.append("{\n");
-        out.append("  \"realtimeRefresh\": {\n");
-        appendComment(out, 4, ConfigurationDescriptions.SERVER_ENABLED);
-        out.append("    \"enabled\": ").append(refresh.enabled()).append(",\n\n");
-        appendComment(out, 4, ConfigurationDescriptions.SERVER_TRUSTED_PROXY);
-        out.append("    \"trustedProxyForwarding\": ")
-                .append(refresh.trustedProxyForwarding()).append(",\n\n");
-        appendComment(out, 4, ConfigurationDescriptions.SERVER_MAX_CONCURRENT);
-        out.append("    \"maxConcurrentLookups\": ")
-                .append(refresh.maxConcurrentLookups()).append(",\n\n");
-        appendComment(out, 4, ConfigurationDescriptions.SERVER_LOOKUP_RATE);
-        out.append("    \"lookupRatePerSecond\": ")
-                .append(Double.toString(refresh.lookupRatePerSecond())).append(",\n\n");
-        appendComment(out, 4, ConfigurationDescriptions.SERVER_LOOKUP_BURST);
-        out.append("    \"lookupBurst\": ").append(refresh.lookupBurst()).append("\n");
         out.append("  }\n");
         out.append("}\n");
         return out.toString();

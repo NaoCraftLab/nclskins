@@ -16,6 +16,7 @@ def abiFile = file('gradle/abi-fingerprints.json')
 def coverageFile = file('gradle/capability-semantic-coverage.json')
 def targetCatalog = nclskinsCatalogTools.loadCatalog(rootDir.toPath())
 def modVersion = nclskinsCatalogTools.loadVersion(versionFile.toPath())
+def serverPluginBuildJdk = targetCatalog.serverPlugin.packaging.buildJdk as int
 extensions.extraProperties.set('nclskinsTargetCatalog', targetCatalog)
 def requestedNewVersion = providers.gradleProperty('newVersion').orNull
 def targetIds = targetCatalog.targets.collect { it.id.toString() }
@@ -38,6 +39,11 @@ if (!(runDryRunText in ['true', 'false'])) {
     throw new GradleException("nclskinsRunDryRun must be true or false, got ${runDryRunText}")
 }
 def runDryRun = runDryRunText.toBoolean()
+def serverRunDryRunText = providers.gradleProperty('nclskinsServerRunDryRun').getOrElse('false')
+if (!(serverRunDryRunText in ['true', 'false'])) {
+    throw new GradleException("nclskinsServerRunDryRun must be true or false, got ${serverRunDryRunText}")
+}
+def serverRunDryRun = serverRunDryRunText.toBoolean()
 def targetRunLock = gradle.sharedServices.registerIfAbsent('nclskinsTargetRunLock', TargetRunLock) {
     maxParallelUsages.set(1)
 }
@@ -76,7 +82,13 @@ subprojects {
     apply plugin: 'java-library'
     java {
         toolchain {
-            languageVersion = JavaLanguageVersion.of(17)
+            languageVersion = JavaLanguageVersion.of(
+                    project.name in [
+                            'server-configuration', 'server-contract', 'server-runtime',
+                            'server-vanilla-publication', 'server-plugin-common',
+                            'server-plugin-bukkit', 'server-plugin-velocity',
+                            'server-plugin-bungee', 'server-plugin'
+                    ] ? serverPluginBuildJdk : 17)
         }
         withSourcesJar()
     }
@@ -109,6 +121,13 @@ def verifyTargetCatalog = tasks.register('verifyTargetCatalog', VerifyCatalogTas
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
     delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
+}
+
+tasks.register('buildServerPlugin') {
+    group = 'build'
+    description = 'Builds and verifies the one universal NCL Skins Plugin JAR.'
+    dependsOn project(':server-plugin').tasks.named('verifyServerPluginArtifact')
+    dependsOn project(':server-plugin').tasks.named('sourcesJar')
 }
 
 def verifyCapabilitySemantics = tasks.register('verifyCapabilitySemantics', VerifySemanticsTask) {
@@ -159,11 +178,65 @@ tasks.register('probeCapabilityReuse', CapabilityReuseProbeTask) {
             "reports/capability-reuse/${requestedTargetId ?: 'unspecified'}.json"))
 }
 
+def prepareRunDirectories = tasks.register('prepareRunDirectories', PrepareRunDirectoriesTask) {
+    group = 'ide'
+    description = 'Confirms managed backend EULAs/operators and writes catalog-driven client server lists.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    outputs.upToDateWhen { false }
+}
+
 tasks.register('generateIdeaRunConfigurations', GenerateIdeaRunConfigurationsTask) {
     group = 'ide'
     description = 'Generates catalog-driven IntelliJ client and server Gradle run configurations.'
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     outputDirectory.set(layout.projectDirectory.dir('.idea/runConfigurations'))
+    workspaceFile.set(layout.projectDirectory.file('.idea/workspace.xml'))
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('migrateRunDirectories', MigrateRunDirectoriesTask) {
+    group = 'ide'
+    description = 'Moves legacy target and server-plugin run state into the canonical root runs layout.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+}
+
+tasks.register('acceptServerRuntimeEula', AcceptServerRuntimeEulaTask) {
+    group = 'application'
+    description = 'Records explicit local acceptance of the Minecraft EULA for managed test runtimes.'
+    accepted.set(providers.gradleProperty('nclskinsAcceptMinecraftEula').map { it == 'true' }.orElse(false))
+    markerFile.set(layout.projectDirectory.file(ServerPluginRuntimeSupport.EULA_MARKER))
+}
+
+tasks.register('resetServerPluginBuildToolsRuntime', ResetServerPluginBuildToolsRuntimeTask) {
+    group = 'application'
+    description = 'Moves one local BuildTools result to recoverable runtime trash.'
+    repositoryDirectory.set(layout.projectDirectory)
+    kernel.set(providers.gradleProperty('serverPluginKernel').orElse(''))
+}
+
+targetCatalog.serverPluginTopologies.each { Map topology ->
+    String taskName = ServerPluginRuntimeSupport.taskName(topology)
+    tasks.register(taskName, ServerPluginRunTask) {
+        group = 'application'
+        description = "Runs managed NCL Skins Plugin topology ${topology.id} (${topology.mode})."
+        dependsOn tasks.named('buildServerPlugin')
+        repositoryDirectory.set(layout.projectDirectory)
+        delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+        pluginArtifact.set(layout.projectDirectory.file(
+                "server-plugin/build/libs/nclskins-server-${modVersion}.jar"))
+        topologyId.set(topology.id.toString())
+        dryRun.set(serverRunDryRun)
+    }
+    String resetName = "reset${taskName.substring(3)}Runtime"
+    tasks.register(resetName, ResetServerPluginRuntimeTask) {
+        group = 'application'
+        description = "Moves mutable state for ${topology.id} to recoverable .trash."
+        repositoryDirectory.set(layout.projectDirectory)
+        delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+        topologyId.set(topology.id.toString())
+    }
 }
 
 targetCatalog.targets.each { Map target ->
@@ -191,6 +264,35 @@ def configureTargetBuild = { TargetBuildTask task, List<String> ids, List<String
     task.verifyArtifacts.set(verify)
     task.collectArtifacts.set(collect)
     task.verifyCompatibility.set(false)
+}
+
+targetCatalog.targets.findAll { it.compatibility instanceof Map }.each { Map target ->
+    String loader = IdeaRunConfigurations.LOADERS[target.loader.id.toString()]
+    String baseline = target.minecraft.version.toString().replaceAll('[^A-Za-z0-9]', '')
+    def compatibilityBuild = tasks.register(
+            "buildCompatibilityRun${loader}${baseline}", TargetBuildTask) {
+        group = 'build setup'
+        description = "Builds ${target.id} once for its exact-version development runs."
+        configureTargetBuild(delegate, [target.id.toString()], ['build'], true, false)
+    }
+    nclskinsCatalogTools.targetRuntimeSpecs(target).findAll { !it.baseline }.each { Map runtime ->
+        IdeaRunConfigurations.RUN_KINDS.each { String runKind ->
+            tasks.register(IdeaRunConfigurations.taskName(
+                    target, runtime.minecraftVersion.toString(), runKind), CompatibilityRunTask) {
+                group = 'application'
+                description = "Runs the ${target.id} production JAR on exact Minecraft " +
+                        "${runtime.minecraftVersion} (${runKind})."
+                dependsOn compatibilityBuild
+                repositoryDirectory.set(layout.projectDirectory)
+                delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+                targetId.set(target.id.toString())
+                minecraftVersion.set(runtime.minecraftVersion.toString())
+                delegate.runKind.set(runKind)
+                dryRun.set(runDryRun)
+                usesService(targetRunLock)
+            }
+        }
+    }
 }
 
 tasks.register('buildTarget', TargetBuildTask) {
@@ -257,7 +359,7 @@ tasks.register('verifyRuntimeCompatibility', CompatibilityVerifyTask) {
     targetId.set(requestedTargetId ?: '')
 }
 
-['Client', 'Server'].each { String runKind ->
+['Client', 'LicensedClient', 'Server'].each { String runKind ->
     tasks.register("runCompatibility${runKind}", CompatibilityRunTask) {
         group = 'application'
         description = "Runs one production JAR in an isolated declared compatibility ${runKind.toLowerCase()}."
@@ -272,6 +374,7 @@ tasks.register('verifyRuntimeCompatibility', CompatibilityVerifyTask) {
         targetId.set(requestedTargetId ?: '')
         minecraftVersion.set(requestedMinecraftVersion ?: '')
         delegate.runKind.set(runKind)
+        dryRun.set(runDryRun)
         usesService(targetRunLock)
     }
 }
@@ -294,11 +397,28 @@ def fullCheck = tasks.register('fullCheck', TargetBuildTask) {
     verifyCompatibility.set(true)
 }
 
+def computeServerPluginReleaseState = tasks.register(
+        'computeServerPluginReleaseState', ComputeServerPluginReleaseStateTask) {
+    group = 'release setup'
+    description = 'Computes the sealed automatic server plugin publication decision.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    releaseTag.set(requestedReleaseTag ?: modVersion)
+    stateFile.set(layout.buildDirectory.file(
+            "release/${requestedReleaseTag ?: modVersion}/server-plugin-release-state.json"))
+    outputs.upToDateWhen { false }
+}
+
 def validateRelease = tasks.register('validateRelease', ValidateReleaseTask) {
     group = 'release setup'
     description = 'Validates a release tag, configured version, and matching changelog section.'
+    dependsOn computeServerPluginReleaseState
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
     changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
+    serverChangelogFile.set(layout.projectDirectory.file('SERVER_CHANGELOG.md'))
+    serverPluginStateFile.set(computeServerPluginReleaseState.flatMap { it.stateFile })
     releaseTag.set(requestedReleaseTag ?: '')
     releaseRoot.set(layout.buildDirectory.dir('release'))
     outputs.upToDateWhen { false }
@@ -309,10 +429,13 @@ tasks.register('assembleRelease', AssembleReleaseTask) {
     description = 'Runs the full gate and assembles a tag or backfill publication bundle.'
     dependsOn validateRelease
     dependsOn fullCheck
+    dependsOn tasks.named('buildServerPlugin')
     repositoryDirectory.set(layout.projectDirectory)
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
     changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
+    serverChangelogFile.set(layout.projectDirectory.file('SERVER_CHANGELOG.md'))
+    serverPluginStateFile.set(computeServerPluginReleaseState.flatMap { it.stateFile })
     releaseTag.set(requestedReleaseTag ?: '')
     releaseMode.set(requestedReleaseMode)
     if (requestedExistingReleaseAssets != null) {

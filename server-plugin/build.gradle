@@ -1,0 +1,113 @@
+plugins {
+    id 'com.naocraftlab.skins.build-tools'
+    id 'java-library'
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+def catalog = rootProject.extensions.extraProperties.get('nclskinsTargetCatalog')
+def pluginSpec = catalog.serverPlugin
+def packaging = pluginSpec.packaging
+def pluginVersion = project.version.toString()
+def artifactName = pluginSpec.artifact.toString().replace('{pluginVersion}', pluginVersion)
+def sourcesName = pluginSpec.sourcesArtifact.toString().replace('{pluginVersion}', pluginVersion)
+def serverFingerprint = providers.provider {
+    nclskinsServerPluginFingerprint.current(rootProject.rootDir, catalog)
+}
+
+dependencies {
+    implementation project(':server-plugin-bukkit')
+    implementation project(':server-plugin-velocity')
+    implementation project(':server-plugin-bungee')
+    implementation project(':server-plugin-common')
+    implementation project(':server-configuration')
+    implementation project(':server-contract')
+    implementation project(':server-runtime')
+    implementation project(':server-vanilla-publication')
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    inputs.property('pluginVersion', pluginVersion)
+    inputs.property('pluginName', pluginSpec.name.toString())
+    inputs.property('pluginMatrixId', pluginSpec.matrixId.toString())
+    inputs.property('serverFingerprint', serverFingerprint)
+    filesMatching(['plugin.yml', 'bungee.yml', 'velocity-plugin.json',
+                   'nclskins-server-plugin.json']) {
+        expand(
+            pluginVersion: pluginVersion,
+            pluginName: pluginSpec.name.toString(),
+            pluginMatrixId: pluginSpec.matrixId.toString(),
+            serverFingerprint: serverFingerprint.get())
+    }
+    from(rootProject.file('compat/resources/canonical/src/main/resources/assets/nclskins/lang/en_us.json')) {
+        into 'assets/nclskins/lang'
+    }
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+}
+
+tasks.named('jar', Jar).configure {
+    enabled = false
+}
+
+tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar).configure {
+    archiveFileName = artifactName
+    addMultiReleaseAttribute = false
+    relocate('com.google.gson', packaging.gsonRelocation.toString())
+    mergeServiceFiles()
+    reproducibleFileOrder = true
+    preserveFileTimestamps = false
+    manifest.attributes(
+        'Automatic-Module-Name': 'com.naocraftlab.skins.server.plugin',
+        'Implementation-Version': pluginVersion,
+        'paperweight-mappings-namespace': 'mojang')
+}
+
+tasks.named('sourcesJar', Jar).configure {
+    archiveFileName = sourcesName
+    reproducibleFileOrder = true
+    preserveFileTimestamps = false
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    [
+        project(':server-plugin-bukkit'),
+        project(':server-plugin-velocity'),
+        project(':server-plugin-bungee'),
+        project(':server-plugin-common'),
+        project(':server-configuration'),
+        project(':server-contract'),
+        project(':server-runtime'),
+        project(':server-vanilla-publication')
+    ].each { Project sourceProject ->
+        from(sourceProject.sourceSets.main.allSource)
+    }
+    doLast {
+        Set<String> names = new java.util.zip.ZipFile(archiveFile.get().asFile).withCloseable { zip ->
+            zip.entries().collect { it.name } as Set<String>
+        }
+        if (names.any { it.endsWith('.class') || it.startsWith('paper-') ||
+                it.startsWith('legacy-1.20.1/') }) {
+            throw new GradleException('Server plugin sources JAR contains compiled or raw module paths')
+        }
+        if (names.count { it.contains('/server/plugin/adapter/') &&
+                it.endsWith('NativeAdapter.java') } != 6) {
+            throw new GradleException('Server plugin sources JAR lacks exact native adapter sources')
+        }
+    }
+}
+
+tasks.named('assemble') {
+    dependsOn tasks.named('shadowJar')
+}
+
+def verifyServerPluginArtifact = tasks.register(
+        'verifyServerPluginArtifact', nclskinsVerifyServerPluginArtifactTaskType) {
+    group = 'verification'
+    description = 'Verifies the universal Bukkit, Velocity, and BungeeCord plugin JAR.'
+    dependsOn tasks.named('shadowJar')
+    repositoryDirectory.set(rootProject.layout.projectDirectory)
+    catalogFile.set(rootProject.layout.projectDirectory.file('gradle/targets.json'))
+    versionFile.set(rootProject.layout.projectDirectory.file('gradle/version.properties'))
+    artifactFile.set(tasks.named('shadowJar').flatMap { it.archiveFile })
+}
+
+tasks.named('check') {
+    dependsOn verifyServerPluginArtifact
+}

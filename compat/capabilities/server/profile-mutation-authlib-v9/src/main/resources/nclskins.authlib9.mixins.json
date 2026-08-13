@@ -3,6 +3,6 @@
   "minVersion": "0.8",
   "package": "com.naocraftlab.skins.compat.server.mixin",
   "mixins": [
-    "GameProfilePropertiesAccessor"
+    "PlayerGameProfileAccessor"
   ]
 }

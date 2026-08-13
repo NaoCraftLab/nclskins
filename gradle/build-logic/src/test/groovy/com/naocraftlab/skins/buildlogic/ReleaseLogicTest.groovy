@@ -1,6 +1,8 @@
 package com.naocraftlab.skins.buildlogic
 
+import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Test
 
 import java.nio.file.Files
@@ -27,6 +29,41 @@ final class ReleaseLogicTest {
         assertTrue(metadata.notes.contains(
                 '### Fixed\n\n- **More reliable live skin updates**'))
         assertFalse(metadata.notes.contains('## 1.0.0-beta.2'))
+    }
+
+    @Test
+    void validateReleaseConsumesSealedStateAndSeparateMarketplaceProjects() {
+        Path fixture = Files.createTempDirectory('nclskins-release-validation-')
+        try {
+            Map catalog = CatalogTools.materialize(CatalogTools.loadCatalog(repository)) as Map
+            catalog.serverPlugin.platforms.modrinth.projectId = 'AbCd1234'
+            catalog.serverPlugin.platforms.curseforge.projectId = 1234567
+            File catalogFile = fixture.resolve('targets.json').toFile()
+            catalogFile.text = JsonOutput.toJson(catalog)
+            Map state = ServerPluginReleaseState.compute(repository, catalog, '1.0.0-beta.2')
+            File stateFile = ServerPluginReleaseState.write(
+                    fixture.resolve('server-state.json').toFile(), state)
+
+            ValidateReleaseTask task = ProjectBuilder.builder().build().tasks.create(
+                    'validateFixtureRelease', ValidateReleaseTask)
+            task.repositoryDirectory.set(repository)
+            task.catalogFile.set(catalogFile)
+            task.versionFile.set(new File(repository, 'gradle/version.properties'))
+            task.changelogFile.set(new File(repository, 'CHANGELOG.md'))
+            task.serverChangelogFile.set(new File(repository, 'SERVER_CHANGELOG.md'))
+            task.serverPluginStateFile.set(stateFile)
+            task.releaseTag.set('1.0.0-beta.2')
+            task.releaseRoot.set(fixture.resolve('release').toFile())
+
+            task.validateRelease()
+
+            Map metadata = new JsonSlurper().parse(
+                    fixture.resolve('release/1.0.0-beta.2/release-metadata.json').toFile()) as Map
+            assertEquals('initial', metadata.serverPlugin.reason)
+            assertTrue(metadata.serverPlugin.publish)
+        } finally {
+            fixture.toFile().deleteDir()
+        }
     }
 
     @Test
@@ -64,6 +101,66 @@ final class ReleaseLogicTest {
                                 metadata.channel)
                         assertEquals("Notes for ${version}\n".toString(), metadata.notes)
                 }
+        }
+    }
+
+    @Test
+    void serverPluginPublicationDecisionIsAutomaticAndStablePromotionOnly() {
+        String fingerprint = 'a' * 64
+        String changed = 'b' * 64
+
+        assertEquals([publish: true, reason: 'initial'],
+                ServerPluginReleaseState.decide('1.0.0-alpha.1', fingerprint, null))
+        assertEquals([publish: false, reason: 'unchanged'],
+                ServerPluginReleaseState.decide(
+                        '1.0.0-beta.1', fingerprint,
+                        [version: '1.0.0-alpha.1', fingerprint: fingerprint]))
+        assertEquals([publish: true, reason: 'stable-promotion'],
+                ServerPluginReleaseState.decide(
+                        '1.0.0', fingerprint,
+                        [version: '1.0.0-beta.1', fingerprint: fingerprint]))
+        assertEquals([publish: false, reason: 'unchanged'],
+                ServerPluginReleaseState.decide(
+                        '1.0.1', fingerprint,
+                        [version: '1.0.0', fingerprint: fingerprint]))
+        assertEquals([publish: true, reason: 'server-change'],
+                ServerPluginReleaseState.decide(
+                        '1.0.1', changed,
+                        [version: '1.0.0', fingerprint: fingerprint]))
+    }
+
+    @Test
+    void serverFingerprintIgnoresEmbeddedVersionAndMarketplaceIdsButTracksBehavior() {
+        Path fixture = Files.createTempDirectory('nclskins-server-fingerprint-')
+        try {
+            write(fixture, 'server-plugin/src/main/resources/plugin.yml',
+                    "name: NCLSkinsPlugin\nversion: '1.0.0-alpha.1'\n")
+            write(fixture, 'server-plugin/src/main/java/example/Server.java',
+                    'final class Server { static final int VALUE = 1; }')
+            write(fixture, 'server-plugin/build.gradle', 'plugins { id \'java\' }\n')
+            write(fixture, 'LICENSE', 'license')
+            Map catalog = [serverPlugin: [
+                    protocols: ['command-v1'], compatibility: ['1.20.1': ['paper']],
+                    matrixId: 'fixture-v1', javaRelease: 17,
+                    packaging: [gson: '2.10'], excluded: [],
+                    artifact: 'nclskins-server-{pluginVersion}.jar',
+                    sourcesArtifact: 'nclskins-server-{pluginVersion}-sources.jar',
+                    name: 'NCL Skins Plugin', slug: 'nclskins-plugin',
+                    platforms: [modrinth: [projectId: null], curseforge: [projectId: null]],
+                    productionInputs: [server: ['server-plugin/src/main'], shared: ['LICENSE']]
+            ]]
+
+            String baseline = ServerPluginFingerprint.current(fixture.toFile(), catalog)
+            write(fixture, 'server-plugin/src/main/resources/plugin.yml',
+                    "name: NCLSkinsPlugin\nversion: '9.9.9'\n")
+            catalog.serverPlugin.platforms.modrinth.projectId = 'abcdefgh'
+            assertEquals(baseline, ServerPluginFingerprint.current(fixture.toFile(), catalog))
+
+            write(fixture, 'server-plugin/src/main/java/example/Server.java',
+                    'final class Server { static final int VALUE = 2; }')
+            assertNotEquals(baseline, ServerPluginFingerprint.current(fixture.toFile(), catalog))
+        } finally {
+            fixture.toFile().deleteDir()
         }
     }
 
@@ -124,7 +221,7 @@ final class ReleaseLogicTest {
                     Map json = new JsonSlurper().parse(
                             new File(versionDirectory, 'release-metadata.json')) as Map
                     assertEquals(
-                            [schemaVersion: 2, version: '1.1.0', channel: 'release', prerelease: false,
+                            [schemaVersion: 3, version: '1.1.0', channel: 'release', prerelease: false,
                              releaseNotes : 'release-notes.md'],
                             json)
                 } finally {

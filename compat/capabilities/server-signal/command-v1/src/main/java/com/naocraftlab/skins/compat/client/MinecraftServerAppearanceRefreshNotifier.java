@@ -1,7 +1,9 @@
 package com.naocraftlab.skins.compat.client;
 
 import com.mojang.brigadier.tree.CommandNode;
+import com.mojang.brigadier.tree.ArgumentCommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshCommandPath;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.server.ServerRefreshCommandProtocol;
@@ -22,7 +24,7 @@ public final class MinecraftServerAppearanceRefreshNotifier
             observedConnection = connection;
             connectionGeneration++;
         }
-        return supportsRefresh(connection)
+        return refreshCommand(connection) != null
                 ? OptionalLong.of(connectionGeneration)
                 : OptionalLong.empty();
     }
@@ -30,28 +32,50 @@ public final class MinecraftServerAppearanceRefreshNotifier
     @Override
     public void requestOfficialProfileRefresh() {
         ClientPacketListener connection = Minecraft.getInstance().getConnection();
-        if (!supportsRefresh(connection)) {
+        String command = refreshCommand(connection);
+        if (command == null) {
             return;
         }
 
-        connection.sendCommand(ServerRefreshCommandProtocol.COMMAND);
+        connection.sendCommand(command);
     }
 
-    private static boolean supportsRefresh(ClientPacketListener connection) {
+    private static String refreshCommand(ClientPacketListener connection) {
         if (connection == null) {
-            return false;
+            return null;
         }
         CommandNode<?> root = connection.getCommands().getRoot()
                 .getChild(ServerRefreshCommandProtocol.ROOT_COMMAND);
         CommandNode<?> refresh = root == null
                 ? null
                 : root.getChild(ServerRefreshCommandProtocol.REFRESH_COMMAND);
-        return ServerAppearanceRefreshCommandPath.isExactExecutableLeaf(
+        if (ServerAppearanceRefreshCommandPath.isExactExecutableLeaf(
                 root != null,
                 root instanceof LiteralCommandNode<?>,
                 refresh != null,
                 refresh instanceof LiteralCommandNode<?>,
                 refresh != null && refresh.getCommand() != null,
-                refresh != null && !refresh.getChildren().isEmpty());
+                refresh != null && !refresh.getChildren().isEmpty())) {
+            return ServerRefreshCommandProtocol.COMMAND;
+        }
+
+        CommandNode<?> bukkitRoot = connection.getCommands().getRoot()
+                .getChild(ServerRefreshCommandProtocol.BUKKIT_ROOT_COMMAND);
+        CommandNode<?> arguments = bukkitRoot == null ? null : bukkitRoot.getChild("args");
+        boolean greedyString = arguments instanceof ArgumentCommandNode<?, ?> argument
+                && argument.getType() instanceof StringArgumentType string
+                && string.getType() == StringArgumentType.StringType.GREEDY_PHRASE;
+        return ServerAppearanceRefreshCommandPath.isExactBukkitWrapper(
+                bukkitRoot != null,
+                bukkitRoot instanceof LiteralCommandNode<?>,
+                bukkitRoot != null && bukkitRoot.getCommand() != null,
+                bukkitRoot == null ? 0 : bukkitRoot.getChildren().size(),
+                arguments != null,
+                arguments instanceof ArgumentCommandNode<?, ?>,
+                greedyString,
+                arguments != null && arguments.getCommand() != null,
+                arguments != null && !arguments.getChildren().isEmpty())
+                ? ServerRefreshCommandProtocol.BUKKIT_COMMAND
+                : null;
     }
 }

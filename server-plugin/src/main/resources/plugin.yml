@@ -1,0 +1,13 @@
+name: NCLSkinsPlugin
+version: '${pluginVersion}'
+main: com.naocraftlab.skins.server.plugin.bukkit.NclSkinsBukkitPlugin
+description: Server-side realtime appearance refresh for NCL Skins
+website: https://naocraftlab.com/skins
+author: NaoCraftLab
+api-version: '1.20'
+folia-supported: true
+softdepend: [BungeeGuard]
+commands:
+  nclskin:
+    description: Internal NCL Skins compatibility command
+    usage: /nclskin

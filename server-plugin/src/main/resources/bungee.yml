@@ -1,0 +1,5 @@
+name: NCLSkinsPlugin
+version: '${pluginVersion}'
+main: com.naocraftlab.skins.server.plugin.bungee.NclSkinsBungeePlugin
+author: NaoCraftLab
+depends: [BungeeGuard]

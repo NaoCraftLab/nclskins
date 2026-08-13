@@ -308,7 +308,7 @@ final class SemanticVerifier {
             filePicker: ['implements FilePicker', 'FilePickerCoordinator', 'new FilePickerCoordinator(', 'COORDINATOR.choose('],
                 bundledSkin      : ['implements SkinCatalogSource'],
                 currentAppearance: ['implements CurrentPlayerAppearanceSource'],
-            serverSignal: ['implements ServerAppearanceRefreshNotifier', 'getConnection()', 'if (connection == null)', 'getChild(ServerRefreshCommandProtocol.ROOT_COMMAND)', 'root.getChild(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'ServerAppearanceRefreshCommandPath.isExactExecutableLeaf', 'sendCommand(ServerRefreshCommandProtocol.COMMAND)'],
+            serverSignal: ['implements ServerAppearanceRefreshNotifier', 'getConnection()', 'if (connection == null)', 'getChild(ServerRefreshCommandProtocol.ROOT_COMMAND)', 'root.getChild(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'ServerAppearanceRefreshCommandPath.isExactExecutableLeaf', 'getChild(ServerRefreshCommandProtocol.BUKKIT_ROOT_COMMAND)', 'bukkitRoot.getChild("args")', 'instanceof ArgumentCommandNode', 'StringArgumentType.StringType.GREEDY_PHRASE', 'ServerAppearanceRefreshCommandPath.isExactBukkitWrapper', 'ServerRefreshCommandProtocol.BUKKIT_COMMAND', 'connection.sendCommand(command)'],
             serverCommand: ['Commands.literal(ServerRefreshCommandProtocol.ROOT_COMMAND)', '.requires(MinecraftServerRefreshCommand::canRefresh)', 'Commands.literal(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'source.getEntity() instanceof ServerPlayer', 'boolean serviceRegistered', 'MinecraftServerAppearanceService.registered(source.getServer())', 'ServerRefreshCommandProtocol.advertised(', 'service.request(source.getPlayerOrException()).admission()', 'ServerRefreshCommandProtocol.result(admission)'],
             serverProfileVerification: ['implements OfficialTextureSignatureVerifier', 'getSecurePropertyValue(property)', 'OfficialTextureAppearanceParser', 'Optional.empty()'],
             serverProfileMutation: ['implements ProfilePropertyAccess', 'currentTextures(ServerPlayer player)', 'installTextures(', 'SignedTexturesProperty', 'CurrentProfileTextures'],
@@ -356,7 +356,7 @@ final class SemanticVerifier {
                 if (!compact.contains(marker)) errors.add("${implementation}: native texture readiness lacks required marker '${marker}'")
             }
         }
-        if (key == 'serverSignal' && compact.count('instanceof LiteralCommandNode') != 2) errors.add("${implementation}: server-signal leaf must validate both exact path nodes as LiteralCommandNode")
+        if (key == 'serverSignal' && compact.count('instanceof LiteralCommandNode') != 3) errors.add("${implementation}: server-signal leaf must validate the native root/leaf and namespaced Bukkit root as LiteralCommandNode")
         if (implementation == 'fabric-server-v1') {
             if (!compact.contains('ServerLifecycleEvents.SERVER_STARTED.register')) errors.add("${implementation}: Fabric service must start after server setup")
             if (compact.contains('ServerLifecycleEvents.SERVER_STARTING.register')) errors.add("${implementation}: Fabric service must not read server services before setup")
@@ -396,7 +396,8 @@ final class SemanticVerifier {
     static void verifyPublicationBoundary(Path root, List<String> errors) {
         Map<String, List<String>> sources = [
             'compat/server-common/src/main/java/com/naocraftlab/skins/compat/server/MinecraftServerAppearancePublisher.java': ['new VanillaBatchAppearancePublisher(', 'MinecraftServerConnectionRegistry', 'MinecraftProfilePropertyAccess', 'MinecraftServerTrackingAccess', 'MinecraftPlayerInfoTransport'],
-            'compat/capabilities/server/profile-mutation-authlib-v9/src/main/java/com/naocraftlab/skins/compat/server/mixin/GameProfilePropertiesAccessor.java': ['@Mixin(value = GameProfile.class, remap = false)', '@Accessor(value = "properties", remap = false)', '@Mutable']
+            'compat/capabilities/server/profile-mutation-authlib-v9/src/main/java/com/naocraftlab/skins/compat/server/MinecraftProfilePropertyAccess.java': ['new GameProfile(', 'PlayerGameProfileAccessor', 'nclskins$setGameProfile(replacementProfile)'],
+            'compat/capabilities/server/profile-mutation-authlib-v9/src/main/java/com/naocraftlab/skins/compat/server/mixin/PlayerGameProfileAccessor.java': ['@Mixin(Player.class)', '@Accessor("gameProfile")', '@Mutable']
         ]
         sources.each { String path, List<String> markers ->
             Path file = root.resolve(path)

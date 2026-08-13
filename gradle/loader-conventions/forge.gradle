@@ -42,6 +42,11 @@ def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(
         targetCatalog, targetSpec.loader.id)
 def licensedClientStorage = new File(
         System.getProperty('user.home'), ".devlogin/${licensedClientProfile}").absolutePath
+def forgeRepositoryRoot = project.layout.projectDirectory.dir('../../..').asFile
+def forgeClientRun = nclskinsRunLayout.modDirectory(forgeRepositoryRoot, targetSpec, 'Client')
+def forgeLicensedClientRun = nclskinsRunLayout.modDirectory(
+        forgeRepositoryRoot, targetSpec, 'LicensedClient')
+def forgeServerRun = nclskinsRunLayout.modDirectory(forgeRepositoryRoot, targetSpec, 'Server')
 
 mixin {
     add sourceSets.main, forgeMixinRefmap
@@ -74,7 +79,6 @@ minecraft {
 
     runs {
         configureEach {
-            workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'info'
             (targetSpec.metadata.serverMixins + targetSpec.metadata.mixins).each { configName ->
@@ -89,15 +93,18 @@ minecraft {
         }
 
         client {
+            workingDirectory forgeClientRun
         }
         clientLicensed {
             parent minecraft.runs.client
+            workingDirectory forgeLicensedClientRun
             main 'net.covers1624.devlogin.DevLogin'
-            property 'devlogin.launch_target', 'net.minecraftforge.bootstrap.ForgeBootstrap'
+            property 'devlogin.launch_target', 'cpw.mods.bootstraplauncher.BootstrapLauncher'
             property 'devlogin.launch_profile', licensedClientProfile
             property 'devlogin.storage', licensedClientStorage
         }
         server {
+            workingDirectory forgeServerRun
             args '--nogui'
         }
     }

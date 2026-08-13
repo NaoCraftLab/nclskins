@@ -8,11 +8,33 @@ final class MetadataRenderer {
         Map<String, String> resources = LoaderBackend.require(loader)
                 .metadata(catalog, target, modVersion)
         resources['resourcepacks/mojang_collections/pack.mcmeta'] = mojangPack(target)
-        Set expected = (target.metadata.files as List) as Set
+        resources['nclskins-server-compatibility.json'] = serverCompatibility(
+                catalog, effectiveRequiredServerPluginVersion(modVersion))
+        Set expected = ((target.metadata.files as List) +
+                'nclskins-server-compatibility.json') as Set
         if (resources.keySet() as Set != expected) {
             throw new IllegalArgumentException("${target.id}: generated metadata paths differ from catalog")
         }
         resources
+    }
+
+    static String serverCompatibility(Map catalog, String requiredVersion) {
+        Map plugin = catalog.serverPlugin as Map
+        CatalogTools.json([
+                requiredServerPluginVersion: requiredVersion,
+                protocolIds: plugin.protocols,
+                matrixId: plugin.matrixId
+        ])
+    }
+
+    static String effectiveRequiredServerPluginVersion(String modVersion) {
+        String requested = System.getenv('NCLSKINS_SERVER_PLUGIN_BASELINE')?.trim()
+        if (requested == null || requested.isBlank()) return modVersion
+        if (!CatalogTools.VERSION_PATTERN.matcher(requested).matches()) {
+            throw new IllegalArgumentException(
+                    'NCLSKINS_SERVER_PLUGIN_BASELINE must be an exact no-v SemVer')
+        }
+        requested
     }
 
     static String fabric(Map catalog, Map target, String version) {

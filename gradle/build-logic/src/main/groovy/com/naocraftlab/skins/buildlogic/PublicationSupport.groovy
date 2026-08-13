@@ -13,13 +13,14 @@ final class PublicationSupport {
             throw new IllegalStateException('release-manifest.json is missing or unsafe')
         }
         Object parsed = new JsonSlurper().parse(manifestFile)
-        if (!(parsed instanceof Map) || parsed.schemaVersion != 2 ||
-                !(parsed.mode in ['tag', 'backfill']) ||
+        if (!(parsed instanceof Map) || parsed.schemaVersion != 3 ||
+                !(parsed.mode in ['tag', 'backfill', 'reconcile-tag']) ||
                 !(parsed.version instanceof String) ||
                 !CatalogTools.VERSION_PATTERN.matcher(parsed.version as String).matches() ||
                 !(parsed.channel in ['release', 'beta', 'alpha']) ||
                 !(parsed.prerelease instanceof Boolean) ||
                 !(parsed.targets instanceof List) || !(parsed.assets instanceof List) ||
+                !(parsed.serverPlugin instanceof Map) ||
                 !(parsed.platforms instanceof Map) || !(parsed.releaseNotes instanceof Map)) {
             throw new IllegalStateException('unsupported release manifest')
         }
@@ -36,7 +37,8 @@ final class PublicationSupport {
             Map asset = raw as Map
             String fileName = asset.file?.toString()
             if (!safeFileName(fileName) || !names.add(fileName) ||
-                    !(asset.kind in ['mod', 'sources']) || !(asset.size instanceof Number) ||
+                    !(asset.kind in ['mod', 'mod-sources', 'server-plugin', 'server-plugin-sources']) ||
+                    !(asset.size instanceof Number) ||
                     !(asset.sha1 ==~ /[0-9a-f]{40}/) || !(asset.sha256 ==~ /[0-9a-f]{64}/) ||
                     !(asset.sha512 ==~ /[0-9a-f]{128}/)) {
                 throw new IllegalStateException("invalid or duplicate release asset: ${fileName}")
@@ -45,11 +47,15 @@ final class PublicationSupport {
             requireAsset(file, asset)
             assets[fileName] = asset
         }
-        if (assets.size() != (manifest.targets as List).size() + 1 ||
-                assets.values().count { it.kind == 'sources' } != 1) {
-            throw new IllegalStateException('release manifest must contain one source JAR and one JAR per target')
+        boolean publishServer = manifest.serverPlugin.publish == true
+        int expectedAssets = (manifest.targets as List).size() + 1 + (publishServer ? 2 : 0)
+        if (assets.size() != expectedAssets ||
+                assets.values().count { it.kind == 'mod-sources' } != 1 ||
+                assets.values().count { it.kind == 'server-plugin' } != (publishServer ? 1 : 0) ||
+                assets.values().count { it.kind == 'server-plugin-sources' } != (publishServer ? 1 : 0)) {
+            throw new IllegalStateException('release manifest contains an inconsistent component asset set')
         }
-        Map sourcesAsset = assets.values().find { it.kind == 'sources' } as Map
+        Map sourcesAsset = assets.values().find { it.kind == 'mod-sources' } as Map
         File assetsDirectory = new File(bundleDirectory, 'assets')
         if (!assetsDirectory.isDirectory() || Files.isSymbolicLink(assetsDirectory.toPath()) ||
                 (assetsDirectory.listFiles() as List<File>).any {
@@ -85,6 +91,7 @@ final class PublicationSupport {
         if (targetIds != (manifest.selectedTargetIds as List).collect { it.toString() } as Set) {
             throw new IllegalStateException('selected target IDs differ from publication targets')
         }
+        validateServerPlugin(manifest, assets)
         Map notes = manifest.releaseNotes as Map
         File notesFile = new File(bundleDirectory, notes.file?.toString() ?: '')
         if (notes.file != 'release-notes.md' || !notesFile.isFile() ||
@@ -94,6 +101,45 @@ final class PublicationSupport {
             throw new IllegalStateException('release notes are missing, unsafe, or inconsistent')
         }
         manifest
+    }
+
+    static void validateServerPlugin(Map manifest, Map<String, Map> assets) {
+        Map server = manifest.serverPlugin as Map
+        if (!(server.publish instanceof Boolean) ||
+                !(server.reason in ['initial', 'server-change', 'stable-promotion', 'unchanged']) ||
+                !(server.activeVersion instanceof String) ||
+                !(server.currentFingerprint ==~ /[0-9a-f]{64}/) ||
+                !(server.activeFingerprint ==~ /[0-9a-f]{64}/) ||
+                !(server.protocolIds instanceof List) || !(server.matrixId instanceof String) ||
+                !(server.publications instanceof Map)) {
+            throw new IllegalStateException('invalid server plugin release state')
+        }
+        if (server.publish != true) {
+            if (server.artifact != null || server.sourcesArtifact != null || server.publication != null) {
+                throw new IllegalStateException('unchanged server plugin must not contain artifacts')
+            }
+            return
+        }
+        Map publication = server.publication instanceof Map ? server.publication as Map : [:]
+        Map artifact = server.artifact instanceof Map ? server.artifact as Map : [:]
+        Map sources = server.sourcesArtifact instanceof Map ? server.sourcesArtifact as Map : [:]
+        if (publication.id != 'server-plugin' || publication.kind != 'server-plugin' ||
+                publication.name != "NCL Skins Plugin ${manifest.version}" ||
+                publication.versionNumber != manifest.version ||
+                publication.channel != manifest.channel ||
+                publication.environment != 'server' ||
+                publication.loaders != ['paper', 'purpur', 'velocity', 'bungeecord'] ||
+                publication.gameVersions != [
+                    '1.20.1', '1.21.1', '1.21.11', '26.1.1', '26.1.2', '26.2'] ||
+                publication.javaRelease != 17 ||
+                publication.asset != artifact || publication.sourcesAsset != sources ||
+                assets[artifact.file?.toString()] != artifact || artifact.kind != 'server-plugin' ||
+                assets[sources.file?.toString()] != sources || sources.kind != 'server-plugin-sources' ||
+                !(publication.platforms instanceof Map) ||
+                publication.platforms.modrinth.projectId == null ||
+                publication.platforms.curseforge.projectId == null) {
+            throw new IllegalStateException('invalid server plugin publication')
+        }
     }
 
     static void requireAsset(File file, Map metadata) {
@@ -130,10 +176,10 @@ final class PublicationSupport {
 
         Set<String> desiredGames = desired.gameVersions as Set<String>
         List<Map> overlapping = remoteEntries.findAll { Map remote ->
-            normalizedChannel(platform, remote) == desired.channel &&
+                    normalizedChannel(platform, remote) == desired.channel &&
                     normalizedVersion(platform, remote) == desired.versionNumber &&
                     !normalizedGames(platform, remote).intersect(desiredGames).isEmpty() &&
-                    normalizedLoaders(platform, remote).contains(desired.loader.toString())
+                    loadersOverlap(platform, remote, desired)
         }
         overlapping.isEmpty()
                 ? [action: 'upload', reason: 'publication is missing']
@@ -148,10 +194,11 @@ final class PublicationSupport {
         if (normalizedGames(platform, remote) != (desired.gameVersions as Set<String>)) {
             mismatches.add('game versions differ')
         }
-        if (normalizedLoaders(platform, remote) != [desired.loader.toString()] as Set<String>) {
+        if (normalizedLoaders(platform, remote) != expectedRemoteLoaders(platform, desired)) {
             mismatches.add('loader differs')
         }
-        if (platform == 'modrinth' && remote.environment?.toString() != 'client_only_server_optional') {
+        if (platform == 'modrinth' && remote.environment?.toString() !=
+                (desired.kind == 'server-plugin' ? 'server_only' : 'client_only_server_optional')) {
             mismatches.add('environment differs')
         }
         if (platform == 'curseforge' &&
@@ -194,21 +241,26 @@ final class PublicationSupport {
                 },
                 game_versions : target.gameVersions,
                 version_type  : target.channel,
-                loaders       : [target.loader],
+                loaders       : desiredLoaders(target) as List,
                 featured      : false,
                 status        : 'listed',
                 project_id    : manifest.platforms.modrinth.projectId,
                 file_parts    : ['file', 'sources'],
                 primary_file  : 'file',
                 file_types    : [sources: 'sources-jar'],
-                environment   : 'client_only_server_optional'
+                environment   : target.kind == 'server-plugin'
+                        ? 'server_only' : 'client_only_server_optional'
         ]
     }
 
     static Map curseForgeMetadata(Map manifest, Map target) {
         List<String> gameVersionNames = new ArrayList<>(target.gameVersions as List)
-        gameVersionNames.add(loaderDisplayName(target.loader.toString()))
-        gameVersionNames.addAll(['Client', 'Server'])
+        if (target.kind == 'server-plugin') {
+            gameVersionNames.add('Server')
+        } else {
+            gameVersionNames.add(loaderDisplayName(target.loader.toString()))
+            gameVersionNames.addAll(['Client', 'Server'])
+        }
         gameVersionNames.add("Java ${(target.javaRelease as Number).intValue()}".toString())
         [
                 changelog               : manifest.releaseNotes.text,
@@ -306,7 +358,10 @@ final class PublicationSupport {
 
     static String versionFromName(String name) {
         int separator = name.indexOf('+')
-        separator < 0 ? name : name.substring(0, separator)
+        if (separator >= 0) return name.substring(0, separator)
+        int space = name.lastIndexOf(' ')
+        String trailing = space < 0 ? name : name.substring(space + 1)
+        CatalogTools.VERSION_PATTERN.matcher(trailing).matches() ? trailing : name
     }
 
     static String normalizedChannel(String platform, Map remote) {
@@ -324,7 +379,8 @@ final class PublicationSupport {
         if (platform == 'curseforge') {
             values = values.findAll {
                 String normalized = it.toLowerCase(Locale.ROOT)
-                !(normalized in ['fabric', 'forge', 'neoforge', 'client', 'server']) &&
+                !(normalized in ['fabric', 'forge', 'neoforge', 'paper', 'purpur',
+                                  'velocity', 'bungeecord', 'client', 'server']) &&
                         !(normalized ==~ /java\s+[0-9]+/)
             } as Set<String>
         }
@@ -350,7 +406,24 @@ final class PublicationSupport {
         Set<String> values = remote.gameVersions instanceof List
                 ? (remote.gameVersions as List).collect { it.toString().toLowerCase(Locale.ROOT) } as Set<String>
                 : [] as Set<String>
-        ['fabric', 'forge', 'neoforge'].findAll { values.contains(it) } as Set<String>
+        ['fabric', 'forge', 'neoforge', 'paper', 'purpur', 'velocity', 'bungeecord']
+                .findAll { values.contains(it) } as Set<String>
+    }
+
+    static Set<String> desiredLoaders(Map desired) {
+        desired.loaders instanceof List
+                ? (desired.loaders as List).collect { it.toString() } as Set<String>
+                : [desired.loader.toString()] as Set<String>
+    }
+
+    static Set<String> expectedRemoteLoaders(String platform, Map desired) {
+        platform == 'curseforge' && desired.kind == 'server-plugin'
+                ? [] as Set<String> : desiredLoaders(desired)
+    }
+
+    static boolean loadersOverlap(String platform, Map remote, Map desired) {
+        Set<String> expected = expectedRemoteLoaders(platform, desired)
+        expected.isEmpty() || !normalizedLoaders(platform, remote).intersect(expected).isEmpty()
     }
 
     static String normalizedFileName(String platform, Map remote) {

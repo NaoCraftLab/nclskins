@@ -3756,6 +3756,13 @@
           "finality": "abstract",
           "members": [
             {
+              "kind": "field",
+              "name": "gameProfile",
+              "descriptor": "Lcom/mojang/authlib/GameProfile;",
+              "access": "private final",
+              "finality": "final"
+            },
+            {
               "kind": "method",
               "name": "getGameProfile",
               "descriptor": "()Lcom/mojang/authlib/GameProfile;",
@@ -3845,13 +3852,12 @@
       "mixinAnchors": [
         {
           "kind": "interface-injection",
-          "owner": "com.mojang.authlib.GameProfile",
-          "interface": "com.naocraftlab.skins.compat.server.mixin.GameProfilePropertiesAccessor",
-          "targetInterfaces": [],
+          "owner": "net.minecraft.world.entity.player.Player",
+          "interface": "com.naocraftlab.skins.compat.server.mixin.PlayerGameProfileAccessor",
           "members": [
             {
-              "name": "nclskins$setProperties",
-              "descriptor": "(Lcom/mojang/authlib/properties/PropertyMap;)V"
+              "name": "nclskins$setGameProfile",
+              "descriptor": "(Lcom/mojang/authlib/GameProfile;)V"
             }
           ]
         }
@@ -3871,6 +3877,13 @@
           "finality": "abstract",
           "members": [
             {
+              "kind": "field",
+              "name": "gameProfile",
+              "descriptor": "Lcom/mojang/authlib/GameProfile;",
+              "access": "private final",
+              "finality": "final"
+            },
+            {
               "kind": "method",
               "name": "getGameProfile",
               "descriptor": "()Lcom/mojang/authlib/GameProfile;",
@@ -3960,13 +3973,12 @@
       "mixinAnchors": [
         {
           "kind": "interface-injection",
-          "owner": "com.mojang.authlib.GameProfile",
-          "interface": "com.naocraftlab.skins.compat.server.mixin.GameProfilePropertiesAccessor",
-          "targetInterfaces": [],
+          "owner": "net.minecraft.world.entity.player.Player",
+          "interface": "com.naocraftlab.skins.compat.server.mixin.PlayerGameProfileAccessor",
           "members": [
             {
-              "name": "nclskins$setProperties",
-              "descriptor": "(Lcom/mojang/authlib/properties/PropertyMap;)V"
+              "name": "nclskins$setGameProfile",
+              "descriptor": "(Lcom/mojang/authlib/GameProfile;)V"
             }
           ]
         }
@@ -5241,10 +5253,10 @@
         "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
       },
       "profile-mutation-authlib-v7": {
-        "com.mojang.authlib.GameProfile": "98cbf5bdebabf73a53f24809043819168bece00fc02f3cba36d0fd4329442ce1",
+        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
         "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
         "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
-        "net.minecraft.world.entity.player.Player": "58f6413f8ada78c1ec02da34be23545ace89a0597dfbd4af8ae802f3c155c637"
+        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
       },
       "profile-verification-authlib-v7": {
         "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
@@ -5375,10 +5387,10 @@
         "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
       },
       "profile-mutation-authlib-v7": {
-        "com.mojang.authlib.GameProfile": "98cbf5bdebabf73a53f24809043819168bece00fc02f3cba36d0fd4329442ce1",
+        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
         "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
         "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
-        "net.minecraft.world.entity.player.Player": "58f6413f8ada78c1ec02da34be23545ace89a0597dfbd4af8ae802f3c155c637"
+        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
       },
       "profile-verification-authlib-v7": {
         "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
@@ -5487,10 +5499,10 @@
         "net.minecraft.server.Services": "b116cac026cc65ea233bdce16a5a6781a935c89f7751efaf15e69e3199be3bba"
       },
       "profile-mutation-authlib-v9": {
-        "com.mojang.authlib.GameProfile": "98cbf5bdebabf73a53f24809043819168bece00fc02f3cba36d0fd4329442ce1",
+        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
         "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
         "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
-        "net.minecraft.world.entity.player.Player": "58f6413f8ada78c1ec02da34be23545ace89a0597dfbd4af8ae802f3c155c637"
+        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
       },
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
@@ -5602,10 +5614,10 @@
         "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
       },
       "profile-mutation-authlib-v9": {
-        "com.mojang.authlib.GameProfile": "98cbf5bdebabf73a53f24809043819168bece00fc02f3cba36d0fd4329442ce1",
+        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
         "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
         "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
-        "net.minecraft.world.entity.player.Player": "58f6413f8ada78c1ec02da34be23545ace89a0597dfbd4af8ae802f3c155c637"
+        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
       },
       "profile-verification-authlib-v10": {
         "com.mojang.authlib.minecraft.SessionService": "e9512e457aeda8c392a5feecfc1122c0b6f7d19234232770efd803408e1980b6",
