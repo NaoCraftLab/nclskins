@@ -11,6 +11,12 @@ import com.naocraftlab.skins.server.runtime.OfficialSessionProfileClient;
 import com.naocraftlab.skins.server.runtime.ServerAppearanceRefreshCoordinator;
 import com.naocraftlab.skins.server.runtime.ServerAppearanceRefreshService;
 import com.naocraftlab.skins.server.runtime.ServerRefreshPolicy;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
+import com.naocraftlab.skins.diagnostics.DiagnosticStatus;
+import com.naocraftlab.skins.diagnostics.Slf4jDiagnosticSink;
+import com.naocraftlab.skins.server.RefreshResult;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -18,6 +24,7 @@ import java.util.Optional;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import org.slf4j.LoggerFactory;
 
 
 public final class MinecraftServerAppearanceService implements AutoCloseable {
@@ -30,6 +37,7 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
     private final ServerAppearanceRefreshService refreshService;
     private final ServerRefreshPolicy policy;
     private final MinecraftServerIdentityAttestor identityAttestor;
+    private final DiagnosticSink diagnostics;
     private boolean closed;
 
     private MinecraftServerAppearanceService(
@@ -38,13 +46,15 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
             MinecraftServerAppearancePublisher publisher,
             ServerAppearanceRefreshService refreshService,
             ServerRefreshPolicy policy,
-            MinecraftServerIdentityAttestor identityAttestor) {
+            MinecraftServerIdentityAttestor identityAttestor,
+            DiagnosticSink diagnostics) {
         this.server = server;
         this.connections = connections;
         this.publisher = publisher;
         this.refreshService = refreshService;
         this.policy = policy;
         this.identityAttestor = identityAttestor;
+        this.diagnostics = diagnostics;
     }
 
     static MinecraftServerAppearanceService register(
@@ -72,6 +82,7 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
                 return existing;
             }
             ServerRefreshPolicy policy = config.policy(server.getPlayerList().getMaxPlayers());
+            DiagnosticSink diagnostics = new Slf4jDiagnosticSink(LoggerFactory.getLogger("nclskins"));
             MinecraftServerConnectionRegistry connections =
                     new MinecraftServerConnectionRegistry(server);
             MinecraftServerAppearancePublisher publisher =
@@ -87,7 +98,8 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
                     publisher,
                     new ServerAppearanceRefreshService(policy, coordinator),
                     policy,
-                    identityAttestor);
+                    identityAttestor,
+                    diagnostics);
             REGISTERED.put(server, created);
             return created;
         }
@@ -147,7 +159,9 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
         }
         ConnectionSnapshot connection = captureConnection(
                 Objects.requireNonNull(player, "player"));
-        return refreshService.request(connection);
+        RefreshSubmission submission = refreshService.request(connection);
+        submission.completion().whenComplete((result, failure) -> observe(result, failure));
+        return submission;
     }
 
     public ServerRefreshHealthSnapshot health() {
@@ -167,6 +181,7 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
         refreshService.close();
         publisher.close();
         connections.close();
+        diagnostics.close();
     }
 
     private void requireServerThread() {
@@ -188,6 +203,9 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
             attested = Objects.requireNonNull(
                     identityAttestor.attest(server, player), "attested assurance");
         } catch (RuntimeException invalidEvidence) {
+            diagnostics.report(
+                    DiagnosticEvent.SERVER_IDENTITY_ATTESTATION_FAILED,
+                    () -> DiagnosticDetails.failure(invalidEvidence));
             return IdentityAssurance.OFFLINE;
         }
         if (attested == IdentityAssurance.ONLINE) {
@@ -200,6 +218,30 @@ public final class MinecraftServerAppearanceService implements AutoCloseable {
             return IdentityAssurance.TRUSTED_PROXY;
         }
         return IdentityAssurance.OFFLINE;
+    }
+
+    private void observe(RefreshResult result, Throwable failure) {
+        if (failure != null) {
+            diagnostics.report(
+                    DiagnosticEvent.SERVER_PUBLICATION_FAILED,
+                    () -> DiagnosticDetails.failure(failure));
+        } else if (result == RefreshResult.REJECTED) {
+            diagnostics.report(
+                    DiagnosticEvent.PLUGIN_REFRESH_REJECTED,
+                    () -> DiagnosticDetails.status(DiagnosticStatus.REJECTED));
+        } else if (result == RefreshResult.OVERLOADED || result == RefreshResult.EXPIRED) {
+            DiagnosticEvent event = result == RefreshResult.OVERLOADED
+                    ? DiagnosticEvent.PLUGIN_REFRESH_OVERLOADED
+                    : DiagnosticEvent.PLUGIN_REFRESH_EXPIRED;
+            DiagnosticStatus status = result == RefreshResult.OVERLOADED
+                    ? DiagnosticStatus.OVERLOADED : DiagnosticStatus.EXPIRED;
+            diagnostics.report(event, () -> DiagnosticDetails.status(status));
+        } else if (result == RefreshResult.FAILED || result == RefreshResult.EXHAUSTED) {
+            diagnostics.report(
+                    DiagnosticEvent.SERVER_PUBLICATION_FAILED,
+                    () -> DiagnosticDetails.status(result == RefreshResult.FAILED
+                            ? DiagnosticStatus.FAILED : DiagnosticStatus.EXHAUSTED));
+        }
     }
 
     private static final class RefreshSubmissionClosed {

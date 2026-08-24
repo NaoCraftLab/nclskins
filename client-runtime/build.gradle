@@ -5,6 +5,7 @@ plugins {
 dependencies {
     api project(':core')
     api project(':client-contract')
+    api project(':diagnostics')
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'

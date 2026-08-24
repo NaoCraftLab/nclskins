@@ -21,13 +21,23 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(19, catalog.schemaVersion)
+        assertEquals(20, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
                 forge   : 'nclskins-forge-family',
                 neoforge: 'nclskins-forge-family'
         ], catalog.development.licensedProfiles)
+        assertEquals([
+                loaders: [fabric: 'fabric-overlay', forge: 'forge-debug',
+                          neoforge: 'neoforge-debug'],
+                serverKernels: [craftbukkit: 'bukkit-legacy-overlay',
+                                spigot: 'bukkit-legacy-overlay',
+                                paper: 'paper-family-overlay',
+                                purpur: 'paper-family-overlay',
+                                folia: 'paper-family-overlay'],
+                proxies: [velocity: 'velocity-overlay', bungeecord: 'bungeecord-fine']
+        ], catalog.development.loggingProfiles)
         assertEquals([
                 [uuid: '00f36371-8f11-4183-8151-bb74d0f72394', name: 'NaoCraftLab',
                  level: 4, bypassesPlayerLimit: false],
@@ -416,6 +426,10 @@ final class BuildLogicTest {
             assertTrue(script.contains("tasks.named('runServer', JavaExec)"),
                     target.id.toString())
             assertTrue(script.contains('standardInput = System.in'), target.id.toString())
+            if (target.loader.id == 'fabric') {
+                assertTrue(script.contains("file('build/classes/java/main').mkdirs()"),
+                        target.id.toString())
+            }
         }
         assertTrue(ArtifactVerifier.FORBIDDEN_DEV_RUNTIME_PREFIXES.contains(
                 'net/covers1624/devlogin/'))
@@ -887,6 +901,10 @@ final class BuildLogicTest {
                 assertEquals('GradleRunConfiguration', configuration.@type.toString())
                 assertEquals('$PROJECT_DIR$', configuration.ExternalSystemSettings.option.find { it.@name == 'externalProjectPath' }.@value.toString())
                 assertEquals(taskName, configuration.ExternalSystemSettings.option.find { it.@name == 'taskNames' }.list.option.@value.toString())
+                assertEquals('-PnclskinsDevLogging=true', configuration.ExternalSystemSettings.option
+                        .find { it.@name == 'scriptParameters' }.@value.toString())
+                assertEquals('', configuration.ExternalSystemSettings.option
+                        .find { it.@name == 'vmOptions' }.@value.toString())
                 assertEquals(IdeaRunConfigurations.displayFolder(minecraftVersion),
                         configuration.@folderName.toString())
                 assertFalse(rendered.contains('python'))
@@ -905,6 +923,10 @@ final class BuildLogicTest {
                     configuration.@folderName.toString())
             assertEquals(taskName, configuration.ExternalSystemSettings.option
                     .find { it.@name == 'taskNames' }.list.option.@value.toString())
+            assertEquals('-PnclskinsDevLogging=true', configuration.ExternalSystemSettings.option
+                    .find { it.@name == 'scriptParameters' }.@value.toString())
+            assertEquals('', configuration.ExternalSystemSettings.option
+                    .find { it.@name == 'vmOptions' }.@value.toString())
             assertTrue(rendered.contains(IdeaRunConfigurations.GENERATED_MARKER))
         }
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
@@ -918,6 +940,21 @@ final class BuildLogicTest {
 
     @Test
     void serverPluginManagedConfigsAreSecureAndExact() {
+        String legacy = ServerPluginRunTask.backendOverlay('spigot')
+        String paper = ServerPluginRunTask.backendOverlay('paper')
+        String velocityLogging = ServerPluginRunTask.velocityOverlay()
+        [legacy, paper, velocityLogging].each { String overlay ->
+            assertFalse(overlay.contains('<Root'))
+            assertFalse(overlay.contains('<Appender '))
+            assertFalse(overlay.contains('monitorInterval'))
+            assertFalse(overlay.toLowerCase(Locale.ROOT).contains('lookup'))
+            assertFalse(overlay.toLowerCase(Locale.ROOT).contains('script'))
+        }
+        assertTrue(legacy.contains('NclSkinsBukkitPlugin'))
+        assertFalse(legacy.contains('TerminalConsole'))
+        assertTrue(paper.contains('TerminalConsole'))
+        assertTrue(paper.contains('LevelMatchFilter'))
+        assertTrue(velocityLogging.contains('name="nclskins-plugin"'))
         Map standalone = catalog.serverPluginTopologies.find {
             it.id == '1.20.1-craftbukkit-standalone'
         } as Map
@@ -1079,6 +1116,9 @@ final class BuildLogicTest {
             assertEquals('runClient', client[-2])
             assertEquals('--dry-run', client[-1])
             assertEquals(TargetRuntime.wrapper(repository, catalog, target).absolutePath, client.first())
+            assertTrue(TargetRunTask.command(
+                    repository, catalog, target, 'Client', true, true)
+                    .contains('-PnclskinsDevLogging=true'))
             List<String> licensed = TargetRunTask.command(
                     repository, catalog, target, 'LicensedClient', true)
             assertEquals('runClientLicensed', licensed[-2])
@@ -1294,6 +1334,20 @@ final class BuildLogicTest {
         assertTrue(source.contains('standardOutput = System.out'))
         assertTrue(source.contains('errorOutput = System.err'))
         assertFalse(source.contains('inheritIO()'))
+    }
+
+    @Test
+    void compatibilityRunsUseTheCurrentGradleConsoleForInteractiveIo() {
+        String taskSource = new File(repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/CompatibilityRunTask.groovy').text
+        String harnessSource = new File(repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/CompatibilityHarness.groovy').text
+        assertTrue(taskSource.contains('ExecOperations'))
+        assertTrue(taskSource.contains('execOperations'))
+        assertTrue(harnessSource.contains('executeInteractive('))
+        assertTrue(harnessSource.contains('standardInput = System.in'))
+        assertTrue(harnessSource.contains('standardOutput = System.out'))
+        assertTrue(harnessSource.contains('errorOutput = System.err'))
     }
 
     @Test

@@ -9,6 +9,9 @@ import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
 import java.util.Objects;
 import java.util.UUID;
@@ -35,10 +38,9 @@ public final class Minecraft12111PreviewRenderer
         implements PreviewRenderer<GuiGraphics>, AutoCloseable {
     private static final AtomicInteger NEXT_ENTITY_ID = new AtomicInteger(-1);
     private static final float MODEL_HEIGHT = 2.125F;
-    private static final System.Logger LOGGER =
-            System.getLogger(Minecraft12111PreviewRenderer.class.getName());
 
     private final EditorPreviewSession session = new EditorPreviewSession();
+    private final DiagnosticSink diagnostics;
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
     private final Minecraft12111SimplePreviewRenderer baked =
             new Minecraft12111SimplePreviewRenderer();
@@ -46,6 +48,10 @@ public final class Minecraft12111PreviewRenderer
     private boolean layerFailureLogged;
     private PreviewPlayer previewPlayer;
     private ClientLevel previewLevel;
+
+    public Minecraft12111PreviewRenderer(DiagnosticSink diagnostics) {
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
+    }
 
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
@@ -153,16 +159,18 @@ public final class Minecraft12111PreviewRenderer
 
     private void onLiveRenderFailure(RuntimeException failure) {
         if (session.disableLive(failure)) {
-            LOGGER.log(System.Logger.Level.WARNING,
-                    "NCL Skins disabled live editor preview for this screen after a renderer failure");
+            diagnostics.report(
+                    DiagnosticEvent.CLIENT_PREVIEW_LIVE_DISABLED,
+                    () -> DiagnosticDetails.failure(failure));
         }
     }
 
     private void onLiveLayerFailure(RuntimeException failure) {
         if (!layerFailureLogged) {
             layerFailureLogged = true;
-            LOGGER.log(System.Logger.Level.WARNING,
-                    "NCL Skins skipped an incompatible third-party layer in editor preview");
+            diagnostics.report(
+                    DiagnosticEvent.CLIENT_PREVIEW_LAYER_SKIPPED,
+                    () -> DiagnosticDetails.failure(failure));
         }
     }
 

@@ -1,6 +1,8 @@
 package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonOutput
+import org.gradle.process.ExecOperations
+import org.gradle.process.ExecResult
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -30,7 +32,8 @@ final class CompatibilityHarness {
 
     static void run(
             File root, Map catalog, Map target, String modVersion,
-            String minecraftVersion, String kind, boolean dryRun) {
+            String minecraftVersion, String kind, boolean dryRun,
+            boolean developmentLogging, ExecOperations execOperations) {
         Map result = prepareAndResolve(root, catalog, target, modVersion, minecraftVersion)
         File harness = result.directory as File
         File gameDirectory = RunLayout.modDirectory(root, target, minecraftVersion, kind)
@@ -47,11 +50,13 @@ final class CompatibilityHarness {
                 harness.absolutePath,
                 '--no-daemon',
                 kind == 'LicensedClient' ? 'runClientLicensed' : "run${kind}".toString()]
+        if (developmentLogging) command.add('-PnclskinsDevLogging=true')
         if (kind == 'Server' && target.loader.id == 'fabric') {
             command.add("--args=--nogui --port ${result.serverPort}".toString())
         }
         if (dryRun) command.add('--dry-run')
-        execute(command, root, target, "compatibility ${minecraftVersion} run${kind}")
+        executeInteractive(
+                command, root, target, "compatibility ${minecraftVersion} run${kind}", execOperations)
     }
 
     private static Map prepareAndResolve(
@@ -124,11 +129,16 @@ rootProject.name = 'nclskins-${target.id}-compatibility'
         String licensedProfile = CatalogTools.licensedClientProfile(
                 catalog, target.loader.id.toString())
         if (target.loader.id == 'fabric') {
+            String fabricLogging = new File(root, 'gradle/logging/fabric-dev-log4j.xml')
+                    .canonicalPath.replace('\\', '\\\\').replace("'", "\\'")
             return """plugins {
     id 'net.fabricmc.fabric-loom' version '${targetCatalogPlugin(root, 'loom')}'
 }
 loom {
     accessWidenerPath = file('src/main/resources/${target.metadata.accessWidener}')
+    if (providers.gradleProperty('nclskinsDevLogging').map { it == 'true' }.getOrElse(false)) {
+        log4jConfigs.from(file('${fabricLogging}'))
+    }
     runs {
         client {
             runDir '${runDirectories.client}'
@@ -150,6 +160,11 @@ loom {
 }
 tasks.named('runServer', JavaExec) {
     standardInput = System.in
+}
+tasks.matching { it.name in ['runClient', 'runClientLicensed'] }.configureEach {
+    doFirst {
+        file('build/classes/java/main').mkdirs()
+    }
 }
 repositories {
     maven { url = 'https://maven.covers1624.net/' }
@@ -189,6 +204,13 @@ neoForge {
         disableRecompilation = true
     }
     runs {
+        configureEach {
+            if (providers.gradleProperty('nclskinsDevLogging').map { it == 'true' }.getOrElse(false)) {
+                logLevel = org.slf4j.event.Level.DEBUG
+                systemProperty 'forge.logging.console.level', 'debug'
+                systemProperty 'forge.logging.file.level', 'debug'
+            }
+        }
         client {
             client()
             gameDirectory = file('${runDirectories.client}')
@@ -272,6 +294,26 @@ tasks.register('resolveCompatibilityRuntime') {
         TargetRuntime.configureEnvironment(builder, javaHome)
         Process process = builder.start()
         int exit = process.waitFor()
+        if (exit != 0) throw new IllegalStateException("${target.id}: ${label} failed (${exit})")
+    }
+
+    private static void executeInteractive(
+            List<String> command, File root, Map target, String label,
+            ExecOperations execOperations) {
+        String javaHome = TargetRuntime.resolveJavaHome(target.java.buildJdk as int)
+        String path = new File(javaHome, 'bin').absolutePath + File.pathSeparator +
+                (System.getenv('PATH') ?: '')
+        ExecResult result = execOperations.exec {
+            commandLine command
+            workingDir root
+            environment 'JAVA_HOME', javaHome
+            environment 'PATH', path
+            standardInput = System.in
+            standardOutput = System.out
+            errorOutput = System.err
+            ignoreExitValue = true
+        }
+        int exit = result.exitValue
         if (exit != 0) throw new IllegalStateException("${target.id}: ${label} failed (${exit})")
     }
 }

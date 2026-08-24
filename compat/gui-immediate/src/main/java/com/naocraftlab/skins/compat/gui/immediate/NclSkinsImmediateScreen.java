@@ -118,8 +118,10 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         this.textures = Objects.requireNonNull(capabilities.createTextureRegistry(), "textures");
         this.scrollController = Objects.requireNonNull(
                 capabilities.createScrollController(), "scrollController");
-        this.skinTextures = new PreviewAssetCache<>(textures, TextureKind.PLAYER_SKIN);
-        this.capeTextures = new PreviewAssetCache<>(textures, TextureKind.IMAGE);
+        this.skinTextures = new PreviewAssetCache<>(
+                textures, TextureKind.PLAYER_SKIN, runtime.diagnostics());
+        this.capeTextures = new PreviewAssetCache<>(
+                textures, TextureKind.IMAGE, runtime.diagnostics());
         this.backEquipmentRenderer = Objects.requireNonNull(
                 capabilities.createBackEquipmentPreviewRenderer(), "backEquipmentPreviewRenderer");
     }

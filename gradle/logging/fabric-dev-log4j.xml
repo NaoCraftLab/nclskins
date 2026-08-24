@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Loggers>
+        <Logger name="nclskins" level="DEBUG" additivity="false">
+            <AppenderRef ref="SysOut"/>
+            <AppenderRef ref="DebugFile"/>
+            <AppenderRef ref="ServerGuiConsole"/>
+        </Logger>
+    </Loggers>
+</Configuration>

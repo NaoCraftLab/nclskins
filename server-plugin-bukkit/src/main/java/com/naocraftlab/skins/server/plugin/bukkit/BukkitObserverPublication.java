@@ -18,10 +18,10 @@ final class BukkitObserverPublication {
         Objects.requireNonNull(retrack, "retrack");
         Objects.requireNonNull(trackingRestored, "trackingRestored");
         untrack.run();
-        Throwable publicationFailure = null;
+        RuntimeException publicationFailure = null;
         try {
             playerInfo.run();
-        } catch (Throwable failure) {
+        } catch (RuntimeException failure) {
             publicationFailure = failure;
         }
         try {
@@ -29,20 +29,14 @@ final class BukkitObserverPublication {
             if (!trackingRestored.getAsBoolean()) {
                 throw new IllegalStateException("Observer tracking was not restored");
             }
-        } catch (Throwable retrackFailure) {
+        } catch (RuntimeException retrackFailure) {
             if (publicationFailure != null) {
                 retrackFailure.addSuppressed(publicationFailure);
             }
             throw retrackFailure;
         }
         if (publicationFailure != null) {
-            if (publicationFailure instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            if (publicationFailure instanceof Error error) {
-                throw error;
-            }
-            throw new IllegalStateException("Observer player-info refresh failed", publicationFailure);
+            throw publicationFailure;
         }
     }
 }

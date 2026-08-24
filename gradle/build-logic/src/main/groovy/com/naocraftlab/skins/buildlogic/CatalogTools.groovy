@@ -157,9 +157,9 @@ final class CatalogTools {
     static List<String> clientArguments(Map catalog) {
         if (!(catalog.development instanceof Map) ||
                 ((catalog.development as Map).keySet() as Set) !=
-                ['clientUuid', 'licensedProfiles', 'operators'] as Set) {
+                ['clientUuid', 'licensedProfiles', 'loggingProfiles', 'operators'] as Set) {
             throw new IllegalArgumentException(
-                    'development must define exactly clientUuid, licensedProfiles, and operators')
+                    'development must define exactly clientUuid, licensedProfiles, loggingProfiles, and operators')
         }
         Map development = catalog.development as Map
         Object rawUuid = development.clientUuid
@@ -218,6 +218,24 @@ final class CatalogTools {
             throw new IllegalArgumentException("unsupported licensed client loader: ${loader}")
         }
         profile.toString()
+    }
+
+    static void validateLoggingProfiles(Map catalog) {
+        Map profiles = ((catalog.development as Map).loggingProfiles) as Map
+        if ((profiles?.keySet() as Set) != ['loaders', 'serverKernels', 'proxies'] as Set ||
+                ((profiles.loaders as Map)?.keySet() as Set) !=
+                        ['fabric', 'forge', 'neoforge'] as Set ||
+                ((profiles.serverKernels as Map)?.keySet() as Set) !=
+                        ['craftbukkit', 'spigot', 'paper', 'purpur', 'folia'] as Set ||
+                ((profiles.proxies as Map)?.keySet() as Set) !=
+                        ['velocity', 'bungeecord'] as Set ||
+                profiles.values().any { !(it instanceof Map) ||
+                        (it as Map).values().any { value ->
+                            !(value instanceof String) || !(value ==~ /[a-z][a-z0-9-]{2,63}/)
+                        } }) {
+            throw new IllegalArgumentException(
+                    'development.loggingProfiles must exhaustively map loaders, server kernels, and proxies')
+        }
     }
 
     static String repositoryRelative(File repositoryRoot, Object rawPath, String label) {
@@ -410,7 +428,7 @@ final class CatalogTools {
                 'optionalDependencies', 'publicationDependencies',
                 'serverPlugin', 'serverPluginRuntimes', 'serverPluginTopologies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 19) {
+        if (catalog.schemaVersion != 20) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -419,6 +437,7 @@ final class CatalogTools {
         try {
             clientArguments(catalog)
             ['fabric', 'forge', 'neoforge'].each { licensedClientProfile(catalog, it) }
+            validateLoggingProfiles(catalog)
             developmentOperators(catalog)
         } catch (IllegalArgumentException error) {
             errors.add(error.message)

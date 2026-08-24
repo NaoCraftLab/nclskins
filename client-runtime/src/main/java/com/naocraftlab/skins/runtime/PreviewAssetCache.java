@@ -4,6 +4,9 @@ import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
 import com.naocraftlab.skins.client.TextureRegistry.TextureKind;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 
 import java.io.IOException;
 import java.security.MessageDigest;
@@ -28,20 +31,24 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     private final TextureRegistry textures;
     private final TextureKind kind;
+    private final DiagnosticSink diagnostics;
     private final LongSupplier monotonicNanos;
     private final Map<K, Entry> entries = new HashMap<>();
     private boolean closed;
 
-    public PreviewAssetCache(TextureRegistry textures, TextureKind kind) {
-        this(textures, kind, System::nanoTime);
+    public PreviewAssetCache(
+            TextureRegistry textures, TextureKind kind, DiagnosticSink diagnostics) {
+        this(textures, kind, diagnostics, System::nanoTime);
     }
 
     PreviewAssetCache(
             TextureRegistry textures,
             TextureKind kind,
+            DiagnosticSink diagnostics,
             LongSupplier monotonicNanos) {
         this.textures = Objects.requireNonNull(textures, "textures");
         this.kind = Objects.requireNonNull(kind, "kind");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         this.monotonicNanos = Objects.requireNonNull(monotonicNanos, "monotonicNanos");
     }
 
@@ -77,6 +84,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         try {
             load = Objects.requireNonNull(loader.get(), "preview load future");
         } catch (RuntimeException failure) {
+            diagnose(DiagnosticEvent.CLIENT_TEXTURE_LOAD_FAILED, failure);
             fail(entry, now);
             return;
         }
@@ -132,6 +140,9 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         }
         entry.inFlight = false;
         if (failure != null || bytes == null || bytes.isEmpty()) {
+            if (failure != null) {
+                diagnose(DiagnosticEvent.CLIENT_TEXTURE_LOAD_FAILED, failure);
+            }
             scheduleRetry(entry);
             return;
         }
@@ -145,17 +156,17 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         try {
             entry.handle = textures.register(kind, sha256(png), png);
             return true;
-        } catch (IOException | RuntimeException ignored) {
+        } catch (IOException | RuntimeException failure) {
+            diagnose(DiagnosticEvent.CLIENT_TEXTURE_REGISTER_FAILED, failure);
             return false;
         }
     }
 
-    private static void notifyRegistrationFailure(Runnable registrationFailure) {
+    private void notifyRegistrationFailure(Runnable registrationFailure) {
         try {
             registrationFailure.run();
-        } catch (RuntimeException ignored) {
-
-
+        } catch (RuntimeException failure) {
+            diagnose(DiagnosticEvent.UNEXPECTED_CLEANUP_FAILED, failure);
         }
     }
 
@@ -180,11 +191,14 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
             entry.handle = null;
             try {
                 textures.release(handle);
-            } catch (RuntimeException ignored) {
-
-
+            } catch (RuntimeException failure) {
+                diagnose(DiagnosticEvent.CLIENT_TEXTURE_RELEASE_FAILED, failure);
             }
         }
+    }
+
+    private void diagnose(DiagnosticEvent event, Throwable failure) {
+        diagnostics.report(event, () -> DiagnosticDetails.failure(failure));
     }
 
     private Optional<NativePlayerSkinLifecycle.State> playerSkinState(TextureHandle handle) {

@@ -55,12 +55,17 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
             List<String> forbiddenPrefixes = [
                     'com/google/gson/', 'org/bukkit/', 'io/papermc/paper/',
                     'com/velocitypowered/api/', 'net/md_5/bungee/api/',
-                    'org/sqlite/', 'META-INF/native/', 'META-INF/services/org.sqlite.'
+                    'org/sqlite/', 'META-INF/native/', 'META-INF/services/org.sqlite.',
+                    'org/apache/logging/log4j/', 'org/apache/log4j/', 'org/slf4j/',
+                    'ch/qos/logback/', 'META-INF/services/org.slf4j.',
+                    'META-INF/services/org.apache.logging.'
             ]
             names.each { String name ->
                 if (forbiddenPrefixes.any { name.startsWith(it) } ||
                         name.endsWith('.mixins.json') || name.endsWith('.accesswidener') ||
                         name.toLowerCase(Locale.ROOT).contains('accesstransformer') ||
+                        name.endsWith('/JndiLookup.class') || name.endsWith('/JndiManager.class') ||
+                        name.toLowerCase(Locale.ROOT) ==~ /.*(?:log4j2|logback).*(?:xml|json|ya?ml|properties)$/ ||
                         name.toLowerCase(Locale.ROOT) ==~ /.*\.(?:so|dll|dylib|jnilib)$/) {
                     errors.add("forbidden bundled payload ${name}")
                 }

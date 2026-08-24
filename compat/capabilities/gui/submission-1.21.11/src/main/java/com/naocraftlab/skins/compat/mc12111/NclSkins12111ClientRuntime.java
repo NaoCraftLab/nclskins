@@ -2,6 +2,7 @@ package com.naocraftlab.skins.compat.mc12111;
 
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.generated.TargetClientBindings;
+import com.naocraftlab.skins.diagnostics.Slf4jDiagnosticSink;
 import com.naocraftlab.skins.runtime.ClientApplicationHost;
 import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.ClientRuntime;
@@ -10,6 +11,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
 import net.minecraft.locale.Language;
+import org.slf4j.LoggerFactory;
 
 
 final class NclSkins12111ClientRuntime {
@@ -44,6 +46,7 @@ final class NclSkins12111ClientRuntime {
                             Minecraft12111Components::resolveString,
                             (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
                     dataRoot,
+                    new Slf4jDiagnosticSink(LoggerFactory.getLogger("nclskins")),
                     provision::closeNative);
         }
         return application.runtime();

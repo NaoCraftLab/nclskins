@@ -16,6 +16,10 @@ import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
 import com.naocraftlab.skins.client.VanillaPlayerModelTransform;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.Minecraft;
@@ -51,8 +55,6 @@ import org.joml.Vector3f;
 public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final AtomicInteger NEXT_PREVIEW_ENTITY_ID = new AtomicInteger(-1);
     private static final PlayerTeam PREVIEW_TEAM = previewTeam();
-    private static final System.Logger LOGGER =
-            System.getLogger(VanillaAppearancePreviewRenderer.class.getName());
     private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
@@ -118,6 +120,7 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             };
 
     private final Minecraft minecraft;
+    private final DiagnosticSink diagnostics;
     private final EditorPreviewSession session = new EditorPreviewSession();
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
     private boolean layerFailureLogged;
@@ -132,8 +135,9 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     private PreviewPlayer previewPlayer;
     private ClientLevel previewLevel;
 
-    public VanillaAppearancePreviewRenderer(Minecraft minecraft) {
-        this.minecraft = minecraft;
+    public VanillaAppearancePreviewRenderer(Minecraft minecraft, DiagnosticSink diagnostics) {
+        this.minecraft = Objects.requireNonNull(minecraft, "minecraft");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         Minecraft1211VanillaPreviewModels models =
                 Minecraft1211VanillaPreviewModels.instance();
         classic = models.classic;
@@ -197,8 +201,9 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             }
         } catch (RuntimeException failure) {
             if (session.disableLive(failure)) {
-                LOGGER.log(System.Logger.Level.WARNING,
-                        "NCL Skins disabled live editor preview for this screen after a renderer failure");
+                diagnostics.report(
+                        DiagnosticEvent.CLIENT_PREVIEW_LIVE_DISABLED,
+                        () -> DiagnosticDetails.failure(failure));
             }
         }
     }
@@ -206,8 +211,9 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     private void onLiveLayerFailure(RuntimeException failure) {
         if (!layerFailureLogged) {
             layerFailureLogged = true;
-            LOGGER.log(System.Logger.Level.WARNING,
-                    "NCL Skins skipped an incompatible third-party layer in editor preview");
+            diagnostics.report(
+                    DiagnosticEvent.CLIENT_PREVIEW_LAYER_SKIPPED,
+                    () -> DiagnosticDetails.failure(failure));
         }
     }
 

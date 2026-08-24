@@ -169,11 +169,13 @@ public final class NclSkinsScreen extends Screen {
         rebuilding = true;
         if (textureRegistry == null) {
             textureRegistry = new Minecraft262TextureRegistry();
-            skinTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.PLAYER_SKIN);
-            capeTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.IMAGE);
+            skinTextures = new PreviewAssetCache<>(
+                    textureRegistry, TextureKind.PLAYER_SKIN, runtime.diagnostics());
+            capeTextures = new PreviewAssetCache<>(
+                    textureRegistry, TextureKind.IMAGE, runtime.diagnostics());
         }
         if (editorRenderer == null) {
-            editorRenderer = new Minecraft262PreviewRenderer();
+            editorRenderer = new Minecraft262PreviewRenderer(runtime.diagnostics());
         }
         runtime.reopen();
         currentView = runtime.view(width, height, lastMouseX, lastMouseY);

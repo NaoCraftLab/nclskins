@@ -19,6 +19,7 @@ dependencies {
     implementation project(':server-plugin-velocity')
     implementation project(':server-plugin-bungee')
     implementation project(':server-plugin-common')
+    implementation project(':diagnostics')
     implementation project(':server-configuration')
     implementation project(':server-contract')
     implementation project(':server-runtime')
@@ -52,7 +53,6 @@ tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.Shadow
     archiveFileName = artifactName
     addMultiReleaseAttribute = false
     relocate('com.google.gson', packaging.gsonRelocation.toString())
-    mergeServiceFiles()
     reproducibleFileOrder = true
     preserveFileTimestamps = false
     manifest.attributes(
@@ -71,6 +71,7 @@ tasks.named('sourcesJar', Jar).configure {
         project(':server-plugin-velocity'),
         project(':server-plugin-bungee'),
         project(':server-plugin-common'),
+        project(':diagnostics'),
         project(':server-configuration'),
         project(':server-contract'),
         project(':server-runtime'),

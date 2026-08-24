@@ -1,6 +1,9 @@
 package com.naocraftlab.skins.server.plugin.bukkit;
 
 import com.naocraftlab.skins.core.config.ServerConfiguration;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 import com.naocraftlab.skins.server.Admission;
 import com.naocraftlab.skins.server.BatchAppearancePublisher;
 import com.naocraftlab.skins.server.BatchPublicationResult;
@@ -41,8 +44,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 
 final class ReflectiveBukkitRefreshEngine implements BukkitRefreshEngine {
@@ -50,7 +51,7 @@ final class ReflectiveBukkitRefreshEngine implements BukkitRefreshEngine {
     private final BukkitExecution execution;
     private final ReflectiveNativeAccess nativeAccess;
     private final PublicationListener listener;
-    private final Logger logger;
+    private final DiagnosticSink diagnostics;
     private final Map<UUID, LiveConnection> connections = new LinkedHashMap<>();
     private final NativePublisher publisher;
     private final ServerAppearanceRefreshService service;
@@ -62,12 +63,13 @@ final class ReflectiveBukkitRefreshEngine implements BukkitRefreshEngine {
             ServerConfiguration configuration,
             boolean regionized,
             boolean legacyMapped,
-            PublicationListener listener) {
+            PublicationListener listener,
+            DiagnosticSink diagnostics) {
         Objects.requireNonNull(plugin, "plugin");
         ServerConfiguration.RealtimeRefresh refresh = Objects.requireNonNull(
                 configuration, "configuration").realtimeRefresh();
         this.listener = Objects.requireNonNull(listener, "listener");
-        logger = plugin.getLogger();
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         execution = new BukkitExecution(plugin, regionized);
         nativeAccess = new ReflectiveNativeAccess(
                 plugin.getClass().getClassLoader(), legacyMapped);
@@ -201,8 +203,9 @@ final class ReflectiveBukkitRefreshEngine implements BukkitRefreshEngine {
             for (PublicationRequest request : requests) {
                 CompletableFuture<Void> future = publishOne(request).handle((updated, failure) -> {
                     if (failure != null) {
-                        logger.log(Level.WARNING,
-                                "NCL refresh native publication failed", failure);
+                        diagnostics.report(
+                                DiagnosticEvent.SERVER_PUBLICATION_FAILED,
+                                () -> DiagnosticDetails.failure(failure));
                     }
                     synchronized (outcomes) {
                         outcomes.put(request.connection(), failure == null && updated

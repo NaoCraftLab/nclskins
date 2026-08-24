@@ -1,0 +1,17 @@
+package com.naocraftlab.skins.diagnostics;
+
+
+public enum DiagnosticStatus {
+    REJECTED,
+    EXPIRED,
+    OVERLOADED,
+    FAILED,
+    EXHAUSTED,
+    RECOVERED,
+    DEFERRED,
+    INVALID_CONFIGURATION,
+    UNSUPPORTED_RUNTIME,
+    ABI_INCOMPATIBLE,
+    TRUST_REQUIREMENT_MISSING,
+    INTERNAL_METADATA_MISSING
+}

@@ -1,5 +1,9 @@
 package com.naocraftlab.skins.server.plugin.bungee;
 
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticStatus;
+import com.naocraftlab.skins.diagnostics.JulDiagnosticSink;
 import com.naocraftlab.skins.server.plugin.common.BungeeGuardCompatibility;
 import com.naocraftlab.skins.server.plugin.common.PluginChannels;
 import com.naocraftlab.skins.server.plugin.common.ProxyRefreshProtocol;
@@ -20,6 +24,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 
 public final class NclSkinsBungeePlugin extends Plugin implements Listener {
@@ -28,16 +36,22 @@ public final class NclSkinsBungeePlugin extends Plugin implements Listener {
     private final Map<UUID, Session> sessions = new ConcurrentHashMap<>();
     private SemanticVersion version;
     private boolean active;
+    private JulDiagnosticSink diagnostics;
 
     @Override
     public void onEnable() {
+        diagnostics = new JulDiagnosticSink(getLogger(), Level.FINE, this::debugEnabled);
         if (getProxy().getName().toLowerCase(Locale.ROOT).contains("waterfall")) {
-            getLogger().severe("NCL Skins Plugin does not support EOL Waterfall; relay disabled");
+            diagnostics.report(
+                    DiagnosticEvent.PLUGIN_STARTUP_FAILED,
+                    () -> DiagnosticDetails.status(DiagnosticStatus.UNSUPPORTED_RUNTIME));
             return;
         }
         Plugin bungeeGuard = getProxy().getPluginManager().getPlugin("BungeeGuard");
         if (!supportedBungeeGuard(bungeeGuard)) {
-            getLogger().severe("NCL Skins Plugin requires BungeeGuard 1.4.0+; relay disabled");
+            diagnostics.report(
+                    DiagnosticEvent.PLUGIN_STARTUP_FAILED,
+                    () -> DiagnosticDetails.status(DiagnosticStatus.TRUST_REQUIREMENT_MISSING));
             return;
         }
         String implementation = getClass().getPackage().getImplementationVersion();
@@ -46,7 +60,7 @@ public final class NclSkinsBungeePlugin extends Plugin implements Listener {
         getProxy().registerChannel(PluginChannels.PROXY_REFRESH);
         getProxy().getPluginManager().registerListener(this, this);
         active = true;
-        getLogger().info("NCL_SKINS_PROXY_READY platform=bungeecord protocol=proxy-refresh-v1");
+        diagnostics.report(DiagnosticEvent.PROXY_READY, DiagnosticDetails::none);
     }
 
     @Override
@@ -57,6 +71,10 @@ public final class NclSkinsBungeePlugin extends Plugin implements Listener {
         sessions.values().forEach(session -> session.fence.clear());
         sessions.clear();
         active = false;
+        if (diagnostics != null) {
+            diagnostics.close();
+            diagnostics = null;
+        }
     }
 
     @EventHandler
@@ -73,7 +91,9 @@ public final class NclSkinsBungeePlugin extends Plugin implements Listener {
         try {
             message = protocol.decode(event.getData());
         } catch (ProxyRefreshProtocol.ProtocolException malformed) {
-            getLogger().warning("Rejected malformed bounded NCL proxy relay payload");
+            diagnostics.report(
+                    DiagnosticEvent.RELAY_MALFORMED,
+                    () -> DiagnosticDetails.failure(malformed));
             return;
         }
         Session session = sessions.get(player.getUniqueId());
@@ -123,6 +143,24 @@ public final class NclSkinsBungeePlugin extends Plugin implements Listener {
         }
         return BungeeGuardCompatibility.isSupportedVersion(
                 plugin.getDescription().getVersion());
+    }
+
+    private boolean debugEnabled() {
+        LogRecord probe = new LogRecord(Level.FINE, "");
+        for (Logger current = getLogger(); current != null; current = current.getParent()) {
+            if (!current.isLoggable(Level.FINE)) {
+                continue;
+            }
+            for (Handler handler : current.getHandlers()) {
+                if (handler.isLoggable(probe)) {
+                    return true;
+                }
+            }
+            if (!current.getUseParentHandlers()) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static final class Session {

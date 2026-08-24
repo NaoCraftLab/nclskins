@@ -28,8 +28,11 @@ final class BukkitExecution {
             try {
                 action.run();
                 completion.complete(null);
-            } catch (Throwable failure) {
+            } catch (RuntimeException failure) {
                 completion.completeExceptionally(failure);
+            } catch (Error fatal) {
+                completion.completeExceptionally(fatal);
+                throw fatal;
             }
         };
         if (!regionized) {

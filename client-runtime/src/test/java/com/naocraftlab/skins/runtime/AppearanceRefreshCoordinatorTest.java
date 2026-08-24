@@ -1,8 +1,5 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.ExpectedAppearance;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
@@ -10,12 +7,17 @@ import com.naocraftlab.skins.client.SignedProfileResolver;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
+import com.naocraftlab.skins.diagnostics.DiagnosticSinks;
+import org.junit.jupiter.api.Test;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AppearanceRefreshCoordinatorTest {
     @Test
@@ -31,7 +33,8 @@ final class AppearanceRefreshCoordinatorTest {
         };
         CountingSink sink = new CountingSink(PlayerAppearanceSink.ApplyResult.UPDATED);
         AppearanceRefreshCoordinator<String> coordinator =
-                new AppearanceRefreshCoordinator<>(client, resolver, sink);
+                new AppearanceRefreshCoordinator<>(
+                        client, resolver, sink, DiagnosticSinks.discarding());
         List<AppearanceRefreshCoordinator.Result> published = new ArrayList<>();
 
         AppliedAppearance first = AppliedAppearance.localSkin(
@@ -63,7 +66,8 @@ final class AppearanceRefreshCoordinatorTest {
         AppearanceRefreshCoordinator<String> coordinator = new AppearanceRefreshCoordinator<>(
                 client,
                 expected -> CompletableFuture.completedFuture(Optional.empty()),
-                sink);
+                sink,
+                DiagnosticSinks.discarding());
         AppliedAppearance appearance = AppliedAppearance.accountDefault(
                 TestFixtures.ACCOUNT_ID, Optional.empty());
 
@@ -85,7 +89,8 @@ final class AppearanceRefreshCoordinatorTest {
                 client,
                 expected -> CompletableFuture.completedFuture(
                         Optional.of(resolved(appearance, "resolved"))),
-                sink);
+                sink,
+                DiagnosticSinks.discarding());
 
         assertEquals(
                 AppearanceRefreshCoordinator.Result.DEFERRED,
@@ -110,7 +115,8 @@ final class AppearanceRefreshCoordinatorTest {
                     resolutions.incrementAndGet();
                     return CompletableFuture.completedFuture(Optional.empty());
                 },
-                sink);
+                sink,
+                DiagnosticSinks.discarding());
         AppliedAppearance appearance = AppliedAppearance.localSkin(
                 TestFixtures.ACCOUNT_ID, "4".repeat(64), SkinVariant.SLIM, Optional.empty());
 

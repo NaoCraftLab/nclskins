@@ -3,7 +3,12 @@ package com.naocraftlab.skins.server.plugin.bukkit;
 import com.naocraftlab.skins.core.config.ConfigurationException;
 import com.naocraftlab.skins.core.config.ServerConfiguration;
 import com.naocraftlab.skins.core.config.ServerConfigurationRepository;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticStatus;
+import com.naocraftlab.skins.diagnostics.JulDiagnosticSink;
 import com.naocraftlab.skins.server.Admission;
+import com.naocraftlab.skins.server.RefreshResult;
 import com.naocraftlab.skins.server.RefreshSubmission;
 import com.naocraftlab.skins.server.VerifiedOfficialProfile;
 import com.naocraftlab.skins.server.plugin.common.ExactAdapterSelector;
@@ -11,6 +16,7 @@ import com.naocraftlab.skins.server.plugin.common.PluginChannels;
 import com.naocraftlab.skins.server.plugin.common.ProxyRefreshProtocol;
 import com.naocraftlab.skins.server.plugin.common.SemanticVersion;
 import com.naocraftlab.skins.server.plugin.common.ServerCapabilityProtocol;
+import org.apache.logging.log4j.LogManager;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -29,6 +35,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
 
 
 public final class NclSkinsBukkitPlugin extends JavaPlugin
@@ -42,57 +49,62 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
     private BukkitNativeAdapter adapter;
     private ServerConfiguration configuration;
     private BukkitRefreshEngine engine;
+    private JulDiagnosticSink diagnostics;
 
     @Override
     @SuppressWarnings("deprecation")
     public void onEnable() {
+        diagnostics = new JulDiagnosticSink(
+                getLogger(),
+                Level.CONFIG,
+                () -> LogManager.getLogger(getClass().getCanonicalName()).isDebugEnabled());
         try {
             implementationVersion = SemanticVersion.parse(getDescription().getVersion());
             configuration = ServerConfigurationRepository.bundled(
                     getDataFolder().toPath(), getClassLoader()).load();
         } catch (IllegalArgumentException | ConfigurationException failure) {
-            fail("invalid plugin version or server configuration: " + failure.getMessage());
+            fail(DiagnosticStatus.INVALID_CONFIGURATION, failure);
             return;
         }
 
         BukkitRuntimeDetector.Detection detection = BukkitRuntimeDetector.detect();
         if (!detection.supported()) {
-            fail(detection.diagnostic());
+            fail(DiagnosticStatus.UNSUPPORTED_RUNTIME, null);
             return;
         }
         ExactAdapterSelector.Selection<BukkitNativeAdapter> selection =
                 BukkitAdapterCatalog.selector().select(detection.identity());
         if (!selection.supported()) {
-            fail("unsupported exact runtime " + detection.identity());
+            fail(DiagnosticStatus.UNSUPPORTED_RUNTIME, null);
             return;
         }
         adapter = selection.load();
         BukkitNativeAdapter.AbiVerification abi = adapter.verifyAbi(
                 getClassLoader(), Bukkit.getServer().getClass().getPackageName(), getLogger());
         if (!abi.compatible()) {
-            fail(abi.diagnostic());
+            fail(DiagnosticStatus.ABI_INCOMPATIBLE, null);
             return;
         }
         if (!Bukkit.getOnlineMode()) {
             if (!configuration.realtimeRefresh().trustedProxyForwarding()) {
-                fail("offline backend requires explicit trustedProxyForwarding");
+                fail(DiagnosticStatus.TRUST_REQUIREMENT_MISSING, null);
                 return;
             }
             if (!ProxyConnectionAssurance.assured(true)) {
-                fail("offline backend has no active Velocity modern forwarding or BungeeGuard 1.4.0+");
+                fail(DiagnosticStatus.TRUST_REQUIREMENT_MISSING, null);
                 return;
             }
             if (adapter.identity().family()
                     == com.naocraftlab.skins.server.plugin.common.ServerRuntimeIdentity.Family.SPIGOT
                     && !enabledPlugin("ProtocolLib")) {
-                fail("Spigot proxy backend requires ProtocolLib for BungeeGuard");
+                fail(DiagnosticStatus.TRUST_REQUIREMENT_MISSING, null);
                 return;
             }
         }
         try {
-            engine = adapter.createEngine(this, configuration, this::published);
+            engine = adapter.createEngine(this, configuration, this::published, diagnostics);
         } catch (RuntimeException failure) {
-            fail("native publication engine failed exact ABI binding: " + failure.getMessage());
+            fail(DiagnosticStatus.ABI_INCOMPATIBLE, failure);
             return;
         }
 
@@ -106,7 +118,7 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
                 this, PluginChannels.PROXY_REFRESH);
         PluginCommand command = getCommand("nclskin");
         if (command == null) {
-            fail("plugin.yml lacks the internal nclskin command");
+            fail(DiagnosticStatus.INTERNAL_METADATA_MISSING, null);
             return;
         }
         command.setExecutor(this::executeCommand);
@@ -114,10 +126,7 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
         for (Player player : Bukkit.getOnlinePlayers()) {
             engine.connected(player);
         }
-        getLogger().info("NCL_SKINS_PLUGIN_READY platform=" + Bukkit.getName()
-                + " minecraft=" + adapter.identity().minecraftVersion()
-                + " adapter=" + adapter.id()
-                + " upstreamChannel=" + upstreamChannel());
+        diagnostics.report(DiagnosticEvent.PLUGIN_READY, DiagnosticDetails::none);
     }
 
     @Override
@@ -127,6 +136,10 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
         if (engine != null) {
             engine.close();
             engine = null;
+        }
+        if (diagnostics != null) {
+            diagnostics.close();
+            diagnostics = null;
         }
     }
 
@@ -165,7 +178,9 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
         try {
             decoded = relay.decode(message);
         } catch (ProxyRefreshProtocol.ProtocolException malformed) {
-            getLogger().warning("Rejected malformed bounded proxy relay payload");
+            diagnostics.report(
+                    DiagnosticEvent.RELAY_MALFORMED,
+                    () -> DiagnosticDetails.failure(malformed));
             return;
         }
         if (decoded instanceof ProxyRefreshProtocol.Bind bind) {
@@ -175,11 +190,11 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
             ProxyRefreshProtocol.Bind bind = proxyBindings.get(player.getUniqueId());
             if (bind == null || !java.security.MessageDigest.isEqual(
                     bind.nonce(), refresh.nonce())) {
-                getLogger().warning("Rejected stale proxy refresh fence");
+                diagnostics.report(DiagnosticEvent.RELAY_STALE, DiagnosticDetails::none);
                 return;
             }
             if (refresh.revision() <= 0L) {
-                getLogger().warning("Rejected stale proxy refresh revision");
+                diagnostics.report(DiagnosticEvent.RELAY_STALE, DiagnosticDetails::none);
                 return;
             }
             AtomicLong accepted = proxyRevisions.computeIfAbsent(
@@ -187,7 +202,7 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
             long previous = accepted.getAndUpdate(current ->
                     refresh.revision() > current ? refresh.revision() : current);
             if (refresh.revision() <= previous) {
-                getLogger().warning("Rejected stale proxy refresh revision");
+                diagnostics.report(DiagnosticEvent.RELAY_STALE, DiagnosticDetails::none);
                 return;
             }
             request(player, false);
@@ -217,6 +232,7 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
             return;
         }
         RefreshSubmission submission = engine.request(player);
+        observe(submission);
         if (dirty && (submission.admission() == Admission.ACCEPTED
                 || submission.admission() == Admission.COALESCED)) {
             ProxyRefreshProtocol.Bind bind = proxyBindings.get(player.getUniqueId());
@@ -240,28 +256,56 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
                         bind.nonce(), revision.get(), profile.textures())));
     }
 
-    private String upstreamChannel() {
-        if (adapter.identity().minecraftVersion().equals("26.1.1")) {
-            return "ALPHA";
-        }
-        if (adapter.identity().family()
-                != com.naocraftlab.skins.server.plugin.common.ServerRuntimeIdentity.Family.FOLIA) {
-            return "STABLE";
-        }
-        return switch (adapter.identity().minecraftVersion()) {
-            case "1.20.1" -> "ALPHA";
-            case "26.2" -> "BETA";
-            default -> "STABLE";
-        };
-    }
-
     private boolean enabledPlugin(String name) {
         org.bukkit.plugin.Plugin plugin = getServer().getPluginManager().getPlugin(name);
         return plugin != null && plugin.isEnabled();
     }
 
-    private void fail(String diagnostic) {
-        getLogger().severe("NCL Skins Plugin disabled: " + diagnostic);
+    private void observe(RefreshSubmission submission) {
+        if (submission.admission() == Admission.OVERLOADED) {
+            diagnostics.report(
+                    DiagnosticEvent.PLUGIN_REFRESH_OVERLOADED,
+                    () -> DiagnosticDetails.status(DiagnosticStatus.OVERLOADED));
+        }
+        submission.completion().whenComplete((result, failure) -> {
+            if (failure != null) {
+                diagnostics.report(
+                        DiagnosticEvent.PLUGIN_REFRESH_FAILED,
+                        () -> DiagnosticDetails.failure(failure));
+                return;
+            }
+            if (result == RefreshResult.REJECTED) {
+                diagnostics.report(
+                        DiagnosticEvent.PLUGIN_REFRESH_REJECTED,
+                        () -> DiagnosticDetails.status(DiagnosticStatus.REJECTED));
+            } else if (result == RefreshResult.OVERLOADED) {
+                diagnostics.report(
+                        DiagnosticEvent.PLUGIN_REFRESH_OVERLOADED,
+                        () -> DiagnosticDetails.status(DiagnosticStatus.OVERLOADED));
+            } else if (result == RefreshResult.EXPIRED) {
+                diagnostics.report(
+                        DiagnosticEvent.PLUGIN_REFRESH_EXPIRED,
+                        () -> DiagnosticDetails.status(DiagnosticStatus.EXPIRED));
+            } else if (result == RefreshResult.FAILED || result == RefreshResult.EXHAUSTED) {
+                DiagnosticStatus status = result == RefreshResult.FAILED
+                        ? DiagnosticStatus.FAILED : DiagnosticStatus.EXHAUSTED;
+                diagnostics.report(
+                        DiagnosticEvent.PLUGIN_REFRESH_FAILED,
+                        () -> DiagnosticDetails.status(status));
+            }
+        });
+    }
+
+    private void fail(DiagnosticStatus status, Throwable failure) {
+        if (failure == null) {
+            diagnostics.report(
+                    DiagnosticEvent.PLUGIN_STARTUP_FAILED,
+                    () -> DiagnosticDetails.status(status));
+        } else {
+            diagnostics.report(
+                    DiagnosticEvent.PLUGIN_STARTUP_FAILED,
+                    () -> DiagnosticDetails.statusFailure(status, failure));
+        }
         getServer().getPluginManager().disablePlugin(this);
     }
 }

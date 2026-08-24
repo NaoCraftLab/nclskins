@@ -10,6 +10,7 @@ import com.naocraftlab.skins.compat.gui.immediate.ImmediateScreenCapabilities;
 import com.naocraftlab.skins.compat.gui.immediate.NclSkinsImmediateScreen;
 import com.naocraftlab.skins.compat.gui.immediate.NativeScrollController;
 import com.naocraftlab.skins.generated.TargetClientBindings;
+import com.naocraftlab.skins.diagnostics.Slf4jDiagnosticSink;
 import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ClientApplicationHost;
 import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
@@ -24,6 +25,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.opengl.GL11;
+import org.slf4j.LoggerFactory;
 
 
 public final class Minecraft1201Client implements ImmediateScreenCapabilities {
@@ -57,6 +59,7 @@ public final class Minecraft1201Client implements ImmediateScreenCapabilities {
                             message -> resolve(message).getString(),
                             (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
                     Objects.requireNonNull(dataRoot, "dataRoot"),
+                    new Slf4jDiagnosticSink(LoggerFactory.getLogger("nclskins")),
                     provision::closeNative);
         }
         application.verifyStorageAccess();
@@ -131,7 +134,7 @@ public final class Minecraft1201Client implements ImmediateScreenCapabilities {
 
     @Override
     public PreviewRenderer<GuiGraphics> createEditorPreviewRenderer() {
-        return new Minecraft1201PreviewRenderer();
+        return new Minecraft1201PreviewRenderer(runtime().diagnostics());
     }
 
     @Override

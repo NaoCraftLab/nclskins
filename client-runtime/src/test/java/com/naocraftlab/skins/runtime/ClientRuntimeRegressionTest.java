@@ -17,6 +17,7 @@ import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.SessionValidation;
+import com.naocraftlab.skins.diagnostics.DiagnosticSinks;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -126,14 +127,16 @@ final class ClientRuntimeRegressionTest {
         AppearanceRefreshCoordinator<Object> refresh = new AppearanceRefreshCoordinator<>(
                 CLIENT,
                 ignored -> CompletableFuture.completedFuture(Optional.empty()),
-                ignored -> PlayerAppearanceSink.ApplyResult.DEFERRED);
+                ignored -> PlayerAppearanceSink.ApplyResult.DEFERRED,
+                DiagnosticSinks.discarding());
         ClientRuntime runtime = new ClientRuntime(
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
                 Runnable::run,
                 TEXT,
-                Optional.of(refresh));
+                Optional.of(refresh),
+                DiagnosticSinks.discarding());
         runtime.initialize();
         UUID presetId = operations.account.presets().get(1).id();
 
@@ -341,7 +344,8 @@ final class ClientRuntimeRegressionTest {
                 Optional.empty(),
                 Optional.of(applied::add),
                 Optional.empty(),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system());
+                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                DiagnosticSinks.discarding());
 
         runtime.initialize();
         assertEquals(List.of(OuterLayerVisibility.allVisible()), applied);
@@ -375,7 +379,8 @@ final class ClientRuntimeRegressionTest {
                 CANCELLED_PICKER,
                 worker,
                 TEXT,
-                Optional.empty());
+                Optional.empty(),
+                DiagnosticSinks.discarding());
     }
 
     private static final class QueuedExecutor implements Executor {

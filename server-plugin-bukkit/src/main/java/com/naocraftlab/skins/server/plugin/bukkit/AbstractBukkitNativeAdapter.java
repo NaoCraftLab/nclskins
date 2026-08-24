@@ -1,12 +1,12 @@
 package com.naocraftlab.skins.server.plugin.bukkit;
 
 import com.naocraftlab.skins.core.config.ServerConfiguration;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 import com.naocraftlab.skins.server.plugin.common.ServerRuntimeIdentity;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.lang.reflect.Method;
 import java.util.Objects;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
@@ -48,7 +48,6 @@ public abstract class AbstractBukkitNativeAdapter implements BukkitNativeAdapter
             }
             return verifyExactAbi(classLoader, serverPlayer, logger);
         } catch (ReflectiveOperationException | LinkageError failure) {
-            logger.log(Level.FINE, id + " exact ABI probe failed", failure);
             return AbiVerification.incompatible(
                     id + " missing exact ABI leaf: " + failure.getClass().getSimpleName());
         }
@@ -81,12 +80,14 @@ public abstract class AbstractBukkitNativeAdapter implements BukkitNativeAdapter
     public final BukkitRefreshEngine createEngine(
             JavaPlugin plugin,
             ServerConfiguration configuration,
-            BukkitRefreshEngine.PublicationListener listener) {
+            BukkitRefreshEngine.PublicationListener listener,
+            DiagnosticSink diagnostics) {
         return new ReflectiveBukkitRefreshEngine(
                 plugin, configuration, identity.threadingModel()
                 == ServerRuntimeIdentity.ThreadingModel.REGIONIZED,
                 usesLegacyRuntimeMappings(),
-                listener);
+                listener,
+                diagnostics);
     }
 
     protected boolean usesLegacyRuntimeMappings() {

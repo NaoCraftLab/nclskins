@@ -16,6 +16,7 @@ import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.RemoteAppearanceImpact;
 import com.naocraftlab.skins.core.service.SessionValidation;
+import com.naocraftlab.skins.diagnostics.DiagnosticSinks;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationHandler;
@@ -119,7 +120,8 @@ final class ClientRuntimeServerSignalBoundaryTest {
                 Runnable::run,
                 TEXT,
                 Optional.empty(),
-                Optional.of(notifier));
+                Optional.of(notifier),
+                DiagnosticSinks.discarding());
     }
 
     private static String applyWidget(UUID presetId) {

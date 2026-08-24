@@ -8,8 +8,14 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
+
+import javax.inject.Inject
 
 abstract class CompatibilityRunTask extends DefaultTask {
+    @Inject
+    abstract ExecOperations getExecOperations()
+
     @Internal
     abstract DirectoryProperty getRepositoryDirectory()
 
@@ -28,6 +34,9 @@ abstract class CompatibilityRunTask extends DefaultTask {
     @Input
     abstract Property<Boolean> getDryRun()
 
+    @Input
+    abstract Property<Boolean> getDevelopmentLogging()
+
     @TaskAction
     void runCompatibility() {
         File root = repositoryDirectory.get().asFile
@@ -40,6 +49,8 @@ abstract class CompatibilityRunTask extends DefaultTask {
                 CatalogTools.loadVersion(root),
                 minecraftVersion.get(),
                 runKind.get(),
-                dryRun.get())
+                dryRun.get(),
+                developmentLogging.get(),
+                execOperations)
     }
 }

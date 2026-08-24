@@ -9,6 +9,7 @@ import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 
 import java.nio.file.Path;
 import java.util.Objects;
@@ -37,7 +38,8 @@ public record ClientCapabilitySet(
         Objects.requireNonNull(serverSignal, "serverSignal");
     }
 
-    public ClientRuntime createRuntime(TextResolver textResolver, Path dataRoot) {
+    public ClientRuntime createRuntime(
+            TextResolver textResolver, Path dataRoot, DiagnosticSink diagnostics) {
         return ClientRuntime.createDefaultWithDeterministicAppearance(
                 session,
                 resourcePackAccess,
@@ -49,6 +51,7 @@ public record ClientCapabilitySet(
                 signedTextureVerification,
                 appearanceInstall,
                 modelParts,
-                serverSignal);
+                serverSignal,
+                Objects.requireNonNull(diagnostics, "diagnostics"));
     }
 }

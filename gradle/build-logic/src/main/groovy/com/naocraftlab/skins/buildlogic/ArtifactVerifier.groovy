@@ -10,7 +10,12 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 
 final class ArtifactVerifier {
-    static final List<String> FORBIDDEN_PREFIXES = ['com/microsoft/aad', 'com/nimbusds/', 'com/sun/jna/', 'com/fasterxml/jackson/', 'com/google/gson/', 'org/sqlite/']
+    static final List<String> FORBIDDEN_PREFIXES = [
+            'com/microsoft/aad', 'com/nimbusds/', 'com/sun/jna/',
+            'com/fasterxml/jackson/', 'com/google/gson/', 'org/sqlite/',
+            'org/apache/logging/log4j/', 'org/apache/log4j/', 'org/slf4j/',
+            'ch/qos/logback/', 'org/apache/logging/log4j/core/',
+            'META-INF/services/org.slf4j.', 'META-INF/services/org.apache.logging.']
     static final List<String> FORBIDDEN_DEV_RUNTIME_PREFIXES = [
             'com/terraformersmc/modmenu/',
             'META-INF/jars/modmenu',
@@ -100,6 +105,9 @@ final class ArtifactVerifier {
             List<String> names = archive.entries().collect { it.name }
             if (names.size() != (names as Set).size()) errors.add("${target.id}: artifact contains duplicate ZIP entries")
             if (names.any { String name -> FORBIDDEN_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds a forbidden auth/native/JSON dependency")
+            if (names.any { String name -> forbiddenLoggingPayload(name) }) {
+                errors.add("${target.id}: artifact embeds a logging implementation, provider, or configuration")
+            }
             if (names.any { String name -> FORBIDDEN_DEV_RUNTIME_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds the dev-only Mod Menu dependency")
             if (names.any { FORBIDDEN_MIXIN.matcher(it).find() }) errors.add("${target.id}: artifact contains a forbidden session/auth mixin candidate")
             verifyContentClosure(root, archive, catalog, target, names, errors)
@@ -119,6 +127,13 @@ final class ArtifactVerifier {
                 if (TOKEN.matcher(content).find()) errors.add("${target.id}:${name}: credential-like value found")
             }
         }
+    }
+
+    private static boolean forbiddenLoggingPayload(String name) {
+        String lower = name.toLowerCase(Locale.ROOT)
+        name.endsWith('/JndiLookup.class') || name.endsWith('/JndiManager.class') ||
+                lower.endsWith('log4j2.xml') || lower.endsWith('log4j2.json') ||
+                lower.endsWith('log4j2.yaml') || lower.endsWith('logback.xml')
     }
 
     static void verifyPreviewRegistration(

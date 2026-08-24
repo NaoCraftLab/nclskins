@@ -85,8 +85,7 @@ public final class NclSkinsScreen extends Screen {
     private final Map<String, SkinKey> previewKeys = new HashMap<>();
     private final Map<String, Minecraft12111SimplePreviewRenderer> bakedRenderers =
             new HashMap<>();
-    private final Minecraft12111PreviewRenderer editorRenderer =
-            new Minecraft12111PreviewRenderer();
+    private final Minecraft12111PreviewRenderer editorRenderer;
 
     private Minecraft262TextureRegistry textureRegistry;
     private PreviewAssetCache<SkinKey> skinTextures;
@@ -109,6 +108,7 @@ public final class NclSkinsScreen extends Screen {
         super(Component.translatable("nclskins.title"));
         this.parent = parent;
         runtime = NclSkins12111ClientRuntime.runtime();
+        editorRenderer = new Minecraft12111PreviewRenderer(runtime.diagnostics());
     }
 
     public static void initializeClientRuntime(java.nio.file.Path dataRoot) {
@@ -140,8 +140,10 @@ public final class NclSkinsScreen extends Screen {
         rebuilding = true;
         if (textureRegistry == null) {
             textureRegistry = new Minecraft262TextureRegistry();
-            skinTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.PLAYER_SKIN);
-            capeTextures = new PreviewAssetCache<>(textureRegistry, TextureKind.IMAGE);
+            skinTextures = new PreviewAssetCache<>(
+                    textureRegistry, TextureKind.PLAYER_SKIN, runtime.diagnostics());
+            capeTextures = new PreviewAssetCache<>(
+                    textureRegistry, TextureKind.IMAGE, runtime.diagnostics());
         }
         runtime.reopen();
         if (subscription == null) {

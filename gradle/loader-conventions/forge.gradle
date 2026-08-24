@@ -80,7 +80,14 @@ minecraft {
     runs {
         configureEach {
             property 'forge.logging.markers', 'REGISTRIES'
-            property 'forge.logging.console.level', 'info'
+            if (providers.gradleProperty('nclskinsDevLogging')
+                    .map { it == 'true' }.getOrElse(false)) {
+                property 'forge.logging.console.level', 'debug'
+                property 'forge.logging.file.level', 'debug'
+                property 'forge.logging.debugFile.level', 'debug'
+            } else {
+                property 'forge.logging.console.level', 'info'
+            }
             (targetSpec.metadata.serverMixins + targetSpec.metadata.mixins).each { configName ->
                 args '--mixin.config', configName.toString()
             }

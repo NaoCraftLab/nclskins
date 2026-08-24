@@ -32,6 +32,9 @@ abstract class TargetRunTask extends DefaultTask {
     @Input
     abstract Property<Boolean> getDryRun()
 
+    @Input
+    abstract Property<Boolean> getDevelopmentLogging()
+
     @TaskAction
     void runTarget() {
         File root = repositoryDirectory.get().asFile
@@ -47,7 +50,8 @@ abstract class TargetRunTask extends DefaultTask {
             else RunDirectorySupport.prepareClients(root, catalog, target.minecraft.version.toString())
         }
         String javaHome = TargetRuntime.resolveJavaHome(target.java.buildJdk as int)
-        List<String> command = command(root, catalog, target, kind, dryRun.get())
+        List<String> command = command(
+                root, catalog, target, kind, dryRun.get(), developmentLogging.get())
         String path = new File(javaHome, 'bin').absolutePath + File.pathSeparator +
                 (System.getenv('PATH') ?: '')
         ExecResult result = execOperations.exec {
@@ -64,11 +68,14 @@ abstract class TargetRunTask extends DefaultTask {
         if (exit != 0) throw new IllegalStateException("${target.id} run${kind} failed (${exit})")
     }
 
-    static List<String> command(File root, Map catalog, Map target, String kind, boolean dryRun) {
+    static List<String> command(
+            File root, Map catalog, Map target, String kind,
+            boolean dryRun, boolean developmentLogging = false) {
         File targetDirectory = new File(root, target.path.toString())
         File wrapper = TargetRuntime.wrapper(root, catalog, target)
         String nativeTask = kind == 'LicensedClient' ? 'runClientLicensed' : "run${kind}".toString()
         List<String> command = [wrapper.absolutePath, '-p', targetDirectory.absolutePath, '--no-daemon', nativeTask]
+        if (developmentLogging) command.add('-PnclskinsDevLogging=true')
         if (kind == 'Server') {
             int port = target.development.serverPort as int
             Optional<String> property = LoaderBackend.require(target.loader.id.toString())

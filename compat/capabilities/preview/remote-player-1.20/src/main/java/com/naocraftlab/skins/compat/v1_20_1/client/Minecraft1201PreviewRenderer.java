@@ -16,6 +16,9 @@ import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
 import com.naocraftlab.skins.client.VanillaPlayerModelTransform;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,8 +52,6 @@ import org.joml.Quaternionf;
 
 public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGraphics> {
     private static final AtomicInteger NEXT_PREVIEW_ID = new AtomicInteger(-1);
-    private static final System.Logger LOGGER =
-            System.getLogger(Minecraft1201PreviewRenderer.class.getName());
     private static final int FULL_BRIGHT = 0x00F000F0;
     private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
@@ -114,6 +115,7 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
             };
 
     private final Minecraft minecraft;
+    private final DiagnosticSink diagnostics;
     private final EditorPreviewSession session = new EditorPreviewSession();
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
     private boolean layerFailureLogged;
@@ -128,7 +130,8 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
     private PreviewPlayer previewPlayer;
     private ClientLevel previewLevel;
 
-    public Minecraft1201PreviewRenderer() {
+    public Minecraft1201PreviewRenderer(DiagnosticSink diagnostics) {
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         minecraft = Minecraft.getInstance();
         Minecraft1201VanillaPreviewModels models =
                 Minecraft1201VanillaPreviewModels.instance();
@@ -202,8 +205,9 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
             }
         } catch (RuntimeException failure) {
             if (session.disableLive(failure)) {
-                LOGGER.log(System.Logger.Level.WARNING,
-                        "NCL Skins disabled live editor preview for this screen after a renderer failure");
+                diagnostics.report(
+                        DiagnosticEvent.CLIENT_PREVIEW_LIVE_DISABLED,
+                        () -> DiagnosticDetails.failure(failure));
             }
         }
     }
@@ -211,8 +215,9 @@ public final class Minecraft1201PreviewRenderer implements PreviewRenderer<GuiGr
     private void onLiveLayerFailure(RuntimeException failure) {
         if (!layerFailureLogged) {
             layerFailureLogged = true;
-            LOGGER.log(System.Logger.Level.WARNING,
-                    "NCL Skins skipped an incompatible third-party layer in editor preview");
+            diagnostics.report(
+                    DiagnosticEvent.CLIENT_PREVIEW_LAYER_SKIPPED,
+                    () -> DiagnosticDetails.failure(failure));
         }
     }
 

@@ -69,7 +69,7 @@ final class IdeaRunConfigurations {
                     option(name: 'executionName')
                     option(name: 'externalProjectPath', value: '$PROJECT_DIR$')
                     option(name: 'externalSystemIdString', value: 'GRADLE')
-                    option(name: 'scriptParameters', value: '')
+                    option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true')
                     option(name: 'taskDescriptions') { list() }
                     option(name: 'taskNames') { list { option(value: taskName(target, minecraftVersion, runKind)) } }
                     option(name: 'vmOptions', value: '')
@@ -96,7 +96,7 @@ final class IdeaRunConfigurations {
                     option(name: 'executionName')
                     option(name: 'externalProjectPath', value: '$PROJECT_DIR$')
                     option(name: 'externalSystemIdString', value: 'GRADLE')
-                    option(name: 'scriptParameters', value: '')
+                    option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true')
                     option(name: 'taskDescriptions') { list() }
                     option(name: 'taskNames') {
                         list { option(value: ServerPluginRuntimeSupport.taskName(topology)) }

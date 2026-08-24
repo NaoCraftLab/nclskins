@@ -39,6 +39,11 @@ if (!(runDryRunText in ['true', 'false'])) {
     throw new GradleException("nclskinsRunDryRun must be true or false, got ${runDryRunText}")
 }
 def runDryRun = runDryRunText.toBoolean()
+def devLoggingText = providers.gradleProperty('nclskinsDevLogging').getOrElse('false')
+if (!(devLoggingText in ['true', 'false'])) {
+    throw new GradleException("nclskinsDevLogging must be true or false, got ${devLoggingText}")
+}
+def devLogging = devLoggingText.toBoolean()
 def serverRunDryRunText = providers.gradleProperty('nclskinsServerRunDryRun').getOrElse('false')
 if (!(serverRunDryRunText in ['true', 'false'])) {
     throw new GradleException("nclskinsServerRunDryRun must be true or false, got ${serverRunDryRunText}")
@@ -87,7 +92,7 @@ subprojects {
                             'server-configuration', 'server-contract', 'server-runtime',
                             'server-vanilla-publication', 'server-plugin-common',
                             'server-plugin-bukkit', 'server-plugin-velocity',
-                            'server-plugin-bungee', 'server-plugin'
+                            'server-plugin-bungee', 'server-plugin', 'diagnostics'
                     ] ? serverPluginBuildJdk : 17)
         }
         withSourcesJar()
@@ -195,6 +200,70 @@ tasks.register('generateIdeaRunConfigurations', GenerateIdeaRunConfigurationsTas
     outputs.upToDateWhen { false }
 }
 
+tasks.register('verifyLoggingConventions') {
+    group = 'verification'
+    description = 'Enforces the bounded diagnostics contract across production Java sources.'
+    def productionSources = fileTree(rootDir) {
+        include '**/src/main/java/**/*.java'
+        exclude '**/build/**', '.gradle/**', 'runs/**', 'do' + 'cs/**'
+    }
+    def repositoryPath = rootDir.toPath()
+    inputs.files(productionSources)
+    doLast {
+        List<String> errors = []
+        productionSources.files.sort().each { File source ->
+            String relative = repositoryPath.relativize(source.toPath()).toString()
+            String text = source.getText('UTF-8')
+            if (text.contains('System.Logger') || text.contains('System.getLogger(') ||
+                    text.contains('System.out') || text.contains('System.err') ||
+                    text.contains('.printStackTrace(')) {
+                errors.add("${relative}: bypasses DiagnosticSink")
+            }
+            if (text.contains('catch (Throwable')) {
+                errors.add("${relative}: catches fatal Throwable")
+            }
+            boolean diagnosticsAdapter = relative.startsWith('diagnostics/src/main/java/')
+            boolean modHostAdapter = text.contains('new Slf4jDiagnosticSink') ||
+                    text.contains('LoggerFactory')
+            boolean pluginHostAdapter = relative.endsWith('NclSkinsBukkitPlugin.java') ||
+                    relative.endsWith('NclSkinsBungeePlugin.java') ||
+                    relative.endsWith('NclSkinsVelocityPlugin.java')
+            if ((text.contains('import org.slf4j.') || text.contains('import java.util.logging.')) &&
+                    !(diagnosticsAdapter || modHostAdapter || pluginHostAdapter ||
+                            relative.endsWith('BukkitNativeAdapter.java') ||
+                            relative.endsWith('AbstractBukkitNativeAdapter.java') ||
+                            relative.contains('server-plugin-adapters/'))) {
+                errors.add("${relative}: uses a logging API outside a host adapter")
+            }
+        }
+        if (errors) throw new GradleException(errors.collect { "- ${it}" }.join('\n'))
+        logger.lifecycle("Verified logging conventions across ${productionSources.files.size()} production sources")
+    }
+}
+
+tasks.register('verifyLoggingSecurityBaseline') {
+    group = 'verification'
+    description = 'Requires a dated host-owned logging security baseline for every catalog Minecraft pin.'
+    def baselineFile = file('gradle/logging-security-baseline.json')
+    def requiredVersions = targetCatalog.targets.collect {
+        it.minecraft.version.toString()
+    }.toSet()
+    inputs.file(baselineFile)
+    inputs.file(layout.projectDirectory.file('gradle/targets.json'))
+    doLast {
+        Map baseline = new groovy.json.JsonSlurper().parse(
+                baselineFile) as Map
+        Set<String> versions = requiredVersions
+        Set<String> covered = (baseline.minecraft as Map).keySet() as Set
+        if (baseline.schemaVersion != 1 || !(baseline.checkedOn ==~ /20[0-9]{2}-[0-9]{2}-[0-9]{2}/) ||
+                !covered.containsAll(versions) ||
+                versions.any { (baseline.minecraft[it] as Map).ownership != 'host' }) {
+            throw new GradleException('Logging security baseline does not cover every catalog pin')
+        }
+        logger.lifecycle("Verified host logging security baseline dated ${baseline.checkedOn}")
+    }
+}
+
 tasks.register('migrateRunDirectories', MigrateRunDirectoriesTask) {
     group = 'ide'
     description = 'Moves legacy target and server-plugin run state into the canonical root runs layout.'
@@ -228,6 +297,7 @@ targetCatalog.serverPluginTopologies.each { Map topology ->
                 "server-plugin/build/libs/nclskins-server-${modVersion}.jar"))
         topologyId.set(topology.id.toString())
         dryRun.set(serverRunDryRun)
+        developmentLogging.set(devLogging)
     }
     String resetName = "reset${taskName.substring(3)}Runtime"
     tasks.register(resetName, ResetServerPluginRuntimeTask) {
@@ -250,6 +320,7 @@ targetCatalog.targets.each { Map target ->
             targetId.set(target.id.toString())
             delegate.runKind.set(runKind)
             dryRun.set(runDryRun)
+            developmentLogging.set(devLogging)
             usesService(targetRunLock)
         }
     }
@@ -289,6 +360,7 @@ targetCatalog.targets.findAll { it.compatibility instanceof Map }.each { Map tar
                 minecraftVersion.set(runtime.minecraftVersion.toString())
                 delegate.runKind.set(runKind)
                 dryRun.set(runDryRun)
+                developmentLogging.set(devLogging)
                 usesService(targetRunLock)
             }
         }
@@ -375,6 +447,7 @@ tasks.register('verifyRuntimeCompatibility', CompatibilityVerifyTask) {
         minecraftVersion.set(requestedMinecraftVersion ?: '')
         delegate.runKind.set(runKind)
         dryRun.set(runDryRun)
+        developmentLogging.set(devLogging)
         usesService(targetRunLock)
     }
 }
@@ -386,6 +459,8 @@ def checkAll = tasks.register('checkAll') {
     dependsOn verifyTargetCatalog
     dependsOn verifyCapabilitySemantics
     dependsOn verifyPublicationTree
+    dependsOn tasks.named('verifyLoggingConventions')
+    dependsOn tasks.named('verifyLoggingSecurityBaseline')
     dependsOn gradle.includedBuild('build-logic').task(':test')
 }
 

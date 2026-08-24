@@ -71,9 +71,15 @@ def fabricClientRun = nclskinsRunLayout.modDirectory(fabricRepositoryRoot, targe
 def fabricLicensedClientRun = nclskinsRunLayout.modDirectory(
         fabricRepositoryRoot, targetSpec, 'LicensedClient')
 def fabricServerRun = nclskinsRunLayout.modDirectory(fabricRepositoryRoot, targetSpec, 'Server')
+def nclskinsDevLogging = providers.gradleProperty('nclskinsDevLogging')
+        .map { it == 'true' }.getOrElse(false)
 
 loom {
     accessWidenerPath = nclskinsAccessFile
+    if (nclskinsDevLogging) {
+        log4jConfigs.from(fabricRepositoryRoot.toPath()
+                .resolve('gradle/logging/fabric-dev-log4j.xml').toFile())
+    }
     runs {
         client {
             runDir fabricClientRun.absolutePath

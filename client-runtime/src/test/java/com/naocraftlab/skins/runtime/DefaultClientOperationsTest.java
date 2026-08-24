@@ -34,6 +34,7 @@ import com.naocraftlab.skins.core.service.LibraryService;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RemoteAppearanceImpact;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
+import com.naocraftlab.skins.diagnostics.DiagnosticSinks;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -2894,7 +2895,8 @@ final class DefaultClientOperationsTest {
             return PlayerAppearanceSink.ApplyResult.UPDATED;
         };
         AppearanceRefreshCoordinator<AcknowledgedAppearanceAssets> coordinator =
-                new AppearanceRefreshCoordinator<>(directClient, resolver, sink);
+                new AppearanceRefreshCoordinator<>(
+                        directClient, resolver, sink, DiagnosticSinks.discarding());
 
         assertEquals(
                 AppearanceRefreshCoordinator.Result.UPDATED,

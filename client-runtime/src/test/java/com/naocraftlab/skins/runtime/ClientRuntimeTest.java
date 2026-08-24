@@ -42,6 +42,7 @@ import com.naocraftlab.skins.core.service.SessionCheckPhase;
 import com.naocraftlab.skins.core.service.SessionFailureContext;
 import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
+import com.naocraftlab.skins.diagnostics.DiagnosticSinks;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -466,7 +467,8 @@ final class ClientRuntimeTest {
         AppearanceRefreshCoordinator<String> refresh = new AppearanceRefreshCoordinator<>(
                 CLIENT,
                 ignored -> resolution,
-                ignored -> PlayerAppearanceSink.ApplyResult.UPDATED);
+                ignored -> PlayerAppearanceSink.ApplyResult.UPDATED,
+                DiagnosticSinks.discarding());
         QueuedExecutor worker = new QueuedExecutor();
         ClientRuntime runtime = runtime(operations, worker, Optional.of(refresh));
 
@@ -1731,7 +1733,8 @@ final class ClientRuntimeTest {
                 resolved -> {
                     installed.set(resolved.expectedAppearance());
                     return PlayerAppearanceSink.ApplyResult.UPDATED;
-                });
+                },
+                DiagnosticSinks.discarding());
         ClientRuntime runtime = runtime(
                 operations,
                 worker,
@@ -1787,7 +1790,8 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.of(notifications::incrementAndGet),
-                IMMEDIATE_READINESS_SCHEDULER);
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
         runtime.initialize();
         runtime.tick();
 
@@ -1882,7 +1886,8 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER);
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
         runtime.initialize();
         UUID first = operations.account.presets().get(0).id();
         UUID second = operations.account.presets().get(1).id();
@@ -2092,7 +2097,8 @@ final class ClientRuntimeTest {
                     assertTrue(client.isClientThread());
                     notifications.incrementAndGet();
                 }),
-                IMMEDIATE_READINESS_SCHEDULER);
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
 
         runtime.initialize();
         client.runFirst();
@@ -2133,7 +2139,8 @@ final class ClientRuntimeTest {
         };
         PlayerAppearanceSink<String> sink = ignored -> PlayerAppearanceSink.ApplyResult.UPDATED;
         AppearanceRefreshCoordinator<String> coordinator =
-                new AppearanceRefreshCoordinator<>(CLIENT, resolver, sink);
+                new AppearanceRefreshCoordinator<>(
+                        CLIENT, resolver, sink, DiagnosticSinks.discarding());
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.of(coordinator));
 
         assertEquals(
@@ -2181,7 +2188,8 @@ final class ClientRuntimeTest {
                 resolved -> {
                     rebound.set(true);
                     return PlayerAppearanceSink.ApplyResult.UPDATED;
-                });
+                },
+                DiagnosticSinks.discarding());
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.of(refresh));
 
         assertEquals(AppearanceRefreshCoordinator.Result.UPDATED, runtime.afterReconnect().join());
@@ -2215,14 +2223,16 @@ final class ClientRuntimeTest {
                     localResolves.incrementAndGet();
                     return CompletableFuture.completedFuture(Optional.empty());
                 },
-                ignored -> PlayerAppearanceSink.ApplyResult.UPDATED);
+                ignored -> PlayerAppearanceSink.ApplyResult.UPDATED,
+                DiagnosticSinks.discarding());
         ClientRuntime runtime = new ClientRuntime(
                 operations,
                 client,
                 CANCELLED_PICKER,
                 worker,
                 TEXT,
-                Optional.of(refresh));
+                Optional.of(refresh),
+                DiagnosticSinks.discarding());
 
         CompletableFuture<AppearanceRefreshCoordinator.Result> reconnect =
                 runtime.afterReconnect();
@@ -2273,7 +2283,8 @@ final class ClientRuntimeTest {
         AppearanceRefreshCoordinator<String> refresh = new AppearanceRefreshCoordinator<>(
                 CLIENT,
                 expected -> CompletableFuture.completedFuture(Optional.empty()),
-                ignored -> PlayerAppearanceSink.ApplyResult.DEFERRED);
+                ignored -> PlayerAppearanceSink.ApplyResult.DEFERRED,
+                DiagnosticSinks.discarding());
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.of(refresh));
         ClientProcessHost<Object> host = new ClientProcessHost<>(runtime, () -> {});
         Object connection = new Object();
@@ -2315,7 +2326,8 @@ final class ClientRuntimeTest {
         ClientRuntime runtime = runtime(
                 operations,
                 Runnable::run,
-                Optional.of(new AppearanceRefreshCoordinator<>(CLIENT, resolver, sink)),
+                Optional.of(new AppearanceRefreshCoordinator<>(
+                        CLIENT, resolver, sink, DiagnosticSinks.discarding())),
                 Optional.of(notifications::incrementAndGet));
         runtime.initialize();
         UUID presetId = operations.account.presets().get(0).id();
@@ -2456,7 +2468,8 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER);
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
     }
 
     private static ClientRuntime runtime(
@@ -2472,7 +2485,8 @@ final class ClientRuntimeTest {
                 TEXT,
                 appearanceRefresh,
                 serverAppearanceRefreshNotifier,
-                IMMEDIATE_READINESS_SCHEDULER);
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
     }
 
     private static final ServerAppearanceReadinessCoordinator.DelayScheduler

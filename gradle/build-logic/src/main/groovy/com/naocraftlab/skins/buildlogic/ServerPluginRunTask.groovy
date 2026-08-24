@@ -45,6 +45,9 @@ abstract class ServerPluginRunTask extends DefaultTask {
     @Input
     abstract Property<Boolean> getDryRun()
 
+    @Input
+    abstract Property<Boolean> getDevelopmentLogging()
+
     @TaskAction
     void runTopology() {
         File root = repositoryDirectory.get().asFile
@@ -148,8 +151,11 @@ abstract class ServerPluginRunTask extends DefaultTask {
             }
         }
         String javaHome = TargetRuntime.resolveJavaHome(runtimeSpec.javaRelease as int)
-        List<String> command = [new File(javaHome, 'bin/java').absolutePath, '-jar', serverJar.absolutePath,
-                                '--nogui']
+        List<String> command = [new File(javaHome, 'bin/java').absolutePath]
+        if (developmentLogging.get()) {
+            command.addAll(log4jDebugArguments(directory, backendOverlay(topology.kernel.toString())))
+        }
+        command.addAll(['-jar', serverJar.absolutePath, '--nogui'])
         new Role(name, 'backend', directory, command,
                 ['Done (', 'NCL_SKINS_PLUGIN_READY'], 'stop')
     }
@@ -164,7 +170,17 @@ abstract class ServerPluginRunTask extends DefaultTask {
             install(directory, resolveRuntime(root, catalog, runtime(catalog, 'bungeeguard-1.4.0'), null))
         }
         String javaHome = TargetRuntime.resolveJavaHome(runtimeSpec.javaRelease as int)
-        List<String> command = [new File(javaHome, 'bin/java').absolutePath, '-jar', proxyJar.absolutePath]
+        List<String> command = [new File(javaHome, 'bin/java').absolutePath]
+        if (developmentLogging.get()) {
+            if (topology.mode == 'velocity') {
+                command.addAll(log4jDebugArguments(directory, velocityOverlay()))
+            } else {
+                command.addAll([
+                        '-Dnet.md_5.bungee.console-log-level=FINE',
+                        '-Dnet.md_5.bungee.file-log-level=FINE'])
+            }
+        }
+        command.addAll(['-jar', proxyJar.absolutePath])
         new Role('proxy', 'proxy', directory, command,
                 ['NCL_SKINS_PROXY_READY'], topology.mode == 'velocity' ? 'shutdown' : 'end')
     }
@@ -274,6 +290,32 @@ abstract class ServerPluginRunTask extends DefaultTask {
                 ServerPluginRuntimeSupport.sha256(artifact.toPath())) {
             Files.copy(artifact.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
+    }
+
+    private static List<String> log4jDebugArguments(File directory, String content) {
+        File managed = new File(directory, '.nclskins/logging-debug.xml')
+        ServerPluginRuntimeSupport.writeAtomic(managed.toPath(), content)
+        ServerPluginRuntimeSupport.restrict(managed.parentFile.toPath(), true)
+        ServerPluginRuntimeSupport.restrict(managed.toPath(), false)
+        ["-Dlog4j2.configurationFile=classpath:log4j2.xml,${managed.toPath().toUri()}".toString()]
+    }
+
+    static String backendOverlay(String kernel) {
+        String logger = 'com.naocraftlab.skins.server.plugin.bukkit.NclSkinsBukkitPlugin'
+        if (kernel in ['paper', 'purpur', 'folia']) {
+            return """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<Configuration status=\"WARN\"><Loggers><Logger name=\"${logger}\" level=\"DEBUG\"><AppenderRef ref=\"TerminalConsole\"><LevelMatchFilter level=\"DEBUG\" onMatch=\"ACCEPT\" onMismatch=\"DENY\"/></AppenderRef></Logger></Loggers></Configuration>
+"""
+        }
+        """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<Configuration status=\"WARN\"><Loggers><Logger name=\"${logger}\" level=\"DEBUG\"/></Loggers></Configuration>
+"""
+    }
+
+    static String velocityOverlay() {
+        '''<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN"><Loggers><Logger name="nclskins-plugin" level="DEBUG"/></Loggers></Configuration>
+'''
     }
 
     private static String readOrCreateSecret(

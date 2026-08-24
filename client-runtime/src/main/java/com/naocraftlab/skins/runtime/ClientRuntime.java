@@ -38,6 +38,9 @@ import com.naocraftlab.skins.core.service.LibraryOperationException;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.SessionValidation;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -67,6 +70,7 @@ public final class ClientRuntime implements AutoCloseable {
     private static final int SESSION_RETRY_FEEDBACK_TICKS = 6;
 
     private final ClientOperations operations;
+    private final DiagnosticSink diagnostics;
     private final ClientExecutor clientExecutor;
     private final FilePicker filePicker;
     private final Executor worker;
@@ -124,7 +128,8 @@ public final class ClientRuntime implements AutoCloseable {
             FilePicker filePicker,
             Executor worker,
             TextResolver textResolver,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh) {
+            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            DiagnosticSink diagnostics) {
         this(
                 operations,
                 clientExecutor,
@@ -138,7 +143,8 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 Optional.empty(),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system());
+                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                diagnostics);
     }
 
     public ClientRuntime(
@@ -148,7 +154,8 @@ public final class ClientRuntime implements AutoCloseable {
             Executor worker,
             TextResolver textResolver,
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
-            Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier) {
+            Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
+            DiagnosticSink diagnostics) {
         this(
                 operations,
                 clientExecutor,
@@ -162,7 +169,8 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 serverAppearanceRefreshNotifier,
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system());
+                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                diagnostics);
     }
 
     ClientRuntime(
@@ -173,7 +181,8 @@ public final class ClientRuntime implements AutoCloseable {
             TextResolver textResolver,
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler) {
+            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            DiagnosticSink diagnostics) {
         this(
                 operations,
                 clientExecutor,
@@ -187,7 +196,8 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 serverAppearanceRefreshNotifier,
-                readinessScheduler);
+                readinessScheduler,
+                diagnostics);
     }
 
     ClientRuntime(
@@ -199,7 +209,8 @@ public final class ClientRuntime implements AutoCloseable {
             TextResolver textResolver,
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler) {
+            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            DiagnosticSink diagnostics) {
         this(
                 operations,
                 clientExecutor,
@@ -213,7 +224,8 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 serverAppearanceRefreshNotifier,
-                readinessScheduler);
+                readinessScheduler,
+                diagnostics);
     }
 
     ClientRuntime(
@@ -225,7 +237,8 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler) {
+            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            DiagnosticSink diagnostics) {
         this(
                 operations,
                 clientExecutor,
@@ -239,7 +252,8 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 outerLayerVisibilityController,
                 serverAppearanceRefreshNotifier,
-                readinessScheduler);
+                readinessScheduler,
+                diagnostics);
     }
 
     private ClientRuntime(
@@ -255,8 +269,10 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler) {
+            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            DiagnosticSink diagnostics) {
         this.operations = Objects.requireNonNull(operations, "operations");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
         this.filePicker = Objects.requireNonNull(filePicker, "filePicker");
         this.worker = Objects.requireNonNull(worker, "worker");
@@ -288,7 +304,8 @@ public final class ClientRuntime implements AutoCloseable {
             SignedTextureVerifier signedTextureVerifier,
             PlayerAppearanceSink<AcknowledgedAppearanceAssets> sink,
             OuterLayerVisibilityController outerLayerVisibilityController,
-            ServerAppearanceRefreshNotifier serverAppearanceRefreshNotifier) {
+            ServerAppearanceRefreshNotifier serverAppearanceRefreshNotifier,
+            DiagnosticSink diagnostics) {
         ExecutorService worker = newWorker("nclskins-client-runtime");
         ExecutorService reconciliationWorker = newWorker("nclskins-appearance-reconciliation");
         DefaultClientOperations operations = DefaultClientOperations
@@ -298,7 +315,8 @@ public final class ClientRuntime implements AutoCloseable {
                 new AppearanceRefreshCoordinator<>(
                         clientExecutor,
                         operations.deterministicAppearanceResolver(worker),
-                        sink);
+                        sink,
+                        diagnostics);
         return new ClientRuntime(
                 operations,
                 clientExecutor,
@@ -314,11 +332,16 @@ public final class ClientRuntime implements AutoCloseable {
                         outerLayerVisibilityController, "outerLayerVisibilityController")),
                 Optional.of(Objects.requireNonNull(
                         serverAppearanceRefreshNotifier, "serverAppearanceRefreshNotifier")),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system());
+                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                Objects.requireNonNull(diagnostics, "diagnostics"));
     }
 
     public ClientSnapshot snapshot() {
         return snapshot;
+    }
+
+    public DiagnosticSink diagnostics() {
+        return diagnostics;
     }
 
 
@@ -365,6 +388,9 @@ public final class ClientRuntime implements AutoCloseable {
                             operations.warmSession();
                             return operations.warmedOuterLayerVisibility();
                         } catch (Exception failure) {
+                            diagnostics.report(
+                                    DiagnosticEvent.CLIENT_SESSION_WARMUP_FAILED,
+                                    () -> DiagnosticDetails.failure(failure));
                             throw new CompletionException(failure);
                         }
                     }, worker)
@@ -583,6 +609,7 @@ public final class ClientRuntime implements AutoCloseable {
                             return;
                         }
                         if (failure != null || durable == null) {
+                            diagnose(DiagnosticEvent.CLIENT_RECONNECT_FAILED, failure);
                             publication.complete(AppearanceRefreshCoordinator.Result.DEFERRED);
                             return;
                         }
@@ -619,6 +646,9 @@ public final class ClientRuntime implements AutoCloseable {
                                     if (refreshFailure == null && result != null) {
                                         publication.complete(result);
                                     } else {
+                                        diagnose(
+                                                DiagnosticEvent.CLIENT_RECONNECT_FAILED,
+                                                refreshFailure);
                                         publication.complete(
                                                 AppearanceRefreshCoordinator.Result.DEFERRED);
                                     }
@@ -683,6 +713,7 @@ public final class ClientRuntime implements AutoCloseable {
         try {
             return currentAppearanceSource.map(CurrentPlayerAppearanceSource::currentPlayerAppearance);
         } catch (RuntimeException unavailableAppearance) {
+            diagnose(DiagnosticEvent.CLIENT_CURRENT_APPEARANCE_FAILED, unavailableAppearance);
             return Optional.empty();
         }
     }
@@ -1208,7 +1239,16 @@ public final class ClientRuntime implements AutoCloseable {
                 activeReconciliation = null;
                 reconciliationRunning = false;
             }
+            diagnostics.close();
         });
+    }
+
+    private void diagnose(DiagnosticEvent event, Throwable failure) {
+        if (failure == null) {
+            diagnostics.report(event, DiagnosticDetails::none);
+        } else {
+            diagnostics.report(event, () -> DiagnosticDetails.failure(failure));
+        }
     }
 
     private void initializeOnClient() {
@@ -1281,11 +1321,14 @@ public final class ClientRuntime implements AutoCloseable {
             return localRebind;
         }
         long capeWarmupGeneration = state.generation;
-        CompletableFuture.runAsync(() -> {
+                CompletableFuture.runAsync(() -> {
                     try {
                         operations.warmOwnedCapeCache();
-                    } catch (Exception ignored) {
-
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        diagnose(DiagnosticEvent.CLIENT_CAPE_CACHE_FAILED, interrupted);
+                    } catch (Exception failure) {
+                        diagnose(DiagnosticEvent.CLIENT_CAPE_CACHE_FAILED, failure);
                     }
                 }, worker)
                 .thenRunAsync(() -> {
@@ -1297,8 +1340,11 @@ public final class ClientRuntime implements AutoCloseable {
                                 publish();
                             }
                         });
-                    } catch (Exception ignored) {
-
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        diagnose(DiagnosticEvent.CLIENT_CAPE_CACHE_FAILED, interrupted);
+                    } catch (Exception failure) {
+                        diagnose(DiagnosticEvent.CLIENT_CAPE_CACHE_FAILED, failure);
                     }
                 }, worker);
         return localRebind;
@@ -1494,8 +1540,11 @@ public final class ClientRuntime implements AutoCloseable {
                         latest = operations.loadUiPreferences()
                                 .filter(preferences -> preferences.accountId().equals(accountId))
                                 .orElse(cachedPreferences);
-                    } catch (Exception ignored) {
-
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        diagnose(DiagnosticEvent.CLIENT_PREFERENCES_LOAD_FAILED, interrupted);
+                    } catch (Exception failure) {
+                        diagnose(DiagnosticEvent.CLIENT_PREFERENCES_LOAD_FAILED, failure);
                     }
                     return new AddSourceData(latest, operations.catalogCollections());
                 },
@@ -1735,6 +1784,7 @@ public final class ClientRuntime implements AutoCloseable {
                             }
                             state.busy = false;
                             if (pngFailure != null) {
+                                diagnose(DiagnosticEvent.CLIENT_IMPORT_FAILED, pngFailure);
                                 state.status = UiMessage.error("nclskins.error.png");
                             } else {
                                 String sourceName = path.getFileName().toString();
@@ -1861,6 +1911,7 @@ public final class ClientRuntime implements AutoCloseable {
                             ? UiMessage.success("nclskins.external_import.folder_ready")
                             : UiMessage.error(invalidFolderKey(source));
                 } else {
+                    diagnose(DiagnosticEvent.CLIENT_IMPORT_FAILED, probeFailure);
                     state.externalImport = state.externalImport.withManualProbe(source, root, false);
                     state.status = UiMessage.error(invalidFolderKey(source));
                 }
@@ -1877,6 +1928,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (!current(ticket) || state.externalImport == null) {
             return;
         }
+        diagnose(DiagnosticEvent.CLIENT_PICKER_FAILED, failure);
         state.busy = false;
         state.status = UiMessage.error("nclskins.external_import.picker_failed");
         publish();
@@ -2046,6 +2098,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (!current(ticket) || state.addSource == null) {
                 return;
             }
+            diagnose(DiagnosticEvent.CLIENT_PICKER_FAILED, failure);
             state.busy = false;
             state.status = UiMessage.error("nclskins.error.picker");
             publish();
@@ -2217,8 +2270,11 @@ public final class ClientRuntime implements AutoCloseable {
         CompletableFuture.runAsync(() -> {
             try {
                 operation.get();
-            } catch (Exception ignored) {
-
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, interrupted);
+            } catch (Exception failure) {
+                diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, failure);
             }
         }, worker);
     }
@@ -2259,6 +2315,7 @@ public final class ClientRuntime implements AutoCloseable {
                     preferredSkinVariant(),
                     state.ownedCapes == null ? List.of() : state.ownedCapes.capes());
         } catch (IllegalStateException missingBundledSkin) {
+            diagnose(DiagnosticEvent.CLIENT_BUNDLED_SKIN_MISSING, missingBundledSkin);
             return null;
         }
     }
@@ -2297,6 +2354,7 @@ public final class ClientRuntime implements AutoCloseable {
                             }
                             state.busy = false;
                             if (pngFailure != null) {
+                                diagnose(DiagnosticEvent.CLIENT_IMPORT_FAILED, pngFailure);
                                 state.editor = state.editor.withStatus(UiMessage.error("nclskins.error.png"));
                             } else {
                                 state.editor = state.editor.withImportedPng(
@@ -2316,6 +2374,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (!current(ticket) || state.editor == null) {
                 return;
             }
+            diagnose(DiagnosticEvent.CLIENT_PICKER_FAILED, failure);
             state.busy = false;
             state.editor = state.editor.withStatus(UiMessage.error("nclskins.error.picker"));
             publish();
@@ -2432,6 +2491,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.selectedPresetId = presetId;
             publish();
         } catch (IllegalStateException missingBundledSkin) {
+            diagnose(DiagnosticEvent.CLIENT_BUNDLED_SKIN_MISSING, missingBundledSkin);
             state.status = UiMessage.error("nclskins.gallery.prepare_failed");
             publish();
         }
@@ -2654,18 +2714,30 @@ public final class ClientRuntime implements AutoCloseable {
                             operations.reconcileAppearance(request.key(), request.trigger()),
                             "reconciliation result");
                 }
-            } catch (Throwable unavailable) {
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                failure = interrupted;
+            } catch (Exception unavailable) {
                 failure = unavailable;
                 if (durableSettlementMayHaveAdvanced(unavailable)) {
                     try {
                         durableAfterFailure = operations.durableAppearance()
                                 .filter(appearance -> appearance.accountId()
                                         .equals(request.key().accountId()));
-                    } catch (Throwable unavailableDurableState) {
-
-
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        diagnose(
+                                DiagnosticEvent.CLIENT_RECONCILIATION_CLEANUP_FAILED,
+                                interrupted);
+                    } catch (Exception unavailableDurableState) {
+                        diagnose(
+                                DiagnosticEvent.CLIENT_RECONCILIATION_CLEANUP_FAILED,
+                                unavailableDurableState);
                     }
                 }
+            }
+            if (failure != null) {
+                diagnose(DiagnosticEvent.CLIENT_RECONCILIATION_FAILED, failure);
             }
             Optional<ClientOperations.ReconciliationResult> completed = result;
             Optional<ClientOperations.DurableAppearance> completedDurableAfterFailure =
@@ -2716,8 +2788,8 @@ public final class ClientRuntime implements AutoCloseable {
             serverAppearanceReadiness.ifPresent(coordinator -> {
                 try {
                     coordinator.start();
-                } catch (RuntimeException ignored) {
-
+                } catch (RuntimeException readinessFailure) {
+                    diagnose(DiagnosticEvent.CLIENT_READINESS_FAILED, readinessFailure);
                 }
             });
         }
@@ -3354,11 +3426,13 @@ public final class ClientRuntime implements AutoCloseable {
                             : remoteAppearanceMayHaveChanged(failure);
                     if (refreshServer) {
                         serverAppearanceReadiness.ifPresent(coordinator -> {
-                        try {
-                            coordinator.start();
-                        } catch (RuntimeException ignored) {
-
-                        }
+                            try {
+                                coordinator.start();
+                            } catch (RuntimeException readinessFailure) {
+                                diagnose(
+                                        DiagnosticEvent.CLIENT_READINESS_FAILED,
+                                        readinessFailure);
+                            }
                         });
                     }
                     if (!current(ticket)) {
@@ -3366,6 +3440,7 @@ public final class ClientRuntime implements AutoCloseable {
                     }
                     state.busy = false;
                     if (failure != null) {
+                        diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure);
                         state.lifecycle = state.lifecycle == ClientSnapshot.Lifecycle.INITIALIZING
                                 ? ClientSnapshot.Lifecycle.READY
                                 : state.lifecycle;
@@ -3503,11 +3578,16 @@ public final class ClientRuntime implements AutoCloseable {
             return shared.thenApply(bytes -> bytes.map(byte[]::clone));
         }
 
-        CompletableFuture.supplyAsync(() -> {
+                CompletableFuture.supplyAsync(() -> {
                     try {
                         return Objects.requireNonNull(source.get(), "preview source result")
                                 .map(byte[]::clone);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        diagnose(DiagnosticEvent.CLIENT_PREVIEW_SOURCE_FAILED, interrupted);
+                        return Optional.<byte[]>empty();
                     } catch (Exception failure) {
+                        diagnose(DiagnosticEvent.CLIENT_PREVIEW_SOURCE_FAILED, failure);
                         return Optional.<byte[]>empty();
                     }
                 }, worker)

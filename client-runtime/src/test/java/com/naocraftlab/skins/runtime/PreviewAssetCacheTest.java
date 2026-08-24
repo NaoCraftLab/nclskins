@@ -2,6 +2,8 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.TextureRegistry;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
+import com.naocraftlab.skins.diagnostics.DiagnosticSinks;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -18,11 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PreviewAssetCacheTest {
+    private static final DiagnosticSink DIAGNOSTICS = DiagnosticSinks.discarding();
     @Test
     void managedPlayerSkinIsHiddenUntilNativeUploadIsReady() {
         FakeRegistry registry = new FakeRegistry();
         PreviewAssetCache<String> cache =
-                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.PLAYER_SKIN);
+                new PreviewAssetCache<>(
+                        registry, TextureRegistry.TextureKind.PLAYER_SKIN, DIAGNOSTICS);
 
         cache.request(
                 "skin",
@@ -45,7 +49,7 @@ final class PreviewAssetCacheTest {
         FakeRegistry registry = new FakeRegistry();
         FakeMonotonicClock clock = new FakeMonotonicClock();
         PreviewAssetCache<String> cache = new PreviewAssetCache<>(
-                registry, TextureRegistry.TextureKind.PLAYER_SKIN, clock::now);
+                registry, TextureRegistry.TextureKind.PLAYER_SKIN, DIAGNOSTICS, clock::now);
         AtomicInteger loads = new AtomicInteger();
         AtomicInteger failures = new AtomicInteger();
 
@@ -82,7 +86,8 @@ final class PreviewAssetCacheTest {
     void oneKeyStartsOneLoadAndRetainsTheRegisteredHandle() {
         FakeRegistry registry = new FakeRegistry();
         PreviewAssetCache<String> cache =
-                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.PLAYER_SKIN);
+                new PreviewAssetCache<>(
+                        registry, TextureRegistry.TextureKind.PLAYER_SKIN, DIAGNOSTICS);
         AtomicInteger loads = new AtomicInteger();
 
         cache.request("skin", () -> {
@@ -103,7 +108,7 @@ final class PreviewAssetCacheTest {
         FakeRegistry registry = new FakeRegistry();
         FakeMonotonicClock clock = new FakeMonotonicClock();
         PreviewAssetCache<String> cache = new PreviewAssetCache<>(
-                registry, TextureRegistry.TextureKind.IMAGE, clock::now);
+                registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, clock::now);
         AtomicInteger loads = new AtomicInteger();
 
         cache.request("cape", () -> result(loads, Optional.empty()), () -> {
@@ -142,7 +147,7 @@ final class PreviewAssetCacheTest {
         FakeRegistry registry = new FakeRegistry();
         FakeMonotonicClock clock = new FakeMonotonicClock();
         PreviewAssetCache<String> cache = new PreviewAssetCache<>(
-                registry, TextureRegistry.TextureKind.IMAGE, clock::now);
+                registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, clock::now);
         AtomicInteger loads = new AtomicInteger();
         CompletableFuture<Optional<byte[]>> pending = new CompletableFuture<>();
 
@@ -171,7 +176,7 @@ final class PreviewAssetCacheTest {
         FakeRegistry registry = new FakeRegistry();
         FakeMonotonicClock clock = new FakeMonotonicClock(-1L);
         PreviewAssetCache<String> cache = new PreviewAssetCache<>(
-                registry, TextureRegistry.TextureKind.IMAGE, clock::now);
+                registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, clock::now);
 
         cache.request(
                 "cape",
@@ -186,7 +191,7 @@ final class PreviewAssetCacheTest {
     void staleAsyncCompletionCannotInstallAfterTheKeyWasReleased() {
         FakeRegistry registry = new FakeRegistry();
         PreviewAssetCache<String> cache =
-                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE);
+                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
         CompletableFuture<Optional<byte[]>> load = new CompletableFuture<>();
         cache.request("cape", () -> load, () -> {});
 
@@ -201,7 +206,7 @@ final class PreviewAssetCacheTest {
     void staleCompletionCannotReplaceARecreatedKeyOrReleaseItsHandleTwice() {
         FakeRegistry registry = new FakeRegistry();
         PreviewAssetCache<String> cache =
-                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE);
+                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
         CompletableFuture<Optional<byte[]>> stale = new CompletableFuture<>();
         cache.request("cape", () -> stale, () -> {
         });
@@ -224,7 +229,7 @@ final class PreviewAssetCacheTest {
     void retainAndCloseReleaseEachOwnedReferenceOnce() {
         FakeRegistry registry = new FakeRegistry();
         PreviewAssetCache<String> cache =
-                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE);
+                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
         cache.request(
                 "first",
                 () -> CompletableFuture.completedFuture(Optional.of(new byte[] {1})),
@@ -247,7 +252,8 @@ final class PreviewAssetCacheTest {
         FakeRegistry registry = new FakeRegistry();
         registry.failRegistration = true;
         PreviewAssetCache<String> cache =
-                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.PLAYER_SKIN);
+                new PreviewAssetCache<>(
+                        registry, TextureRegistry.TextureKind.PLAYER_SKIN, DIAGNOSTICS);
         AtomicInteger failures = new AtomicInteger();
 
         cache.request(
@@ -269,7 +275,7 @@ final class PreviewAssetCacheTest {
         registry.failRegistration = true;
         FakeMonotonicClock clock = new FakeMonotonicClock();
         PreviewAssetCache<String> cache = new PreviewAssetCache<>(
-                registry, TextureRegistry.TextureKind.IMAGE, clock::now);
+                registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, clock::now);
         AtomicInteger loads = new AtomicInteger();
         AtomicInteger callbacks = new AtomicInteger();
 
@@ -314,7 +320,7 @@ final class PreviewAssetCacheTest {
     void releaseFailureDoesNotStrandRemainingHandlesOrRegistryCleanup() {
         FakeRegistry registry = new FakeRegistry();
         PreviewAssetCache<String> cache =
-                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE);
+                new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
         cache.request(
                 "first",
                 () -> CompletableFuture.completedFuture(Optional.of(new byte[] {1})),

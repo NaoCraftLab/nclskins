@@ -69,6 +69,14 @@ neoForge {
     accessTransformers.from(nclskinsAccessFile)
 
     runs {
+        configureEach {
+            if (providers.gradleProperty('nclskinsDevLogging')
+                    .map { it == 'true' }.getOrElse(false)) {
+                logLevel = org.slf4j.event.Level.DEBUG
+                systemProperty 'forge.logging.console.level', 'debug'
+                systemProperty 'forge.logging.file.level', 'debug'
+            }
+        }
         client {
             client()
             gameDirectory = neoForgeClientRun

@@ -1,6 +1,9 @@
 package com.naocraftlab.skins.server.plugin.velocity;
 
 import com.google.inject.Inject;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.Slf4jDiagnosticSink;
 import com.naocraftlab.skins.server.SignedTexturesProperty;
 import com.naocraftlab.skins.server.plugin.common.PluginChannels;
 import com.naocraftlab.skins.server.plugin.common.ProxyRefreshProtocol;
@@ -42,11 +45,13 @@ public final class NclSkinsVelocityPlugin {
     private final ProxyRefreshProtocol protocol = new ProxyRefreshProtocol();
     private final Map<UUID, Session> sessions = new ConcurrentHashMap<>();
     private final SemanticVersion version;
+    private final Slf4jDiagnosticSink diagnostics;
 
     @Inject
     public NclSkinsVelocityPlugin(ProxyServer proxy, Logger logger) {
         this.proxy = proxy;
         this.logger = logger;
+        this.diagnostics = new Slf4jDiagnosticSink(logger);
         String implementation = getClass().getPackage()
                 .getImplementationVersion();
         this.version = SemanticVersion.parse(implementation == null
@@ -56,7 +61,7 @@ public final class NclSkinsVelocityPlugin {
     @Subscribe
     public void onInitialize(ProxyInitializeEvent event) {
         proxy.getChannelRegistrar().register(CHANNEL);
-        logger.info("NCL_SKINS_PROXY_READY platform=velocity protocol=proxy-refresh-v1");
+        diagnostics.report(DiagnosticEvent.PROXY_READY, DiagnosticDetails::none);
     }
 
     @Subscribe
@@ -76,7 +81,9 @@ public final class NclSkinsVelocityPlugin {
         try {
             message = protocol.decode(event.getData());
         } catch (ProxyRefreshProtocol.ProtocolException malformed) {
-            logger.warn("Rejected malformed bounded NCL proxy relay payload");
+            diagnostics.report(
+                    DiagnosticEvent.RELAY_MALFORMED,
+                    () -> DiagnosticDetails.failure(malformed));
             return;
         }
         Session session = sessions.get(player.getUniqueId());
@@ -117,6 +124,7 @@ public final class NclSkinsVelocityPlugin {
         proxy.getChannelRegistrar().unregister(CHANNEL);
         sessions.values().forEach(session -> session.fence.clear());
         sessions.clear();
+        diagnostics.close();
     }
 
     private static void replaceTextures(Player player, SignedTexturesProperty textures) {

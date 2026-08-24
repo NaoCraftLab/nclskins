@@ -9,6 +9,9 @@ import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
+import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
+import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
@@ -19,16 +22,19 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
     private final ClientExecutor clientExecutor;
     private final SignedProfileResolver<P> resolver;
     private final PlayerAppearanceSink<P> sink;
+    private final DiagnosticSink diagnostics;
     private final AtomicLong generation = new AtomicLong();
     private volatile boolean closed;
 
     public AppearanceRefreshCoordinator(
             ClientExecutor clientExecutor,
             SignedProfileResolver<P> resolver,
-            PlayerAppearanceSink<P> sink) {
+            PlayerAppearanceSink<P> sink,
+            DiagnosticSink diagnostics) {
         this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
         this.resolver = Objects.requireNonNull(resolver, "resolver");
         this.sink = Objects.requireNonNull(sink, "sink");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
     public CompletableFuture<Result> afterMutation(
@@ -90,6 +96,7 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
                         publisher,
                         publication);
             } catch (RuntimeException unavailablePlayerState) {
+                diagnose(unavailablePlayerState);
                 publish(Result.DEFERRED, publisher, publication);
             }
             return;
@@ -100,13 +107,14 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
                 return;
             }
         } catch (RuntimeException unavailableOverride) {
-
+            diagnose(unavailableOverride);
         }
 
         final CompletableFuture<java.util.Optional<SignedProfileResolver.ResolvedProfile<P>>> resolution;
         try {
             resolution = Objects.requireNonNull(resolver.resolve(expected), "resolver future");
         } catch (RuntimeException failure) {
+            diagnose(failure);
             finishRefresh(ticket, expected, publisher, publication, null, failure);
             return;
         }
@@ -125,6 +133,9 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
         if (closed || ticket != generation.get()) {
             result = Result.SUPERSEDED;
         } else if (failure != null || resolved == null || resolved.isEmpty()) {
+            if (failure != null) {
+                diagnose(failure);
+            }
             result = invalidate(expected);
         } else {
             try {
@@ -133,6 +144,7 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
                         ? Result.UPDATED
                         : invalidate(expected);
             } catch (RuntimeException sinkFailure) {
+                diagnose(sinkFailure);
                 result = invalidate(expected);
             }
         }
@@ -143,8 +155,7 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
         try {
             sink.invalidate(expected);
         } catch (RuntimeException unavailableClientState) {
-
-
+            diagnose(unavailableClientState);
         }
         return Result.DEFERRED;
     }
@@ -180,6 +191,12 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
             case CLASSIC -> SkinModel.CLASSIC;
             case SLIM -> SkinModel.SLIM;
         };
+    }
+
+    private void diagnose(Throwable failure) {
+        diagnostics.report(
+                DiagnosticEvent.CLIENT_APPEARANCE_REFRESH_FAILED,
+                () -> DiagnosticDetails.failure(failure));
     }
 
     public enum Result {

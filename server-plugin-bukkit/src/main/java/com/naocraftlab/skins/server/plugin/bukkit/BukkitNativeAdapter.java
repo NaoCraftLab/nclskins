@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.server.plugin.bukkit;
 
 import com.naocraftlab.skins.core.config.ServerConfiguration;
+import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 import com.naocraftlab.skins.server.plugin.common.ServerRuntimeIdentity;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -17,7 +18,8 @@ public interface BukkitNativeAdapter {
     BukkitRefreshEngine createEngine(
             JavaPlugin plugin,
             ServerConfiguration configuration,
-            BukkitRefreshEngine.PublicationListener listener);
+            BukkitRefreshEngine.PublicationListener listener,
+            DiagnosticSink diagnostics);
 
     record AbiVerification(boolean compatible, String diagnostic) {
         public static AbiVerification compatible(String diagnostic) {

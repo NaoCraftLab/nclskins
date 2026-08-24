@@ -183,6 +183,11 @@ tasks.matching { it.name in ['runClient', 'runClientLicensed', 'runServer'] }.co
     if (it.hasProperty('standardInput')) {
         standardInput = System.in
     }
+    if (spec.sourceLayout == 'fabricSplit' && it.name in ['runClient', 'runClientLicensed']) {
+        doFirst {
+            sourceSets.client.output.resourcesDir.mkdirs()
+        }
+    }
 }
 
 tasks.withType(Jar).configureEach {

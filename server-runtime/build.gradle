@@ -10,6 +10,7 @@ if (!gsonMinimum) {
 
 dependencies {
     api project(':server-contract')
+    api project(':diagnostics')
     implementation "com.google.code.gson:gson:${gsonMinimum}"
 
     testImplementation platform('org.junit:junit-bom:5.11.4')

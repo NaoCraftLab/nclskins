@@ -1,11 +1,29 @@
 {
-  "schemaVersion": 19,
+  "schemaVersion": 20,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
       "fabric": "nclskins-fabric",
       "forge": "nclskins-forge-family",
       "neoforge": "nclskins-forge-family"
+    },
+    "loggingProfiles": {
+      "loaders": {
+        "fabric": "fabric-overlay",
+        "forge": "forge-debug",
+        "neoforge": "neoforge-debug"
+      },
+      "serverKernels": {
+        "craftbukkit": "bukkit-legacy-overlay",
+        "spigot": "bukkit-legacy-overlay",
+        "paper": "paper-family-overlay",
+        "purpur": "paper-family-overlay",
+        "folia": "paper-family-overlay"
+      },
+      "proxies": {
+        "velocity": "velocity-overlay",
+        "bungeecord": "bungeecord-fine"
+      }
     },
     "operators": [
       {
@@ -472,6 +490,7 @@
   "sourceBundles": {
     "portable-common": {
       "java": [
+        "diagnostics/src/main/java",
         "client-contract/src/main/java",
         "core/src/main/java",
         "server-configuration/src/main/java",
