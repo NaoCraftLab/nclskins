@@ -96,6 +96,12 @@ final class PublicationLogicTest {
         assertEquals('skip', PublicationSupport.classify('modrinth', target, [exactModrinth]).action)
         assertEquals('skip', PublicationSupport.classify(
                 'curseforge', target, [exactCurseForge]).action)
+        Map coreApiWithoutJava = CatalogTools.materialize(exactCurseForge) as Map
+        coreApiWithoutJava.gameVersions = (coreApiWithoutJava.gameVersions as List).findAll {
+            !(it.toString().toLowerCase(Locale.ROOT) ==~ /java\s+[0-9]+/)
+        }
+        assertEquals('skip', PublicationSupport.classify(
+                'curseforge', target, [coreApiWithoutJava]).action)
         Map rejectedSources = [
                 id: 43, parentProjectFileId: 42, displayName: "${target.name} Sources",
                 releaseType: 2, gameVersions: [], fileName: target.sourcesAsset.file,
@@ -120,7 +126,7 @@ final class PublicationLogicTest {
 
         Map wrongJava = CatalogTools.materialize(exactCurseForge) as Map
         wrongJava.gameVersions = (target.gameVersions as List) + ['Fabric', 'Client', 'Server', 'Java 21']
-        assertEquals('conflict', PublicationSupport.classify(
+        assertEquals('skip', PublicationSupport.classify(
                 'curseforge', target, [wrongJava]).action)
 
         Map wrongEnvironment = CatalogTools.materialize(exactModrinth) as Map

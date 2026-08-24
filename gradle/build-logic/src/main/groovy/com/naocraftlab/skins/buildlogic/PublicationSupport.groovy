@@ -229,11 +229,6 @@ final class PublicationSupport {
                 (desired.kind == 'server-plugin' ? 'server_only' : 'client_only_server_optional')) {
             mismatches.add('environment differs')
         }
-        if (platform == 'curseforge' &&
-                normalizedCurseForgeJavaReleases(remote) !=
-                        desiredCurseForgeJavaReleases(desired)) {
-            mismatches.add('Java version differs')
-        }
         if (normalizedDependencies(platform, remote) != desiredDependencies(platform, desired)) {
             mismatches.add('dependencies differ')
         }
@@ -380,13 +375,6 @@ final class PublicationSupport {
             } as Set<String>
         }
         values
-    }
-
-    static Set<Integer> normalizedCurseForgeJavaReleases(Map remote) {
-        if (!(remote.gameVersions instanceof List)) return [] as Set<Integer>
-        (remote.gameVersions as List).collect { it.toString().toLowerCase(Locale.ROOT) }
-                .findAll { it ==~ /java\s+[0-9]+/ }
-                .collect { Integer.parseInt(it.substring('java '.length())) } as Set<Integer>
     }
 
     static Set<Integer> desiredJavaReleases(Map desired) {
