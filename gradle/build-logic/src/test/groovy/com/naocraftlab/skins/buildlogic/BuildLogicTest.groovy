@@ -940,6 +940,9 @@ final class BuildLogicTest {
 
     @Test
     void serverPluginManagedConfigsAreSecureAndExact() {
+        assertEquals('nclskins-server-1.0.0-beta.2.jar',
+                ServerPluginRunTask.legacyManagedPluginName('nclskins-plugin-1.0.0-beta.2.jar'))
+        assertNull(ServerPluginRunTask.legacyManagedPluginName('BungeeGuard.jar'))
         String legacy = ServerPluginRunTask.backendOverlay('spigot')
         String paper = ServerPluginRunTask.backendOverlay('paper')
         String velocityLogging = ServerPluginRunTask.velocityOverlay()

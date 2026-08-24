@@ -371,8 +371,8 @@
   "serverPlugin": {
     "name": "NCL Skins Plugin",
     "slug": "nclskins-plugin",
-    "artifact": "nclskins-server-{pluginVersion}.jar",
-    "sourcesArtifact": "nclskins-server-{pluginVersion}-sources.jar",
+    "artifact": "nclskins-plugin-{pluginVersion}.jar",
+    "sourcesArtifact": "nclskins-plugin-{pluginVersion}-sources.jar",
     "matrixId": "official-v1",
     "javaRelease": 17,
     "packaging": {

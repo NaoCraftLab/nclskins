@@ -919,8 +919,8 @@ final class CatalogTools {
             return
         }
         if (plugin.name != 'NCL Skins Plugin' || plugin.slug != 'nclskins-plugin' ||
-                plugin.artifact != 'nclskins-server-{pluginVersion}.jar' ||
-                plugin.sourcesArtifact != 'nclskins-server-{pluginVersion}-sources.jar' ||
+                plugin.artifact != 'nclskins-plugin-{pluginVersion}.jar' ||
+                plugin.sourcesArtifact != 'nclskins-plugin-{pluginVersion}-sources.jar' ||
                 plugin.matrixId != 'official-v1' || plugin.javaRelease != 17) {
             errors.add('serverPlugin identity, artifacts, matrix, and Java release must be exact')
         }

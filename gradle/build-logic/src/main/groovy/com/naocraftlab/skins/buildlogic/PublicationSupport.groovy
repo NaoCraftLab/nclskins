@@ -124,7 +124,7 @@ final class PublicationSupport {
         Map artifact = server.artifact instanceof Map ? server.artifact as Map : [:]
         Map sources = server.sourcesArtifact instanceof Map ? server.sourcesArtifact as Map : [:]
         if (publication.id != 'server-plugin' || publication.kind != 'server-plugin' ||
-                publication.name != "NCL Skins Plugin ${manifest.version}" ||
+                publication.name != "${manifest.version}+universal" ||
                 publication.versionNumber != manifest.version ||
                 publication.channel != manifest.channel ||
                 publication.environment != 'server' ||
@@ -194,19 +194,10 @@ final class PublicationSupport {
                         (mismatches as Set<String>) ==
                                 (['game versions differ'] as Set<String>)
                 if (mutableOnly && kindAllowsChanges) {
-                    Map result = [action: 'update-metadata', reason: mismatches.join('; '),
-                                  remoteId: normalizedId(coordinate)]
-                    if (platform == 'curseforge') {
-                        Map sources = curseForgeSourcesState(desired, coordinate, remoteEntries)
-                        if (sources.action == 'conflict') return sources
-                        result.uploadSources = sources.action == 'upload-sources'
-                    }
-                    return result
+                    return [action: 'update-metadata', reason: mismatches.join('; '),
+                            remoteId: normalizedId(coordinate)]
                 }
                 return [action: 'conflict', reason: mismatches.join('; '), remoteId: normalizedId(coordinate)]
-            }
-            if (platform == 'curseforge') {
-                return curseForgeSourcesState(desired, coordinate, remoteEntries)
             }
             return [action: 'skip', reason: 'exact publication exists', remoteId: normalizedId(coordinate)]
         }
@@ -240,7 +231,7 @@ final class PublicationSupport {
         }
         if (platform == 'curseforge' &&
                 normalizedCurseForgeJavaReleases(remote) !=
-                        desiredJavaReleases(desired)) {
+                        desiredCurseForgeJavaReleases(desired)) {
             mismatches.add('Java version differs')
         }
         if (normalizedDependencies(platform, remote) != desiredDependencies(platform, desired)) {
@@ -298,58 +289,23 @@ final class PublicationSupport {
             gameVersionNames.add(loaderDisplayName(target.loader.toString()))
             gameVersionNames.addAll(['Client', 'Server'])
         }
-        desiredJavaReleases(target).sort().each { int release ->
+        desiredCurseForgeJavaReleases(target).sort().each { int release ->
             gameVersionNames.add("Java ${release}".toString())
         }
-        [
+        Map metadata = [
                 changelog               : manifest.releaseNotes.text,
                 changelogType           : 'markdown',
                 displayName             : target.name,
                 gameVersionNames        : gameVersionNames,
                 releaseType             : target.channel,
-                isMarkedForManualRelease: false,
-                relations               : [projects: (target.dependencies.curseforge as List).collect {
-                    [slug: it.slug, projectID: (it.projectId as Number).intValue(),
-                     type: it.type == 'required' ? 'requiredDependency' : 'optionalDependency']
-                }]
-        ]
-    }
-
-    static Map curseForgeSourcesMetadata(Map target, String parentFileId) {
-        long parentId
-        try {
-            parentId = Long.parseLong(parentFileId)
-        } catch (NumberFormatException error) {
-            throw new IllegalStateException("invalid CurseForge parent file ID: ${parentFileId}", error)
-        }
-        [
-                changelog               : "Sources for ${target.name}.",
-                changelogType           : 'text',
-                displayName             : "${target.name} Sources",
-                parentFileID            : parentId,
-                releaseType             : target.channel,
                 isMarkedForManualRelease: false
         ]
-    }
-
-    static Map curseForgeSourcesState(Map desired, Map primary, List<Map> remoteEntries) {
-        String parentId = normalizedId(primary)
-        String sourceFile = desired.sourcesAsset.file.toString()
-        List<Map> sources = remoteEntries.findAll { Map remote ->
-            remote.parentProjectFileId?.toString() == parentId && remote.fileName?.toString() == sourceFile
+        List<Map> relations = (target.dependencies.curseforge as List).collect {
+            [slug: it.slug, projectID: (it.projectId as Number).intValue(),
+             type: it.type == 'required' ? 'requiredDependency' : 'optionalDependency']
         }
-        if (sources.size() > 1) {
-            return [action: 'conflict', reason: 'multiple CurseForge sources additional files exist',
-                    remoteId: parentId]
-        }
-        if (sources.isEmpty()) {
-            return [action: 'upload-sources', reason: 'sources additional file is missing', remoteId: parentId]
-        }
-        String hash = normalizedHash('curseforge', sources.first())
-        if (hash == null || hash != desired.sourcesAsset.sha1) {
-            return [action: 'conflict', reason: 'sources additional file hash differs', remoteId: parentId]
-        }
-        [action: 'skip', reason: 'exact publication and sources additional file exist', remoteId: parentId]
+        if (!relations.isEmpty()) metadata.relations = [projects: relations]
+        metadata
     }
 
     static byte[] multipart(List<Map> parts, String boundary) {
@@ -437,6 +393,12 @@ final class PublicationSupport {
         desired.javaReleases instanceof List
                 ? (desired.javaReleases as List).collect { (it as Number).intValue() } as Set<Integer>
                 : [(desired.javaRelease as Number).intValue()] as Set<Integer>
+    }
+
+    static Set<Integer> desiredCurseForgeJavaReleases(Map desired) {
+        desired.kind == 'server-plugin'
+                ? [(desired.javaRelease as Number).intValue()] as Set<Integer>
+                : desiredJavaReleases(desired)
     }
 
     static String publicationName(String version, String minecraftVersion, String loader) {

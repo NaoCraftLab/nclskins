@@ -284,12 +284,20 @@ abstract class ServerPluginRunTask extends DefaultTask {
     private static void install(File roleDirectory, File artifact) {
         File plugins = new File(roleDirectory, 'plugins')
         Files.createDirectories(plugins.toPath())
+        String legacyName = legacyManagedPluginName(artifact.name)
+        if (legacyName != null) Files.deleteIfExists(new File(plugins, legacyName).toPath())
         File destination = new File(plugins, artifact.name)
         if (!destination.isFile() ||
                 ServerPluginRuntimeSupport.sha256(destination.toPath()) !=
                 ServerPluginRuntimeSupport.sha256(artifact.toPath())) {
             Files.copy(artifact.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
+    }
+
+    static String legacyManagedPluginName(String artifactName) {
+        artifactName.startsWith('nclskins-plugin-') && artifactName.endsWith('.jar')
+                ? artifactName.replaceFirst('^nclskins-plugin-', 'nclskins-server-')
+                : null
     }
 
     private static List<String> log4jDebugArguments(File directory, String content) {

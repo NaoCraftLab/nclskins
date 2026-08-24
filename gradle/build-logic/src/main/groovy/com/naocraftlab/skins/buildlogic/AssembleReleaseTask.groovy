@@ -181,8 +181,8 @@ abstract class AssembleReleaseTask extends DefaultTask {
         Set<String> allowed = CatalogTools.releaseTargets(catalog)
                 .collect { artifactName(it as Map, version) } as Set<String>
         allowed.add("nclskins-${version}-sources.jar".toString())
-        allowed.add("nclskins-server-${version}.jar".toString())
-        allowed.add("nclskins-server-${version}-sources.jar".toString())
+        allowed.add("nclskins-plugin-${version}.jar".toString())
+        allowed.add("nclskins-plugin-${version}-sources.jar".toString())
         directory.eachFile { File file ->
             if (!file.isFile() || Files.isSymbolicLink(file.toPath()) || !allowed.contains(file.name)) {
                 throw new IllegalStateException("Unexpected existing GitHub release asset: ${file.name}")
@@ -313,11 +313,11 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 sourcesName, new File(repository, "server-plugin/build/libs/${sourcesName}"), allowBuild)
         Map artifact = assetMetadata(jar, 'server-plugin', null)
         Map sourcesArtifact = assetMetadata(sources, 'server-plugin-sources', null)
-        List<String> games = (catalog.serverPlugin.compatibility as Map).keySet() as List<String>
+        List<String> games = serverPluginGameVersions(catalog)
         Map publication = [
                 id              : 'server-plugin',
                 kind            : 'server-plugin',
-                name            : "NCL Skins Plugin ${version}".toString(),
+                name            : "${version}+universal".toString(),
                 versionNumber   : version,
                 channel         : release.channel,
                 minecraftVersion: games.first(),
@@ -364,6 +364,25 @@ abstract class AssembleReleaseTask extends DefaultTask {
                     "No Modrinth loader mapping for server plugin platforms: ${unknown}")
         }
         order.findAll { declared.contains(it) }
+    }
+
+    static List<String> serverPluginGameVersions(Map catalog) {
+        Set<String> backendVersions = (catalog.serverPlugin.compatibility as Map)
+                .keySet().collect { it.toString() } as Set<String>
+        LinkedHashSet<String> result = [] as LinkedHashSet<String>
+        CatalogTools.releaseTargets(catalog).each { Map target ->
+            List<String> versions = target.compatibility instanceof Map
+                    ? target.compatibility.minecraftVersions as List<String>
+                    : [target.minecraft.version.toString()]
+            versions.each { String version ->
+                if (backendVersions.contains(version) ||
+                        backendVersions.any { it.startsWith(version + '.') }) {
+                    result.add(version)
+                }
+            }
+        }
+        result.addAll(backendVersions)
+        result as List<String>
     }
 
     static List<Integer> serverPluginJavaReleases(Map catalog) {

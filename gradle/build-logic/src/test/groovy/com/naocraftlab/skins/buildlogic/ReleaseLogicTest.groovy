@@ -196,8 +196,8 @@ Plugin changes
                     protocols: ['command-v1'], compatibility: ['1.20.1': ['paper']],
                     matrixId: 'fixture-v1', javaRelease: 17,
                     packaging: [gson: '2.10'], excluded: [],
-                    artifact: 'nclskins-server-{pluginVersion}.jar',
-                    sourcesArtifact: 'nclskins-server-{pluginVersion}-sources.jar',
+                    artifact: 'nclskins-plugin-{pluginVersion}.jar',
+                    sourcesArtifact: 'nclskins-plugin-{pluginVersion}-sources.jar',
                     name: 'NCL Skins Plugin', slug: 'nclskins-plugin',
                     platforms: [modrinth: [projectId: null], curseforge: [projectId: null]],
                     productionInputs: [server: ['server-plugin/src/main'], shared: ['LICENSE']]

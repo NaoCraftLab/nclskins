@@ -294,7 +294,7 @@ targetCatalog.serverPluginTopologies.each { Map topology ->
         repositoryDirectory.set(layout.projectDirectory)
         delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
         pluginArtifact.set(layout.projectDirectory.file(
-                "server-plugin/build/libs/nclskins-server-${modVersion}.jar"))
+                "server-plugin/build/libs/nclskins-plugin-${modVersion}.jar"))
         topologyId.set(topology.id.toString())
         dryRun.set(serverRunDryRun)
         developmentLogging.set(devLogging)

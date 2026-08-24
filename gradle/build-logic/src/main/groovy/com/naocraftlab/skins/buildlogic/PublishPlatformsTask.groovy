@@ -81,30 +81,18 @@ abstract class PublishPlatformsTask extends DefaultTask {
                             ? updateModrinthMetadata(target, state.remoteId.toString(), modrinthToken)
                             : updateCurseForgeMetadata(
                                     targetManifest, target, state.remoteId.toString(), curseForgeUploadToken)
-                    String result = 'metadata updated'
-                    if (platform == 'curseforge' && state.uploadSources == true) {
-                        File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
-                        uploadCurseForgeSources(
-                                targetManifest, target, sources, remoteId, curseForgeUploadToken)
-                        result = 'metadata and sources updated'
-                    }
-                    results.add([target.name.toString(), platform, result, remoteId])
+                    results.add([target.name.toString(), platform, 'metadata updated', remoteId])
                     return
                 }
                 File artifact = new File(bundle, "assets/${target.asset.file}")
-                File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
                 String remoteId
                 String result
                 if (platform == 'modrinth') {
+                    File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
                     remoteId = uploadModrinth(targetManifest, target, artifact, sources, modrinthToken)
                     result = 'uploaded'
-                } else if (state.action == 'upload-sources') {
-                    remoteId = uploadCurseForgeSources(
-                            targetManifest, target, sources, state.remoteId.toString(), curseForgeUploadToken)
-                    result = 'sources uploaded'
                 } else {
-                    remoteId = uploadCurseForge(
-                            targetManifest, target, artifact, sources, curseForgeUploadToken)
+                    remoteId = uploadCurseForge(targetManifest, target, artifact, curseForgeUploadToken)
                     result = 'uploaded'
                 }
                 results.add([target.name.toString(), platform, result, remoteId])
@@ -253,11 +241,9 @@ abstract class PublishPlatformsTask extends DefaultTask {
         remoteId
     }
 
-    String uploadCurseForge(Map manifest, Map target, File artifact, File sources, String token) {
-        String primaryId = uploadCurseForgeFile(
+    String uploadCurseForge(Map manifest, Map target, File artifact, String token) {
+        uploadCurseForgeFile(
                 manifest, target, artifact, PublicationSupport.curseForgeMetadata(manifest, target), token)
-        uploadCurseForgeSources(manifest, target, sources, primaryId, token)
-        primaryId
     }
 
     String updateCurseForgeMetadata(
@@ -289,13 +275,6 @@ abstract class PublishPlatformsTask extends DefaultTask {
                     "CurseForge metadata update returned another file ID: ${returned}")
         }
         remoteId
-    }
-
-    String uploadCurseForgeSources(
-            Map manifest, Map target, File sources, String parentFileId, String token) {
-        uploadCurseForgeFile(
-                manifest, target, sources,
-                PublicationSupport.curseForgeSourcesMetadata(target, parentFileId), token)
     }
 
     String uploadCurseForgeFile(Map manifest, Map target, File artifact, Map metadata, String token) {
