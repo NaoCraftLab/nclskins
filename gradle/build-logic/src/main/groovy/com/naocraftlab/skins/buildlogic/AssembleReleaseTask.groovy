@@ -124,7 +124,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
         assets.add(sourcesAsset)
 
         Map serverPublication = serverPluginPublication(
-                repository, catalog, metadata, recomputedState, serverNotes,
+                repository, serverPluginPublicationCatalog(
+                        repository, catalog, metadata.version.toString(), mode),
+                metadata, recomputedState, serverNotes,
                 assetsDirectory, existingDirectory, mode != 'backfill')
         if (serverPublication.publish == true) {
             assets.add(serverPublication.artifact)
@@ -320,8 +322,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 channel         : release.channel,
                 minecraftVersion: games.first(),
                 gameVersions    : games,
-                loaders         : ['paper', 'purpur', 'velocity', 'bungeecord'],
+                loaders         : serverPluginLoaders(catalog.serverPlugin.compatibility as Map),
                 javaRelease     : catalog.serverPlugin.javaRelease,
+                javaReleases    : serverPluginJavaReleases(catalog),
                 environment     : 'server',
                 dependencies    : [modrinth: [], curseforge: []],
                 platforms       : catalog.serverPlugin.platforms,
@@ -330,6 +333,46 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 sourcesAsset    : sourcesArtifact
         ]
         base + [artifact: artifact, sourcesArtifact: sourcesArtifact, publication: publication]
+    }
+
+    static Map serverPluginPublicationCatalog(
+            File repository, Map currentCatalog, String version, String mode) {
+        if (mode != 'backfill') return currentCatalog
+        Object parsed = new JsonSlurper().parseText(ReleaseSelection.git(
+                repository, ['show', "${version}:gradle/targets.json"]))
+        if (!(parsed instanceof Map) || !((parsed as Map).serverPlugin instanceof Map)) {
+            throw new IllegalStateException(
+                    "Release tag ${version} has no server plugin compatibility declaration")
+        }
+        Map result = CatalogTools.materialize(currentCatalog) as Map
+        Map taggedPlugin = (parsed as Map).serverPlugin as Map
+        result.serverPlugin.compatibility = CatalogTools.materialize(taggedPlugin.compatibility)
+        result
+    }
+
+    static List<String> serverPluginLoaders(Map compatibility) {
+        Set<String> declared = compatibility.values()
+                .findAll { it instanceof List }
+                .collectMany { List values -> values.collect { it.toString() } } as Set<String>
+        if (declared.remove('craftbukkit')) declared.add('bukkit')
+        declared.addAll(['velocity', 'bungeecord'])
+        List<String> order = [
+                'bukkit', 'spigot', 'paper', 'purpur', 'folia', 'velocity', 'bungeecord']
+        List<String> unknown = declared.findAll { !order.contains(it) }.sort()
+        if (!unknown.isEmpty()) {
+            throw new IllegalStateException(
+                    "No Modrinth loader mapping for server plugin platforms: ${unknown}")
+        }
+        order.findAll { declared.contains(it) }
+    }
+
+    static List<Integer> serverPluginJavaReleases(Map catalog) {
+        Set<Integer> releases = [(catalog.serverPlugin.javaRelease as Number).intValue()] as Set<Integer>
+        (catalog.serverPluginRuntimes as List).findAll { it instanceof Map }.each { Object raw ->
+            Object value = (raw as Map).javaRelease
+            if (value instanceof Number) releases.add((value as Number).intValue())
+        }
+        releases.sort()
     }
 
     private static File copyServerArtifact(

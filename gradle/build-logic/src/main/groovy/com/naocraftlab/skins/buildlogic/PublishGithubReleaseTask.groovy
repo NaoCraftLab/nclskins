@@ -51,7 +51,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         Map metadata = [
                 tag_name   : manifest.version,
                 name       : "NCL Skins ${manifest.version}".toString(),
-                body       : releaseBody(manifest, repository),
+                body       : releaseBody(manifest),
                 draft      : false,
                 prerelease : manifest.prerelease,
                 make_latest: manifest.prerelease ? 'false' : 'true'
@@ -98,22 +98,27 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         appendSummary(manifest, finalPlan)
     }
 
-    static String releaseBody(Map manifest, String repository) {
-        StringBuilder body = new StringBuilder(manifest.releaseNotes.text.toString().trim())
-        body.append('\n\n## NCL Skins Plugin\n\n')
+    static String releaseBody(Map manifest) {
+        List<String> sections = []
+        if (manifest.targets instanceof List && !(manifest.targets as List).isEmpty()) {
+            String notes = manifest.releaseNotes.text.toString().trim()
+            if (notes.isBlank()) {
+                throw new IllegalStateException('Published mod targets require non-empty release notes')
+            }
+            sections.add("## Mod Changelog\n\n${notes}".toString())
+        }
         Map server = manifest.serverPlugin as Map
         if (server.publish == true) {
-            body.append((server.publication.releaseNotes ?: '').toString().trim())
-            body.append("\n\nServer JAR and sources are attached to this release.")
-        } else {
-            String active = server.activeVersion.toString()
-            body.append("No server-side changes. Compatible baseline: ")
-            body.append("[NCL Skins Plugin ${active}](https://github.com/${repository}/releases/tag/${active}).")
-            body.append('\n\n[Modrinth](https://modrinth.com/plugin/nclskins-plugin) · ')
-            body.append('[CurseForge](https://www.curseforge.com/minecraft/bukkit-plugins/nclskins-plugin)')
+            String notes = (server.publication.releaseNotes ?: '').toString().trim()
+            if (notes.isBlank()) {
+                throw new IllegalStateException('Published server plugin requires non-empty release notes')
+            }
+            sections.add("## Plugin Changelog\n\n${notes}".toString())
         }
-        body.append('\n')
-        body.toString()
+        if (sections.isEmpty()) {
+            throw new IllegalStateException('GitHub Release must contain a mod or plugin component')
+        }
+        sections.join('\n\n') + '\n'
     }
 
     Map findRelease(String api, String repository, String tag, String token) {

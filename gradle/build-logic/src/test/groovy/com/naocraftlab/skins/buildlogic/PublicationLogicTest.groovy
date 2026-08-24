@@ -21,12 +21,18 @@ final class PublicationLogicTest {
         List<String> releaseTargetIds = CatalogTools.releaseTargets(catalog)*.id
         assertEquals(['forge-1.20.1'], ReleaseSelection.selectFromPaths(
                 repository, catalog, ['targets/1.20.1/forge/build.gradle',
-                                      'gradle/version.properties', 'CHANGELOG.md',
-                                      'pub/description.md', 'pub/gallery/editor.png'], true).targetIds)
+                                      'gradle/version.properties', 'CHANGELOG.md', 'SERVER_CHANGELOG.md',
+                                      'server-plugin/src/main/java/example/Plugin.java',
+                                      'server-plugin/build.gradle',
+                                      'server-plugin-adapters/legacy-1.20.1/src/main/java/example/Adapter.java',
+                                      'pub/description.md', 'pub/plugin-description.md',
+                                      'pub/gallery/editor.png'], true).targetIds)
         assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
                 repository, catalog, ['core/src/main/java/example/Shared.java'], true).targetIds)
         assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
-                repository, catalog, ['gradle/version.properties', 'CHANGELOG.md',
+                repository, catalog, ['gradle/version.properties', 'CHANGELOG.md', 'SERVER_CHANGELOG.md',
+                                      'server-plugin/src/main/java/example/Plugin.java',
+                                      'server-plugin/build.gradle',
                                       'pub/description.md'], true).targetIds)
         assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
                 repository, catalog, [], false).targetIds)
@@ -98,9 +104,15 @@ final class PublicationLogicTest {
 
         Map conflict = CatalogTools.materialize(exactModrinth) as Map
         conflict.game_versions = ['1.21.1']
-        assertEquals('conflict', PublicationSupport.classify('modrinth', target, [conflict]).action)
+        assertEquals('update-metadata',
+                PublicationSupport.classify('modrinth', target, [conflict]).action)
         assertEquals('conflict', PublicationSupport.classify(
                 'modrinth', target, [exactModrinth, exactModrinth]).action)
+
+        Map wrongLoader = CatalogTools.materialize(exactModrinth) as Map
+        wrongLoader.loaders = ['forge']
+        assertEquals('conflict', PublicationSupport.classify(
+                'modrinth', target, [wrongLoader]).action)
 
         Map wrongJava = CatalogTools.materialize(exactCurseForge) as Map
         wrongJava.gameVersions = (target.gameVersions as List) + ['Fabric', 'Client', 'Server', 'Java 21']
@@ -176,10 +188,12 @@ final class PublicationLogicTest {
                 id: 'server-plugin', kind: 'server-plugin',
                 name: 'NCL Skins Plugin 1.2.3-beta.4', versionNumber: '1.2.3-beta.4',
                 channel: 'beta', environment: 'server', javaRelease: 17,
+                javaReleases: [17, 21, 25],
                 minecraftVersion: '1.20.1',
                 gameVersions: [
                     '1.20.1', '1.21.1', '1.21.11', '26.1.1', '26.1.2', '26.2'],
-                loaders: ['paper', 'purpur', 'velocity', 'bungeecord'],
+                loaders: ['bukkit', 'spigot', 'paper', 'purpur', 'folia',
+                          'velocity', 'bungeecord'],
                 dependencies: [modrinth: [], curseforge: []],
                 platforms: [modrinth: [projectId: 'plugin-modrinth', slug: 'nclskins-plugin'],
                             curseforge: [projectId: 999, slug: 'nclskins-plugin']],
@@ -194,14 +208,16 @@ final class PublicationLogicTest {
         assertEquals('Server changes\n', view.releaseNotes.text)
 
         Map modrinth = PublicationSupport.modrinthMetadata(view, target)
-        assertEquals(['paper', 'purpur', 'velocity', 'bungeecord'] as Set,
+        assertEquals(['bukkit', 'spigot', 'paper', 'purpur', 'folia',
+                      'velocity', 'bungeecord'] as Set,
                 modrinth.loaders as Set)
         assertEquals(target.gameVersions, modrinth.game_versions)
         assertEquals('server_only', modrinth.environment)
         assertEquals('plugin-modrinth', modrinth.project_id)
 
         Map curseForge = PublicationSupport.curseForgeMetadata(view, target)
-        assertEquals(target.gameVersions + ['Server', 'Java 17'], curseForge.gameVersionNames)
+        assertEquals(target.gameVersions + ['Server', 'Java 17', 'Java 21', 'Java 25'],
+                curseForge.gameVersionNames)
         assertEquals(999, view.platforms.curseforge.projectId)
         assertFalse(curseForge.gameVersionNames.any {
             it in ['Paper', 'Purpur', 'Velocity', 'BungeeCord', 'Folia']
@@ -227,6 +243,58 @@ final class PublicationLogicTest {
                 'modrinth', target, [exactModrinth]).action)
         assertEquals('skip', PublicationSupport.classify(
                 'curseforge', target, [exactCurse, exactCurseSources]).action)
+
+        Map staleModrinth = CatalogTools.materialize(exactModrinth) as Map
+        staleModrinth.game_versions = target.gameVersions.dropRight(1)
+        staleModrinth.loaders = ['paper', 'velocity', 'bungeecord']
+        assertEquals('update-metadata', PublicationSupport.classify(
+                'modrinth', target, [staleModrinth]).action)
+
+        Map staleCurseForge = CatalogTools.materialize(exactCurse) as Map
+        staleCurseForge.gameVersions = curseForge.gameVersionNames.findAll { it != '26.2' }
+        assertEquals('update-metadata', PublicationSupport.classify(
+                'curseforge', target, [staleCurseForge, exactCurseSources]).action)
+
+        staleModrinth.files[0].hashes.sha512 = 'different'
+        assertEquals('conflict', PublicationSupport.classify(
+                'modrinth', target, [staleModrinth]).action)
+    }
+
+    @Test
+    void serverPluginLoaderMetadataCoversEverySupportedModrinthLabel() {
+        assertEquals([
+                'bukkit', 'spigot', 'paper', 'purpur', 'folia',
+                'velocity', 'bungeecord'
+        ], AssembleReleaseTask.serverPluginLoaders(catalog.serverPlugin.compatibility as Map))
+        assertEquals([17, 21, 25], AssembleReleaseTask.serverPluginJavaReleases(catalog))
+    }
+
+    @Test
+    void compatibilityBackfillCannotAdvertiseMoreThanTheTaggedPluginJar() {
+        File fixture = Files.createTempDirectory('nclskins-plugin-tag-catalog-').toFile()
+        try {
+            assertEquals('', ReleaseSelection.git(fixture, ['init', '--quiet']))
+            ReleaseSelection.git(fixture, ['config', 'user.name', 'NCL Skins Test'])
+            ReleaseSelection.git(fixture, ['config', 'user.email', 'test@invalid.example'])
+            File gradleDirectory = new File(fixture, 'gradle')
+            assertTrue(gradleDirectory.mkdir())
+            Files.writeString(new File(gradleDirectory, 'targets.json').toPath(), JsonOutput.toJson([
+                    serverPlugin: [compatibility: ['1.20.1': ['paper']]]
+            ]))
+            ReleaseSelection.git(fixture, ['add', 'gradle/targets.json'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'fixture'])
+            ReleaseSelection.git(fixture, ['tag', '1.2.3'])
+
+            Map publicationCatalog = AssembleReleaseTask.serverPluginPublicationCatalog(
+                    fixture, catalog, '1.2.3', 'backfill')
+            assertEquals(['1.20.1': ['paper']], publicationCatalog.serverPlugin.compatibility)
+            assertEquals(catalog.serverPlugin.platforms, publicationCatalog.serverPlugin.platforms)
+            assertEquals(catalog.serverPlugin.compatibility,
+                    AssembleReleaseTask.serverPluginPublicationCatalog(
+                            fixture, catalog, '1.2.3', 'tag').serverPlugin.compatibility)
+        } finally {
+            fixture.deleteDir()
+        }
     }
 
     @Test
@@ -375,6 +443,13 @@ final class PublicationLogicTest {
         task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
         assertTrue(task.uploads.isEmpty())
 
+        Map staleGames = exactModrinth(target)
+        staleGames.game_versions = ['1.19.4']
+        task.modrinth = [staleGames]
+        task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
+        assertEquals(['modrinth-metadata'], task.uploads)
+
+        task.uploads.clear()
         Map conflicting = exactModrinth(target)
         conflicting.files = [[filename: target.asset.file, hashes: [sha512: 'different']]]
         task.modrinth = [conflicting]
@@ -449,6 +524,58 @@ final class PublicationLogicTest {
             assertTrue(requests[1].contains("filename=\"${sources.name}\""))
         } finally {
             directory.deleteDir()
+            server.stop(0)
+        }
+    }
+
+    @Test
+    void pluginCompatibilityMetadataUpdatesDoNotReplacePublishedFiles() {
+        HttpServer server = HttpServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
+        List<String> requests = new CopyOnWriteArrayList<>()
+        server.createContext('/version/plugin-version') { exchange ->
+            requests.add("${exchange.requestMethod} ${exchange.requestHeaders.getFirst('Authorization')} " +
+                    new String(exchange.requestBody.readAllBytes(), StandardCharsets.UTF_8))
+            exchange.sendResponseHeaders(204, -1)
+            exchange.close()
+        }
+        server.createContext('/api/projects/999/update-file') { exchange ->
+            requests.add("${exchange.requestMethod} ${exchange.requestHeaders.getFirst('X-Api-Token')} " +
+                    new String(exchange.requestBody.readAllBytes(), StandardCharsets.UTF_8))
+            respond(exchange, JsonOutput.toJson([id: 71]))
+        }
+        server.start()
+        try {
+            LocalApiPublishTask task = ProjectBuilder.builder().build().tasks.create(
+                    'localMetadataUpdate', LocalApiPublishTask)
+            task.base = "http://127.0.0.1:${server.address.port}"
+            Map target = [
+                    id: 'server-plugin', kind: 'server-plugin',
+                    gameVersions: ['1.20.1', '26.2'],
+                    loaders: ['bukkit', 'paper', 'folia', 'velocity', 'bungeecord'],
+                    javaRelease: 17, javaReleases: [17, 21, 25],
+                    dependencies: [modrinth: [], curseforge: []]
+            ]
+            Map manifest = [
+                    releaseNotes: [text: 'Plugin changes\n'],
+                    platforms: [modrinth: [projectId: 'plugin-modrinth'],
+                                curseforge: [projectId: 999]]
+            ]
+
+            assertEquals('plugin-version', task.updateModrinthMetadata(
+                    target, 'plugin-version', 'mod-token'))
+            assertEquals('71', task.updateCurseForgeMetadata(
+                    manifest, target, '71', 'curse-token'))
+            assertEquals(2, requests.size())
+            assertTrue(requests[0].startsWith('PATCH mod-token '))
+            assertTrue(requests[0].contains('"game_versions":["1.20.1","26.2"]'))
+            assertTrue(requests[0].contains(
+                    '"loaders":["bukkit","paper","folia","velocity","bungeecord"]'))
+            assertTrue(requests[1].startsWith('POST curse-token '))
+            assertTrue(requests[1].contains('"fileID":71'))
+            assertTrue(requests[1].contains(
+                    '"gameVersionNames":["1.20.1","26.2","Server","Java 17","Java 21","Java 25"]'))
+            assertFalse(requests.join('\n').contains('filename='))
+        } finally {
             server.stop(0)
         }
     }
@@ -600,6 +727,19 @@ final class PublicationLogicTest {
                 Map manifest, Map target, File sources, String parentFileId, String token) {
             uploads.add('curseforge-sources')
             'curseforge-sources-upload'
+        }
+
+        @Override
+        String updateModrinthMetadata(Map target, String remoteId, String token) {
+            uploads.add('modrinth-metadata')
+            remoteId
+        }
+
+        @Override
+        String updateCurseForgeMetadata(
+                Map manifest, Map target, String remoteId, String token) {
+            uploads.add('curseforge-metadata')
+            remoteId
         }
     }
 

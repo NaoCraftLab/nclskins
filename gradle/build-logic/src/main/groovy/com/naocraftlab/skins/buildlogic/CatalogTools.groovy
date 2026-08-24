@@ -1408,6 +1408,13 @@ final class CatalogTools {
         Map<String, Set<String>> affected = [:].withDefault { [] as Set }
         List targets = catalog.targets as List
         Set<String> targetIds = targets.collect { it.id.toString() } as Set
+        List<String> serverInputs = catalog.serverPlugin instanceof Map &&
+                catalog.serverPlugin.productionInputs instanceof Map
+                ? (catalog.serverPlugin.productionInputs.server as List).collect { it.toString() }
+                : []
+        Set<String> serverBuildFiles = serverInputs.findAll { it.endsWith('/src/main') }.collect {
+            it.substring(0, it.length() - '/src/main'.length()) + '/build.gradle'
+        } as Set<String>
         Map<String, Set<String>> sourceOwners = [:].withDefault { [] as Set }
         targets.each { Object raw ->
             Map target = raw as Map
@@ -1420,9 +1427,13 @@ final class CatalogTools {
                 targetIds.each { affected[it].add('version-promotion') }
                 return
             }
-            if (path in ['CHANGELOG.md', 'README.md', '.gitignore'] ||
+            if (path in ['CHANGELOG.md', 'SERVER_CHANGELOG.md', 'README.md', '.gitignore'] ||
                 path.startsWith('.github/') || path.startsWith('.idea/') || path.startsWith('pub/') ||
                 path.contains('/src/test/') || path.contains('/src/testFixtures/')) {
+                return
+            }
+            if (serverInputs.any { path == it || path.startsWith(it + '/') } ||
+                    serverBuildFiles.contains(path)) {
                 return
             }
             Map target = targets.find { path == it.path || path.startsWith(it.path.toString() + '/') } as Map

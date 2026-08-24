@@ -75,11 +75,26 @@ abstract class PublishPlatformsTask extends DefaultTask {
                     results.add([target.name.toString(), platform, 'skipped', state.remoteId?.toString() ?: ''])
                     return
                 }
+                Map targetManifest = manifestForTarget(manifest, target)
+                if (state.action == 'update-metadata') {
+                    String remoteId = platform == 'modrinth'
+                            ? updateModrinthMetadata(target, state.remoteId.toString(), modrinthToken)
+                            : updateCurseForgeMetadata(
+                                    targetManifest, target, state.remoteId.toString(), curseForgeUploadToken)
+                    String result = 'metadata updated'
+                    if (platform == 'curseforge' && state.uploadSources == true) {
+                        File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
+                        uploadCurseForgeSources(
+                                targetManifest, target, sources, remoteId, curseForgeUploadToken)
+                        result = 'metadata and sources updated'
+                    }
+                    results.add([target.name.toString(), platform, result, remoteId])
+                    return
+                }
                 File artifact = new File(bundle, "assets/${target.asset.file}")
                 File sources = new File(bundle, "assets/${target.sourcesAsset.file}")
                 String remoteId
                 String result
-                Map targetManifest = manifestForTarget(manifest, target)
                 if (platform == 'modrinth') {
                     remoteId = uploadModrinth(targetManifest, target, artifact, sources, modrinthToken)
                     result = 'uploaded'
@@ -224,11 +239,56 @@ abstract class PublishPlatformsTask extends DefaultTask {
         payload.id.toString()
     }
 
+    String updateModrinthMetadata(Map target, String remoteId, String token) {
+        Map metadata = [
+                game_versions: target.gameVersions,
+                loaders      : PublicationSupport.desiredLoaders(target) as List
+        ]
+        request(
+                'PATCH', "${apiBase('MODRINTH_API_BASE', 'https://api.modrinth.com/v2')}" +
+                        "/version/${URLEncoder.encode(remoteId, StandardCharsets.UTF_8)}",
+                ['Authorization': token],
+                JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8),
+                'application/json', [204] as Set<Integer>, [token])
+        remoteId
+    }
+
     String uploadCurseForge(Map manifest, Map target, File artifact, File sources, String token) {
         String primaryId = uploadCurseForgeFile(
                 manifest, target, artifact, PublicationSupport.curseForgeMetadata(manifest, target), token)
         uploadCurseForgeSources(manifest, target, sources, primaryId, token)
         primaryId
+    }
+
+    String updateCurseForgeMetadata(
+            Map manifest, Map target, String remoteId, String token) {
+        long fileId
+        try {
+            fileId = Long.parseLong(remoteId)
+        } catch (NumberFormatException error) {
+            throw new IllegalStateException("invalid CurseForge file ID: ${remoteId}", error)
+        }
+        Map metadata = [
+                fileID          : fileId,
+                gameVersionNames: PublicationSupport.curseForgeMetadata(
+                        manifest, target).gameVersionNames
+        ]
+        String boundary = "NclSkins${UUID.randomUUID().toString().replace('-', '')}"
+        byte[] body = PublicationSupport.multipart([
+                [name: 'metadata', filename: null, contentType: 'application/json',
+                 bytes: JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8)]
+        ], boundary)
+        Object payload = json(request(
+                'POST', "${apiBase('CURSEFORGE_UPLOAD_API_BASE', 'https://minecraft.curseforge.com')}" +
+                        "/api/projects/${manifest.platforms.curseforge.projectId}/update-file",
+                ['X-Api-Token': token], body, "multipart/form-data; boundary=${boundary}",
+                [200, 201] as Set<Integer>, [token]))
+        Object returned = payload instanceof Map ? payload.id : null
+        if (returned == null || returned.toString() != remoteId) {
+            throw new IllegalStateException(
+                    "CurseForge metadata update returned another file ID: ${returned}")
+        }
+        remoteId
     }
 
     String uploadCurseForgeSources(

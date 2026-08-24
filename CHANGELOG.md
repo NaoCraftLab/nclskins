@@ -1,5 +1,10 @@
 ## 1.0.0-beta.2
 
+### Added
+
+- **NCL Skins Plugin support**
+    - See confirmed skin changes without reconnecting on servers that install NCL Skins Plugin
+
 ### Changed
 
 - **Improved mod menu presentation**

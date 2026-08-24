@@ -428,8 +428,8 @@
       ]
     },
     "platforms": {
-      "modrinth": {"projectId": null, "slug": "nclskins-plugin"},
-      "curseforge": {"projectId": null, "slug": "nclskins-plugin"}
+      "modrinth": {"projectId": "JO4kIWk2", "slug": "nclskins-plugin"},
+      "curseforge": {"projectId": 1649689, "slug": "nclskins-plugin"}
     }
   },
   "serverPluginRuntimes": [

@@ -25,6 +25,8 @@ final class ReleaseLogicTest {
         assertEquals('beta', metadata.channel)
         assertTrue(metadata.prerelease)
         assertTrue(metadata.notes.startsWith(
+                '### Added\n\n- **NCL Skins Plugin support**'))
+        assertTrue(metadata.notes.contains(
                 '### Changed\n\n- **Improved mod menu presentation**'))
         assertTrue(metadata.notes.contains(
                 '### Fixed\n\n- **More reliable live skin updates**'))
@@ -87,6 +89,57 @@ final class ReleaseLogicTest {
       needs.build.result == 'success' &&
       needs.platforms.result == 'success'
 '''))
+    }
+
+    @Test
+    void githubReleaseBodyContainsOnlyChangelogSectionsForPublishedComponents() {
+        Map manifest = [
+                targets     : [[id: 'fabric-26.2']],
+                releaseNotes: [text: 'Mod changes\n'],
+                serverPlugin: [publish: true, publication: [releaseNotes: 'Plugin changes\n']]
+        ]
+
+        assertEquals('''## Mod Changelog
+
+Mod changes
+
+## Plugin Changelog
+
+Plugin changes
+''', PublishGithubReleaseTask.releaseBody(manifest))
+
+        manifest.serverPlugin = [publish: false, activeVersion: '1.0.0-beta.2']
+        assertEquals('''## Mod Changelog
+
+Mod changes
+''', PublishGithubReleaseTask.releaseBody(manifest))
+
+        manifest.targets = []
+        manifest.serverPlugin = [publish: true, publication: [releaseNotes: 'Plugin changes\n']]
+        assertEquals('''## Plugin Changelog
+
+Plugin changes
+''', PublishGithubReleaseTask.releaseBody(manifest))
+    }
+
+    @Test
+    void githubReleaseBodyRejectsEmptyOrMissingComponentNotes() {
+        assertThrows(IllegalStateException) {
+            PublishGithubReleaseTask.releaseBody([
+                    targets: [], serverPlugin: [publish: false]
+            ])
+        }
+        assertThrows(IllegalStateException) {
+            PublishGithubReleaseTask.releaseBody([
+                    targets: [[id: 'paper-26.2']], releaseNotes: [text: '  '],
+                    serverPlugin: [publish: false]
+            ])
+        }
+        assertThrows(IllegalStateException) {
+            PublishGithubReleaseTask.releaseBody([
+                    targets: [], serverPlugin: [publish: true, publication: [releaseNotes: '  ']]
+            ])
+        }
     }
 
     @Test

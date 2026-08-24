@@ -128,10 +128,30 @@ final class PublicationSupport {
                 publication.versionNumber != manifest.version ||
                 publication.channel != manifest.channel ||
                 publication.environment != 'server' ||
-                publication.loaders != ['paper', 'purpur', 'velocity', 'bungeecord'] ||
-                publication.gameVersions != [
-                    '1.20.1', '1.21.1', '1.21.11', '26.1.1', '26.1.2', '26.2'] ||
+                !(publication.loaders instanceof List) || (publication.loaders as List).isEmpty() ||
+                (publication.loaders as List).size() != (publication.loaders as List).toSet().size() ||
+                !(publication.loaders as List).every {
+                    it in ['bukkit', 'spigot', 'paper', 'purpur', 'folia',
+                           'velocity', 'bungeecord']
+                } ||
+                !(publication.gameVersions instanceof List) ||
+                (publication.gameVersions as List).isEmpty() ||
+                (publication.gameVersions as List).size() !=
+                        (publication.gameVersions as List).toSet().size() ||
+                !(publication.gameVersions as List).every {
+                    it instanceof String && !it.isBlank()
+                } ||
                 publication.javaRelease != 17 ||
+                !(publication.javaReleases instanceof List) ||
+                (publication.javaReleases as List).isEmpty() ||
+                !(publication.javaReleases as List).every { it instanceof Number } ||
+                (publication.javaReleases as List).collect { (it as Number).intValue() } !=
+                        (publication.javaReleases as List).collect {
+                            (it as Number).intValue()
+                        }.toSet().sort() ||
+                !(publication.javaReleases as List).collect {
+                    (it as Number).intValue()
+                }.contains((publication.javaRelease as Number).intValue()) ||
                 publication.asset != artifact || publication.sourcesAsset != sources ||
                 assets[artifact.file?.toString()] != artifact || artifact.kind != 'server-plugin' ||
                 assets[sources.file?.toString()] != sources || sources.kind != 'server-plugin-sources' ||
@@ -166,6 +186,23 @@ final class PublicationSupport {
             Map coordinate = coordinates.first()
             List<String> mismatches = metadataMismatches(platform, desired, coordinate)
             if (!mismatches.isEmpty()) {
+                Set<String> mutable = platform == 'modrinth'
+                        ? ['game versions differ', 'loader differs'] as Set<String>
+                        : ['game versions differ'] as Set<String>
+                boolean mutableOnly = mutable.containsAll(mismatches as Set<String>)
+                boolean kindAllowsChanges = desired.kind == 'server-plugin' ||
+                        (mismatches as Set<String>) ==
+                                (['game versions differ'] as Set<String>)
+                if (mutableOnly && kindAllowsChanges) {
+                    Map result = [action: 'update-metadata', reason: mismatches.join('; '),
+                                  remoteId: normalizedId(coordinate)]
+                    if (platform == 'curseforge') {
+                        Map sources = curseForgeSourcesState(desired, coordinate, remoteEntries)
+                        if (sources.action == 'conflict') return sources
+                        result.uploadSources = sources.action == 'upload-sources'
+                    }
+                    return result
+                }
                 return [action: 'conflict', reason: mismatches.join('; '), remoteId: normalizedId(coordinate)]
             }
             if (platform == 'curseforge') {
@@ -203,7 +240,7 @@ final class PublicationSupport {
         }
         if (platform == 'curseforge' &&
                 normalizedCurseForgeJavaReleases(remote) !=
-                        [(desired.javaRelease as Number).intValue()] as Set<Integer>) {
+                        desiredJavaReleases(desired)) {
             mismatches.add('Java version differs')
         }
         if (normalizedDependencies(platform, remote) != desiredDependencies(platform, desired)) {
@@ -261,7 +298,9 @@ final class PublicationSupport {
             gameVersionNames.add(loaderDisplayName(target.loader.toString()))
             gameVersionNames.addAll(['Client', 'Server'])
         }
-        gameVersionNames.add("Java ${(target.javaRelease as Number).intValue()}".toString())
+        desiredJavaReleases(target).sort().each { int release ->
+            gameVersionNames.add("Java ${release}".toString())
+        }
         [
                 changelog               : manifest.releaseNotes.text,
                 changelogType           : 'markdown',
@@ -392,6 +431,12 @@ final class PublicationSupport {
         (remote.gameVersions as List).collect { it.toString().toLowerCase(Locale.ROOT) }
                 .findAll { it ==~ /java\s+[0-9]+/ }
                 .collect { Integer.parseInt(it.substring('java '.length())) } as Set<Integer>
+    }
+
+    static Set<Integer> desiredJavaReleases(Map desired) {
+        desired.javaReleases instanceof List
+                ? (desired.javaReleases as List).collect { (it as Number).intValue() } as Set<Integer>
+                : [(desired.javaRelease as Number).intValue()] as Set<Integer>
     }
 
     static String publicationName(String version, String minecraftVersion, String loader) {
