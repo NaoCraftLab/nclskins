@@ -121,24 +121,25 @@ final class PublicationLogicTest {
         Map target = desired('fabric-1.20.1')
         Map exactModrinth = exactModrinth(target)
         Map exactCurseForge = exactCurseForge(target)
+        Map exactCurseForgeSources = exactCurseForgeSources(target)
 
         assertEquals('upload', PublicationSupport.classify('modrinth', target, []).action)
         assertEquals('upload', PublicationSupport.classify('curseforge', target, []).action)
         assertEquals('skip', PublicationSupport.classify('modrinth', target, [exactModrinth]).action)
         assertEquals('skip', PublicationSupport.classify(
-                'curseforge', target, [exactCurseForge]).action)
+                'curseforge', target, [exactCurseForge, exactCurseForgeSources]).action)
         Map coreApiWithoutJava = CatalogTools.materialize(exactCurseForge) as Map
         coreApiWithoutJava.gameVersions = (coreApiWithoutJava.gameVersions as List).findAll {
             !(it.toString().toLowerCase(Locale.ROOT) ==~ /java\s+[0-9]+/)
         }
         assertEquals('skip', PublicationSupport.classify(
-                'curseforge', target, [coreApiWithoutJava]).action)
+                'curseforge', target, [coreApiWithoutJava, exactCurseForgeSources]).action)
         Map rejectedSources = [
                 id: 43, parentProjectFileId: 42, displayName: "${target.name} Sources",
                 releaseType: 2, gameVersions: [], fileName: target.sourcesAsset.file,
                 dependencies: [], hashes: [[algo: 1, value: 'rejected-duplicate']]
         ]
-        assertEquals('skip', PublicationSupport.classify(
+        assertEquals('conflict', PublicationSupport.classify(
                 'curseforge', target, [exactCurseForge, rejectedSources]).action)
         assertEquals('skip', PublicationSupport.classify('modrinth', target, [exactModrinth]).action)
         assertEquals('upload', PublicationSupport.classify('curseforge', target, []).action)
@@ -158,12 +159,46 @@ final class PublicationLogicTest {
         Map wrongJava = CatalogTools.materialize(exactCurseForge) as Map
         wrongJava.gameVersions = (target.gameVersions as List) + ['Fabric', 'Client', 'Server', 'Java 21']
         assertEquals('skip', PublicationSupport.classify(
-                'curseforge', target, [wrongJava]).action)
+                'curseforge', target, [wrongJava, exactCurseForgeSources]).action)
 
         Map wrongEnvironment = CatalogTools.materialize(exactModrinth) as Map
         wrongEnvironment.environment = 'client_and_server'
         assertEquals('conflict', PublicationSupport.classify(
                 'modrinth', target, [wrongEnvironment]).action)
+    }
+
+    @Test
+    void curseForgeSourcesChildMustBeExactAndBelongToTheProductionParent() {
+        Map target = desired('fabric-1.20.1')
+        Map parent = exactCurseForge(target)
+        Map sources = exactCurseForgeSources(target)
+
+        assertEquals('upload-source', PublicationSupport.classify(
+                'curseforge', target, [parent]).action)
+        assertEquals('skip', PublicationSupport.classify(
+                'curseforge', target, [parent, sources]).action)
+
+        Map wrongParent = CatalogTools.materialize(sources) as Map
+        wrongParent.parentProjectFileId = 999
+        assertEquals('conflict', PublicationSupport.classify(
+                'curseforge', target, [parent, wrongParent]).action)
+
+        Map wrongHash = CatalogTools.materialize(sources) as Map
+        wrongHash.hashes[0].value = 'different'
+        assertEquals('conflict', PublicationSupport.classify(
+                'curseforge', target, [parent, wrongHash]).action)
+
+        Map wrongName = CatalogTools.materialize(sources) as Map
+        wrongName.fileName = 'nclskins-wrong-sources.jar'
+        assertEquals('conflict', PublicationSupport.classify(
+                'curseforge', target, [parent, wrongName]).action)
+
+        Map duplicate = CatalogTools.materialize(sources) as Map
+        duplicate.id = 44
+        assertEquals('conflict', PublicationSupport.classify(
+                'curseforge', target, [parent, sources, duplicate]).action)
+        assertEquals('conflict', PublicationSupport.classify(
+                'curseforge', target, [sources]).action)
     }
 
     @Test
@@ -186,6 +221,13 @@ final class PublicationLogicTest {
         String json = JsonOutput.toJson(curseForge)
         assertTrue(json.contains('"projectID":306612'))
         assertFalse(json.contains('"projectID":"'))
+
+        Map curseForgeSources = PublicationSupport.curseForgeSourcesMetadata(
+                manifest, target, '42')
+        assertEquals(42L, curseForgeSources.parentFileID)
+        assertEquals("${target.name} sources".toString(), curseForgeSources.displayName)
+        assertFalse(curseForgeSources.containsKey('gameVersionNames'))
+        assertFalse(curseForgeSources.containsKey('relations'))
 
         assertThrows(IllegalArgumentException) { desired('fabric-26.3') }
 
@@ -266,10 +308,15 @@ final class PublicationLogicTest {
         Map exactCurse = [id: 71, displayName: target.name, releaseType: 2,
                           gameVersions: curseForge.gameVersionNames, fileName: artifact.file,
                           dependencies: [], hashes: [[algo: 1, value: artifact.sha1]]]
+        Map exactCurseSources = [
+                id: 72, parentProjectFileId: 71,
+                displayName: "${target.name} sources".toString(), releaseType: 2,
+                gameVersions: [], fileName: sources.file, dependencies: [],
+                hashes: [[algo: 1, value: sources.sha1]]]
         assertEquals('skip', PublicationSupport.classify(
                 'modrinth', target, [exactModrinth]).action)
         assertEquals('skip', PublicationSupport.classify(
-                'curseforge', target, [exactCurse]).action)
+                'curseforge', target, [exactCurse, exactCurseSources]).action)
 
         Map staleModrinth = CatalogTools.materialize(exactModrinth) as Map
         staleModrinth.game_versions = target.gameVersions.dropRight(1)
@@ -287,11 +334,17 @@ final class PublicationLogicTest {
         Map staleCurseForge = CatalogTools.materialize(exactCurse) as Map
         staleCurseForge.gameVersions = curseForge.gameVersionNames.findAll { it != '26.2' }
         assertEquals('update-metadata', PublicationSupport.classify(
-                'curseforge', target, [staleCurseForge]).action)
+                'curseforge', target, [staleCurseForge, exactCurseSources]).action)
 
         staleModrinth.files[0].hashes.sha512 = 'different'
         assertEquals('conflict', PublicationSupport.classify(
                 'modrinth', target, [staleModrinth]).action)
+
+        RecordingPublishTask publisher = ProjectBuilder.builder().build().tasks.create(
+                'recordingServerPluginPublication', RecordingPublishTask)
+        publisher.publishManifest(
+                rootManifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
+        assertEquals(['modrinth', 'curseforge', 'curseforge-sources'], publisher.uploads)
     }
 
     @Test
@@ -361,6 +414,61 @@ final class PublicationLogicTest {
     }
 
     @Test
+    void everyReleaseTargetUsesTheSourcesJarBuiltBesideItsProductionArtifact() {
+        List<Map> targets = CatalogTools.releaseTargets(catalog)
+        assertTrue(targets.size() > 1)
+        assertEquals(targets.size(), targets.collect { Map target ->
+            AssembleReleaseTask.sourceArtifactName(target, release.version)
+        }.toSet().size())
+        targets.each { Map target ->
+            assertEquals(
+                    AssembleReleaseTask.artifactName(target, release.version)
+                            .replace('.jar', '-sources.jar'),
+                    AssembleReleaseTask.sourceArtifactName(target, release.version))
+        }
+    }
+
+    @Test
+    void targetProductionAndSourcesAlwaysComeFromOneOrigin() {
+        File existing = Files.createTempDirectory('nclskins-target-pair-existing-').toFile()
+        File built = Files.createTempDirectory('nclskins-target-pair-built-').toFile()
+        String productionName = 'nclskins-1.2.3+1.20.1-fabric.jar'
+        String sourcesName = 'nclskins-1.2.3+1.20.1-fabric-sources.jar'
+        try {
+            File builtProduction = new File(built, productionName)
+            File builtSources = new File(built, sourcesName)
+            builtProduction.bytes = 'built-production'.bytes
+            builtSources.bytes = 'built-sources'.bytes
+            Map builtPair = AssembleReleaseTask.targetArtifactPair(
+                    existing, built, productionName, sourcesName, 'fabric-1.20.1')
+            assertEquals(builtProduction, builtPair.production)
+            assertEquals(builtSources, builtPair.sources)
+
+            File existingProduction = new File(existing, productionName)
+            existingProduction.bytes = 'existing-production'.bytes
+            assertThrows(IllegalStateException) {
+                AssembleReleaseTask.targetArtifactPair(
+                        existing, built, productionName, sourcesName, 'fabric-1.20.1')
+            }
+            File existingSources = new File(existing, sourcesName)
+            existingSources.bytes = 'existing-sources'.bytes
+            Map existingPair = AssembleReleaseTask.targetArtifactPair(
+                    existing, built, productionName, sourcesName, 'fabric-1.20.1')
+            assertEquals(existingProduction, existingPair.production)
+            assertEquals(existingSources, existingPair.sources)
+
+            assertTrue(existingProduction.delete())
+            assertThrows(IllegalStateException) {
+                AssembleReleaseTask.targetArtifactPair(
+                        existing, built, productionName, sourcesName, 'fabric-1.20.1')
+            }
+        } finally {
+            existing.deleteDir()
+            built.deleteDir()
+        }
+    }
+
+    @Test
     void duplicateTargetContentsAndUnexpectedBackfillAssetsFail() {
         Map first = desired('fabric-1.20.1')
         Map second = desired('forge-1.20.1')
@@ -371,7 +479,9 @@ final class PublicationLogicTest {
 
         File directory = Files.createTempDirectory('nclskins-backfill-assets-').toFile()
         try {
-            new File(directory, "nclskins-${release.version}-sources.jar".toString()).bytes = 'sources'.bytes
+            Map target = CatalogTools.selectTarget(catalog, 'fabric-1.20.1')
+            new File(directory, AssembleReleaseTask.sourceArtifactName(
+                    target, release.version)).bytes = 'sources'.bytes
             AssembleReleaseTask.validateExistingAssetSet(directory, catalog, release.version)
             new File(directory,
                     "nclskins-${release.version}+26.3-fabric.jar".toString()).bytes = 'x'.bytes
@@ -390,18 +500,18 @@ final class PublicationLogicTest {
             File assets = new File(bundle, 'assets')
             assertTrue(assets.mkdir())
             File mod = new File(assets, 'nclskins-1.2.3-beta.4-fabric-1.20.1.jar')
-            File sources = new File(assets, 'nclskins-1.2.3-beta.4-sources.jar')
+            File sources = new File(assets, 'nclskins-1.2.3-beta.4-fabric-1.20.1-sources.jar')
             File notes = new File(bundle, 'release-notes.md')
             Files.write(mod.toPath(), 'mod'.bytes)
             Files.write(sources.toPath(), 'sources'.bytes)
             Files.writeString(notes.toPath(), 'Changes\n')
             Map modAsset = asset(mod, 'mod', 'fabric-1.20.1')
-            Map sourcesAsset = asset(sources, 'mod-sources', null)
+            Map sourcesAsset = asset(sources, 'mod-sources', 'fabric-1.20.1')
             Map target = AssembleReleaseTask.publicationTarget(
                     catalog, CatalogTools.selectTarget(catalog, 'fabric-1.20.1'), release,
                     modAsset, sourcesAsset)
             Map manifest = [
-                    schemaVersion: 3, mode: 'tag', version: release.version, channel: release.channel,
+                    schemaVersion: 4, mode: 'tag', version: release.version, channel: release.channel,
                     prerelease: true, sourceCommit: 'abc', baseTag: '1.2.3-beta.3', targetCount: 1,
                     selectedTargetIds: ['fabric-1.20.1'], platforms: catalog.mod.platforms,
                     releaseNotes: [file: notes.name, sha256: ReleaseBundle.sha256(notes), text: 'Changes\n'],
@@ -472,17 +582,17 @@ final class PublicationLogicTest {
         task.modrinth = []
         task.curseForge = []
         task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
-        assertEquals(['modrinth', 'curseforge'], task.uploads)
+        assertEquals(['modrinth', 'curseforge', 'curseforge-sources'], task.uploads)
 
         task.uploads.clear()
         task.modrinth = []
         task.curseForge = [exactCurseForge(target)]
         task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
-        assertEquals(['modrinth'], task.uploads)
+        assertEquals(['modrinth', 'curseforge-sources'], task.uploads)
 
         task.uploads.clear()
         task.modrinth = [exactModrinth(target)]
-        task.curseForge = [exactCurseForge(target)]
+        task.curseForge = [exactCurseForge(target), exactCurseForgeSources(target)]
         task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
         assertTrue(task.uploads.isEmpty())
 
@@ -495,14 +605,15 @@ final class PublicationLogicTest {
         }
         assertEquals(['modrinth'], task.uploads)
 
+        task.uploads.clear()
         task.modrinth = [exactModrinth(target)]
         task.curseForge = []
         task.failCurseForge = false
         task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
-        assertEquals(['modrinth', 'curseforge'], task.uploads)
+        assertEquals(['curseforge', 'curseforge-sources'], task.uploads)
 
         task.uploads.clear()
-        task.curseForge = [exactCurseForge(target)]
+        task.curseForge = [exactCurseForge(target), exactCurseForgeSources(target)]
         task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
         assertTrue(task.uploads.isEmpty())
 
@@ -554,7 +665,7 @@ final class PublicationLogicTest {
     }
 
     @Test
-    void curseForgeUploadSendsOnlyThePrimaryJar() {
+    void curseForgeUploadSendsProductionThenSourcesChild() {
         HttpServer server = HttpServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
         List<String> authentication = new CopyOnWriteArrayList<>()
         List<String> requests = new CopyOnWriteArrayList<>()
@@ -572,15 +683,23 @@ final class PublicationLogicTest {
             Map target = desired('fabric-1.20.1')
             Map manifest = [releaseNotes: [text: 'Changes\n'], platforms: catalog.mod.platforms]
             File artifact = new File(directory, target.asset.file.toString())
+            File sources = new File(directory, target.sourcesAsset.file.toString())
             Files.write(artifact.toPath(), 'jar'.bytes)
+            Files.write(sources.toPath(), 'sources'.bytes)
 
             assertEquals('101', task.uploadCurseForge(
                     manifest, target, artifact, 'curse-upload-token'))
-            assertEquals(['curse-upload-token'], authentication)
-            assertEquals(1, requests.size())
+            assertEquals('102', task.uploadCurseForgeSources(
+                    manifest, target, sources, '101', 'curse-upload-token'))
+            assertEquals(['curse-upload-token', 'curse-upload-token'], authentication)
+            assertEquals(2, requests.size())
             assertTrue(requests[0].contains('"gameVersionNames":["1.20.1","Fabric","Client","Server","Java 17"]'))
             assertTrue(requests[0].contains("filename=\"${artifact.name}\""))
             assertFalse(requests[0].contains(target.sourcesAsset.file.toString()))
+            assertTrue(requests[1].contains('"parentFileID":101'))
+            assertFalse(requests[1].contains('gameVersionNames'))
+            assertFalse(requests[1].contains('relations'))
+            assertTrue(requests[1].contains("filename=\"${sources.name}\""))
         } finally {
             directory.deleteDir()
             server.stop(0)
@@ -695,8 +814,9 @@ final class PublicationLogicTest {
                 sha512: "sha512-${targetId}"
         ]
         Map sourcesAsset = [
-                file: "nclskins-${release.version}-sources.jar".toString(), kind: 'sources', size: 7,
-                sha1: 'sources-sha1', sha256: 'sources-sha256', sha512: 'sources-sha512'
+                file: fileName.replace('.jar', '-sources.jar'), kind: 'mod-sources', target: targetId,
+                size: 7, sha1: "sources-sha1-${targetId}",
+                sha256: "sources-sha256-${targetId}", sha512: "sources-sha512-${targetId}"
         ]
         AssembleReleaseTask.publicationTarget(catalog, target, release, asset, sourcesAsset)
     }
@@ -748,6 +868,15 @@ final class PublicationLogicTest {
         ]
     }
 
+    private static Map exactCurseForgeSources(Map target, int parentId = 42) {
+        [
+                id: parentId + 1, parentProjectFileId: parentId,
+                displayName: "${target.name} sources".toString(), releaseType: 2,
+                gameVersions: [], fileName: target.sourcesAsset.file,
+                dependencies: [], hashes: [[algo: 1, value: target.sourcesAsset.sha1]]
+        ]
+    }
+
     abstract static class RecordingPublishTask extends PublishPlatformsTask {
         List<Map> modrinth = []
         List<Map> curseForge = []
@@ -770,7 +899,14 @@ final class PublicationLogicTest {
         String uploadCurseForge(Map manifest, Map target, File artifact, String token) {
             if (failCurseForge) throw new IllegalStateException('simulated CurseForge outage')
             uploads.add('curseforge')
-            'curseforge-upload'
+            '42'
+        }
+
+        @Override
+        String uploadCurseForgeSources(
+                Map manifest, Map target, File sources, String parentFileId, String token) {
+            uploads.add('curseforge-sources')
+            '43'
         }
 
         @Override

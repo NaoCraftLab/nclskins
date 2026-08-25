@@ -98,30 +98,27 @@ abstract class AssembleReleaseTask extends DefaultTask {
         Set<String> selectedIds = selection.targetIds as Set<String>
         List<Map> publicationTargets = []
         List<Map> assets = []
-        String sourcesName = "nclskins-${metadata.version}-sources.jar"
-        File sources = ReleaseBundle.createSourcesJar(
-                repository, catalog, metadata.version.toString(), new File(assetsDirectory, sourcesName))
-        Map sourcesAsset = assetMetadata(sources, 'mod-sources', null)
         CatalogTools.releaseTargets(catalog)
                 .findAll { selectedIds.contains(it.id.toString()) }
                 .each { Map target ->
             String name = artifactName(target, metadata.version.toString())
-            File built = new File(repository, "${target.path}/build/libs/${name}")
-            File existing = existingDirectory == null ? null : new File(existingDirectory, name)
-            File source = existing != null && existing.isFile() ? existing : built
-            if (!Files.isRegularFile(source.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-                throw new IllegalStateException("Missing production artifact for ${target.id}: ${source}")
-            }
+            String sourcesName = sourceArtifactName(target, metadata.version.toString())
+            File builtDirectory = new File(repository, "${target.path}/build/libs")
+            Map<String, File> pair = targetArtifactPair(
+                    existingDirectory, builtDirectory, name, sourcesName, target.id.toString())
             File destination = new File(assetsDirectory, name)
-            Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            File sourcesDestination = new File(assetsDirectory, sourcesName)
+            Files.copy(pair.production.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            Files.copy(pair.sources.toPath(), sourcesDestination.toPath(), StandardCopyOption.REPLACE_EXISTING)
             requireServerPluginBaseline(destination, recomputedState.activeVersion.toString())
             Map asset = assetMetadata(destination, 'mod', target.id.toString())
+            Map sourcesAsset = assetMetadata(
+                    sourcesDestination, 'mod-sources', target.id.toString())
             assets.add(asset)
+            assets.add(sourcesAsset)
             publicationTargets.add(publicationTarget(catalog, target, metadata, asset, sourcesAsset))
         }
         requireUniqueArtifactContents(publicationTargets)
-
-        assets.add(sourcesAsset)
 
         Map serverPublication = serverPluginPublication(
                 repository, serverPluginPublicationCatalog(
@@ -135,7 +132,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
         File notes = new File(versionDirectory, 'release-notes.md')
         Map manifest = [
-                schemaVersion: 3,
+                schemaVersion: 4,
                 mode         : mode,
                 version      : metadata.version,
                 channel      : metadata.channel,
@@ -160,7 +157,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n',
                 StandardCharsets.UTF_8)
         logger.lifecycle("Release bundle ${metadata.version} (${mode}) contains " +
-                "${publicationTargets.size()} mod target artifacts, one mod sources JAR, " +
+                "${publicationTargets.size()} exact mod target production/source pairs, " +
                 "serverPlugin=${serverPublication.publish ? 'published' : 'unchanged'}")
     }
 
@@ -180,7 +177,8 @@ abstract class AssembleReleaseTask extends DefaultTask {
         if (directory == null) return
         Set<String> allowed = CatalogTools.releaseTargets(catalog)
                 .collect { artifactName(it as Map, version) } as Set<String>
-        allowed.add("nclskins-${version}-sources.jar".toString())
+        allowed.addAll(CatalogTools.releaseTargets(catalog)
+                .collect { sourceArtifactName(it as Map, version) })
         allowed.add("nclskins-plugin-${version}.jar".toString())
         allowed.add("nclskins-plugin-${version}-sources.jar".toString())
         directory.eachFile { File file ->
@@ -241,6 +239,43 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
     static String artifactName(Map target, String version) {
         target.artifact.file.toString().replace('{modVersion}', version)
+    }
+
+    static String sourceArtifactName(Map target, String version) {
+        artifactName(target, version).replaceFirst(/\.jar$/, '-sources.jar')
+    }
+
+    static Map<String, File> targetArtifactPair(
+            File existingDirectory,
+            File builtDirectory,
+            String productionName,
+            String sourcesName,
+            String targetId) {
+        File existingProduction = existingDirectory == null
+                ? null : new File(existingDirectory, productionName)
+        File existingSources = existingDirectory == null
+                ? null : new File(existingDirectory, sourcesName)
+        boolean hasExistingProduction = existingProduction != null &&
+                Files.exists(existingProduction.toPath(), LinkOption.NOFOLLOW_LINKS)
+        boolean hasExistingSources = existingSources != null &&
+                Files.exists(existingSources.toPath(), LinkOption.NOFOLLOW_LINKS)
+        if (hasExistingProduction != hasExistingSources) {
+            throw new IllegalStateException(
+                    "${targetId}: existing production/source artifacts must be an exact pair")
+        }
+        File production = hasExistingProduction
+                ? existingProduction : new File(builtDirectory, productionName)
+        File sources = hasExistingSources
+                ? existingSources : new File(builtDirectory, sourcesName)
+        if (!Files.isRegularFile(production.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException(
+                    "Missing production artifact for ${targetId}: ${production}")
+        }
+        if (!Files.isRegularFile(sources.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException(
+                    "Missing sources artifact for ${targetId}: ${sources}")
+        }
+        [production: production, sources: sources]
     }
 
     static Map assetMetadata(File file, String kind, String targetId) {

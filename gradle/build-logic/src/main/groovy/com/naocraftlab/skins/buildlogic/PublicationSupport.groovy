@@ -13,7 +13,7 @@ final class PublicationSupport {
             throw new IllegalStateException('release-manifest.json is missing or unsafe')
         }
         Object parsed = new JsonSlurper().parse(manifestFile)
-        if (!(parsed instanceof Map) || parsed.schemaVersion != 3 ||
+        if (!(parsed instanceof Map) || parsed.schemaVersion != 4 ||
                 !(parsed.mode in ['tag', 'backfill', 'reconcile-tag']) ||
                 !(parsed.version instanceof String) ||
                 !CatalogTools.VERSION_PATTERN.matcher(parsed.version as String).matches() ||
@@ -48,14 +48,15 @@ final class PublicationSupport {
             assets[fileName] = asset
         }
         boolean publishServer = manifest.serverPlugin.publish == true
-        int expectedAssets = (manifest.targets as List).size() + 1 + (publishServer ? 2 : 0)
+        int targetCount = (manifest.targets as List).size()
+        int expectedAssets = targetCount * 2 + (publishServer ? 2 : 0)
         if (assets.size() != expectedAssets ||
-                assets.values().count { it.kind == 'mod-sources' } != 1 ||
+                assets.values().count { it.kind == 'mod' } != targetCount ||
+                assets.values().count { it.kind == 'mod-sources' } != targetCount ||
                 assets.values().count { it.kind == 'server-plugin' } != (publishServer ? 1 : 0) ||
                 assets.values().count { it.kind == 'server-plugin-sources' } != (publishServer ? 1 : 0)) {
             throw new IllegalStateException('release manifest contains an inconsistent component asset set')
         }
-        Map sourcesAsset = assets.values().find { it.kind == 'mod-sources' } as Map
         File assetsDirectory = new File(bundleDirectory, 'assets')
         if (!assetsDirectory.isDirectory() || Files.isSymbolicLink(assetsDirectory.toPath()) ||
                 (assetsDirectory.listFiles() as List<File>).any {
@@ -69,7 +70,9 @@ final class PublicationSupport {
             if (!(raw instanceof Map)) throw new IllegalStateException('invalid publication target')
             Map target = raw as Map
             Map asset = target.asset instanceof Map ? target.asset as Map : [:]
+            Map sourcesAsset = target.sourcesAsset instanceof Map ? target.sourcesAsset as Map : [:]
             String fileName = asset.file?.toString()
+            String sourcesFileName = sourcesAsset.file?.toString()
             if (!(target.id instanceof String) || !targetIds.add(target.id.toString()) ||
                     !(target.minecraftVersion instanceof String) ||
                     target.name != publicationName(manifest.version.toString(),
@@ -83,7 +86,9 @@ final class PublicationSupport {
                     !(target.gameVersions instanceof List) || (target.gameVersions as List).isEmpty() ||
                     (target.gameVersions as List).first() != target.minecraftVersion ||
                     assets[fileName] != asset || asset.kind != 'mod' || asset.target != target.id ||
-                    target.sourcesAsset != sourcesAsset ||
+                    assets[sourcesFileName] != sourcesAsset ||
+                    sourcesAsset.kind != 'mod-sources' || sourcesAsset.target != target.id ||
+                    sourcesFileName != fileName?.replaceFirst(/\.jar$/, '-sources.jar') ||
                     !targetHashes.add(asset.sha512.toString())) {
                 throw new IllegalStateException("invalid publication target: ${target.id}")
             }
@@ -175,6 +180,13 @@ final class PublicationSupport {
     }
 
     static Map classify(String platform, Map desired, List<Map> remoteEntries) {
+        if (platform == 'curseforge') {
+            return classifyCurseForgeTarget(desired, remoteEntries)
+        }
+        classifyPrimary(platform, desired, remoteEntries)
+    }
+
+    private static Map classifyPrimary(String platform, Map desired, List<Map> remoteEntries) {
         List<Map> coordinates = remoteEntries.findAll { Map remote ->
             normalizedName(platform, remote) == desired.name &&
                     normalizedChannel(platform, remote) == desired.channel
@@ -212,6 +224,61 @@ final class PublicationSupport {
         overlapping.isEmpty()
                 ? [action: 'upload', reason: 'publication is missing']
                 : [action: 'conflict', reason: 'overlapping publication uses another coordinate']
+    }
+
+    static Map classifyCurseForgeTarget(Map desired, List<Map> remoteEntries) {
+        List<Map> parents = remoteEntries.findAll { !curseForgeChild(it) }
+        Map parentState = classifyPrimary('curseforge', desired, parents)
+        Map sourcesAsset = desired.sourcesAsset instanceof Map ? desired.sourcesAsset as Map : [:]
+        String sourcesName = sourcesAsset.file?.toString()
+        List<Map> namedSources = remoteEntries.findAll {
+            it.fileName?.toString() == sourcesName
+        }
+        if (parentState.action in ['upload', 'conflict']) {
+            if (parentState.action == 'upload' && !namedSources.isEmpty()) {
+                return [action: 'conflict', reason: 'orphan sources file exists without its parent']
+            }
+            return parentState
+        }
+
+        String parentId = parentState.remoteId?.toString()
+        List<Map> sourceLikeChildren = remoteEntries.findAll { Map remote ->
+            curseForgeParentId(remote) == parentId &&
+                    remote.fileName?.toString()?.endsWith('-sources.jar')
+        }
+        if (namedSources.size() > 1 || sourceLikeChildren.size() > 1) {
+            return [action: 'conflict', reason: 'multiple sources files use the parent coordinate',
+                    remoteId: parentId]
+        }
+        boolean exactSources = false
+        if (namedSources.size() == 1) {
+            Map source = namedSources.first()
+            if (curseForgeParentId(source) != parentId) {
+                return [action: 'conflict', reason: 'sources file uses another parent',
+                        remoteId: parentId]
+            }
+            if (normalizedHash('curseforge', source) != sourcesAsset.sha1) {
+                return [action: 'conflict', reason: 'sources file hash differs',
+                        remoteId: parentId]
+            }
+            if (sourceLikeChildren.size() != 1 || sourceLikeChildren.first() != source) {
+                return [action: 'conflict', reason: 'sources filename differs',
+                        remoteId: parentId]
+            }
+            exactSources = true
+        } else if (!sourceLikeChildren.isEmpty()) {
+            return [action: 'conflict', reason: 'sources filename differs', remoteId: parentId]
+        }
+
+        if (parentState.action == 'update-metadata') {
+            return [action: exactSources ? 'update-metadata' : 'update-metadata-and-source',
+                    reason: parentState.reason, remoteId: parentId]
+        }
+        exactSources
+                ? [action: 'skip', reason: 'exact production/source publication exists',
+                   remoteId: parentId]
+                : [action: 'upload-source', reason: 'sources child is missing',
+                   remoteId: parentId]
     }
 
     static List<String> metadataMismatches(String platform, Map desired, Map remote) {
@@ -301,6 +368,23 @@ final class PublicationSupport {
         }
         if (!relations.isEmpty()) metadata.relations = [projects: relations]
         metadata
+    }
+
+    static Map curseForgeSourcesMetadata(Map manifest, Map target, String parentFileId) {
+        long parent
+        try {
+            parent = Long.parseLong(parentFileId)
+        } catch (NumberFormatException error) {
+            throw new IllegalStateException("invalid CurseForge parent file ID: ${parentFileId}", error)
+        }
+        [
+                changelog               : manifest.releaseNotes.text,
+                changelogType           : 'markdown',
+                displayName             : "${target.name} sources".toString(),
+                parentFileID            : parent,
+                releaseType             : target.channel,
+                isMarkedForManualRelease: false
+        ]
     }
 
     static byte[] multipart(List<Map> parts, String boundary) {
@@ -444,6 +528,16 @@ final class PublicationSupport {
 
     static String normalizedId(Map remote) {
         remote.id?.toString()
+    }
+
+    static boolean curseForgeChild(Map remote) {
+        curseForgeParentId(remote) != null
+    }
+
+    static String curseForgeParentId(Map remote) {
+        Object raw = remote.parentProjectFileId
+        if (raw == null || raw.toString() == '0') return null
+        raw.toString()
     }
 
     static String loaderDisplayName(String loader) {
