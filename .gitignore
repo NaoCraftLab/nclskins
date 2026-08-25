@@ -73,13 +73,3 @@ replay_pid*
 *.rej
 **/tmp/
 **/temp/
-
-### Agents ###
-docs/
-scripts/
-**/.codex/
-**/.codex-*/
-**/.agents/
-**/.codexignore
-AGENTS.md
-AGENTS.override.md
