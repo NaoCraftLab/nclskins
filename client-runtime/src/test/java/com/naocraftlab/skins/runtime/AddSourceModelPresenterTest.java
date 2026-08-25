@@ -163,7 +163,7 @@ final class AddSourceModelPresenterTest {
     }
 
     @Test
-    void explicitVariantFilterHidesEmptyCollectionsAndReflowsThe262Contract() {
+    void explicitVariantFilterHidesEmptyCollectionsAndReflowsTheCanonicalContract() {
         SkinCatalogSource.CollectionDescriptor classic = new SkinCatalogSource.CollectionDescriptor(
                 "classic_only",
                 "Classic only",

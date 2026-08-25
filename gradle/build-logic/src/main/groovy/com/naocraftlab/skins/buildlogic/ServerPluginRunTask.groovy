@@ -284,9 +284,18 @@ abstract class ServerPluginRunTask extends DefaultTask {
     private static void install(File roleDirectory, File artifact) {
         File plugins = new File(roleDirectory, 'plugins')
         Files.createDirectories(plugins.toPath())
-        String legacyName = legacyManagedPluginName(artifact.name)
-        if (legacyName != null) Files.deleteIfExists(new File(plugins, legacyName).toPath())
         File destination = new File(plugins, artifact.name)
+        File archive = new File(roleDirectory, '.nclskins/replaced-plugins')
+        if (shouldReplaceManagedPlugins(artifact.name)) {
+            plugins.listFiles()?.findAll { File candidate ->
+                candidate.isFile() && candidate != destination &&
+                        managedNclSkinsPlugin(candidate.name)
+            }?.each { File candidate ->
+                Files.createDirectories(archive.toPath())
+                Files.move(candidate.toPath(), new File(archive, candidate.name).toPath(),
+                        StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
         if (!destination.isFile() ||
                 ServerPluginRuntimeSupport.sha256(destination.toPath()) !=
                 ServerPluginRuntimeSupport.sha256(artifact.toPath())) {
@@ -298,6 +307,14 @@ abstract class ServerPluginRunTask extends DefaultTask {
         artifactName.startsWith('nclskins-plugin-') && artifactName.endsWith('.jar')
                 ? artifactName.replaceFirst('^nclskins-plugin-', 'nclskins-server-')
                 : null
+    }
+
+    static boolean managedNclSkinsPlugin(String artifactName) {
+        artifactName ==~ /nclskins-(?:plugin|server)-.+\.jar/
+    }
+
+    static boolean shouldReplaceManagedPlugins(String artifactName) {
+        managedNclSkinsPlugin(artifactName)
     }
 
     private static List<String> log4jDebugArguments(File directory, String content) {

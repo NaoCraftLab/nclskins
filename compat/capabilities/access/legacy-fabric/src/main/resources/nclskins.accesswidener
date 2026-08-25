@@ -3,7 +3,6 @@ accessWidener v2 named
 accessible field net/minecraft/client/multiplayer/PlayerInfo textureLocations Ljava/util/Map;
 accessible field net/minecraft/client/multiplayer/PlayerInfo pendingTextures Z
 accessible field net/minecraft/client/multiplayer/PlayerInfo skinModel Ljava/lang/String;
-accessible field net/minecraft/world/entity/player/Player DATA_PLAYER_MODE_CUSTOMISATION Lnet/minecraft/network/syncher/EntityDataAccessor;
 accessible class net/minecraft/server/level/ChunkMap$TrackedEntity
 accessible field net/minecraft/server/level/ChunkMap entityMap Lit/unimi/dsi/fastutil/ints/Int2ObjectMap;
 accessible field net/minecraft/server/level/ChunkMap$TrackedEntity seenBy Ljava/util/Set;

@@ -2,25 +2,18 @@ package com.naocraftlab.skins.server.plugin.bukkit;
 
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Method;
-import java.util.Iterator;
-import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
 final class BukkitExecutionTest {
     @Test
-    void invokesSchedulerThroughItsPublicInterface() throws ReflectiveOperationException {
-        Iterator<Integer> scheduler = List.of(1).iterator();
-        Method concrete = scheduler.getClass().getMethod("next");
-        assertThrows(IllegalAccessException.class,
-                () -> concrete.invoke(scheduler));
-
-        int result = (int) BukkitExecution.invokePublicInterface(
-                scheduler, Iterator.class, "next", new Class<?>[0]);
-
-        assertEquals(1, result);
+    void guardedActionCompletesItsFuture() {
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        ClassicBukkitExecutionStrategy.guarded(() -> { }, completion).run();
+        assertTrue(completion.isDone());
+        assertNull(completion.join());
     }
 }

@@ -268,105 +268,110 @@
     }
   },
   "implementations": {
-    "immediate-1.20": {
+    "immediate-resource-location-player-info": {
       "capabilityKey": "gui",
       "sharedSuite": "view-host-contract",
-      "leafSource": "compat/capabilities/gui/immediate-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201Client.java"
+      "leafSource": "compat/capabilities/gui/immediate-resource-location-player-info/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/ImmediateClientRuntime.java"
     },
-    "immediate-1.21": {
+    "immediate-resource-location-skin-lookup": {
       "capabilityKey": "gui",
       "sharedSuite": "view-host-contract",
-      "leafSource": "compat/capabilities/gui/immediate-1.21/src/main/java/com/naocraftlab/skins/mc1211/Minecraft1211Client.java"
+      "leafSource": "compat/capabilities/gui/immediate-resource-location-skin-lookup/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/ImmediateClientRuntime.java"
     },
-    "submission-1.21.11": {
+    "identifier-submission": {
       "capabilityKey": "gui",
       "sharedSuite": "view-host-contract",
-      "leafSource": "compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/NclSkinsScreen.java"
+      "leafSource": "compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java"
     },
-    "extraction-26.2": {
+    "identifier-extraction-tab-navigation-glfw": {
       "capabilityKey": "gui",
       "sharedSuite": "view-host-contract",
-      "leafSource": "compat/capabilities/gui/extraction-screen-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java"
+      "leafSource": "compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java"
     },
-    "extraction-26.3": {
+    "identifier-extraction-menu-tab-glfw": {
       "capabilityKey": "gui",
       "sharedSuite": "view-host-contract",
-      "leafSource": "compat/capabilities/gui/extraction-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java"
+      "leafSource": "compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java"
+    },
+    "identifier-extraction-menu-tab-input-constants": {
+      "capabilityKey": "gui",
+      "sharedSuite": "view-host-contract",
+      "leafSource": "compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java"
     },
     "resource-location-legacy": {
       "capabilityKey": "textures",
       "sharedSuite": "texture-ownership-and-normalization",
-      "leafSource": "compat/capabilities/textures/resource-location-legacy/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201TextureRegistry.java"
+      "leafSource": "compat/capabilities/textures/resource-location-legacy/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/ResourceLocationTextureRegistry.java"
     },
     "resource-location-modern": {
       "capabilityKey": "textures",
       "sharedSuite": "texture-ownership-and-normalization",
-      "leafSource": "compat/capabilities/textures/resource-location-modern/src/main/java/com/naocraftlab/skins/mc1211/MinecraftTextureRegistry.java"
+      "leafSource": "compat/capabilities/textures/resource-location-modern/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/ResourceLocationTextureRegistry.java"
     },
-    "identifier-26.2": {
+    "identifier-texture-registry": {
       "capabilityKey": "textures",
       "sharedSuite": "texture-ownership-and-normalization",
-      "leafSource": "compat/capabilities/textures/identifier-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262TextureRegistry.java"
+      "leafSource": "compat/capabilities/textures/identifier/src/main/java/com/naocraftlab/skins/compat/client/identifier/IdentifierTextureRegistry.java"
     },
-    "remote-player-1.20": {
+    "remote-player-preview": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/remote-player-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/remote-player/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/RemotePlayerPreviewRenderer.java"
     },
-    "player-skin-1.21": {
+    "player-skin-preview": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/player-skin-1.21/src/main/java/com/naocraftlab/skins/mc1211/VanillaAppearancePreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/player-skin/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/VanillaAppearancePreviewRenderer.java"
     },
-    "avatar-pip-1.21.11-fabric": {
+    "avatar-pip-submission-fabric": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/SubmissionPreviewRenderer.java"
     },
-    "avatar-pip-1.21.11-neoforge": {
+    "avatar-pip-submission-neoforge": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/SubmissionPreviewRenderer.java"
     },
-    "avatar-pip-26.1-fabric": {
+    "avatar-pip-extraction-player-model-fabric": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-attack-time/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/AvatarRenderStatePreviewRenderer.java"
     },
-    "avatar-pip-26.1-neoforge": {
+    "avatar-pip-extraction-player-model-neoforge": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-attack-time/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/AvatarRenderStatePreviewRenderer.java"
     },
-    "avatar-pip-26.2-fabric": {
+    "avatar-pip-extraction-simple-model-attack-time-fabric": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-attack-time/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/AvatarRenderStatePreviewRenderer.java"
     },
-    "avatar-pip-26.2-neoforge": {
+    "avatar-pip-extraction-simple-model-attack-time-neoforge": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-attack-time/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/AvatarRenderStatePreviewRenderer.java"
     },
-    "avatar-pip-26.3-fabric": {
+    "avatar-pip-extraction-simple-model-no-attack-time-fabric": {
       "capabilityKey": "preview",
       "sharedSuite": "scoped-preview-contract",
-      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262PreviewRenderer.java"
+      "leafSource": "compat/capabilities/preview/avatar-pip-render-state-no-attack-time/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/AvatarRenderStatePreviewRenderer.java"
     },
-    "player-info-cache-1.20": {
+    "player-info-cache": {
       "capabilityKey": "appearance",
       "sharedSuite": "appearance-orchestration",
-      "leafSource": "compat/capabilities/appearance/player-info-cache-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201AppearanceCapability.java"
+      "leafSource": "compat/capabilities/appearance/player-info-cache/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/PlayerInfoAppearanceCapability.java"
     },
-    "skin-lookup-1.21": {
+    "skin-lookup": {
       "capabilityKey": "appearance",
       "sharedSuite": "appearance-orchestration",
-      "leafSource": "compat/capabilities/appearance/skin-lookup-1.21/src/main/java/com/naocraftlab/skins/mc1211/Minecraft1211AppearanceCapability.java"
+      "leafSource": "compat/capabilities/appearance/skin-lookup/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/SkinLookupAppearanceCapability.java"
     },
-    "local-player-skin-26.2": {
+    "avatar-state-local-player-skin": {
       "capabilityKey": "appearance",
       "sharedSuite": "appearance-orchestration",
-      "leafSource": "compat/capabilities/appearance/local-player-skin-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262AppearanceSink.java"
+      "leafSource": "compat/capabilities/appearance/local-player-skin/src/main/java/com/naocraftlab/skins/compat/client/identifier/IdentifierAppearanceSink.java"
     },
     "fabric-immediate": {
       "capabilityKey": "loaderScreen",
@@ -386,7 +391,7 @@
     "forge47": {
       "capabilityKey": "loaderScreen",
       "sharedSuite": "client-loader-lifecycle",
-      "leafSource": "loader/forge/client/src/main/java/com/naocraftlab/skins/forge/v1_20_1/client/NclSkinsForgeClientEvents.java"
+      "leafSource": "loader/forge/client/src/main/java/com/naocraftlab/skins/loader/forge/client/NclSkinsForgeClientEvents.java"
     },
     "neoforge-immediate": {
       "capabilityKey": "loaderScreen",
@@ -413,40 +418,40 @@
       "sharedSuite": "picker-coordination",
       "leafSource": "compat/capabilities/file-picker/tinyfd-v1/src/main/java/com/naocraftlab/skins/compat/client/MinecraftFilePicker.java"
     },
-    "resource-stack-bundled-1.20": {
+    "resource-stack-bundled": {
       "capabilityKey": "bundledSkin",
       "sharedSuite": "resource-pack-access-contract",
-      "leafSource": "compat/capabilities/bundled-skin/mc-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201BundledSkinSource.java"
+      "leafSource": "compat/capabilities/bundled-skin/resource-stack/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/ResourceStackBundledSkinSource.java"
     },
-    "vanilla-pack-bundled-1.21": {
+    "vanilla-pack-resource-location": {
       "capabilityKey": "bundledSkin",
       "sharedSuite": "resource-pack-access-contract",
-      "leafSource": "compat/capabilities/bundled-skin/mc-1.21/src/main/java/com/naocraftlab/skins/mc1211/Minecraft1211BundledSkinSource.java"
+      "leafSource": "compat/capabilities/bundled-skin/vanilla-pack-resource-location/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/VanillaPackBundledSkinSource.java"
     },
-    "vanilla-pack-bundled-26.2": {
+    "vanilla-pack-identifier-direct": {
       "capabilityKey": "bundledSkin",
       "sharedSuite": "resource-pack-access-contract",
-      "leafSource": "compat/capabilities/bundled-skin/mc-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262BundledSkinSource.java"
+      "leafSource": "compat/capabilities/bundled-skin/vanilla-pack-identifier-direct/src/main/java/com/naocraftlab/skins/compat/client/identifier/IdentifierBundledSkinSource.java"
     },
-    "vanilla-pack-bundled-26.3": {
+    "vanilla-pack-identifier-provider": {
       "capabilityKey": "bundledSkin",
       "sharedSuite": "resource-pack-access-contract",
-      "leafSource": "compat/capabilities/bundled-skin/mc-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262BundledSkinSource.java"
+      "leafSource": "compat/capabilities/bundled-skin/vanilla-pack-identifier-provider/src/main/java/com/naocraftlab/skins/compat/client/identifier/IdentifierBundledSkinSource.java"
     },
-    "resource-location-current-1.20": {
+    "resource-location-current": {
       "capabilityKey": "currentAppearance",
       "sharedSuite": "current-appearance-contract",
-      "leafSource": "compat/capabilities/current-appearance/mc-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/Minecraft1201CurrentPlayerAppearanceSource.java"
+      "leafSource": "compat/capabilities/current-appearance/resource-location/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/ResourceLocationCurrentPlayerAppearanceSource.java"
     },
-    "player-skin-current-1.21": {
+    "player-skin-current": {
       "capabilityKey": "currentAppearance",
       "sharedSuite": "current-appearance-contract",
-      "leafSource": "compat/capabilities/current-appearance/mc-1.21/src/main/java/com/naocraftlab/skins/mc1211/Minecraft1211CurrentPlayerAppearanceSource.java"
+      "leafSource": "compat/capabilities/current-appearance/player-skin/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/PlayerSkinCurrentAppearanceSource.java"
     },
-    "player-skin-current-26.2": {
+    "avatar-state-current-player": {
       "capabilityKey": "currentAppearance",
       "sharedSuite": "current-appearance-contract",
-      "leafSource": "compat/capabilities/current-appearance/mc-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/Minecraft262CurrentPlayerAppearanceSource.java"
+      "leafSource": "compat/capabilities/current-appearance/avatar-state/src/main/java/com/naocraftlab/skins/compat/client/identifier/IdentifierCurrentPlayerAppearanceSource.java"
     },
     "command-v1": {
       "capabilityKey": "serverSignal",
@@ -526,7 +531,7 @@
     "forge47-server": {
       "capabilityKey": "serverLoader",
       "sharedSuite": "server-loader-lifecycle",
-      "leafSource": "loader/forge/server/src/main/java/com/naocraftlab/skins/forge/v1_20_1/NclSkinsForgeMod.java"
+      "leafSource": "loader/forge/server/src/main/java/com/naocraftlab/skins/loader/forge/NclSkinsForgeMod.java"
     },
     "neoforge-server-v1": {
       "capabilityKey": "serverLoader",

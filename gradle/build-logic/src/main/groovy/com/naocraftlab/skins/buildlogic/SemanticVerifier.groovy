@@ -48,6 +48,12 @@ final class SemanticVerifier {
         'server-command-registration': ['ServerRefreshCommandProtocol', 'commandNameIsExactVersionedAndCarriesNoAccountPayload', 'advertisementRequiresOnlyAPlayerAndLiveService', 'onlyAcceptedAndCoalescedAdmissionsSucceed']
     ]
     static final Pattern PLATFORM_IMPORT = Pattern.compile('(?m)^\\s*import\\s+(?:com\\.mojang\\.authlib(?:\\.|;)|net\\.minecraft(?:\\.|;)|net\\.fabricmc(?:\\.|;)|net\\.neoforged(?:\\.|;)|net\\.minecraftforge(?:\\.|;)|org\\.bukkit(?:\\.|;)|org\\.spongepowered\\.asm(?:\\.|;))')
+    static final Pattern VERSION_NAMED_PACKAGE = Pattern.compile(
+            '(?m)^\\s*package\\s+[a-zA-Z0-9_.]*\\.(?:mc[0-9]+|v[0-9]+(?:_[0-9]+)+|(?:legacy|paper)[0-9]+)(?:\\.[a-zA-Z0-9_]+)*\\s*;')
+    static final Pattern VERSION_NAMED_JAVA_IDENTIFIER = Pattern.compile(
+            '\\b[A-Za-z_$][A-Za-z0-9_$]*(?:1201|1211|12111|261|262|263)[A-Za-z0-9_$]*\\b')
+    static final Pattern VERSION_NAMED_CODE_ID = Pattern.compile(
+            '(?:^|[._-])(?:mc)?(?:1[._-]?20(?:[._-]?1)?|1[._-]?21(?:[._-]?(?:1|11))?|26[._-]?[123]|1201|1211|12111|261|262|263)(?:$|[._-])')
 
     static List<String> verify(Path root, Map catalog, Map abi, Map coverage) {
         List<String> errors = []
@@ -101,18 +107,185 @@ final class SemanticVerifier {
             if (previousRoots != null && previousRoots.intersect(roots).isEmpty()) errors.add("${implementation}: shared leaf source ${root.relativize(source)} must be selected through one intentional common bundle")
             if (roots.isEmpty() || !roots.any { source.startsWith(it) }) errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
             verifyLeaf(implementation, key, Files.readString(source), errors)
-            if (implementation == 'submission-1.21.11') {
-                verifySubmission12111GuiBundle(roots, errors)
+            if (implementation == 'identifier-submission') {
+                verifyIdentifierSubmissionGuiBundle(roots, errors)
             }
             if (key == 'preview') verifyPreviewBundle(implementation, roots, errors)
         }
         verifySuites(root, coverage.sharedSuites, usedSuites, errors)
         verifyRuntimeBoundary(root, errors)
         verifyPublicationBoundary(root, errors)
+        verifyMixinInjectionPolicy(root, errors)
+        verifyCompatibilityReflectionPolicy(root, errors)
+        verifyVersionNamespaceScope(root, catalog, errors)
+        verifyCatalogCodeIdentifiers(catalog, abi, errors)
+        verifyResourceFileNames(root, errors)
         errors
     }
 
-    static void verifySubmission12111GuiBundle(Set<Path> roots, List<String> errors) {
+    static void verifyVersionNamespaceScope(Path root, Map catalog, List<String> errors) {
+        Files.walk(root).withCloseable { stream ->
+            stream.filter { Path source ->
+                String relative = root.relativize(source).toString().replace('\\', '/')
+                Files.isRegularFile(source) && relative.contains('/src/main/java/') &&
+                        relative.endsWith('.java') && !relative.startsWith('build/') &&
+                        !relative.contains('/build/') && !relative.startsWith('runs/')
+            }.forEach { Path source ->
+                verifyVersionNamespace(
+                        root.relativize(source).toString().replace('\\', '/'),
+                        Files.readString(source),
+                        [] as Set<String>,
+                        errors)
+            }
+        }
+        verifySourceModuleDirectoryNames(root, errors)
+    }
+
+    static void verifySourceModuleDirectoryNames(Path root, List<String> errors) {
+        Set<String> moduleDirectories = [] as Set<String>
+        [root.resolve('compat'), root.resolve('loader'), root.resolve('server-plugin-adapters')]
+                .findAll(Files::isDirectory)
+                .each { Path sourceRoot ->
+                    Files.walk(sourceRoot).withCloseable { stream ->
+                        stream.filter(Files::isRegularFile).forEach { Path source ->
+                            String relative = root.relativize(source).toString().replace('\\', '/')
+                            int sourceMarker = relative.indexOf('/src/')
+                            if (sourceMarker > 0 && !relative.contains('/build/')) {
+                                moduleDirectories.add(relative.substring(0, sourceMarker))
+                            }
+                        }
+                    }
+                }
+        moduleDirectories.sort().each { String relative ->
+            verifySourceModuleDirectoryName(relative, errors)
+        }
+    }
+
+    static void verifySourceModuleDirectoryName(String relative, List<String> errors) {
+        verifyCodeIdentifier('source module directory', relative, errors)
+    }
+
+    static void verifyVersionNamespace(
+            String relative, String text, Set<String> epochs, List<String> errors) {
+        if (VERSION_NAMED_PACKAGE.matcher(text).find()) {
+            errors.add("${relative}: version-named package is forbidden; use an API-semantic namespace")
+        }
+        String identifiers = text.replaceAll('(?m)^\\s*package\\s+[^;]+;', '')
+        if (VERSION_NAMED_JAVA_IDENTIFIER.matcher(identifiers).find()) {
+            errors.add("${relative}: version-named Java identifier is forbidden; use an API-semantic name")
+        }
+    }
+
+    static void verifyCatalogCodeIdentifiers(Map catalog, Map abi, List<String> errors) {
+        (catalog.sourceBundles as Map).keySet().each { Object rawId ->
+            verifyCodeIdentifier('source bundle', rawId.toString(), errors)
+        }
+        (catalog.capabilityImplementations as Map).each { Object rawId, Object rawEntry ->
+            verifyCodeIdentifier('capability implementation', rawId.toString(), errors)
+            if (rawEntry instanceof Map) {
+                verifyCodeIdentifier(
+                        "${rawId}.abiImplementation",
+                        rawEntry.abiImplementation?.toString(),
+                        errors)
+            }
+        }
+        (abi.implementations as Map).keySet().each { Object rawId ->
+            verifyCodeIdentifier('ABI implementation', rawId.toString(), errors)
+        }
+        catalog.targets.each { Map target ->
+            verifyCodeIdentifier(
+                    "${target.id}.automaticModuleName",
+                    target.artifact.automaticModuleName?.toString(),
+                    errors)
+            ((target.metadata.mixins ?: []) + (target.metadata.serverMixins ?: []))
+                    .each { Object rawMixin ->
+                        verifyCodeIdentifier("${target.id}.mixin", rawMixin.toString(), errors)
+                    }
+        }
+    }
+
+    static void verifyResourceFileNames(Path root, List<String> errors) {
+        Files.walk(root).withCloseable { stream ->
+            stream.filter { Path resource ->
+                String relative = root.relativize(resource).toString().replace('\\', '/')
+                Files.isRegularFile(resource) && relative.contains('/src/main/resources/') &&
+                        !relative.contains('/build/')
+            }.forEach { Path resource ->
+                verifyCodeIdentifier(
+                        root.relativize(resource).toString().replace('\\', '/'),
+                        resource.fileName.toString(),
+                        errors)
+            }
+        }
+    }
+
+    static void verifyCodeIdentifier(String owner, String identifier, List<String> errors) {
+        if (identifier != null && VERSION_NAMED_CODE_ID.matcher(identifier).find()) {
+            errors.add("${owner}: Minecraft-version code identifier '${identifier}' is forbidden")
+        }
+    }
+
+    static void verifyMixinInjectionPolicy(Path root, List<String> errors) {
+        [root.resolve('compat'), root.resolve('loader'), root.resolve('targets')]
+                .findAll(Files::isDirectory)
+                .each { Path sourceRoot ->
+                    Files.walk(sourceRoot).withCloseable { stream ->
+                        stream.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith('Mixin.java') }
+                                .forEach { Path source ->
+                                    String text = Files.readString(source)
+                                    String relative = root.relativize(source).toString().replace('\\', '/')
+                                    if (text.contains('@Redirect')) {
+                                        errors.add("${relative}: production @Redirect is forbidden; use a chainable MixinExtras wrapper")
+                                    }
+                                    if (text ==~ /(?s).*\bordinal\s*=.*/) {
+                                        errors.add("${relative}: ordinal-based Mixin anchors are forbidden")
+                                    }
+                                    if (text ==~ /(?s).*\brequire\s*=\s*0\b.*/) {
+                                        errors.add("${relative}: optional require=0 Mixin injection is forbidden")
+                                    }
+                                    int chainableWrappers = text.count('@WrapOperation') +
+                                            text.count('@WrapMethod')
+                                    if (chainableWrappers > text.count('original.call(')) {
+                                        errors.add("${relative}: every chainable wrapper must delegate through original.call")
+                                    }
+                                    if (text.contains('@ModifyReturnValue') &&
+                                            !(text ==~ /(?s).*\boriginal\b.*/)) {
+                                        errors.add("${relative}: return modifier must preserve an explicit original value")
+                                    }
+                                }
+                    }
+                }
+    }
+
+    static void verifyCompatibilityReflectionPolicy(Path root, List<String> errors) {
+        Set<String> classLoadingLeaves = [
+                'client-runtime/src/main/java/com/naocraftlab/skins/runtime/SqliteSupport.java',
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/BukkitRuntimeDetector.java',
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/ExactAuthlibSignatureVerifier.java',
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/ExactLegacyPublicationBackend.java',
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperConnectionAssuranceBinding.java'
+        ] as Set
+        Files.walk(root).withCloseable { stream ->
+            stream.filter { Path source ->
+                Files.isRegularFile(source) && source.toString().endsWith('.java') &&
+                        source.toString().contains('/src/main/') &&
+                        !source.startsWith(root.resolve('gradle/build-logic'))
+            }.forEach { Path source ->
+                String text = Files.readString(source)
+                String relative = root.relativize(source).toString().replace('\\', '/')
+                if (relative.startsWith('.') || relative.startsWith('runs/') ||
+                        relative.startsWith('build/')) return
+                if (text ==~ /(?s).*\bget(?:Declared)?(?:Methods|Fields)\s*\(.*/) {
+                    errors.add("${relative}: compatibility discovery by member enumeration is forbidden")
+                }
+                if (text.contains('Class.forName(') && !classLoadingLeaves.contains(relative)) {
+                    errors.add("${relative}: Class.forName is allowed only in named exact binding factories, runtime detection, or SqliteSupport")
+                }
+            }
+        }
+    }
+
+    static void verifyIdentifierSubmissionGuiBundle(Set<Path> roots, List<String> errors) {
         StringBuilder sources = new StringBuilder()
         roots.findAll(Files::isDirectory).each { Path sourceRoot ->
             Files.walk(sourceRoot).withCloseable { stream ->
@@ -134,7 +307,7 @@ final class SemanticVerifier {
                 'scrollController.render( graphics, OFFSCREEN_MOUSE_COORDINATE, OFFSCREEN_MOUSE_COORDINATE, partialTick)'
         ].each { String required ->
             if (!text.contains(required)) {
-                errors.add("submission-1.21.11: native icon/scroll host lacks required marker '${required}'")
+                errors.add("identifier-submission: native icon/scroll host lacks required marker '${required}'")
             }
         }
     }
@@ -160,20 +333,20 @@ final class SemanticVerifier {
                 errors.add("${implementation}: editor preview lacks readiness/animation marker (${required})")
             }
         }
-        if (implementation.startsWith('avatar-pip-1.21.11-')) {
+        if (implementation.startsWith('avatar-pip-submission-')) {
             ['submitEntityRenderState', 'submitSkinRenderState',
              'LivingEntityRendererPreviewMixin',
              'EntityRenderState state',
              'PlayerSkin.insecure', 'CenteredPlayerPreviewGeometry.centeredEntityTranslation(',
-             'Minecraft12111SimplePreviewRenderer', 'ItemStack.EMPTY',
-             'Minecraft12111BakedPreviewRenderState',
-             'Minecraft12111BakedPreviewSubmission', 'GuiGraphicsPreviewMixin',
-             'Minecraft12111LivePreviewRenderState',
-             'Minecraft12111LivePreviewSubmission',
-             'Minecraft12111LivePreviewRenderer',
-             'Minecraft12111PreviewContext', 'Minecraft12111PreviewScope',
+             'SimplePreviewRenderer', 'ItemStack.EMPTY',
+             'BakedPreviewRenderState',
+             'BakedPreviewSubmission', 'GuiGraphicsPreviewMixin',
+             'LivePreviewRenderState',
+             'LivePreviewSubmission',
+             'LivePreviewRenderer',
+             'PreviewContext', 'PreviewScope',
              'state.previewContext().open(minecraft)', 'EditorPreviewLayerGuard.open(',
-             'Minecraft12111PreviewModelAnchors', 'ModelPartPreviewMixin',
+             'PreviewModelAnchors', 'ModelPartPreviewMixin',
              'renderPlayer.tickCount =', 'renderPlayer.avatarState().tick(',
              '.extractEntity(', '.submit(', 'renderAllFeatures()',
              'ScreenOwnedRenderTarget', 'standaloneEquipment',
@@ -185,35 +358,35 @@ final class SemanticVerifier {
              'CenteredPipPreviewTransform.modelPitchRadians(state.pitchDegrees())',
              'CenteredPipPreviewTransform.applyPlayerPose('].each { String required ->
                 if (!text.contains(required)) {
-                    errors.add("${implementation}: 1.21.11 submission preview lacks required marker (${required})")
+                    errors.add("${implementation}: submission preview lacks required marker (${required})")
                 }
             }
             if (text.contains('LivingEntityRenderState state')) {
                 errors.add("${implementation}: layer redirect must match the erased EntityRenderState descriptor")
             }
         } else if (implementation.startsWith('avatar-pip-')) {
-            ['Minecraft262PreviewContext', 'NclBakedPlayerRenderState',
+            ['AvatarPreviewContext', 'NclBakedPlayerRenderState',
              'NclBakedPlayerSubmission', 'GuiGraphicsExtractorPreviewMixin',
              'ScreenOwnedRenderTarget', 'NclBakedPlayerTarget',
              'standaloneEquipment', 'PlayerCapeModel', 'ElytraModel',
              'ELYTRA_ROT_X', 'ELYTRA_ROT_Z'].each { String required ->
                 if (!text.contains(required)) {
-                    errors.add("${implementation}: 26.x preview lacks deferred/composite marker (${required})")
+                    errors.add("${implementation}: extraction preview lacks deferred/composite marker (${required})")
                 }
             }
             List<String> pitchMarkers = [
-                    'Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees())',
+                    'BakedPlayerPose.applyPitch(pose, state.pitchDegrees())',
                     'CenteredPlayerPreviewGeometry.centeredEntityTranslation(',
                     'CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees)',
                     'return CenteredPipPreviewTransform.pitchRadians(pitchDegrees)'
             ]
             pitchMarkers.each { String required ->
                 if (!text.contains(required)) {
-                    errors.add("${implementation}: 26.x preview lacks live/baked pitch split marker (${required})")
+                    errors.add("${implementation}: extraction preview lacks live/baked pitch split marker (${required})")
                 }
             }
             if (text.contains('modelView.rotateX(')) {
-                errors.add("${implementation}: 26.x preview pitch must stay in the centered submitted pose")
+                errors.add("${implementation}: extraction preview pitch must stay in the centered submitted pose")
             }
         } else {
             ['tickCount', 'PreviewPlayer', 'PreviewScope.open'].each { String required ->
@@ -229,10 +402,10 @@ final class SemanticVerifier {
         }
         if (implementation.startsWith('avatar-pip-')) {
             if (implementation.endsWith('-fabric')) {
-                List<String> registrationMarkers = implementation.contains('1.21.11')
-                        ? ['GuiRendererMixin', '@ModifyVariable', 'List.copyOf',
-                           'Minecraft12111BakedPreviewRenderer(bufferSource)',
-                           'Minecraft12111LivePreviewRenderer(bufferSource)']
+                List<String> registrationMarkers = implementation.startsWith('avatar-pip-submission-')
+                        ? ['GuiRendererMixin', '@ModifyExpressionValue', 'buildOrThrow',
+                           'BakedPreviewRenderer(bufferSource)',
+                           'LivePreviewRenderer(bufferSource)']
                         : ['PictureInPictureRendererRegistry.register',
                            'new NclBakedPlayerRenderer(']
                 registrationMarkers.each { String required ->
@@ -246,8 +419,8 @@ final class SemanticVerifier {
                         errors.add("${implementation}: NeoForge preview lacks native registration marker (${required})")
                     }
                 }
-                if (implementation.contains('1.21.11')
-                        && !text.contains('Minecraft12111LivePreviewRenderer::new')) {
+                if (implementation.startsWith('avatar-pip-submission-')
+                        && !text.contains('LivePreviewRenderer::new')) {
                     errors.add("${implementation}: NeoForge preview lacks native live registration")
                 }
             } else {
@@ -325,31 +498,31 @@ final class SemanticVerifier {
                 errors.add("${implementation}: ${key} leaf lacks required marker '${sessionServiceType}'")
             }
         }
-        if (implementation == 'submission-1.21.11'
+        if (implementation == 'identifier-submission'
                 && compact.contains('renderBackground(graphics, mouseX, mouseY, partialTick)')) {
-            errors.add('submission-1.21.11: Screen renders its native background twice')
+            errors.add('identifier-submission: Screen renders its native background twice')
         }
-        if (implementation == 'submission-1.21.11') {
-            ['Map<String, Minecraft12111SimplePreviewRenderer> bakedRenderers',
+        if (implementation == 'identifier-submission') {
+            ['Map<String, SimplePreviewRenderer> bakedRenderers',
              'bakedRenderers.computeIfAbsent(', 'closeMissingBakedRenderers(',
-             'Minecraft12111ScrollController', 'NativeWidgetSignature',
+             'SubmissionScrollController', 'NativeWidgetSignature',
              'NativeTabGroup', 'maskWidgetsOutsideClip('].each { String marker ->
                 if (!compact.contains(marker)) {
-                    errors.add("submission-1.21.11: native host lacks marker '${marker}'")
+                    errors.add("identifier-submission: native host lacks marker '${marker}'")
                 }
             }
             if (compact.contains('ViewHostCoordinator')) {
-                errors.add('submission-1.21.11: native host must not reuse the common UI coordinator')
+                errors.add('identifier-submission: native host must not reuse the common UI coordinator')
             }
             if (compact.contains('setRectangle(')) {
-                errors.add('submission-1.21.11: ambiguous 1.21.11 setRectangle argument order is forbidden')
+                errors.add('identifier-submission: ambiguous 1.21.11 setRectangle argument order is forbidden')
             }
         }
         if (key == 'textures') {
             ['NativePlayerSkinLifecycle', 'OwnedSkinFile'].each { String marker ->
                 if (!compact.contains(marker)) errors.add("${implementation}: texture lifecycle lacks required marker '${marker}'")
             }
-            List<String> nativeMarkers = implementation == 'identifier-26.2'
+            List<String> nativeMarkers = implementation == 'identifier-texture-registry'
                     ? ['SkinTextureDownloader', 'whenComplete', 'stagedFile.close()']
                     : ['HttpTexture', 'NativeTextureUploadTracker', 'closeStagedFile()']
             nativeMarkers.each { String marker ->

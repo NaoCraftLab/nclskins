@@ -18,16 +18,44 @@ public interface BukkitNativeAdapter {
     BukkitRefreshEngine createEngine(
             JavaPlugin plugin,
             ServerConfiguration configuration,
+            AbiVerification binding,
             BukkitRefreshEngine.PublicationListener listener,
             DiagnosticSink diagnostics);
 
-    record AbiVerification(boolean compatible, String diagnostic) {
+    record AbiVerification(
+            boolean compatible,
+            String diagnostic,
+            AuthlibSignatureVerifier signatureVerifier,
+            BukkitPublicationBackend publicationBackend,
+            BukkitConnectionAssurance connectionAssurance) {
         public static AbiVerification compatible(String diagnostic) {
-            return new AbiVerification(true, diagnostic);
+            return new AbiVerification(true, diagnostic, null, null, null);
+        }
+
+        public static AbiVerification compatible(
+                String diagnostic, AuthlibSignatureVerifier signatureVerifier) {
+            return new AbiVerification(true, diagnostic, signatureVerifier, null, null);
+        }
+
+        public static AbiVerification compatible(
+                String diagnostic,
+                AuthlibSignatureVerifier signatureVerifier,
+                BukkitPublicationBackend publicationBackend) {
+            return new AbiVerification(
+                    true, diagnostic, signatureVerifier, publicationBackend, null);
+        }
+
+        public static AbiVerification compatible(
+                String diagnostic,
+                AuthlibSignatureVerifier signatureVerifier,
+                BukkitPublicationBackend publicationBackend,
+                BukkitConnectionAssurance connectionAssurance) {
+            return new AbiVerification(true, diagnostic, signatureVerifier,
+                    publicationBackend, connectionAssurance);
         }
 
         public static AbiVerification incompatible(String diagnostic) {
-            return new AbiVerification(false, diagnostic);
+            return new AbiVerification(false, diagnostic, null, null, null);
         }
     }
 }

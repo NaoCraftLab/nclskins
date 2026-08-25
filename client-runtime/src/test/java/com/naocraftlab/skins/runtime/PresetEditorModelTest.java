@@ -171,7 +171,7 @@ final class PresetEditorModelTest {
     }
 
     @Test
-    void canonicalSmallEditorLayoutMatches262() {
+    void canonicalSmallEditorLayoutMatchesReference() {
         PresetEditorModel model = PresetEditorModel.open(
                 TestFixtures.account(0),
                 Optional.empty(),
@@ -193,7 +193,7 @@ final class PresetEditorModelTest {
     }
 
     @Test
-    void canonicalDefaultAndWideEditorLayoutsMatch262() {
+    void canonicalDefaultAndWideEditorLayoutsMatchReference() {
         PresetEditorModel medium = PresetEditorModel.open(
                 TestFixtures.account(0),
                 Optional.empty(),

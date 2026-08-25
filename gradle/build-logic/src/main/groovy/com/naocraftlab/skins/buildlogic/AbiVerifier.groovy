@@ -154,7 +154,13 @@ final class AbiVerifier {
             if (match.matches()) {
                 String reference = match.group(2)
                 int split = reference.lastIndexOf('.')
-                if (split > 0) invocations.add([opcode: match.group(1), owner: reference.substring(0, split).replace('/', '.'), name: reference.substring(split + 1).replace('"', ''), descriptor: match.group(3)])
+                String owner = split > 0
+                        ? reference.substring(0, split).replace('/', '.')
+                        : surface.name.toString()
+                String name = (split > 0 ? reference.substring(split + 1) : reference)
+                        .replace('"', '')
+                invocations.add([opcode: match.group(1), owner: owner,
+                                 name: name, descriptor: match.group(3)])
             }
         }
         [hasCode: hasCode, invocations: invocations]

@@ -23,10 +23,9 @@ dependencies {
 }
 
 sourceSets.main.java.srcDirs += [
-    rootProject.file('server-plugin-adapters/legacy-1.20.1/src/main/java'),
-    rootProject.file('server-plugin-adapters/paper-1.20.1/src/main/java'),
-    rootProject.file('server-plugin-adapters/paper-1.21.1/src/main/java'),
-    rootProject.file('server-plugin-adapters/paper-1.21.11/src/main/java'),
-    rootProject.file('server-plugin-adapters/paper-26.1/src/main/java'),
-    rootProject.file('server-plugin-adapters/paper-26.2/src/main/java')
+    rootProject.file('server-plugin-adapters/legacy-authlib4/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-authlib4/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-authlib6/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-authlib7/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-authlib9/src/main/java')
 ]

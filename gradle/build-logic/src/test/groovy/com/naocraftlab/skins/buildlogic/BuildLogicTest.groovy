@@ -45,6 +45,7 @@ final class BuildLogicTest {
                  level: 4, bypassesPlayerLimit: false]
         ], CatalogTools.developmentOperators(catalog))
         assertEquals('0.1.0.5', catalog.plugins.devLogin)
+        assertEquals('0.5.3', catalog.plugins.mixinExtras)
         assertEquals([
                 youtube    : 'https://www.youtube.com/@NaoCraftLab',
                 telegramBot: 'https://t.me/naocraftlab_bot?start=c_yWYd4ACA',
@@ -99,7 +100,7 @@ final class BuildLogicTest {
     }
 
     @Test
-    void parchmentMappingsAreExactCatalogOwnedAndLimitedToPre261Targets() {
+    void parchmentMappingsAreExactCatalogOwnedAndLimitedToSelectedTargets() {
         Map<String, Map<String, String>> expected = [
                 '1.20.1' : [
                         version: '2023.09.03', artifactVersion: '2023.09.03'],
@@ -201,19 +202,21 @@ final class BuildLogicTest {
         Map target = CatalogTools.selectTarget(catalog, 'fabric-1.20.1')
         List<Map> candidates = CapabilityReuse.candidates(catalog, target, 'gui')
 
-        assertEquals('immediate-1.20', candidates.first().implementation)
+        assertEquals('immediate-resource-location-player-info', candidates.first().implementation)
         assertTrue(candidates.first().sameEpoch)
         assertTrue(candidates.first().reused)
         assertEquals(
-                'immediate-1.21',
+                'immediate-resource-location-skin-lookup',
                 CatalogTools.withCapabilityProbe(
-                        catalog, target, 'gui=immediate-1.21').capabilities.gui)
+                        catalog, target,
+                        'gui=immediate-resource-location-skin-lookup').capabilities.gui)
         assertThrows(IllegalArgumentException) {
             CatalogTools.withCapabilityProbe(catalog, target, 'gui=missing-adapter')
         }
         assertThrows(IllegalArgumentException) {
             CatalogTools.withCapabilityProbe(
-                    catalog, target, 'textures=immediate-1.20')
+                    catalog, target,
+                    'textures=immediate-resource-location-player-info')
         }
     }
 
@@ -265,7 +268,7 @@ final class BuildLogicTest {
         Map candidate = CapabilityReuse.candidates(catalog, target, 'gui').first()
 
         Map hiddenDependency = cloneMap(catalog)
-        hiddenDependency.sourceBundles['immediate-1.20'].requires = ['missing-hidden-bundle']
+        hiddenDependency.sourceBundles['immediate-resource-location-player-info'].requires = ['missing-hidden-bundle']
         Map hidden = CapabilityReuse.inspect(
                 repository, hiddenDependency, abi, coverage, target, 'gui', candidate)
         assertEquals('REJECTED', hidden.staticStatus)
@@ -277,17 +280,17 @@ final class BuildLogicTest {
                 hidden.failures.toString())
 
         Map wrongSuite = cloneMap(coverage)
-        wrongSuite.implementations['immediate-1.20'].capabilityKey = 'textures'
+        wrongSuite.implementations['immediate-resource-location-player-info'].capabilityKey = 'textures'
         Map wrong = CapabilityReuse.inspect(
                 repository, catalog, abi, wrongSuite, target, 'gui', candidate)
         assertEquals('REJECTED', wrong.staticStatus)
         assertTrue(wrong.failures.contains('missing executable semantic contract'))
 
         assertFalse(CapabilityReuse.matchesDeclaredAbi(
-                abi, 'immediate-1.20', ['example.Wrong': '0' * 64]))
+                abi, 'immediate-resource-location-player-info', ['example.Wrong': '0' * 64]))
         assertThrows(IllegalStateException) {
             CapabilityReuse.requireReuseFirstSelection(
-                    'fixture-target', 'gui', 'new-adapter', 'immediate-1.20')
+                    'fixture-target', 'gui', 'new-adapter', 'immediate-resource-location-player-info')
         }
     }
 
@@ -296,7 +299,7 @@ final class BuildLogicTest {
         assertFalse(CatalogTools.validAbiDeclarationHash('0' * 64))
         assertFalse(CatalogTools.validAbiDeclarationHash('abc'))
         assertTrue(CatalogTools.validAbiDeclarationHash(
-                abi.implementations['immediate-1.20'].baselineSha256))
+                abi.implementations['immediate-resource-location-player-info'].baselineSha256))
     }
 
     @Test
@@ -579,9 +582,9 @@ final class BuildLogicTest {
             }
         }
         assertEquals(['0.19.3'] as Set, catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
-        Map neoForge262 = catalog.targets.find { it.id == 'neoforge-26.2' } as Map
-        assertEquals('26.2.0.57', neoForge262.loader.version)
-        assertEquals('[26.2.0.57,)', neoForge262.loader.predicate)
+        Map neoForgeExtraction = catalog.targets.find { it.id == 'neoforge-26.2' } as Map
+        assertEquals('26.2.0.57', neoForgeExtraction.loader.version)
+        assertEquals('[26.2.0.57,)', neoForgeExtraction.loader.predicate)
     }
 
     @Test
@@ -648,9 +651,6 @@ final class BuildLogicTest {
             }
         }
 
-        assertFalse(new File(
-                repository,
-                'loader/neoforge/mod-list-26.2/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForge262ModDisplayInfo.java').exists())
         String configScreenSource = new File(
                 repository,
                 'loader/neoforge/common/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgeConfigScreenRegistrar.java').text
@@ -660,13 +660,13 @@ final class BuildLogicTest {
     @Test
     void everyPipTargetSelectsExactlyOneLoaderNativeRegistration() {
         Map<String, String> expected = [
-                'fabric-1.21.11'  : 'avatar-pip-1.21.11-fabric',
-                'neoforge-1.21.11': 'avatar-pip-1.21.11-neoforge',
-                'fabric-26.1'     : 'avatar-pip-26.1-fabric',
-                'neoforge-26.1'   : 'avatar-pip-26.1-neoforge',
-                'fabric-26.2'     : 'avatar-pip-26.2-fabric',
-                'neoforge-26.2'   : 'avatar-pip-26.2-neoforge',
-                'fabric-26.3'     : 'avatar-pip-26.3-fabric'
+                'fabric-1.21.11'  : 'avatar-pip-submission-fabric',
+                'neoforge-1.21.11': 'avatar-pip-submission-neoforge',
+                'fabric-26.1'     : 'avatar-pip-extraction-player-model-fabric',
+                'neoforge-26.1'   : 'avatar-pip-extraction-player-model-neoforge',
+                'fabric-26.2'     : 'avatar-pip-extraction-simple-model-attack-time-fabric',
+                'neoforge-26.2'   : 'avatar-pip-extraction-simple-model-attack-time-neoforge',
+                'fabric-26.3'     : 'avatar-pip-extraction-simple-model-no-attack-time-fabric'
         ]
         Set<String> registrationBundles = expected.values() as Set
 
@@ -685,22 +685,22 @@ final class BuildLogicTest {
     }
 
     @Test
-    void onlyFabric12111UsesTheGuiRendererConstructorMixin() {
+    void onlySubmissionFabricTargetUsesTheGuiRendererConstructorMixin() {
         List<Map> targets = catalog.targets.findAll {
             it.capabilities.preview.toString().startsWith('avatar-pip-')
         } as List<Map>
         targets.each { Map target ->
             Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
             boolean hasConstructorMixin = (resolved.java as List).contains(
-                    'loader/fabric/pip-1.21.11/src/main/java')
+                    'loader/fabric/pip-submission/src/main/java')
             boolean declaresMixinConfig = (target.metadata.mixins as List).contains(
-                    'nclskins.mc12111.fabric.mixins.json')
+                    'nclskins.identifier-submission-fabric.mixins.json')
             assertEquals(target.id == 'fabric-1.21.11', hasConstructorMixin, target.id.toString())
             assertEquals(target.id == 'fabric-1.21.11', declaresMixinConfig, target.id.toString())
         }
         String constructorMixin = new File(
                 repository,
-                'loader/fabric/pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/GuiRendererMixin.java').text
+                'loader/fabric/pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/GuiRendererMixin.java').text
         assertTrue(constructorMixin.contains('List<PictureInPictureRenderer<?>>'))
         assertFalse(constructorMixin.contains('java.lang.reflect'))
         assertFalse(constructorMixin.contains('getMethod('))
@@ -709,35 +709,43 @@ final class BuildLogicTest {
 
     @Test
     void modernPipRegistrationsUseLoaderOwnedApisWithoutReflection() {
-        ['26.1', '26.2'].each { String epoch ->
+        List<String> sources = [
+                'loader/fabric/pip-extraction-player-model',
+                'loader/fabric/pip-extraction-simple-model'
+        ].collect { String module ->
             String fabric = new File(
                     repository,
-                    "loader/fabric/pip-${epoch}/src/main/java/com/naocraftlab/skins/loader/fabric/FabricPipRendererRegistration.java").text
-            String neoForge = new File(
-                    repository,
-                    "loader/neoforge/pip-${epoch}/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.java").text
+                    "${module}/src/main/java/com/naocraftlab/skins/loader/fabric/FabricPipRendererRegistration.java").text
             assertTrue(fabric.contains('PictureInPictureRendererRegistry.register'))
-            assertTrue(neoForge.contains('RegisterPictureInPictureRenderersEvent'))
-            assertTrue(neoForge.contains('event.register('))
-            [fabric, neoForge].each { String source ->
-                assertFalse(source.contains('java.lang.reflect'))
-                assertFalse(source.contains('getMethod('))
-                assertFalse(source.contains('getConstructor('))
-            }
+            fabric
+        }
+        String neoForge = new File(
+                repository,
+                'loader/neoforge/pip-extraction/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.java').text
+        assertTrue(neoForge.contains('RegisterPictureInPictureRenderersEvent'))
+        assertTrue(neoForge.contains('event.register('))
+        sources.add(neoForge)
+        sources.each { String source ->
+            assertFalse(source.contains('java.lang.reflect'))
+            assertFalse(source.contains('getMethod('))
+            assertFalse(source.contains('getConstructor('))
         }
     }
 
     @Test
     void settingsMixinsReplaceTheOpenScreenSupplierByMeaning() {
         [
-                'compat/capabilities/gui/immediate-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/mixin/OptionsScreenMixin.java',
-                'compat/capabilities/gui/immediate-1.21/src/main/java/com/naocraftlab/skins/mc1211/mixin/OptionsScreenMixin.java',
-                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/OptionsScreenMixin.java',
-                'compat/capabilities/gui/extraction-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/OptionsScreenMixin.java'
+                'compat/capabilities/gui/immediate-resource-location-player-info/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/OptionsScreenMixin.java',
+                'compat/capabilities/gui/immediate-resource-location-skin-lookup/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/mixin/OptionsScreenMixin.java',
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/OptionsScreenMixin.java',
+                'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/mixin/OptionsScreenMixin.java'
         ].each { String path ->
             String source = new File(repository, path).text
             assertTrue(source.contains('OptionsScreen;openScreenButton'), path)
-            assertTrue(source.contains('index = 1'), path)
+            assertTrue(source.contains('@WrapOperation'), path)
+            assertTrue(source.contains('options.skinCustomisation'), path)
+            assertTrue(source.contains('original.call(instance, label, target)'), path)
+            assertFalse(source.contains('ordinal ='), path)
             assertFalse(source.contains('GridLayout\$RowHelper'), path)
             assertFalse(source.contains('addChild'), path)
         }
@@ -745,13 +753,93 @@ final class BuildLogicTest {
 
     @Test
     void modernDepthHookRequiresExactlyOnePrepareSignature() {
-        String source = new File(
-                repository,
-                'compat/capabilities/preview/avatar-pip-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/PictureInPictureRendererMixin.java').text
-        assertEquals(2, source.count('@Group(name = "nclskins$captureDepthMode", min = 1, max = 1)'))
-        assertEquals(2, source.count('require = 0'))
-        assertTrue(source.contains('PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;I)V'))
-        assertTrue(source.contains('PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;I)V'))
+        [
+                'compat/capabilities/preview/avatar-pip-depth-gui-render-state/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/mixin/PictureInPictureRendererMixin.java',
+                'compat/capabilities/preview/avatar-pip-depth-feature-dispatcher/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/mixin/PictureInPictureRendererMixin.java'
+        ].each { String path ->
+            String source = new File(repository, path).text
+            assertTrue(source.contains('@WrapMethod'))
+            assertTrue(source.contains('@WrapOperation'))
+            assertTrue(source.contains('try {'))
+            assertTrue(source.contains('finally {'))
+            assertFalse(source.contains('require = 0'))
+            assertFalse(source.contains('@Group'))
+        }
+    }
+
+    @Test
+    void everyProductionSourceRequiresApiSemanticNamespacesAndIdentifiers() {
+        List<String> versionPackageErrors = []
+        List<String> versionTypeErrors = []
+        List<String> semanticErrors = []
+
+        SemanticVerifier.verifyVersionNamespace(
+                'SharedPackage.java',
+                'package com.naocraftlab.skins.compat.mc262; final class SharedPackage {}',
+                [] as Set,
+                versionPackageErrors)
+        SemanticVerifier.verifyVersionNamespace(
+                'SharedType.java',
+                '''package com.naocraftlab.skins.compat.client.identifier;
+                final class Minecraft262SharedType {}''',
+                [] as Set,
+                versionTypeErrors)
+        SemanticVerifier.verifyVersionNamespace(
+                'Semantic.java',
+                'package com.naocraftlab.skins.compat.client.identifier; final class IdentifierSharedType {}',
+                [] as Set,
+                semanticErrors)
+
+        assertTrue(versionPackageErrors.any { it.contains('version-named package') })
+        assertTrue(versionTypeErrors.any { it.contains('version-named Java identifier') })
+        assertEquals([], semanticErrors)
+    }
+
+    @Test
+    void exactEpochLeafMayNotRetainItsVersionIdentifier() {
+        List<String> errors = []
+
+        SemanticVerifier.verifyVersionNamespace(
+                'ExactLeaf.java',
+                'package com.naocraftlab.skins.compat.client.identifier.submission; final class Minecraft12111Leaf {}',
+                ['1.21.11'] as Set,
+                errors)
+
+        assertTrue(errors.any { it.contains('version-named Java identifier') })
+    }
+
+    @Test
+    void catalogCodeIdentifiersRejectMinecraftEpochsButAllowApiVersions() {
+        List<String> errors = []
+
+        SemanticVerifier.verifyCodeIdentifier('bundle', 'avatar-pip-' + '26.2', errors)
+        SemanticVerifier.verifyCodeIdentifier('mixin', 'nclskins.mc12111.mixins.json', errors)
+        SemanticVerifier.verifyCodeIdentifier(
+                'module', 'com.naocraftlab.skins.fabric.mc1201', errors)
+        SemanticVerifier.verifyCodeIdentifier('adapter', 'paper-authlib7', errors)
+        SemanticVerifier.verifyCodeIdentifier(
+                'bundle', 'avatar-pip-extraction-simple-model', errors)
+
+        assertEquals(3, errors.size())
+    }
+
+    @Test
+    void sourceModuleDirectoriesRejectMinecraftEpochsButAllowSemanticAndApiNames() {
+        List<String> errors = []
+
+        SemanticVerifier.verifySourceModuleDirectoryName(
+                'compat/capabilities/appearance/local-player-skin-' + '26.2', errors)
+        SemanticVerifier.verifySourceModuleDirectoryName(
+                'loader/fabric/pip-' + '26.2', errors)
+        SemanticVerifier.verifySourceModuleDirectoryName(
+                'server-plugin-adapters/paper-' + '1.20.1', errors)
+        SemanticVerifier.verifySourceModuleDirectoryName(
+                'compat/capabilities/appearance/local-player-skin', errors)
+        SemanticVerifier.verifySourceModuleDirectoryName(
+                'server-plugin-adapters/paper-authlib7', errors)
+
+        assertEquals(3, errors.size())
+        assertTrue(errors.every { it.contains('source module directory') })
     }
 
     @Test
@@ -769,7 +857,7 @@ final class BuildLogicTest {
     void affectedClassificationUsesCatalogOwnership() {
         assertEquals(['forge-1.20.1'] as Set, selected('targets/1.20.1/forge/build.gradle'))
         assertEquals(['forge-1.20.1'] as Set, selected('targets/forge/1.20.1/build.gradle'))
-        assertEquals(['fabric-1.20.1', 'forge-1.20.1'] as Set, selected('compat/capabilities/gui/immediate-1.20/src/main/java/Example.java'))
+        assertEquals(['fabric-1.20.1', 'forge-1.20.1'] as Set, selected('compat/capabilities/gui/immediate-resource-location-player-info/src/main/java/Example.java'))
         assertEquals(catalog.targets.collect { it.id } as Set, selected('core/src/main/java/com/naocraftlab/skins/core/Example.java'))
         assertEquals(catalog.targets.collect { it.id } as Set, selected('client-runtime/build.gradle'))
         assertEquals(catalog.targets.collect { it.id } as Set, selected('gradle/version.properties'))
@@ -943,6 +1031,15 @@ final class BuildLogicTest {
         assertEquals('nclskins-server-1.0.0-beta.2.jar',
                 ServerPluginRunTask.legacyManagedPluginName('nclskins-plugin-1.0.0-beta.2.jar'))
         assertNull(ServerPluginRunTask.legacyManagedPluginName('BungeeGuard.jar'))
+        assertTrue(ServerPluginRunTask.managedNclSkinsPlugin(
+                'nclskins-plugin-1.0.0-beta.3.jar'))
+        assertTrue(ServerPluginRunTask.managedNclSkinsPlugin(
+                'nclskins-server-1.0.0-beta.2.jar'))
+        assertFalse(ServerPluginRunTask.managedNclSkinsPlugin('BungeeGuard.jar'))
+        assertTrue(ServerPluginRunTask.shouldReplaceManagedPlugins(
+                'nclskins-plugin-1.0.0-beta.3.jar'))
+        assertFalse(ServerPluginRunTask.shouldReplaceManagedPlugins('BungeeGuard.jar'))
+        assertFalse(ServerPluginRunTask.shouldReplaceManagedPlugins('ProtocolLib.jar'))
         String legacy = ServerPluginRunTask.backendOverlay('spigot')
         String paper = ServerPluginRunTask.backendOverlay('paper')
         String velocityLogging = ServerPluginRunTask.velocityOverlay()
@@ -1415,6 +1512,29 @@ final class BuildLogicTest {
     }
 
     @Test
+    void mixinPolicyRejectsNonDelegatingChainableWrappers() {
+        Path root = Files.createTempDirectory('nclskins-mixin-policy-')
+        try {
+            Path source = root.resolve('compat/fixture/src/main/java/BadMixin.java')
+            Files.createDirectories(source.parent)
+            Files.writeString(source, '''
+                class BadMixin {
+                    @WrapOperation void replace(Object next) { }
+                    @ModifyReturnValue int modify(int value) { return 7; }
+                }
+                ''')
+            List<String> errors = []
+
+            SemanticVerifier.verifyMixinInjectionPolicy(root, errors)
+
+            assertTrue(errors.any { it.contains('delegate through original.call') })
+            assertTrue(errors.any { it.contains('preserve an explicit original value') })
+        } finally {
+            root.toFile().deleteDir()
+        }
+    }
+
+    @Test
     void semanticVerifierRequiresACompleteScopedRenderProxy() {
         Path sourceRoot = Files.createTempDirectory('nclskins-preview-semantics-')
         try {
@@ -1434,11 +1554,11 @@ final class BuildLogicTest {
     }
 
     @Test
-    void semanticVerifierRejectsSecond12111ScreenBackgroundPass() {
+    void semanticVerifierRejectsSecondSubmissionScreenBackgroundPass() {
         List<String> errors = []
 
         SemanticVerifier.verifyLeaf(
-                'submission-1.21.11',
+                'identifier-submission',
                 'gui',
                 '''
                 class ScreenLeaf {
@@ -1476,36 +1596,36 @@ final class BuildLogicTest {
     }
 
     @Test
-    void fabric263ScreenUsesSdlMouseButtonIdentityWithoutChanging262() {
-        File screen262 = new File(
+    void inputConstantsScreenUsesNativeMouseButtonWithoutChangingGlfwScreen() {
+        File glfwScreen = new File(
                 repository,
-                'compat/capabilities/gui/extraction-screen-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java')
-        File screen263 = new File(
+                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java')
+        File inputConstantsScreen = new File(
                 repository,
-                'compat/capabilities/gui/extraction-26.3/src/main/java/com/naocraftlab/skins/compat/mc262/NclSkinsScreen.java')
+                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java')
 
-        assertTrue(screen262.text.contains('private static final int LEFT_MOUSE_BUTTON = 0;'))
-        assertTrue(screen263.text.contains(
+        assertTrue(glfwScreen.text.contains('private static final int LEFT_MOUSE_BUTTON = 0;'))
+        assertTrue(inputConstantsScreen.text.contains(
                 'private static final int NATIVE_LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;'))
-        assertTrue(screen263.text.contains(
+        assertTrue(inputConstantsScreen.text.contains(
                 'private static final int PRODUCT_PRIMARY_POINTER_BUTTON = 0;'))
-        assertTrue(screen263.text.contains(
+        assertTrue(inputConstantsScreen.text.contains(
                 'runtime.pointerPressed(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);'))
-        assertTrue(screen263.text.contains('''runtime.pointerDragged(
+        assertTrue(inputConstantsScreen.text.contains('''runtime.pointerDragged(
                     event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON, dragX, dragY);'''))
-        assertTrue(screen263.text.contains(
+        assertTrue(inputConstantsScreen.text.contains(
                 'runtime.pointerReleased(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);'))
     }
 
     @Test
-    void semanticVerifierRejectsOneShared12111BakedTexture() {
+    void semanticVerifierRejectsOneSharedSubmissionBakedTexture() {
         List<String> errors = []
 
         SemanticVerifier.verifyLeaf(
-                'submission-1.21.11',
+                'identifier-submission',
                 'gui',
                 'class ScreenLeaf { ClientRuntime runtime; '
-                        + 'Minecraft12111SimplePreviewRenderer bakedRenderer; }',
+                        + 'SimplePreviewRenderer bakedRenderer; }',
                 errors)
 
         assertTrue(errors.any {
@@ -1515,16 +1635,16 @@ final class BuildLogicTest {
     }
 
     @Test
-    void submission12111OwnsNativeUiAndExactSettingsHooks() {
+    void identifierSubmissionOwnsNativeUiAndExactSettingsHooks() {
         File screen = new File(
                 repository,
-                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/NclSkinsScreen.java')
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java')
         File menu = new File(
                 repository,
-                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/NclSkinsMenuPanel.java')
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsMenuPanel.java')
         File mixins = new File(
                 repository,
-                'compat/capabilities/preview/avatar-pip-1.21.11/src/main/resources/nclskins.mc12111.mixins.json')
+                'compat/capabilities/preview/avatar-pip-submission/src/main/resources/nclskins.identifier-submission.mixins.json')
         String screenSource = screen.text
         String menuSource = menu.text
         String mixinSource = mixins.text
@@ -1532,7 +1652,7 @@ final class BuildLogicTest {
         assertFalse(screenSource.contains('ViewHostCoordinator'))
         assertFalse(screenSource.contains('setRectangle('))
         assertFalse(menuSource.contains('setRectangle('))
-        assertTrue(screenSource.contains('Minecraft12111ScrollController'))
+        assertTrue(screenSource.contains('SubmissionScrollController'))
         assertTrue(screenSource.contains('''scrollController.render(
                 graphics,
                 OFFSCREEN_MOUSE_COORDINATE,
@@ -1540,7 +1660,7 @@ final class BuildLogicTest {
                 partialTick);'''))
         assertTrue(new File(
                 repository,
-                'compat/capabilities/gui/submission-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/Minecraft12111ScrollController.java')
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/SubmissionScrollController.java')
                 .text.contains('renderScrollbar(graphics, mouseX, mouseY);'))
         assertTrue(screenSource.contains('NativeWidgetSignature'))
         assertTrue(screenSource.contains('NativeTabGroup'))
@@ -1563,11 +1683,11 @@ final class BuildLogicTest {
     @Test
     void playerLayerAnchorsCoverRemotePlayersWithoutSuppressingWorldFailures() {
         Map<String, String> layerMixins = [
-                '1.20.1': 'compat/capabilities/gui/immediate-1.20/src/main/java/com/naocraftlab/skins/compat/v1_20_1/client/mixin/LivingEntityRendererPreviewMixin.java',
-                '1.21.1': 'compat/capabilities/gui/immediate-1.21/src/main/java/com/naocraftlab/skins/mc1211/mixin/LivingEntityRendererPreviewMixin.java',
-                '1.21.11': 'compat/capabilities/preview/avatar-pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/LivingEntityRendererPreviewMixin.java',
-                '26.1': 'compat/capabilities/preview/avatar-pip-26.1/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/LivingEntityRendererPreviewMixin.java',
-                '26.2': 'compat/capabilities/preview/avatar-pip-render-26.2/src/main/java/com/naocraftlab/skins/compat/mc262/mixin/LivingEntityRendererPreviewMixin.java'
+                '1.20.1': 'compat/capabilities/gui/immediate-resource-location-player-info/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/LivingEntityRendererPreviewMixin.java',
+                '1.21.1': 'compat/capabilities/gui/immediate-resource-location-skin-lookup/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/mixin/LivingEntityRendererPreviewMixin.java',
+                '1.21.11': 'compat/capabilities/preview/avatar-pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/LivingEntityRendererPreviewMixin.java',
+                '26.1': 'compat/capabilities/preview/avatar-pip-extraction-player-model/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/mixin/LivingEntityRendererPreviewMixin.java',
+                '26.2': 'compat/capabilities/preview/avatar-pip-render-simple-model/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/mixin/LivingEntityRendererPreviewMixin.java'
         ]
 
         layerMixins.each { String epoch, String relativePath ->
@@ -1585,39 +1705,39 @@ final class BuildLogicTest {
     }
 
     @Test
-    void submission12111PreviewExtractsAndSubmitsInsideDedicatedDeferredRenderer() {
+    void identifierSubmissionPreviewExtractsAndSubmitsInsideDedicatedDeferredRenderer() {
         File previewRoot = new File(
                 repository,
-                'compat/capabilities/preview/avatar-pip-1.21.11/src/main')
+                'compat/capabilities/preview/avatar-pip-submission/src/main')
         File renderer = new File(
                 previewRoot,
-                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewRenderer.java')
+                'java/com/naocraftlab/skins/compat/client/identifier/submission/SubmissionPreviewRenderer.java')
         File liveRenderer = new File(
                 previewRoot,
-                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111LivePreviewRenderer.java')
+                'java/com/naocraftlab/skins/compat/client/identifier/submission/LivePreviewRenderer.java')
         File liveState = new File(
                 previewRoot,
-                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111LivePreviewRenderState.java')
+                'java/com/naocraftlab/skins/compat/client/identifier/submission/LivePreviewRenderState.java')
         File scope = new File(
                 previewRoot,
-                'java/com/naocraftlab/skins/compat/mc12111/Minecraft12111PreviewScope.java')
+                'java/com/naocraftlab/skins/compat/client/identifier/submission/PreviewScope.java')
         File guiMixin = new File(
                 previewRoot,
-                'java/com/naocraftlab/skins/compat/mc12111/mixin/GuiEntityRendererMixin.java')
+                'java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/GuiEntityRendererMixin.java')
         File layerMixin = new File(
                 previewRoot,
-                'java/com/naocraftlab/skins/compat/mc12111/mixin/LivingEntityRendererPreviewMixin.java')
+                'java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/LivingEntityRendererPreviewMixin.java')
         File modelPartMixin = new File(
                 previewRoot,
-                'java/com/naocraftlab/skins/compat/mc12111/mixin/ModelPartPreviewMixin.java')
-        File mixins = new File(previewRoot, 'resources/nclskins.mc12111.mixins.json')
+                'java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/ModelPartPreviewMixin.java')
+        File mixins = new File(previewRoot, 'resources/nclskins.identifier-submission.mixins.json')
 
         assertTrue(scope.exists())
         assertFalse(guiMixin.exists())
         assertTrue(liveRenderer.exists())
         assertTrue(liveState.exists())
         assertTrue(modelPartMixin.exists())
-        assertTrue(renderer.text.contains('Minecraft12111LivePreviewRenderState'))
+        assertTrue(renderer.text.contains('LivePreviewRenderState'))
         assertTrue(scope.text.contains('minecraft.player != player'))
         assertTrue(liveRenderer.text.contains('EditorPreviewLayerGuard.open('))
         assertTrue(liveRenderer.text.contains('state.previewContext().open(minecraft)'))
@@ -1625,7 +1745,7 @@ final class BuildLogicTest {
         int submit = liveRenderer.text.indexOf('.submit(')
         assertTrue(extract >= 0 && submit > extract)
         assertTrue(liveRenderer.text.contains('renderAllFeatures()'))
-        assertTrue(layerMixin.text.contains('Minecraft12111PreviewModelAnchors.open('))
+        assertTrue(layerMixin.text.contains('PreviewModelAnchors.open('))
         assertTrue(layerMixin.text.contains('state instanceof AvatarRenderState'))
         assertTrue(modelPartMixin.text.contains('cubes.isEmpty()'))
         assertFalse(mixins.text.contains('"GuiEntityRendererMixin"'))
@@ -1634,19 +1754,19 @@ final class BuildLogicTest {
 
         String fabricRegistration = new File(
                 repository,
-                'loader/fabric/pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111/mixin/GuiRendererMixin.java').text
+                'loader/fabric/pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/GuiRendererMixin.java').text
         String neoForgeRegistration = new File(
                 repository,
-                'loader/neoforge/pip-1.21.11/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.java').text
-        assertEquals(1, fabricRegistration.count('new Minecraft12111BakedPreviewRenderer(bufferSource)'))
-        assertEquals(1, fabricRegistration.count('new Minecraft12111LivePreviewRenderer(bufferSource)'))
-        assertEquals(1, neoForgeRegistration.count('Minecraft12111BakedPreviewRenderer::new'))
-        assertEquals(1, neoForgeRegistration.count('Minecraft12111LivePreviewRenderer::new'))
+                'loader/neoforge/pip-submission/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.java').text
+        assertEquals(1, fabricRegistration.count('new BakedPreviewRenderer(bufferSource)'))
+        assertEquals(1, fabricRegistration.count('new LivePreviewRenderer(bufferSource)'))
+        assertEquals(1, neoForgeRegistration.count('BakedPreviewRenderer::new'))
+        assertEquals(1, neoForgeRegistration.count('LivePreviewRenderer::new'))
 
         StringBuilder productionSources = new StringBuilder()
         [previewRoot,
-         new File(repository, 'loader/fabric/pip-1.21.11/src/main/java'),
-         new File(repository, 'loader/neoforge/pip-1.21.11/src/main/java')].each { File root ->
+         new File(repository, 'loader/fabric/pip-submission/src/main/java'),
+         new File(repository, 'loader/neoforge/pip-submission/src/main/java')].each { File root ->
             root.eachFileRecurse(groovy.io.FileType.FILES) { File source ->
                 if (source.name.endsWith('.java')) productionSources.append(source.text).append('\n')
             }
@@ -1658,14 +1778,14 @@ final class BuildLogicTest {
     }
 
     @Test
-    void submission12111UsesVanillaElytraGeometryAndNeutralPoseInBothPreviewPaths() {
+    void identifierSubmissionUsesVanillaElytraGeometryAndNeutralPoseInBothPreviewPaths() {
         File previewRoot = new File(
                 repository,
-                'compat/capabilities/preview/avatar-pip-1.21.11/src/main/java/com/naocraftlab/skins/compat/mc12111')
-        String liveRenderer = new File(previewRoot, 'Minecraft12111PreviewRenderer.java').text
-        String simpleRenderer = new File(previewRoot, 'Minecraft12111SimplePreviewRenderer.java').text
-        String bakedRenderer = new File(previewRoot, 'Minecraft12111BakedPreviewRenderer.java').text
-        String bakedState = new File(previewRoot, 'Minecraft12111BakedPreviewRenderState.java').text
+                'compat/capabilities/preview/avatar-pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission')
+        String liveRenderer = new File(previewRoot, 'SubmissionPreviewRenderer.java').text
+        String simpleRenderer = new File(previewRoot, 'SimplePreviewRenderer.java').text
+        String bakedRenderer = new File(previewRoot, 'BakedPreviewRenderer.java').text
+        String bakedState = new File(previewRoot, 'BakedPreviewRenderState.java').text
 
         assertTrue(simpleRenderer.contains('ElytraModel.createLayer().bakeRoot()'))
         assertFalse(simpleRenderer.contains('mesh.getRoot().addOrReplaceChild('))
@@ -1720,7 +1840,7 @@ final class BuildLogicTest {
     }
 
     @Test
-    void semanticVerifierRejectsVanillaOnly12111BakedPitch() {
+    void semanticVerifierRejectsVanillaOnlySubmissionBakedPitch() {
         Path sourceRoot = Files.createTempDirectory('nclskins-12111-preview-pitch-')
         try {
             Files.writeString(
@@ -1740,7 +1860,7 @@ final class BuildLogicTest {
                             EntityRenderState state2;
                             PlayerSkin.insecure();
                             CenteredPlayerPreviewGeometry.centeredEntityTranslation();
-                            Minecraft12111SimplePreviewRenderer baked;
+                            SimplePreviewRenderer baked;
                             ItemStack empty = ItemStack.EMPTY;
                         }
                     }
@@ -1748,11 +1868,11 @@ final class BuildLogicTest {
             List<String> errors = []
 
             SemanticVerifier.verifyPreviewBundle(
-                    'avatar-pip-1.21.11-fabric', [sourceRoot] as Set, errors)
+                    'avatar-pip-submission-fabric', [sourceRoot] as Set, errors)
 
             assertTrue(errors.any {
-                it.contains('1.21.11 submission preview lacks required marker')
-                        && it.contains('Minecraft12111BakedPreviewRenderState')
+                it.contains('submission preview lacks required marker')
+                        && it.contains('BakedPreviewRenderState')
             }, errors.toString())
         } finally {
             sourceRoot.toFile().deleteDir()
@@ -1760,7 +1880,7 @@ final class BuildLogicTest {
     }
 
     @Test
-    void semanticVerifierRejectsBakedPitchConventionIn262LivePreview() {
+    void semanticVerifierRejectsBakedPitchConventionInExtractionLivePreview() {
         Path sourceRoot = Files.createTempDirectory('nclskins-preview-pitch-')
         try {
             Files.writeString(
@@ -1773,7 +1893,7 @@ final class BuildLogicTest {
                             ExactLocalPlayerScope scope;
                             EditorPreviewClock clock;
                             NativePlayerSkinLifecycle lifecycle;
-                            Minecraft262PreviewContext context;
+                            AvatarPreviewContext context;
                             NclBakedPlayerRenderState state;
                             NclBakedPlayerSubmission submission;
                             GuiGraphicsExtractorPreviewMixin extractor;
@@ -1786,7 +1906,7 @@ final class BuildLogicTest {
                             PlayerCapeModel cape;
                             ElytraModel elytra;
                             float x = ELYTRA_ROT_X + ELYTRA_ROT_Z;
-                            Minecraft262BakedPlayerPose.applyPitch(pose, state.pitchDegrees());
+                            BakedPlayerPose.applyPitch(pose, state.pitchDegrees());
                             CenteredPlayerPreviewGeometry.centeredEntityTranslation();
                             CenteredPipPreviewTransform.modelPitchRadians(pitchDegrees);
                         }
@@ -1799,7 +1919,7 @@ final class BuildLogicTest {
             List<String> errors = []
 
             SemanticVerifier.verifyPreviewBundle(
-                    'avatar-pip-26.2-fabric', [sourceRoot] as Set, errors)
+                    'avatar-pip-extraction-simple-model-attack-time-fabric', [sourceRoot] as Set, errors)
 
             assertTrue(errors.any {
                 it.contains('lacks live/baked pitch split marker') &&

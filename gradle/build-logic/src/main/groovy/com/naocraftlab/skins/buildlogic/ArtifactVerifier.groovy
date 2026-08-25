@@ -53,12 +53,12 @@ final class ArtifactVerifier {
     ].asImmutable()
     static final Map<String, Map> FORGE_REFMAPS = [
         'forge-1.20.1': [
-            path: 'nclskins.mc1201.refmap.json',
+            path: 'nclskins.resourcelocation-playerinfo.refmap.json',
             mappings: [
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/AccessibilityOptionsScreenMixin': [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/AccessibilityOptionsScreenMixin': [
                     options: 'Lnet/minecraft/client/gui/screens/AccessibilityOptionsScreen;m_232690_(Lnet/minecraft/client/Options;)[Lnet/minecraft/client/OptionInstance;'
                 ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/AbstractClientPlayerPreviewMixin': [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/AbstractClientPlayerPreviewMixin': [
                         getCloakTextureLocation : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108561_()Lnet/minecraft/resources/ResourceLocation;',
                         isCapeLoaded            : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108555_()Z',
                         getSkinTextureLocation  : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108560_()Lnet/minecraft/resources/ResourceLocation;',
@@ -67,28 +67,25 @@ final class ArtifactVerifier {
                         getModelName            : 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108564_()Ljava/lang/String;',
                         getElytraTextureLocation: 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108563_()Lnet/minecraft/resources/ResourceLocation;'
                 ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/HttpTextureUploadMixin'          : [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/HttpTextureUploadMixin'          : [
                         'upload(Lcom/mojang/blaze3d/platform/NativeImage;)V': 'Lnet/minecraft/client/renderer/texture/HttpTexture;m_118020_(Lcom/mojang/blaze3d/platform/NativeImage;)V'
                 ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/LivingEntityRendererPreviewMixin': [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/LivingEntityRendererPreviewMixin': [
                         render                                                                                                                                                                                              : 'Lnet/minecraft/client/renderer/entity/LivingEntityRenderer;m_7392_(Lnet/minecraft/world/entity/LivingEntity;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V',
                         'Lnet/minecraft/client/renderer/entity/layers/RenderLayer;render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/world/entity/Entity;FFFFFF)V': 'Lnet/minecraft/client/renderer/entity/layers/RenderLayer;m_6494_(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/world/entity/Entity;FFFFFF)V'
                 ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/ModelPartPreviewMixin'           : [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/ModelPartPreviewMixin'           : [
                         getRandomCube: 'Lnet/minecraft/client/model/geom/ModelPart;m_233558_(Lnet/minecraft/util/RandomSource;)Lnet/minecraft/client/model/geom/ModelPart$Cube;'
                 ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/OptionsScreenMixin': [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/OptionsScreenMixin': [
                     init: 'Lnet/minecraft/client/gui/screens/OptionsScreen;m_7856_()V',
                     'Lnet/minecraft/client/gui/screens/OptionsScreen;openScreenButton(Lnet/minecraft/network/chat/Component;Ljava/util/function/Supplier;)Lnet/minecraft/client/gui/components/Button;': 'Lnet/minecraft/client/gui/screens/OptionsScreen;m_260993_(Lnet/minecraft/network/chat/Component;Ljava/util/function/Supplier;)Lnet/minecraft/client/gui/components/Button;'
                 ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/PlayerPreviewMixin'              : [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/PlayerPreviewMixin'              : [
                         isModelPartShown: 'Lnet/minecraft/world/entity/player/Player;m_36170_(Lnet/minecraft/world/entity/player/PlayerModelPart;)Z',
                         getItemBySlot   : 'Lnet/minecraft/world/entity/player/Player;m_6844_(Lnet/minecraft/world/entity/EquipmentSlot;)Lnet/minecraft/world/item/ItemStack;'
                 ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/PlayerModelPreviewAccessor'      : [
-                        slim: 'f_103380_:Z'
-                ],
-                'com/naocraftlab/skins/compat/v1_20_1/client/mixin/ScreenRenderablesAccessor': [
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/ScreenRenderablesAccessor': [
                     renderables: 'f_169369_:Ljava/util/List;'
                 ]
             ]
@@ -118,6 +115,7 @@ final class ArtifactVerifier {
             verifyResources(root, archive, catalog, target, names, errors)
             verifyManifest(archive, target, errors)
             verifyForgeRefmap(archive, target, names, errors)
+            verifyMixinExtrasPayload(archive, catalog, target, names, errors)
             verifyMenuPreviewCompatibility(archive, target, errors)
             verifyPreviewRegistration(archive, target, names, errors)
             names.findAll { !it.endsWith('/') }.each { String name ->
@@ -139,7 +137,7 @@ final class ArtifactVerifier {
     static void verifyPreviewRegistration(
             ZipFile archive, Map target, List<String> names, List<String> errors) {
         if (!target.capabilities.preview.toString().startsWith('avatar-pip-')) return
-        String constructorMixin = 'com/naocraftlab/skins/compat/mc12111/mixin/GuiRendererMixin.class'
+        String constructorMixin = 'com/naocraftlab/skins/compat/client/identifier/submission/mixin/GuiRendererMixin.class'
         String fabricRegistration = 'com/naocraftlab/skins/loader/fabric/FabricPipRendererRegistration.class'
         String neoForgeRegistration = 'com/naocraftlab/skins/loader/neoforge/NeoForgePipRendererRegistration.class'
         List<String> registrations = [constructorMixin, fabricRegistration, neoForgeRegistration]
@@ -157,22 +155,22 @@ final class ArtifactVerifier {
                 errors.add("${target.id}:${expected}: PIP registration contains reflection (${forbidden})")
             }
         }
-        boolean hasFabric12111Mixin = names.contains('nclskins.mc12111.fabric.mixins.json')
-        if (hasFabric12111Mixin != (target.id == 'fabric-1.21.11')) {
+        boolean hasSubmissionConstructorMixin = names.contains('nclskins.identifier-submission-fabric.mixins.json')
+        if (hasSubmissionConstructorMixin != (target.id == 'fabric-1.21.11')) {
             errors.add("${target.id}: Fabric 1.21.11 constructor mixin presence is incorrect")
         }
         List<String> removedPreviewClasses = [
-                'com/naocraftlab/skins/compat/mc12111/NclPreviewState.class',
-                'com/naocraftlab/skins/compat/mc12111/mixin/AvatarRenderStateMixin.class',
-                'com/naocraftlab/skins/compat/mc12111/mixin/GuiEntityRendererMixin.class'
+                'com/naocraftlab/skins/compat/client/identifier/submission/NclPreviewState.class',
+                'com/naocraftlab/skins/compat/client/identifier/submission/mixin/AvatarRenderStateMixin.class',
+                'com/naocraftlab/skins/compat/client/identifier/submission/mixin/GuiEntityRendererMixin.class'
         ]
         removedPreviewClasses.findAll { names.contains(it) }.each { String name ->
             errors.add("${target.id}: artifact retains removed global preview hook ${name}")
         }
         if (target.minecraft.epoch == '1.21.11') {
             [
-                    'com/naocraftlab/skins/compat/mc12111/Minecraft12111BakedPreviewRenderer.class',
-                    'com/naocraftlab/skins/compat/mc12111/Minecraft12111LivePreviewRenderer.class'
+                    'com/naocraftlab/skins/compat/client/identifier/submission/BakedPreviewRenderer.class',
+                    'com/naocraftlab/skins/compat/client/identifier/submission/LivePreviewRenderer.class'
             ].findAll { !names.contains(it) }.each { String name ->
                 errors.add("${target.id}: artifact lacks required dedicated PIP renderer ${name}")
             }
@@ -250,6 +248,7 @@ final class ArtifactVerifier {
         expectedResources.addAll(['META-INF/MANIFEST.MF', 'META-INF/LICENSE', 'META-INF/NOTICE'])
         Map forgeRefmap = FORGE_REFMAPS[target.id.toString()]
         if (forgeRefmap != null) expectedResources.add(forgeRefmap.path.toString())
+        expectedResources.addAll(mixinExtrasResources(catalog, target))
         verifyExactEntrySet(target, 'resource', actualResources, expectedResources, errors)
 
         Set<String> selectedResources = [] as Set
@@ -262,9 +261,40 @@ final class ArtifactVerifier {
         selectedResources.add('nclskins-server-compatibility.json')
         selectedResources.addAll(['META-INF/MANIFEST.MF', 'META-INF/LICENSE', 'META-INF/NOTICE'])
         if (forgeRefmap != null) selectedResources.add(forgeRefmap.path.toString())
+        selectedResources.addAll(mixinExtrasResources(catalog, target))
         Set<String> foreignResources = actualResources - selectedResources
         if (!foreignResources.isEmpty()) {
             errors.add("${target.id}: resources are not owned by selected source bundles or generated target metadata: ${sample(foreignResources)}")
+        }
+    }
+
+    private static Set<String> mixinExtrasResources(Map catalog, Map target) {
+        if (target.loader.id != 'forge') return [] as Set
+        String version = catalog.plugins.mixinExtras.toString()
+        return [
+                'META-INF/jarjar/metadata.json',
+                "META-INF/jarjar/mixinextras-forge-${version}.jar"
+        ] as Set
+    }
+
+    private static void verifyMixinExtrasPayload(
+            ZipFile archive,
+            Map catalog,
+            Map target,
+            List<String> names,
+            List<String> errors) {
+        if (target.loader.id != 'forge') return
+        String version = catalog.plugins.mixinExtras.toString()
+        String payload = "META-INF/jarjar/mixinextras-forge-${version}.jar"
+        if (!names.contains(payload)) {
+            errors.add("${target.id}: missing official MixinExtras Forge JarJar payload ${payload}")
+            return
+        }
+        String metadata = new String(read(archive, 'META-INF/jarjar/metadata.json'), StandardCharsets.UTF_8)
+        if (!metadata.contains('io.github.llamalad7') ||
+                !metadata.contains('mixinextras-forge') ||
+                !metadata.contains(version)) {
+            errors.add("${target.id}: MixinExtras JarJar metadata does not pin ${version}")
         }
     }
 
@@ -596,7 +626,7 @@ final class ArtifactVerifier {
                 : 'net/minecraft/client/gui/layouts/LayoutElement'
         verifyBytecodeMarker(
                 archive,
-                'com/naocraftlab/skins/compat/v1_20_1/client/NclSkinsMenuPreview.class',
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/NclSkinsMenuPreview.class',
                 target,
                 [layoutElement],
                 [],

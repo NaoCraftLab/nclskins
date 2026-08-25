@@ -64,10 +64,10 @@ final class VanillaBackEquipmentTransformTest {
     }
 
     @Test
-    void minecraft1211CapeCardAddsTheUvCorrectingHalfTurnOnlyForThatCardPath() {
+    void standaloneCapeCardAddsTheUvCorrectingHalfTurnOnlyForThatCardPath() {
         RecordingOperations operations = new RecordingOperations();
 
-        VanillaBackEquipmentTransform.applyMinecraft1211StandaloneCapeAttachment(
+        VanillaBackEquipmentTransform.applyUvCorrectedStandaloneCapeAttachment(
                 new Object(), operations);
 
         assertEquals(List.of("translate", "rotateX", "rotateY"), operations.names);

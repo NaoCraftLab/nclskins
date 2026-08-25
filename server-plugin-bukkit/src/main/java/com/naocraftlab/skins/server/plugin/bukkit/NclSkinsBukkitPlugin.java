@@ -49,6 +49,7 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
     private BukkitNativeAdapter adapter;
     private ServerConfiguration configuration;
     private BukkitRefreshEngine engine;
+    private BukkitConnectionAssurance connectionAssurance;
     private JulDiagnosticSink diagnostics;
 
     @Override
@@ -85,12 +86,13 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
             fail(DiagnosticStatus.ABI_INCOMPATIBLE, null);
             return;
         }
+        connectionAssurance = abi.connectionAssurance();
         if (!Bukkit.getOnlineMode()) {
             if (!configuration.realtimeRefresh().trustedProxyForwarding()) {
                 fail(DiagnosticStatus.TRUST_REQUIREMENT_MISSING, null);
                 return;
             }
-            if (!ProxyConnectionAssurance.assured(true)) {
+            if (!connectionAssurance.assured(true)) {
                 fail(DiagnosticStatus.TRUST_REQUIREMENT_MISSING, null);
                 return;
             }
@@ -102,7 +104,7 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
             }
         }
         try {
-            engine = adapter.createEngine(this, configuration, this::published, diagnostics);
+            engine = adapter.createEngine(this, configuration, abi, this::published, diagnostics);
         } catch (RuntimeException failure) {
             fail(DiagnosticStatus.ABI_INCOMPATIBLE, failure);
             return;
@@ -219,7 +221,7 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
             return false;
         }
         if (!configuration.realtimeRefresh().enabled()
-                || !ProxyConnectionAssurance.assured(
+                || !connectionAssurance.assured(
                 configuration.realtimeRefresh().trustedProxyForwarding())) {
             return true;
         }

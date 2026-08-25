@@ -74,12 +74,11 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                 errors.add('relocated Gson is missing')
             }
             Set<String> adapterPrefixes = [
-                    'legacy1201/Legacy1201NativeAdapter.class',
-                    'paper1201/Paper1201NativeAdapter.class',
-                    'paper1211/Paper1211NativeAdapter.class',
-                    'paper12111/Paper12111NativeAdapter.class',
-                    'paper261/Paper261NativeAdapter.class',
-                    'paper262/Paper262NativeAdapter.class'
+                    'legacy/authlib4/LegacyAuthlib4NativeAdapter.class',
+                    'paper/authlib4/PaperAuthlib4NativeAdapter.class',
+                    'paper/authlib6/PaperAuthlib6NativeAdapter.class',
+                    'paper/authlib7/PaperAuthlib7NativeAdapter.class',
+                    'paper/authlib9/PaperAuthlib9NativeAdapter.class'
             ] as Set
             adapterPrefixes.each { String leaf ->
                 if (!names.contains('com/naocraftlab/skins/server/plugin/adapter/' + leaf)) {
@@ -94,8 +93,11 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                 }
                 int major = ((bytes[6] & 0xff) << 8) | (bytes[7] & 0xff)
                 if (major > 61) errors.add("${entry.name} uses classfile major ${major}")
-                if (new String(bytes, StandardCharsets.ISO_8859_1).contains('setPlayerProfile')) {
-                    errors.add("${entry.name} references forbidden setPlayerProfile")
+                String classSymbols = new String(bytes, StandardCharsets.ISO_8859_1)
+                if (classSymbols.contains('setPlayerProfile') &&
+                        !(entry.name.endsWith('/PaperProfilePublicationBackend.class') ||
+                                entry.name.endsWith('/AbstractBukkitNativeAdapter.class'))) {
+                    errors.add("${entry.name} references setPlayerProfile outside the Paper backend")
                 }
                 if (entry.name.startsWith('com/naocraftlab/skins/server/plugin/bukkit/')) {
                     String symbols = new String(bytes, StandardCharsets.ISO_8859_1)
@@ -105,6 +107,12 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                         }
                     }
                 }
+            }
+            String paperBackend = 'com/naocraftlab/skins/server/plugin/bukkit/PaperProfilePublicationBackend.class'
+            if (!names.contains(paperBackend) ||
+                    !new String(zip.getInputStream(zip.getEntry(paperBackend)).readAllBytes(),
+                            StandardCharsets.ISO_8859_1).contains('setPlayerProfile')) {
+                errors.add('Paper backend does not use Player#setPlayerProfile')
             }
             Manifest manifest = new Manifest(zip.getInputStream(zip.getEntry('META-INF/MANIFEST.MF')))
             if (manifest.mainAttributes.getValue('paperweight-mappings-namespace') != 'mojang' ||

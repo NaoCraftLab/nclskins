@@ -12,8 +12,14 @@ if (parchmentVersion == null) {
 def forgeParchmentVersion = "${parchmentVersion}-${targetSpec.minecraft.version}"
 
 def forgeMixinConfigs = targetSpec.metadata.serverMixins + targetSpec.metadata.mixins
-def forgeMixinRefmap =
-    "nclskins.mc${targetSpec.minecraft.epoch.toString().replaceAll('[^0-9]', '')}.refmap.json"
+def mixinExtrasVersion = targetCatalog.plugins.mixinExtras.toString()
+def forgePrimaryMixinConfig = targetSpec.metadata.mixins.find {
+    it.toString().endsWith('.mixins.json')
+}
+if (forgePrimaryMixinConfig == null) {
+    throw new GradleException("Forge target ${targetSpec.id} requires a client Mixin config")
+}
+def forgeMixinRefmap = forgePrimaryMixinConfig.toString().replace('.mixins.json', '.refmap.json')
 def forgeCompileJava = tasks.named(sourceSets.main.compileJavaTaskName, JavaCompile)
 def forgeMixinRefmapFile = forgeCompileJava.map {
     new File(it.temporaryDir, forgeMixinRefmap)
@@ -52,6 +58,8 @@ mixin {
     add sourceSets.main, forgeMixinRefmap
     quiet()
 }
+
+jarJar.enable()
 
 forgeCompileJava.configure {
     inputs.property('nclskinsMixinRefmap', forgeMixinRefmap)
@@ -128,8 +136,13 @@ dependencies {
     compileOnly fg.deobf("dev.isxander:yet-another-config-lib:${yaclVersion}")
     runtimeOnly fg.deobf("dev.isxander:yet-another-config-lib:${yaclVersion}")
     runtimeOnly "net.covers1624:DevLogin:${targetCatalog.plugins.devLogin}"
+    compileOnly "io.github.llamalad7:mixinextras-common:${mixinExtrasVersion}"
     annotationProcessor(
         "org.spongepowered:mixin:${targetCatalog.plugins.mixinProcessor}:processor")
+    annotationProcessor "io.github.llamalad7:mixinextras-common:${mixinExtrasVersion}"
+    implementation(jarJar("io.github.llamalad7:mixinextras-forge:${mixinExtrasVersion}")) {
+        jarJar.ranged(it, "[${mixinExtrasVersion},0.6)")
+    }
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -154,6 +167,9 @@ tasks.named('processResources', ProcessResources).configure {
 }
 
 tasks.named('jar', Jar).configure {
+    archiveFileName = targetSpec.artifact.file.toString()
+            .replace('{modVersion}', project.version.toString())
+            .replace('.jar', '-dev.jar')
     manifest.attributes(
         'Specification-Title': 'NCL Skins',
         'Specification-Vendor': 'NaoCraftLab',
@@ -162,5 +178,14 @@ tasks.named('jar', Jar).configure {
         'Implementation-Version': project.version,
         'Implementation-Vendor': 'NaoCraftLab'
     )
-    finalizedBy tasks.named('reobfJar')
+}
+
+reobf {
+    jarJar {}
+}
+
+tasks.named('jarJar', Jar).configure {
+    archiveFileName = targetSpec.artifact.file.toString()
+            .replace('{modVersion}', project.version.toString())
+    finalizedBy tasks.named('reobfJarJar')
 }

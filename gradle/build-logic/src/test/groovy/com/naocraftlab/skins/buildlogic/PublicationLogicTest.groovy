@@ -24,7 +24,7 @@ final class PublicationLogicTest {
                                       'gradle/version.properties', 'CHANGELOG.md', 'SERVER_CHANGELOG.md',
                                       'server-plugin/src/main/java/example/Plugin.java',
                                       'server-plugin/build.gradle',
-                                      'server-plugin-adapters/legacy-1.20.1/src/main/java/example/Adapter.java',
+                                      'server-plugin-adapters/legacy-authlib4/src/main/java/example/Adapter.java',
                                       'pub/description.md', 'pub/plugin-description.md',
                                       'pub/gallery/editor.png'], true).targetIds)
         assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(

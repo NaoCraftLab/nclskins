@@ -579,7 +579,7 @@ final class CatalogTools {
         }
         Set pluginKeys = [
                 'loom', 'modDevGradle', 'forgeGradle', 'librarian',
-                'mixinGradle', 'mixinProcessor', 'devLogin'
+                'mixinGradle', 'mixinProcessor', 'mixinExtras', 'devLogin'
         ] as Set
         if (!(catalog.plugins instanceof Map) || ((catalog.plugins as Map).keySet() as Set) != pluginKeys ||
             (catalog.plugins as Map).values().any { !(it instanceof String) || !it }) {

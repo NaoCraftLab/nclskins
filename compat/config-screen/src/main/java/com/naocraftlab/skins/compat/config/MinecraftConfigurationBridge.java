@@ -4,8 +4,6 @@ import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.runtime.ClientConfigurationService;
 import com.naocraftlab.skins.runtime.ServerConfigurationAccess;
 import it.unimi.dsi.fastutil.booleans.BooleanConsumer;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Objects;
@@ -18,15 +16,13 @@ import net.minecraft.client.gui.screens.TitleScreen;
 
 
 public final class MinecraftConfigurationBridge {
-    private static final String YACL_CLASS = "dev.isxander.yacl3.api.YetAnotherConfigLib";
-    private static final String YACL_FACTORY =
-            "com.naocraftlab.skins.compat.config.YaclConfigurationScreenFactory";
     private static final String YACL_URL = "https://modrinth.com/mod/yacl";
 
     private static ClientConfigurationService service;
     private static FilePicker filePicker;
     private static Consumer<Screen> screenSetter;
     private static Consumer<URI> linkOpener;
+    private static ConfigurationScreenFactory screenFactory;
 
     private MinecraftConfigurationBridge() {}
 
@@ -56,6 +52,15 @@ public final class MinecraftConfigurationBridge {
         return service;
     }
 
+    public static synchronized void configureScreenFactory(
+            ConfigurationScreenFactory nativeFactory) {
+        if (service != null) {
+            throw new IllegalStateException(
+                    "NCL Skins configuration screen factory changed after initialization");
+        }
+        screenFactory = nativeFactory;
+    }
+
     public static synchronized ClientConfigurationService service() {
         if (service == null) {
             throw new IllegalStateException("NCL Skins client configuration is not initialized");
@@ -77,36 +82,19 @@ public final class MinecraftConfigurationBridge {
     public static Screen createScreen(Screen parent) {
         Objects.requireNonNull(parent, "parent");
         ClientConfigurationService current = service();
+        ConfigurationScreenFactory factory = screenFactory;
+        if (factory == null) {
+            return missingYaclScreen(parent);
+        }
         try {
-            Class.forName(YACL_CLASS, false, MinecraftConfigurationBridge.class.getClassLoader());
-            Class<?> factory = Class.forName(
-                    YACL_FACTORY, true, MinecraftConfigurationBridge.class.getClassLoader());
-            Method create = factory.getMethod(
-                    "create",
-                    Screen.class,
-                    ClientConfigurationService.class,
-                    FilePicker.class,
-                    ServerConfigurationAccess.class);
             Minecraft minecraft = Minecraft.getInstance();
             ServerConfigurationAccess serverAccess = ServerConfigurationAccess.from(
                     minecraft.getConnection() != null,
                     minecraft.getSingleplayerServer() != null);
-            Object screen = create.invoke(
-                    null,
-                    parent,
-                    current,
-                    filePicker,
-                    serverAccess);
-            return (Screen) Objects.requireNonNull(screen, "YACL configuration screen");
-        } catch (InvocationTargetException failure) {
-            if (failure.getCause() instanceof LinkageError) {
-                return missingYaclScreen(parent);
-            }
-            if (failure.getCause() instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            return missingYaclScreen(parent);
-        } catch (ReflectiveOperationException | LinkageError incompatible) {
+            return Objects.requireNonNull(
+                    factory.create(parent, current, filePicker, serverAccess),
+                    "YACL configuration screen");
+        } catch (LinkageError incompatible) {
             return missingYaclScreen(parent);
         }
     }

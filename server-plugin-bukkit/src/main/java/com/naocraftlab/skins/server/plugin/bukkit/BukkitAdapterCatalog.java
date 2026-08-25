@@ -1,11 +1,10 @@
 package com.naocraftlab.skins.server.plugin.bukkit;
 
-import com.naocraftlab.skins.server.plugin.adapter.legacy1201.Legacy1201NativeAdapter;
-import com.naocraftlab.skins.server.plugin.adapter.paper1201.Paper1201NativeAdapter;
-import com.naocraftlab.skins.server.plugin.adapter.paper1211.Paper1211NativeAdapter;
-import com.naocraftlab.skins.server.plugin.adapter.paper12111.Paper12111NativeAdapter;
-import com.naocraftlab.skins.server.plugin.adapter.paper261.Paper261NativeAdapter;
-import com.naocraftlab.skins.server.plugin.adapter.paper262.Paper262NativeAdapter;
+import com.naocraftlab.skins.server.plugin.adapter.legacy.authlib4.LegacyAuthlib4NativeAdapter;
+import com.naocraftlab.skins.server.plugin.adapter.paper.authlib4.PaperAuthlib4NativeAdapter;
+import com.naocraftlab.skins.server.plugin.adapter.paper.authlib6.PaperAuthlib6NativeAdapter;
+import com.naocraftlab.skins.server.plugin.adapter.paper.authlib7.PaperAuthlib7NativeAdapter;
+import com.naocraftlab.skins.server.plugin.adapter.paper.authlib9.PaperAuthlib9NativeAdapter;
 import com.naocraftlab.skins.server.plugin.common.ExactAdapterSelector;
 import com.naocraftlab.skins.server.plugin.common.ServerRuntimeIdentity;
 
@@ -23,16 +22,16 @@ final class BukkitAdapterCatalog {
         Map<ServerRuntimeIdentity, Supplier<? extends BukkitNativeAdapter>> registrations =
                 new LinkedHashMap<>();
         register(registrations, "1.20.1", ServerRuntimeIdentity.Family.CRAFTBUKKIT,
-                Legacy1201NativeAdapter::new);
+                LegacyAuthlib4NativeAdapter::new);
         register(registrations, "1.20.1", ServerRuntimeIdentity.Family.SPIGOT,
-                Legacy1201NativeAdapter::new);
-        registerPaperFamily(registrations, "1.20.1", Paper1201NativeAdapter::new);
-        registerPaperFamily(registrations, "1.21.1", Paper1211NativeAdapter::new);
-        registerPaperFamily(registrations, "1.21.11", Paper12111NativeAdapter::new);
+                LegacyAuthlib4NativeAdapter::new);
+        registerPaperFamily(registrations, "1.20.1", PaperAuthlib4NativeAdapter::new);
+        registerPaperFamily(registrations, "1.21.1", PaperAuthlib6NativeAdapter::new);
+        registerPaperFamily(registrations, "1.21.11", PaperAuthlib7NativeAdapter::new);
         register(registrations, "26.1.1", ServerRuntimeIdentity.Family.PAPER,
-                Paper261NativeAdapter::new);
-        registerPaperFamily(registrations, "26.1.2", Paper261NativeAdapter::new);
-        registerPaperFamily(registrations, "26.2", Paper262NativeAdapter::new);
+                PaperAuthlib7NativeAdapter::new);
+        registerPaperFamily(registrations, "26.1.2", PaperAuthlib7NativeAdapter::new);
+        registerPaperFamily(registrations, "26.2", PaperAuthlib9NativeAdapter::new);
         return new ExactAdapterSelector<>(registrations);
     }
 

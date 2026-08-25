@@ -1,14 +1,14 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.OuterLayerPart;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PreviewRenderer;
+import org.junit.jupiter.api.Test;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import com.naocraftlab.skins.client.PreviewRenderer;
-import com.naocraftlab.skins.client.OuterLayerPart;
-import com.naocraftlab.skins.client.OuterLayerVisibility;
-import org.junit.jupiter.api.Test;
 
 final class PreviewInteractionModelTest {
     private static final Bounds PREVIEW = new Bounds(10, 10, 100, 180);
@@ -32,7 +32,7 @@ final class PreviewInteractionModelTest {
     }
 
     @Test
-    void capeModeAndOuterLayerFollow262Rules() {
+    void capeModeAndOuterLayerFollowCanonicalRules() {
         PreviewInteractionModel model = PreviewInteractionModel.gallery();
         assertSame(model, model.cycleCapeMode(false));
         assertEquals(PreviewRenderer.CapeMode.ELYTRA, model.cycleCapeMode(true).capeMode());

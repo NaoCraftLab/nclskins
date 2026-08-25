@@ -44,7 +44,7 @@ public final class VanillaBackEquipmentTransform {
         operations.rotateX(context, 6.0F * DEGREES_TO_RADIANS);
     }
 
-    public static <C> void applyMinecraft1211StandaloneCapeAttachment(
+    public static <C> void applyUvCorrectedStandaloneCapeAttachment(
             C context, Operations<C> operations) {
         applyCapeAttachment(context, operations);
     }

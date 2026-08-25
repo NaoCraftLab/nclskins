@@ -24,15 +24,15 @@ final class BukkitRuntimeDetectorTest {
     }
 
     @Test
-    void explicitlyMapsSupported261PatchesToOneFamilyAdapterWithoutFallback() {
+    void mapsBothAuthlib7RuntimePatchesToOneFamilyAdapterWithoutFallback() {
         ExactAdapterSelector<BukkitNativeAdapter> selector = BukkitAdapterCatalog.selector();
-        ServerRuntimeIdentity paper2611 = paper("26.1.1");
-        ServerRuntimeIdentity paper2612 = paper("26.1.2");
+        ServerRuntimeIdentity firstPatch = paper("26.1.1");
+        ServerRuntimeIdentity secondPatch = paper("26.1.2");
 
-        assertTrue(selector.select(paper2611).supported());
-        assertTrue(selector.select(paper2612).supported());
-        assertEquals("paper-26.1-family", selector.select(paper2611).load().id());
-        assertEquals("paper-26.1-family", selector.select(paper2612).load().id());
+        assertTrue(selector.select(firstPatch).supported());
+        assertTrue(selector.select(secondPatch).supported());
+        assertEquals("paper-authlib7", selector.select(firstPatch).load().id());
+        assertEquals("paper-authlib7", selector.select(secondPatch).load().id());
         assertFalse(selector.select(paper("26.1.3")).supported());
     }
 

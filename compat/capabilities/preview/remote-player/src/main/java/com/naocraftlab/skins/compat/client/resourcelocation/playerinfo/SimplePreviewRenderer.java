@@ -1,0 +1,300 @@
+package com.naocraftlab.skins.compat.client.resourcelocation.playerinfo;
+
+import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.naocraftlab.skins.client.OuterLayerPart;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
+import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
+import com.naocraftlab.skins.client.PlayerPreviewLighting;
+import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.client.TextureRegistry;
+import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
+import com.naocraftlab.skins.client.VanillaPlayerModelTransform;
+import java.util.Objects;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.model.ElytraModel;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.LivingEntity;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
+
+
+public final class SimplePreviewRenderer
+        implements PreviewRenderer<GuiGraphics>, BackEquipmentPreviewRenderer<GuiGraphics> {
+    private static final int FULL_BRIGHT = 0x00F000F0;
+    private static final float GUI_DEPTH = 120.0F;
+    private static final VanillaPlayerModelTransform.Operations<PoseStack> POSE_OPERATIONS =
+            new VanillaPlayerModelTransform.Operations<>() {
+                @Override
+                public void scale(PoseStack pose, float x, float y, float z) {
+                    pose.scale(x, y, z);
+                }
+
+                @Override
+                public void rotateZThenX(PoseStack pose, float zRadians, float xRadians) {
+                    pose.mulPose(new Quaternionf().rotateZ(zRadians).rotateX(xRadians));
+                }
+
+                @Override
+                public void rotateY(PoseStack pose, float radians) {
+                    pose.mulPose(new Quaternionf().rotateY(radians));
+                }
+
+                @Override
+                public void translate(PoseStack pose, float x, float y, float z) {
+                    pose.translate(x, y, z);
+                }
+            };
+    private static final VanillaBackEquipmentTransform.Operations<PoseStack>
+            BACK_EQUIPMENT_OPERATIONS = new VanillaBackEquipmentTransform.Operations<>() {
+                @Override
+                public void scale(PoseStack pose, float x, float y, float z) {
+                    pose.scale(x, y, z);
+                }
+
+                @Override
+                public void rotateZThenX(
+                        PoseStack pose, float zRadians, float xRadians) {
+                    pose.mulPose(new Quaternionf().rotateZ(zRadians).rotateX(xRadians));
+                }
+
+                @Override
+                public void rotateX(PoseStack pose, float radians) {
+                    pose.mulPose(new Quaternionf().rotateX(radians));
+                }
+
+                @Override
+                public void rotateY(PoseStack pose, float radians) {
+                    pose.mulPose(new Quaternionf().rotateY(radians));
+                }
+
+                @Override
+                public void translate(PoseStack pose, float x, float y, float z) {
+                    pose.translate(x, y, z);
+                }
+            };
+
+    private final PlayerModel<LivingEntity> classicModel;
+    private final PlayerModel<LivingEntity> slimModel;
+    private final ModelPart classicCloak;
+    private final ModelPart slimCloak;
+    private final ModelPart elytraRoot;
+    private final ElytraModel<LivingEntity> elytraModel;
+
+    public SimplePreviewRenderer() {
+        VanillaPreviewModels models =
+                VanillaPreviewModels.instance();
+        classicModel = models.classic;
+        slimModel = models.slim;
+        classicCloak = models.classicCloak;
+        slimCloak = models.slimCloak;
+        elytraRoot = models.elytraRoot;
+        elytraModel = models.elytra;
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, PreviewRequest request) {
+        Objects.requireNonNull(graphics, "graphics");
+        Objects.requireNonNull(request, "request");
+        PreviewAppearance appearance = request.appearance();
+        PlayerModel<LivingEntity> model = appearance.model() == SkinModel.SLIM
+                ? slimModel
+                : classicModel;
+        configureLayers(model, appearance.outerLayerVisibility());
+        resetCloaks();
+
+        PoseStack pose = graphics.pose();
+        pose.pushPose();
+        try {
+            CenteredPlayerPreviewGeometry.Layout layout =
+                    CenteredPlayerPreviewGeometry.fit(
+                            request.left(),
+                            request.top(),
+                            request.width(),
+                            request.height(),
+                            request.scale());
+            pose.translate(
+                    layout.centerX(),
+                    layout.centerY(),
+                    GUI_DEPTH);
+            VanillaPlayerModelTransform.applyCentered(
+                    pose,
+                    layout.scale(),
+                    request.yawDegrees(),
+                    request.pitchDegrees(),
+                    POSE_OPERATIONS);
+
+            setupLighting(request.pitchDegrees());
+            MultiBufferSource.BufferSource buffers = graphics.bufferSource();
+            ResourceLocation skin = location(appearance.skin());
+            model.renderToBuffer(
+                    pose,
+                    buffers.getBuffer(model.renderType(skin)),
+                    FULL_BRIGHT,
+                    OverlayTexture.NO_OVERLAY,
+                    1.0F,
+                    1.0F,
+                    1.0F,
+                    1.0F);
+
+            appearance.cape().ifPresent(capeHandle -> renderBackEquipment(
+                    pose,
+                    buffers,
+                    model,
+                    model == slimModel ? slimCloak : classicCloak,
+                    appearance.capeMode(),
+                    location(capeHandle)));
+            buffers.endBatch();
+        } finally {
+            pose.popPose();
+            Lighting.setupFor3DItems();
+        }
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, BackEquipmentPreviewRenderer.Request request) {
+        Objects.requireNonNull(graphics, "graphics");
+        Objects.requireNonNull(request, "request");
+        PoseStack pose = graphics.pose();
+        pose.pushPose();
+        try {
+            float scale = VanillaBackEquipmentTransform.fitScale(
+                    request.width(), request.height());
+            pose.translate(
+                    request.left() + request.width() / 2.0F,
+                    request.top() + request.height() / 2.0F,
+                    GUI_DEPTH);
+            VanillaBackEquipmentTransform.applyStandalone(
+                    pose, scale, BACK_EQUIPMENT_OPERATIONS);
+
+            setupLighting(0.0F);
+            MultiBufferSource.BufferSource buffers = graphics.bufferSource();
+            ResourceLocation texture = location(request.texture());
+            renderBackEquipment(
+                    pose,
+                    buffers,
+                    classicModel,
+                    classicCloak,
+                    request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE
+                            ? CapeMode.CAPE
+                            : CapeMode.ELYTRA,
+                    texture);
+            buffers.endBatch();
+        } finally {
+            pose.popPose();
+            Lighting.setupFor3DItems();
+        }
+    }
+
+    private void renderBackEquipment(
+            PoseStack pose,
+            MultiBufferSource.BufferSource buffers,
+            PlayerModel<LivingEntity> model,
+            ModelPart cloak,
+            CapeMode capeMode,
+            ResourceLocation capeTexture) {
+        if (capeMode == CapeMode.CAPE) {
+            pose.pushPose();
+            try {
+                VanillaBackEquipmentTransform.applyCapeAttachment(
+                        pose, BACK_EQUIPMENT_OPERATIONS);
+                cloak.resetPose();
+                cloak.visible = true;
+                try {
+                    cloak.render(
+                            pose,
+                            buffers.getBuffer(RenderType.entitySolid(capeTexture)),
+                            FULL_BRIGHT,
+                            OverlayTexture.NO_OVERLAY);
+                } finally {
+                    cloak.visible = false;
+                }
+            } finally {
+                pose.popPose();
+            }
+        } else if (capeMode == CapeMode.ELYTRA) {
+            pose.pushPose();
+            try {
+                VanillaBackEquipmentTransform.applyElytraAttachment(
+                        pose, BACK_EQUIPMENT_OPERATIONS);
+                configureElytra(model);
+                elytraModel.renderToBuffer(
+                        pose,
+                        buffers.getBuffer(RenderType.armorCutoutNoCull(capeTexture)),
+                        FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY,
+                        1.0F,
+                        1.0F,
+                        1.0F,
+                        1.0F);
+            } finally {
+                pose.popPose();
+            }
+        }
+    }
+
+    private void configureElytra(PlayerModel<LivingEntity> player) {
+        elytraRoot.getAllParts().forEach(ModelPart::resetPose);
+        player.copyPropertiesTo(elytraModel);
+        elytraModel.young = false;
+    }
+
+    private static void configureLayers(PlayerModel<?> model, OuterLayerVisibility outerLayer) {
+        model.head.resetPose();
+        model.body.resetPose();
+        model.rightArm.resetPose();
+        model.leftArm.resetPose();
+        model.rightLeg.resetPose();
+        model.leftLeg.resetPose();
+        model.hat.resetPose();
+        model.jacket.resetPose();
+        model.rightSleeve.resetPose();
+        model.leftSleeve.resetPose();
+        model.rightPants.resetPose();
+        model.leftPants.resetPose();
+        model.setAllVisible(true);
+        model.attackTime = 0.0F;
+        model.crouching = false;
+        model.riding = false;
+        model.young = false;
+        model.hat.visible = outerLayer.visible(OuterLayerPart.HEAD);
+        model.jacket.visible = outerLayer.visible(OuterLayerPart.BODY);
+        model.leftSleeve.visible = outerLayer.visible(OuterLayerPart.LEFT_ARM);
+        model.rightSleeve.visible = outerLayer.visible(OuterLayerPart.RIGHT_ARM);
+        model.leftPants.visible = outerLayer.visible(OuterLayerPart.LEFT_LEG);
+        model.rightPants.visible = outerLayer.visible(OuterLayerPart.RIGHT_LEG);
+    }
+
+    private void resetCloaks() {
+        classicCloak.resetPose();
+        classicCloak.visible = false;
+        slimCloak.resetPose();
+        slimCloak.visible = false;
+    }
+
+    private static ResourceLocation location(TextureRegistry.TextureHandle handle) {
+        ResourceLocation location = ResourceLocation.tryParse(handle.location());
+        if (location == null) {
+            throw new IllegalArgumentException("Invalid texture location");
+        }
+        return location;
+    }
+
+    private static Vector3f lightDirection(PlayerPreviewLighting.Direction direction) {
+        return new Vector3f(direction.x(), direction.y(), direction.z());
+    }
+
+    private static void setupLighting(float pitchDegrees) {
+        PlayerPreviewLighting.Rig rig = PlayerPreviewLighting.centeredFrontForPitch(pitchDegrees);
+        RenderSystem.setShaderLights(
+                lightDirection(rig.primary()), lightDirection(rig.fill()));
+    }
+}

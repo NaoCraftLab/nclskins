@@ -136,14 +136,14 @@ final class PluginProtocolTest {
     @Test
     void exactSelectorLoadsOneExactLeafLazilyAndFailsClosed() {
         AtomicInteger creations = new AtomicInteger();
-        ServerRuntimeIdentity paper1201 = new ServerRuntimeIdentity(
+        ServerRuntimeIdentity supportedPaper = new ServerRuntimeIdentity(
                 "1.20.1",
                 ServerRuntimeIdentity.Family.PAPER,
                 ServerRuntimeIdentity.ThreadingModel.CLASSIC);
         ExactAdapterSelector<String> selector = new ExactAdapterSelector<>(Map.of(
-                paper1201, () -> "adapter-" + creations.incrementAndGet()));
+                supportedPaper, () -> "adapter-" + creations.incrementAndGet()));
 
-        ExactAdapterSelector.Selection<String> selected = selector.select(paper1201);
+        ExactAdapterSelector.Selection<String> selected = selector.select(supportedPaper);
         assertTrue(selected.supported());
         assertEquals(0, creations.get());
         assertEquals("adapter-1", selected.load());

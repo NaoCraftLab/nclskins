@@ -38,15 +38,28 @@ public abstract class AbstractBukkitNativeAdapter implements BukkitNativeAdapter
         Objects.requireNonNull(craftServerPackage, "craftServerPackage");
         Objects.requireNonNull(logger, "logger");
         try {
-            String craftPlayerName = craftServerPackage + ".entity.CraftPlayer";
-            Class<?> craftPlayer = Class.forName(craftPlayerName, false, classLoader);
-            Method getHandle = craftPlayer.getMethod("getHandle");
-            Class<?> serverPlayer = getHandle.getReturnType();
-            AbiVerification profile = verifyProfileAbi(classLoader, craftPlayer, serverPlayer);
-            if (!profile.compatible()) {
-                return profile;
+            boolean paperFamily = identity.family() == ServerRuntimeIdentity.Family.PAPER
+                    || identity.family() == ServerRuntimeIdentity.Family.PURPUR
+                    || identity.family() == ServerRuntimeIdentity.Family.FOLIA;
+            if (paperFamily) {
+                Method getProfile = org.bukkit.entity.Player.class.getMethod("getPlayerProfile");
+                Method setProfile = org.bukkit.entity.Player.class.getMethod(
+                        "setPlayerProfile", getProfile.getReturnType());
+                if (setProfile.getReturnType() != void.class) {
+                    return AbiVerification.incompatible(id + " invalid Player#setPlayerProfile");
+                }
+                AbiVerification exact = verifyExactAbi(
+                        classLoader, craftServerPackage, Object.class, logger);
+                return exact.compatible() ? bind(
+                        exact.diagnostic(), exact.signatureVerifier(),
+                        new PaperProfilePublicationBackend(),
+                        PaperConnectionAssuranceBinding.resolve(classLoader)) : exact;
             }
-            return verifyExactAbi(classLoader, serverPlayer, logger);
+            AbiVerification exact = verifyExactAbi(
+                    classLoader, craftServerPackage, Object.class, logger);
+            return exact.compatible() ? bind(
+                    exact.diagnostic(), exact.signatureVerifier(),
+                    exact.publicationBackend(), new LegacyConnectionAssurance()) : exact;
         } catch (ReflectiveOperationException | LinkageError failure) {
             return AbiVerification.incompatible(
                     id + " missing exact ABI leaf: " + failure.getClass().getSimpleName());
@@ -55,37 +68,27 @@ public abstract class AbstractBukkitNativeAdapter implements BukkitNativeAdapter
 
     protected abstract AbiVerification verifyExactAbi(
             ClassLoader classLoader,
+            String craftServerPackage,
             Class<?> serverPlayerClass,
             Logger logger) throws ReflectiveOperationException;
-
-    protected AbiVerification verifyProfileAbi(
-            ClassLoader classLoader,
-            Class<?> craftPlayerClass,
-            Class<?> serverPlayerClass) throws ReflectiveOperationException {
-        if (usesLegacyRuntimeMappings()) {
-            Method profile = craftPlayerClass.getMethod("getProfile");
-            return profile.getReturnType().getName().equals("com.mojang.authlib.GameProfile")
-                    ? AbiVerification.compatible(id + " CraftPlayer#getProfile")
-                    : AbiVerification.incompatible(
-                    id + " invalid CraftPlayer#getProfile descriptor");
-        }
-        Method gameProfile = serverPlayerClass.getMethod("getGameProfile");
-        return gameProfile.getReturnType().getName().equals("com.mojang.authlib.GameProfile")
-                ? AbiVerification.compatible(id + " live profile")
-                : AbiVerification.incompatible(
-                id + " getGameProfile return type is " + gameProfile.getReturnType().getName());
-    }
 
     @Override
     public final BukkitRefreshEngine createEngine(
             JavaPlugin plugin,
             ServerConfiguration configuration,
+            AbiVerification binding,
             BukkitRefreshEngine.PublicationListener listener,
             DiagnosticSink diagnostics) {
-        return new ReflectiveBukkitRefreshEngine(
+        AbiVerification checkedBinding = Objects.requireNonNull(binding, "binding");
+        if (!checkedBinding.compatible()) {
+            throw new IllegalArgumentException("Cannot create an engine from an incompatible ABI");
+        }
+        return new BukkitAppearanceRefreshEngine(
                 plugin, configuration, identity.threadingModel()
                 == ServerRuntimeIdentity.ThreadingModel.REGIONIZED,
-                usesLegacyRuntimeMappings(),
+                checkedBinding.signatureVerifier(),
+                checkedBinding.publicationBackend(),
+                checkedBinding.connectionAssurance(),
                 listener,
                 diagnostics);
     }
@@ -96,16 +99,21 @@ public abstract class AbstractBukkitNativeAdapter implements BukkitNativeAdapter
 
     protected final AbiVerification requireProfilePropertyApi(
             ClassLoader classLoader,
+            String craftServerPackage,
             String expectedAuthlibFamily) throws ReflectiveOperationException {
-        Class<?> property = Class.forName(
-                "com.mojang.authlib.properties.Property", false, classLoader);
-        boolean constructor = java.util.Arrays.stream(property.getConstructors())
-                .anyMatch(candidate -> candidate.getParameterCount() == 3);
-        boolean accessors = java.util.Arrays.stream(property.getMethods())
-                .anyMatch(method -> method.getName().equals("hasSignature")
-                        && method.getParameterCount() == 0);
-        return constructor && accessors
-                ? AbiVerification.compatible(id + " authlib=" + expectedAuthlibFamily)
-                : AbiVerification.incompatible(id + " lacks signed textures property ABI");
+        AuthlibSignatureVerifier verifier = ExactAuthlibSignatureVerifier.resolve(
+                classLoader, craftServerPackage,
+                expectedAuthlibFamily, usesLegacyRuntimeMappings());
+        return AbiVerification.compatible(
+                id + " authlib=" + expectedAuthlibFamily, verifier);
+    }
+
+    private static AbiVerification bind(
+            String diagnostic,
+            AuthlibSignatureVerifier signatureVerifier,
+            BukkitPublicationBackend publicationBackend,
+            BukkitConnectionAssurance connectionAssurance) {
+        return AbiVerification.compatible(diagnostic, signatureVerifier,
+                publicationBackend, connectionAssurance);
     }
 }

@@ -48,21 +48,21 @@ final class ViewSpecGoldenTest {
     };
 
     @Test
-    void completeSmallViewSpecMatches262Golden() {
+    void completeSmallViewSpecMatchesReferenceGolden() {
         assertEquals(golden("view-spec-320.txt"), describePair(
                 gallery(4, 3, 1, 320, 240, 160, 100),
                 editor(320, 240)).stripTrailing());
     }
 
     @Test
-    void completeDefaultViewSpecMatches262Golden() {
+    void completeDefaultViewSpecMatchesReferenceGolden() {
         assertEquals(golden("view-spec-854.txt"), describePair(
                 gallery(4, 3, 1, 854, 480, 427, 180),
                 editor(854, 480)).stripTrailing());
     }
 
     @Test
-    void completeWideViewSpecMatches262Golden() {
+    void completeWideViewSpecMatchesReferenceGolden() {
         assertEquals(golden("view-spec-wide.txt"), describePair(
                 gallery(6, 5, 1, 1600, 720, 800, 200),
                 editor(1600, 720)).stripTrailing());

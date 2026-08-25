@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.mixin",
+  "client": [
+    "AbstractClientPlayerPreviewMixin",
+    "AccessibilityOptionsScreenMixin",
+    "HttpTextureUploadMixin",
+    "LivingEntityRendererPreviewMixin",
+    "ModelPartPreviewMixin",
+    "OptionsScreenMixin",
+    "PlayerPreviewMixin",
+    "ScreenRenderablesAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
