@@ -5,7 +5,6 @@ import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 import com.naocraftlab.skins.server.plugin.common.ServerRuntimeIdentity;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.lang.reflect.Method;
 import java.util.Objects;
 import java.util.logging.Logger;
 
@@ -13,10 +12,15 @@ import java.util.logging.Logger;
 public abstract class AbstractBukkitNativeAdapter implements BukkitNativeAdapter {
     private final String id;
     private final ServerRuntimeIdentity identity;
+    private final String authlibFamily;
 
-    protected AbstractBukkitNativeAdapter(String id, ServerRuntimeIdentity identity) {
+    protected AbstractBukkitNativeAdapter(
+            String id,
+            ServerRuntimeIdentity identity,
+            String authlibFamily) {
         this.id = Objects.requireNonNull(id, "id");
         this.identity = Objects.requireNonNull(identity, "identity");
+        this.authlibFamily = Objects.requireNonNull(authlibFamily, "authlibFamily");
     }
 
     @Override
@@ -42,17 +46,12 @@ public abstract class AbstractBukkitNativeAdapter implements BukkitNativeAdapter
                     || identity.family() == ServerRuntimeIdentity.Family.PURPUR
                     || identity.family() == ServerRuntimeIdentity.Family.FOLIA;
             if (paperFamily) {
-                Method getProfile = org.bukkit.entity.Player.class.getMethod("getPlayerProfile");
-                Method setProfile = org.bukkit.entity.Player.class.getMethod(
-                        "setPlayerProfile", getProfile.getReturnType());
-                if (setProfile.getReturnType() != void.class) {
-                    return AbiVerification.incompatible(id + " invalid Player#setPlayerProfile");
-                }
                 AbiVerification exact = verifyExactAbi(
                         classLoader, craftServerPackage, Object.class, logger);
                 return exact.compatible() ? bind(
                         exact.diagnostic(), exact.signatureVerifier(),
-                        new PaperProfilePublicationBackend(),
+                        PaperProfilePublicationBackend.resolve(
+                                classLoader, craftServerPackage, authlibFamily),
                         PaperConnectionAssuranceBinding.resolve(classLoader)) : exact;
             }
             AbiVerification exact = verifyExactAbi(

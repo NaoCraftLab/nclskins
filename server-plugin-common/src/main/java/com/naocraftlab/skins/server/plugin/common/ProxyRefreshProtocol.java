@@ -69,7 +69,11 @@ public final class ProxyRefreshProtocol {
     }
 
     public Message decode(byte[] payload) {
-        ServerCapabilityProtocol.requireBounded(payload, MAX_PAYLOAD_BYTES, "proxy refresh payload");
+        try {
+            PluginProtocolBytes.requireBounded(payload, MAX_PAYLOAD_BYTES, "proxy refresh payload");
+        } catch (PluginProtocolBytes.ProtocolBytesException invalid) {
+            throw new ProtocolException(invalid.getMessage(), invalid);
+        }
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
             int wireVersion = input.readUnsignedByte();
             if (wireVersion != WIRE_VERSION) {
@@ -163,7 +167,7 @@ public final class ProxyRefreshProtocol {
         if (value.length != length) {
             throw new EOFException("Truncated relay string");
         }
-        return ServerCapabilityProtocol.decodeUtf8(value);
+        return PluginProtocolBytes.decodeUtf8(value);
     }
 
     private static void validateNonce(byte[] nonce) {

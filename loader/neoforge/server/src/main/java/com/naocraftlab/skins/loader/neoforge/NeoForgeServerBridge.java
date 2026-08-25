@@ -1,24 +1,23 @@
 package com.naocraftlab.skins.loader.neoforge;
 
 import com.naocraftlab.skins.compat.server.MinecraftServerLifecycle;
-import com.naocraftlab.skins.compat.server.MinecraftServerRefreshCommand;
+import com.naocraftlab.skins.compat.server.MinecraftAppearanceRefreshNetwork;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.loading.FMLPaths;
-import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 
 
 @EventBusSubscriber(modid = NclSkinsNeoForgeMod.MOD_ID)
 final class NeoForgeServerBridge {
     private NeoForgeServerBridge() {}
 
-    @SubscribeEvent
-    static void registerCommands(RegisterCommandsEvent event) {
-        MinecraftServerRefreshCommand.register(event.getDispatcher());
+    static void registerPayloads(RegisterPayloadHandlersEvent event) {
+        MinecraftAppearanceRefreshNetwork.registerPayloads(event);
     }
 
     @SubscribeEvent

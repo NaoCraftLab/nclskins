@@ -13,7 +13,7 @@
     "currentAppearance",
     "updateNotification",
     "serverSignal",
-    "serverCommand",
+    "serverSignalReceiver",
     "serverProfileVerification",
     "serverProfileMutation",
     "serverTracking",
@@ -195,10 +195,12 @@
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ClientRuntimeServerSignalBoundaryTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/DefaultClientOperationsTest.java"
       ],
-      "supportSources": [],
+      "supportSources": [
+        "server-contract/src/main/java/com/naocraftlab/skins/server/AppearanceRefreshSignalProtocol.java"
+      ],
       "semantics": [
         "no-account-payload",
-        "exact-command-discovery",
+        "exact-empty-native-channel",
         "connected-client-only",
         "remote-impact-gating",
         "latest-generation-only"
@@ -246,17 +248,20 @@
         "failure-safe-retracking"
       ]
     },
-    "server-command-registration": {
+    "server-refresh-reception": {
       "tests": [
-        "server-contract/src/test/java/com/naocraftlab/skins/server/ServerRefreshCommandProtocolTest.java"
+        "server-contract/src/test/java/com/naocraftlab/skins/server/AppearanceRefreshSignalProtocolTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ServerAppearanceRefreshServiceTest.java",
+        "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ServerAppearanceRefreshCoordinatorTest.java"
       ],
       "supportSources": [
-        "server-contract/src/main/java/com/naocraftlab/skins/server/ServerRefreshCommandProtocol.java"
+        "server-contract/src/main/java/com/naocraftlab/skins/server/AppearanceRefreshSignalProtocol.java",
+        "compat/server-common/src/main/java/com/naocraftlab/skins/compat/server/MinecraftServerAppearanceService.java"
       ],
       "semantics": [
-        "exact-payload-free-command-path",
-        "player-service-policy-eligibility",
-        "accepted-and-coalesced-success"
+        "exact-zero-byte-client-to-server-payload",
+        "connection-bound-actor-identity",
+        "unchanged-bounded-admission-and-publication"
       ]
     },
     "server-loader-lifecycle": {
@@ -482,15 +487,70 @@
       "sharedSuite": "update-notification-contract",
       "leafSource": "gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/MetadataRenderer.groovy"
     },
-    "command-v1": {
+    "fabric-raw-play-v1": {
       "capabilityKey": "serverSignal",
       "sharedSuite": "server-refresh-notification",
-      "leafSource": "compat/capabilities/server-signal/command-v1/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
+      "leafSource": "compat/capabilities/server-signal/fabric-raw-play/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
     },
-    "server-command-v1": {
-      "capabilityKey": "serverCommand",
-      "sharedSuite": "server-command-registration",
-      "leafSource": "compat/capabilities/server/server-command-v1/src/main/java/com/naocraftlab/skins/compat/server/MinecraftServerRefreshCommand.java"
+    "fabric-typed-resource-location-v1": {
+      "capabilityKey": "serverSignal",
+      "sharedSuite": "server-refresh-notification",
+      "leafSource": "compat/capabilities/server-signal/fabric-typed-payload/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
+    },
+    "fabric-typed-identifier-v1": {
+      "capabilityKey": "serverSignal",
+      "sharedSuite": "server-refresh-notification",
+      "leafSource": "compat/capabilities/server-signal/fabric-typed-payload/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
+    },
+    "forge-event-channel-v1": {
+      "capabilityKey": "serverSignal",
+      "sharedSuite": "server-refresh-notification",
+      "leafSource": "compat/capabilities/server-signal/forge-event-channel/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
+    },
+    "neoforge-resource-location-v1": {
+      "capabilityKey": "serverSignal",
+      "sharedSuite": "server-refresh-notification",
+      "leafSource": "compat/capabilities/server-signal/neoforge-resource-location/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
+    },
+    "neoforge-identifier-v1": {
+      "capabilityKey": "serverSignal",
+      "sharedSuite": "server-refresh-notification",
+      "leafSource": "compat/capabilities/server-signal/neoforge-identifier/src/main/java/com/naocraftlab/skins/compat/client/MinecraftServerAppearanceRefreshNotifier.java"
+    },
+    "fabric-raw-play-receiver-v1": {
+      "capabilityKey": "serverSignalReceiver",
+      "sharedSuite": "server-refresh-reception",
+      "leafSource": "compat/capabilities/server-signal-receiver/fabric-raw-play/src/main/java/com/naocraftlab/skins/compat/server/MinecraftAppearanceRefreshNetwork.java"
+    },
+    "fabric-typed-resource-location-receiver-v1": {
+      "capabilityKey": "serverSignalReceiver",
+      "sharedSuite": "server-refresh-reception",
+      "leafSource": "compat/capabilities/server-signal-receiver/fabric-typed-payload/src/main/java/com/naocraftlab/skins/compat/server/MinecraftAppearanceRefreshNetwork.java"
+    },
+    "fabric-typed-identifier-receiver-v1": {
+      "capabilityKey": "serverSignalReceiver",
+      "sharedSuite": "server-refresh-reception",
+      "leafSource": "compat/capabilities/server-signal-receiver/fabric-typed-payload/src/main/java/com/naocraftlab/skins/compat/server/MinecraftAppearanceRefreshNetwork.java"
+    },
+    "fabric-serverbound-identifier-receiver-v1": {
+      "capabilityKey": "serverSignalReceiver",
+      "sharedSuite": "server-refresh-reception",
+      "leafSource": "compat/capabilities/server-signal-receiver/fabric-typed-serverbound/src/main/java/com/naocraftlab/skins/compat/server/MinecraftAppearanceRefreshNetwork.java"
+    },
+    "forge-event-channel-receiver-v1": {
+      "capabilityKey": "serverSignalReceiver",
+      "sharedSuite": "server-refresh-reception",
+      "leafSource": "compat/capabilities/server-signal-receiver/forge-event-channel/src/main/java/com/naocraftlab/skins/compat/server/MinecraftAppearanceRefreshNetwork.java"
+    },
+    "neoforge-resource-location-receiver-v1": {
+      "capabilityKey": "serverSignalReceiver",
+      "sharedSuite": "server-refresh-reception",
+      "leafSource": "compat/capabilities/server-signal-receiver/neoforge-typed-payload/src/main/java/com/naocraftlab/skins/compat/server/MinecraftAppearanceRefreshNetwork.java"
+    },
+    "neoforge-identifier-receiver-v1": {
+      "capabilityKey": "serverSignalReceiver",
+      "sharedSuite": "server-refresh-reception",
+      "leafSource": "compat/capabilities/server-signal-receiver/neoforge-typed-payload/src/main/java/com/naocraftlab/skins/compat/server/MinecraftAppearanceRefreshNetwork.java"
     },
     "profile-verification-authlib-v4": {
       "capabilityKey": "serverProfileVerification",

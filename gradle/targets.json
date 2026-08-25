@@ -124,6 +124,14 @@
           "fabric": "remote-player-preview",
           "forge": "remote-player-preview"
         },
+        "serverSignalCapabilities": {
+          "fabric": "fabric-raw-play-v1",
+          "forge": "forge-event-channel-v1"
+        },
+        "serverSignalReceiverCapabilities": {
+          "fabric": "fabric-raw-play-receiver-v1",
+          "forge": "forge-event-channel-receiver-v1"
+        },
         "capabilities": {
           "gui": "immediate-resource-location-player-info",
           "textures": "resource-location-legacy",
@@ -133,8 +141,6 @@
           "filePicker": "tinyfd-safe-v1",
           "bundledSkin": "resource-stack-bundled",
           "currentAppearance": "resource-location-current",
-          "serverSignal": "command-v1",
-          "serverCommand": "server-command-v1",
           "serverProfileVerification": "profile-verification-authlib-v4",
           "serverProfileMutation": "profile-mutation-authlib-v4",
           "serverTracking": "tracking-chunkmap-serverlevel-v1",
@@ -154,6 +160,14 @@
           "fabric": "player-skin-preview",
           "neoforge": "player-skin-preview"
         },
+        "serverSignalCapabilities": {
+          "fabric": "fabric-typed-resource-location-v1",
+          "neoforge": "neoforge-resource-location-v1"
+        },
+        "serverSignalReceiverCapabilities": {
+          "fabric": "fabric-typed-resource-location-receiver-v1",
+          "neoforge": "neoforge-resource-location-receiver-v1"
+        },
         "capabilities": {
           "gui": "immediate-resource-location-skin-lookup",
           "textures": "resource-location-modern",
@@ -163,8 +177,6 @@
           "filePicker": "tinyfd-safe-v1",
           "bundledSkin": "vanilla-pack-resource-location",
           "currentAppearance": "player-skin-current",
-          "serverSignal": "command-v1",
-          "serverCommand": "server-command-v1",
           "serverProfileVerification": "profile-verification-authlib-v6",
           "serverProfileMutation": "profile-mutation-authlib-v6",
           "serverTracking": "tracking-chunkmap-serverlevel-v1",
@@ -184,6 +196,14 @@
           "fabric": "avatar-pip-submission-fabric",
           "neoforge": "avatar-pip-submission-neoforge"
         },
+        "serverSignalCapabilities": {
+          "fabric": "fabric-typed-identifier-v1",
+          "neoforge": "neoforge-identifier-v1"
+        },
+        "serverSignalReceiverCapabilities": {
+          "fabric": "fabric-typed-identifier-receiver-v1",
+          "neoforge": "neoforge-identifier-receiver-v1"
+        },
         "capabilities": {
           "gui": "identifier-submission",
           "textures": "identifier-texture-registry",
@@ -193,8 +213,6 @@
           "filePicker": "tinyfd-safe-v1",
           "bundledSkin": "vanilla-pack-identifier-direct",
           "currentAppearance": "avatar-state-current-player",
-          "serverSignal": "command-v1",
-          "serverCommand": "server-command-v1",
           "serverProfileVerification": "profile-verification-authlib-v7",
           "serverProfileMutation": "profile-mutation-authlib-v7",
           "serverTracking": "tracking-chunkmap-level-v2",
@@ -214,6 +232,14 @@
           "fabric": "avatar-pip-extraction-player-model-fabric",
           "neoforge": "avatar-pip-extraction-player-model-neoforge"
         },
+        "serverSignalCapabilities": {
+          "fabric": "fabric-typed-identifier-v1",
+          "neoforge": "neoforge-identifier-v1"
+        },
+        "serverSignalReceiverCapabilities": {
+          "fabric": "fabric-serverbound-identifier-receiver-v1",
+          "neoforge": "neoforge-identifier-receiver-v1"
+        },
         "capabilities": {
           "gui": "identifier-extraction-tab-navigation-glfw",
           "textures": "identifier-texture-registry",
@@ -223,8 +249,6 @@
           "filePicker": "tinyfd-safe-v1",
           "bundledSkin": "vanilla-pack-identifier-direct",
           "currentAppearance": "avatar-state-current-player",
-          "serverSignal": "command-v1",
-          "serverCommand": "server-command-v1",
           "serverProfileVerification": "profile-verification-authlib-v7",
           "serverProfileMutation": "profile-mutation-authlib-v7",
           "serverTracking": "tracking-chunkmap-level-v2",
@@ -244,6 +268,14 @@
           "fabric": "avatar-pip-extraction-simple-model-attack-time-fabric",
           "neoforge": "avatar-pip-extraction-simple-model-attack-time-neoforge"
         },
+        "serverSignalCapabilities": {
+          "fabric": "fabric-typed-identifier-v1",
+          "neoforge": "neoforge-identifier-v1"
+        },
+        "serverSignalReceiverCapabilities": {
+          "fabric": "fabric-serverbound-identifier-receiver-v1",
+          "neoforge": "neoforge-identifier-receiver-v1"
+        },
         "capabilities": {
           "gui": "identifier-extraction-menu-tab-glfw",
           "textures": "identifier-texture-registry",
@@ -253,8 +285,6 @@
           "filePicker": "tinyfd-safe-v1",
           "bundledSkin": "vanilla-pack-identifier-direct",
           "currentAppearance": "avatar-state-current-player",
-          "serverSignal": "command-v1",
-          "serverCommand": "server-command-v1",
           "serverProfileVerification": "profile-verification-authlib-v9",
           "serverProfileMutation": "profile-mutation-authlib-v9",
           "serverTracking": "tracking-chunkmap-level-v2",
@@ -272,6 +302,12 @@
         "previewCapabilities": {
           "fabric": "avatar-pip-extraction-simple-model-no-attack-time-fabric"
         },
+        "serverSignalCapabilities": {
+          "fabric": "fabric-typed-identifier-v1"
+        },
+        "serverSignalReceiverCapabilities": {
+          "fabric": "fabric-serverbound-identifier-receiver-v1"
+        },
         "capabilities": {
           "gui": "identifier-extraction-menu-tab-input-constants",
           "textures": "identifier-texture-registry",
@@ -281,8 +317,6 @@
           "filePicker": "tinyfd-safe-v1",
           "bundledSkin": "vanilla-pack-identifier-provider",
           "currentAppearance": "avatar-state-current-player",
-          "serverSignal": "command-v1",
-          "serverCommand": "server-command-v1",
           "serverProfileVerification": "profile-verification-authlib-v10",
           "serverProfileMutation": "profile-mutation-authlib-v9",
           "serverTracking": "tracking-chunkmap-level-v2",
@@ -385,7 +419,7 @@
       "bungeeApi": "1.21-R0.4",
       "gsonRelocation": "com.naocraftlab.skins.server.lib.gson"
     },
-    "protocols": ["command-v1", "capabilities-v1", "proxy-refresh-v1"],
+    "protocols": ["appearance-refresh-v1", "proxy-refresh-v1"],
     "compatibility": {
       "1.20.1": ["craftbukkit", "spigot", "paper", "purpur", "folia"],
       "1.21.1": ["paper", "purpur"],
@@ -485,7 +519,7 @@
     {"id":"1.21.11-paper-bungeecord","minecraft":"1.21.11","kernel":"paper","mode":"bungeecord","ports":{"proxy":26044,"lobby":26045,"target":26046},"dependencies":["bungeecord","bungeeguard"]},
     {"id":"26.1.1-paper-bungeecord","minecraft":"26.1.1","kernel":"paper","mode":"bungeecord","ports":{"proxy":26047,"lobby":26048,"target":26049},"dependencies":["bungeecord","bungeeguard"]},
     {"id":"26.1.2-paper-bungeecord","minecraft":"26.1.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26050,"lobby":26051,"target":26052},"dependencies":["bungeecord","bungeeguard"]},
-    {"id":"26.2-paper-bungeecord","minecraft":"26.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26053,"lobby":26054,"target":26055},"dependencies":["bungeecord","bungeeguard"]}
+    {"id":"26.2-paper-bungeecord","minecraft":"26.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26153,"lobby":26054,"target":26055},"dependencies":["bungeecord","bungeeguard"]}
   ],
   "baseBundles": ["portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {
@@ -948,11 +982,53 @@
       "side": "client",
       "requires": []
     },
-    "command-v1": {
-      "java": ["compat/capabilities/server-signal/command-v1/src/main/java"],
+    "appearance-refresh-payload-resource-location": {
+      "java": ["compat/capabilities/network-payload/resource-location/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": []
+    },
+    "appearance-refresh-payload-identifier": {
+      "java": ["compat/capabilities/network-payload/identifier/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": []
+    },
+    "fabric-raw-play-signal": {
+      "java": ["compat/capabilities/server-signal/fabric-raw-play/src/main/java"],
       "resources": [],
       "side": "client",
       "requires": []
+    },
+    "fabric-typed-resource-location-signal": {
+      "java": ["compat/capabilities/server-signal/fabric-typed-payload/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["appearance-refresh-payload-resource-location"]
+    },
+    "fabric-typed-identifier-signal": {
+      "java": ["compat/capabilities/server-signal/fabric-typed-payload/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["appearance-refresh-payload-identifier"]
+    },
+    "forge-event-channel-signal": {
+      "java": ["compat/capabilities/server-signal/forge-event-channel/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["forge-event-channel-signal-receiver"]
+    },
+    "neoforge-resource-location-signal": {
+      "java": ["compat/capabilities/server-signal/neoforge-resource-location/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["appearance-refresh-payload-resource-location"]
+    },
+    "neoforge-identifier-signal": {
+      "java": ["compat/capabilities/server-signal/neoforge-identifier/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["appearance-refresh-payload-identifier"]
     },
     "profile-verification-authlib-v4-v6": {
       "java": ["compat/capabilities/server/profile-verification-authlib-v4-v6/src/main/java"],
@@ -1016,11 +1092,47 @@
       "side": "common",
       "requires": ["server-native-common"]
     },
-    "server-command-v1": {
-      "java": ["compat/capabilities/server/server-command-v1/src/main/java"],
+    "fabric-raw-play-signal-receiver": {
+      "java": ["compat/capabilities/server-signal-receiver/fabric-raw-play/src/main/java"],
       "resources": [],
       "side": "common",
       "requires": ["server-native-common"]
+    },
+    "fabric-typed-resource-location-signal-receiver": {
+      "java": ["compat/capabilities/server-signal-receiver/fabric-typed-payload/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": ["server-native-common", "appearance-refresh-payload-resource-location"]
+    },
+    "fabric-typed-identifier-signal-receiver": {
+      "java": ["compat/capabilities/server-signal-receiver/fabric-typed-payload/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": ["server-native-common", "appearance-refresh-payload-identifier"]
+    },
+    "fabric-serverbound-identifier-signal-receiver": {
+      "java": ["compat/capabilities/server-signal-receiver/fabric-typed-serverbound/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": ["server-native-common", "appearance-refresh-payload-identifier"]
+    },
+    "forge-event-channel-signal-receiver": {
+      "java": ["compat/capabilities/server-signal-receiver/forge-event-channel/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": ["server-native-common"]
+    },
+    "neoforge-resource-location-signal-receiver": {
+      "java": ["compat/capabilities/server-signal-receiver/neoforge-typed-payload/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": ["server-native-common", "appearance-refresh-payload-resource-location"]
+    },
+    "neoforge-identifier-signal-receiver": {
+      "java": ["compat/capabilities/server-signal-receiver/neoforge-typed-payload/src/main/java"],
+      "resources": [],
+      "side": "common",
+      "requires": ["server-native-common", "appearance-refresh-payload-identifier"]
     },
     "fabric-server-v1": {
       "java": ["loader/fabric/server/src/main/java"],
@@ -1082,7 +1194,12 @@
     "resource-location-current": {"bundle": "resource-location-current", "abiImplementation": "resource-location-current"},
     "player-skin-current": {"bundle": "player-skin-current", "abiImplementation": "player-skin-current"},
     "avatar-state-current-player": {"bundle": "avatar-state-current-player", "abiImplementation": "avatar-state-current-player"},
-    "command-v1": {"bundle": "command-v1", "abiImplementation": "command-v1"},
+    "fabric-raw-play-v1": {"bundle": "fabric-raw-play-signal", "abiImplementation": "fabric-raw-play-v1"},
+    "fabric-typed-resource-location-v1": {"bundle": "fabric-typed-resource-location-signal", "abiImplementation": "fabric-typed-payload-v1"},
+    "fabric-typed-identifier-v1": {"bundle": "fabric-typed-identifier-signal", "abiImplementation": "fabric-typed-payload-v1"},
+    "forge-event-channel-v1": {"bundle": "forge-event-channel-signal", "abiImplementation": "forge-event-channel-v1"},
+    "neoforge-resource-location-v1": {"bundle": "neoforge-resource-location-signal", "abiImplementation": "neoforge-resource-location-v1"},
+    "neoforge-identifier-v1": {"bundle": "neoforge-identifier-signal", "abiImplementation": "neoforge-identifier-v1"},
     "profile-verification-authlib-v4": {"bundle": "profile-verification-authlib-v4-v6", "abiImplementation": "profile-verification-authlib-v4"},
     "profile-verification-authlib-v6": {"bundle": "profile-verification-authlib-v4-v6", "abiImplementation": "profile-verification-authlib-v6"},
     "profile-verification-authlib-v9": {"bundle": "profile-verification-authlib-v9", "abiImplementation": "profile-verification-authlib-v9"},
@@ -1101,7 +1218,13 @@
     "tracking-chunkmap-serverlevel-v1": {"bundle": "tracking-chunkmap-serverlevel-v1", "abiImplementation": "tracking-chunkmap-serverlevel-v1"},
     "tracking-chunkmap-level-v2": {"bundle": "tracking-chunkmap-level-v2", "abiImplementation": "tracking-chunkmap-level-v2"},
     "player-info-initialize-v1": {"bundle": "player-info-initialize-v1", "abiImplementation": "player-info-initialize-v1"},
-    "server-command-v1": {"bundle": "server-command-v1", "abiImplementation": "server-command-v1"},
+    "fabric-raw-play-receiver-v1": {"bundle": "fabric-raw-play-signal-receiver", "abiImplementation": "fabric-raw-play-receiver-v1"},
+    "fabric-typed-resource-location-receiver-v1": {"bundle": "fabric-typed-resource-location-signal-receiver", "abiImplementation": "fabric-typed-payload-receiver-v1"},
+    "fabric-typed-identifier-receiver-v1": {"bundle": "fabric-typed-identifier-signal-receiver", "abiImplementation": "fabric-typed-payload-receiver-v1"},
+    "fabric-serverbound-identifier-receiver-v1": {"bundle": "fabric-serverbound-identifier-signal-receiver", "abiImplementation": "fabric-serverbound-payload-receiver-v1"},
+    "forge-event-channel-receiver-v1": {"bundle": "forge-event-channel-signal-receiver", "abiImplementation": "forge-event-channel-receiver-v1"},
+    "neoforge-resource-location-receiver-v1": {"bundle": "neoforge-resource-location-signal-receiver", "abiImplementation": "neoforge-typed-payload-receiver-v1"},
+    "neoforge-identifier-receiver-v1": {"bundle": "neoforge-identifier-signal-receiver", "abiImplementation": "neoforge-typed-payload-receiver-v1"},
     "fabric-server-v1": {"bundle": "fabric-server-v1", "abiImplementation": "fabric-server-v1"},
     "forge47-server": {"bundle": "forge47-server", "abiImplementation": "forge47-server"},
     "neoforge-server-v1": {"bundle": "neoforge-server-v1", "abiImplementation": "neoforge-server-v1"}
@@ -1150,8 +1273,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "resource-stack-bundled",
         "currentAppearance": "resource-location-current",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "fabric-raw-play-v1",
+        "serverSignalReceiver": "fabric-raw-play-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v4",
         "serverProfileMutation": "profile-mutation-authlib-v4",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
@@ -1218,8 +1341,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "resource-stack-bundled",
         "currentAppearance": "resource-location-current",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "forge-event-channel-v1",
+        "serverSignalReceiver": "forge-event-channel-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v4",
         "serverProfileMutation": "profile-mutation-authlib-v4",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
@@ -1288,8 +1411,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-resource-location",
         "currentAppearance": "player-skin-current",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "fabric-typed-resource-location-v1",
+        "serverSignalReceiver": "fabric-typed-resource-location-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v6",
         "serverProfileMutation": "profile-mutation-authlib-v6",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
@@ -1356,8 +1479,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-resource-location",
         "currentAppearance": "player-skin-current",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "neoforge-resource-location-v1",
+        "serverSignalReceiver": "neoforge-resource-location-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v6",
         "serverProfileMutation": "profile-mutation-authlib-v6",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
@@ -1426,8 +1549,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-direct",
         "currentAppearance": "avatar-state-current-player",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "fabric-typed-identifier-v1",
+        "serverSignalReceiver": "fabric-typed-identifier-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v7",
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
@@ -1494,8 +1617,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-direct",
         "currentAppearance": "avatar-state-current-player",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "neoforge-identifier-v1",
+        "serverSignalReceiver": "neoforge-identifier-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v7",
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
@@ -1564,8 +1687,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-direct",
         "currentAppearance": "avatar-state-current-player",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "fabric-typed-identifier-v1",
+        "serverSignalReceiver": "fabric-serverbound-identifier-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v7",
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
@@ -1659,8 +1782,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-direct",
         "currentAppearance": "avatar-state-current-player",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "neoforge-identifier-v1",
+        "serverSignalReceiver": "neoforge-identifier-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v7",
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
@@ -1756,8 +1879,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-direct",
         "currentAppearance": "avatar-state-current-player",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "fabric-typed-identifier-v1",
+        "serverSignalReceiver": "fabric-serverbound-identifier-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v9",
         "serverProfileMutation": "profile-mutation-authlib-v9",
         "serverTracking": "tracking-chunkmap-level-v2",
@@ -1824,8 +1947,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-direct",
         "currentAppearance": "avatar-state-current-player",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "neoforge-identifier-v1",
+        "serverSignalReceiver": "neoforge-identifier-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v9",
         "serverProfileMutation": "profile-mutation-authlib-v9",
         "serverTracking": "tracking-chunkmap-level-v2",
@@ -1897,8 +2020,8 @@
         "filePicker": "tinyfd-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-provider",
         "currentAppearance": "avatar-state-current-player",
-        "serverSignal": "command-v1",
-        "serverCommand": "server-command-v1",
+        "serverSignal": "fabric-typed-identifier-v1",
+        "serverSignalReceiver": "fabric-serverbound-identifier-receiver-v1",
         "serverProfileVerification": "profile-verification-authlib-v10",
         "serverProfileMutation": "profile-mutation-authlib-v9",
         "serverTracking": "tracking-chunkmap-level-v2",

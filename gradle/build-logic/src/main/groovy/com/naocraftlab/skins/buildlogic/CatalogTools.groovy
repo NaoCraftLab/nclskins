@@ -15,7 +15,7 @@ final class CatalogTools {
         'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
         'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
         'updateNotification',
-        'serverSignal', 'serverCommand', 'serverProfileVerification',
+        'serverSignal', 'serverSignalReceiver', 'serverProfileVerification',
         'serverProfileMutation', 'serverTracking', 'serverPlayerInfoPublication',
         'serverLoader'
     ] as Set
@@ -926,7 +926,7 @@ final class CatalogTools {
                 plugin.matrixId != 'official-v1' || plugin.javaRelease != 17) {
             errors.add('serverPlugin identity, artifacts, matrix, and Java release must be exact')
         }
-        if (plugin.protocols != ['command-v1', 'capabilities-v1', 'proxy-refresh-v1']) {
+        if (plugin.protocols != ['appearance-refresh-v1', 'proxy-refresh-v1']) {
             errors.add('serverPlugin protocols must retain the ordered v1 compatibility set')
         }
         if (plugin.packaging != [
@@ -1100,9 +1100,10 @@ final class CatalogTools {
         Set<Integer> modPorts = (catalog.targets as List).collectMany { Map target ->
             targetRuntimeSpecs(target).collect { (it.serverPort as Number).intValue() }
         } as Set<Integer>
-        if (ports != (26000..26055).toList() || ports.toSet().size() != 56 ||
+        List<Integer> expectedPorts = (26000..26052).toList() + [26153, 26054, 26055]
+        if (ports != expectedPorts || ports.toSet().size() != 56 ||
                 !ports.toSet().intersect(modPorts).isEmpty()) {
-            errors.add('server plugin ports must be ordered, unique 26000..26055, and disjoint from mod runs')
+            errors.add('server plugin ports must match the exact topology allocation, be unique, and be disjoint from mod runs')
         }
     }
 
@@ -1133,13 +1134,19 @@ final class CatalogTools {
 
         Map epoch = selected.epochProfile instanceof Map ? selected.epochProfile as Map : [:]
         Set<String> epochCapabilities = REQUIRED_CAPABILITIES -
-                ['loaderScreen', 'serverLoader', 'preview', 'updateNotification'] as Set
-        if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass', 'clientProviderBundle', 'accessBundles', 'previewCapabilities', 'capabilities'] as Set ||
+                ['loaderScreen', 'serverLoader', 'preview', 'updateNotification',
+                 'serverSignal', 'serverSignalReceiver'] as Set
+        if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass',
+                'clientProviderBundle', 'accessBundles', 'previewCapabilities',
+                'serverSignalCapabilities', 'serverSignalReceiverCapabilities',
+                'capabilities'] as Set ||
                 !(epoch.clientProviderClass instanceof String) ||
                 !(epoch.clientProviderClass ==~ /[a-zA-Z_$][a-zA-Z0-9_$]*(\.[a-zA-Z_$][a-zA-Z0-9_$]*)+/) ||
                 !(epoch.clientProviderBundle instanceof String) ||
                 !(epoch.accessBundles instanceof Map) ||
                 !(epoch.previewCapabilities instanceof Map) ||
+                !(epoch.serverSignalCapabilities instanceof Map) ||
+                !(epoch.serverSignalReceiverCapabilities instanceof Map) ||
                 !(epoch.capabilities instanceof Map) ||
                 ((epoch.capabilities as Map).keySet() as Set) != epochCapabilities) {
             errors.add("${target.id}: invalid epoch profile shape")
@@ -1161,6 +1168,16 @@ final class CatalogTools {
                 errors.add("${target.id}: epoch profile has no preview capability for loader")
             } else if ((target.capabilities as Map).preview != previewImplementation) {
                 errors.add("${target.id}: preview differs from epoch/loader profile")
+            }
+            [serverSignal: 'serverSignalCapabilities',
+             serverSignalReceiver: 'serverSignalReceiverCapabilities'].each {
+                String capability, String profileKey ->
+                Object implementation = (epoch[profileKey] as Map)[loader]
+                if (!(implementation instanceof String) || implementation.isBlank()) {
+                    errors.add("${target.id}: epoch profile has no ${capability} capability for loader")
+                } else if ((target.capabilities as Map)[capability] != implementation) {
+                    errors.add("${target.id}: ${capability} differs from epoch/loader profile")
+                }
             }
         }
 
@@ -1456,6 +1473,11 @@ final class CatalogTools {
             List matches = sourceOwners.findAll { String root, Set owners -> path == root || path.startsWith(root + '/') }.collectMany { it.value as List }
             if (matches) {
                 matches.each { affected[it].add('source') }
+                return
+            }
+            if (path.startsWith('compat/capabilities/') &&
+                    !new File(repositoryRoot, path).exists()) {
+                targetIds.each { affected[it].add('removed-capability-source') }
                 return
             }
             if (path.endsWith('/build.gradle')) {

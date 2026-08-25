@@ -9,7 +9,7 @@ final class SemanticVerifier {
             'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
             'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
             'updateNotification',
-            'serverSignal', 'serverCommand',
+            'serverSignal', 'serverSignalReceiver',
         'serverProfileVerification', 'serverProfileMutation', 'serverTracking',
         'serverPlayerInfoPublication', 'serverLoader'
     ] as Set
@@ -25,7 +25,8 @@ final class SemanticVerifier {
             bundledSkin      : 'resource-pack-access-contract',
             currentAppearance: 'current-appearance-contract',
         updateNotification: 'update-notification-contract',
-        serverSignal: 'server-refresh-notification', serverCommand: 'server-command-registration',
+        serverSignal: 'server-refresh-notification',
+        serverSignalReceiver: 'server-refresh-reception',
         serverProfileVerification: 'official-server-profile',
         serverProfileMutation: 'vanilla-observer-republication',
         serverTracking: 'vanilla-observer-republication',
@@ -47,11 +48,11 @@ final class SemanticVerifier {
                 'selectorFiltersByExactTargetBeforeChannelAndVersion',
                 'redirectTimeoutAndMalformedJsonFailSilentWithoutRetry',
                 'contentLengthAndStreamLimitsStopOversizedBodies'],
-        'server-refresh-notification': ['ServerAppearanceRefreshNotifier', 'RemoteAppearanceImpact', 'CONFIRMED_CHANGED', 'confirmedReconciliationStillNotifiesAfterGalleryCloses', 'postMutationLocalFailureStillNotifiesServerWithoutPublishingOutcomeData', 'confirmedPartialReconciliationSignalsExactlyOnce', 'disconnectedConfirmedSignalIsDroppedAndNeverReplayedAfterReconnect', 'readerOrConcurrentLoserWithoutOwnedOutcomeNeverSignals'],
+        'server-refresh-notification': ['ServerAppearanceRefreshNotifier', 'AppearanceRefreshSignalProtocol', 'RemoteAppearanceImpact', 'CONFIRMED_CHANGED', 'confirmedReconciliationStillNotifiesAfterGalleryCloses', 'postMutationLocalFailureStillNotifiesServerWithoutPublishingOutcomeData', 'confirmedPartialReconciliationSignalsExactlyOnce', 'disconnectedConfirmedSignalIsDroppedAndNeverReplayedAfterReconnect', 'readerOrConcurrentLoserWithoutOwnedOutcomeNeverSignals'],
+        'server-refresh-reception': ['AppearanceRefreshSignalProtocolTest', 'signalIsVersionedDirectionBoundAndCarriesNoData', 'MinecraftServerAppearanceService', 'oneThousandDistinctSignalsAreAdmittedAndDrainWithoutLocalDrops', 'oneFiveTenAndFiftyChangesPerSecondAllConvergeAfterTheBurst'],
         'official-server-profile': ['OfficialSessionProfileClient', 'OfficialTextureAppearanceParser', 'timestampTransportAndSignatureChangesDoNotChangeTheSemanticKey', 'parsesRetryAfterDeltaAndHttpDateWithSafeFallback', 'mismatchedOfficialIdentityIsRejectedBeforePublication'],
         'vanilla-observer-republication': ['VanillaBatchAppearancePublisher', 'continuesAcrossTicksAndNeverExceedsDeliveryBudget', 'reportsTotalAndMaximumPlatformThreadTimeSeparatelyAcrossTicks', 'semanticCompletionResumesOnFollowingLogicalTickWithoutFreshSameTickBudget', 'retriesFailedRetrackBeforeCompletingAndRestoresExactPair', 'cancelledHeadRetainsRetrackBarrierUntilRecoveryBeforeNextInstall', 'sixtyFourActorBatchKeepsOneRecipientFanoutAcrossOneThousandPlayers', 'watcherChannelRetracksBeforeLargeTabOnlyTail', 'explicitSupersedeFencesAdmittedIntentAndDoesNotPoisonFutureIntent', 'concurrentIntentCannotEnterBetweenLatestCheckAndProfileInstall', 'visibilityPortPreventsProfileDisclosureToHiddenRecipient', 'oneThousandDistinctSignalsAreAdmittedAndDrainWithoutLocalDrops', 'oneFiveTenAndFiftyChangesPerSecondAllConvergeAfterTheBurst', 'reconciliationAttemptsAreBoundedToOnePerFollowingTick', 'successfulWatcherRetryRefreshesWorldPairAfterInitializeFailure'],
         'server-loader-lifecycle': ['eligibilityRequiresOnlineIdentityOrExplicitAttestedProxyOptIn', 'trustedProxyForwarding', 'defaultsMatchThePortableScaleContract', 'sameListenerRegistrationIsIdempotentAndIdentityBound', 'changedAssuranceRotatesGenerationAndSupersedesInFlightTrust', 'reconnectSupersedesOldGenerationAndLateDisconnectCannotRemoveNewBinding'],
-        'server-command-registration': ['ServerRefreshCommandProtocol', 'commandNameIsExactVersionedAndCarriesNoAccountPayload', 'advertisementRequiresOnlyAPlayerAndLiveService', 'onlyAcceptedAndCoalescedAdmissionsSucceed']
     ]
     static final Pattern PLATFORM_IMPORT = Pattern.compile('(?m)^\\s*import\\s+(?:com\\.mojang\\.authlib(?:\\.|;)|net\\.minecraft(?:\\.|;)|net\\.fabricmc(?:\\.|;)|net\\.neoforged(?:\\.|;)|net\\.minecraftforge(?:\\.|;)|org\\.bukkit(?:\\.|;)|org\\.spongepowered\\.asm(?:\\.|;))')
     static final Pattern VERSION_NAMED_PACKAGE = Pattern.compile(
@@ -281,6 +282,8 @@ final class SemanticVerifier {
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/BukkitRuntimeDetector.java',
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/ExactAuthlibSignatureVerifier.java',
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/ExactLegacyPublicationBackend.java',
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperProfilePublicationBackend.java',
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperProfileStateBinding.java',
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperConnectionAssuranceBinding.java'
         ] as Set
         Files.walk(root).withCloseable { stream ->
@@ -499,13 +502,13 @@ final class SemanticVerifier {
             filePicker: ['implements FilePicker', 'FilePickerCoordinator', 'new FilePickerCoordinator(', 'COORDINATOR.choose('],
                 bundledSkin      : ['implements SkinCatalogSource'],
                 currentAppearance: ['implements CurrentPlayerAppearanceSource'],
-            serverSignal: ['implements ServerAppearanceRefreshNotifier', 'getConnection()', 'if (connection == null)', 'getChild(ServerRefreshCommandProtocol.ROOT_COMMAND)', 'root.getChild(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'ServerAppearanceRefreshCommandPath.isExactExecutableLeaf', 'getChild(ServerRefreshCommandProtocol.BUKKIT_ROOT_COMMAND)', 'bukkitRoot.getChild("args")', 'instanceof ArgumentCommandNode', 'StringArgumentType.StringType.GREEDY_PHRASE', 'ServerAppearanceRefreshCommandPath.isExactBukkitWrapper', 'ServerRefreshCommandProtocol.BUKKIT_COMMAND', 'connection.sendCommand(command)'],
-            serverCommand: ['Commands.literal(ServerRefreshCommandProtocol.ROOT_COMMAND)', '.requires(MinecraftServerRefreshCommand::canRefresh)', 'Commands.literal(ServerRefreshCommandProtocol.REFRESH_COMMAND)', 'source.getEntity() instanceof ServerPlayer', 'boolean serviceRegistered', 'MinecraftServerAppearanceService.registered(source.getServer())', 'ServerRefreshCommandProtocol.advertised(', 'service.request(source.getPlayerOrException()).admission()', 'ServerRefreshCommandProtocol.result(admission)'],
+            serverSignal: ['implements ServerAppearanceRefreshNotifier', 'activeConnectionGeneration()', 'requestOfficialProfileRefresh()', 'currentConnection()', 'AppearanceRefresh'],
+            serverSignalReceiver: ['MinecraftAppearanceRefreshNetwork', 'MinecraftServerAppearanceService', '.request('],
             serverProfileVerification: ['implements OfficialTextureSignatureVerifier', 'getSecurePropertyValue(property)', 'OfficialTextureAppearanceParser', 'Optional.empty()'],
             serverProfileMutation: ['implements ProfilePropertyAccess', 'currentTextures(ServerPlayer player)', 'installTextures(', 'SignedTexturesProperty', 'CurrentProfileTextures'],
             serverTracking: ['implements ServerTrackingAccess', 'tracked.seenBy', 'tracked.removePlayer(observer)', 'tracked.updatePlayer(observer)', 'scheduleNextTick('],
             serverPlayerInfoPublication: ['implements NativePlayerInfoTransport', 'ClientboundPlayerInfoRemovePacket', 'ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(actors)', 'actors.stream().map(ServerPlayer::getUUID).toList()'],
-            serverLoader: ['MinecraftServerLifecycle', 'MinecraftServerRefreshCommand.register']
+            serverLoader: ['MinecraftServerLifecycle', 'MinecraftAppearanceRefreshNetwork']
         ]
         markers.getOrDefault(key, []).each { String marker -> if (!compact.contains(marker)) errors.add("${implementation}: ${key} leaf lacks required marker '${marker}'") }
         if (implementation == 'modmenu-default-index') {
@@ -570,7 +573,11 @@ final class SemanticVerifier {
                 if (!compact.contains(marker)) errors.add("${implementation}: native texture readiness lacks required marker '${marker}'")
             }
         }
-        if (key == 'serverSignal' && compact.count('instanceof LiteralCommandNode') != 3) errors.add("${implementation}: server-signal leaf must validate the native root/leaf and namespaced Bukkit root as LiteralCommandNode")
+        if ((key == 'serverSignal' || key == 'serverSignalReceiver')
+                && (compact.contains('sendCommand(') || compact.contains('RegisterCommandsEvent')
+                || compact.contains('CommandRegistrationCallback'))) {
+            errors.add("${implementation}: appearance refresh transport must not expose commands")
+        }
         if (implementation == 'fabric-server-v1') {
             if (!compact.contains('ServerLifecycleEvents.SERVER_STARTED.register')) errors.add("${implementation}: Fabric service must start after server setup")
             if (compact.contains('ServerLifecycleEvents.SERVER_STARTING.register')) errors.add("${implementation}: Fabric service must not read server services before setup")

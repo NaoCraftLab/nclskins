@@ -6,6 +6,10 @@
     - See new NCL Skins versions directly in the installed mods screen
     - Get only updates compatible with your Minecraft version and mod loader
 
+### Removed
+
+- Technical refresh commands
+
 ## 1.0.0-beta.2
 
 ### Added

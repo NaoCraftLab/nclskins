@@ -1,13 +1,12 @@
 package com.naocraftlab.skins.server.plugin.common;
 
+import com.naocraftlab.skins.server.AppearanceRefreshSignalProtocol;
 import com.naocraftlab.skins.server.SignedTexturesProperty;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -19,6 +18,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PluginProtocolTest {
     @Test
+    void bukkitRefreshChannelMatchesTheZeroByteCommonProtocol() {
+        assertEquals(AppearanceRefreshSignalProtocol.CHANNEL,
+                PluginChannels.APPEARANCE_REFRESH);
+        assertTrue(AppearanceRefreshSignalProtocol.accepts(
+                AppearanceRefreshSignalProtocol.Direction.CLIENT_TO_SERVER,
+                AppearanceRefreshSignalProtocol.payload()));
+    }
+
+    @Test
     void recognizesTheOfficialBungeeGuard140DescriptorVersionExactly() {
         assertTrue(BungeeGuardCompatibility.isSupportedVersion("1.4-SNAPSHOT"));
         assertTrue(BungeeGuardCompatibility.isSupportedVersion("1.4.0"));
@@ -27,40 +35,6 @@ final class PluginProtocolTest {
         assertFalse(BungeeGuardCompatibility.isSupportedVersion("1.3-SNAPSHOT"));
         assertFalse(BungeeGuardCompatibility.isSupportedVersion("1.5-SNAPSHOT"));
         assertFalse(BungeeGuardCompatibility.isSupportedVersion("unknown"));
-    }
-
-    @Test
-    void capabilityResponseIsBoundedVersionedAndCompatible() {
-        ServerCapabilityProtocol protocol = new ServerCapabilityProtocol();
-        ServerCapabilityProtocol.Response response = new ServerCapabilityProtocol.Response(
-                SemanticVersion.parse("1.2.0-beta.2"),
-                List.of("command-v1", "capabilities-v1", "proxy-refresh-v1"));
-
-        byte[] encoded = protocol.encodeResponse(response);
-
-        assertTrue(encoded.length <= ServerCapabilityProtocol.MAX_RESPONSE_BYTES);
-        assertEquals(response, protocol.decodeResponse(encoded));
-        assertTrue(protocol.compatibility(
-                SemanticVersion.parse("1.1.0"), Set.of("capabilities-v1"), response).compatible());
-        assertFalse(protocol.compatibility(
-                SemanticVersion.parse("1.3.0"), Set.of("capabilities-v1"), response).compatible());
-        assertFalse(protocol.compatibility(
-                SemanticVersion.parse("1.1.0"), Set.of("capabilities-v2"), response).compatible());
-    }
-
-    @Test
-    void capabilityDecoderRejectsOversizeUnknownAndTrailingPayloads() {
-        ServerCapabilityProtocol protocol = new ServerCapabilityProtocol();
-        assertThrows(ServerCapabilityProtocol.ProtocolException.class,
-                () -> protocol.decodeResponse(new byte[ServerCapabilityProtocol.MAX_RESPONSE_BYTES + 1]));
-        assertThrows(ServerCapabilityProtocol.ProtocolException.class,
-                () -> protocol.decodeResponse(new byte[]{2, 1, '1', 1, 1, 'a'}));
-        byte[] valid = protocol.encodeResponse(new ServerCapabilityProtocol.Response(
-                SemanticVersion.parse("1.0.0"), List.of("command-v1")));
-        assertThrows(ServerCapabilityProtocol.ProtocolException.class,
-                () -> protocol.decodeResponse(Arrays.copyOf(valid, valid.length + 1)));
-        assertThrows(ServerCapabilityProtocol.ProtocolException.class,
-                () -> protocol.decodeResponse(new byte[]{1, 2, (byte) 0xc3, 0x28, 1, 1, 'a'}));
     }
 
     @Test

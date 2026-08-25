@@ -502,15 +502,10 @@ abstract class ServerPluginRunTask extends DefaultTask {
 
         private void consoleLoop() {
             LinkedBlockingQueue<String> commands = new LinkedBlockingQueue<>()
-            AtomicBoolean inputClosed = new AtomicBoolean(false)
             Thread.startDaemon("nclskins-${prepared.topology.id}-console") {
-                try {
-                    System.in.withReader(StandardCharsets.UTF_8.name()) { reader ->
-                        String line
-                        while ((line = reader.readLine()) != null) commands.put(line)
-                    }
-                } finally {
-                    inputClosed.set(true)
+                System.in.withReader(StandardCharsets.UTF_8.name()) { reader ->
+                    String line
+                    while ((line = reader.readLine()) != null) commands.put(line)
                 }
             }
             while (!stopping.get()) {
@@ -523,7 +518,6 @@ abstract class ServerPluginRunTask extends DefaultTask {
                 }
                 String line = commands.poll(100, TimeUnit.MILLISECONDS)
                 if (line == null) {
-                    if (inputClosed.get()) return
                     continue
                 }
                 if (line == '@stop') return

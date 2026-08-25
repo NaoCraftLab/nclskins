@@ -919,6 +919,79 @@ final class BuildLogicTest {
     }
 
     @Test
+    void removedCapabilitySourceConservativelyAffectsEveryTarget() {
+        Map<String, Set<String>> affected = CatalogTools.classifyAffected(
+                repository,
+                catalog,
+                ['compat/capabilities/removed-transport/src/main/java/Removed.java'])
+
+        assertEquals(catalog.targets*.id as Set, affected.keySet() as Set)
+        assertTrue(affected.values().every { it == ['removed-capability-source'] as Set })
+    }
+
+    @Test
+    void refreshSignalIsBackendOwnedAndNoPluginEntrypointRegistersACommand() {
+        String bukkit = new File(repository,
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/' +
+                'NclSkinsBukkitPlugin.java').text
+        assertTrue(bukkit.contains('PluginChannels.APPEARANCE_REFRESH'))
+        assertFalse(bukkit.contains('org.bukkit.command.'))
+        assertFalse(bukkit.contains('getCommand('))
+
+        ['velocity', 'bungee'].each { String proxy ->
+            String className = proxy == 'velocity'
+                    ? 'NclSkinsVelocityPlugin.java' : 'NclSkinsBungeePlugin.java'
+            String source = new File(repository,
+                    "server-plugin-${proxy}/src/main/java/com/naocraftlab/skins/server/plugin/" +
+                    "${proxy}/${className}").text
+            assertTrue(source.contains('PluginChannels.PROXY_REFRESH'))
+            assertFalse(source.contains('PluginChannels.APPEARANCE_REFRESH'))
+            assertFalse(source.contains('CommandManager'))
+            assertFalse(source.contains('registerCommand'))
+        }
+
+        String pluginYaml = new File(repository, 'server-plugin/src/main/resources/plugin.yml').text
+        assertFalse(pluginYaml.contains('commands:'))
+        assertFalse(pluginYaml.contains('nclskin:'))
+    }
+
+    @Test
+    void nativeAcceptanceFixesRemainCrossLoaderAndObserverOnly() {
+        String forgeSender = new File(repository,
+                'compat/capabilities/server-signal/forge-event-channel/src/main/java/' +
+                'com/naocraftlab/skins/compat/client/' +
+                'MinecraftServerAppearanceRefreshNotifier.java').text
+        assertTrue(forgeSender.contains('new ServerboundCustomPayloadPacket('))
+        assertFalse(forgeSender.contains('isRemotePresent('))
+
+        String paperPublication = new File(repository,
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/' +
+                'PaperProfilePublicationBackend.java').text
+        assertTrue(paperPublication.contains('getMethod("getProfile")'))
+        assertTrue(paperPublication.contains('getDeclaredMethod(\n                "unregisterEntity"'))
+        assertTrue(paperPublication.contains('getDeclaredMethod(\n                "trackAndShowEntity"'))
+        assertTrue(paperPublication.contains('invokeObserver(unregisterEntity'))
+        assertTrue(paperPublication.contains('invokeObserver(trackAndShowEntity'))
+        assertTrue(paperPublication.contains('observer != checkedActor'))
+        assertTrue(paperPublication.contains('profileState.install('))
+        assertFalse(paperPublication.contains('hidePlayer('))
+        assertFalse(paperPublication.contains('showPlayer('))
+        assertFalse(paperPublication.contains('refreshPlayer'))
+        assertFalse(paperPublication.contains('setPlayerProfile('))
+
+        String paperProfileState = new File(repository,
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/' +
+                'PaperProfileStateBinding.java').text
+        assertTrue(paperProfileState.contains('serverPlayer.getField("gameProfile")'))
+        assertTrue(paperProfileState.contains('gameProfile.getConstructor('))
+        assertTrue(paperProfileState.contains('propertyMap.getConstructor(multimap)'))
+        assertTrue(paperProfileState.contains('immutableLiveProfile.set('))
+        assertTrue(paperProfileState.contains('installMutable('))
+        assertFalse(paperProfileState.contains('getDeclaredFields('))
+        assertFalse(paperProfileState.contains('getFields('))
+    }
+
+    @Test
     void metadataMatchesEveryLoaderContract() {
         String version = CatalogTools.loadVersion(repository)
         catalog.targets.each { Map target ->
@@ -930,7 +1003,7 @@ final class BuildLogicTest {
             Map compatibility = new JsonSlurper().parseText(
                     resources['nclskins-server-compatibility.json']) as Map
             assertEquals(version, compatibility.requiredServerPluginVersion)
-            assertEquals(['command-v1', 'capabilities-v1', 'proxy-refresh-v1'],
+            assertEquals(['appearance-refresh-v1', 'proxy-refresh-v1'],
                     compatibility.protocolIds)
             assertEquals('official-v1', compatibility.matrixId)
             Map bundledPack = new JsonSlurper().parseText(
@@ -1252,6 +1325,7 @@ final class BuildLogicTest {
         assertTrue(task.contains('commands.poll(100, TimeUnit.MILLISECONDS)'))
         assertTrue(task.contains('processes.entrySet().find'))
         assertFalse(task.contains('reader.ready()'))
+        assertFalse(task.contains('inputClosed'))
     }
 
     @Test
@@ -1425,7 +1499,7 @@ final class BuildLogicTest {
                 .find { it.name == 'CraftBukkit' }.ip)
         assertEquals('127.0.0.1:26017', RunDirectorySupport.serverEntries(catalog, '1.20.1')
                 .find { it.name == 'Velocity Paper' }.ip)
-        assertEquals('127.0.0.1:26053', RunDirectorySupport.serverEntries(catalog, '26.2')
+        assertEquals('127.0.0.1:26153', RunDirectorySupport.serverEntries(catalog, '26.2')
                 .find { it.name == 'BungeeCord Paper' }.ip)
         assertEquals('127.0.0.1:26010', RunDirectorySupport.serverEntries(catalog, '26.1.1')
                 .find { it.name == 'Paper' }.ip)

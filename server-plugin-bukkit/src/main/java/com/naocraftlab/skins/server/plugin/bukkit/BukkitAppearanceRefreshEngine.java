@@ -37,6 +37,7 @@ final class BukkitAppearanceRefreshEngine implements BukkitRefreshEngine {
     private final BukkitExecution execution;
     private final BukkitPublicationBackend publicationBackend;
     private final BukkitConnectionAssurance connectionAssurance;
+    private final JavaPlugin plugin;
     private final PublicationListener listener;
     private final DiagnosticSink diagnostics;
     private final Map<UUID, LiveConnection> connections = new LinkedHashMap<>();
@@ -54,7 +55,7 @@ final class BukkitAppearanceRefreshEngine implements BukkitRefreshEngine {
             BukkitConnectionAssurance connectionAssurance,
             PublicationListener listener,
             DiagnosticSink diagnostics) {
-        Objects.requireNonNull(plugin, "plugin");
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
         ServerConfiguration.RealtimeRefresh refresh = Objects.requireNonNull(
                 configuration, "configuration").realtimeRefresh();
         this.listener = Objects.requireNonNull(listener, "listener");
@@ -227,7 +228,8 @@ final class BukkitAppearanceRefreshEngine implements BukkitRefreshEngine {
             if (resolve(request.connection()) != actor || !actor.player.isOnline()) {
                 throw new IllegalStateException("Stale actor connection");
             }
-            publication = publicationBackend.installAndSnapshot(actor.player, request.profile());
+            publication = publicationBackend.installAndSnapshot(
+                    plugin, actor.player, request.profile());
             observers = publication.observers().stream()
                     .filter(observer -> observer != actor.player && observer.isOnline()).toList();
         }

@@ -9,7 +9,7 @@ import java.util.logging.Logger;
 
 public final class PaperAuthlib6NativeAdapter extends AbstractBukkitNativeAdapter {
     public PaperAuthlib6NativeAdapter(ServerRuntimeIdentity identity) {
-        super("paper-authlib6", identity);
+        super("paper-authlib6", identity, "authlib-v6");
     }
 
     @Override

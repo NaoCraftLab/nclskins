@@ -10,7 +10,7 @@ import java.util.logging.Logger;
 
 public final class LegacyAuthlib4NativeAdapter extends AbstractBukkitNativeAdapter {
     public LegacyAuthlib4NativeAdapter(ServerRuntimeIdentity identity) {
-        super("legacy-authlib4", identity);
+        super("legacy-authlib4", identity, "authlib-v4");
     }
 
     @Override

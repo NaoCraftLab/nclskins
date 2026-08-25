@@ -2,7 +2,14 @@
 
 ## 1.0.0-beta.3
 
+### Changed
+
+- Replaced technical refresh commands with an internal connection signal
 - Improved the reliability of realtime skin updates on Bukkit-family servers
+
+### Removed
+
+- Refresh commands, command help, and autocomplete entries from servers and proxies
 
 ## 1.0.0-beta.2
 

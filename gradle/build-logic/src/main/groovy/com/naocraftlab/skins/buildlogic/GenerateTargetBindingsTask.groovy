@@ -11,7 +11,7 @@ import org.gradle.api.tasks.TaskAction
 
 abstract class GenerateTargetBindingsTask extends DefaultTask {
     private static final Set<String> SERVER_ROLES = [
-            'serverCommand',
+            'serverSignalReceiver',
             'serverProfileVerification',
             'serverProfileMutation',
             'serverTracking',

@@ -27,7 +27,7 @@ final class ReleaseLogicTest {
         assertTrue(metadata.notes.startsWith(
                 '### Added\n\n- **Cross-platform update notifications**'))
         assertTrue(metadata.notes.contains(
-                'Get only updates compatible with your Minecraft version and mod loader'))
+                '### Removed\n\n- Technical refresh commands'))
         assertFalse(metadata.notes.contains('## 1.0.0-beta.3'))
     }
 

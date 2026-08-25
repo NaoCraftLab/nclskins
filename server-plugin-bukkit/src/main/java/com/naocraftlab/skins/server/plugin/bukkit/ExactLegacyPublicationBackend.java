@@ -3,6 +3,7 @@ package com.naocraftlab.skins.server.plugin.bukkit;
 import com.naocraftlab.skins.server.SignedTexturesProperty;
 import com.naocraftlab.skins.server.VerifiedOfficialProfile;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -157,7 +158,9 @@ public final class ExactLegacyPublicationBackend implements BukkitPublicationBac
     }
 
     @Override
-    public Publication installAndSnapshot(Player actor, VerifiedOfficialProfile profile) {
+    public Publication installAndSnapshot(
+            Plugin plugin, Player actor, VerifiedOfficialProfile profile) {
+        Objects.requireNonNull(plugin, "plugin");
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(profile, "profile");
         try {

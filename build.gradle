@@ -414,6 +414,12 @@ tasks.register('buildAllTargets', TargetBuildTask) {
     configureTargetBuild(delegate, targetIds, ['clean', 'build'], true, true)
 }
 
+tasks.register('buildAllTargetsIncremental', TargetBuildTask) {
+    group = 'build'
+    description = 'Incrementally builds and collects every catalog target without cleaning outputs.'
+    configureTargetBuild(delegate, targetIds, ['build'], true, true)
+}
+
 tasks.register('buildAffectedTargets', AffectedTargetBuildTask) {
     group = 'build'
     description = 'Clean-builds and collects targets affected by a Git range or worktree.'

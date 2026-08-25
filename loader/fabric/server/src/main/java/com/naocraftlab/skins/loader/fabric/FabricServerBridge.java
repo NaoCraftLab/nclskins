@@ -1,8 +1,7 @@
 package com.naocraftlab.skins.loader.fabric;
 
 import com.naocraftlab.skins.compat.server.MinecraftServerLifecycle;
-import com.naocraftlab.skins.compat.server.MinecraftServerRefreshCommand;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import com.naocraftlab.skins.compat.server.MinecraftAppearanceRefreshNetwork;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -12,8 +11,7 @@ final class FabricServerBridge {
     private FabricServerBridge() {}
 
     static void install() {
-        CommandRegistrationCallback.EVENT.register((dispatcher, ignoredRegistry, ignoredEnvironment) ->
-                MinecraftServerRefreshCommand.register(dispatcher));
+        MinecraftAppearanceRefreshNetwork.install();
         ServerLifecycleEvents.SERVER_STARTED.register(server ->
                 MinecraftServerLifecycle.started(
                         server, FabricLoader.getInstance().getConfigDir()));

@@ -3927,119 +3927,6 @@
       "mixinAnchors": [],
       "baselineSha256": "d5e5d40016d468abdc30299592ae1aa5ae6b082435152ab1b4ddddf852d06eaa"
     },
-    "command-v1": {
-      "kind": "serverSignal",
-      "epochs": [
-        "1.20.1",
-        "1.21.1",
-        "1.21.11",
-        "26.1",
-        "26.2",
-        "26.3"
-      ],
-      "classes": [
-        {
-          "name": "net.minecraft.client.Minecraft",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getInstance",
-              "descriptor": "()Lnet/minecraft/client/Minecraft;",
-              "access": "public static",
-              "finality": "static"
-            },
-            {
-              "kind": "method",
-              "name": "getConnection",
-              "descriptor": "()Lnet/minecraft/client/multiplayer/ClientPacketListener;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "net.minecraft.client.multiplayer.ClientPacketListener",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getCommands",
-              "descriptor": "()Lcom/mojang/brigadier/CommandDispatcher;",
-              "access": "public",
-              "finality": "virtual"
-            },
-            {
-              "kind": "method",
-              "name": "sendCommand",
-              "descriptor": "(Ljava/lang/String;)V",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "com.mojang.brigadier.CommandDispatcher",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getRoot",
-              "descriptor": "()Lcom/mojang/brigadier/tree/RootCommandNode;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "com.mojang.brigadier.tree.CommandNode",
-          "access": "public",
-          "finality": "abstract",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getChild",
-              "descriptor": "(Ljava/lang/String;)Lcom/mojang/brigadier/tree/CommandNode;",
-              "access": "public",
-              "finality": "virtual"
-            },
-            {
-              "kind": "method",
-              "name": "getChildren",
-              "descriptor": "()Ljava/util/Collection;",
-              "access": "public",
-              "finality": "virtual"
-            },
-            {
-              "kind": "method",
-              "name": "getCommand",
-              "descriptor": "()Lcom/mojang/brigadier/Command;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "com.mojang.brigadier.tree.LiteralCommandNode",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getLiteral",
-              "descriptor": "()Ljava/lang/String;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        }
-      ],
-      "mixinAnchors": [],
-      "baselineSha256": "e97f5e0d5a45702f648caef106d0b5b78b54ee41210620115ce0f4f573cfb52e"
-    },
     "profile-verification-authlib-v4": {
       "kind": "serverProfileVerification",
       "epochs": [
@@ -5169,124 +5056,6 @@
       "mixinAnchors": [],
       "baselineSha256": "5416bea0faf6f8ab7841cfd802b1d631b847fd4d7b2e41c3f62d05374aea1511"
     },
-    "server-command-v1": {
-      "kind": "serverCommand",
-      "epochs": [
-        "1.20.1",
-        "1.21.1",
-        "1.21.11",
-        "26.1",
-        "26.2",
-        "26.3"
-      ],
-      "classes": [
-        {
-          "name": "com.mojang.brigadier.CommandDispatcher",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "register",
-              "descriptor": "(Lcom/mojang/brigadier/builder/LiteralArgumentBuilder;)Lcom/mojang/brigadier/tree/LiteralCommandNode;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "com.mojang.brigadier.builder.ArgumentBuilder",
-          "access": "public",
-          "finality": "abstract",
-          "members": [
-            {
-              "kind": "method",
-              "name": "executes",
-              "descriptor": "(Lcom/mojang/brigadier/Command;)Lcom/mojang/brigadier/builder/ArgumentBuilder;",
-              "access": "public",
-              "finality": "virtual"
-            },
-            {
-              "kind": "method",
-              "name": "requires",
-              "descriptor": "(Ljava/util/function/Predicate;)Lcom/mojang/brigadier/builder/ArgumentBuilder;",
-              "access": "public",
-              "finality": "virtual"
-            },
-            {
-              "kind": "method",
-              "name": "then",
-              "descriptor": "(Lcom/mojang/brigadier/builder/ArgumentBuilder;)Lcom/mojang/brigadier/builder/ArgumentBuilder;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "com.mojang.brigadier.context.CommandContext",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getSource",
-              "descriptor": "()Ljava/lang/Object;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "net.minecraft.commands.Commands",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "literal",
-              "descriptor": "(Ljava/lang/String;)Lcom/mojang/brigadier/builder/LiteralArgumentBuilder;",
-              "access": "public static",
-              "finality": "static"
-            }
-          ]
-        },
-        {
-          "name": "net.minecraft.commands.CommandSourceStack",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getEntity",
-              "descriptor": "()Lnet/minecraft/world/entity/Entity;",
-              "access": "public",
-              "finality": "virtual"
-            },
-            {
-              "kind": "method",
-              "name": "getPlayerOrException",
-              "descriptor": "()Lnet/minecraft/server/level/ServerPlayer;",
-              "access": "public",
-              "finality": "virtual"
-            },
-            {
-              "kind": "method",
-              "name": "getServer",
-              "descriptor": "()Lnet/minecraft/server/MinecraftServer;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
-          "name": "net.minecraft.server.level.ServerPlayer",
-          "access": "public",
-          "finality": "concrete",
-          "members": []
-        }
-      ],
-      "baselineSha256": "561913608d6c374edac574ee1bca85a461193751fbe0ae31b1cc7369c53ed3af"
-    },
     "fabric-server-v1": {
       "kind": "serverLoader",
       "epochs": [
@@ -5307,27 +5076,6 @@
               "kind": "method",
               "name": "onInitialize",
               "descriptor": "()V",
-              "access": "public abstract",
-              "finality": "abstract"
-            }
-          ]
-        },
-        {
-          "name": "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback",
-          "access": "public",
-          "finality": "interface",
-          "members": [
-            {
-              "kind": "field",
-              "name": "EVENT",
-              "descriptor": "Lnet/fabricmc/fabric/api/event/Event;",
-              "access": "public static final",
-              "finality": "final"
-            },
-            {
-              "kind": "method",
-              "name": "register",
-              "descriptor": "(Lcom/mojang/brigadier/CommandDispatcher;Lnet/minecraft/commands/CommandBuildContext;Lnet/minecraft/commands/Commands$CommandSelection;)V",
               "access": "public abstract",
               "finality": "abstract"
             }
@@ -5419,7 +5167,7 @@
         }
       ],
       "mixinAnchors": [],
-      "baselineSha256": "09fe1e772c0ffa328d97b52949bd2d9102e5883e1052d9d845c4daab9032623b"
+      "baselineSha256": "22b5d031b54f5045af7455cca2411d19b6ff1eab510678ca7f4441df55d65044"
     },
     "forge47-server": {
       "kind": "serverLoader",
@@ -5491,20 +5239,6 @@
           ]
         },
         {
-          "name": "net.minecraftforge.event.RegisterCommandsEvent",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getDispatcher",
-              "descriptor": "()Lcom/mojang/brigadier/CommandDispatcher;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
           "name": "net.minecraftforge.event.server.ServerLifecycleEvent",
           "access": "public",
           "finality": "concrete",
@@ -5548,7 +5282,7 @@
         }
       ],
       "mixinAnchors": [],
-      "baselineSha256": "1e34c106337fe1c420360397c9fe8e9a44ee35bc5bdc5d67a653bf1f94febc85"
+      "baselineSha256": "61d285e79d845e68c48b22e04920e4763b703afc0b0ac46f7fdd472d494ccfef"
     },
     "neoforge-server-v1": {
       "kind": "serverLoader",
@@ -5623,20 +5357,6 @@
           ]
         },
         {
-          "name": "net.neoforged.neoforge.event.RegisterCommandsEvent",
-          "access": "public",
-          "finality": "concrete",
-          "members": [
-            {
-              "kind": "method",
-              "name": "getDispatcher",
-              "descriptor": "()Lcom/mojang/brigadier/CommandDispatcher;",
-              "access": "public",
-              "finality": "virtual"
-            }
-          ]
-        },
-        {
           "name": "net.neoforged.neoforge.event.server.ServerLifecycleEvent",
           "access": "public",
           "finality": "abstract",
@@ -5680,11 +5400,399 @@
         }
       ],
       "mixinAnchors": [],
-      "baselineSha256": "698ac95899b6c0a3d87d7d10c3057223b690dc11b91a5823e7a9af1296152ce4"
+      "baselineSha256": "5f8d37de138843c595ff2547c3377a6cdb3ae717fcfd78e0d17bd3bb16515e83"
+    },
+    "fabric-raw-play-v1": {
+      "kind": "serverSignal",
+      "epochs": [
+        "1.20.1"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.Minecraft",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getInstance",
+              "descriptor": "()Lnet/minecraft/client/Minecraft;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "getConnection",
+              "descriptor": "()Lnet/minecraft/client/multiplayer/ClientPacketListener;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking",
+          "access": "public",
+          "finality": "final",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "fb52ac6b3f8e3a863d3154b179f080daa0180b1441bfebeff72b6cbf43d6bfb2"
+    },
+    "fabric-typed-payload-v1": {
+      "kind": "serverSignal",
+      "epochs": [
+        "1.21.1",
+        "1.21.11",
+        "26.1",
+        "26.2",
+        "26.3"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.Minecraft",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getInstance",
+              "descriptor": "()Lnet/minecraft/client/Minecraft;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "getConnection",
+              "descriptor": "()Lnet/minecraft/client/multiplayer/ClientPacketListener;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking",
+          "access": "public",
+          "finality": "final",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "5e8bdebf2ccabdbc7ecb54448ada9eafbcee8374b95453cc7220178f3afe8b5c"
+    },
+    "forge-event-channel-v1": {
+      "kind": "serverSignal",
+      "epochs": [
+        "1.20.1"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.Minecraft",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getInstance",
+              "descriptor": "()Lnet/minecraft/client/Minecraft;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "getConnection",
+              "descriptor": "()Lnet/minecraft/client/multiplayer/ClientPacketListener;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraftforge.network.event.EventNetworkChannel",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "99fcec817d0ac29d66a76cf89138be888108e17f648736e02a7190cf1b6a69de"
+    },
+    "neoforge-resource-location-v1": {
+      "kind": "serverSignal",
+      "epochs": [
+        "1.21.1"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.Minecraft",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getInstance",
+              "descriptor": "()Lnet/minecraft/client/Minecraft;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "getConnection",
+              "descriptor": "()Lnet/minecraft/client/multiplayer/ClientPacketListener;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.neoforged.neoforge.network.registration.NetworkRegistry",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        },
+        {
+          "name": "net.neoforged.neoforge.network.PacketDistributor",
+          "access": "public",
+          "finality": "final",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "2e880bcd44cc68061df4c9f024b00f71d95a769ee1a1e2fdb90c5f147e2c7dae"
+    },
+    "neoforge-identifier-v1": {
+      "kind": "serverSignal",
+      "epochs": [
+        "1.21.11",
+        "26.1",
+        "26.2"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.Minecraft",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getInstance",
+              "descriptor": "()Lnet/minecraft/client/Minecraft;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "getConnection",
+              "descriptor": "()Lnet/minecraft/client/multiplayer/ClientPacketListener;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.neoforged.neoforge.network.registration.NetworkRegistry",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        },
+        {
+          "name": "net.neoforged.neoforge.client.network.ClientPacketDistributor",
+          "access": "public",
+          "finality": "final",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "545f85a75ae608fbcdcafcfd27ce1e9d972d9d73668e89d7e524f3f8545a9049"
+    },
+    "fabric-raw-play-receiver-v1": {
+      "kind": "serverSignalReceiver",
+      "epochs": [
+        "1.20.1"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.server.level.ServerPlayer",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        },
+        {
+          "name": "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking",
+          "access": "public",
+          "finality": "final",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "52abd7483210a57cfbbd32ea7501f04111f0eba9d129c8c093ecdda1852fc615"
+    },
+    "fabric-typed-payload-receiver-v1": {
+      "kind": "serverSignalReceiver",
+      "epochs": [
+        "1.21.1",
+        "1.21.11"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.server.level.ServerPlayer",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        },
+        {
+          "name": "net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry",
+          "access": "public",
+          "finality": "interface",
+          "members": []
+        },
+        {
+          "name": "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking",
+          "access": "public",
+          "finality": "final",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "060b7f7cfebd7148960c44ed5bd2a1015922854ba3be3a67047331c0548d5de2"
+    },
+    "forge-event-channel-receiver-v1": {
+      "kind": "serverSignalReceiver",
+      "epochs": [
+        "1.20.1"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.server.level.ServerPlayer",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        },
+        {
+          "name": "net.minecraftforge.network.event.EventNetworkChannel",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "644bbc8d4edb0edb712423d023f599b6fe95005c2fbe88248e38e2df832cb5ae"
+    },
+    "neoforge-typed-payload-receiver-v1": {
+      "kind": "serverSignalReceiver",
+      "epochs": [
+        "1.21.1",
+        "1.21.11",
+        "26.1",
+        "26.2"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.server.level.ServerPlayer",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        },
+        {
+          "name": "net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "06f567c78d21da1ca013d7243cf9b9177119a90430e8edd4b1b0fb56283755fd"
+    },
+    "fabric-serverbound-payload-receiver-v1": {
+      "kind": "serverSignalReceiver",
+      "epochs": [
+        "26.1",
+        "26.2",
+        "26.3"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.server.level.ServerPlayer",
+          "access": "public",
+          "finality": "concrete",
+          "members": []
+        },
+        {
+          "name": "net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry",
+          "access": "public",
+          "finality": "interface",
+          "members": []
+        },
+        {
+          "name": "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking",
+          "access": "public",
+          "finality": "final",
+          "members": []
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "5762d570b33bddd0e6ad532a352680450f260dd1e61b848f569344027df09438"
     }
   },
   "resolvedByProfile": {
     "legacy-resource-location-authlib4": {
+      "resource-location-current": {
+        "net.minecraft.client.Minecraft": "7eae65b7627f5973d3510ca29ee2398203b867e901379d3c4e032c8971f1ef7c",
+        "net.minecraft.client.player.AbstractClientPlayer": "a9d1b5fc4de6fd7a3e38997c72555f2b8f73ea21982a0bd806c51e4639021ee5",
+        "net.minecraft.client.resources.DefaultPlayerSkin": "8d649fad287825d93fb04919ce6f0c0abc1d8e23d0e34e8257a41fe6ff76849c",
+        "net.minecraft.client.resources.SkinManager": "bb091c672dde8cd1a0cdb25a5de7a8b770338d24c34caa1744a663e22a76de89"
+      },
+      "forge-event-channel-receiver-v1": {
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913",
+        "net.minecraftforge.network.event.EventNetworkChannel": "7e03415c9efe4a6568ce0be6f80c2183f44d886d113eb32979fd2a654e9c9022"
+      },
+      "resource-location-legacy": {
+        "net.minecraft.client.renderer.texture.DynamicTexture": "35073fc2fe40dab16d09fde901ea16d4affc348986ee4c57695f175f1cd26c59",
+        "net.minecraft.client.renderer.texture.TextureManager": "8dae102782d4437879490de708d8a177719ed8ec14193e65d19fa8fec1ae303c"
+      },
+      "resource-stack-bundled": {
+        "net.minecraft.server.packs.resources.Resource": "a3e705e925e79b4ad9edd26af919803e5e66bbfc895bece1b1f0e7299dea628c",
+        "net.minecraft.server.packs.resources.ResourceManager": "de8f180d4d8a1ba7d5753c8c111ce659afa46903b01723d22d98a8b8647ff9f6"
+      },
+      "fabric-raw-play-receiver-v1": {
+        "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking": "865418204eedfd6e441ef155ef50b034511579d222c0a5cdd78c2be7306ece0e",
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      },
+      "profile-verification-authlib-v4": {
+        "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
+        "com.mojang.authlib.properties.Property": "ba5cd2a9e71a593237abb231cad5fafb20c9afc69e9a04c896571070c36d8be2",
+        "net.minecraft.server.MinecraftServer": "c6b0e54006daec22382395115937310281e332d4de2d2c0173344ae2fdc5d4a1"
+      },
+      "forge-event-channel-v1": {
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
+        "net.minecraftforge.network.event.EventNetworkChannel": "7e03415c9efe4a6568ce0be6f80c2183f44d886d113eb32979fd2a654e9c9022"
+      },
+      "player-info-initialize-v1": {
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
+      },
+      "fabric-server-v1": {
+        "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
+        "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
+        "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
+      },
+      "fabric-raw-play-v1": {
+        "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking": "e1fc265d05d1a931fd68dd0d18edfde11a86f9ad2b6336acc1e87cc29b9ac0bb",
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f"
+      },
+      "fabric-immediate": {
+        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "8591f50315485478873acc8f178c0f3df09a64e355f9f6dc59a6bb0f538088a6",
+        "net.fabricmc.fabric.api.client.screen.v1.Screens": "243f2e1c373f8e47af62b830e89a0b4117d40106352b9499f1f82025b39c8759"
+      },
+      "forge47": {
+        "net.minecraftforge.client.event.ScreenEvent": "75a5e38e4085d189ed7fc1167d217c37e9bc0e5a8ba86e79320221c1f3d18e05",
+        "net.minecraftforge.client.event.ScreenEvent$Init$Post": "2c1b77f3ffe272853e85689415ecb63d7d2b27f12e82fd6ab309a42c47b629d3",
+        "net.minecraftforge.client.event.ScreenEvent$Render$Post": "518456a9f8c8916ac5891212f5476321856491db811dcc184b475e766040f8b4",
+        "net.minecraftforge.fml.common.Mod.EventBusSubscriber": "1e9b4fce51c367bc5912fd7e6ec7822b9bc04c541d14cf5670d0db0e73145112"
+      },
       "immediate-resource-location-player-info": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
         "net.minecraft.client.gui.GuiGraphics": "7c5001e01cf271f3d09c4a33b428fc2d4e09f03f9adf49d1795178662f2cce5b",
@@ -5697,31 +5805,14 @@
         "net.minecraft.client.gui.screens.OptionsScreen": "6cd41848bb531e2e581fbd8b525db99a4ef2848329ca893f97403a0be4fe8e42",
         "net.minecraft.client.gui.screens.Screen": "8222a2bb66230686ff4b0226967fa580f943b6fee7246e538dc8b8bded77da74"
       },
-      "resource-location-legacy": {
-        "net.minecraft.client.renderer.texture.DynamicTexture": "35073fc2fe40dab16d09fde901ea16d4affc348986ee4c57695f175f1cd26c59",
-        "net.minecraft.client.renderer.texture.TextureManager": "8dae102782d4437879490de708d8a177719ed8ec14193e65d19fa8fec1ae303c"
-      },
-      "remote-player-preview": {
-        "net.minecraft.client.gui.screens.inventory.InventoryScreen": "3339e7e579fdcb0996f5ff9e49705da017008a16f5230066e34988a7a7b1e34b",
-        "net.minecraft.client.player.RemotePlayer": "378ecb16104999e27c2ab58e51d75d0456c1777b4ee7cf2109705f03bd5e4e60",
-        "net.minecraft.world.entity.Entity": "d268c76c167de03ea98e0810546cd24e53e23c8b82c8525ee953f52807a64644",
-        "net.minecraft.world.scores.PlayerTeam": "2dcbfb783add8f39b4cd8f84d8fce9e71c9c3141adcd2ecc66b266f38ffbf626",
-        "net.minecraft.world.scores.Scoreboard": "26bee77086a2d441ab2bbf34da2096d9d8d835f2903463938992518158d7f0d9",
-        "net.minecraft.world.scores.Team$Visibility": "2fb3752ef2ed6d84889de5dcc8fc510b624cf27a61e0b1ac0fa91a8d1d387a68"
-      },
-      "player-info-cache": {
-        "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
-        "net.minecraft.client.multiplayer.PlayerInfo": "2baba81c2f9857f80efc3c09a9f9f7d7b17b0a35b3b5ef3bf317aa3159629e6e"
-      },
-      "fabric-immediate": {
-        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "8591f50315485478873acc8f178c0f3df09a64e355f9f6dc59a6bb0f538088a6",
-        "net.fabricmc.fabric.api.client.screen.v1.Screens": "243f2e1c373f8e47af62b830e89a0b4117d40106352b9499f1f82025b39c8759"
-      },
-      "forge47": {
-        "net.minecraftforge.client.event.ScreenEvent": "75a5e38e4085d189ed7fc1167d217c37e9bc0e5a8ba86e79320221c1f3d18e05",
-        "net.minecraftforge.client.event.ScreenEvent$Init$Post": "2c1b77f3ffe272853e85689415ecb63d7d2b27f12e82fd6ab309a42c47b629d3",
-        "net.minecraftforge.client.event.ScreenEvent$Render$Post": "518456a9f8c8916ac5891212f5476321856491db811dcc184b475e766040f8b4",
-        "net.minecraftforge.fml.common.Mod.EventBusSubscriber": "1e9b4fce51c367bc5912fd7e6ec7822b9bc04c541d14cf5670d0db0e73145112"
+      "forge47-server": {
+        "net.minecraftforge.common.MinecraftForge": "3b9883e6d202be8356190b2dd9c392307728ac6affad59737456ff0b6741c240",
+        "net.minecraftforge.event.server.ServerLifecycleEvent": "267af49fb6a4d6b7ffced678a700b0d2b5ee7dc69c77fa3bcb0207760c850278",
+        "net.minecraftforge.event.server.ServerStartingEvent": "3192d1df6f45f977fa24ac794c8ba908e21f82d7ce10b657428fc8a87b10554a",
+        "net.minecraftforge.event.server.ServerStoppedEvent": "964f6f2cc2ef7fc275be470601af892966da0d21c5846ec9eb4758a8e27270c3",
+        "net.minecraftforge.eventbus.api.IEventBus": "cdd7ff5991d071994a27e035c1e23e375acf9559eb908f906bf0edffac0bc1f2",
+        "net.minecraftforge.fml.common.Mod": "c6563b84466e0439662c15274cb929f88020644690668db310a5c17de9c0e63a",
+        "net.minecraftforge.fml.loading.FMLPaths": "e917f9069035d84bda1d3817888c5963830c5f64cb92fd62da39d75d82315d4b"
       },
       "minecraft-user-v1": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
@@ -5734,27 +5825,9 @@
         "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
         "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
       },
-      "resource-stack-bundled": {
-        "net.minecraft.server.packs.resources.Resource": "a3e705e925e79b4ad9edd26af919803e5e66bbfc895bece1b1f0e7299dea628c",
-        "net.minecraft.server.packs.resources.ResourceManager": "de8f180d4d8a1ba7d5753c8c111ce659afa46903b01723d22d98a8b8647ff9f6"
-      },
-      "resource-location-current": {
-        "net.minecraft.client.Minecraft": "7eae65b7627f5973d3510ca29ee2398203b867e901379d3c4e032c8971f1ef7c",
-        "net.minecraft.client.player.AbstractClientPlayer": "a9d1b5fc4de6fd7a3e38997c72555f2b8f73ea21982a0bd806c51e4639021ee5",
-        "net.minecraft.client.resources.DefaultPlayerSkin": "8d649fad287825d93fb04919ce6f0c0abc1d8e23d0e34e8257a41fe6ff76849c",
-        "net.minecraft.client.resources.SkinManager": "bb091c672dde8cd1a0cdb25a5de7a8b770338d24c34caa1744a663e22a76de89"
-      },
-      "command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "bd205ccba66efd0ffcc97d7b8938c433d530ceadcab39f26fe220d4eb9747f82",
-        "com.mojang.brigadier.tree.CommandNode": "8149cdbe489b728e6d122378f629f5acb38e4fc2b712b198c7e8d9dcfa3d41d4",
-        "com.mojang.brigadier.tree.LiteralCommandNode": "64074e5b49516a65a91eb31a6f6b5c7e275fb4fb9ec7ba47ded9531c4d5099bb",
-        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
-        "net.minecraft.client.multiplayer.ClientPacketListener": "d1b99777bda33d0f0bc29c1552513732300201dccfa8b17d44860ef07de2bd89"
-      },
-      "profile-verification-authlib-v4": {
-        "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
-        "com.mojang.authlib.properties.Property": "ba5cd2a9e71a593237abb231cad5fafb20c9afc69e9a04c896571070c36d8be2",
-        "net.minecraft.server.MinecraftServer": "c6b0e54006daec22382395115937310281e332d4de2d2c0173344ae2fdc5d4a1"
+      "player-info-cache": {
+        "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
+        "net.minecraft.client.multiplayer.PlayerInfo": "2baba81c2f9857f80efc3c09a9f9f7d7b17b0a35b3b5ef3bf317aa3159629e6e"
       },
       "profile-mutation-authlib-v4": {
         "com.mojang.authlib.GameProfile": "a64d2301f7fa60edc7dcaaa2b1de74fe32eb00632c4bca6632e438e6757a47de",
@@ -5774,53 +5847,73 @@
         "net.minecraft.util.thread.BlockableEventLoop": "668fbd6cf4688a309c2742d306a6bf0de677625633cbef029a8a874671d5261a",
         "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
       },
+      "remote-player-preview": {
+        "net.minecraft.client.gui.screens.inventory.InventoryScreen": "3339e7e579fdcb0996f5ff9e49705da017008a16f5230066e34988a7a7b1e34b",
+        "net.minecraft.client.player.RemotePlayer": "378ecb16104999e27c2ab58e51d75d0456c1777b4ee7cf2109705f03bd5e4e60",
+        "net.minecraft.world.entity.Entity": "d268c76c167de03ea98e0810546cd24e53e23c8b82c8525ee953f52807a64644",
+        "net.minecraft.world.scores.PlayerTeam": "2dcbfb783add8f39b4cd8f84d8fce9e71c9c3141adcd2ecc66b266f38ffbf626",
+        "net.minecraft.world.scores.Scoreboard": "26bee77086a2d441ab2bbf34da2096d9d8d835f2903463938992518158d7f0d9",
+        "net.minecraft.world.scores.Team$Visibility": "2fb3752ef2ed6d84889de5dcc8fc510b624cf27a61e0b1ac0fa91a8d1d387a68"
+      }
+    },
+    "modern-resource-location-authlib6": {
+      "neoforge-immediate": {
+        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
+        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
+        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750",
+        "net.neoforged.neoforge.client.event.ScreenEvent$Render$Post": "1fc0ee3f52416d913c6556e1fc26ef960365a87a7e9a667c8b7d67f9a7480627"
+      },
+      "fabric-typed-payload-v1": {
+        "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking": "e1fc265d05d1a931fd68dd0d18edfde11a86f9ad2b6336acc1e87cc29b9ac0bb",
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f"
+      },
       "player-info-initialize-v1": {
         "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
         "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
       },
-      "server-command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "a1890fcc9a241cb9af25757ab55a94fffce00471a2ec0ed5fd172e2850677be6",
-        "com.mojang.brigadier.builder.ArgumentBuilder": "9ed4a6c1f10bdfdffb80d83df92a8b74748331d98a09aaf34b883c49d717d8d0",
-        "com.mojang.brigadier.context.CommandContext": "31943bdc59fd4c96a98b82898d91d2cd1aa5c582cba2f7c2bca2cf7245505e5e",
-        "net.minecraft.commands.CommandSourceStack": "5f1d1a059f619166ba93e7fb40e766141c921d902b0a5f2eb6e6f2fbc1a8649b",
-        "net.minecraft.commands.Commands": "a0498709fe89eaf7b95e18f519d77154b25986026aad542299d05fa035e967c3",
-        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      "neoforge-typed-payload-receiver-v1": {
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913",
+        "net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent": "1d17c5038857d694ba6e9d4e4dcd6371042a26d28c4e77b4a62a6f49ffd7a39f"
+      },
+      "neoforge-resource-location-v1": {
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
+        "net.neoforged.neoforge.network.PacketDistributor": "6fe56aac19baca8e64dc48887d9fd9bd4b712f6e2f6c7b7a0c17955bf5ea1ba2",
+        "net.neoforged.neoforge.network.registration.NetworkRegistry": "b4a169a0e634a8db28bc8f9c5c5aaea1cd1a225534f63110579beb9c3ff50e33"
+      },
+      "skin-lookup": {
+        "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
+        "net.minecraft.client.multiplayer.PlayerInfo": "f433468c8a624a2037092bfd3d8a0edb241ec5ddc54f5932d1767cf37733e2d7",
+        "net.minecraft.client.resources.SkinManager": "9a4806362dc925edb5c1bbdfb6b767abb0e910bba331cf4ca1fa1d8efe7a408d"
+      },
+      "vanilla-pack-resource-location": {
+        "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
+        "net.minecraft.server.packs.PackResources": "a98fc2ee5fbbde41ca681cccb733c22bc7c49e487f5d480f2a5b313dfb4499a4"
       },
       "fabric-server-v1": {
         "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
-        "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback": "069c9a45a46b1c5193e94d523de4f52c877ef39faea4a483239511cfb398aa14",
         "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
         "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
       },
-      "forge47-server": {
-        "net.minecraftforge.common.MinecraftForge": "3b9883e6d202be8356190b2dd9c392307728ac6affad59737456ff0b6741c240",
-        "net.minecraftforge.event.RegisterCommandsEvent": "c507c1cd2b18ff0fa1ba1ac5284c5e08f70a794bafd61a925eb5d88c54c573ed",
-        "net.minecraftforge.event.server.ServerLifecycleEvent": "267af49fb6a4d6b7ffced678a700b0d2b5ee7dc69c77fa3bcb0207760c850278",
-        "net.minecraftforge.event.server.ServerStartingEvent": "3192d1df6f45f977fa24ac794c8ba908e21f82d7ce10b657428fc8a87b10554a",
-        "net.minecraftforge.event.server.ServerStoppedEvent": "964f6f2cc2ef7fc275be470601af892966da0d21c5846ec9eb4758a8e27270c3",
-        "net.minecraftforge.eventbus.api.IEventBus": "cdd7ff5991d071994a27e035c1e23e375acf9559eb908f906bf0edffac0bc1f2",
-        "net.minecraftforge.fml.common.Mod": "c6563b84466e0439662c15274cb929f88020644690668db310a5c17de9c0e63a",
-        "net.minecraftforge.fml.loading.FMLPaths": "e917f9069035d84bda1d3817888c5963830c5f64cb92fd62da39d75d82315d4b"
-      }
-    },
-    "modern-resource-location-authlib6": {
-      "immediate-resource-location-skin-lookup": {
-        "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
-        "net.minecraft.client.gui.GuiGraphics": "7c5001e01cf271f3d09c4a33b428fc2d4e09f03f9adf49d1795178662f2cce5b",
-        "net.minecraft.client.gui.components.AbstractSelectionList": "95dedb8d168c95385890116a71f9d12bfd97ec9884ff794e74ebb82cb2b909ee",
-        "net.minecraft.client.gui.components.AbstractSelectionList$Entry": "18c14b8932a07be56bf371ff2f6110a32583e975aa107a637a78c1cf5d64ea67",
-        "net.minecraft.client.gui.components.AbstractWidget": "da352fec4bd274f1c5a7e6e8b6acc81a8e978bf1cb511900fc96819033a7995a",
-        "net.minecraft.client.gui.components.events.GuiEventListener": "751f965876e345af1139caca8d6def5b8f5950c0ae990284f91dfe9f62326f43",
-        "net.minecraft.client.gui.screens.Screen": "8222a2bb66230686ff4b0226967fa580f943b6fee7246e538dc8b8bded77da74",
-        "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "0613433db154bf9cb36eb94e9694b831034c13e97af115c71df2a3639854e9e8",
-        "net.minecraft.client.gui.screens.options.OptionsScreen": "1ca283794000e3f2c0b886c5c079ee5fb4b59e6774f21efb223fe29762463b67"
+      "profile-mutation-authlib-v6": {
+        "com.mojang.authlib.GameProfile": "a64d2301f7fa60edc7dcaaa2b1de74fe32eb00632c4bca6632e438e6757a47de",
+        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
+        "net.minecraft.world.entity.player.Player": "58f6413f8ada78c1ec02da34be23545ace89a0597dfbd4af8ae802f3c155c637"
+      },
+      "fabric-immediate": {
+        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "8591f50315485478873acc8f178c0f3df09a64e355f9f6dc59a6bb0f538088a6",
+        "net.fabricmc.fabric.api.client.screen.v1.Screens": "243f2e1c373f8e47af62b830e89a0b4117d40106352b9499f1f82025b39c8759"
       },
       "resource-location-modern": {
         "net.minecraft.client.renderer.texture.TextureManager": "315df160ed925583251a8740dd04be4e8bf19575c77292e98a1e4141dddb17da",
         "net.minecraft.resources.ResourceLocation": "902ae1141a72ea8470b7eb1476c5dedbc1e1764a7aeb146a80757ed05afebd9b"
+      },
+      "fabric-typed-payload-receiver-v1": {
+        "net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry": "f1f3a324bac38ac850213a4ac924f2b99b82abe7d5b470cbda2ddd469328ef15",
+        "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking": "865418204eedfd6e441ef155ef50b034511579d222c0a5cdd78c2be7306ece0e",
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
       },
       "player-skin-preview": {
         "net.minecraft.client.player.RemotePlayer": "378ecb16104999e27c2ab58e51d75d0456c1777b4ee7cf2109705f03bd5e4e60",
@@ -5830,21 +5923,6 @@
         "net.minecraft.world.scores.Scoreboard": "db3d15a9cbdfb5a6d35941282ad3c196bf886c387c975a716ebafca255d86e55",
         "net.minecraft.world.scores.Team$Visibility": "2fb3752ef2ed6d84889de5dcc8fc510b624cf27a61e0b1ac0fa91a8d1d387a68"
       },
-      "skin-lookup": {
-        "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
-        "net.minecraft.client.multiplayer.PlayerInfo": "f433468c8a624a2037092bfd3d8a0edb241ec5ddc54f5932d1767cf37733e2d7",
-        "net.minecraft.client.resources.SkinManager": "9a4806362dc925edb5c1bbdfb6b767abb0e910bba331cf4ca1fa1d8efe7a408d"
-      },
-      "fabric-immediate": {
-        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "8591f50315485478873acc8f178c0f3df09a64e355f9f6dc59a6bb0f538088a6",
-        "net.fabricmc.fabric.api.client.screen.v1.Screens": "243f2e1c373f8e47af62b830e89a0b4117d40106352b9499f1f82025b39c8759"
-      },
-      "neoforge-immediate": {
-        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
-        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
-        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750",
-        "net.neoforged.neoforge.client.event.ScreenEvent$Render$Post": "1fc0ee3f52416d913c6556e1fc26ef960365a87a7e9a667c8b7d67f9a7480627"
-      },
       "minecraft-user-v1": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
         "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
@@ -5852,34 +5930,27 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "tinyfd-safe-v1": {
-        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
-        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
-      },
-      "vanilla-pack-resource-location": {
-        "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
-        "net.minecraft.server.packs.PackResources": "a98fc2ee5fbbde41ca681cccb733c22bc7c49e487f5d480f2a5b313dfb4499a4"
-      },
-      "player-skin-current": {
-        "net.minecraft.client.player.AbstractClientPlayer": "4b3d94ac950f62ae4a7f11c8903ffbd53f8f0dd505762e5f8d076a62b6fe6193",
-        "net.minecraft.client.resources.PlayerSkin": "860ad54e6c9b7769f903d74f8f756b3f267c994848d084088cde1c5ea20682de"
-      },
-      "command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "bd205ccba66efd0ffcc97d7b8938c433d530ceadcab39f26fe220d4eb9747f82",
-        "com.mojang.brigadier.tree.CommandNode": "8149cdbe489b728e6d122378f629f5acb38e4fc2b712b198c7e8d9dcfa3d41d4",
-        "com.mojang.brigadier.tree.LiteralCommandNode": "64074e5b49516a65a91eb31a6f6b5c7e275fb4fb9ec7ba47ded9531c4d5099bb",
-        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
-        "net.minecraft.client.multiplayer.ClientPacketListener": "d1b99777bda33d0f0bc29c1552513732300201dccfa8b17d44860ef07de2bd89"
-      },
       "profile-verification-authlib-v6": {
         "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
         "com.mojang.authlib.properties.Property": "1628436859dc7657629b503086f795b2823f056e3fe15bd18c5e86870e000456",
         "net.minecraft.server.MinecraftServer": "c6b0e54006daec22382395115937310281e332d4de2d2c0173344ae2fdc5d4a1"
       },
-      "profile-mutation-authlib-v6": {
-        "com.mojang.authlib.GameProfile": "a64d2301f7fa60edc7dcaaa2b1de74fe32eb00632c4bca6632e438e6757a47de",
-        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
-        "net.minecraft.world.entity.player.Player": "58f6413f8ada78c1ec02da34be23545ace89a0597dfbd4af8ae802f3c155c637"
+      "tinyfd-safe-v1": {
+        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
+        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
+      },
+      "player-skin-current": {
+        "net.minecraft.client.player.AbstractClientPlayer": "4b3d94ac950f62ae4a7f11c8903ffbd53f8f0dd505762e5f8d076a62b6fe6193",
+        "net.minecraft.client.resources.PlayerSkin": "860ad54e6c9b7769f903d74f8f756b3f267c994848d084088cde1c5ea20682de"
+      },
+      "neoforge-server-v1": {
+        "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
+        "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
+        "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
+        "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
+        "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
+        "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
+        "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
       },
       "tracking-chunkmap-serverlevel-v1": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
@@ -5894,39 +5965,91 @@
         "net.minecraft.util.thread.BlockableEventLoop": "668fbd6cf4688a309c2742d306a6bf0de677625633cbef029a8a874671d5261a",
         "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
       },
+      "immediate-resource-location-skin-lookup": {
+        "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
+        "net.minecraft.client.gui.GuiGraphics": "7c5001e01cf271f3d09c4a33b428fc2d4e09f03f9adf49d1795178662f2cce5b",
+        "net.minecraft.client.gui.components.AbstractSelectionList": "95dedb8d168c95385890116a71f9d12bfd97ec9884ff794e74ebb82cb2b909ee",
+        "net.minecraft.client.gui.components.AbstractSelectionList$Entry": "18c14b8932a07be56bf371ff2f6110a32583e975aa107a637a78c1cf5d64ea67",
+        "net.minecraft.client.gui.components.AbstractWidget": "da352fec4bd274f1c5a7e6e8b6acc81a8e978bf1cb511900fc96819033a7995a",
+        "net.minecraft.client.gui.components.events.GuiEventListener": "751f965876e345af1139caca8d6def5b8f5950c0ae990284f91dfe9f62326f43",
+        "net.minecraft.client.gui.screens.Screen": "8222a2bb66230686ff4b0226967fa580f943b6fee7246e538dc8b8bded77da74",
+        "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "0613433db154bf9cb36eb94e9694b831034c13e97af115c71df2a3639854e9e8",
+        "net.minecraft.client.gui.screens.options.OptionsScreen": "1ca283794000e3f2c0b886c5c079ee5fb4b59e6774f21efb223fe29762463b67"
+      }
+    },
+    "identifier-submission-authlib7": {
+      "tracking-chunkmap-level-v2": {
+        "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
+        "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
+        "net.minecraft.server.level.ChunkMap": "1d683e8f6d4abbb8e7d03ebf8915c581958773017e4f0bbd586e253f39d9072b",
+        "net.minecraft.server.level.ChunkMap$TrackedEntity": "7316ad43949bc7c3397ebfb56e3a3e70aad2eb998db6fe823b21818c27396ddd",
+        "net.minecraft.server.level.ServerChunkCache": "a83a652e2950fda9974d303055626d8a7bf5282b7ccbca6af6b147df105439f5",
+        "net.minecraft.server.level.ServerLevel": "1344965d95402b64e034f5a77e34f1a528652dd384a5c3e5b96134562d8f0e2d",
+        "net.minecraft.server.level.ServerPlayer": "c0008c1286b718970cec0f0f058e7ef45924cf843d22b1cb1d9f69a3f6369087",
+        "net.minecraft.server.network.ServerPlayerConnection": "5768e661d1a8698cced7c9cc20f3537abdddf7679c9419f99b42037341624f5e",
+        "net.minecraft.server.players.PlayerList": "b36807ccb904ae025b82553cda87bc79d17bd27e86837b248d14590e62e9bae3",
+        "net.minecraft.util.thread.BlockableEventLoop": "e396e02b3b43c0aba796994cb54f5fdedad7992667d1e66eaa1223efa9d2a7f4",
+        "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
+      },
+      "identifier-texture-registry": {
+        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
+        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
+        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
+      },
+      "neoforge-extraction": {
+        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
+        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
+        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
+      },
+      "fabric-typed-payload-v1": {
+        "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking": "e1fc265d05d1a931fd68dd0d18edfde11a86f9ad2b6336acc1e87cc29b9ac0bb",
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f"
+      },
+      "identifier-submission": {
+        "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
+        "net.minecraft.client.gui.GuiGraphics": "a6f0d39439974f4a81d89b1491ea98ec43f22fd06b09414780e1c4a41c506587",
+        "net.minecraft.client.gui.components.AbstractButton": "5585f3601cf1bd3644bc6637da8a95a06494444a42e0c84e7cff3f5521613a86",
+        "net.minecraft.client.gui.components.AbstractScrollArea": "97e0b03c0ccc01c7491236c2f99dc98c0908d0a27a8b42153db94655743adc59",
+        "net.minecraft.client.gui.components.AbstractWidget": "70c25c55d7ca9e6be5889fe86d14490b9eef292c4710157ab6b75f9b497adcfb",
+        "net.minecraft.client.gui.components.tabs.TabManager": "9a368c293637b9fd4e4232eaa5fc33eafe33094321847a15ca6d550da71f09bb",
+        "net.minecraft.client.gui.components.tabs.TabNavigationBar": "469d91d8f89aa820b26d5d18cc2bfaa7697557d27a679f7c03a2cbe8e130fe46",
+        "net.minecraft.client.gui.screens.Screen": "19e0ae1352bd498a88b0ab352fb2b38ad68ca168690066a240b23d01fbe2f886",
+        "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "76d98632148ed4cc60e8a6fa7de0b8f7b872d30887dad12e97f4bc804f726d1c",
+        "net.minecraft.client.gui.screens.options.OptionsScreen": "1ca283794000e3f2c0b886c5c079ee5fb4b59e6774f21efb223fe29762463b67",
+        "net.minecraft.client.input.InputWithModifiers": "756f86d5852ac6cc69cc7a8dc778de7ad6ba81eabaeec189194a166240a8ea2c"
+      },
       "player-info-initialize-v1": {
         "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
         "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
       },
-      "server-command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "a1890fcc9a241cb9af25757ab55a94fffce00471a2ec0ed5fd172e2850677be6",
-        "com.mojang.brigadier.builder.ArgumentBuilder": "9ed4a6c1f10bdfdffb80d83df92a8b74748331d98a09aaf34b883c49d717d8d0",
-        "com.mojang.brigadier.context.CommandContext": "31943bdc59fd4c96a98b82898d91d2cd1aa5c582cba2f7c2bca2cf7245505e5e",
-        "net.minecraft.commands.CommandSourceStack": "5f1d1a059f619166ba93e7fb40e766141c921d902b0a5f2eb6e6f2fbc1a8649b",
-        "net.minecraft.commands.Commands": "a0498709fe89eaf7b95e18f519d77154b25986026aad542299d05fa035e967c3",
-        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      "neoforge-typed-payload-receiver-v1": {
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913",
+        "net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent": "1d17c5038857d694ba6e9d4e4dcd6371042a26d28c4e77b4a62a6f49ffd7a39f"
       },
       "fabric-server-v1": {
         "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
-        "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback": "069c9a45a46b1c5193e94d523de4f52c877ef39faea4a483239511cfb398aa14",
         "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
         "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
       },
-      "neoforge-server-v1": {
-        "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
-        "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
-        "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
-        "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
-        "net.neoforged.neoforge.event.RegisterCommandsEvent": "feec2694911d8517c91f8c64ddc5ae65defee964a0f3c7d1fa971c753a5c5ca2",
-        "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
-        "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
-        "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
-      }
-    },
-    "identifier-submission-authlib7": {
+      "neoforge-identifier-v1": {
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
+        "net.neoforged.neoforge.client.network.ClientPacketDistributor": "06ebb9ae03ceba34a1172d2cc737b3e956879d3de9dd041ad865648653831bab",
+        "net.neoforged.neoforge.network.registration.NetworkRegistry": "b4a169a0e634a8db28bc8f9c5c5aaea1cd1a225534f63110579beb9c3ff50e33"
+      },
+      "fabric-typed-payload-receiver-v1": {
+        "net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry": "f1f3a324bac38ac850213a4ac924f2b99b82abe7d5b470cbda2ddd469328ef15",
+        "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking": "865418204eedfd6e441ef155ef50b034511579d222c0a5cdd78c2be7306ece0e",
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      },
+      "profile-mutation-authlib-v7": {
+        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
+        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
+        "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
+        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
+      },
       "avatar-pip-submission": {
         "net.minecraft.client.gui.GuiGraphics": "50176603ae7a33011b4996339d90d8a45466f1447411deeb3fd55e90ae1c4fee",
         "net.minecraft.client.gui.render.GuiRenderer": "a810591708f742d21a42d463a829d0482ac930f96213b5d51828de030a257a9c",
@@ -5951,30 +6074,9 @@
         "net.minecraft.world.entity.LivingEntity": "e207cc8a4be1edada77661ae00773148aa26fb163b8d466a666e69394bdb57b6",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c"
       },
-      "command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "bd205ccba66efd0ffcc97d7b8938c433d530ceadcab39f26fe220d4eb9747f82",
-        "com.mojang.brigadier.tree.CommandNode": "8149cdbe489b728e6d122378f629f5acb38e4fc2b712b198c7e8d9dcfa3d41d4",
-        "com.mojang.brigadier.tree.LiteralCommandNode": "64074e5b49516a65a91eb31a6f6b5c7e275fb4fb9ec7ba47ded9531c4d5099bb",
-        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
-        "net.minecraft.client.multiplayer.ClientPacketListener": "d1b99777bda33d0f0bc29c1552513732300201dccfa8b17d44860ef07de2bd89"
-      },
-      "fabric-server-v1": {
-        "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
-        "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback": "069c9a45a46b1c5193e94d523de4f52c877ef39faea4a483239511cfb398aa14",
-        "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
-        "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
-      },
-      "fabric-submission": {
-        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "9c2a9b5500582209346bbac23c9161e6a12707d779e7ff9788e8190b264b5f0d",
-        "net.fabricmc.fabric.api.client.screen.v1.Screens": "243f2e1c373f8e47af62b830e89a0b4117d40106352b9499f1f82025b39c8759"
-      },
-      "identifier-texture-registry": {
-        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
-        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
-        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
+      "minecraft-user-v1": {
+        "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
+        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
       "avatar-state-local-player-skin": {
         "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
@@ -5985,70 +6087,39 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
-        "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
-        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
+      "fabric-submission": {
+        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "9c2a9b5500582209346bbac23c9161e6a12707d779e7ff9788e8190b264b5f0d",
+        "net.fabricmc.fabric.api.client.screen.v1.Screens": "243f2e1c373f8e47af62b830e89a0b4117d40106352b9499f1f82025b39c8759"
       },
-      "neoforge-extraction": {
-        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
-        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
-        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
+      "vanilla-pack-identifier-direct": {
+        "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
+        "net.minecraft.server.packs.PackResources": "5b204a6813ff7f9d7cf2c45a83b96e741cc2d7bd2608cafba406f8975fb94a14"
+      },
+      "tinyfd-safe-v1": {
+        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
+        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
+      },
+      "avatar-state-current-player": {
+        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
+        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
       },
       "neoforge-server-v1": {
         "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
         "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
         "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
         "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
-        "net.neoforged.neoforge.event.RegisterCommandsEvent": "feec2694911d8517c91f8c64ddc5ae65defee964a0f3c7d1fa971c753a5c5ca2",
         "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
         "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
         "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
-      },
-      "player-info-initialize-v1": {
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
-      },
-      "avatar-state-current-player": {
-        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
-        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
-      },
-      "profile-mutation-authlib-v7": {
-        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
-        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
-        "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
-        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
       },
       "profile-verification-authlib-v7": {
         "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
         "com.mojang.authlib.properties.Property": "1628436859dc7657629b503086f795b2823f056e3fe15bd18c5e86870e000456",
         "net.minecraft.server.MinecraftServer": "48449518b82ddf3df2f6879a1918aaaa2dbba0ee78a1383d767f103b51126f0b",
         "net.minecraft.server.Services": "b116cac026cc65ea233bdce16a5a6781a935c89f7751efaf15e69e3199be3bba"
-      },
-      "server-command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "a1890fcc9a241cb9af25757ab55a94fffce00471a2ec0ed5fd172e2850677be6",
-        "com.mojang.brigadier.builder.ArgumentBuilder": "9ed4a6c1f10bdfdffb80d83df92a8b74748331d98a09aaf34b883c49d717d8d0",
-        "com.mojang.brigadier.context.CommandContext": "31943bdc59fd4c96a98b82898d91d2cd1aa5c582cba2f7c2bca2cf7245505e5e",
-        "net.minecraft.commands.CommandSourceStack": "5f1d1a059f619166ba93e7fb40e766141c921d902b0a5f2eb6e6f2fbc1a8649b",
-        "net.minecraft.commands.Commands": "a0498709fe89eaf7b95e18f519d77154b25986026aad542299d05fa035e967c3",
-        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
-      },
-      "identifier-submission": {
-        "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
-        "net.minecraft.client.gui.GuiGraphics": "a6f0d39439974f4a81d89b1491ea98ec43f22fd06b09414780e1c4a41c506587",
-        "net.minecraft.client.gui.components.AbstractButton": "5585f3601cf1bd3644bc6637da8a95a06494444a42e0c84e7cff3f5521613a86",
-        "net.minecraft.client.gui.components.AbstractScrollArea": "97e0b03c0ccc01c7491236c2f99dc98c0908d0a27a8b42153db94655743adc59",
-        "net.minecraft.client.gui.components.AbstractWidget": "70c25c55d7ca9e6be5889fe86d14490b9eef292c4710157ab6b75f9b497adcfb",
-        "net.minecraft.client.gui.components.tabs.TabManager": "9a368c293637b9fd4e4232eaa5fc33eafe33094321847a15ca6d550da71f09bb",
-        "net.minecraft.client.gui.components.tabs.TabNavigationBar": "469d91d8f89aa820b26d5d18cc2bfaa7697557d27a679f7c03a2cbe8e130fe46",
-        "net.minecraft.client.gui.screens.Screen": "19e0ae1352bd498a88b0ab352fb2b38ad68ca168690066a240b23d01fbe2f886",
-        "net.minecraft.client.gui.screens.options.AccessibilityOptionsScreen": "76d98632148ed4cc60e8a6fa7de0b8f7b872d30887dad12e97f4bc804f726d1c",
-        "net.minecraft.client.gui.screens.options.OptionsScreen": "1ca283794000e3f2c0b886c5c079ee5fb4b59e6774f21efb223fe29762463b67",
-        "net.minecraft.client.input.InputWithModifiers": "756f86d5852ac6cc69cc7a8dc778de7ad6ba81eabaeec189194a166240a8ea2c"
-      },
-      "tinyfd-safe-v1": {
-        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
-        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
-      },
+      }
+    },
+    "identifier-extraction-authlib7": {
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
         "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
@@ -6062,22 +6133,15 @@
         "net.minecraft.util.thread.BlockableEventLoop": "e396e02b3b43c0aba796994cb54f5fdedad7992667d1e66eaa1223efa9d2a7f4",
         "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
       },
-      "vanilla-pack-identifier-direct": {
-        "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
-        "net.minecraft.server.packs.PackResources": "5b204a6813ff7f9d7cf2c45a83b96e741cc2d7bd2608cafba406f8975fb94a14"
-      }
-    },
-    "identifier-extraction-authlib7": {
-      "avatar-pip-extraction-player-model": {
-        "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "a78289d9e15d5f4164197a1c68012186e2df7f48f52a221573853089e9e56cd8",
-        "net.minecraft.client.renderer.entity.state.AvatarRenderState": "eccf7439bea35dce21d35cea1caf3586654bbf27e0e02b8aa232e5241c29463e"
+      "identifier-texture-registry": {
+        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
+        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
+        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
       },
-      "command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "bd205ccba66efd0ffcc97d7b8938c433d530ceadcab39f26fe220d4eb9747f82",
-        "com.mojang.brigadier.tree.CommandNode": "8149cdbe489b728e6d122378f629f5acb38e4fc2b712b198c7e8d9dcfa3d41d4",
-        "com.mojang.brigadier.tree.LiteralCommandNode": "64074e5b49516a65a91eb31a6f6b5c7e275fb4fb9ec7ba47ded9531c4d5099bb",
-        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
-        "net.minecraft.client.multiplayer.ClientPacketListener": "d1b99777bda33d0f0bc29c1552513732300201dccfa8b17d44860ef07de2bd89"
+      "neoforge-extraction": {
+        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
+        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
+        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
       },
       "identifier-extraction-tab-navigation-glfw": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
@@ -6092,23 +6156,53 @@
         "net.minecraft.network.chat.Component": "55c6542bb098da054c187bcaabf4226f9caa0883bdb4a7e91c95e632e02acd72",
         "net.minecraft.network.chat.MutableComponent": "59572d3bfc2305523fefe2dafc5b5421651a03a5059af60cd6cd3295dd93d90d"
       },
-      "fabric-extraction": {
-        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
-        "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"
+      "fabric-typed-payload-v1": {
+        "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking": "e1fc265d05d1a931fd68dd0d18edfde11a86f9ad2b6336acc1e87cc29b9ac0bb",
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f"
+      },
+      "player-info-initialize-v1": {
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
+      },
+      "neoforge-typed-payload-receiver-v1": {
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913",
+        "net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent": "1d17c5038857d694ba6e9d4e4dcd6371042a26d28c4e77b4a62a6f49ffd7a39f"
+      },
+      "avatar-pip-extraction-player-model": {
+        "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "a78289d9e15d5f4164197a1c68012186e2df7f48f52a221573853089e9e56cd8",
+        "net.minecraft.client.renderer.entity.state.AvatarRenderState": "eccf7439bea35dce21d35cea1caf3586654bbf27e0e02b8aa232e5241c29463e"
       },
       "fabric-server-v1": {
         "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
-        "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback": "069c9a45a46b1c5193e94d523de4f52c877ef39faea4a483239511cfb398aa14",
         "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
         "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
         "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
       },
-      "identifier-texture-registry": {
-        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
-        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
-        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
+      "fabric-serverbound-payload-receiver-v1": {
+        "net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry": "f1f3a324bac38ac850213a4ac924f2b99b82abe7d5b470cbda2ddd469328ef15",
+        "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking": "865418204eedfd6e441ef155ef50b034511579d222c0a5cdd78c2be7306ece0e",
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      },
+      "neoforge-identifier-v1": {
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
+        "net.neoforged.neoforge.client.network.ClientPacketDistributor": "06ebb9ae03ceba34a1172d2cc737b3e956879d3de9dd041ad865648653831bab",
+        "net.neoforged.neoforge.network.registration.NetworkRegistry": "b4a169a0e634a8db28bc8f9c5c5aaea1cd1a225534f63110579beb9c3ff50e33"
+      },
+      "fabric-extraction": {
+        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
+        "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"
+      },
+      "profile-mutation-authlib-v7": {
+        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
+        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
+        "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
+        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
+      },
+      "minecraft-user-v1": {
+        "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
+        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
       "avatar-state-local-player-skin": {
         "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
@@ -6119,57 +6213,35 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
-        "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
-        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
+      "vanilla-pack-identifier-direct": {
+        "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
+        "net.minecraft.server.packs.PackResources": "5b204a6813ff7f9d7cf2c45a83b96e741cc2d7bd2608cafba406f8975fb94a14"
       },
-      "neoforge-extraction": {
-        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
-        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
-        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
+      "tinyfd-safe-v1": {
+        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
+        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
+      },
+      "avatar-state-current-player": {
+        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
+        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
       },
       "neoforge-server-v1": {
         "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
         "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
         "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
         "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
-        "net.neoforged.neoforge.event.RegisterCommandsEvent": "feec2694911d8517c91f8c64ddc5ae65defee964a0f3c7d1fa971c753a5c5ca2",
         "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
         "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
         "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
-      },
-      "player-info-initialize-v1": {
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
-      },
-      "avatar-state-current-player": {
-        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
-        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
-      },
-      "profile-mutation-authlib-v7": {
-        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
-        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
-        "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
-        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
       },
       "profile-verification-authlib-v7": {
         "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
         "com.mojang.authlib.properties.Property": "1628436859dc7657629b503086f795b2823f056e3fe15bd18c5e86870e000456",
         "net.minecraft.server.MinecraftServer": "48449518b82ddf3df2f6879a1918aaaa2dbba0ee78a1383d767f103b51126f0b",
         "net.minecraft.server.Services": "b116cac026cc65ea233bdce16a5a6781a935c89f7751efaf15e69e3199be3bba"
-      },
-      "server-command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "a1890fcc9a241cb9af25757ab55a94fffce00471a2ec0ed5fd172e2850677be6",
-        "com.mojang.brigadier.builder.ArgumentBuilder": "9ed4a6c1f10bdfdffb80d83df92a8b74748331d98a09aaf34b883c49d717d8d0",
-        "com.mojang.brigadier.context.CommandContext": "31943bdc59fd4c96a98b82898d91d2cd1aa5c582cba2f7c2bca2cf7245505e5e",
-        "net.minecraft.commands.CommandSourceStack": "5f1d1a059f619166ba93e7fb40e766141c921d902b0a5f2eb6e6f2fbc1a8649b",
-        "net.minecraft.commands.Commands": "a0498709fe89eaf7b95e18f519d77154b25986026aad542299d05fa035e967c3",
-        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
-      },
-      "tinyfd-safe-v1": {
-        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
-        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
-      },
+      }
+    },
+    "identifier-extraction-authlib9": {
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
         "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
@@ -6183,12 +6255,60 @@
         "net.minecraft.util.thread.BlockableEventLoop": "e396e02b3b43c0aba796994cb54f5fdedad7992667d1e66eaa1223efa9d2a7f4",
         "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
       },
-      "vanilla-pack-identifier-direct": {
-        "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
-        "net.minecraft.server.packs.PackResources": "5b204a6813ff7f9d7cf2c45a83b96e741cc2d7bd2608cafba406f8975fb94a14"
-      }
-    },
-    "identifier-extraction-authlib9": {
+      "identifier-texture-registry": {
+        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
+        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
+        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
+      },
+      "neoforge-extraction": {
+        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
+        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
+        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
+      },
+      "fabric-typed-payload-v1": {
+        "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking": "e1fc265d05d1a931fd68dd0d18edfde11a86f9ad2b6336acc1e87cc29b9ac0bb",
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f"
+      },
+      "player-info-initialize-v1": {
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
+      },
+      "neoforge-typed-payload-receiver-v1": {
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913",
+        "net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent": "1d17c5038857d694ba6e9d4e4dcd6371042a26d28c4e77b4a62a6f49ffd7a39f"
+      },
+      "fabric-server-v1": {
+        "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
+        "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
+        "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
+      },
+      "fabric-serverbound-payload-receiver-v1": {
+        "net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry": "f1f3a324bac38ac850213a4ac924f2b99b82abe7d5b470cbda2ddd469328ef15",
+        "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking": "865418204eedfd6e441ef155ef50b034511579d222c0a5cdd78c2be7306ece0e",
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      },
+      "profile-mutation-authlib-v9": {
+        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
+        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
+        "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
+        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
+      },
+      "avatar-pip-extraction-simple-model-attack-time": {
+        "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "6a9d3d974cc9402121492550500ab95e51108e1f6867d1cc668aaac51c2c5a83",
+        "net.minecraft.client.renderer.entity.state.AvatarRenderState": "eccf7439bea35dce21d35cea1caf3586654bbf27e0e02b8aa232e5241c29463e"
+      },
+      "neoforge-identifier-v1": {
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
+        "net.neoforged.neoforge.client.network.ClientPacketDistributor": "06ebb9ae03ceba34a1172d2cc737b3e956879d3de9dd041ad865648653831bab",
+        "net.neoforged.neoforge.network.registration.NetworkRegistry": "b4a169a0e634a8db28bc8f9c5c5aaea1cd1a225534f63110579beb9c3ff50e33"
+      },
+      "fabric-extraction": {
+        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
+        "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"
+      },
       "identifier-extraction-menu-tab-glfw": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
         "net.minecraft.client.gui.ActiveTextCollector": "26406cec219761d8182d1c0ab44103a8213c2a176eaed18f0dabda595db89f6d",
@@ -6202,14 +6322,9 @@
         "net.minecraft.network.chat.Component": "55c6542bb098da054c187bcaabf4226f9caa0883bdb4a7e91c95e632e02acd72",
         "net.minecraft.network.chat.MutableComponent": "59572d3bfc2305523fefe2dafc5b5421651a03a5059af60cd6cd3295dd93d90d"
       },
-      "identifier-texture-registry": {
-        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
-        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
-        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
-      },
-      "avatar-pip-extraction-simple-model-attack-time": {
-        "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "6a9d3d974cc9402121492550500ab95e51108e1f6867d1cc668aaac51c2c5a83",
-        "net.minecraft.client.renderer.entity.state.AvatarRenderState": "eccf7439bea35dce21d35cea1caf3586654bbf27e0e02b8aa232e5241c29463e"
+      "minecraft-user-v1": {
+        "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
+        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
       "avatar-state-local-player-skin": {
         "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
@@ -6217,40 +6332,12 @@
         "net.minecraft.client.resources.SkinManager": "b734ca6e29a1a01e4357de1ca0e1597b23d8ce36c90f1b79de1779c4866c1456",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c"
       },
-      "fabric-extraction": {
-        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
-        "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"
-      },
-      "neoforge-extraction": {
-        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
-        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
-        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
-      },
-      "minecraft-user-v1": {
-        "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
-        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
-      },
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
-      },
-      "tinyfd-safe-v1": {
-        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
-        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
       },
       "vanilla-pack-identifier-direct": {
         "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
         "net.minecraft.server.packs.PackResources": "5b204a6813ff7f9d7cf2c45a83b96e741cc2d7bd2608cafba406f8975fb94a14"
-      },
-      "avatar-state-current-player": {
-        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
-        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
-      },
-      "command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "bd205ccba66efd0ffcc97d7b8938c433d530ceadcab39f26fe220d4eb9747f82",
-        "com.mojang.brigadier.tree.CommandNode": "8149cdbe489b728e6d122378f629f5acb38e4fc2b712b198c7e8d9dcfa3d41d4",
-        "com.mojang.brigadier.tree.LiteralCommandNode": "64074e5b49516a65a91eb31a6f6b5c7e275fb4fb9ec7ba47ded9531c4d5099bb",
-        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
-        "net.minecraft.client.multiplayer.ClientPacketListener": "d1b99777bda33d0f0bc29c1552513732300201dccfa8b17d44860ef07de2bd89"
       },
       "profile-verification-authlib-v9": {
         "com.mojang.authlib.minecraft.MinecraftSessionService": "dedb426241d36eb4f76020e9439b5c106e1537da5aed595ba774f9dac9298cdf",
@@ -6258,11 +6345,28 @@
         "net.minecraft.server.MinecraftServer": "48449518b82ddf3df2f6879a1918aaaa2dbba0ee78a1383d767f103b51126f0b",
         "net.minecraft.server.Services": "b116cac026cc65ea233bdce16a5a6781a935c89f7751efaf15e69e3199be3bba"
       },
-      "profile-mutation-authlib-v9": {
-        "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
-        "com.mojang.authlib.properties.Property": "e6fa74ce7fd347e5d4ac500334efe4db6ffaea7bba655a5f59943d4d4ef0517b",
-        "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
-        "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
+      "tinyfd-safe-v1": {
+        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
+        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
+      },
+      "avatar-state-current-player": {
+        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
+        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
+      },
+      "neoforge-server-v1": {
+        "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
+        "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
+        "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
+        "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
+        "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
+        "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
+        "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
+      }
+    },
+    "identifier-extraction-authlib10": {
+      "fabric-extraction": {
+        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
+        "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"
       },
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
@@ -6277,49 +6381,28 @@
         "net.minecraft.util.thread.BlockableEventLoop": "e396e02b3b43c0aba796994cb54f5fdedad7992667d1e66eaa1223efa9d2a7f4",
         "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
       },
-      "player-info-initialize-v1": {
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
+      "profile-verification-authlib-v10": {
+        "com.mojang.authlib.minecraft.SessionService": "e9512e457aeda8c392a5feecfc1122c0b6f7d19234232770efd803408e1980b6",
+        "com.mojang.authlib.properties.Property": "1628436859dc7657629b503086f795b2823f056e3fe15bd18c5e86870e000456",
+        "net.minecraft.server.MinecraftServer": "48449518b82ddf3df2f6879a1918aaaa2dbba0ee78a1383d767f103b51126f0b",
+        "net.minecraft.server.Services": "ff2ab5f41999533dfdbb98c7b4d5c890823bf27fcb10e528784a5331693f8f13"
       },
-      "server-command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "a1890fcc9a241cb9af25757ab55a94fffce00471a2ec0ed5fd172e2850677be6",
-        "com.mojang.brigadier.builder.ArgumentBuilder": "9ed4a6c1f10bdfdffb80d83df92a8b74748331d98a09aaf34b883c49d717d8d0",
-        "com.mojang.brigadier.context.CommandContext": "31943bdc59fd4c96a98b82898d91d2cd1aa5c582cba2f7c2bca2cf7245505e5e",
-        "net.minecraft.commands.CommandSourceStack": "5f1d1a059f619166ba93e7fb40e766141c921d902b0a5f2eb6e6f2fbc1a8649b",
-        "net.minecraft.commands.Commands": "a0498709fe89eaf7b95e18f519d77154b25986026aad542299d05fa035e967c3",
-        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      "identifier-texture-registry": {
+        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
+        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
+        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
       },
-      "fabric-server-v1": {
-        "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
-        "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback": "069c9a45a46b1c5193e94d523de4f52c877ef39faea4a483239511cfb398aa14",
-        "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
-        "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
-      },
-      "neoforge-server-v1": {
-        "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
-        "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
-        "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
-        "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
-        "net.neoforged.neoforge.event.RegisterCommandsEvent": "feec2694911d8517c91f8c64ddc5ae65defee964a0f3c7d1fa971c753a5c5ca2",
-        "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
-        "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
-        "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
-      }
-    },
-    "identifier-extraction-authlib10": {
       "avatar-pip-extraction-simple-model-no-attack-time": {
         "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "6a9d3d974cc9402121492550500ab95e51108e1f6867d1cc668aaac51c2c5a83",
         "net.minecraft.client.renderer.entity.state.AvatarRenderState": "eccf7439bea35dce21d35cea1caf3586654bbf27e0e02b8aa232e5241c29463e"
       },
-      "command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "bd205ccba66efd0ffcc97d7b8938c433d530ceadcab39f26fe220d4eb9747f82",
-        "com.mojang.brigadier.tree.CommandNode": "8149cdbe489b728e6d122378f629f5acb38e4fc2b712b198c7e8d9dcfa3d41d4",
-        "com.mojang.brigadier.tree.LiteralCommandNode": "64074e5b49516a65a91eb31a6f6b5c7e275fb4fb9ec7ba47ded9531c4d5099bb",
-        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
-        "net.minecraft.client.multiplayer.ClientPacketListener": "d1b99777bda33d0f0bc29c1552513732300201dccfa8b17d44860ef07de2bd89"
+      "tinyfd-safe-v1": {
+        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
+        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
+      },
+      "avatar-state-current-player": {
+        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
+        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
       },
       "identifier-extraction-menu-tab-input-constants": {
         "net.minecraft.client.Options": "b4b5622f59ecd9bc27eb55c9ddb292e96c1bac9f3f7496cf2c1441b99af10390",
@@ -6334,44 +6417,26 @@
         "net.minecraft.network.chat.Component": "55c6542bb098da054c187bcaabf4226f9caa0883bdb4a7e91c95e632e02acd72",
         "net.minecraft.network.chat.MutableComponent": "59572d3bfc2305523fefe2dafc5b5421651a03a5059af60cd6cd3295dd93d90d"
       },
-      "fabric-extraction": {
-        "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
-        "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"
-      },
-      "fabric-server-v1": {
-        "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
-        "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback": "069c9a45a46b1c5193e94d523de4f52c877ef39faea4a483239511cfb398aa14",
-        "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
-        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
-        "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
-      },
-      "identifier-texture-registry": {
-        "net.minecraft.client.renderer.texture.DynamicTexture": "6c6cd18fee7da9809f46cdc0e5e4543404cd5ac5283d88d5c88e865b26d3288b",
-        "net.minecraft.client.renderer.texture.TextureManager": "1f1d7fb0bd98bb34043bac7cebe1d64b6269b0783d5520f8273b070624408b50",
-        "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
-      },
       "avatar-state-local-player-skin": {
         "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
         "net.minecraft.client.multiplayer.PlayerInfo": "e4cceaf3cd2c90fea083deb548785256a2ee261455988f27c44bb9fa4cd7ed3c",
         "net.minecraft.client.resources.SkinManager": "b734ca6e29a1a01e4357de1ca0e1597b23d8ce36c90f1b79de1779c4866c1456",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c"
       },
-      "minecraft-client-executor-v1": {
-        "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
-      },
       "minecraft-user-v1": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
         "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
-      "player-info-initialize-v1": {
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
-        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
+      "fabric-server-v1": {
+        "net.fabricmc.api.ModInitializer": "054a0aa5c9017fdf354f844eee4c494b8299a9d45192cab15ab33c3613227dc4",
+        "net.fabricmc.fabric.api.event.Event": "0a9272fdd2d2eaa684cd14d3313d2342ed29e6199de4716d6bf7856e2f7a30e1",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents": "699ce5c434ec04b258e44c47de4ec125b3fe65bd7a611cd722f6562f10ea860c",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStarted": "6492a81cd8799c40b77bf0c7599d03cbcddf2b667f815ac6aab376843474a168",
+        "net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents$ServerStopped": "2e964d4fb6980050f9cefddbfb7e04576642ed5769fbd8f22a51243b2837ee9f",
+        "net.fabricmc.loader.api.FabricLoader": "2ca563cb8cf1ad03909b00a7a6c7114caf8cf6afecd63465637f31f1108381cf"
       },
-      "avatar-state-current-player": {
-        "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",
-        "net.minecraft.world.entity.player.PlayerSkin": "e3c15cb1f3c21697c0a8fe078754dab9a60e3f28a7c6af1a5a5237315262d965"
+      "minecraft-client-executor-v1": {
+        "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
       "profile-mutation-authlib-v9": {
         "com.mojang.authlib.GameProfile": "ccc5c111d1422fce332b9b123726af2a5902ce293ed6e4166764592436e913b7",
@@ -6379,41 +6444,23 @@
         "com.mojang.authlib.properties.PropertyMap": "0716c759db7fdf2f279bed2ccb05fe119c6951b70efa9761dc2a851d6f358bb9",
         "net.minecraft.world.entity.player.Player": "93449662e2c591edd7c2d80ba6280cecc127a6539d1c443c0392ad14fb45bb62"
       },
-      "profile-verification-authlib-v10": {
-        "com.mojang.authlib.minecraft.SessionService": "e9512e457aeda8c392a5feecfc1122c0b6f7d19234232770efd803408e1980b6",
-        "com.mojang.authlib.properties.Property": "1628436859dc7657629b503086f795b2823f056e3fe15bd18c5e86870e000456",
-        "net.minecraft.server.MinecraftServer": "48449518b82ddf3df2f6879a1918aaaa2dbba0ee78a1383d767f103b51126f0b",
-        "net.minecraft.server.Services": "ff2ab5f41999533dfdbb98c7b4d5c890823bf27fcb10e528784a5331693f8f13"
-      },
-      "server-command-v1": {
-        "com.mojang.brigadier.CommandDispatcher": "a1890fcc9a241cb9af25757ab55a94fffce00471a2ec0ed5fd172e2850677be6",
-        "com.mojang.brigadier.builder.ArgumentBuilder": "9ed4a6c1f10bdfdffb80d83df92a8b74748331d98a09aaf34b883c49d717d8d0",
-        "com.mojang.brigadier.context.CommandContext": "31943bdc59fd4c96a98b82898d91d2cd1aa5c582cba2f7c2bca2cf7245505e5e",
-        "net.minecraft.commands.CommandSourceStack": "5f1d1a059f619166ba93e7fb40e766141c921d902b0a5f2eb6e6f2fbc1a8649b",
-        "net.minecraft.commands.Commands": "a0498709fe89eaf7b95e18f519d77154b25986026aad542299d05fa035e967c3",
-        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
-      },
-      "tinyfd-safe-v1": {
-        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
-        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
-      },
-      "tracking-chunkmap-level-v2": {
-        "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
-        "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
-        "net.minecraft.server.level.ChunkMap": "1d683e8f6d4abbb8e7d03ebf8915c581958773017e4f0bbd586e253f39d9072b",
-        "net.minecraft.server.level.ChunkMap$TrackedEntity": "7316ad43949bc7c3397ebfb56e3a3e70aad2eb998db6fe823b21818c27396ddd",
-        "net.minecraft.server.level.ServerChunkCache": "a83a652e2950fda9974d303055626d8a7bf5282b7ccbca6af6b147df105439f5",
-        "net.minecraft.server.level.ServerLevel": "1344965d95402b64e034f5a77e34f1a528652dd384a5c3e5b96134562d8f0e2d",
-        "net.minecraft.server.level.ServerPlayer": "c0008c1286b718970cec0f0f058e7ef45924cf843d22b1cb1d9f69a3f6369087",
-        "net.minecraft.server.network.ServerPlayerConnection": "5768e661d1a8698cced7c9cc20f3537abdddf7679c9419f99b42037341624f5e",
-        "net.minecraft.server.players.PlayerList": "b36807ccb904ae025b82553cda87bc79d17bd27e86837b248d14590e62e9bae3",
-        "net.minecraft.util.thread.BlockableEventLoop": "e396e02b3b43c0aba796994cb54f5fdedad7992667d1e66eaa1223efa9d2a7f4",
-        "net.minecraft.world.entity.Entity": "bba2aee7344537a7f53d23b3e93738cd8fb652c6b9e6a60de5900f88f62390f0"
-      },
       "vanilla-pack-identifier-provider": {
         "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
         "net.minecraft.server.packs.VanillaPackResources": "6248f917c2303315edb3a08e74e7181d4a6f428f9d7e57bb618b6ebced581b00",
         "net.minecraft.server.packs.resources.ResourceProvider": "bef5c52769d77a5d93e46284503f97d7247e79808f63a2b7a84328edcd3497c8"
+      },
+      "fabric-typed-payload-v1": {
+        "net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking": "e1fc265d05d1a931fd68dd0d18edfde11a86f9ad2b6336acc1e87cc29b9ac0bb",
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f"
+      },
+      "fabric-serverbound-payload-receiver-v1": {
+        "net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry": "f1f3a324bac38ac850213a4ac924f2b99b82abe7d5b470cbda2ddd469328ef15",
+        "net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking": "865418204eedfd6e441ef155ef50b034511579d222c0a5cdd78c2be7306ece0e",
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913"
+      },
+      "player-info-initialize-v1": {
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket": "283de4ac58bfa699574f8769502548fc424f7fd202ab941460447dd1054670ce",
+        "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket": "4a57a290f49ad5ebe34d37e1f400a3fa4643cdd816f67150a1d8194bdd37c919"
       }
     }
   }

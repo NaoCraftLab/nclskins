@@ -8,19 +8,15 @@ import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
 import com.naocraftlab.skins.diagnostics.DiagnosticStatus;
 import com.naocraftlab.skins.diagnostics.JulDiagnosticSink;
 import com.naocraftlab.skins.server.Admission;
+import com.naocraftlab.skins.server.AppearanceRefreshSignalProtocol;
 import com.naocraftlab.skins.server.RefreshResult;
 import com.naocraftlab.skins.server.RefreshSubmission;
 import com.naocraftlab.skins.server.VerifiedOfficialProfile;
 import com.naocraftlab.skins.server.plugin.common.ExactAdapterSelector;
 import com.naocraftlab.skins.server.plugin.common.PluginChannels;
 import com.naocraftlab.skins.server.plugin.common.ProxyRefreshProtocol;
-import com.naocraftlab.skins.server.plugin.common.SemanticVersion;
-import com.naocraftlab.skins.server.plugin.common.ServerCapabilityProtocol;
 import org.apache.logging.log4j.LogManager;
 import org.bukkit.Bukkit;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -30,7 +26,6 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,12 +35,9 @@ import java.util.logging.Level;
 
 public final class NclSkinsBukkitPlugin extends JavaPlugin
         implements PluginMessageListener, Listener {
-    private static final String INTERNAL_REFRESH = "_refresh_official_profile_v1";
-    private final ServerCapabilityProtocol capabilities = new ServerCapabilityProtocol();
     private final ProxyRefreshProtocol relay = new ProxyRefreshProtocol();
     private final Map<UUID, ProxyRefreshProtocol.Bind> proxyBindings = new ConcurrentHashMap<>();
     private final Map<UUID, AtomicLong> proxyRevisions = new ConcurrentHashMap<>();
-    private SemanticVersion implementationVersion;
     private BukkitNativeAdapter adapter;
     private ServerConfiguration configuration;
     private BukkitRefreshEngine engine;
@@ -60,7 +52,6 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
                 Level.CONFIG,
                 () -> LogManager.getLogger(getClass().getCanonicalName()).isDebugEnabled());
         try {
-            implementationVersion = SemanticVersion.parse(getDescription().getVersion());
             configuration = ServerConfigurationRepository.bundled(
                     getDataFolder().toPath(), getClassLoader()).load();
         } catch (IllegalArgumentException | ConfigurationException failure) {
@@ -111,19 +102,11 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
         }
 
         getServer().getMessenger().registerIncomingPluginChannel(
-                this, PluginChannels.CAPABILITIES, this);
-        getServer().getMessenger().registerOutgoingPluginChannel(
-                this, PluginChannels.CAPABILITIES);
+                this, PluginChannels.APPEARANCE_REFRESH, this);
         getServer().getMessenger().registerIncomingPluginChannel(
                 this, PluginChannels.PROXY_REFRESH, this);
         getServer().getMessenger().registerOutgoingPluginChannel(
                 this, PluginChannels.PROXY_REFRESH);
-        PluginCommand command = getCommand("nclskin");
-        if (command == null) {
-            fail(DiagnosticStatus.INTERNAL_METADATA_MISSING, null);
-            return;
-        }
-        command.setExecutor(this::executeCommand);
         getServer().getPluginManager().registerEvents(this, this);
         for (Player player : Bukkit.getOnlinePlayers()) {
             engine.connected(player);
@@ -133,6 +116,12 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
 
     @Override
     public void onDisable() {
+        getServer().getMessenger().unregisterIncomingPluginChannel(
+                this, PluginChannels.APPEARANCE_REFRESH, this);
+        getServer().getMessenger().unregisterIncomingPluginChannel(
+                this, PluginChannels.PROXY_REFRESH, this);
+        getServer().getMessenger().unregisterOutgoingPluginChannel(
+                this, PluginChannels.PROXY_REFRESH);
         proxyBindings.clear();
         proxyRevisions.clear();
         if (engine != null) {
@@ -163,14 +152,16 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
 
     @Override
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
-        if (PluginChannels.CAPABILITIES.equals(channel)) {
-            if (!capabilities.isRequest(message)) {
+        if (PluginChannels.APPEARANCE_REFRESH.equals(channel)) {
+            if (!configuration.realtimeRefresh().enabled()
+                    || !connectionAssurance.assured(
+                    configuration.realtimeRefresh().trustedProxyForwarding())) {
                 return;
             }
-            byte[] response = capabilities.encodeResponse(new ServerCapabilityProtocol.Response(
-                    implementationVersion,
-                    List.of("command-v1", "capabilities-v1", "proxy-refresh-v1")));
-            player.sendPluginMessage(this, PluginChannels.CAPABILITIES, response);
+            AppearanceRefreshSignalProtocol.dispatch(
+                    AppearanceRefreshSignalProtocol.Direction.CLIENT_TO_SERVER,
+                    message,
+                    () -> request(player, true));
             return;
         }
         if (!PluginChannels.PROXY_REFRESH.equals(channel)) {
@@ -209,24 +200,6 @@ public final class NclSkinsBukkitPlugin extends JavaPlugin
             }
             request(player, false);
         }
-    }
-
-    private boolean executeCommand(
-            CommandSender sender,
-            Command command,
-            String label,
-            String[] arguments) {
-        if (!(sender instanceof Player player) || arguments.length != 1
-                || !INTERNAL_REFRESH.equals(arguments[0])) {
-            return false;
-        }
-        if (!configuration.realtimeRefresh().enabled()
-                || !connectionAssurance.assured(
-                configuration.realtimeRefresh().trustedProxyForwarding())) {
-            return true;
-        }
-        request(player, true);
-        return true;
     }
 
     private void request(Player player, boolean dirty) {

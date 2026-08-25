@@ -7,7 +7,3 @@ author: NaoCraftLab
 api-version: '1.20'
 folia-supported: true
 softdepend: [BungeeGuard]
-commands:
-  nclskin:
-    description: Internal NCL Skins compatibility command
-    usage: /nclskin

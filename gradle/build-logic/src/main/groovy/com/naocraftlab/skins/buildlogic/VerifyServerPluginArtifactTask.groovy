@@ -94,10 +94,8 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                 int major = ((bytes[6] & 0xff) << 8) | (bytes[7] & 0xff)
                 if (major > 61) errors.add("${entry.name} uses classfile major ${major}")
                 String classSymbols = new String(bytes, StandardCharsets.ISO_8859_1)
-                if (classSymbols.contains('setPlayerProfile') &&
-                        !(entry.name.endsWith('/PaperProfilePublicationBackend.class') ||
-                                entry.name.endsWith('/AbstractBukkitNativeAdapter.class'))) {
-                    errors.add("${entry.name} references setPlayerProfile outside the Paper backend")
+                if (classSymbols.contains('setPlayerProfile')) {
+                    errors.add("${entry.name} references forbidden Player#setPlayerProfile")
                 }
                 if (entry.name.startsWith('com/naocraftlab/skins/server/plugin/bukkit/')) {
                     String symbols = new String(bytes, StandardCharsets.ISO_8859_1)
@@ -109,10 +107,28 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                 }
             }
             String paperBackend = 'com/naocraftlab/skins/server/plugin/bukkit/PaperProfilePublicationBackend.class'
+            String paperPublication =
+                    'com/naocraftlab/skins/server/plugin/bukkit/PaperProfilePublicationBackend$PaperPublication.class'
+            String paperProfileState =
+                    'com/naocraftlab/skins/server/plugin/bukkit/PaperProfileStateBinding.class'
+            String paperSymbols = names.contains(paperBackend)
+                    ? new String(zip.getInputStream(zip.getEntry(paperBackend)).readAllBytes(),
+                            StandardCharsets.ISO_8859_1)
+                    : ''
+            String profileStateSymbols = names.contains(paperProfileState)
+                    ? new String(zip.getInputStream(zip.getEntry(paperProfileState)).readAllBytes(),
+                            StandardCharsets.ISO_8859_1)
+                    : ''
             if (!names.contains(paperBackend) ||
-                    !new String(zip.getInputStream(zip.getEntry(paperBackend)).readAllBytes(),
-                            StandardCharsets.ISO_8859_1).contains('setPlayerProfile')) {
-                errors.add('Paper backend does not use Player#setPlayerProfile')
+                    !names.contains(paperPublication) ||
+                    !names.contains(paperProfileState) ||
+                    !['getProfile', 'unregisterEntity', 'trackAndShowEntity'].every {
+                        String symbol -> paperSymbols.contains(symbol)
+                    } ||
+                    !['gameProfile', 'ImmutableMultimap', 'removeAll', 'installMutable'].every {
+                        String symbol -> profileStateSymbols.contains(symbol)
+                    }) {
+                errors.add('Paper backend lacks exact mutable/immutable profile and observer-only publication symbols')
             }
             Manifest manifest = new Manifest(zip.getInputStream(zip.getEntry('META-INF/MANIFEST.MF')))
             if (manifest.mainAttributes.getValue('paperweight-mappings-namespace') != 'mojang' ||
@@ -126,7 +142,8 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                     !pluginYaml.contains("api-version: '1.20'") ||
                     !pluginYaml.contains('folia-supported: true') ||
                     !pluginYaml.contains('softdepend: [BungeeGuard]') ||
-                    !pluginYaml.contains('commands:\n  nclskin:')) {
+                    pluginYaml.contains('commands:') ||
+                    pluginYaml.contains('nclskin:')) {
                 errors.add('plugin.yml differs from the universal Bukkit contract')
             }
             String bungeeYaml = text(zip, 'bungee.yml')
