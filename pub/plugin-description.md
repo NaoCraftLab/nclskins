@@ -24,13 +24,14 @@ One universal JAR contains separate entrypoints for Bukkit-family servers, Veloc
 | 26.1.2 | Paper, Purpur, Folia | Paper, Purpur, Folia | Paper, Purpur, Folia |
 | 26.2 | Paper, Purpur, Folia | Paper, Purpur, Folia | Paper, Purpur, Folia |
 
+When client-server interaction changes, an updated plugin is released with the same version as the NCL Skins mod that introduces the change. Compatibility with older mod versions is not guaranteed. That plugin release becomes the new compatibility baseline: later mod versions remain compatible with it until another client-server change requires a new same-version plugin release.
+
 ## ⚙️ Configuration
 
 | Platform | Location | Available settings |
 |---|---|---|
 | CraftBukkit, Spigot, Paper, Purpur, Folia | `plugins/NCLSkinsPlugin/nclskins-server.json5` | Realtime refresh, trust for verified proxy forwarding, concurrent profile lookups, average lookup rate, and burst limit |
-| Velocity | NCL Skins Plugin has no separate configuration file on the proxy | The plugin works without configuration. Enable modern forwarding in `velocity.toml` and configure the same forwarding secret on the backend servers |
-| BungeeCord | NCL Skins Plugin has no separate configuration file on the proxy | The plugin works without configuration. Install BungeeGuard 1.4.0 or newer and configure the same token on the proxy and backend servers |
+| Velocity, BungeeCord | NCL Skins Plugin has no separate configuration file on the proxy | The plugin works without configuration. Configure the applicable verified forwarding mechanism described below on the proxy and backend servers |
 
 The backend configuration is created automatically after the first startup. For a proxy network, set `realtimeRefresh.trustedProxyForwarding: true` on every backend server. Changes take effect after a server restart.
 
