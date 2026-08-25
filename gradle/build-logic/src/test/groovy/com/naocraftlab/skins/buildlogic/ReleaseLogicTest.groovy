@@ -29,6 +29,19 @@ final class ReleaseLogicTest {
         assertTrue(metadata.notes.contains(
                 '### Removed\n\n- Technical refresh commands'))
         assertFalse(metadata.notes.contains('## 1.0.0-beta.3'))
+
+        File pluginChangelog = new File(repository, 'PLUGIN_CHANGELOG.md')
+        List<String> pluginLines = pluginChangelog.readLines()
+        assertTrue(pluginChangelog.isFile())
+        assertFalse(new File(repository, 'SERVER_CHANGELOG.md').exists())
+        assertEquals('## 1.0.0-beta.3', pluginLines.find { !it.isBlank() })
+        assertFalse(pluginLines.any { it.startsWith('# ') })
+        String pluginNotes = ServerPluginChangelog.validate(pluginChangelog, [
+                currentVersion: '1.0.0-beta.3', publish: true, reason: 'server-change'
+        ])
+        assertTrue(pluginNotes.startsWith(
+                '### Changed\n\n- Replaced technical refresh commands'))
+        assertFalse(pluginNotes.contains('## 1.0.0-beta.3'))
     }
 
     @Test
@@ -50,7 +63,7 @@ final class ReleaseLogicTest {
             task.catalogFile.set(catalogFile)
             task.versionFile.set(new File(repository, 'gradle/version.properties'))
             task.changelogFile.set(new File(repository, 'CHANGELOG.md'))
-            task.serverChangelogFile.set(new File(repository, 'SERVER_CHANGELOG.md'))
+            task.pluginChangelogFile.set(new File(repository, 'PLUGIN_CHANGELOG.md'))
             task.serverPluginStateFile.set(stateFile)
             task.releaseTag.set('1.0.0-beta.3')
             task.releaseRoot.set(fixture.resolve('release').toFile())
@@ -243,6 +256,33 @@ Plugin changes
     }
 
     @Test
+    void githubReleaseBodyUsesExtractedCanonicalComponentBodies() {
+        withReleaseFixture(
+                '1.0.0',
+                '## 1.0.0\n\n### Added\n\n- Mod change\n') {
+            File versionFile, File changelogFile ->
+                Map mod = ReleaseMetadata.validate(versionFile, changelogFile, '1.0.0')
+                withPluginChangelogFixture(
+                        '## 1.0.0\n\n### Changed\n\n- Plugin change\n') {
+                    File pluginChangelog ->
+                        String plugin = ServerPluginChangelog.validate(pluginChangelog, [
+                                currentVersion: '1.0.0', publish: true, reason: 'server-change'
+                        ])
+                        String body = PublishGithubReleaseTask.releaseBody([
+                                targets: [[id: 'fabric-26.2']],
+                                releaseNotes: [text: mod.notes],
+                                serverPlugin: [publish: true, publication: [releaseNotes: plugin]]
+                        ])
+
+                        assertTrue(body.contains('## Mod Changelog\n\n### Added'))
+                        assertTrue(body.contains('## Plugin Changelog\n\n### Changed'))
+                        assertFalse(body.contains('## 1.0.0'))
+                        assertFalse(body.contains('# NCL Skins Plugin changelog'))
+                }
+        }
+    }
+
+    @Test
     void stableAlphaAndBetaTagsAreClassifiedStrictly() {
         ['1.0.0': false, '1.0.0-alpha.1': true, '1.1.0-beta.2': true].each {
             String version, boolean prerelease ->
@@ -344,8 +384,7 @@ Plugin changes
 
     @Test
     void changelogSectionMustExistExactlyOnceAndContainNotes() {
-        ['# Missing\n'                              : 'found 0',
-         '## 1.0.0\n\nFirst\n\n## 1.0.0\n\nSecond\n': 'found 2',
+        ['## 1.0.0\n\nFirst\n\n## 1.0.0\n\nSecond\n': 'found 2',
          '## 1.0.0\n\n\n'                           : 'must contain release notes'].each {
             String changelog, String expected ->
                 withReleaseFixture('1.0.0', changelog) { File versionFile, File changelogFile ->
@@ -354,6 +393,67 @@ Plugin changes
                     }
                     assertTrue(failure.message.contains(expected), failure.message)
                 }
+        }
+    }
+
+    @Test
+    void changelogMustBeVersionFirstAndHaveNoLevelOneHeading() {
+        ['# Changelog\n\n## 1.0.0\n\nNotes\n',
+         'Preamble\n\n## 1.0.0\n\nNotes\n',
+         '## 0.9.0\n\nOlder\n\n## 1.0.0\n\nNotes\n',
+         '## 1.0.0\n\nNotes\n\n# Appendix\n'].each { String changelog ->
+            withReleaseFixture('1.0.0', changelog) { File versionFile, File changelogFile ->
+                IllegalArgumentException failure = assertThrows(IllegalArgumentException) {
+                    ReleaseMetadata.validate(versionFile, changelogFile, '1.0.0')
+                }
+                assertTrue(failure.message.contains(
+                        "CHANGELOG.md must start with '## 1.0.0'"), failure.message)
+            }
+        }
+    }
+
+    @Test
+    void pluginChangelogRejectsPreambleDuplicatesEmptyAndLegacyOnlyPath() {
+        Map state = [currentVersion: '1.0.0', publish: true, reason: 'server-change']
+        ['# NCL Skins Plugin changelog\n\n## 1.0.0\n\nNotes\n': 'must start',
+         'Preamble\n\n## 1.0.0\n\nNotes\n'                    : 'must start',
+         '## 1.0.0\n\nFirst\n\n## 1.0.0\n\nSecond\n'       : 'exactly one',
+         '## 1.0.0\n\n\n'                                      : 'is empty',
+         '## 1.0.0\n\nNotes\n\n# Appendix\n'                  : 'must start'].each {
+            String changelog, String expected ->
+                withPluginChangelogFixture(changelog) { File pluginChangelog ->
+                    IllegalArgumentException failure = assertThrows(IllegalArgumentException) {
+                        ServerPluginChangelog.validate(pluginChangelog, state)
+                    }
+                    assertTrue(failure.message.contains(expected), failure.message)
+                }
+        }
+
+        Path fixture = Files.createTempDirectory('nclskins-plugin-changelog-legacy-')
+        try {
+            Files.writeString(
+                    fixture.resolve('SERVER_CHANGELOG.md'), '## 1.0.0\n\nLegacy notes\n')
+            IllegalArgumentException failure = assertThrows(IllegalArgumentException) {
+                ServerPluginChangelog.validate(
+                        fixture.resolve('PLUGIN_CHANGELOG.md').toFile(), state)
+            }
+            assertEquals('PLUGIN_CHANGELOG.md is missing', failure.message)
+        } finally {
+            fixture.toFile().deleteDir()
+        }
+    }
+
+    @Test
+    void unchangedPluginRequiresVersionFirstHistoryWithoutCurrentSection() {
+        Map state = [currentVersion: '1.0.1', publish: false, reason: 'unchanged']
+        withPluginChangelogFixture('## 1.0.0\n\nPrevious notes\n') { File pluginChangelog ->
+            assertNull(ServerPluginChangelog.validate(pluginChangelog, state))
+        }
+        withPluginChangelogFixture('## 1.0.1\n\nUnexpected notes\n') { File pluginChangelog ->
+            IllegalArgumentException failure = assertThrows(IllegalArgumentException) {
+                ServerPluginChangelog.validate(pluginChangelog, state)
+            }
+            assertTrue(failure.message.contains('must not contain'))
         }
     }
 
@@ -441,6 +541,19 @@ Plugin changes
             versionFile.text = "modVersion=${version}\n"
             changelogFile.text = changelog
             assertion.call(versionFile, changelogFile)
+        } finally {
+            fixture.toFile().deleteDir()
+        }
+    }
+
+    private static void withPluginChangelogFixture(
+            String changelog,
+            Closure<?> assertion) {
+        Path fixture = Files.createTempDirectory('nclskins-plugin-changelog-')
+        try {
+            File changelogFile = fixture.resolve('PLUGIN_CHANGELOG.md').toFile()
+            changelogFile.text = changelog
+            assertion.call(changelogFile)
         } finally {
             fixture.toFile().deleteDir()
         }

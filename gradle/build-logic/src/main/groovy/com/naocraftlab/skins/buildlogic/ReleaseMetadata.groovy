@@ -29,6 +29,7 @@ final class ReleaseMetadata {
 
         List<String> lines = Files.readAllLines(changelogFile.toPath(), StandardCharsets.UTF_8)
         String expectedHeading = "## ${releaseTag}"
+        requireVersionFirstFormat(lines, expectedHeading)
         List<Integer> matches = []
         lines.eachWithIndex { String line, int index ->
             if (line == expectedHeading) matches.add(index)
@@ -62,6 +63,14 @@ final class ReleaseMetadata {
                 prerelease: channel != 'release',
                 notes     : body.join('\n') + '\n'
         ]
+    }
+
+    private static void requireVersionFirstFormat(List<String> lines, String expectedHeading) {
+        String first = lines.find { !it.isBlank() }
+        if (first != expectedHeading || lines.any { it.startsWith('# ') }) {
+            throw new IllegalArgumentException(
+                    "CHANGELOG.md must start with '${expectedHeading}' and must not contain a level-one heading")
+        }
     }
 
     static File write(File releaseRoot, Map metadata) {

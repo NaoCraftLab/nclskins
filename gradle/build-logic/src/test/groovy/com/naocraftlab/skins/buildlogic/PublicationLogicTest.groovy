@@ -21,7 +21,7 @@ final class PublicationLogicTest {
         List<String> releaseTargetIds = CatalogTools.releaseTargets(catalog)*.id
         assertEquals(['forge-1.20.1'], ReleaseSelection.selectFromPaths(
                 repository, catalog, ['targets/1.20.1/forge/build.gradle',
-                                      'gradle/version.properties', 'CHANGELOG.md', 'SERVER_CHANGELOG.md',
+                                      'gradle/version.properties', 'CHANGELOG.md', 'PLUGIN_CHANGELOG.md',
                                       'server-plugin/src/main/java/example/Plugin.java',
                                       'server-plugin/build.gradle',
                                       'server-plugin-adapters/legacy-authlib4/src/main/java/example/Adapter.java',
@@ -30,12 +30,14 @@ final class PublicationLogicTest {
         assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
                 repository, catalog, ['core/src/main/java/example/Shared.java'], true).targetIds)
         assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
-                repository, catalog, ['gradle/version.properties', 'CHANGELOG.md', 'SERVER_CHANGELOG.md',
+                repository, catalog, ['gradle/version.properties', 'CHANGELOG.md', 'PLUGIN_CHANGELOG.md',
                                       'server-plugin/src/main/java/example/Plugin.java',
                                       'server-plugin/build.gradle',
                                       'pub/description.md'], true).targetIds)
         assertEquals(releaseTargetIds, ReleaseSelection.selectFromPaths(
                 repository, catalog, [], false).targetIds)
+        assertEquals([], CatalogTools.affectedResult(
+                repository, catalog, ['SERVER_CHANGELOG.md']).targetIds)
         assertThrows(IllegalStateException) {
             ReleaseSelection.selectFromPaths(
                     repository, catalog, ['targets/26.3/fabric/build.gradle'], true)
@@ -205,7 +207,7 @@ final class PublicationLogicTest {
     void uploadPayloadsUseExactChannelsAndIntegerCurseForgeRelations() {
         Map target = desired('fabric-1.20.1')
         Map manifest = [
-                releaseNotes: [text: 'Changes\n'],
+                releaseNotes: [text: 'Mod changes\n'],
                 platforms: catalog.mod.platforms
         ]
         Map modrinth = PublicationSupport.modrinthMetadata(manifest, target)
@@ -213,10 +215,12 @@ final class PublicationLogicTest {
         assertEquals(['fabric'], modrinth.loaders)
         assertEquals('beta', modrinth.version_type)
         assertEquals('client_only_server_optional', modrinth.environment)
+        assertEquals('Mod changes\n', modrinth.changelog)
 
         Map curseForge = PublicationSupport.curseForgeMetadata(manifest, target)
         assertEquals(['1.20.1', 'Fabric', 'Client', 'Server', 'Java 17'], curseForge.gameVersionNames)
         assertEquals('beta', curseForge.releaseType)
+        assertEquals('Mod changes\n', curseForge.changelog)
         assertTrue((curseForge.relations.projects as List).every { it.projectID instanceof Integer })
         String json = JsonOutput.toJson(curseForge)
         assertTrue(json.contains('"projectID":306612'))
@@ -225,6 +229,7 @@ final class PublicationLogicTest {
         Map curseForgeSources = PublicationSupport.curseForgeSourcesMetadata(
                 manifest, target, '42')
         assertEquals(42L, curseForgeSources.parentFileID)
+        assertEquals('Mod changes\n', curseForgeSources.changelog)
         assertEquals("${target.name} sources".toString(), curseForgeSources.displayName)
         assertFalse(curseForgeSources.containsKey('gameVersionNames'))
         assertFalse(curseForgeSources.containsKey('relations'))
@@ -269,7 +274,7 @@ final class PublicationLogicTest {
                 dependencies: [modrinth: [], curseforge: []],
                 platforms: [modrinth: [projectId: 'plugin-modrinth', slug: 'nclskins-plugin'],
                             curseforge: [projectId: 999, slug: 'nclskins-plugin']],
-                releaseNotes: 'Server changes\n', asset: artifact, sourcesAsset: sources]
+                releaseNotes: 'Plugin changes\n', asset: artifact, sourcesAsset: sources]
         Map rootManifest = [targets: [], releaseNotes: [text: 'Mod changes\n'],
                             platforms: catalog.mod.platforms,
                             serverPlugin: [publish: true, publication: target]]
@@ -277,7 +282,7 @@ final class PublicationLogicTest {
         assertEquals([target], PublishPlatformsTask.publicationTargets(rootManifest))
         Map view = PublishPlatformsTask.manifestForTarget(rootManifest, target)
         assertEquals('plugin-modrinth', view.platforms.modrinth.projectId)
-        assertEquals('Server changes\n', view.releaseNotes.text)
+        assertEquals('Plugin changes\n', view.releaseNotes.text)
 
         Map modrinth = PublicationSupport.modrinthMetadata(view, target)
         assertEquals(['bukkit', 'spigot', 'paper', 'purpur', 'folia',
@@ -286,15 +291,21 @@ final class PublicationLogicTest {
         assertEquals(target.gameVersions, modrinth.game_versions)
         assertEquals('server_only', modrinth.environment)
         assertEquals('plugin-modrinth', modrinth.project_id)
+        assertEquals('Plugin changes\n', modrinth.changelog)
 
         Map curseForge = PublicationSupport.curseForgeMetadata(view, target)
         assertEquals(target.gameVersions + ['Server', 'Java 17'],
                 curseForge.gameVersionNames)
         assertFalse(curseForge.containsKey('relations'))
         assertEquals(999, view.platforms.curseforge.projectId)
+        assertEquals('Plugin changes\n', curseForge.changelog)
         assertFalse(curseForge.gameVersionNames.any {
             it in ['Paper', 'Purpur', 'Velocity', 'BungeeCord', 'Folia']
         })
+        Map curseForgeSources = PublicationSupport.curseForgeSourcesMetadata(
+                view, target, '71')
+        assertEquals(71L, curseForgeSources.parentFileID)
+        assertEquals('Plugin changes\n', curseForgeSources.changelog)
 
         Map exactModrinth = [
                 id: 'plugin-version', name: target.name,

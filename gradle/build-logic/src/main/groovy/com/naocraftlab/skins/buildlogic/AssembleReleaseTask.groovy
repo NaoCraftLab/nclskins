@@ -28,7 +28,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
     abstract RegularFileProperty getChangelogFile()
 
     @InputFile
-    abstract RegularFileProperty getServerChangelogFile()
+    abstract RegularFileProperty getPluginChangelogFile()
 
     @InputFile
     abstract RegularFileProperty getServerPluginStateFile()
@@ -68,9 +68,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
             throw new IllegalStateException(
                     'Server plugin release state differs from independent assembleRelease computation')
         }
-        String serverNotes = ServerPluginChangelog.validate(
-                serverChangelogFile.get().asFile, recomputedState)
-        metadata.serverPlugin = new LinkedHashMap(recomputedState) + [notes: serverNotes]
+        String pluginNotes = ServerPluginChangelog.validate(
+                pluginChangelogFile.get().asFile, recomputedState)
+        metadata.serverPlugin = new LinkedHashMap(recomputedState) + [notes: pluginNotes]
 
         Map selection
         if (mode == 'tag') {
@@ -123,7 +123,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
         Map serverPublication = serverPluginPublication(
                 repository, serverPluginPublicationCatalog(
                         repository, catalog, metadata.version.toString(), mode),
-                metadata, recomputedState, serverNotes,
+                metadata, recomputedState, pluginNotes,
                 assetsDirectory, existingDirectory, mode != 'backfill')
         if (serverPublication.publish == true) {
             assets.add(serverPublication.artifact)

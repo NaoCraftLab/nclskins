@@ -1444,11 +1444,14 @@ final class CatalogTools {
         }
         rawPaths.each { String raw ->
             String path = raw.startsWith('./') ? raw.substring(2) : raw
+            boolean removedRootChangelog = !new File(repositoryRoot, path).exists() &&
+                    path ==~ /[A-Z][A-Z0-9_]*_CHANGELOG\.md/
             if (path == 'gradle/version.properties') {
                 targetIds.each { affected[it].add('version-promotion') }
                 return
             }
-            if (path in ['CHANGELOG.md', 'SERVER_CHANGELOG.md', 'README.md', '.gitignore'] ||
+            if (path in ['CHANGELOG.md', 'PLUGIN_CHANGELOG.md', 'README.md', '.gitignore'] ||
+                removedRootChangelog ||
                 path.startsWith('.github/') || path.startsWith('.idea/') || path.startsWith('pub/') ||
                 path.contains('/src/test/') || path.contains('/src/testFixtures/')) {
                 return

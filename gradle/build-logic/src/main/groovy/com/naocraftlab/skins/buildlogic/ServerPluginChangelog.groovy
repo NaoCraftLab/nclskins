@@ -7,11 +7,12 @@ import java.nio.file.Files
 final class ServerPluginChangelog {
     static String validate(File changelog, Map state) {
         if (!changelog.isFile()) {
-            throw new IllegalArgumentException('SERVER_CHANGELOG.md is missing')
+            throw new IllegalArgumentException('PLUGIN_CHANGELOG.md is missing')
         }
         String version = state.currentVersion.toString()
         List<String> lines = Files.readAllLines(changelog.toPath(), StandardCharsets.UTF_8)
         String heading = "## ${version}"
+        requireVersionFirstFormat(lines, state.publish == true ? heading : null)
         List<Integer> matches = []
         lines.eachWithIndex { String line, int index ->
             if (line == heading) matches.add(index)
@@ -19,7 +20,7 @@ final class ServerPluginChangelog {
         if (state.publish == true) {
             if (matches.size() != 1) {
                 throw new IllegalArgumentException(
-                        "SERVER_CHANGELOG.md must contain exactly one '${heading}' section when " +
+                        "PLUGIN_CHANGELOG.md must contain exactly one '${heading}' section when " +
                                 "server plugin publication is ${state.reason}; found ${matches.size()}")
             }
             int start = matches.first() + 1
@@ -34,7 +35,7 @@ final class ServerPluginChangelog {
             while (!body.isEmpty() && body.first().isBlank()) body.remove(0)
             while (!body.isEmpty() && body.last().isBlank()) body.remove(body.size() - 1)
             if (body.isEmpty()) {
-                throw new IllegalArgumentException("SERVER_CHANGELOG.md section '${heading}' is empty")
+                throw new IllegalArgumentException("PLUGIN_CHANGELOG.md section '${heading}' is empty")
             }
             String notes = body.join('\n') + '\n'
             if (state.reason == 'stable-promotion') {
@@ -50,9 +51,21 @@ final class ServerPluginChangelog {
         }
         if (!matches.isEmpty()) {
             throw new IllegalArgumentException(
-                    "SERVER_CHANGELOG.md must not contain '${heading}' when server plugin is unchanged")
+                    "PLUGIN_CHANGELOG.md must not contain '${heading}' when server plugin is unchanged")
         }
         null
+    }
+
+    private static void requireVersionFirstFormat(List<String> lines, String expectedHeading) {
+        String first = lines.find { !it.isBlank() }
+        boolean versionHeading = first != null && first.startsWith('## ') &&
+                CatalogTools.VERSION_PATTERN.matcher(first.substring(3)).matches()
+        if (!versionHeading || (expectedHeading != null && first != expectedHeading) ||
+                lines.any { it.startsWith('# ') }) {
+            String expected = expectedHeading == null ? 'a version heading' : "'${expectedHeading}'"
+            throw new IllegalArgumentException(
+                    "PLUGIN_CHANGELOG.md must start with ${expected} and must not contain a level-one heading")
+        }
     }
 
     private ServerPluginChangelog() {

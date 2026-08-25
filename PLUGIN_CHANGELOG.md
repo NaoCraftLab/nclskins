@@ -1,5 +1,3 @@
-# NCL Skins Plugin changelog
-
 ## 1.0.0-beta.3
 
 ### Changed

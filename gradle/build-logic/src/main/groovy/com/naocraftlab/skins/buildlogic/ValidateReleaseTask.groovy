@@ -21,7 +21,7 @@ abstract class ValidateReleaseTask extends DefaultTask {
     abstract RegularFileProperty getChangelogFile()
 
     @InputFile
-    abstract RegularFileProperty getServerChangelogFile()
+    abstract RegularFileProperty getPluginChangelogFile()
 
     @InputFile
     abstract RegularFileProperty getServerPluginStateFile()
@@ -52,9 +52,9 @@ abstract class ValidateReleaseTask extends DefaultTask {
                 }
             }
         }
-        String serverNotes = ServerPluginChangelog.validate(
-                serverChangelogFile.get().asFile, state)
-        metadata.serverPlugin = state + [notes: serverNotes]
+        String pluginNotes = ServerPluginChangelog.validate(
+                pluginChangelogFile.get().asFile, state)
+        metadata.serverPlugin = state + [notes: pluginNotes]
         ReleaseMetadata.write(releaseRoot.get().asFile, metadata)
         logger.lifecycle(
                 "Release ${metadata.version} is valid (${metadata.prerelease ? 'prerelease' : 'stable'})")
