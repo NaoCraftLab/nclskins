@@ -11,7 +11,10 @@ final class AbiVerifier {
     static Map resolve(Map catalog, Map abi, String targetId, String classpath, File javap) {
         Map target = CatalogTools.selectTarget(catalog, targetId)
         Map declarations = catalog.capabilityImplementations as Map
-        Set<String> selected = (target.capabilities as Map).values().collect { declarations[it].abiImplementation.toString() } as Set
+        Set<String> selected = (target.capabilities as Map)
+                .findAll { Object key, Object ignored ->
+                    !CatalogTools.EXTERNAL_ABI_CAPABILITIES.contains(key.toString())
+                }.values().collect { declarations[it].abiImplementation.toString() } as Set
         Map result = new TreeMap()
         Map<String, Map> cache = [:]
         selected.each { String implementation ->
@@ -59,7 +62,10 @@ final class AbiVerifier {
         Map profileBaseline = abi.resolvedByProfile[profile] as Map
         if (profileBaseline == null) throw new IllegalStateException("no resolved ABI baseline for API profile ${profile}")
         Map declarations = catalog.capabilityImplementations as Map
-        Set<String> selected = (target.capabilities as Map).values().collect { declarations[it].abiImplementation.toString() } as Set
+        Set<String> selected = (target.capabilities as Map)
+                .findAll { Object key, Object ignored ->
+                    !CatalogTools.EXTERNAL_ABI_CAPABILITIES.contains(key.toString())
+                }.values().collect { declarations[it].abiImplementation.toString() } as Set
         Map expected = new TreeMap()
         selected.each { String implementation ->
             if (!profileBaseline.containsKey(implementation)) throw new IllegalStateException("API profile ${profile} lacks selected ABI implementation ${implementation} for ${targetId}")

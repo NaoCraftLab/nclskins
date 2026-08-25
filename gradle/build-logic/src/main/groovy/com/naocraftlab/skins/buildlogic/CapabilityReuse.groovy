@@ -65,7 +65,16 @@ final class CapabilityReuse {
         Map abiEntry = abi.implementations instanceof Map
                 ? (abi.implementations as Map)[abiId] as Map
                 : null
-        if (abiEntry == null || abiEntry.kind != capability) {
+        if (CatalogTools.EXTERNAL_ABI_CAPABILITIES.contains(capability)) {
+            String expected = target.id == 'fabric-1.20.1'
+                    ? 'modmenu-default-index'
+                    : target.loader.id == 'fabric'
+                    ? 'modmenu-static-catalog'
+                    : 'native-static-catalog'
+            if (implementation != expected || abiId != implementation) {
+                failures.add('external update integration ABI is incompatible with target')
+            }
+        } else if (abiEntry == null || abiEntry.kind != capability) {
             failures.add('missing capability ABI declaration')
         }
         Map result = new LinkedHashMap(candidate)

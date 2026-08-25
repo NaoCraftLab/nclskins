@@ -19,18 +19,16 @@ final class ReleaseLogicTest {
         Map metadata = ReleaseMetadata.validate(
                 new File(repository, 'gradle/version.properties'),
                 new File(repository, 'CHANGELOG.md'),
-                '1.0.0-beta.2')
+                '1.0.0-beta.3')
 
-        assertEquals('1.0.0-beta.2', metadata.version)
+        assertEquals('1.0.0-beta.3', metadata.version)
         assertEquals('beta', metadata.channel)
         assertTrue(metadata.prerelease)
         assertTrue(metadata.notes.startsWith(
-                '### Added\n\n- **NCL Skins Plugin support**'))
+                '### Added\n\n- **Cross-platform update notifications**'))
         assertTrue(metadata.notes.contains(
-                '### Changed\n\n- **Improved mod menu presentation**'))
-        assertTrue(metadata.notes.contains(
-                '### Fixed\n\n- **More reliable live skin updates**'))
-        assertFalse(metadata.notes.contains('## 1.0.0-beta.2'))
+                'Get only updates compatible with your Minecraft version and mod loader'))
+        assertFalse(metadata.notes.contains('## 1.0.0-beta.3'))
     }
 
     @Test
@@ -42,7 +40,7 @@ final class ReleaseLogicTest {
             catalog.serverPlugin.platforms.curseforge.projectId = 1234567
             File catalogFile = fixture.resolve('targets.json').toFile()
             catalogFile.text = JsonOutput.toJson(catalog)
-            Map state = ServerPluginReleaseState.compute(repository, catalog, '1.0.0-beta.2')
+            Map state = ServerPluginReleaseState.compute(repository, catalog, '1.0.0-beta.3')
             File stateFile = ServerPluginReleaseState.write(
                     fixture.resolve('server-state.json').toFile(), state)
 
@@ -54,15 +52,16 @@ final class ReleaseLogicTest {
             task.changelogFile.set(new File(repository, 'CHANGELOG.md'))
             task.serverChangelogFile.set(new File(repository, 'SERVER_CHANGELOG.md'))
             task.serverPluginStateFile.set(stateFile)
-            task.releaseTag.set('1.0.0-beta.2')
+            task.releaseTag.set('1.0.0-beta.3')
             task.releaseRoot.set(fixture.resolve('release').toFile())
 
             task.validateRelease()
 
             Map metadata = new JsonSlurper().parse(
-                    fixture.resolve('release/1.0.0-beta.2/release-metadata.json').toFile()) as Map
-            assertEquals('initial', metadata.serverPlugin.reason)
+                    fixture.resolve('release/1.0.0-beta.3/release-metadata.json').toFile()) as Map
+            assertEquals('server-change', metadata.serverPlugin.reason)
             assertTrue(metadata.serverPlugin.publish)
+            assertEquals('1.0.0-beta.2', metadata.serverPlugin.previousActiveVersion)
         } finally {
             fixture.toFile().deleteDir()
         }
@@ -89,6 +88,107 @@ final class ReleaseLogicTest {
       needs.build.result == 'success' &&
       needs.platforms.result == 'success'
 '''))
+    }
+
+    @Test
+    void releaseWorkflowKeepsDistinctSourceContractsForEveryMode() {
+        String workflow = new File(repository, '.github/workflows/release.yml').text
+
+        assertTrue(workflow.contains('git checkout --detach "refs/tags/${version}"'))
+        assertTrue(workflow.contains("mode='reconcile-tag'"))
+        assertTrue(workflow.contains(
+                "Compatibility backfill must run from current origin/main."))
+        assertTrue(workflow.contains(
+                "Historical current-main build forbidden::Use reconcile-tag"))
+        assertTrue(workflow.contains("mode='backfill'"))
+        assertTrue(workflow.contains("mode='tag'"))
+        assertTrue(workflow.contains(
+                'catalog_source_commit="$(git rev-parse origin/main)"'))
+        assertTrue(workflow.contains(
+                'printf \'release_source_commit=%s\\n\' "$(git rev-parse HEAD)"'))
+        assertTrue(workflow.contains(
+                'printf \'catalog_source_commit=%s\\n\' "$catalog_source_commit"'))
+        assertTrue(workflow.contains(
+                'ref: ${{ needs.build.outputs.release_source_commit }}'))
+        assertTrue(workflow.contains(
+                'catalog_source_commit: ${{ needs.build.outputs.catalog_source_commit }}'))
+        assertFalse(workflow.contains(
+                'catalog_source_commit: ${{ needs.build.outputs.release_source_commit }}'))
+    }
+
+    @Test
+    void pagesWorkflowIsPinnedBoundedCredentialIsolatedAndReusable() {
+        String pages = new File(
+                repository, '.github/workflows/publish-update-catalog.yml').text
+
+        assertTrue(pages.contains('workflow_call:'))
+        assertTrue(pages.contains('workflow_dispatch:'))
+        assertTrue(pages.contains('group: github-pages-update-catalog'))
+        assertTrue(pages.contains('cancel-in-progress: false'))
+        assertTrue(pages.contains('name: github-pages'))
+        assertTrue(pages.contains('contents: read'))
+        assertTrue(pages.contains('pages: write'))
+        assertTrue(pages.contains('id-token: write'))
+        assertTrue(pages.contains('releases?per_page=100&page=1'))
+        assertTrue(pages.contains('generateUpdateCatalog'))
+        assertTrue(pages.contains('build/update-catalog/site'))
+        assertTrue(pages.contains(
+                'actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d'))
+        assertTrue(pages.contains(
+                'actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9'))
+        assertTrue(pages.contains(
+                'actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128'))
+        pages.readLines().findAll { it.trim().startsWith('uses:') }.each { String line ->
+            assertTrue(line ==~ /.*@[0-9a-f]{40}(?:\s+#.*)?/, line)
+        }
+        assertFalse(pages.contains('MODRINTH_TOKEN'))
+        assertFalse(pages.contains('CURSEFORGE'))
+        assertFalse(pages.contains('secrets: inherit'))
+        assertFalse(pages.contains('openspec/'))
+        assertFalse(pages.contains('.agents/'))
+    }
+
+    @Test
+    void catalogPublicationUsesFinalRemoteAssetsAndPreservesReleaseFailureSemantics() {
+        String releaseWorkflow = new File(
+                repository, '.github/workflows/release.yml').text
+        String pagesWorkflow = new File(
+                repository, '.github/workflows/publish-update-catalog.yml').text
+
+        assertTrue(releaseWorkflow.contains('''  update-catalog:
+    name: Publish static update catalog
+    needs: [build, github]
+'''))
+        assertTrue(releaseWorkflow.contains("needs.github.result == 'success'"))
+        assertTrue(releaseWorkflow.contains(
+                'catalog_source_commit: ${{ needs.build.outputs.catalog_source_commit }}'))
+        assertFalse(releaseWorkflow.contains('secrets: inherit'))
+
+        assertTrue(pagesWorkflow.contains('workflow_dispatch:'))
+        assertTrue(pagesWorkflow.contains(
+                '"repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=1"'))
+        assertFalse(pagesWorkflow.contains('RELEASE_MODE'))
+        assertFalse(pagesWorkflow.contains('selectedTargetIds'))
+        assertFalse(pagesWorkflow.contains('release-manifest.json'))
+        assertTrue(pagesWorkflow.contains('verifyUpdateCatalogDeployment'))
+        assertTrue(pagesWorkflow.indexOf('Deploy GitHub Pages') <
+                pagesWorkflow.indexOf('Verify deployed endpoint bytes'))
+
+        String publicationTests = new File(repository,
+                'gradle/build-logic/src/test/groovy/com/naocraftlab/skins/' +
+                'buildlogic/PublicationLogicTest.groovy').text
+        assertTrue(publicationTests.contains(
+                'githubPlanKeepsExactAssetsAddsMissingAndProtectsBackfillJars'))
+        assertTrue(publicationTests.contains('conflict.conflicts.size()'))
+        String catalogTests = new File(repository,
+                'gradle/build-logic/src/test/groovy/com/naocraftlab/skins/' +
+                'buildlogic/UpdateCatalogGeneratorTest.groovy').text
+        assertTrue(catalogTests.contains(
+                'currentCatalogWinsOverHistoricalTagCatalogAndTagMoveAloneChangesNothing'))
+        assertTrue(catalogTests.contains(
+                'backfillAddsOnlyExactAssociationToExistingRelease'))
+        assertTrue(catalogTests.contains(
+                'partialReleaseAssociatesOnlyExactPublishedTargetArtifact'))
     }
 
     @Test

@@ -8,6 +8,7 @@ final class SemanticVerifier {
     static final Set<String> REQUIRED_KEYS = [
             'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
             'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
+            'updateNotification',
             'serverSignal', 'serverCommand',
         'serverProfileVerification', 'serverProfileMutation', 'serverTracking',
         'serverPlayerInfoPublication', 'serverLoader'
@@ -23,6 +24,7 @@ final class SemanticVerifier {
             clientExecutor   : 'client-executor-contract',
             bundledSkin      : 'resource-pack-access-contract',
             currentAppearance: 'current-appearance-contract',
+        updateNotification: 'update-notification-contract',
         serverSignal: 'server-refresh-notification', serverCommand: 'server-command-registration',
         serverProfileVerification: 'official-server-profile',
         serverProfileMutation: 'vanilla-observer-republication',
@@ -40,7 +42,11 @@ final class SemanticVerifier {
             'client-executor-contract'     : ['ClientCapabilityContractsTest', 'ClientExecutor'],
         'picker-coordination': ['FilePickerCoordinator', 'concurrent'],
             'resource-pack-access-contract': ['ResourcePackSkinCatalog', 'CatalogGenerationTracker', 'selectedPackMenuRanks'],
-            'current-appearance-contract'  : ['CurrentPlayerAppearanceSource', 'currentPlayerAppearance'],
+        'current-appearance-contract'  : ['CurrentPlayerAppearanceSource', 'currentPlayerAppearance'],
+        'update-notification-contract' : [
+                'selectorFiltersByExactTargetBeforeChannelAndVersion',
+                'redirectTimeoutAndMalformedJsonFailSilentWithoutRetry',
+                'contentLengthAndStreamLimitsStopOversizedBodies'],
         'server-refresh-notification': ['ServerAppearanceRefreshNotifier', 'RemoteAppearanceImpact', 'CONFIRMED_CHANGED', 'confirmedReconciliationStillNotifiesAfterGalleryCloses', 'postMutationLocalFailureStillNotifiesServerWithoutPublishingOutcomeData', 'confirmedPartialReconciliationSignalsExactlyOnce', 'disconnectedConfirmedSignalIsDroppedAndNeverReplayedAfterReconnect', 'readerOrConcurrentLoserWithoutOwnedOutcomeNeverSignals'],
         'official-server-profile': ['OfficialSessionProfileClient', 'OfficialTextureAppearanceParser', 'timestampTransportAndSignatureChangesDoNotChangeTheSemanticKey', 'parsesRetryAfterDeltaAndHttpDateWithSafeFallback', 'mismatchedOfficialIdentityIsRejectedBeforePublication'],
         'vanilla-observer-republication': ['VanillaBatchAppearancePublisher', 'continuesAcrossTicksAndNeverExceedsDeliveryBudget', 'reportsTotalAndMaximumPlatformThreadTimeSeparatelyAcrossTicks', 'semanticCompletionResumesOnFollowingLogicalTickWithoutFreshSameTickBudget', 'retriesFailedRetrackBeforeCompletingAndRestoresExactPair', 'cancelledHeadRetainsRetrackBarrierUntilRecoveryBeforeNextInstall', 'sixtyFourActorBatchKeepsOneRecipientFanoutAcrossOneThousandPlayers', 'watcherChannelRetracksBeforeLargeTabOnlyTail', 'explicitSupersedeFencesAdmittedIntentAndDoesNotPoisonFutureIntent', 'concurrentIntentCannotEnterBetweenLatestCheckAndProfileInstall', 'visibilityPortPreventsProfileDisclosureToHiddenRecipient', 'oneThousandDistinctSignalsAreAdmittedAndDrainWithoutLocalDrops', 'oneFiveTenAndFiftyChangesPerSecondAllConvergeAfterTheBurst', 'reconciliationAttemptsAreBoundedToOnePerFollowingTick', 'successfulWatcherRetryRefreshesWorldPairAfterInitializeFailure'],
@@ -92,7 +98,13 @@ final class SemanticVerifier {
             Map declaration = declarations[implementation] instanceof Map ? declarations[implementation] as Map : [:]
             String abiId = declaration.abiImplementation?.toString()
             String abiKind = abiImplementations[abiId] instanceof Map ? abiImplementations[abiId].kind?.toString() : null
-            if (abiKind != selected[implementation]) errors.add("${implementation}: ABI kind ${abiKind} does not match catalog kind ${selected[implementation]}")
+            if (key == 'updateNotification') {
+                if (abiId != implementation || abiImplementations.containsKey(abiId)) {
+                    errors.add("${implementation}: update ABI must be external and exact")
+                }
+            } else if (abiKind != selected[implementation]) {
+                errors.add("${implementation}: ABI kind ${abiKind} does not match catalog kind ${selected[implementation]}")
+            }
             String suite = entry.sharedSuite?.toString()
             if (suite == null || suite.isBlank()) errors.add("${implementation}: sharedSuite must be non-empty")
             else {
@@ -105,7 +117,13 @@ final class SemanticVerifier {
             Set<Path> roots = bundleRoots(root, catalog.sourceBundles as Map, bundle)
             Set<Path> previousRoots = leafBundleRoots.putIfAbsent(source, roots)
             if (previousRoots != null && previousRoots.intersect(roots).isEmpty()) errors.add("${implementation}: shared leaf source ${root.relativize(source)} must be selected through one intentional common bundle")
-            if (roots.isEmpty() || !roots.any { source.startsWith(it) }) errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
+            boolean buildOwnedNativeUpdate = implementation == 'native-static-catalog' &&
+                    root.relativize(source).toString().replace('\\', '/') ==
+                    'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/MetadataRenderer.groovy'
+            if (!buildOwnedNativeUpdate &&
+                    (roots.isEmpty() || !roots.any { source.startsWith(it) })) {
+                errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
+            }
             verifyLeaf(implementation, key, Files.readString(source), errors)
             if (implementation == 'identifier-submission') {
                 verifyIdentifierSubmissionGuiBundle(roots, errors)
@@ -490,6 +508,29 @@ final class SemanticVerifier {
             serverLoader: ['MinecraftServerLifecycle', 'MinecraftServerRefreshCommand.register']
         ]
         markers.getOrDefault(key, []).each { String marker -> if (!compact.contains(marker)) errors.add("${implementation}: ${key} leaf lacks required marker '${marker}'") }
+        if (implementation == 'modmenu-default-index') {
+            if (!compact.contains('implements ModMenuApi') ||
+                    !compact.contains('getModConfigScreenFactory()') ||
+                    compact.contains('getUpdateChecker()')) {
+                errors.add("${implementation}: legacy Mod Menu leaf must preserve only the default update index")
+            }
+        }
+        if (implementation == 'modmenu-static-catalog') {
+            ['implements ModMenuApi', 'getUpdateChecker()', 'UpdateCatalogClient.create()',
+             '.orElse(null)'].each { String marker ->
+                if (!compact.contains(marker)) {
+                    errors.add("${implementation}: modern Mod Menu leaf lacks '${marker}'")
+                }
+            }
+            if (compact.contains('getUpdateMessage()')) {
+                errors.add("${implementation}: modern Mod Menu leaf must preserve default update message ABI")
+            }
+        }
+        if (implementation == 'native-static-catalog' &&
+                (!compact.contains('nativeUpdatesUrl') ||
+                        !compact.contains('updateJSONURL'))) {
+            errors.add("${implementation}: native static catalog metadata leaf is incomplete")
+        }
         if (key == 'serverProfileVerification') {
             String sessionServiceType = implementation == 'profile-verification-authlib-v10'
                     ? 'SessionService'

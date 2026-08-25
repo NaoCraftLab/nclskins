@@ -13,6 +13,7 @@ def escapedDescription = { String locale ->
     encoded.substring(1, encoded.length() - 1)
 }
 def abiFile = repositoryRoot.file('gradle/abi-fingerprints.json').asFile
+def modMenuAbiFile = repositoryRoot.file('gradle/modmenu-abi.json').asFile
 def versionProperties = new Properties()
 versionFile.withInputStream { versionProperties.load(it) }
 def configuredVersion = versionProperties.getProperty('modVersion')
@@ -305,6 +306,17 @@ def capabilityAbiTask = tasks.register('verifyCapabilityAbi', nclskinsCapability
     delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
 }
 
+def modMenuAbiTask = spec.loader.id == 'fabric'
+        ? tasks.register('verifyModMenuAbi', nclskinsVerifyModMenuAbiTaskType) {
+            group = 'verification'
+            description = 'Verifies the exact catalogued Mod Menu API surface for this target.'
+            delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
+            delegate.abiFile.set(repositoryRoot.file('gradle/modmenu-abi.json'))
+            delegate.targetId.set(currentTargetId)
+            delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
+        }
+        : null
+
 def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
     group = 'verification'
     description = 'Verifies universal metadata and side-safe common/client entrypoints.'
@@ -410,6 +422,7 @@ def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
 tasks.named('check').configure {
     dependsOn tasks.named('verifyTargetCatalog')
     dependsOn capabilityAbiTask
+    if (modMenuAbiTask != null) dependsOn modMenuAbiTask
     dependsOn isolationTask
 }
 

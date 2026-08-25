@@ -104,7 +104,7 @@ final class MetadataRenderer {
             "displayName=${quote(mod.name)}",
             "displayURL=${quote(contact.homepage)}",
             "issueTrackerURL=${quote(contact.issues)}",
-            "updateJSONURL=${quote(forgeUpdatesUrl(mod, false))}",
+            "updateJSONURL=${quote(nativeUpdatesUrl(target))}",
             "authors=${quote((mod.authors as List).join(', '))}",
             "logoFile=${quote(mod.icon)}",
             "logoBlur=${booleanValue(mod.iconBlur)}",
@@ -166,7 +166,7 @@ final class MetadataRenderer {
             "displayName=${quote(mod.name)}",
             "displayURL=${quote(contact.homepage)}",
             "issueTrackerURL=${quote(contact.issues)}",
-            "updateJSONURL=${quote(forgeUpdatesUrl(mod, true))}",
+            "updateJSONURL=${quote(nativeUpdatesUrl(target))}",
             "authors=${quote((mod.authors as List).join(', '))}"
         ]
         if (metadata.modListBranding == 'icon-only') {
@@ -283,8 +283,12 @@ final class MetadataRenderer {
         ]
     }
 
-    static String forgeUpdatesUrl(Map mod, boolean neoForge) {
-        String base = "https://api.modrinth.com/updates/${mod.platforms.modrinth.slug}/forge_updates.json"
-        neoForge ? base + '?neoforge=only' : base
+    static String nativeUpdatesUrl(Map target) {
+        if (target.capabilities.updateNotification != 'native-static-catalog' ||
+                !['forge', 'neoforge'].contains(target.loader.id.toString())) {
+            throw new IllegalArgumentException(
+                    "${target.id}: target does not select native static updates")
+        }
+        "https://naocraftlab.github.io/nclskins/updates/v1/native/${target.id}.json"
     }
 }

@@ -1,5 +1,9 @@
 # NCL Skins Plugin changelog
 
+## 1.0.0-beta.3
+
+- Improved the reliability of realtime skin updates on Bukkit-family servers
+
 ## 1.0.0-beta.2
 
 - Initial release of the universal server plugin for supported Bukkit-family servers, Velocity, and BungeeCord

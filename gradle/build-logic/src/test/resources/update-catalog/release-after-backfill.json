@@ -1,0 +1,18 @@
+[
+  {
+    "tag_name": "1.0.0-beta.3",
+    "draft": false,
+    "target_commitish": "2222222222222222222222222222222222222222",
+    "html_url": "https://github.com/NaoCraftLab/nclskins/releases/tag/1.0.0-beta.3",
+    "assets": [
+      {
+        "name": "nclskins-1.0.0-beta.3+1.21.1-fabric.jar",
+        "browser_download_url": "https://github.com/NaoCraftLab/nclskins/releases/download/1.0.0-beta.3/nclskins-1.0.0-beta.3%2B1.21.1-fabric.jar"
+      },
+      {
+        "name": "nclskins-1.0.0-beta.3+26.2-neoforge.jar",
+        "browser_download_url": "https://github.com/NaoCraftLab/nclskins/releases/download/1.0.0-beta.3/nclskins-1.0.0-beta.3%2B26.2-neoforge.jar"
+      }
+    ]
+  }
+]

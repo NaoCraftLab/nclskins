@@ -112,6 +112,7 @@ final class ArtifactVerifier {
             verifyGeneratedBindings(archive, catalog, target, names, errors)
             verifyLegal(root, archive, target, errors)
             verifyMetadata(archive, catalog, target, version, errors)
+            verifyUpdateNotification(archive, target, names, errors)
             verifyResources(root, archive, catalog, target, names, errors)
             verifyManifest(archive, target, errors)
             verifyForgeRefmap(archive, target, names, errors)
@@ -484,6 +485,68 @@ final class ArtifactVerifier {
         if ((target.metadata.files as List).contains('pack.mcmeta')) {
             Map pack = json(archive, 'pack.mcmeta', target, errors)
             if (pack != null && pack != [pack: [description: 'NCL Skins resources', pack_format: target.metadata.packFormat]]) errors.add("${target.id}: pack.mcmeta differs from catalog")
+        }
+    }
+
+    static void verifyUpdateNotification(
+            ZipFile archive, Map target, List<String> names, List<String> errors) {
+        String implementation = target.capabilities.updateNotification?.toString()
+        String loader = target.loader.id.toString()
+        if (loader == 'fabric') {
+            String expected = target.id == 'fabric-1.20.1'
+                    ? 'modmenu-default-index' : 'modmenu-static-catalog'
+            if (implementation != expected) {
+                errors.add("${target.id}: unexpected update notification capability ${implementation}")
+                return
+            }
+            String entrypoint = target.metadata.modMenuEntrypoint.toString()
+                    .replace('.', '/') + '.class'
+            if (!names.contains(entrypoint)) {
+                errors.add("${target.id}: missing Mod Menu entrypoint ${entrypoint}")
+                return
+            }
+            String bytecode = new String(read(archive, entrypoint), StandardCharsets.ISO_8859_1)
+            List<String> modernReferences = [
+                    'com/terraformersmc/modmenu/api/UpdateChecker',
+                    'com/terraformersmc/modmenu/api/UpdateInfo',
+                    'com/terraformersmc/modmenu/api/UpdateChannel',
+                    'com/naocraftlab/skins/runtime/update/UpdateCatalogClient',
+                    target.id.toString()
+            ]
+            if (implementation == 'modmenu-default-index') {
+                modernReferences.findAll { bytecode.contains(it) }.each { String reference ->
+                    errors.add("${target.id}: legacy Mod Menu entrypoint references ${reference}")
+                }
+            } else {
+                modernReferences.findAll { !bytecode.contains(it) }.each { String reference ->
+                    errors.add("${target.id}: modern Mod Menu entrypoint lacks ${reference}")
+                }
+            }
+            return
+        }
+
+        if (implementation != 'native-static-catalog') {
+            errors.add("${target.id}: Forge-family target lacks native static update capability")
+        }
+        String modMenuEntrypoint =
+                'com/naocraftlab/skins/loader/fabric/NclSkinsModMenuApi.class'
+        if (names.contains(modMenuEntrypoint)) {
+            errors.add("${target.id}: native target contains Fabric Mod Menu entrypoint")
+        }
+        names.findAll { it.endsWith('.class') }.each { String name ->
+            String bytecode = new String(read(archive, name), StandardCharsets.ISO_8859_1)
+            if (bytecode.contains('com/terraformersmc/modmenu/')) {
+                errors.add("${target.id}:${name}: native target references Mod Menu")
+            }
+        }
+        String metadataPath = loader == 'forge'
+                ? 'META-INF/mods.toml' : 'META-INF/neoforge.mods.toml'
+        if (names.contains(metadataPath)) {
+            String metadata = new String(read(archive, metadataPath), StandardCharsets.UTF_8)
+            String expectedUrl = MetadataRenderer.nativeUpdatesUrl(target)
+            if (!metadata.contains("updateJSONURL=\"${expectedUrl}\"")) {
+                errors.add("${target.id}: native metadata lacks exact update endpoint")
+            }
         }
     }
 

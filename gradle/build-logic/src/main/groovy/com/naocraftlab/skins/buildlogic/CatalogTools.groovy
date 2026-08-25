@@ -14,10 +14,12 @@ final class CatalogTools {
     static final Set<String> REQUIRED_CAPABILITIES = [
         'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
         'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
+        'updateNotification',
         'serverSignal', 'serverCommand', 'serverProfileVerification',
         'serverProfileMutation', 'serverTracking', 'serverPlayerInfoPublication',
         'serverLoader'
     ] as Set
+    static final Set<String> EXTERNAL_ABI_CAPABILITIES = ['updateNotification'] as Set
     static final Set<String> REQUIRED_TARGET_KEYS = [
         'id', 'path', 'minecraft', 'loader', 'java', 'development', 'gradleFamily',
         'sourceLayout', 'capabilities', 'metadata', 'artifact', 'epochProfile',
@@ -1130,7 +1132,8 @@ final class CatalogTools {
         }
 
         Map epoch = selected.epochProfile instanceof Map ? selected.epochProfile as Map : [:]
-        Set<String> epochCapabilities = REQUIRED_CAPABILITIES - ['loaderScreen', 'serverLoader', 'preview'] as Set
+        Set<String> epochCapabilities = REQUIRED_CAPABILITIES -
+                ['loaderScreen', 'serverLoader', 'preview', 'updateNotification'] as Set
         if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass', 'clientProviderBundle', 'accessBundles', 'previewCapabilities', 'capabilities'] as Set ||
                 !(epoch.clientProviderClass instanceof String) ||
                 !(epoch.clientProviderClass ==~ /[a-zA-Z_$][a-zA-Z0-9_$]*(\.[a-zA-Z_$][a-zA-Z0-9_$]*)+/) ||
@@ -1289,6 +1292,7 @@ final class CatalogTools {
         (catalog.targets as List).each { Object raw ->
             Map target = raw as Map
             (target.capabilities as Map).each { Object kindRaw, Object implementationRaw ->
+                if (EXTERNAL_ABI_CAPABILITIES.contains(kindRaw.toString())) return
                 Map declaration = capabilityDeclaration(catalog, implementationRaw.toString())
                 String implementation = declaration.abiImplementation.toString()
                 String kind = kindRaw.toString()

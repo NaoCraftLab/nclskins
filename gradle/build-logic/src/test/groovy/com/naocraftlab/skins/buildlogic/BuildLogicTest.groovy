@@ -18,6 +18,7 @@ final class BuildLogicTest {
     private final File repository = new File('../..').canonicalFile
     private final Map catalog = CatalogTools.loadCatalog(repository)
     private final Map abi = CatalogTools.loadJson(new File(repository, 'gradle/abi-fingerprints.json'))
+    private final Map modMenuAbi = CatalogTools.loadJson(new File(repository, 'gradle/modmenu-abi.json'))
 
     @Test
     void currentCatalogIsValid() {
@@ -864,6 +865,55 @@ final class BuildLogicTest {
     }
 
     @Test
+    void updateNotificationCapabilityIsExactSemanticAndSourceOwned() {
+        Map<String, String> expected = catalog.targets.collectEntries { Map target ->
+            String implementation = target.id == 'fabric-1.20.1'
+                    ? 'modmenu-default-index'
+                    : target.loader.id == 'fabric'
+                    ? 'modmenu-static-catalog'
+                    : 'native-static-catalog'
+            [(target.id.toString()): implementation]
+        }
+        assertEquals(expected, catalog.targets.collectEntries { Map target ->
+            [(target.id.toString()): target.capabilities.updateNotification.toString()]
+        })
+        assertTrue(expected.values().every {
+            it in ['modmenu-default-index', 'modmenu-static-catalog',
+                   'native-static-catalog']
+        })
+
+        Map legacy = CatalogTools.resolveTargetSources(
+                repository, catalog, CatalogTools.selectTarget(catalog, 'fabric-1.20.1'))
+        Map modern = CatalogTools.resolveTargetSources(
+                repository, catalog, CatalogTools.selectTarget(catalog, 'fabric-1.21.1'))
+        Map nativeTarget = CatalogTools.resolveTargetSources(
+                repository, catalog, CatalogTools.selectTarget(catalog, 'neoforge-26.2'))
+        assertTrue(legacy.clientJava.contains(
+                'loader/fabric/modmenu-default-index/src/main/java'))
+        assertFalse(legacy.clientJava.contains(
+                'loader/fabric/modmenu-static-catalog/src/main/java'))
+        assertTrue(modern.clientJava.contains(
+                'loader/fabric/modmenu-static-catalog/src/main/java'))
+        assertFalse(modern.clientJava.contains(
+                'loader/fabric/modmenu-default-index/src/main/java'))
+        assertTrue(nativeTarget.bundles.contains('native-static-catalog'))
+        assertFalse(nativeTarget.java.any { it.toString().contains('/modmenu-') })
+
+        assertEquals(['fabric-1.20.1'] as Set, selected(
+                'loader/fabric/modmenu-default-index/src/main/java/Example.java'))
+        assertEquals(catalog.targets.findAll {
+            it.capabilities.updateNotification == 'modmenu-static-catalog'
+        }*.id as Set, selected(
+                'loader/fabric/modmenu-static-catalog/src/main/java/Example.java'))
+
+        String modernSource = new File(repository,
+                'loader/fabric/modmenu-static-catalog/src/main/java/' +
+                'com/naocraftlab/skins/loader/fabric/NclSkinsModMenuApi.java').text
+        assertTrue(modernSource.contains('.orElse(null)'))
+        assertFalse(modernSource.contains('getUpdateMessage()'))
+    }
+
+    @Test
     void unknownProductionPathIsRejected() {
         assertThrows(IllegalArgumentException) { CatalogTools.classifyAffected(repository, catalog, ['new-runtime/Main.java']) }
     }
@@ -921,7 +971,9 @@ final class BuildLogicTest {
                 assertTrue(metadata.contains('displayTest="IGNORE_SERVER_VERSION"'))
                 assertTrue(metadata.contains('showAsResourcePack=false'))
                 assertTrue(metadata.contains('features={java_version="[17,)"}'))
-                assertTrue(metadata.contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json"'))
+                assertTrue(metadata.contains(
+                        'updateJSONURL="https://naocraftlab.github.io/nclskins/' +
+                        "updates/v1/native/${target.id}.json\""))
                 assertTrue(metadata.contains('modId="sqlite_jdbc"'))
                 assertTrue(metadata.contains('modId="yet_another_config_lib_v3"'))
                 assertTrue(metadata.contains('mandatory=false'))
@@ -948,7 +1000,9 @@ final class BuildLogicTest {
                 assertTrue(metadata.contains("javaVersion=\"[${target.java.release},)\""))
                 assertTrue(metadata.contains('showAsResourcePack=false'))
                 assertTrue(metadata.contains('showAsDataPack=false'))
-                assertTrue(metadata.contains('updateJSONURL="https://api.modrinth.com/updates/nclskins/forge_updates.json?neoforge=only"'))
+                assertTrue(metadata.contains(
+                        'updateJSONURL="https://naocraftlab.github.io/nclskins/' +
+                        "updates/v1/native/${target.id}.json\""))
                 assertTrue(metadata.contains('modId="sqlite_jdbc"'))
                 assertTrue(metadata.contains('modId="yet_another_config_lib_v3"'))
                 assertTrue(metadata.contains('type="optional"'))
@@ -957,6 +1011,33 @@ final class BuildLogicTest {
                 assertEquals((target.metadata.serverMixins ?: []) + target.metadata.mixins, metadata.readLines().findAll { it.startsWith('config=') }.collect { it.substring('config="'.length(), it.length() - 1) })
             }
         }
+    }
+
+    @Test
+    void modMenuAbiProfilesExactlyCoverFabricTargets() {
+        assertEquals([], ModMenuAbiVerifier.validate(catalog, modMenuAbi))
+        assertEquals('modmenu-default-index', modMenuAbi.targets['fabric-1.20.1'])
+        ['fabric-1.21.1', 'fabric-1.21.11', 'fabric-26.1', 'fabric-26.2',
+         'fabric-26.3'].each { String targetId ->
+            assertEquals('modmenu-static-catalog', modMenuAbi.targets[targetId])
+        }
+        Map modern = modMenuAbi.profiles['modmenu-static-catalog'] as Map
+        assertEquals([
+                'getUpdateChecker()Lcom/terraformersmc/modmenu/api/UpdateChecker;',
+                'checkForUpdates()Lcom/terraformersmc/modmenu/api/UpdateInfo;',
+                'getDownloadLink()Ljava/lang/String;',
+                'getUpdateChannel()Lcom/terraformersmc/modmenu/api/UpdateChannel;',
+                'getUserPreference()Lcom/terraformersmc/modmenu/api/UpdateChannel;'
+        ] as Set, (modern.classes as List).collectMany { Map entry ->
+            (entry.members as List).collect { Map member ->
+                "${member.name}${member.descriptor}".toString()
+            }
+        } as Set)
+
+        Map missing = cloneMap(modMenuAbi)
+        missing.targets.remove('fabric-26.3')
+        assertTrue(ModMenuAbiVerifier.validate(catalog, missing).contains(
+                'Mod Menu ABI targets must exactly cover Fabric targets'))
     }
 
     @Test
@@ -1469,7 +1550,10 @@ final class BuildLogicTest {
     void committedAbiBaselinesMatchEachTargetSelection() {
         catalog.targets.each { Map target ->
             Map declarations = catalog.capabilityImplementations as Map
-            Set<String> selected = (target.capabilities as Map).values().collect { declarations[it].abiImplementation.toString() } as Set
+            Set<String> selected = (target.capabilities as Map)
+                    .findAll { Object key, Object ignored ->
+                        !CatalogTools.EXTERNAL_ABI_CAPABILITIES.contains(key.toString())
+                    }.values().collect { declarations[it].abiImplementation.toString() } as Set
             Map actual = new TreeMap()
             selected.each { actual[it] = abi.resolvedByProfile[target.epochProfile][it] }
             AbiVerifier.verify(catalog, abi, target.id.toString(), actual)

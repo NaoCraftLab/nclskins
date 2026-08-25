@@ -75,7 +75,8 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       mode: ${{ steps.release.outputs.mode }}
       prerelease: ${{ steps.release.outputs.prerelease }}
-      source_commit: ${{ steps.release.outputs.source_commit }}
+      release_source_commit: ${{ steps.release.outputs.release_source_commit }}
+      catalog_source_commit: ${{ steps.release.outputs.catalog_source_commit }}
     steps:
       - name: Check out release source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -96,6 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          catalog_source_commit="$(git rev-parse origin/main)"
 
           if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
             [[ "$EVENT_REF" == 'refs/heads/main' ]] || {
@@ -143,7 +145,8 @@ jobs:
           }
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"
-          printf 'source_commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'release_source_commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'catalog_source_commit=%s\n' "$catalog_source_commit" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 25
         id: java25
@@ -178,7 +181,8 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.source.outputs.version }}
           RELEASE_MODE: ${{ steps.source.outputs.mode }}
-          SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
+          RELEASE_SOURCE_COMMIT: ${{ steps.source.outputs.release_source_commit }}
+          CATALOG_SOURCE_COMMIT: ${{ steps.source.outputs.catalog_source_commit }}
         run: |
           set -euo pipefail
           ./gradlew validateRelease -PreleaseTag="$RELEASE_VERSION"
@@ -188,7 +192,8 @@ jobs:
             "$(jq -er '.activeVersion' "$server_state")" >> "$GITHUB_ENV"
           printf 'version=%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           printf 'mode=%s\n' "$RELEASE_MODE" >> "$GITHUB_OUTPUT"
-          printf 'source_commit=%s\n' "$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          printf 'release_source_commit=%s\n' "$RELEASE_SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          printf 'catalog_source_commit=%s\n' "$CATALOG_SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
           printf 'prerelease=%s\n' "$(jq -er '.prerelease' "$metadata")" >> "$GITHUB_OUTPUT"
 
       - name: Download existing GitHub assets for backfill
@@ -248,7 +253,7 @@ jobs:
       - name: Check out publisher build logic
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.build.outputs.source_commit }}
+          ref: ${{ needs.build.outputs.release_source_commit }}
           persist-credentials: false
 
       - name: Set up JDK 25
@@ -295,7 +300,7 @@ jobs:
       - name: Check out publisher build logic
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.build.outputs.source_commit }}
+          ref: ${{ needs.build.outputs.release_source_commit }}
           persist-credentials: false
 
       - name: Set up JDK 25
@@ -323,3 +328,19 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew publishGithubRelease -PreleaseBundle=release-bundle --no-daemon
+
+  update-catalog:
+    name: Publish static update catalog
+    needs: [build, github]
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      needs.github.result == 'success'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/publish-update-catalog.yml
+    with:
+      catalog_source_commit: ${{ needs.build.outputs.catalog_source_commit }}

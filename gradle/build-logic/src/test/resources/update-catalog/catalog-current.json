@@ -1,0 +1,30 @@
+{
+  "mod": {
+    "contact": {
+      "homepage": "https://naocraftlab.com"
+    }
+  },
+  "targets": [
+    {
+      "id": "fabric-1.21.1",
+      "loader": {"id": "fabric"},
+      "minecraft": {"version": "1.21.1"},
+      "artifact": {"file": "nclskins-{modVersion}+1.21.1-fabric.jar"},
+      "releaseEligible": true
+    },
+    {
+      "id": "forge-1.20.1",
+      "loader": {"id": "forge"},
+      "minecraft": {"version": "1.20.1"},
+      "artifact": {"file": "nclskins-{modVersion}+1.20.1-forge.jar"},
+      "releaseEligible": true
+    },
+    {
+      "id": "neoforge-26.2",
+      "loader": {"id": "neoforge"},
+      "minecraft": {"version": "26.2"},
+      "artifact": {"file": "nclskins-{modVersion}+26.2-neoforge.jar"},
+      "releaseEligible": true
+    }
+  ]
+}

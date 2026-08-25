@@ -119,6 +119,10 @@ abstract class CapabilityReuseProbeTask extends DefaultTask {
                     '--no-configuration-cache',
                     "-PnclskinsCapabilityProbe=${override}"
             ]
+            boolean externalAbi = CatalogTools.EXTERNAL_ABI_CAPABILITIES.contains(capability)
+            if (externalAbi && target.loader.id == 'fabric') {
+                command.add(command.indexOf('captureCapabilityAbi'), 'verifyModMenuAbi')
+            }
             ProcessBuilder builder = new ProcessBuilder(
                     command.collect { it.toString() }).directory(root)
             builder.redirectErrorStream(true)
@@ -133,19 +137,23 @@ abstract class CapabilityReuseProbeTask extends DefaultTask {
                 candidate.compileTail = output.readLines().takeRight(30)
                 continue
             }
-            Map captured = this.parseCapturedAbi(output)
-            Map actual = captured[candidate.abiImplementation] as Map
-            if (!CapabilityReuse.matchesDeclaredAbi(
-                    abi, candidate.abiImplementation?.toString(), actual)) {
-                candidate.failures.add('resolved ABI differs from every declared profile baseline')
-                continue
+            if (!externalAbi) {
+                Map captured = this.parseCapturedAbi(output)
+                Map actual = captured[candidate.abiImplementation] as Map
+                if (!CapabilityReuse.matchesDeclaredAbi(
+                        abi, candidate.abiImplementation?.toString(), actual)) {
+                    candidate.failures.add('resolved ABI differs from every declared profile baseline')
+                    continue
+                }
             }
             if (!this.runSemanticSuite(root, coverage, candidate)) {
                 candidate.failures.add(
                         "semantic suite ${candidate.semanticSuite} failed: ${candidate.semanticTestIds}")
                 continue
             }
-            candidate.probeStatus = 'COMPILED_ABI_AND_SEMANTIC_TCK_PASSED'
+            candidate.probeStatus = externalAbi
+                    ? 'COMPILED_EXTERNAL_ABI_AND_SEMANTIC_TCK_PASSED'
+                    : 'COMPILED_ABI_AND_SEMANTIC_TCK_PASSED'
             return candidate
         }
         null

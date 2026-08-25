@@ -53,6 +53,37 @@ final class PublicationLogicTest {
     }
 
     @Test
+    void tagSelectionUsesExactTagCommitAndNearestFirstParentTag() {
+        File fixture = Files.createTempDirectory('nclskins-tag-selection-').toFile()
+        try {
+            ReleaseSelection.git(fixture, ['init', '--quiet'])
+            ReleaseSelection.git(fixture, ['config', 'user.name', 'NCL Skins Test'])
+            ReleaseSelection.git(fixture, ['config', 'user.email', 'test@invalid.example'])
+            File marker = new File(fixture, 'targets/1.20.1/forge/marker.txt')
+            assertTrue(marker.parentFile.mkdirs())
+            Files.writeString(marker.toPath(), 'first\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'first'])
+            ReleaseSelection.git(fixture, ['tag', '1.0.0-alpha.1'])
+            Files.writeString(marker.toPath(), 'second\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'second'])
+            ReleaseSelection.git(fixture, ['tag', '1.0.0-alpha.2'])
+
+            Map selection = ReleaseSelection.selectTag(
+                    fixture, catalog, '1.0.0-alpha.2')
+            assertEquals(
+                    ReleaseSelection.git(
+                            fixture, ['rev-parse', '1.0.0-alpha.2^{commit}']).trim(),
+                    selection.sourceCommit)
+            assertEquals('1.0.0-alpha.1', selection.baseTag)
+            assertEquals(['forge-1.20.1'], selection.targetIds)
+        } finally {
+            fixture.deleteDir()
+        }
+    }
+
+    @Test
     void publicationMetadataFollowsTargetLoaderCompatibilityAndDependencies() {
         Map fabric = desired('fabric-26.1')
         assertEquals(['26.1', '26.1.1', '26.1.2'], fabric.gameVersions)
@@ -300,6 +331,32 @@ final class PublicationLogicTest {
                             fixture, catalog, '1.2.3', 'tag').serverPlugin.compatibility)
         } finally {
             fixture.deleteDir()
+        }
+    }
+
+    @Test
+    void compatibilityBackfillCannotBuildMissingHistoricalServerPlugin() {
+        File assets = Files.createTempDirectory('nclskins-plugin-backfill-output-').toFile()
+        File existing = Files.createTempDirectory('nclskins-plugin-backfill-existing-').toFile()
+        try {
+            Map state = [
+                    publish: true, reason: 'server-change', activeVersion: release.version,
+                    previousActiveVersion: '1.2.3-beta.3',
+                    currentFingerprint: 'a' * 64, activeFingerprint: 'b' * 64,
+                    protocolIds: catalog.serverPlugin.protocols,
+                    matrixId: catalog.serverPlugin.matrixId
+            ]
+            IllegalStateException failure = assertThrows(IllegalStateException) {
+                AssembleReleaseTask.serverPluginPublication(
+                        repository, catalog, release, state, 'Plugin changes\n',
+                        assets, existing, false)
+            }
+            assertTrue(failure.message.contains(
+                    'Current-main compatibility backfill cannot create historical server plugin'))
+            assertTrue(failure.message.contains('use reconcile-tag'))
+        } finally {
+            assets.deleteDir()
+            existing.deleteDir()
         }
     }
 

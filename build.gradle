@@ -29,6 +29,8 @@ def requestedExistingReleaseAssets = providers.gradleProperty('existingReleaseAs
 def requestedReleaseBundle = providers.gradleProperty('releaseBundle').orNull
 def requestedFromRef = providers.gradleProperty('fromRef').orNull
 def requestedToRef = providers.gradleProperty('toRef').orNull
+def requestedUpdateCatalogInventory = providers.gradleProperty('updateCatalogInventory').orNull
+def requestedUpdateCatalogOutput = providers.gradleProperty('updateCatalogOutput').orNull
 def workerText = providers.environmentVariable('NCLSKINS_BUILD_JOBS').getOrElse('3')
 if (!(workerText ==~ /[1-9][0-9]*/)) {
     throw new GradleException("NCLSKINS_BUILD_JOBS must be a positive integer, got ${workerText}")
@@ -81,6 +83,34 @@ tasks.register('setVersion') {
         }
         logger.lifecycle("NCL Skins version changed from ${modVersion} to ${requestedNewVersion}")
     }
+}
+
+tasks.register('generateUpdateCatalog', GenerateUpdateCatalogTask) {
+    group = 'release setup'
+    description = 'Generates the deterministic GitHub Pages update catalog from a release inventory.'
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    if (requestedUpdateCatalogInventory != null) {
+        inventoryFile.set(file(requestedUpdateCatalogInventory))
+    } else {
+        inventoryFile.set(layout.buildDirectory.file('update-catalog/releases.json'))
+    }
+    if (requestedUpdateCatalogOutput != null) {
+        outputDirectory.set(file(requestedUpdateCatalogOutput))
+    } else {
+        outputDirectory.set(layout.buildDirectory.dir('update-catalog/site'))
+    }
+    allowedOutputRoot.set(layout.buildDirectory)
+}
+
+tasks.register('verifyUpdateCatalogDeployment', VerifyUpdateCatalogDeploymentTask) {
+    group = 'verification'
+    description = 'Compares every deployed update endpoint with the generated Pages artifact.'
+    if (requestedUpdateCatalogOutput != null) {
+        siteDirectory.set(file(requestedUpdateCatalogOutput))
+    } else {
+        siteDirectory.set(layout.buildDirectory.dir('update-catalog/site'))
+    }
+    outputs.upToDateWhen { false }
 }
 
 subprojects {

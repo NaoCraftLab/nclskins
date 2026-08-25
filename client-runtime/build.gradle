@@ -2,13 +2,35 @@ plugins {
     id 'java-library'
 }
 
+def targetCatalog = rootProject.extensions.extraProperties.get('nclskinsTargetCatalog')
+def gsonMinimum = targetCatalog.gsonCompatibility.minimum.toString()
+def gsonMaximum = targetCatalog.gsonCompatibility.maximum.toString()
+
 dependencies {
     api project(':core')
     api project(':client-contract')
     api project(':diagnostics')
 
+    implementation "com.google.code.gson:gson:${gsonMinimum}"
+
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testRuntimeOnly 'org.xerial:sqlite-jdbc:3.53.2.1'
+}
+
+def gsonMaximumTestRuntimeClasspath = configurations.testRuntimeClasspath.copyRecursive()
+gsonMaximumTestRuntimeClasspath.resolutionStrategy.force(
+        "com.google.code.gson:gson:${gsonMaximum}")
+
+tasks.register('testGsonMaximum', Test) {
+    group = 'verification'
+    description = "Runs the client runtime suite with Gson ${gsonMaximum}."
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.output + sourceSets.main.output + gsonMaximumTestRuntimeClasspath
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('testGsonMaximum')
 }

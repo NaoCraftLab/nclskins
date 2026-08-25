@@ -1,0 +1,16 @@
+{
+  "mod": {
+    "contact": {
+      "homepage": "https://naocraftlab.com"
+    }
+  },
+  "targets": [
+    {
+      "id": "fabric-1.21.1",
+      "loader": {"id": "fabric"},
+      "minecraft": {"version": "1.21.1"},
+      "artifact": {"file": "nclskins-{modVersion}+1.21.1-fabric.jar"},
+      "releaseEligible": true
+    }
+  ]
+}

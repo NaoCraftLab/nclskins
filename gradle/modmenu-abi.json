@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "modmenu-default-index": {
+      "classes": [
+        {
+          "name": "com.terraformersmc.modmenu.api.ModMenuApi",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getModConfigScreenFactory",
+              "descriptor": "()Lcom/terraformersmc/modmenu/api/ConfigScreenFactory;",
+              "access": "public default",
+              "finality": "default"
+            }
+          ]
+        }
+      ],
+      "forbiddenMembers": [
+        {
+          "owner": "com.terraformersmc.modmenu.api.ModMenuApi",
+          "kind": "method",
+          "name": "getUpdateChecker",
+          "descriptor": "()Lcom/terraformersmc/modmenu/api/UpdateChecker;"
+        }
+      ],
+      "forbiddenClasses": [
+        "com.terraformersmc.modmenu.api.UpdateChecker",
+        "com.terraformersmc.modmenu.api.UpdateInfo",
+        "com.terraformersmc.modmenu.api.UpdateChannel"
+      ]
+    },
+    "modmenu-static-catalog": {
+      "classes": [
+        {
+          "name": "com.terraformersmc.modmenu.api.ModMenuApi",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getUpdateChecker",
+              "descriptor": "()Lcom/terraformersmc/modmenu/api/UpdateChecker;",
+              "access": "public default",
+              "finality": "default"
+            }
+          ]
+        },
+        {
+          "name": "com.terraformersmc.modmenu.api.UpdateChecker",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "checkForUpdates",
+              "descriptor": "()Lcom/terraformersmc/modmenu/api/UpdateInfo;",
+              "access": "public abstract",
+              "finality": "abstract"
+            }
+          ]
+        },
+        {
+          "name": "com.terraformersmc.modmenu.api.UpdateInfo",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getDownloadLink",
+              "descriptor": "()Ljava/lang/String;",
+              "access": "public abstract",
+              "finality": "abstract"
+            },
+            {
+              "kind": "method",
+              "name": "getUpdateChannel",
+              "descriptor": "()Lcom/terraformersmc/modmenu/api/UpdateChannel;",
+              "access": "public abstract",
+              "finality": "abstract"
+            }
+          ]
+        },
+        {
+          "name": "com.terraformersmc.modmenu.api.UpdateChannel",
+          "access": "public",
+          "finality": "enum",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getUserPreference",
+              "descriptor": "()Lcom/terraformersmc/modmenu/api/UpdateChannel;",
+              "access": "public static",
+              "finality": "static"
+            }
+          ]
+        }
+      ],
+      "forbiddenMembers": [],
+      "forbiddenClasses": []
+    }
+  },
+  "targets": {
+    "fabric-1.20.1": "modmenu-default-index",
+    "fabric-1.21.1": "modmenu-static-catalog",
+    "fabric-1.21.11": "modmenu-static-catalog",
+    "fabric-26.1": "modmenu-static-catalog",
+    "fabric-26.2": "modmenu-static-catalog",
+    "fabric-26.3": "modmenu-static-catalog"
+  }
+}
