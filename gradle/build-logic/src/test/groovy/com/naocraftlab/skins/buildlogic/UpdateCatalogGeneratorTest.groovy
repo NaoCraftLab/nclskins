@@ -151,6 +151,26 @@ final class UpdateCatalogGeneratorTest {
     }
 
     @Test
+    void nativeCatalogSupportsEveryExactRuntimeAliasWithoutChangingTargetIdentity() {
+        String targetId = 'neoforge-26.1'
+        String version = '1.0.0-beta.3'
+        String releaseUrl =
+                "https://github.com/NaoCraftLab/nclskins/releases/tag/${version}"
+        Map generated = UpdateCatalogSite.nativeCatalog(
+                catalog, parse([release(version, [targetId])]), targetId)
+
+        assertEquals(['26.1', '26.1.1', '26.1.2', 'homepage', 'promos'],
+                generated.keySet().toList())
+        ['26.1', '26.1.1', '26.1.2'].each { String runtimeVersion ->
+            assertEquals([(version): releaseUrl], generated[runtimeVersion])
+            assertEquals(version, generated.promos["${runtimeVersion}-latest".toString()])
+            assertEquals(version, generated.promos["${runtimeVersion}-recommended".toString()])
+        }
+        assertFalse(generated.containsKey('neoforge-26.1'))
+        assertEquals(releaseUrl, generated.homepage)
+    }
+
+    @Test
     void everyReleaseEligibleForgeFamilyTargetHasExactNativeSchema() {
         List<Map> nativeTargets = CatalogTools.releaseTargets(catalog).findAll { Map target ->
             ['forge', 'neoforge'].contains((target.loader as Map).id.toString())
@@ -168,18 +188,51 @@ final class UpdateCatalogGeneratorTest {
             List<Map> inventory = parse([release(version, [target.id.toString()])])
             Map nativeCatalog = UpdateCatalogSite.nativeCatalog(
                     catalog, inventory, target.id.toString())
-            String minecraftVersion = target.minecraft.version.toString()
+            List<String> runtimeVersions = UpdateCatalogSite.nativeRuntimeVersions(target)
             String releaseUrl =
                     "https://github.com/NaoCraftLab/nclskins/releases/tag/${version}"
 
-            assertEquals([minecraftVersion, 'homepage', 'promos'].sort(),
+            assertEquals((runtimeVersions + ['homepage', 'promos']).sort(),
                     nativeCatalog.keySet().toList())
-            assertEquals([(version): releaseUrl], nativeCatalog[minecraftVersion])
             assertEquals(releaseUrl, nativeCatalog.homepage)
-            assertEquals([
-                    ("${minecraftVersion}-latest".toString())     : version,
-                    ("${minecraftVersion}-recommended".toString()): version
-            ], nativeCatalog.promos)
+            runtimeVersions.each { String runtimeVersion ->
+                assertEquals([(version): releaseUrl], nativeCatalog[runtimeVersion])
+                assertEquals(version,
+                        nativeCatalog.promos["${runtimeVersion}-latest".toString()])
+                assertEquals(version,
+                        nativeCatalog.promos["${runtimeVersion}-recommended".toString()])
+            }
+            assertEquals(runtimeVersions.size() * 2, nativeCatalog.promos.size())
+        }
+    }
+
+    @Test
+    void nativeRuntimeAliasesFailClosedOnMalformedOrContradictoryCatalogData() {
+        Map duplicate = CatalogTools.materialize(catalog) as Map
+        CatalogTools.selectTarget(duplicate, 'neoforge-26.1')
+                .compatibility.minecraftVersions = ['26.1', '26.1']
+        assertThrows(IllegalArgumentException) {
+            UpdateCatalogSite.nativeCatalog(duplicate, [], 'neoforge-26.1')
+        }
+
+        Map malformed = CatalogTools.materialize(catalog) as Map
+        CatalogTools.selectTarget(malformed, 'neoforge-26.1')
+                .compatibility.minecraftVersions = ['26.1', 'latest']
+        assertThrows(IllegalArgumentException) {
+            UpdateCatalogSite.nativeCatalog(malformed, [], 'neoforge-26.1')
+        }
+
+        Map wrongBaseline = CatalogTools.materialize(catalog) as Map
+        CatalogTools.selectTarget(wrongBaseline, 'neoforge-26.1')
+                .compatibility.minecraftVersions = ['26.1.1', '26.1.2']
+        assertThrows(IllegalArgumentException) {
+            UpdateCatalogSite.nativeCatalog(wrongBaseline, [], 'neoforge-26.1')
+        }
+
+        Map wrongIdentity = CatalogTools.materialize(catalog) as Map
+        CatalogTools.selectTarget(wrongIdentity, 'neoforge-26.1').minecraft.version = '26.1.1'
+        assertThrows(IllegalArgumentException) {
+            UpdateCatalogSite.nativeCatalog(wrongIdentity, [], 'neoforge-26.1')
         }
     }
 
@@ -201,6 +254,9 @@ final class UpdateCatalogGeneratorTest {
 
         Map empty = UpdateCatalogSite.nativeCatalog(catalog, inventory, 'neoforge-26.1')
         assertEquals([:], empty.'26.1')
+        assertEquals([:], empty.'26.1.1')
+        assertEquals([:], empty.'26.1.2')
+        assertFalse(empty.containsKey('26.1.3'))
         assertEquals([:], empty.promos)
         assertEquals(catalog.mod.contact.homepage, empty.homepage)
         assertThrows(IllegalArgumentException) {
@@ -305,6 +361,55 @@ final class UpdateCatalogGeneratorTest {
         Map nativeAfter = new groovy.json.JsonSlurper().parseText(
                 after['updates/v1/native/neoforge-26.2.json']) as Map
         assertEquals('1.0.0-beta.3', nativeAfter.promos.'26.2-latest')
+    }
+
+    @Test
+    void multiRuntimeBackfillUpdatesEveryAliasWithoutChangingSiblingTargets() {
+        String version = '1.0.0-beta.3'
+        List<Map> beforeInventory = parse([
+                release(version, ['fabric-26.1'])
+        ])
+        List<Map> afterInventory = parse([
+                release(version, ['fabric-26.1', 'neoforge-26.1'])
+        ])
+
+        Map before = UpdateCatalogSite.nativeCatalog(
+                catalog, beforeInventory, 'neoforge-26.1')
+        Map after = UpdateCatalogSite.nativeCatalog(
+                catalog, afterInventory, 'neoforge-26.1')
+        Map siblingBefore = UpdateCatalogSite.nativeCatalog(
+                catalog, beforeInventory, 'neoforge-26.2')
+        Map siblingAfter = UpdateCatalogSite.nativeCatalog(
+                catalog, afterInventory, 'neoforge-26.2')
+
+        ['26.1', '26.1.1', '26.1.2'].each { String runtimeVersion ->
+            assertEquals([:], before[runtimeVersion])
+            assertEquals([version], after[runtimeVersion].keySet().toList())
+            assertEquals(version, after.promos["${runtimeVersion}-latest".toString()])
+            assertEquals(version,
+                    after.promos["${runtimeVersion}-recommended".toString()])
+        }
+        assertEquals([:], before.promos)
+        assertFalse(after.containsKey('26.1.3'))
+        assertFalse(after.promos.containsKey('26.1.3-latest'))
+        assertEquals(siblingBefore, siblingAfter)
+    }
+
+    @Test
+    void multiRuntimeNativeJsonRemainsByteExactAcrossInventoryOrder() {
+        Map alpha = release('1.0.0-alpha.2', ['neoforge-26.1'])
+        Map beta = release('1.0.0-beta.3', ['neoforge-26.1'])
+        List<Map> forward = parse([alpha, beta])
+        List<Map> reverse = parse([beta, alpha])
+
+        String forwardJson = UpdateCatalogSite.nativeJson(
+                catalog, forward, 'neoforge-26.1')
+        String reverseJson = UpdateCatalogSite.nativeJson(
+                catalog, reverse, 'neoforge-26.1')
+
+        assertEquals(forwardJson, reverseJson)
+        assertTrue(forwardJson.contains('"26.1.1-latest": "1.0.0-beta.3"'))
+        assertTrue(forwardJson.contains('"26.1.2-recommended": "1.0.0-beta.3"'))
     }
 
     @Test
