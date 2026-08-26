@@ -96,8 +96,8 @@ final class BuildLogicTest {
         assertFalse(experimental.releaseEligible as boolean)
         assertEquals('26.3-snapshot-10', CatalogTools.minecraftCompileVersion(experimental))
         assertEquals('26.3-alpha.10', experimental.minecraft.runtimeVersion)
-        assertEquals('26.3-alpha.7', experimental.minecraft.minimumRuntimeVersion)
-        assertEquals('>=26.3-alpha.7', experimental.minecraft.predicate)
+        assertEquals('26.3-alpha.10', experimental.minecraft.minimumRuntimeVersion)
+        assertEquals('>=26.3-alpha.10', experimental.minecraft.predicate)
         assertEquals('0.158.2+26.3', experimental.loader.apiVersion)
         CatalogTools.validate(repository, catalog)
     }

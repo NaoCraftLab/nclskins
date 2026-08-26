@@ -2019,8 +2019,8 @@
         "version": "26.3",
         "compileVersion": "26.3-snapshot-10",
         "runtimeVersion": "26.3-alpha.10",
-        "minimumRuntimeVersion": "26.3-alpha.7",
-        "predicate": ">=26.3-alpha.7",
+        "minimumRuntimeVersion": "26.3-alpha.10",
+        "predicate": ">=26.3-alpha.10",
         "epoch": "26.3"
       },
       "loader": {
