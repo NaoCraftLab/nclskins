@@ -7,7 +7,9 @@ import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
+import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
+
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Objects;
@@ -37,7 +39,54 @@ public record ClientSnapshot(
         long generation,
         long intentRevision,
         AppearanceSyncStatus syncStatus,
-        boolean syncInProgress) {
+        boolean syncInProgress,
+        SessionActivity sessionActivity) {
+    public ClientSnapshot(
+            Lifecycle lifecycle,
+            Optional<AccountState> account,
+            Optional<SessionValidation> session,
+            Optional<RemoteProfile> remoteProfile,
+            Optional<PresetApplicationOutcome> lastMutation,
+            Optional<UUID> selectedSkinId,
+            Optional<UUID> selectedPresetId,
+            Optional<String> selectedCapeId,
+            Optional<UUID> currentOfficialSkinId,
+            Optional<UUID> activePresetId,
+            Optional<PresetEditorModel> editor,
+            Optional<AddSourceModel> addSource,
+            UiMessage status,
+            boolean busy,
+            boolean rateLimited,
+            Optional<RateLimitProgress> rateLimitProgress,
+            int galleryOffset,
+            long generation,
+            long intentRevision,
+            AppearanceSyncStatus syncStatus,
+            boolean syncInProgress) {
+        this(
+                lifecycle,
+                account,
+                session,
+                remoteProfile,
+                lastMutation,
+                selectedSkinId,
+                selectedPresetId,
+                selectedCapeId,
+                currentOfficialSkinId,
+                activePresetId,
+                editor,
+                addSource,
+                status,
+                busy,
+                rateLimited,
+                rateLimitProgress,
+                galleryOffset,
+                generation,
+                intentRevision,
+                syncStatus,
+                syncInProgress,
+                SessionActivity.NONE);
+    }
     public ClientSnapshot(
             Lifecycle lifecycle,
             Optional<AccountState> account,
@@ -76,7 +125,8 @@ public record ClientSnapshot(
                 generation,
                 0,
                 AppearanceSyncStatus.LOCAL_ONLY,
-                false);
+                false,
+                SessionActivity.NONE);
     }
 
     public ClientSnapshot(
@@ -121,7 +171,8 @@ public record ClientSnapshot(
                 generation,
                 intentRevision,
                 syncStatus,
-                syncInProgress);
+                syncInProgress,
+                SessionActivity.NONE);
     }
 
     public ClientSnapshot(
@@ -163,7 +214,8 @@ public record ClientSnapshot(
                 generation,
                 0,
                 AppearanceSyncStatus.LOCAL_ONLY,
-                false);
+                false,
+                SessionActivity.NONE);
     }
 
     public enum Lifecycle {
@@ -189,6 +241,7 @@ public record ClientSnapshot(
         rateLimitProgress = Objects.requireNonNull(rateLimitProgress, "rateLimitProgress");
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(syncStatus, "syncStatus");
+        Objects.requireNonNull(sessionActivity, "sessionActivity");
         if (galleryOffset < 0 || generation < 0 || intentRevision < 0) {
             throw new IllegalArgumentException("offset and revisions must not be negative");
         }
@@ -258,7 +311,48 @@ public record ClientSnapshot(
         return Set.copyOf(actions);
     }
 
+    public GallerySessionPresentation gallerySessionPresentation() {
+        if (lifecycle == Lifecycle.INITIALIZING
+                || rateLimited
+                || rateLimitProgress.isPresent()) {
+            return GallerySessionPresentation.HIDDEN;
+        }
+        if (sessionActivity == SessionActivity.CLASSIFYING) {
+            SessionValidation validation = session.orElse(null);
+            return validation != null && validation.tokenUnavailable()
+                    ? GallerySessionPresentation.OFFLINE_NO_RETRY
+                    : GallerySessionPresentation.CONNECTING;
+        }
+        if (sessionActivity == SessionActivity.RECONNECTING) {
+            return GallerySessionPresentation.CONNECTING;
+        }
+        SessionValidation validation = session.orElse(null);
+        if (validation == null || validation.valid()) {
+            return GallerySessionPresentation.HIDDEN;
+        }
+        if (validation.status() != SessionStatus.OFFLINE_OR_INVALID
+                || validation.restartRequired()) {
+            return GallerySessionPresentation.OFFLINE_NO_RETRY;
+        }
+        return GallerySessionPresentation.OFFLINE_RETRY;
+    }
+
     public boolean remoteControlsBlocked() {
-        return rateLimited || session.isEmpty() || !session.orElseThrow().valid();
+        return rateLimited
+                || session.isEmpty()
+                || !session.orElseThrow().valid();
+    }
+
+    public enum SessionActivity {
+        NONE,
+        CLASSIFYING,
+        RECONNECTING
+    }
+
+    public enum GallerySessionPresentation {
+        HIDDEN,
+        CONNECTING,
+        OFFLINE_NO_RETRY,
+        OFFLINE_RETRY
     }
 }

@@ -194,7 +194,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
         @Override
         public Object invoke(Object proxy, Method method, Object[] arguments) {
             return switch (method.getName()) {
-                case "initialize" -> initialData();
+                case "initialize", "initializeForGallery" -> initialData();
                 case "warmedInitialData", "rateLimitRemaining" -> Optional.empty();
                 case "reconciliationRecommended", "rateLimited" -> false;
                 case "usePreset" -> selectPreset((UUID) arguments[0]);

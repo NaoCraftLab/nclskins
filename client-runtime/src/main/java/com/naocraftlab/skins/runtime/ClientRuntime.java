@@ -77,6 +77,8 @@ public final class ClientRuntime implements AutoCloseable {
     private final ExecutorService ownedWorker;
     private final Executor reconciliationWorker;
     private final ExecutorService ownedReconciliationWorker;
+    private final Executor sessionWorker;
+    private final ExecutorService ownedSessionWorker;
     private final TextResolver textResolver;
     private final Optional<CurrentPlayerAppearanceSource> currentAppearanceSource;
     private final Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh;
@@ -97,6 +99,10 @@ public final class ClientRuntime implements AutoCloseable {
     private long catalogPreviewEpoch;
     private final State state = new State();
     private long sessionRetryTicket = -1L;
+    private long sessionActivitySequence;
+    private long sessionActivityTicket = -1L;
+    private long sessionActivityBaselineGeneration = -1L;
+    private UUID sessionActivityAccountId;
     private boolean sessionRetryFeedbackRendered;
     private int sessionRetryFeedbackTicksRemaining;
     private SessionRetrySettlement pendingSessionRetrySettlement;
@@ -141,6 +147,8 @@ public final class ClientRuntime implements AutoCloseable {
                 null,
                 worker,
                 null,
+                worker,
+                null,
                 textResolver,
                 Optional.empty(),
                 appearanceRefresh,
@@ -163,6 +171,8 @@ public final class ClientRuntime implements AutoCloseable {
                 operations,
                 clientExecutor,
                 filePicker,
+                worker,
+                null,
                 worker,
                 null,
                 worker,
@@ -190,6 +200,8 @@ public final class ClientRuntime implements AutoCloseable {
                 operations,
                 clientExecutor,
                 filePicker,
+                worker,
+                null,
                 worker,
                 null,
                 worker,
@@ -222,6 +234,39 @@ public final class ClientRuntime implements AutoCloseable {
                 null,
                 reconciliationWorker,
                 null,
+                reconciliationWorker,
+                null,
+                textResolver,
+                Optional.empty(),
+                appearanceRefresh,
+                Optional.empty(),
+                serverAppearanceRefreshNotifier,
+                readinessScheduler,
+                diagnostics);
+    }
+
+    ClientRuntime(
+            ClientOperations operations,
+            ClientExecutor clientExecutor,
+            FilePicker filePicker,
+            Executor worker,
+            Executor reconciliationWorker,
+            Executor sessionWorker,
+            TextResolver textResolver,
+            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
+            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            DiagnosticSink diagnostics) {
+        this(
+                operations,
+                clientExecutor,
+                filePicker,
+                worker,
+                null,
+                reconciliationWorker,
+                null,
+                sessionWorker,
+                null,
                 textResolver,
                 Optional.empty(),
                 appearanceRefresh,
@@ -250,6 +295,8 @@ public final class ClientRuntime implements AutoCloseable {
                 null,
                 worker,
                 null,
+                worker,
+                null,
                 textResolver,
                 Optional.empty(),
                 appearanceRefresh,
@@ -267,6 +314,8 @@ public final class ClientRuntime implements AutoCloseable {
             ExecutorService ownedWorker,
             Executor reconciliationWorker,
             ExecutorService ownedReconciliationWorker,
+            Executor sessionWorker,
+            ExecutorService ownedSessionWorker,
             TextResolver textResolver,
             Optional<CurrentPlayerAppearanceSource> currentAppearanceSource,
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
@@ -283,6 +332,8 @@ public final class ClientRuntime implements AutoCloseable {
         this.reconciliationWorker = Objects.requireNonNull(
                 reconciliationWorker, "reconciliationWorker");
         this.ownedReconciliationWorker = ownedReconciliationWorker;
+        this.sessionWorker = Objects.requireNonNull(sessionWorker, "sessionWorker");
+        this.ownedSessionWorker = ownedSessionWorker;
         this.textResolver = Objects.requireNonNull(textResolver, "textResolver");
         this.currentAppearanceSource = Objects.requireNonNull(
                 currentAppearanceSource, "currentAppearanceSource");
@@ -311,6 +362,7 @@ public final class ClientRuntime implements AutoCloseable {
             DiagnosticSink diagnostics) {
         ExecutorService worker = newWorker("nclskins-client-runtime");
         ExecutorService reconciliationWorker = newWorker("nclskins-appearance-reconciliation");
+        ExecutorService sessionWorker = newWorker("nclskins-session-activity");
         DefaultClientOperations operations = DefaultClientOperations
                 .createDefault(tokenSource, bundledSkins, dataRoot)
                 .enablePublicImports(signedTextureVerifier);
@@ -328,6 +380,8 @@ public final class ClientRuntime implements AutoCloseable {
                 worker,
                 reconciliationWorker,
                 reconciliationWorker,
+                sessionWorker,
+                sessionWorker,
                 textResolver,
                 Optional.of(Objects.requireNonNull(currentAppearanceSource, "currentAppearanceSource")),
                 Optional.of(refresh),
@@ -483,6 +537,7 @@ public final class ClientRuntime implements AutoCloseable {
         state.generation++;
         state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
         state.busy = false;
+        state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
         state.pendingPresetDeleteId = null;
         clearRuntimeFocus("gallery");
         clearSessionRetryFeedback();
@@ -812,9 +867,7 @@ public final class ClientRuntime implements AutoCloseable {
     private void applyNavigationScroll(ViewSpec.NavigationNode node, double offsetPixels) {
         String surfaceId = node.surfaceId().orElse(null);
         if ("gallery.cards".equals(surfaceId)) {
-            double position = galleryPresenter.scrollPositionDelta(
-                    viewportWidth, viewportHeight, offsetPixels);
-            double bounded = Math.max(0.0, Math.min(galleryMaximum(), position));
+            double bounded = Math.max(0.0, Math.min(galleryMaximum(), offsetPixels));
             state.galleryScrollPosition = bounded;
             state.galleryScrollTarget = bounded;
             state.galleryOffset = (int) Math.round(bounded);
@@ -1101,8 +1154,7 @@ public final class ClientRuntime implements AutoCloseable {
                     if (state.editor != null || state.addSource != null) {
                         return;
                     }
-                    setGalleryPosition(galleryPresenter.scrollPositionDelta(
-                            viewportWidth, viewportHeight, offsetPixels));
+                    setGalleryPosition(offsetPixels);
                 }
                 case "add.catalog" -> {
                     if (state.addSource == null
@@ -1347,6 +1399,9 @@ public final class ClientRuntime implements AutoCloseable {
             if (ownedReconciliationWorker != null) {
                 ownedReconciliationWorker.shutdownNow();
             }
+            if (ownedSessionWorker != null) {
+                ownedSessionWorker.shutdownNow();
+            }
             synchronized (reconciliationMonitor) {
                 pendingReconciliations.clear();
                 activeReconciliation = null;
@@ -1384,14 +1439,92 @@ public final class ClientRuntime implements AutoCloseable {
                 UiMessage.info("nclskins.status.loading"),
                 operations::initialize,
                 data -> {
-                    CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
-                            acceptInitialData(data, true);
-                    if (operations.reconciliationRecommended(data)) {
-                        reconcileAfterLocalRebind(
-                                localRebind,
-                                ClientOperations.ReconciliationTrigger.GALLERY_OPEN);
-                    }
+                    acceptInitialData(data, true);
+                    classifySessionForGallery();
                 });
+    }
+
+    private void classifySessionForGallery() {
+        if (disposed
+                || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
+                || state.account == null) {
+            return;
+        }
+        long ticket = ++sessionActivitySequence;
+        sessionActivityTicket = ticket;
+        sessionActivityBaselineGeneration = state.generation;
+        sessionActivityAccountId = state.account.accountId();
+        state.sessionActivity = ClientSnapshot.SessionActivity.CLASSIFYING;
+        publish();
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return operations.initializeForGallery();
+                    } catch (Exception failure) {
+                        throw new CompletionException(failure);
+                    }
+                }, sessionWorker)
+                .whenComplete((result, failure) -> onClient(() ->
+                        acceptSessionClassification(ticket, result, failure)));
+    }
+
+    private void acceptSessionClassification(
+            long ticket, ClientOperations.InitialData result, Throwable failure) {
+        if (!currentSessionActivity(ticket)) {
+            return;
+        }
+        long baselineGeneration = sessionActivityBaselineGeneration;
+        state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
+        clearSessionActivity(ticket);
+        if (failure != null) {
+            state.rateLimited = operations.rateLimited();
+            state.status = operationFailure(failure);
+            publish();
+            return;
+        }
+        ClientOperations.InitialData data = Objects.requireNonNull(
+                result, "gallery session classification result");
+        CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+                acceptSessionActivityData(data, baselineGeneration);
+        if (operations.reconciliationRecommended(data)) {
+            reconcileAfterLocalRebind(
+                    localRebind,
+                    ClientOperations.ReconciliationTrigger.GALLERY_OPEN);
+        }
+        publish();
+    }
+
+    private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptSessionActivityData(
+            ClientOperations.InitialData data, long baselineGeneration) {
+        if (state.generation == baselineGeneration && !sameLocalInitialData(data)) {
+            return acceptInitialData(data, false);
+        }
+        state.session = data.session();
+        state.remoteProfile = data.session().profile();
+        state.rateLimited = operations.rateLimited();
+        state.selectedCapeId = data.session().optionalProfile()
+                .flatMap(RemoteProfile::activeCape)
+                .map(cape -> cape.id())
+                .orElse(null);
+        if (!data.session().valid()) {
+            state.status = sessionMessage(data.session());
+        }
+        return CompletableFuture.completedFuture(
+                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+    }
+
+    private boolean sameLocalInitialData(ClientOperations.InitialData data) {
+        return Objects.equals(state.account, data.account())
+                && Objects.equals(
+                        state.currentOfficialSkinId,
+                        data.currentOfficialSkinId().orElse(null))
+                && Objects.equals(state.activePresetId, data.activePresetId().orElse(null))
+                && state.intentRevision == data.intentRevision()
+                && state.syncStatus == data.syncStatus()
+                && Objects.equals(
+                        state.localAppearance,
+                        data.localAppearance().orElse(null))
+                && Objects.equals(state.uiPreferences, data.uiPreferences())
+                && Objects.equals(state.ownedCapes, data.ownedCapes());
     }
 
     private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptInitialData(
@@ -2787,6 +2920,7 @@ public final class ClientRuntime implements AutoCloseable {
 
     private CompletableFuture<AppearanceRefreshCoordinator.Result> refreshLocalAppearance(
             Optional<AppliedAppearance> appearance) {
+        state.localAppearance = appearance.orElse(null);
         if (appearanceRefresh.isEmpty() || appearance.isEmpty()) {
             return CompletableFuture.completedFuture(
                     AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
@@ -3088,8 +3222,11 @@ public final class ClientRuntime implements AutoCloseable {
             publish();
             return;
         }
-        long ticket = ++state.generation;
-        state.busy = true;
+        long ticket = ++sessionActivitySequence;
+        sessionActivityTicket = ticket;
+        sessionActivityBaselineGeneration = state.generation;
+        sessionActivityAccountId = state.account.accountId();
+        state.sessionActivity = ClientSnapshot.SessionActivity.RECONNECTING;
         state.status = UiMessage.info("nclskins.status.checking_session");
         sessionRetryTicket = ticket;
         sessionRetryFeedbackRendered = false;
@@ -3102,7 +3239,7 @@ public final class ClientRuntime implements AutoCloseable {
                     } catch (Exception failure) {
                         throw new CompletionException(failure);
                     }
-                }, worker)
+                }, sessionWorker)
                 .whenComplete((result, failure) -> onClient(() ->
                         stageSessionRetrySettlement(ticket, result, failure)));
     }
@@ -3110,20 +3247,20 @@ public final class ClientRuntime implements AutoCloseable {
     private boolean canRetrySession() {
         if (disposed
                 || state.busy
+                || state.sessionActivity != ClientSnapshot.SessionActivity.NONE
                 || state.syncInProgress
                 || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
                 || state.account == null
                 || (state.session != null && state.session.restartRequired())) {
             return false;
         }
-        boolean offline = state.session == null || !state.session.valid();
-        return offline
-                || snapshot.recoveryActions().contains(RecoveryAction.REFRESH_REMOTE_PROFILE);
+        return snapshot.gallerySessionPresentation()
+                == ClientSnapshot.GallerySessionPresentation.OFFLINE_RETRY;
     }
 
     private void stageSessionRetrySettlement(
             long ticket, ClientOperations.InitialData result, Throwable failure) {
-        if (!current(ticket)) {
+        if (!currentSessionActivity(ticket)) {
             clearSessionRetryFeedback(ticket);
             return;
         }
@@ -3141,8 +3278,7 @@ public final class ClientRuntime implements AutoCloseable {
     private void acknowledgeSessionRetryFeedbackRendered() {
         if (disposed
                 || sessionRetryTicket < 0
-                || !state.busy
-                || !state.status.equals(UiMessage.info("nclskins.status.checking_session"))) {
+                || state.sessionActivity != ClientSnapshot.SessionActivity.RECONNECTING) {
             return;
         }
         sessionRetryFeedbackRendered = true;
@@ -3164,11 +3300,12 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void applySessionRetrySettlement(SessionRetrySettlement settlement) {
-        if (!current(settlement.ticket())) {
+        if (!currentSessionActivity(settlement.ticket())) {
             clearSessionRetryFeedback(settlement.ticket());
             return;
         }
-        state.busy = false;
+        long baselineGeneration = sessionActivityBaselineGeneration;
+        state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
         if (settlement.failure() != null) {
             state.lifecycle = state.lifecycle == ClientSnapshot.Lifecycle.INITIALIZING
                     ? ClientSnapshot.Lifecycle.READY
@@ -3177,7 +3314,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.status = operationFailure(settlement.failure());
         } else {
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
-                    acceptInitialData(settlement.result(), false);
+                    acceptSessionActivityData(settlement.result(), baselineGeneration);
             if (settlement.result().session().valid()) {
                 reconcileAfterLocalRebind(
                         localRebind,
@@ -3192,6 +3329,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (sessionRetryTicket != ticket) {
             return;
         }
+        clearSessionActivity(ticket);
         sessionRetryTicket = -1L;
         sessionRetryFeedbackRendered = false;
         sessionRetryFeedbackTicksRemaining = 0;
@@ -3199,10 +3337,36 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void clearSessionRetryFeedback() {
+        clearSessionActivity(sessionActivityTicket);
         sessionRetryTicket = -1L;
         sessionRetryFeedbackRendered = false;
         sessionRetryFeedbackTicksRemaining = 0;
         pendingSessionRetrySettlement = null;
+    }
+
+    private boolean currentSessionActivity(long ticket) {
+        if (disposed
+                || ticket < 0
+                || ticket != sessionActivityTicket
+                || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
+                || sessionActivityAccountId == null) {
+            return false;
+        }
+        try {
+            return sessionActivityAccountId.equals(operations.sessionIdentity().profileId());
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
+    }
+
+    private void clearSessionActivity(long ticket) {
+        if (ticket != sessionActivityTicket) {
+            return;
+        }
+        sessionActivityTicket = -1L;
+        sessionActivityBaselineGeneration = -1L;
+        sessionActivityAccountId = null;
+        state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
     }
 
     private void acceptRemoteResult(
@@ -3323,9 +3487,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (!Double.isFinite(pixelDelta) || pixelDelta == 0.0) {
             return;
         }
-        setGalleryPosition(state.galleryScrollPosition
-                + galleryPresenter.scrollPositionDelta(
-                viewportWidth, viewportHeight, pixelDelta));
+        setGalleryPosition(state.galleryScrollPosition + pixelDelta);
     }
 
     private void setGalleryOffset(int offset) {
@@ -3364,10 +3526,12 @@ public final class ClientRuntime implements AutoCloseable {
 
     private void centerGalleryOnActive() {
         draggingGalleryScrollbar = false;
-        double centered = galleryPresenter.centeredScrollPosition(
+        double centered = galleryPresenter.initialScrollPosition(
                 Optional.ofNullable(state.account),
                 Optional.ofNullable(state.activePresetId),
-                state.galleryQuery);
+                state.galleryQuery,
+                viewportWidth,
+                viewportHeight);
         state.galleryOffset = (int) Math.round(centered);
         state.galleryScrollPosition = centered;
         state.galleryScrollTarget = centered;
@@ -3690,7 +3854,8 @@ public final class ClientRuntime implements AutoCloseable {
                 state.generation,
                 state.intentRevision,
                 state.syncStatus,
-                state.syncInProgress);
+                state.syncInProgress,
+                state.sessionActivity);
         ClientSnapshot published = snapshot;
         listeners.forEach(listener -> listener.accept(published));
     }
@@ -4040,7 +4205,10 @@ public final class ClientRuntime implements AutoCloseable {
         private Optional<ClientSnapshot.RateLimitProgress> rateLimitProgress = Optional.empty();
         private long intentRevision;
         private AppearanceSyncStatus syncStatus = AppearanceSyncStatus.LOCAL_ONLY;
+        private AppliedAppearance localAppearance;
         private boolean syncInProgress;
+        private ClientSnapshot.SessionActivity sessionActivity =
+                ClientSnapshot.SessionActivity.NONE;
         private int galleryOffset;
         private double galleryScrollPosition;
         private double galleryScrollTarget;
@@ -4070,6 +4238,7 @@ public final class ClientRuntime implements AutoCloseable {
                 ownedCapes = null;
                 intentRevision = 0;
                 syncStatus = AppearanceSyncStatus.LOCAL_ONLY;
+                localAppearance = null;
             }
             lastMutation = null;
             selectedSkinId = null;
@@ -4083,6 +4252,7 @@ public final class ClientRuntime implements AutoCloseable {
             rateLimited = false;
             rateLimitProgress = Optional.empty();
             syncInProgress = false;
+            sessionActivity = ClientSnapshot.SessionActivity.NONE;
             galleryOffset = 0;
             galleryScrollPosition = 0.0;
             galleryScrollTarget = 0.0;

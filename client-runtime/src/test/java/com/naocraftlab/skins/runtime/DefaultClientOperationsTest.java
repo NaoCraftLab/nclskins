@@ -3,6 +3,7 @@ package com.naocraftlab.skins.runtime;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.ExpectedAppearance;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.client.MinecraftSkinCatalog;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
@@ -846,6 +847,63 @@ final class DefaultClientOperationsTest {
         assertEquals(0, api.skinResets.get());
         assertEquals(0, api.capeActivations.get());
         assertEquals(0, api.capeDeactivations.get());
+    }
+
+    @Test
+    void galleryInitializationFreshlyClassifiesOnlineSessionAfterUncheckedWarmup()
+            throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+
+        operations.warmSession();
+        assertFalse(operations.warmedInitialData().orElseThrow().session().valid());
+
+        ClientOperations.InitialData initialized = operations.initializeForGallery();
+
+        assertTrue(initialized.session().valid());
+        assertEquals(1, api.profileGets.get());
+    }
+
+    @Test
+    void galleryInitializationClassifiesOfflineAccountWithoutProfileRequest()
+            throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        GameSessionTokenSource offlineTokens = new GameSessionTokenSource() {
+            @Override
+            public SessionIdentity currentSession() {
+                return new SessionIdentity(TestFixtures.ACCOUNT_ID, "Offline Player");
+            }
+
+            @Override
+            public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) {
+                throw new GameSessionTokenUnavailableException();
+            }
+        };
+        DefaultClientOperations operations = new DefaultClientOperations(
+                offlineTokens, api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+
+        ClientOperations.InitialData initialized = operations.initializeForGallery();
+
+        assertFalse(initialized.session().valid());
+        assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, initialized.session().failureKind());
+        assertEquals(0, api.profileGets.get());
+    }
+
+    @Test
+    void galleryInitializationPublishesConfirmedRecoverableSessionLoss()
+            throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        api.profileFailure = new ProfileApiException(
+                ApiFailureKind.NETWORK, "offline", null, null, false);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+
+        ClientOperations.InitialData initialized = operations.initializeForGallery();
+
+        assertFalse(initialized.session().valid());
+        assertEquals(ApiFailureKind.NETWORK, initialized.session().failureKind());
+        assertEquals(1, api.profileGets.get());
     }
 
     @Test

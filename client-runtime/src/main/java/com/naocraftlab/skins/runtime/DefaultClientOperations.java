@@ -193,7 +193,8 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public synchronized void warmSession() throws IOException, PngValidationException {
         if (preparedInitialData == null) {
-            preparedInitialData = initializeFresh(pinCurrentSession());
+            preparedInitialData = initializeFresh(
+                    pinCurrentSession(), SessionClassification.CACHED);
         }
     }
 
@@ -244,6 +245,18 @@ public final class DefaultClientOperations implements ClientOperations {
 
     @Override
     public synchronized InitialData initialize() throws IOException, PngValidationException {
+        return initialize(SessionClassification.CACHED);
+    }
+
+    @Override
+    public InitialData initializeForGallery()
+            throws IOException, PngValidationException {
+        return initializeFresh(
+                pinCurrentSession(), SessionClassification.FRESH_CHECKPOINT);
+    }
+
+    private InitialData initialize(SessionClassification sessionClassification)
+            throws IOException, PngValidationException {
         OperationContext context = pinCurrentSession();
         List<String> preparedWarnings = List.of();
         if (preparedInitialData != null) {
@@ -255,7 +268,8 @@ public final class DefaultClientOperations implements ClientOperations {
         }
 
 
-        InitialData current = initializeFresh(context);
+        InitialData current = initializeFresh(
+                context, sessionClassification);
         if (preparedWarnings.isEmpty()) {
             return current;
         }
@@ -276,23 +290,18 @@ public final class DefaultClientOperations implements ClientOperations {
                 current.syncStatus());
     }
 
-    private InitialData initializeFresh(OperationContext context)
-            throws IOException, PngValidationException {
-        return initializeFresh(context, false);
-    }
-
     private InitialData initializeFresh(
-            OperationContext context, boolean requireFreshProfile)
+            OperationContext context, SessionClassification sessionClassification)
             throws IOException, PngValidationException {
         UUID accountId = context.identity().profileId();
         StorageInitialization initialization = storage.initialize();
-        return initializeFreshLocked(context, initialization, requireFreshProfile);
+        return initializeFreshLocked(context, initialization, sessionClassification);
     }
 
     private InitialData initializeFreshLocked(
             OperationContext context,
             StorageInitialization initialization,
-            boolean requireFreshProfile)
+            SessionClassification sessionClassification)
             throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(context.identity());
         boolean profileValidationResolved = false;
@@ -303,9 +312,11 @@ public final class DefaultClientOperations implements ClientOperations {
             state = library.load(accountId);
             SessionValidation validation;
             if (!profileValidationResolved) {
-                validation = requireFreshProfile
-                        ? sessions.manualRetry(context.tokens())
-                        : sessions.cachedStatus(context.identity());
+                validation = switch (sessionClassification) {
+                    case CACHED -> sessions.cachedStatus(context.identity());
+                    case FRESH_CHECKPOINT -> sessions.observeFreshAtCheckpoint(context.tokens());
+                    case MANUAL_RETRY -> sessions.manualRetry(context.tokens());
+                };
                 profileValidationResolved = true;
             } else {
 
@@ -1745,7 +1756,8 @@ public final class DefaultClientOperations implements ClientOperations {
     public InitialData retrySession() throws IOException, PngValidationException {
 
 
-        return initializeFresh(pinCurrentSession(), true);
+        return initializeFresh(
+                pinCurrentSession(), SessionClassification.MANUAL_RETRY);
     }
 
     @Override
@@ -1756,6 +1768,12 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public Optional<java.time.Duration> rateLimitRemaining() {
         return profileApi.rateLimitRemaining();
+    }
+
+    private enum SessionClassification {
+        CACHED,
+        FRESH_CHECKPOINT,
+        MANUAL_RETRY
     }
 
     @Override

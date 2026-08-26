@@ -321,7 +321,7 @@ final class ViewSpecGoldenTest {
             int height,
             boolean validSession,
             AppearanceSyncStatus syncStatus,
-            boolean busy,
+            boolean reconnecting,
             UiMessage status) {
         AccountState account = TestFixtures.account(4);
         UUID active = account.presets().get(3).id();
@@ -340,13 +340,17 @@ final class ViewSpecGoldenTest {
                 base.editor(),
                 base.addSource(),
                 status,
-                busy,
                 false,
+                false,
+                Optional.empty(),
                 0,
                 base.generation(),
                 base.intentRevision(),
                 syncStatus,
-                false);
+                false,
+                reconnecting
+                        ? ClientSnapshot.SessionActivity.RECONNECTING
+                        : ClientSnapshot.SessionActivity.NONE);
         return GALLERY.present(
                 snapshot,
                 width,

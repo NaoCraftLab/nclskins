@@ -1128,7 +1128,7 @@ public record ViewSpec(
         public Scrollbar {
             Objects.requireNonNull(track, "track");
             Objects.requireNonNull(thumb, "thumb");
-            if (offset < 0 || maximum <= 0 || offset > maximum) {
+            if (offset < 0 || maximum < 0 || offset > maximum) {
                 throw new IllegalArgumentException("invalid scrollbar range");
             }
             Objects.requireNonNull(orientation, "orientation");

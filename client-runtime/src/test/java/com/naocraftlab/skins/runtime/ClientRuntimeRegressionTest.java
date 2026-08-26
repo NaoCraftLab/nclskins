@@ -304,7 +304,7 @@ final class ClientRuntimeRegressionTest {
         assertEquals(1, worker.size());
         worker.runFirst();
 
-        assertEquals(1, operations.initializeCalls.get());
+        assertEquals(2, operations.initializeCalls.get());
         assertEquals(1, operations.warmSessionCalls.get());
         assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
     }
@@ -378,8 +378,12 @@ final class ClientRuntimeRegressionTest {
                 CLIENT,
                 CANCELLED_PICKER,
                 worker,
+                worker,
+                Runnable::run,
                 TEXT,
                 Optional.empty(),
+                Optional.empty(),
+                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
                 DiagnosticSinks.discarding());
     }
 

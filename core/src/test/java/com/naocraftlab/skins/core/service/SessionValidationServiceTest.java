@@ -223,6 +223,21 @@ class SessionValidationServiceTest {
     }
 
     @Test
+    void offlineLauncherSentinelNeverCallsProfileApi() {
+        StubApi api = new StubApi(profile(ID));
+        StubTokens offline = new StubTokens("0");
+
+        SessionValidation result =
+                new SessionValidationService(api, new RemoteSessionGate()).currentStatus(offline);
+
+        assertEquals(SessionStatus.OFFLINE_OR_INVALID, result.status());
+        assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, result.failureKind());
+        assertTrue(result.tokenUnavailable());
+        assertEquals(1, offline.calls);
+        assertEquals(0, api.profileCalls);
+    }
+
+    @Test
     void reportsEmptyTokenAsOfflineInvalidWithoutEchoingIt() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens("");

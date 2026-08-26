@@ -1823,6 +1823,28 @@ final class BuildLogicTest {
     }
 
     @Test
+    void semanticVerifierRequiresFlatLegacyGalleryCardSurfaces() {
+        List<String> errors = []
+
+        SemanticVerifier.verifyLeaf(
+                'immediate-resource-location-player-info',
+                'gui',
+                '''
+                class ImmediateClientRuntime {
+                    ClientRuntime runtime;
+                    void renderPanel(Object graphics, ViewSpec.Panel panel, float textureU) {
+                        if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
+                            graphics.blit(BACKGROUND_LOCATION, panel.bounds(), textureU);
+                        }
+                    }
+                }
+                ''',
+                errors)
+
+        assertTrue(errors.any { it.contains('translucent black surface') }, errors.toString())
+    }
+
+    @Test
     void semanticVerifierAcceptsAuthlib10SessionServiceOnlyForItsDedicatedLeaf() {
         String source = '''
             class Verifier implements OfficialTextureSignatureVerifier {

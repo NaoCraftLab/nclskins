@@ -39,7 +39,7 @@ final class GalleryPresenterTest {
     }
 
     @Test
-    void warmedInitializationShowsCenteredDisabledCardsWithoutStaleSessionChrome() {
+    void warmedInitializationShowsVisibleDisabledCardsWithoutStaleSessionChrome() {
         AccountState account = TestFixtures.account(5);
         UUID active = account.presets().get(4).id();
         ClientSnapshot seeded = initializingSnapshot(Optional.of(account), Optional.of(active));
@@ -54,16 +54,15 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC,
                 "",
                 Optional.empty(),
-                presenter.centeredScrollPosition(
-                        seeded.account(), seeded.activePresetId(), ""));
+                presenter.initialScrollPosition(
+                        seeded.account(), seeded.activePresetId(), "", 320, 240));
 
-        assertHorizontallyCentered(
-                view.panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card." + active))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds(),
-                320);
+        Bounds activeBounds = view.panels().stream()
+                .filter(panel -> panel.id().equals("gallery.card." + active))
+                .findFirst()
+                .orElseThrow()
+                .bounds();
+        assertTrue(activeBounds.x() >= 0 && activeBounds.right() <= 320);
         assertFalse(view.widget("gallery.search").orElseThrow().enabled());
         assertFalse(view.widget("gallery.done").orElseThrow().enabled());
         assertTrue(view.widget("gallery.retry_session").isEmpty());
@@ -71,63 +70,149 @@ final class GalleryPresenterTest {
     }
 
     @Test
-    void centerAnchorTargetsActiveOrAddAndKeepsEdgeCardsFullyReachable() {
+    void fittingStripCentersAsAGroupAndPublishesFullTrackScrollbar() {
+        AccountState account = TestFixtures.account(2);
+        UUID active = account.presets().get(0).id();
+        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
+
+        ViewSpec view = presenter.present(
+                snapshot, 854, 240, 0, 0, PreviewRenderer.CapeMode.CAPE);
+
+        List<ViewSpec.Panel> cards = view.panels().stream()
+                .filter(panel -> panel.id().startsWith("gallery.card."))
+                .toList();
+        assertEquals(3, cards.size());
+        int contentLeft = cards.get(0).bounds().x();
+        int contentRight = cards.get(cards.size() - 1).bounds().right();
+        assertTrue(Math.abs((854 - contentRight) - contentLeft) <= 1);
+        ViewSpec.Scrollbar scrollbar = view.scrollbar().orElseThrow();
+        assertEquals(scrollbar.track(), scrollbar.thumb());
+        assertEquals(0, scrollbar.maximum());
+        ViewSpec.ScrollSurface surface = view.scrollSurface("gallery.cards").orElseThrow();
+        assertEquals(0.0, surface.offsetPixels());
+        assertEquals(0.0, surface.maximumPixels());
+        assertTrue(cards.stream().allMatch(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
+    }
+
+    @Test
+    void overflowStripUsesExactLeftAndRightEdgeEndpoints() {
+        AccountState account = TestFixtures.account(5);
+        ClientSnapshot snapshot = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+
+        ViewSpec start = presenter.present(
+                snapshot, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "", Optional.empty(), 0.0);
+        double maximum = start.scrollSurface("gallery.cards").orElseThrow().maximumPixels();
+        ViewSpec end = presenter.present(
+                snapshot, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "", Optional.empty(), maximum);
+
+        assertEquals(12, panelX(start, "gallery.card.add"));
+        Bounds lastBounds = end.panels().stream()
+                .filter(panel -> panel.id().startsWith("gallery.card."))
+                .max(java.util.Comparator.comparingInt(panel -> panel.bounds().x()))
+                .orElseThrow()
+                .bounds();
+        assertEquals(308, lastBounds.right());
+        assertTrue(maximum > 0.0);
+        assertEquals((int) maximum, end.scrollbar().orElseThrow().maximum());
+    }
+
+    @Test
+    void overflowUsesScreenClipWhileTwelvePixelGuttersBelongOnlyToEndpoints() {
+        AccountState account = TestFixtures.account(5);
+        ClientSnapshot snapshot = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+
+        ViewSpec start = presenter.present(
+                snapshot, 320, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "", Optional.empty(), 0.0);
+        ViewSpec moving = presenter.present(
+                snapshot, 320, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "", Optional.empty(), 20.0);
+
+        assertEquals(new Bounds(0, 58, 320, 375), galleryViewport(start));
+        assertEquals(12, panelX(start, "gallery.card.add"));
+        assertEquals(-8, panelX(moving, "gallery.card.add"));
+        assertEquals(Optional.of(galleryViewport(moving)),
+                moving.clipFor("gallery.card.add"));
+    }
+
+    @Test
+    void highNarrowWindowKeepsFullHeightThreeByFourCardsBehindTheScreenClip() {
+        AccountState account = TestFixtures.account(2);
+        ClientSnapshot snapshot = TestFixtures.ready(account, null, 0);
+
+        ViewSpec view = presenter.present(
+                snapshot, 120, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "", Optional.empty(), 0.0);
+        Bounds add = view.panels().stream()
+                .filter(panel -> panel.id().equals("gallery.card.add"))
+                .findFirst()
+                .orElseThrow()
+                .bounds();
+
+        assertEquals(new Bounds(0, 58, 120, 375), galleryViewport(view));
+        assertEquals(12, add.x());
+        assertEquals(58, add.y());
+        assertEquals(281, add.width());
+        assertEquals(375, add.height());
+        assertTrue(add.right() > view.width());
+        assertEquals(add.height() * 3 / 4, add.width());
+    }
+
+    @Test
+    void initialPositionKeepsActiveOrAddVisibleAndEndpointsEdgeBounded() {
         AccountState account = TestFixtures.account(5);
         UUID active = account.presets().get(4).id();
         ClientSnapshot activeSnapshot = TestFixtures.ready(account, active, 0);
-        double activePosition = presenter.centeredScrollPosition(
-                activeSnapshot.account(), activeSnapshot.activePresetId(), "");
         List<int[]> viewports = List.of(
                 new int[]{240, 240},
                 new int[]{320, 240},
                 new int[]{427, 240},
                 new int[]{854, 480});
 
-        assertEquals(1.0, activePosition,
-                "the active preset is ordered immediately after Add");
         for (int[] viewport : viewports) {
+            double activePosition = presenter.initialScrollPosition(
+                    activeSnapshot.account(), activeSnapshot.activePresetId(), "",
+                    viewport[0], viewport[1]);
             ViewSpec view = presentAt(
                     activeSnapshot, viewport[0], viewport[1], activePosition);
-            assertHorizontallyCentered(
-                    view.panels().stream()
-                            .filter(panel -> panel.id().equals("gallery.card." + active))
-                            .findFirst()
-                            .orElseThrow()
-                            .bounds(),
-                    viewport[0]);
+            Bounds activeBounds = view.panels().stream()
+                    .filter(panel -> panel.id().equals("gallery.card." + active))
+                    .findFirst()
+                    .orElseThrow()
+                    .bounds();
+            assertTrue(activeBounds.x() >= 0 && activeBounds.right() <= viewport[0]);
         }
 
         ClientSnapshot emptyActive = TestFixtures.ready(account, null, 0);
-        assertEquals(0.0, presenter.centeredScrollPosition(
-                emptyActive.account(), emptyActive.activePresetId(), ""));
         UUID staleActive = UUID.randomUUID();
-        assertEquals(0.0, presenter.centeredScrollPosition(
-                Optional.of(account), Optional.of(staleActive), ""));
         for (int[] viewport : viewports) {
             for (ClientSnapshot snapshot : List.of(
                     emptyActive, TestFixtures.ready(account, staleActive, 0))) {
-                ViewSpec addCentered = presentAt(snapshot, viewport[0], viewport[1], 0.0);
-                assertHorizontallyCentered(
-                        addCentered.panels().stream()
-                                .filter(panel -> panel.id().equals("gallery.card.add"))
-                                .findFirst()
-                                .orElseThrow()
-                                .bounds(),
-                        viewport[0]);
+                assertEquals(0.0, presenter.initialScrollPosition(
+                        snapshot.account(), snapshot.activePresetId(), "",
+                        viewport[0], viewport[1]));
+                ViewSpec addAtStart = presentAt(snapshot, viewport[0], viewport[1], 0.0);
+                Bounds add = addAtStart.panels().stream()
+                        .filter(panel -> panel.id().equals("gallery.card.add"))
+                        .findFirst()
+                        .orElseThrow()
+                        .bounds();
+                assertTrue(add.x() >= 0 && add.right() <= viewport[0]);
             }
 
             double lastPosition = presenter.maximumScroll(
                     emptyActive, viewport[0], viewport[1], "");
-            ViewSpec lastCentered = presentAt(
+            ViewSpec atEnd = presentAt(
                     emptyActive, viewport[0], viewport[1], lastPosition);
-            Bounds lastCard = lastCentered.panels().stream()
+            Bounds lastCard = atEnd.panels().stream()
                     .filter(panel -> panel.id().startsWith("gallery.card."))
                     .filter(panel -> !panel.id().equals("gallery.card.add"))
                     .max(java.util.Comparator.comparingInt(panel -> panel.bounds().x()))
                     .orElseThrow()
                     .bounds();
-            assertHorizontallyCentered(lastCard, viewport[0]);
-            assertTrue(lastCard.x() >= 0 && lastCard.right() <= viewport[0]);
+            assertEquals(viewport[0] - 12, lastCard.right());
         }
 
         ViewSpec addCentered = presentAt(emptyActive, 320, 240, 0.0);
@@ -136,8 +221,9 @@ final class GalleryPresenterTest {
         assertEquals(Optional.empty(), search.submitActionId());
 
         String filteredQuery = "does-not-match";
-        assertEquals(0.0, presenter.centeredScrollPosition(
-                activeSnapshot.account(), activeSnapshot.activePresetId(), filteredQuery));
+        assertEquals(0.0, presenter.initialScrollPosition(
+                activeSnapshot.account(), activeSnapshot.activePresetId(), filteredQuery,
+                320, 240));
         ViewSpec filtered = presenter.present(
                 activeSnapshot,
                 320,
@@ -168,12 +254,12 @@ final class GalleryPresenterTest {
                 213,
                 100,
                 PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(163, 58, 101, 135), wide.panels().get(2).bounds());
-        assertEquals(new Bounds(276, 58, 101, 135), wide.panels().get(3).bounds());
-        assertEquals(new Bounds(389, 58, 101, 135), wide.panels().get(4).bounds());
+        assertEquals(new Bounds(12, 58, 101, 135), wide.panels().get(2).bounds());
+        assertEquals(new Bounds(125, 58, 101, 135), wide.panels().get(3).bounds());
+        assertEquals(new Bounds(238, 58, 101, 135), wide.panels().get(4).bounds());
         assertEquals(new Bounds(0, 58, 427, 135), galleryViewport(wide));
         assertEquals(new Bounds(40, 197, 347, 6), wide.scrollbar().orElseThrow().track());
-        assertEquals(new Bounds(40, 197, 208, 6), wide.scrollbar().orElseThrow().thumb());
+        assertEquals(new Bounds(40, 197, 253, 6), wide.scrollbar().orElseThrow().thumb());
 
         ViewSpec medium = presenter.present(
                 TestFixtures.ready(account, null, 0),
@@ -182,12 +268,12 @@ final class GalleryPresenterTest {
                 160,
                 100,
                 PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(109, 58, 101, 135), medium.panels().get(2).bounds());
-        assertEquals(new Bounds(222, 58, 101, 135), medium.panels().get(3).bounds());
+        assertEquals(new Bounds(12, 58, 101, 135), medium.panels().get(2).bounds());
+        assertEquals(new Bounds(125, 58, 101, 135), medium.panels().get(3).bounds());
         assertEquals(new Bounds(0, 58, 320, 135), galleryViewport(medium));
         assertEquals(new Bounds(60, 212, 200, 20), medium.widget("gallery.done").orElseThrow().bounds());
         assertEquals(new Bounds(40, 197, 240, 6), medium.scrollbar().orElseThrow().track());
-        assertEquals(new Bounds(40, 197, 96, 6), medium.scrollbar().orElseThrow().thumb());
+        assertEquals(new Bounds(40, 197, 128, 6), medium.scrollbar().orElseThrow().thumb());
         assertEquals(4, medium.scrollbar().orElseThrow().track().y() - galleryViewport(medium).bottom());
         assertEquals(
                 4,
@@ -201,8 +287,8 @@ final class GalleryPresenterTest {
                 120,
                 100,
                 PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(69, 58, 101, 135), narrow.panels().get(2).bounds());
-        assertEquals(new Bounds(182, 58, 101, 135), narrow.panels().get(3).bounds());
+        assertEquals(new Bounds(12, 58, 101, 135), narrow.panels().get(2).bounds());
+        assertEquals(new Bounds(125, 58, 101, 135), narrow.panels().get(3).bounds());
         assertEquals(new Bounds(0, 58, 240, 135), galleryViewport(narrow));
 
         ViewSpec tall = presenter.present(
@@ -212,8 +298,8 @@ final class GalleryPresenterTest {
                 160,
                 120,
                 PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(65, 58, 190, 254), tall.panels().get(2).bounds());
-        assertEquals(new Bounds(267, 58, 190, 254), tall.panels().get(3).bounds());
+        assertEquals(new Bounds(12, 58, 191, 255), tall.panels().get(2).bounds());
+        assertEquals(new Bounds(215, 58, 191, 255), tall.panels().get(3).bounds());
         assertEquals(new Bounds(0, 58, 320, 255), galleryViewport(tall));
 
         for (ViewSpec view : List.of(wide, medium, narrow, tall)) {
@@ -250,10 +336,13 @@ final class GalleryPresenterTest {
         ViewSpec.Widget duplicate = view.widget(prefix + ".duplicate").orElseThrow();
         ViewSpec.Widget delete = view.widget(prefix + ".delete").orElseThrow();
 
-        assertEquals(new Bounds(165, 171, 97, 20), apply.bounds());
-        assertEquals(new Bounds(165, 149, 31, 20), edit.bounds());
-        assertEquals(new Bounds(198, 149, 31, 20), duplicate.bounds());
-        assertEquals(new Bounds(231, 149, 31, 20), delete.bounds());
+        assertEquals(new Bounds(card.bounds().x() + 2, 171, 97, 20), apply.bounds());
+        assertEquals(UiMessage.info("nclskins.gallery.apply"), apply.label());
+        assertTrue(apply.bounds().width() >= vanillaLabelBudget("Apply"));
+        assertTrue(apply.bounds().width() >= vanillaLabelBudget("Применить"));
+        assertEquals(new Bounds(card.bounds().x() + 2, 149, 31, 20), edit.bounds());
+        assertEquals(new Bounds(card.bounds().x() + 35, 149, 31, 20), duplicate.bounds());
+        assertEquals(new Bounds(card.bounds().x() + 68, 149, 31, 20), delete.bounds());
         assertEquals(edit.bounds().width(), delete.bounds().width());
         assertEquals(2, edit.bounds().x() - card.bounds().x());
         assertEquals(2, duplicate.bounds().x() - edit.bounds().right());
@@ -267,7 +356,7 @@ final class GalleryPresenterTest {
                 .filter(candidate -> candidate.id().equals(prefix + ".preview"))
                 .findFirst()
                 .orElseThrow();
-        assertEquals(new Bounds(171, 78, 85, 67), preview.bounds());
+        assertEquals(new Bounds(card.bounds().x() + 8, 78, 85, 67), preview.bounds());
         assertEquals(4, edit.bounds().y() - preview.bounds().bottom());
 
         ViewSpec confirming = presenter.present(
@@ -283,11 +372,11 @@ final class GalleryPresenterTest {
                 1.0);
         ViewSpec.Widget confirm = confirming.widget(prefix + ".delete_confirm").orElseThrow();
         ViewSpec.Widget cancel = confirming.widget(prefix + ".delete_cancel").orElseThrow();
-        assertEquals(new Bounds(163, 171, 49, 20), confirm.bounds());
-        assertEquals(new Bounds(214, 171, 50, 20), cancel.bounds());
-        assertEquals(0, confirm.bounds().x() - card.bounds().x());
+        assertEquals(new Bounds(card.bounds().x() + 2, 171, 47, 20), confirm.bounds());
+        assertEquals(new Bounds(card.bounds().x() + 51, 171, 48, 20), cancel.bounds());
+        assertEquals(2, confirm.bounds().x() - card.bounds().x());
         assertEquals(2, cancel.bounds().x() - confirm.bounds().right());
-        assertEquals(0, card.bounds().right() - cancel.bounds().right());
+        assertEquals(2, card.bounds().right() - cancel.bounds().right());
         assertEquals(2, card.bounds().bottom() - cancel.bounds().bottom());
         assertTrue(confirm.enabled());
         assertTrue(cancel.enabled());
@@ -318,19 +407,19 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC,
                 "",
                 Optional.empty(),
-                presenter.centeredScrollPosition(
-                        snapshot.account(), snapshot.activePresetId(), ""));
+                presenter.initialScrollPosition(
+                        snapshot.account(), snapshot.activePresetId(), "", 854, 480));
 
-        assertEquals(new Bounds(130, 118, 190, 254), view.panels().get(2).bounds());
-        assertEquals(new Bounds(332, 118, 190, 254), view.panels().get(3).bounds());
-        assertEquals(new Bounds(534, 118, 190, 254), view.panels().get(4).bounds());
-        assertEquals(4, view.scrollbar().orElseThrow().maximum());
+        assertEquals(new Bounds(12, 58, 281, 375), view.panels().get(2).bounds());
+        assertEquals(new Bounds(305, 58, 281, 375), view.panels().get(3).bounds());
+        assertEquals(new Bounds(598, 58, 281, 375), view.panels().get(4).bounds());
+        assertEquals(623, view.scrollbar().orElseThrow().maximum());
         assertEquals(new Bounds(40, 437, 774, 6), view.scrollbar().orElseThrow().track());
         ViewSpec.ScrollSurface surface = view.scrollSurface("gallery.cards").orElseThrow();
         assertEquals(galleryViewport(view), surface.viewport());
         assertEquals(ViewSpec.Scrollbar.Orientation.HORIZONTAL, surface.orientation());
-        assertEquals(202.0, surface.offsetPixels());
-        assertEquals(808.0, surface.maximumPixels());
+        assertEquals(0.0, surface.offsetPixels());
+        assertEquals(623.0, surface.maximumPixels());
         assertTrue(view.widget("gallery.preset." + active + ".apply").isPresent());
         assertFalse(view.widget("gallery.preset." + active + ".apply").orElseThrow().enabled());
         assertTrue(view.previews().stream().allMatch(preview -> preview.scale() == 0.88F));
@@ -377,7 +466,7 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC,
                 "",
                 Optional.empty(),
-                2.0);
+                20.0);
         Bounds settledViewport = galleryViewport(settled);
         assertTrue(settled.panels().stream()
                 .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
@@ -420,15 +509,11 @@ final class GalleryPresenterTest {
         ViewSpec missing = presenter.present(
                 withState(valid, Optional.empty(), false, false, AppearanceSyncStatus.LOCAL_ONLY),
                 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
-        assertEquals(UiMessage.info("nclskins.session.offline"), text(missing, "gallery.offline").message());
-        ViewSpec.Widget missingRetry = missing.widget("gallery.retry_session").orElseThrow();
-        assertTrue(missingRetry.enabled());
-        assertEquals(new Bounds(734, 6, 112, 20), missingRetry.bounds());
-        assertTrue(text(missing, "gallery.offline").bounds().right()
-                <= text(missing, "gallery.title").bounds().x());
-        assertTrue(text(missing, "gallery.title").bounds().right() <= missingRetry.bounds().x());
+        assertTrue(missing.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+        assertTrue(missing.widget("gallery.retry_session").isEmpty());
+        assertEquals(new Bounds(0, 12, 854, 10), text(missing, "gallery.title").bounds());
         assertEquals(
-                List.of("gallery.retry_session", "gallery.search", "gallery.add", "gallery.done"),
+                List.of("gallery.search", "gallery.add", "gallery.done"),
                 tabIds(missing));
 
         SessionValidation invalidSession = new SessionValidation(
@@ -447,19 +532,27 @@ final class GalleryPresenterTest {
         assertFalse(invalid.widget("gallery.retry_session").orElseThrow().enabled());
 
         ViewSpec connecting = presenter.present(
-                withStatus(
+                withSessionActivity(
                         withState(
                                 valid,
                                 Optional.of(invalidSession),
                                 false,
-                                true,
+                                false,
                                 AppearanceSyncStatus.LOCAL_ONLY),
-                        UiMessage.info("nclskins.status.checking_session")),
+                        ClientSnapshot.SessionActivity.RECONNECTING),
                 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
         assertEquals(
                 UiMessage.info("nclskins.session.connecting"),
                 text(connecting, "gallery.offline").message());
         assertFalse(connecting.widget("gallery.retry_session").orElseThrow().enabled());
+
+        ViewSpec classifying = presenter.present(
+                withSessionActivity(valid, ClientSnapshot.SessionActivity.CLASSIFYING),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertEquals(
+                UiMessage.info("nclskins.session.connecting"),
+                text(classifying, "gallery.offline").message());
+        assertTrue(classifying.widget("gallery.retry_session").isEmpty());
 
         ViewSpec rateLimited = presenter.present(
                 withState(valid, valid.session(), true, false, AppearanceSyncStatus.LOCAL_ONLY),
@@ -497,6 +590,21 @@ final class GalleryPresenterTest {
         assertTrue(noToken.widget("gallery.retry_session").isEmpty());
         assertTrue(noToken.widget("gallery.retry_cape").isEmpty());
 
+        ViewSpec classifyingNoToken = presenter.present(
+                withSessionActivity(
+                        withState(
+                                valid,
+                                Optional.of(tokenUnavailable),
+                                false,
+                                false,
+                                AppearanceSyncStatus.LOCAL_ONLY),
+                        ClientSnapshot.SessionActivity.CLASSIFYING),
+                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
+        assertEquals(
+                UiMessage.info("nclskins.session.offline"),
+                text(classifyingNoToken, "gallery.offline").message());
+        assertTrue(classifyingNoToken.widget("gallery.retry_session").isEmpty());
+
         SessionValidation expired = new SessionValidation(
                 SessionStatus.EXPIRED,
                 TestFixtures.validSession().sessionIdentity(),
@@ -520,14 +628,14 @@ final class GalleryPresenterTest {
         assertTrue(expiredSession.widget("gallery.retry_session").isEmpty());
 
         ViewSpec validUnknownConnecting = presenter.present(
-                withStatus(
+                withSessionActivity(
                         withState(
                                 valid,
                                 valid.session(),
                                 false,
-                                true,
+                                false,
                                 AppearanceSyncStatus.UNKNOWN),
-                        UiMessage.info("nclskins.status.checking_session")),
+                        ClientSnapshot.SessionActivity.RECONNECTING),
                 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
         assertEquals(
                 UiMessage.info("nclskins.session.connecting"),
@@ -545,7 +653,7 @@ final class GalleryPresenterTest {
                 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
         assertTrue(validUnknownReconciling.texts().stream()
                 .noneMatch(text -> text.id().equals("gallery.offline")));
-        assertFalse(validUnknownReconciling.widget("gallery.retry_session").orElseThrow().enabled());
+        assertTrue(validUnknownReconciling.widget("gallery.retry_session").isEmpty());
     }
 
     @Test
@@ -609,7 +717,7 @@ final class GalleryPresenterTest {
     }
 
     @Test
-    void durablePartialAndUnknownExposeRecoveryAfterOutcomeAndSelectionAreGone() {
+    void durablePartialExposesCapeRecoveryButValidUnknownDoesNotExposeSessionRecovery() {
         AccountState account = TestFixtures.account(1);
         UUID active = account.presets().get(0).id();
         ClientSnapshot base = TestFixtures.ready(account, active, 0);
@@ -642,11 +750,13 @@ final class GalleryPresenterTest {
                 PreviewRenderer.CapeMode.CAPE);
         assertTrue(unknown.recoveryActions().contains(
                 com.naocraftlab.skins.core.service.RecoveryAction.REFRESH_REMOTE_PROFILE));
-        assertTrue(unknownView.widget("gallery.retry_session").orElseThrow().enabled());
+        assertTrue(unknownView.widget("gallery.retry_session").isEmpty());
+        assertTrue(unknownView.texts().stream()
+                .noneMatch(text -> text.id().equals("gallery.offline")));
     }
 
     @Test
-    void canonicalWideLayoutCapsCardAndVisibleCounts() {
+    void canonicalWideLayoutUsesFullHeightCardsAndVisibleCounts() {
         AccountState account = TestFixtures.account(6);
         UUID active = account.presets().get(5).id();
         ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
@@ -660,33 +770,32 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC,
                 "",
                 Optional.empty(),
-                presenter.centeredScrollPosition(
-                        snapshot.account(), snapshot.activePresetId(), ""));
+                presenter.initialScrollPosition(
+                        snapshot.account(), snapshot.activePresetId(), "", 1600, 720));
 
-        assertEquals(new Bounds(503, 238, 190, 254), view.panels().get(2).bounds());
-        assertEquals(new Bounds(705, 238, 190, 254), view.panels().get(3).bounds());
-        assertEquals(new Bounds(907, 238, 190, 254), view.panels().get(4).bounds());
-        assertEquals(2, view.previews().size());
+        assertEquals(new Bounds(12, 58, 461, 615), view.panels().get(2).bounds());
+        assertEquals(new Bounds(485, 58, 461, 615), view.panels().get(3).bounds());
+        assertEquals(new Bounds(958, 58, 461, 615), view.panels().get(4).bounds());
+        assertEquals(3, view.previews().size());
         assertTrue(view.widget("gallery.previous").isEmpty());
         assertTrue(view.widget("gallery.next").isEmpty());
     }
 
     @Test
     void fractionalScrollKeepsAnchorRowAndMovesCardsMonotonically() {
-        AccountState account = TestFixtures.account(4);
+        AccountState account = TestFixtures.account(6);
         ClientSnapshot snapshot = TestFixtures.ready(account, null, 0);
         ViewSpec start = presentAt(snapshot, 0.0);
         String trackedCard = start.panels().get(3).id();
 
         int startX = panelX(start, trackedCard);
-        int halfX = panelX(presentAt(snapshot, 0.5), trackedCard);
-        int nearEndX = panelX(presentAt(snapshot, 0.99), trackedCard);
-        int endX = panelX(presentAt(snapshot, 1.0), trackedCard);
+        int halfX = panelX(presentAt(snapshot, 20.5), trackedCard);
+        int nearEndX = panelX(presentAt(snapshot, 40.25), trackedCard);
+        int endX = panelX(presentAt(snapshot, 41.0), trackedCard);
 
-        assertEquals(534, startX);
-        assertEquals(433, halfX);
-        assertEquals(334, nearEndX);
-        assertEquals(332, endX);
+        assertEquals(startX - 21, halfX);
+        assertEquals(startX - 40, nearEndX);
+        assertEquals(startX - 41, endX);
         assertTrue(startX > halfX);
         assertTrue(halfX > nearEndX);
         assertTrue(nearEndX >= endX);
@@ -696,17 +805,15 @@ final class GalleryPresenterTest {
     void scrollingUsesTheSameHeightAwareCardGeometryAsPresentation() {
         ClientSnapshot snapshot = TestFixtures.ready(TestFixtures.account(5), null, 0);
 
-        assertEquals(5, presenter.maximumScroll(snapshot, 320, 240, ""));
-        assertEquals(5, presenter.maximumScroll(snapshot, 320, 360, ""));
-        assertEquals(5, presenter.maximumScroll(snapshot, 427, 240, ""));
-        assertEquals(1.0, presenter.scrollPositionDelta(320, 240, 113.0));
-        assertEquals(1.0, presenter.scrollPositionDelta(320, 360, 202.0));
+        assertEquals(370, presenter.maximumScroll(snapshot, 320, 240, ""));
+        assertEquals(910, presenter.maximumScroll(snapshot, 320, 360, ""));
+        assertEquals(263, presenter.maximumScroll(snapshot, 427, 240, ""));
         assertEquals(
-                5.0,
-                presenter.positionFromScrollbar(snapshot, 320, 240, "", 200.0));
+                0.0,
+                presenter.positionFromScrollbar(snapshot, 320, 240, "", 40.0));
         assertEquals(
-                5.0,
-                presenter.positionFromScrollbar(snapshot, 320, 360, "", 240.0));
+                910.0,
+                presenter.positionFromScrollbar(snapshot, 320, 360, "", 10_000.0));
     }
 
     @Test
@@ -719,7 +826,7 @@ final class GalleryPresenterTest {
 
     @Test
     void fractionalCardsRetainClippedActionsWhilePartiallyVisible() {
-        ViewSpec view = presentAt(TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 0.99);
+        ViewSpec view = presentAt(TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 82.0);
         Bounds viewport = galleryViewport(view);
 
         assertEquals(new Bounds(0, 58, 320, 135), viewport);
@@ -742,12 +849,13 @@ final class GalleryPresenterTest {
         ViewSpec.Widget intersectingApply = view.widget(prefix + ".apply").orElseThrow();
         assertTrue(intersects(intersectingApply.bounds(), viewport));
         assertEquals(Optional.of(viewport), view.clipFor(intersectingApply.id()));
-        for (String action : List.of("edit", "duplicate", "delete")) {
+        for (String action : List.of("edit", "duplicate")) {
             assertTrue(view.widget(prefix + "." + action).isPresent());
         }
+        assertTrue(view.widget(prefix + ".delete").isEmpty());
 
         ViewSpec outgoing = presentAt(
-                TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 2.1);
+                TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 140.0);
         ViewSpec.Panel outgoingPreset = outgoing.panels().stream()
                 .filter(panel -> panel.id().startsWith("gallery.card."))
                 .filter(panel -> panel.bounds().x() < viewport.x())
@@ -762,7 +870,7 @@ final class GalleryPresenterTest {
         }
 
         ViewSpec resting = presentAt(
-                TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 1.0);
+                TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 113.0);
         ViewSpec.Panel fullyVisible = resting.panels().stream()
                 .filter(panel -> panel.id().startsWith("gallery.card."))
                 .filter(panel -> panel.bounds().x() >= viewport.x())
@@ -777,7 +885,7 @@ final class GalleryPresenterTest {
     @Test
     void fractionalDeleteConfirmationOmitsOnlyTheFullyClippedButton() {
         ClientSnapshot snapshot = TestFixtures.ready(TestFixtures.account(4), null, 0);
-        ViewSpec ordinary = presentAt(snapshot, 320, 240, 0.5);
+        ViewSpec ordinary = presentAt(snapshot, 320, 240, 70.0);
         Bounds viewport = galleryViewport(ordinary);
         ViewSpec.Panel incoming = ordinary.panels().stream()
                 .filter(panel -> panel.id().startsWith("gallery.card."))
@@ -797,7 +905,7 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC,
                 "",
                 Optional.of(presetId),
-                0.5);
+                70.0);
 
         ViewSpec.Widget confirm = confirming.widget(prefix + ".delete_confirm").orElseThrow();
         assertTrue(intersects(confirm.bounds(), viewport));
@@ -846,10 +954,11 @@ final class GalleryPresenterTest {
                 .findFirst()
                 .orElseThrow()
                 .bounds();
-        assertEquals(new Bounds(334, 350, 120, 20), apply.bounds());
-        assertEquals(new Bounds(456, 350, 20, 20), edit.bounds());
-        assertEquals(new Bounds(478, 350, 20, 20), duplicate.bounds());
-        assertEquals(new Bounds(500, 350, 20, 20), delete.bounds());
+        int applyWidth = card.width() - 70;
+        assertEquals(new Bounds(card.x() + 2, card.bottom() - 22, applyWidth, 20), apply.bounds());
+        assertEquals(new Bounds(card.x() + applyWidth + 4, card.bottom() - 22, 20, 20), edit.bounds());
+        assertEquals(new Bounds(card.x() + applyWidth + 26, card.bottom() - 22, 20, 20), duplicate.bounds());
+        assertEquals(new Bounds(card.x() + applyWidth + 48, card.bottom() - 22, 20, 20), delete.bounds());
         assertEquals(2, apply.bounds().x() - card.x());
         assertEquals(2, edit.bounds().x() - apply.bounds().right());
         assertEquals(2, duplicate.bounds().x() - edit.bounds().right());
@@ -881,11 +990,20 @@ final class GalleryPresenterTest {
                 confirming.widget(prefix + ".delete_cancel").orElseThrow().kind());
         ViewSpec.Widget confirm = confirming.widget(prefix + ".delete_confirm").orElseThrow();
         ViewSpec.Widget cancel = confirming.widget(prefix + ".delete_cancel").orElseThrow();
-        assertEquals(new Bounds(332, 350, 94, 20), confirm.bounds());
-        assertEquals(new Bounds(428, 350, 94, 20), cancel.bounds());
-        assertEquals(0, confirm.bounds().x() - card.x());
+        int confirmWidth = (card.width() - 6) / 2;
+        assertEquals(
+                new Bounds(card.x() + 2, card.bottom() - 22, confirmWidth, 20),
+                confirm.bounds());
+        assertEquals(
+                new Bounds(
+                        card.x() + confirmWidth + 4,
+                        card.bottom() - 22,
+                        card.width() - confirmWidth - 6,
+                        20),
+                cancel.bounds());
+        assertEquals(2, confirm.bounds().x() - card.x());
         assertEquals(2, cancel.bounds().x() - confirm.bounds().right());
-        assertEquals(0, card.right() - cancel.bounds().right());
+        assertEquals(2, card.right() - cancel.bounds().right());
         assertEquals(2, card.bottom() - cancel.bounds().bottom());
     }
 
@@ -938,7 +1056,8 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC,
                 "",
                 Optional.empty(),
-                presenter.centeredScrollPosition(snapshot.account(), snapshot.activePresetId(), ""),
+                presenter.initialScrollPosition(
+                        snapshot.account(), snapshot.activePresetId(), "", 854, 480),
                 selected);
 
         assertEquals(
@@ -1021,6 +1140,10 @@ final class GalleryPresenterTest {
                 .sorted(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder))
                 .map(ViewSpec.NavigationNode::id)
                 .toList();
+    }
+
+    private static int vanillaLabelBudget(String label) {
+        return label.codePointCount(0, label.length()) * 6 + 8;
     }
 
     private void assertActiveLabel(
@@ -1138,6 +1261,33 @@ final class GalleryPresenterTest {
                 base.intentRevision(),
                 base.syncStatus(),
                 base.syncInProgress());
+    }
+
+    private static ClientSnapshot withSessionActivity(
+            ClientSnapshot base, ClientSnapshot.SessionActivity sessionActivity) {
+        return new ClientSnapshot(
+                base.lifecycle(),
+                base.account(),
+                base.session(),
+                base.remoteProfile(),
+                base.lastMutation(),
+                base.selectedSkinId(),
+                base.selectedPresetId(),
+                base.selectedCapeId(),
+                base.currentOfficialSkinId(),
+                base.activePresetId(),
+                base.editor(),
+                base.addSource(),
+                base.status(),
+                base.busy(),
+                base.rateLimited(),
+                base.rateLimitProgress(),
+                base.galleryOffset(),
+                base.generation(),
+                base.intentRevision(),
+                base.syncStatus(),
+                base.syncInProgress(),
+                sessionActivity);
     }
 
     private static ClientSnapshot withSyncInProgress(ClientSnapshot base) {

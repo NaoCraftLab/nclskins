@@ -160,13 +160,22 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
         if (bounds.width() <= 0 || bounds.height() <= 0) {
             return;
         }
+        if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
+            graphics.fill(
+                    bounds.x(),
+                    bounds.y(),
+                    bounds.right(),
+                    bounds.bottom(),
+                    0x80000000);
+            return;
+        }
         graphics.setColor(0.125F, 0.125F, 0.125F, 1.0F);
         graphics.blit(
                 Screen.BACKGROUND_LOCATION,
                 bounds.x(),
                 bounds.y(),
-                panel.style() == ViewSpec.Panel.Style.VANILLA_LIST ? textureU : 0.0F,
-                panel.style() == ViewSpec.Panel.Style.VANILLA_LIST ? textureV : 0.0F,
+                0.0F,
+                0.0F,
                 bounds.width(),
                 bounds.height(),
                 32,

@@ -371,7 +371,10 @@ final class ClientRuntimeTest {
         operations.retrySessionFailure = new IOException("session still unavailable");
         runtime.dispatchWidget("gallery.retry_session");
 
-        assertTrue(runtime.snapshot().busy());
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(
+                ClientSnapshot.SessionActivity.RECONNECTING,
+                runtime.snapshot().sessionActivity());
         assertEquals(UiMessage.info("nclskins.status.checking_session"), runtime.snapshot().status());
         ViewSpec connectingBeforeFailure = runtime.view(854, 480, 427, 180);
         assertEquals(
@@ -382,7 +385,7 @@ final class ClientRuntimeTest {
                         .orElseThrow()
                         .message());
         assertFalse(connectingBeforeFailure.widget("gallery.retry_session").orElseThrow().enabled());
-        assertTrue(runtime.snapshot().busy(), "fast failure must wait for a rendered feedback frame");
+        assertFalse(runtime.snapshot().busy(), "session feedback must not own global busy");
 
         runtime.acknowledgeViewRendered(connectingBeforeFailure);
         assertSessionRetryConnectingForFiveTicks(runtime);
@@ -412,7 +415,7 @@ final class ClientRuntimeTest {
                         .orElseThrow()
                         .message());
         assertFalse(connectingBeforeSuccess.widget("gallery.retry_session").orElseThrow().enabled());
-        assertTrue(runtime.snapshot().busy(), "fast success must wait for a rendered feedback frame");
+        assertFalse(runtime.snapshot().busy(), "session feedback must not own global busy");
 
         runtime.acknowledgeViewRendered(connectingBeforeSuccess);
         assertSessionRetryConnectingForFiveTicks(runtime);
@@ -423,6 +426,211 @@ final class ClientRuntimeTest {
         assertTrue(connected.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
         assertTrue(connected.widget("gallery.retry_session").isEmpty());
         assertEquals(2, operations.retrySessionCalls);
+    }
+
+    @Test
+    void longGallerySessionClassificationKeepsLocalControlsAndEscapeInteractive() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.localFirst = true;
+        QueuedExecutor sessionWorker = new QueuedExecutor();
+        ClientRuntime runtime = new ClientRuntime(
+                operations,
+                CLIENT,
+                CANCELLED_PICKER,
+                Runnable::run,
+                Runnable::run,
+                sessionWorker,
+                TEXT,
+                Optional.empty(),
+                Optional.empty(),
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
+
+        runtime.initialize();
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(
+                ClientSnapshot.SessionActivity.CLASSIFYING,
+                runtime.snapshot().sessionActivity());
+        ViewSpec classifying = runtime.view(854, 480, 427, 180);
+        assertEquals(
+                UiMessage.info("nclskins.session.connecting"),
+                classifying.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertTrue(classifying.widget("gallery.retry_session").isEmpty());
+        assertTrue(classifying.widget("gallery.done").orElseThrow().enabled());
+        UUID presetId = operations.account.presets().get(0).id();
+        assertTrue(classifying.widget("gallery.preset." + presetId + ".apply")
+                .orElseThrow().enabled());
+        assertTrue(classifying.widget("gallery.preset." + presetId + ".edit")
+                .orElseThrow().enabled());
+        assertTrue(classifying.widget("gallery.preset." + presetId + ".duplicate")
+                .orElseThrow().enabled());
+        assertTrue(classifying.widget("gallery.preset." + presetId + ".delete")
+                .orElseThrow().enabled());
+
+        runtime.dispatchWidget("gallery.preset." + presetId + ".apply");
+        assertEquals(Optional.of(presetId), runtime.snapshot().activePresetId());
+        assertEquals(1, runtime.snapshot().intentRevision());
+        assertEquals(ClientSnapshot.SessionActivity.CLASSIFYING, runtime.snapshot().sessionActivity());
+
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        assertTrue(runtime.snapshot().editor().isPresent());
+        runtime.escapePressed();
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
+        runtime.escapePressed();
+        assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+
+        sessionWorker.runFirst();
+        assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+    }
+
+    @Test
+    void reopeningConfirmedOfflineGalleryShowsConnectingUntilFreshClassificationSettles() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        QueuedExecutor sessionWorker = new QueuedExecutor();
+        ClientRuntime runtime = new ClientRuntime(
+                operations,
+                CLIENT,
+                CANCELLED_PICKER,
+                Runnable::run,
+                Runnable::run,
+                sessionWorker,
+                TEXT,
+                Optional.empty(),
+                Optional.empty(),
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
+
+        runtime.initialize();
+        sessionWorker.runFirst();
+        assertTrue(runtime.view(854, 480, 427, 180)
+                .widget("gallery.retry_session").orElseThrow().enabled());
+
+        runtime.closeScreen();
+        runtime.reopen();
+
+        ViewSpec classifying = runtime.view(854, 480, 427, 180);
+        assertEquals(ClientSnapshot.SessionActivity.CLASSIFYING, runtime.snapshot().sessionActivity());
+        assertEquals(
+                UiMessage.info("nclskins.session.connecting"),
+                classifying.texts().stream()
+                        .filter(text -> text.id().equals("gallery.offline"))
+                        .findFirst()
+                        .orElseThrow()
+                        .message());
+        assertTrue(classifying.widget("gallery.retry_session").isEmpty());
+        assertTrue(classifying.widget("gallery.done").orElseThrow().enabled());
+    }
+
+    @Test
+    void reconnectingSessionDoesNotBlockLocalGalleryActions() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        operations.localFirst = true;
+        QueuedExecutor sessionWorker = new QueuedExecutor();
+        ClientRuntime runtime = new ClientRuntime(
+                operations,
+                CLIENT,
+                CANCELLED_PICKER,
+                Runnable::run,
+                Runnable::run,
+                sessionWorker,
+                TEXT,
+                Optional.empty(),
+                Optional.empty(),
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
+        runtime.initialize();
+        sessionWorker.runFirst();
+
+        runtime.dispatchWidget("gallery.retry_session");
+
+        ViewSpec reconnecting = runtime.view(1600, 720, 800, 200);
+        UUID firstPresetId = operations.account.presets().get(0).id();
+        UUID secondPresetId = operations.account.presets().get(1).id();
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(
+                ClientSnapshot.SessionActivity.RECONNECTING,
+                runtime.snapshot().sessionActivity());
+        assertTrue(reconnecting.widget("gallery.done").orElseThrow().enabled());
+        assertFalse(reconnecting.widget("gallery.retry_session").orElseThrow().enabled());
+        assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".apply")
+                .orElseThrow().enabled());
+        assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".edit")
+                .orElseThrow().enabled());
+        assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".duplicate")
+                .orElseThrow().enabled());
+        assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".delete")
+                .orElseThrow().enabled());
+
+        runtime.dispatchWidget("gallery.preset." + firstPresetId + ".apply");
+        runtime.dispatchWidget("gallery.preset." + secondPresetId + ".apply");
+        assertEquals(Optional.of(secondPresetId), runtime.snapshot().activePresetId());
+        assertEquals(2, runtime.snapshot().intentRevision());
+        assertEquals(ClientSnapshot.SessionActivity.RECONNECTING, runtime.snapshot().sessionActivity());
+
+        runtime.dispatchWidget("gallery.preset." + firstPresetId + ".delete");
+        assertTrue(runtime.view(1600, 720, 800, 200)
+                .widget("gallery.preset." + firstPresetId + ".delete_confirm")
+                .isPresent());
+        runtime.escapePressed();
+        assertTrue(runtime.view(1600, 720, 800, 200)
+                .widget("gallery.preset." + firstPresetId + ".delete_confirm")
+                .isEmpty());
+
+        operations.session = TestFixtures.validSession();
+        sessionWorker.runFirst();
+        runtime.acknowledgeViewRendered(runtime.view(1600, 720, 800, 200));
+        advanceTicks(runtime, 6);
+        assertEquals(ClientSnapshot.SessionActivity.NONE, runtime.snapshot().sessionActivity());
+        assertTrue(runtime.view(1600, 720, 800, 200).widget("gallery.retry_session").isEmpty());
+        assertEquals(Optional.of(secondPresetId), runtime.snapshot().activePresetId());
+        assertEquals(2, operations.reconciliationKeys.get(operations.reconciliationKeys.size() - 1)
+                .intentRevision());
+        assertEquals(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED,
+                operations.reconciliationTriggers.get(operations.reconciliationTriggers.size() - 1));
+    }
+
+    @Test
+    void lateSessionClassificationCannotOverwriteAConcurrentLocalLibraryMutation() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.galleryInitialDataOverride = operations.initial();
+        QueuedExecutor sessionWorker = new QueuedExecutor();
+        ClientRuntime runtime = new ClientRuntime(
+                operations,
+                CLIENT,
+                CANCELLED_PICKER,
+                Runnable::run,
+                Runnable::run,
+                sessionWorker,
+                TEXT,
+                Optional.empty(),
+                Optional.empty(),
+                IMMEDIATE_READINESS_SCHEDULER,
+                DiagnosticSinks.discarding());
+        runtime.initialize();
+        UUID sourceId = operations.account.presets().get(0).id();
+
+        runtime.dispatchWidget("gallery.preset." + sourceId + ".duplicate");
+        runtime.dispatchWidget("editor.save");
+        assertEquals(2, runtime.snapshot().account().orElseThrow().presets().size());
+
+        sessionWorker.runFirst();
+
+        assertEquals(2, runtime.snapshot().account().orElseThrow().presets().size());
+        assertEquals(2, operations.account.presets().size());
+        assertEquals(ClientSnapshot.SessionActivity.NONE, runtime.snapshot().sessionActivity());
     }
 
     @Test
@@ -511,7 +719,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void validUnknownRetryShowsConnectingAndDisablesRecoveryDuringReconciliation() {
+    void validUnknownAppearanceDoesNotExposeSessionRecovery() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
         operations.appearanceSyncStatus = AppearanceSyncStatus.UNKNOWN;
@@ -520,46 +728,10 @@ final class ClientRuntimeTest {
 
         runtime.initialize();
         worker.runFirst();
-        assertTrue(runtime.view(854, 480, 427, 180)
-                .widget("gallery.retry_session")
-                .orElseThrow()
-                .enabled());
-
-        runtime.dispatchWidget("gallery.retry_session");
-
-        ViewSpec connecting = runtime.view(854, 480, 427, 180);
-        assertEquals(
-                UiMessage.info("nclskins.session.connecting"),
-                connecting.texts().stream()
-                        .filter(text -> text.id().equals("gallery.offline"))
-                        .findFirst()
-                        .orElseThrow()
-                        .message());
-        runtime.acknowledgeViewRendered(connecting);
-        advanceTicks(runtime, 6);
-        assertTrue(runtime.snapshot().busy());
-        worker.runFirst();
-
+        ViewSpec view = runtime.view(854, 480, 427, 180);
         assertTrue(runtime.snapshot().session().orElseThrow().valid());
-        assertTrue(runtime.snapshot().syncInProgress());
-        ViewSpec reconciling = runtime.view(854, 480, 427, 180);
-        assertTrue(reconciling.texts().stream()
-                .noneMatch(text -> text.id().equals("gallery.offline")));
-        assertFalse(reconciling.widget("gallery.retry_session").orElseThrow().enabled());
-
-        runtime.dispatchWidget("gallery.retry_session");
-        assertEquals(1, operations.retrySessionCalls);
-
-        worker.runFirst();
-
-        assertFalse(runtime.snapshot().syncInProgress());
-        assertEquals(
-                List.of(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED),
-                operations.reconciliationTriggers);
-        assertTrue(runtime.view(854, 480, 427, 180)
-                .widget("gallery.retry_session")
-                .orElseThrow()
-                .enabled());
+        assertTrue(view.widget("gallery.retry_session").isEmpty());
+        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
     }
 
     @Test
@@ -568,6 +740,7 @@ final class ClientRuntimeTest {
         operations.account = TestFixtures.account(1);
         operations.appearanceRevision = 3;
         operations.appearanceSyncStatus = AppearanceSyncStatus.UNKNOWN;
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
         CompletableFuture<Optional<SignedProfileResolver.ResolvedProfile<String>>> resolution =
                 new CompletableFuture<>();
         AppearanceRefreshCoordinator<String> refresh = new AppearanceRefreshCoordinator<>(
@@ -580,6 +753,7 @@ final class ClientRuntimeTest {
 
         runtime.initialize();
         worker.runFirst();
+        operations.session = TestFixtures.validSession();
         AppliedAppearance local = AppliedAppearance.localSkin(
                 TestFixtures.ACCOUNT_ID,
                 "a".repeat(64),
@@ -596,15 +770,13 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("gallery.retry_session");
         ViewSpec connecting = runtime.view(854, 480, 427, 180);
         runtime.acknowledgeViewRendered(connecting);
-        worker.runFirst();
         advanceTicks(runtime, 6);
 
         assertFalse(runtime.snapshot().syncInProgress());
         assertEquals(0, worker.size(), "reconciliation must wait for the local rebind");
         assertTrue(runtime.view(854, 480, 427, 180)
                 .widget("gallery.retry_session")
-                .orElseThrow()
-                .enabled());
+                .isEmpty());
         assertEquals(1, operations.retrySessionCalls);
         assertEquals(0, operations.reconciliationCalls);
 
@@ -636,7 +808,6 @@ final class ClientRuntimeTest {
         runtime.acknowledgeViewRendered(connecting);
         operations.rateLimited = true;
 
-        worker.runFirst();
         advanceTicks(runtime, 6);
 
         assertTrue(runtime.snapshot().rateLimited());
@@ -1050,8 +1221,8 @@ final class ClientRuntimeTest {
         half.pointerScrolled(160, 100, 0.0, -0.5);
 
         assertEquals(startX - 16, panelX(half.view(320, 240, 0, 0), "gallery.card.add"));
-        assertEquals(0, half.snapshot().galleryOffset(),
-                "a fractional wheel target must not snap to the next card position");
+        assertEquals(16, half.snapshot().galleryOffset(),
+                "a fractional wheel target must remain an exact pixel position");
 
         FakeOperations fullOperations = new FakeOperations();
         fullOperations.account = TestFixtures.account(5);
@@ -1105,7 +1276,7 @@ final class ClientRuntimeTest {
         ViewSpec.ScrollSurface surface = initial.scrollSurface("gallery.cards").orElseThrow();
         double cardStride = surface.maximumPixels()
                 / initial.scrollbar().orElseThrow().maximum();
-        runtime.nativeScrollPositionChanged("gallery.cards", cardStride * 2.0);
+        runtime.nativeScrollPositionChanged("gallery.cards", cardStride * 20.0);
 
         ViewSpec settled = runtime.view(854, 480, 0, 0);
         Bounds viewport = settled.scrollSurface("gallery.cards").orElseThrow().viewport();
@@ -1205,7 +1376,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void applyingAnotherPresetCentersItAndDiscardsTheFractionalGalleryTarget() {
+    void applyingAnotherPresetKeepsItVisibleAndDiscardsTheFractionalGalleryTarget() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
@@ -1217,22 +1388,23 @@ final class ClientRuntimeTest {
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".apply");
 
-        ViewSpec centered = runtime.view(320, 240, 0, 0);
-        assertHorizontallyCentered(
-                centered.panels().stream()
+        ViewSpec aligned = runtime.view(320, 240, 0, 0);
+        assertHorizontallyVisible(
+                aligned.panels().stream()
                         .filter(panel -> panel.id().equals("gallery.card." + presetId))
                         .findFirst()
                         .orElseThrow()
                         .bounds(),
                 320);
-        int centeredAddX = panelX(centered, "gallery.card.add");
+        assertEquals(0, runtime.snapshot().galleryOffset());
+        int alignedAddX = panelX(aligned, "gallery.card.add");
         settleScroll(runtime);
-        assertEquals(centeredAddX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"),
+        assertEquals(alignedAddX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"),
                 "the stale fractional target must not restore the previous scroll position");
     }
 
     @Test
-    void externalOpenAndReopenCenterTheActivePresetAtEverySupportedViewport() {
+    void externalOpenAndReopenKeepTheActivePresetVisibleAtEverySupportedViewport() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         UUID active = operations.account.presets().get(4).id();
@@ -1246,7 +1418,7 @@ final class ClientRuntimeTest {
                 new int[]{427, 240},
                 new int[]{854, 480})) {
             ViewSpec view = runtime.view(viewport[0], viewport[1], 0, 0);
-            assertHorizontallyCentered(
+            assertHorizontallyVisible(
                     view.panels().stream()
                             .filter(panel -> panel.id().equals("gallery.card." + active))
                             .findFirst()
@@ -1260,7 +1432,7 @@ final class ClientRuntimeTest {
         runtime.closeScreen();
         runtime.reopen();
         ViewSpec reopened = runtime.view(320, 240, 0, 0);
-        assertHorizontallyCentered(
+        assertHorizontallyVisible(
                 reopened.panels().stream()
                         .filter(panel -> panel.id().equals("gallery.card." + active))
                         .findFirst()
@@ -1314,9 +1486,9 @@ final class ClientRuntimeTest {
         ClientSnapshot seeded = runtime.snapshot();
         assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, seeded.lifecycle());
         assertEquals(Optional.of(warmedActive), seeded.activePresetId());
-        assertEquals(1, seeded.galleryOffset());
+        assertEquals(0, seeded.galleryOffset());
         ViewSpec seededView = runtime.view(320, 240, 0, 0);
-        assertHorizontallyCentered(
+        assertHorizontallyVisible(
                 seededView.panels().stream()
                         .filter(panel -> panel.id().equals("gallery.card." + warmedActive))
                         .findFirst()
@@ -1333,17 +1505,11 @@ final class ClientRuntimeTest {
         assertEquals(ClientSnapshot.Lifecycle.READY, ready.lifecycle());
         assertTrue(ready.activePresetId().isEmpty());
         assertEquals(0, ready.galleryOffset());
-        assertHorizontallyCentered(
-                runtime.view(320, 240, 0, 0).panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card.add"))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds(),
-                320);
+        assertEquals(12, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
         publications.stream()
                 .filter(snapshot -> snapshot.account().isPresent())
                 .forEach(snapshot -> assertEquals(
-                        snapshot.activePresetId().isPresent() ? 1 : 0,
+                        0,
                         snapshot.galleryOffset(),
                         "account data and its gallery anchor must share one publication"));
     }
@@ -1368,7 +1534,7 @@ final class ClientRuntimeTest {
         assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, reopening.lifecycle());
         assertEquals(Optional.of(active), reopening.activePresetId());
         ViewSpec seeded = runtime.view(320, 240, 0, 0);
-        assertHorizontallyCentered(
+        assertHorizontallyVisible(
                 seeded.panels().stream()
                         .filter(panel -> panel.id().equals("gallery.card." + active))
                         .findFirst()
@@ -1703,7 +1869,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void centerAnchoredGalleryRangeSurvivesViewportExpansionWhileCapeRangeReclamps() {
+    void pixelGalleryRangeReclampsAcrossViewportExpansionLikeTheCapeRange() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         operations.ownedCapes = capeInventory(5);
@@ -1719,15 +1885,15 @@ final class ClientRuntimeTest {
 
         runtime.pointerScrolled(160, 100, 0.0, -100.0);
         settleScroll(runtime);
-        assertEquals(5, runtime.snapshot().galleryOffset());
+        assertEquals(370, runtime.snapshot().galleryOffset());
 
         runtime.view(854, 480, 0, 0);
         runtime.tick();
-        assertEquals(5, runtime.snapshot().galleryOffset());
+        assertEquals(370, runtime.snapshot().galleryOffset());
         runtime.view(320, 240, 0, 0);
         settleScroll(runtime);
-        assertEquals(5, runtime.snapshot().galleryOffset(),
-                "the last centered card is independent of viewport geometry");
+        assertEquals(370, runtime.snapshot().galleryOffset(),
+                "returning to a narrower viewport must not resurrect a stale pixel target");
 
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
@@ -1773,7 +1939,7 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void centerAnchoredGalleryRangeIsIndependentOfHeightAtTheSameWidth() {
+    void pixelGalleryRangeReclampsWhenCardWidthChangesWithHeight() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(5);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
@@ -1782,18 +1948,18 @@ final class ClientRuntimeTest {
 
         runtime.pointerScrolled(160, 160, 0.0, -100.0);
         settleScroll(runtime);
-        assertEquals(5, runtime.snapshot().galleryOffset());
+        assertEquals(910, runtime.snapshot().galleryOffset());
 
         runtime.view(320, 240, 0, 0);
         runtime.tick();
-        assertEquals(5, runtime.snapshot().galleryOffset());
+        assertEquals(370, runtime.snapshot().galleryOffset());
 
         runtime.view(320, 360, 0, 0);
         settleScroll(runtime);
         assertEquals(
-                5,
+                370,
                 runtime.snapshot().galleryOffset(),
-                "the last centered card must not depend on card height");
+                "restoring the taller viewport must not resurrect the stale pixel target");
     }
 
     @Test
@@ -1996,6 +2162,7 @@ final class ClientRuntimeTest {
                 CANCELLED_PICKER,
                 Runnable::run,
                 reconciliation,
+                Runnable::run,
                 TEXT,
                 Optional.empty(),
                 Optional.of(notifications::incrementAndGet),
@@ -2092,6 +2259,7 @@ final class ClientRuntimeTest {
                 CANCELLED_PICKER,
                 Runnable::run,
                 reconciliation,
+                Runnable::run,
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
@@ -2300,6 +2468,8 @@ final class ClientRuntimeTest {
                 client,
                 CANCELLED_PICKER,
                 worker,
+                worker,
+                Runnable::run,
                 TEXT,
                 Optional.empty(),
                 Optional.of(() -> {
@@ -2439,8 +2609,12 @@ final class ClientRuntimeTest {
                 client,
                 CANCELLED_PICKER,
                 worker,
+                worker,
+                Runnable::run,
                 TEXT,
                 Optional.of(refresh),
+                Optional.empty(),
+                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
 
         CompletableFuture<AppearanceRefreshCoordinator.Result> reconnect =
@@ -2570,7 +2744,11 @@ final class ClientRuntimeTest {
     private static void assertSessionRetryConnectingForFiveTicks(ClientRuntime runtime) {
         for (int tick = 1; tick <= 5; tick++) {
             runtime.tick();
-            assertTrue(runtime.snapshot().busy(), "session retry settled at tick " + tick);
+            assertFalse(runtime.snapshot().busy(), "session retry must not own global busy");
+            assertEquals(
+                    ClientSnapshot.SessionActivity.RECONNECTING,
+                    runtime.snapshot().sessionActivity(),
+                    "session retry settled at tick " + tick);
             assertEquals(
                     UiMessage.info("nclskins.status.checking_session"),
                     runtime.snapshot().status());
@@ -2617,6 +2795,12 @@ final class ClientRuntimeTest {
         assertTrue(
                 Math.abs(bounds.x() + bounds.width() / 2.0 - viewportWidth / 2.0) <= 0.5,
                 () -> bounds + " is not horizontally centered in " + viewportWidth);
+    }
+
+    private static void assertHorizontallyVisible(Bounds bounds, int viewportWidth) {
+        assertTrue(
+                bounds.x() >= 0 && bounds.right() <= viewportWidth,
+                () -> bounds + " is not fully visible in " + viewportWidth);
     }
 
     private static void assertImportFailure(
@@ -2691,6 +2875,8 @@ final class ClientRuntimeTest {
                 CLIENT,
                 CANCELLED_PICKER,
                 worker,
+                worker,
+                Runnable::run,
                 TEXT,
                 appearanceRefresh,
                 serverAppearanceRefreshNotifier,
@@ -2875,6 +3061,7 @@ final class ClientRuntimeTest {
         private SkinVariant urlImportVariant = SkinVariant.CLASSIC;
         private int playerImportCalls;
         private Optional<InitialData> warmedInitialData = Optional.empty();
+        private InitialData galleryInitialDataOverride;
         private Exception externalImportFailure;
         private ExternalImportResult externalImportResult;
         private boolean externalSourceAvailable = true;
@@ -2895,6 +3082,13 @@ final class ClientRuntimeTest {
         @Override
         public InitialData initialize() {
             return initial();
+        }
+
+        @Override
+        public InitialData initializeForGallery() {
+            return galleryInitialDataOverride == null
+                    ? initial()
+                    : galleryInitialDataOverride;
         }
 
         @Override

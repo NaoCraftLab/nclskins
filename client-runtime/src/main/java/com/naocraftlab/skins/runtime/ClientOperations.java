@@ -68,6 +68,10 @@ public interface ClientOperations extends AutoCloseable {
 
     InitialData initialize() throws Exception;
 
+    default InitialData initializeForGallery() throws Exception {
+        return initialize();
+    }
+
 
     default List<SkinCatalogSource.CollectionDescriptor> catalogCollections() throws Exception {
         return List.of();

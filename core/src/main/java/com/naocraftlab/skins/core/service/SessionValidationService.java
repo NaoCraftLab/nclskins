@@ -17,6 +17,8 @@ import java.util.UUID;
 
 
 public final class SessionValidationService {
+    private static final String OFFLINE_ACCESS_TOKEN_SENTINEL = "0";
+
     private final ProfileApi api;
     private final RemoteSessionGate gate;
     private final Map<UUID, SessionValidation> validationCache = new HashMap<>();
@@ -247,7 +249,10 @@ public final class SessionValidationService {
             GameSessionTokenSource.SessionIdentity identity,
             boolean manualRetry) {
         try {
-            SessionValidation result = tokenSource.withAccessToken(token -> validateScoped(token, identity, null));
+            SessionValidation result = tokenSource.withAccessToken(token ->
+                    OFFLINE_ACCESS_TOKEN_SENTINEL.equals(token)
+                            ? rememberTokenUnavailable(identity)
+                            : validateScoped(token, identity, null));
             if (manualRetry && result.valid()) {
                 gate.clearAfterSuccessfulManualRetry(identity.profileId());
             }

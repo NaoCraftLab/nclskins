@@ -562,6 +562,17 @@ final class SemanticVerifier {
                 errors.add('identifier-submission: ambiguous 1.21.11 setRectangle argument order is forbidden')
             }
         }
+        if (implementation == 'immediate-resource-location-player-info') {
+            ['panel.style() == ViewSpec.Panel.Style.VANILLA_LIST',
+             'graphics.fill(', '0x80000000'].each { String marker ->
+                if (!compact.contains(marker)) {
+                    errors.add("${implementation}: legacy gallery cards lack translucent black surface marker '${marker}'")
+                }
+            }
+            if (compact.contains('ViewSpec.Panel.Style.VANILLA_LIST ? texture')) {
+                errors.add("${implementation}: legacy gallery cards must not sample the dirt background")
+            }
+        }
         if (implementation == 'identifier-extraction-menu-tab-input-constants'
                 && (!compact.contains('isEnterKey(event.shortcutKey())')
                         || !compact.contains('switch (event.shortcutKey())')
