@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 
@@ -16,6 +17,34 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class FilePickerCoordinatorTest {
+    @Test
+    void asynchronousDialogStartsOnRequestedExecutorAndRetainsSingleDialogGuard(
+            @TempDir Path directory) throws Exception {
+        QueuedExecutor worker = new QueuedExecutor();
+        QueuedExecutor clientExecutor = new QueuedExecutor();
+        FilePickerCoordinator picker = new FilePickerCoordinator(worker);
+        CompletableFuture<Optional<Path>> nativeResult = new CompletableFuture<>();
+
+        var selected = picker.chooseDirectoryAsync(() -> nativeResult, clientExecutor);
+        assertTrue(worker.tasks.isEmpty());
+        assertEquals(1, clientExecutor.tasks.size());
+        clientExecutor.runFirst();
+        CompletionException concurrent = org.junit.jupiter.api.Assertions.assertThrows(
+                CompletionException.class,
+                () -> picker.chooseAsync(
+                        () -> CompletableFuture.completedFuture(Optional.empty()),
+                        clientExecutor).join());
+        assertInstanceOf(IllegalStateException.class, concurrent.getCause());
+
+        nativeResult.complete(Optional.of(directory));
+        assertEquals(Optional.of(directory.toAbsolutePath().normalize()), selected.join());
+
+        var cancelled = picker.chooseAsync(
+                () -> CompletableFuture.completedFuture(Optional.empty()), clientExecutor);
+        clientExecutor.runFirst();
+        assertEquals(Optional.empty(), cancelled.join());
+    }
+
     @Test
     void cancelAndRegularPngArePublishedOnTheWorker(@TempDir Path directory) throws Exception {
         QueuedExecutor worker = new QueuedExecutor();

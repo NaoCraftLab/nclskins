@@ -56,6 +56,32 @@ if (modMenuConfiguration == null) {
 }
 def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
         targetCatalog, targetSpec, 'yet_another_config_lib_v3')
+def sqliteDevelopmentArtifact = nclskinsCatalogTools.optionalDevelopmentArtifact(
+        targetCatalog, targetSpec, 'sqlite_jdbc')
+def sqliteClientRuntime = null
+def verifySqliteClientRuntime = null
+if (sqliteDevelopmentArtifact != null) {
+    sqliteClientRuntime = configurations.create('nclskinsSqliteClientRuntime') {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+        visible = false
+    }
+    dependencies.add(
+            sqliteClientRuntime.name,
+            sqliteDevelopmentArtifact.coordinate.toString())
+    verifySqliteClientRuntime = tasks.register('verifySqliteClientRuntime') {
+        doLast {
+            Set<File> resolved = sqliteClientRuntime.resolve()
+            if (resolved.size() != 1) {
+                throw new GradleException(
+                        "Expected one SQLite development artifact, resolved ${resolved.size()}")
+            }
+            nclskinsExternalArtifactIntegrity.verify(
+                    resolved.first(), sqliteDevelopmentArtifact)
+        }
+    }
+}
 def clientCompileOnlyConfiguration = configurations.findByName('modCompileOnly') != null
         ? 'modCompileOnly'
         : 'compileOnly'
@@ -99,6 +125,16 @@ loom {
         server {
             runDir fabricServerRun.absolutePath
         }
+    }
+}
+
+if (sqliteDevelopmentArtifact != null) {
+    tasks.matching { it.name in ['runClient', 'runClientLicensed'] }.configureEach { candidate ->
+        if (!(candidate instanceof JavaExec)) {
+            throw new GradleException("Unexpected Fabric client run task type: ${candidate.class.name}")
+        }
+        candidate.dependsOn(verifySqliteClientRuntime)
+        candidate.classpath(sqliteClientRuntime)
     }
 }
 

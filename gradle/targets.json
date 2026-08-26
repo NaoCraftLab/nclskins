@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 20,
+  "schemaVersion": 21,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
@@ -314,7 +314,7 @@
           "appearance": "avatar-state-local-player-skin",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
-          "filePicker": "tinyfd-safe-v1",
+          "filePicker": "sdl-dialog-safe-v1",
           "bundledSkin": "vanilla-pack-identifier-provider",
           "currentAppearance": "avatar-state-current-player",
           "serverProfileVerification": "profile-verification-authlib-v10",
@@ -355,6 +355,20 @@
         "fabric": ">=3.36.0.3",
         "forge": "[3.36.0.3,)",
         "neoforge": "[3.53.0.0,)"
+      },
+      "developmentArtifacts": {
+        "fabric-26.3": {
+          "coordinate": "maven.modrinth:bTTf2DEw:EEE7nXWy",
+          "projectId": "bTTf2DEw",
+          "versionId": "EEE7nXWy",
+          "version": "3.53.2.0+2026-06-06",
+          "fabricModId": "sqlite-jdbc",
+          "file": "sqlite-jdbc-3.53.2.0+2026-06-06-all.jar",
+          "size": 11997526,
+          "sha1": "1a44c752f0c14c48d22f5c8d9ab6f893a7224d53",
+          "sha512": "a25c390539aa7063d764b32efcfa1a03c3037e8b15e589374b7f523bec13712110adbd445f6d8909093149a0313dbbcba836569517c332397d2b16ea8917dd3d",
+          "declaredMinecraftMaximum": "26.1.2"
+        }
       }
     },
     "yet_another_config_lib_v3": {
@@ -730,6 +744,18 @@
       "side": "client",
       "requires": []
     },
+    "avatar-pip-pose-mul-pose": {
+      "java": ["compat/capabilities/preview/avatar-pip-pose-mul-pose/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
+    },
+    "avatar-pip-pose-rotate": {
+      "java": ["compat/capabilities/preview/avatar-pip-pose-rotate/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
+    },
     "avatar-pip-depth-gui-render-state": {
       "java": ["compat/capabilities/preview/avatar-pip-depth-gui-render-state/src/main/java"],
       "resources": [],
@@ -758,7 +784,7 @@
       "java": ["compat/capabilities/preview/avatar-pip-extraction-player-model/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-common", "avatar-pip-depth-gui-render-state"]
+      "requires": ["avatar-pip-common", "avatar-pip-depth-gui-render-state", "avatar-pip-pose-mul-pose"]
     },
     "avatar-pip-submission-core": {
       "java": ["compat/capabilities/preview/avatar-pip-submission/src/main/java"],
@@ -770,7 +796,7 @@
       "java": ["compat/capabilities/preview/avatar-pip-render-simple-model/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-common", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-crumbling-overlay"]
+      "requires": ["avatar-pip-common", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-crumbling-overlay", "avatar-pip-pose-mul-pose"]
     },
     "avatar-pip-submit-crumbling-overlay": {
       "java": ["compat/capabilities/preview/avatar-pip-submit-crumbling-overlay/src/main/java"],
@@ -794,7 +820,7 @@
       "java": ["compat/capabilities/preview/avatar-pip-render-simple-model/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-render-state-no-attack-time", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-no-crumbling-overlay"]
+      "requires": ["avatar-pip-render-state-no-attack-time", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-no-crumbling-overlay", "avatar-pip-pose-rotate"]
     },
     "avatar-pip-submission-fabric": {
       "java": ["loader/fabric/pip-submission/src/main/java"],
@@ -936,6 +962,12 @@
     },
     "tinyfd-safe-v1": {
       "java": ["compat/capabilities/file-picker/tinyfd-v1/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "sdl-dialog-safe-v1": {
+      "java": ["compat/capabilities/file-picker/sdl-dialog-v1/src/main/java"],
       "resources": [],
       "side": "client",
       "requires": []
@@ -1187,6 +1219,7 @@
     "minecraft-user-v1": {"bundle": "minecraft-user-v1", "abiImplementation": "minecraft-user-v1"},
     "minecraft-client-executor-v1": {"bundle": "minecraft-client-executor-v1", "abiImplementation": "minecraft-client-executor-v1"},
     "tinyfd-safe-v1": {"bundle": "tinyfd-safe-v1", "abiImplementation": "tinyfd-safe-v1"},
+    "sdl-dialog-safe-v1": {"bundle": "sdl-dialog-safe-v1", "abiImplementation": "sdl-dialog-safe-v1"},
     "resource-stack-bundled": {"bundle": "resource-stack-bundled", "abiImplementation": "resource-stack-bundled"},
     "vanilla-pack-resource-location": {"bundle": "vanilla-pack-resource-location", "abiImplementation": "vanilla-pack-resource-location"},
     "vanilla-pack-identifier-direct": {"bundle": "vanilla-pack-identifier-direct", "abiImplementation": "vanilla-pack-identifier-direct"},
@@ -1984,8 +2017,8 @@
       "path": "targets/26.3/fabric",
       "minecraft": {
         "version": "26.3",
-        "compileVersion": "26.3-snapshot-8",
-        "runtimeVersion": "26.3-alpha.8",
+        "compileVersion": "26.3-snapshot-10",
+        "runtimeVersion": "26.3-alpha.10",
         "minimumRuntimeVersion": "26.3-alpha.7",
         "predicate": ">=26.3-alpha.7",
         "epoch": "26.3"
@@ -1994,8 +2027,8 @@
         "id": "fabric",
         "version": "0.19.3",
         "predicate": ">=0.19.3",
-        "apiVersion": "0.157.1+26.3",
-        "apiPredicate": ">=0.157.1+26.3",
+        "apiVersion": "0.158.2+26.3",
+        "apiPredicate": ">=0.158.2+26.3",
         "modMenuVersion": "21.0.0-alpha.1"
       },
       "java": {
@@ -2017,7 +2050,7 @@
         "updateNotification": "modmenu-static-catalog",
         "session": "minecraft-user-v1",
         "clientExecutor": "minecraft-client-executor-v1",
-        "filePicker": "tinyfd-safe-v1",
+        "filePicker": "sdl-dialog-safe-v1",
         "bundledSkin": "vanilla-pack-identifier-provider",
         "currentAppearance": "avatar-state-current-player",
         "serverSignal": "fabric-typed-identifier-v1",

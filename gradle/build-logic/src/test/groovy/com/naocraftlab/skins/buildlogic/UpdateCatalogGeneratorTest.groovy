@@ -53,6 +53,21 @@ final class UpdateCatalogGeneratorTest {
     }
 
     @Test
+    void currentExperimentalTargetCreatesNoUpdateCatalogOrEndpoint() {
+        List<Map> inventory = parse([
+                release('1.0.0-beta.3', ['fabric-1.21.1', 'fabric-26.3'])
+        ])
+
+        Map<String, String> site = UpdateCatalogSite.files(catalog, inventory)
+        Map common = new groovy.json.JsonSlurper().parseText(
+                site['updates/v1/catalog.json']) as Map
+
+        assertFalse((common.targets as Map).containsKey('fabric-26.3'))
+        assertFalse(site.containsKey('updates/v1/native/fabric-26.3.json'))
+        assertFalse(site.keySet().any { String path -> path.contains('fabric-26.3') })
+    }
+
+    @Test
     void duplicateVersionsAssetsAndConflictingUrlsFailClosed() {
         assertThrows(IllegalArgumentException) {
             parse([release('1.0.0-beta.3', ['fabric-26.2']),

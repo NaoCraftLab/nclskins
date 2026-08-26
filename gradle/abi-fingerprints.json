@@ -3063,6 +3063,20 @@
               "finality": "implementation"
             }
           ]
+        },
+        {
+          "name": "com.mojang.blaze3d.vertex.PoseStack",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "rotate",
+              "descriptor": "(Lorg/joml/Quaternionfc;)V",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
         }
       ],
       "mixinAnchors": [
@@ -3100,7 +3114,7 @@
           ]
         }
       ],
-      "baselineSha256": "1055ad13a78cb12622c012670e8c38ad816b7c927649e0e8ad707ef36937ef11"
+      "baselineSha256": "b1ce5f933365660a42bcca218ddc2bb74ccf06b5bd4ff2a8d488f7e64fd6bf52"
     },
     "avatar-state-local-player-skin": {
       "kind": "appearance",
@@ -3515,8 +3529,7 @@
         "1.21.1",
         "1.21.11",
         "26.1",
-        "26.2",
-        "26.3"
+        "26.2"
       ],
       "classes": [
         {
@@ -3557,6 +3570,170 @@
       ],
       "mixinAnchors": [],
       "baselineSha256": "d8fda44684f245a025da884f4f8d6972b59784a58275e1aec94d96c1c4534be4"
+    },
+    "sdl-dialog-safe-v1": {
+      "kind": "filePicker",
+      "epochs": [
+        "26.3"
+      ],
+      "classes": [
+        {
+          "name": "org.lwjgl.sdl.SDLDialog",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "SDL_ShowFileDialogWithProperties",
+              "descriptor": "(ILorg/lwjgl/sdl/SDL_DialogFileCallbackI;JI)V",
+              "access": "public static",
+              "finality": "static"
+            }
+          ]
+        },
+        {
+          "name": "org.lwjgl.sdl.SDLProperties",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "SDL_CreateProperties",
+              "descriptor": "()I",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "SDL_SetPointerProperty",
+              "descriptor": "(ILjava/lang/CharSequence;J)Z",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "SDL_SetStringProperty",
+              "descriptor": "(ILjava/lang/CharSequence;Ljava/lang/CharSequence;)Z",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "SDL_SetNumberProperty",
+              "descriptor": "(ILjava/lang/CharSequence;J)Z",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "SDL_SetBooleanProperty",
+              "descriptor": "(ILjava/lang/CharSequence;Z)Z",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "SDL_DestroyProperties",
+              "descriptor": "(I)V",
+              "access": "public static",
+              "finality": "static"
+            }
+          ]
+        },
+        {
+          "name": "org.lwjgl.sdl.SDL_DialogFileCallback",
+          "access": "public",
+          "finality": "abstract",
+          "members": [
+            {
+              "kind": "method",
+              "name": "create",
+              "descriptor": "(Lorg/lwjgl/sdl/SDL_DialogFileCallbackI;)Lorg/lwjgl/sdl/SDL_DialogFileCallback;",
+              "access": "public static",
+              "finality": "static"
+            }
+          ]
+        },
+        {
+          "name": "org.lwjgl.sdl.SDL_DialogFileFilter",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "calloc",
+              "descriptor": "(I)Lorg/lwjgl/sdl/SDL_DialogFileFilter$Buffer;",
+              "access": "public static",
+              "finality": "static"
+            }
+          ]
+        },
+        {
+          "name": "org.lwjgl.system.MemoryUtil",
+          "access": "public",
+          "finality": "final",
+          "members": [
+            {
+              "kind": "method",
+              "name": "memFree",
+              "descriptor": "(Ljava/nio/Buffer;)V",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "memGetAddress",
+              "descriptor": "(J)J",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "memUTF8",
+              "descriptor": "(Ljava/lang/CharSequence;)Ljava/nio/ByteBuffer;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "memUTF8",
+              "descriptor": "(J)Ljava/lang/String;",
+              "access": "public static",
+              "finality": "static"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.Minecraft",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getWindow",
+              "descriptor": "()Lcom/mojang/blaze3d/platform/Window;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "com.mojang.blaze3d.platform.Window",
+          "access": "public",
+          "finality": "final",
+          "members": [
+            {
+              "kind": "method",
+              "name": "handle",
+              "descriptor": "()J",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "38f760b395b4caf703a9565873bbd6cdb540b60827c169129aba737529e0dacd"
     },
     "resource-stack-bundled": {
       "kind": "bundledSkin",
@@ -6393,12 +6570,18 @@
         "net.minecraft.resources.Identifier": "529cb52af47fc2ac3f4fd01c53f2a8e557c6ef5998146ef6e0d0e5fa4d4cb9e5"
       },
       "avatar-pip-extraction-simple-model-no-attack-time": {
+        "com.mojang.blaze3d.vertex.PoseStack": "6683dfa8edb88503021316bab68e666e9ea88bda6ef358f00739f740716d428d",
         "net.minecraft.client.gui.render.pip.PictureInPictureRenderer": "6a9d3d974cc9402121492550500ab95e51108e1f6867d1cc668aaac51c2c5a83",
         "net.minecraft.client.renderer.entity.state.AvatarRenderState": "eccf7439bea35dce21d35cea1caf3586654bbf27e0e02b8aa232e5241c29463e"
       },
-      "tinyfd-safe-v1": {
-        "org.lwjgl.system.MemoryStack": "c75319347cbce9b7c10216fa081bed715b2a27eef750a606964617590eefb571",
-        "org.lwjgl.util.tinyfd.TinyFileDialogs": "8e613d1a6fe780af9583bf1cd52ef1dfd0480a51f3197d88374e4abd558c3e27"
+      "sdl-dialog-safe-v1": {
+        "com.mojang.blaze3d.platform.Window": "97b3aa55db8946ab4575c926123aa9c694f814be0559eebae3a9ef3cbc901818",
+        "net.minecraft.client.Minecraft": "6379ce2dd525cb117f3de782140f6980a707eb06e24ab30eb28c6ee246e053bd",
+        "org.lwjgl.sdl.SDLDialog": "96d843b9ae17a4daecb52236941ca837d110a27dd75d8d6dbd88de27e7736fab",
+        "org.lwjgl.sdl.SDLProperties": "9798625593db8bcd08e8a5d86a1cb52d12dd248a8c60d62e86d661fe7ad4adef",
+        "org.lwjgl.sdl.SDL_DialogFileCallback": "cf775d16d179b6bd0f722f172e5432a34f8f0e2b40bcb54f53c50f2e0d17f50f",
+        "org.lwjgl.sdl.SDL_DialogFileFilter": "e6c1061a18b77858f694ae1de0695900a7fb34550733f6b00733d2f45c9ca08d",
+        "org.lwjgl.system.MemoryUtil": "4192998cb1a02703ef6e97f9d089e79bb79996d82429b04b43e6be48463c5551"
       },
       "avatar-state-current-player": {
         "net.minecraft.client.player.AbstractClientPlayer": "ef92852825cca6c81ca17a817ccf8b9f47c8e5fdd93e55fca2ff025b4b8b1da5",

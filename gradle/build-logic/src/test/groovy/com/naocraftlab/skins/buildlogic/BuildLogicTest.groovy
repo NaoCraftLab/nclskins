@@ -2,9 +2,11 @@ package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import org.gradle.api.GradleException
 import org.junit.jupiter.api.Test
 
 import javax.imageio.ImageIO
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.regex.Pattern
@@ -22,7 +24,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(20, catalog.schemaVersion)
+        assertEquals(21, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
@@ -92,12 +94,101 @@ final class BuildLogicTest {
                 .contains('actor-receives-no-respawn-or-self-refresh'))
         Map experimental = catalog.targets.find { it.id == 'fabric-26.3' } as Map
         assertFalse(experimental.releaseEligible as boolean)
-        assertEquals('26.3-snapshot-8', CatalogTools.minecraftCompileVersion(experimental))
-        assertEquals('26.3-alpha.8', experimental.minecraft.runtimeVersion)
+        assertEquals('26.3-snapshot-10', CatalogTools.minecraftCompileVersion(experimental))
+        assertEquals('26.3-alpha.10', experimental.minecraft.runtimeVersion)
         assertEquals('26.3-alpha.7', experimental.minecraft.minimumRuntimeVersion)
         assertEquals('>=26.3-alpha.7', experimental.minecraft.predicate)
-        assertEquals('0.157.1+26.3', experimental.loader.apiVersion)
+        assertEquals('0.158.2+26.3', experimental.loader.apiVersion)
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void sqliteDevelopmentRuntimeIsExactAndExperimentalClientOnly() {
+        Map experimental = CatalogTools.selectTarget(catalog, 'fabric-26.3')
+        Map artifact = CatalogTools.optionalDevelopmentArtifact(
+                catalog, experimental, 'sqlite_jdbc')
+        assertEquals([
+                coordinate              : 'maven.modrinth:bTTf2DEw:EEE7nXWy',
+                projectId               : 'bTTf2DEw',
+                versionId               : 'EEE7nXWy',
+                version                 : '3.53.2.0+2026-06-06',
+                fabricModId             : 'sqlite-jdbc',
+                file                    : 'sqlite-jdbc-3.53.2.0+2026-06-06-all.jar',
+                size                    : 11997526,
+                sha1                    : '1a44c752f0c14c48d22f5c8d9ab6f893a7224d53',
+                sha512                  : 'a25c390539aa7063d764b32efcfa1a03c3037e8b15e589374b7f523bec13712110adbd445f6d8909093149a0313dbbcba836569517c332397d2b16ea8917dd3d',
+                declaredMinecraftMaximum: '26.1.2'
+        ], artifact)
+        assertNull(CatalogTools.optionalDevelopmentArtifact(
+                catalog, CatalogTools.selectTarget(catalog, 'fabric-26.2'), 'sqlite_jdbc'))
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.optionalDevelopmentArtifact(catalog, experimental, 'unknown')
+        }
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.optionalDevelopmentArtifact(catalog, [id: 'fabric-unknown'], 'sqlite_jdbc')
+        }
+
+        Map dynamic = cloneMap(catalog)
+        dynamic.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].coordinate =
+                'maven.modrinth:bTTf2DEw:latest'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, dynamic) }
+
+        Map wrongHash = cloneMap(catalog)
+        wrongHash.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].sha1 =
+                '0' * 39
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, wrongHash) }
+
+        Map releasedTarget = cloneMap(catalog)
+        releasedTarget.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.2'] =
+                cloneMap(artifact)
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, releasedTarget) }
+
+        String fabric = new File(repository, 'gradle/loader-conventions/fabric.gradle').text
+        assertTrue(fabric.contains("configurations.create('nclskinsSqliteClientRuntime')"))
+        assertTrue(fabric.contains("tasks.register('verifySqliteClientRuntime')"))
+        assertTrue(fabric.contains("it.name in ['runClient', 'runClientLicensed']"))
+        assertTrue(fabric.contains('candidate.classpath(sqliteClientRuntime)'))
+        assertFalse(fabric.contains("tasks.named('runServer').classpath(sqliteClientRuntime)"))
+        assertFalse(fabric.contains('org.xerial:sqlite-jdbc'))
+        assertFalse(fabric.contains('maven.modrinth:sqlite-jdbc'))
+    }
+
+    @Test
+    void externalDevelopmentArtifactIntegrityFailsClosed() {
+        Path archive = Files.createTempFile('nclskins-sqlite-integrity-', '.jar')
+        new ZipOutputStream(Files.newOutputStream(archive)).withCloseable { ZipOutputStream zip ->
+            zip.putNextEntry(new ZipEntry('fabric.mod.json'))
+            zip.write('{"schemaVersion":1,"id":"sqlite_jdbc","version":"test"}'
+                    .getBytes(StandardCharsets.UTF_8))
+            zip.closeEntry()
+            zip.putNextEntry(new ZipEntry('org/sqlite/JDBC.class'))
+            zip.write(new byte[]{1, 2, 3})
+            zip.closeEntry()
+            zip.putNextEntry(new ZipEntry('META-INF/services/java.sql.Driver'))
+            zip.write('org.sqlite.JDBC\n'.getBytes(StandardCharsets.UTF_8))
+            zip.closeEntry()
+        }
+        File file = archive.toFile()
+        Map expected = [
+                size: file.length(),
+                sha1: ReleaseBundle.sha1(file),
+                sha512: ReleaseBundle.sha512(file),
+                fabricModId: 'sqlite_jdbc',
+                version: 'test'
+        ]
+        ExternalArtifactIntegrity.verify(file, expected)
+
+        Map wrongSize = new LinkedHashMap(expected)
+        wrongSize.size = file.length() + 1
+        assertThrows(GradleException) {
+            ExternalArtifactIntegrity.verify(file, wrongSize)
+        }
+
+        Map wrongChecksum = new LinkedHashMap(expected)
+        wrongChecksum.sha512 = '0' * 128
+        assertThrows(GradleException) {
+            ExternalArtifactIntegrity.verify(file, wrongChecksum)
+        }
     }
 
     @Test
@@ -615,15 +706,15 @@ final class BuildLogicTest {
         mismatchedLoader.targets.find { it.id == 'fabric-26.2' }.loader.predicate = '>=0.19.0'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedLoader) }
         Map exactSnapshot = cloneMap(catalog)
-        exactSnapshot.targets.find { it.id == 'fabric-26.3' }.minecraft.predicate = '26.3-alpha.8'
+        exactSnapshot.targets.find { it.id == 'fabric-26.3' }.minecraft.predicate = '26.3-alpha.10'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, exactSnapshot) }
         Map mismatchedSnapshotAlias = cloneMap(catalog)
         mismatchedSnapshotAlias.targets.find { it.id == 'fabric-26.3' }.minecraft.runtimeVersion = '26.3-alpha.7'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedSnapshotAlias) }
         Map futureSnapshotFloor = cloneMap(catalog)
         Map futureMinecraft = futureSnapshotFloor.targets.find { it.id == 'fabric-26.3' }.minecraft
-        futureMinecraft.minimumRuntimeVersion = '26.3-alpha.9'
-        futureMinecraft.predicate = '>=26.3-alpha.9'
+        futureMinecraft.minimumRuntimeVersion = '26.3-alpha.11'
+        futureMinecraft.predicate = '>=26.3-alpha.11'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, futureSnapshotFloor) }
     }
 

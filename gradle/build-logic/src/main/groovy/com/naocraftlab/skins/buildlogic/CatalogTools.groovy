@@ -377,6 +377,24 @@ final class CatalogTools {
         raw == null ? null : raw.toString()
     }
 
+    static Map optionalDevelopmentArtifact(Map catalog, Map target, String dependencyId) {
+        Map dependencies = catalog.optionalDependencies instanceof Map
+                ? catalog.optionalDependencies as Map : [:]
+        if (!dependencies.containsKey(dependencyId)) {
+            throw new IllegalArgumentException("unknown optional dependency: ${dependencyId}")
+        }
+        String targetId = target.id?.toString()
+        if (!(catalog.targets instanceof List) ||
+                !(catalog.targets as List).any { it.id?.toString() == targetId }) {
+            throw new IllegalArgumentException("unknown target for optional dependency: ${targetId}")
+        }
+        Map declaration = dependencies[dependencyId] as Map
+        Map artifacts = declaration.developmentArtifacts instanceof Map
+                ? declaration.developmentArtifacts as Map : [:]
+        Object raw = artifacts[targetId]
+        raw == null ? null : raw as Map
+    }
+
     static String parchmentVersion(Map catalog, Map target) {
         Map declaration = parchmentDeclaration(catalog, target)
         Object raw = declaration?.version
@@ -430,7 +448,7 @@ final class CatalogTools {
                 'optionalDependencies', 'publicationDependencies',
                 'serverPlugin', 'serverPluginRuntimes', 'serverPluginTopologies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 20) {
+        if (catalog.schemaVersion != 21) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -505,7 +523,10 @@ final class CatalogTools {
             Map sqlite = optionalDependencies.sqlite_jdbc instanceof Map
                     ? optionalDependencies.sqlite_jdbc as Map : [:]
             Map sqlitePredicates = sqlite.predicates instanceof Map ? sqlite.predicates as Map : [:]
-            if ((sqlite.keySet() as Set) != ['side', 'predicates'] as Set
+            Map sqliteDevelopment = sqlite.developmentArtifacts instanceof Map
+                    ? sqlite.developmentArtifacts as Map : [:]
+            Set targetIds = (catalog.targets as List).collect { it.id.toString() } as Set
+            if ((sqlite.keySet() as Set) != ['side', 'predicates', 'developmentArtifacts'] as Set
                     || sqlite.side != 'client'
                     || (sqlitePredicates.keySet() as Set) != LoaderBackend.ids() as Set
                     || !(sqlitePredicates.fabric ==~ />=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)
@@ -513,10 +534,42 @@ final class CatalogTools {
                     || !(sqlitePredicates.neoforge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)) {
                 errors.add('sqlite_jdbc must define explicit Fabric, Forge and NeoForge ranges')
             }
+            if (sqliteDevelopment.isEmpty() ||
+                    !(targetIds.containsAll(sqliteDevelopment.keySet() as Set))) {
+                errors.add('sqlite_jdbc development artifacts must target known catalog targets')
+            } else {
+                sqliteDevelopment.each { Object targetId, Object rawArtifact ->
+                    Map artifact = rawArtifact instanceof Map ? rawArtifact as Map : [:]
+                    Map target = (catalog.targets as List).find {
+                        it.id.toString() == targetId.toString()
+                    } as Map
+                    Set artifactKeys = [
+                            'coordinate', 'projectId', 'versionId', 'version', 'fabricModId',
+                            'file', 'size',
+                            'sha1', 'sha512', 'declaredMinecraftMaximum'
+                    ] as Set
+                    String expectedCoordinate = artifact.projectId instanceof String &&
+                            artifact.versionId instanceof String
+                            ? "maven.modrinth:${artifact.projectId}:${artifact.versionId}" : null
+                    if ((artifact.keySet() as Set) != artifactKeys ||
+                            target?.loader?.id != 'fabric' || target?.releaseEligible != false ||
+                            artifact.coordinate != expectedCoordinate ||
+                            !(artifact.projectId ==~ /[A-Za-z0-9]{8}/) ||
+                            !(artifact.versionId ==~ /[A-Za-z0-9]{8}/) ||
+                            !(artifact.version ==~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\+[0-9]{4}-[0-9]{2}-[0-9]{2}/) ||
+                            artifact.fabricModId != 'sqlite-jdbc' ||
+                            artifact.file != "sqlite-jdbc-${artifact.version}-all.jar" ||
+                            !(artifact.size instanceof Number) || (artifact.size as long) <= 0 ||
+                            !(artifact.sha1 ==~ /[0-9a-f]{40}/) ||
+                            !(artifact.sha512 ==~ /[0-9a-f]{128}/) ||
+                            !(artifact.declaredMinecraftMaximum ==~ /[0-9]+\.[0-9]+(?:\.[0-9]+)?/)) {
+                        errors.add("${targetId}: invalid sqlite_jdbc development artifact")
+                    }
+                }
+            }
             Map yacl = optionalDependencies.yet_another_config_lib_v3 instanceof Map
                     ? optionalDependencies.yet_another_config_lib_v3 as Map : [:]
             Map versions = yacl.versions instanceof Map ? yacl.versions as Map : [:]
-            Set targetIds = (catalog.targets as List).collect { it.id.toString() } as Set
             if ((yacl.keySet() as Set) != ['side', 'versions'] as Set
                     || yacl.side != 'client'
                     || (versions.keySet() as Set) != targetIds

@@ -64,6 +64,8 @@ final class UpdateCatalogTest {
         assertTrue(selector.select(
                 catalog, "fabric-1.21.1", "1.0.0-alpha.1", UpdateChannel.ALPHA).isEmpty());
         assertTrue(selector.select(
+                catalog, "fabric-26.3", "1.0.0-beta.3", UpdateChannel.ALPHA).isEmpty());
+        assertTrue(selector.select(
                 catalog, "fabric-26.2", "1.0.0-beta.3", UpdateChannel.ALPHA).isEmpty());
         assertTrue(selector.select(
                 catalog, "fabric-26.2", "1.0.0", UpdateChannel.ALPHA).isEmpty());

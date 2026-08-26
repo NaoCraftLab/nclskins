@@ -499,7 +499,7 @@ final class SemanticVerifier {
                 appearance       : ['implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>'],
                 session          : ['implements GameSessionTokenSource'],
                 clientExecutor   : ['implements ClientExecutor'],
-            filePicker: ['implements FilePicker', 'FilePickerCoordinator', 'new FilePickerCoordinator(', 'COORDINATOR.choose('],
+            filePicker: ['implements FilePicker', 'FilePickerCoordinator', 'new FilePickerCoordinator(', 'COORDINATOR.choose'],
                 bundledSkin      : ['implements SkinCatalogSource'],
                 currentAppearance: ['implements CurrentPlayerAppearanceSource'],
             serverSignal: ['implements ServerAppearanceRefreshNotifier', 'activeConnectionGeneration()', 'requestOfficialProfileRefresh()', 'currentConnection()', 'AppearanceRefresh'],

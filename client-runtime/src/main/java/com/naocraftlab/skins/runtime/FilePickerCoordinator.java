@@ -34,6 +34,21 @@ public final class FilePickerCoordinator {
         return choose(dialog, SelectionType.SQLITE_DATABASE);
     }
 
+    public CompletableFuture<Optional<Path>> chooseAsync(
+            AsyncDialog dialog, Executor starter) {
+        return chooseAsync(dialog, SelectionType.PNG, starter);
+    }
+
+    public CompletableFuture<Optional<Path>> chooseDirectoryAsync(
+            AsyncDialog dialog, Executor starter) {
+        return chooseAsync(dialog, SelectionType.DIRECTORY, starter);
+    }
+
+    public CompletableFuture<Optional<Path>> chooseSqliteDatabaseAsync(
+            AsyncDialog dialog, Executor starter) {
+        return chooseAsync(dialog, SelectionType.SQLITE_DATABASE, starter);
+    }
+
     private CompletableFuture<Optional<Path>> choose(Dialog dialog, SelectionType selectionType) {
         return choose(dialog, selectionType, worker);
     }
@@ -66,6 +81,55 @@ public final class FilePickerCoordinator {
                             pickerCouldNotStart(selectionType),
                             schedulingFailure));
         }
+    }
+
+    private CompletableFuture<Optional<Path>> chooseAsync(
+            AsyncDialog dialog, SelectionType selectionType, Executor starter) {
+        Objects.requireNonNull(dialog, "dialog");
+        Objects.requireNonNull(selectionType, "selectionType");
+        Objects.requireNonNull(starter, "starter");
+        if (!dialogOpen.compareAndSet(false, true)) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("A system file picker is already open"));
+        }
+        CompletableFuture<Optional<Path>> result = new CompletableFuture<>();
+        try {
+            starter.execute(() -> {
+                final CompletableFuture<Optional<Path>> opened;
+                try {
+                    opened = Objects.requireNonNull(dialog.open(), "dialog result");
+                } catch (LinkageError | RuntimeException failure) {
+                    dialogOpen.set(false);
+                    result.completeExceptionally(new IllegalStateException(
+                            pickerUnavailable(selectionType), failure));
+                    return;
+                }
+                opened.whenComplete((selection, failure) -> {
+                    try {
+                        if (failure instanceof Error error) {
+                            result.completeExceptionally(error);
+                            throw error;
+                        }
+                        if (failure != null) {
+                            result.completeExceptionally(new IllegalStateException(
+                                    pickerUnavailable(selectionType), failure));
+                        } else {
+                            result.complete(validate(selection, selectionType));
+                        }
+                    } catch (LinkageError | RuntimeException validationFailure) {
+                        result.completeExceptionally(new IllegalStateException(
+                                pickerUnavailable(selectionType), validationFailure));
+                    } finally {
+                        dialogOpen.set(false);
+                    }
+                });
+            });
+        } catch (RuntimeException schedulingFailure) {
+            dialogOpen.set(false);
+            result.completeExceptionally(new IllegalStateException(
+                    pickerCouldNotStart(selectionType), schedulingFailure));
+        }
+        return result;
     }
 
     private static Optional<Path> validate(
@@ -119,5 +183,10 @@ public final class FilePickerCoordinator {
     @FunctionalInterface
     public interface Dialog {
         Optional<Path> open();
+    }
+
+    @FunctionalInterface
+    public interface AsyncDialog {
+        CompletableFuture<Optional<Path>> open();
     }
 }
