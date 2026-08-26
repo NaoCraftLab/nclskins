@@ -1478,7 +1478,11 @@ final class CatalogTools {
         }
     }
 
-    static Map<String, Set<String>> classifyAffected(File repositoryRoot, Map catalog, Collection<String> rawPaths) {
+    static Map<String, Set<String>> classifyAffected(
+            File repositoryRoot,
+            Map catalog,
+            Collection<String> rawPaths,
+            Collection<Map> historicalCatalogs = []) {
         Map<String, Set<String>> affected = [:].withDefault { [] as Set }
         List targets = catalog.targets as List
         Set<String> targetIds = targets.collect { it.id.toString() } as Set
@@ -1490,10 +1494,20 @@ final class CatalogTools {
             it.substring(0, it.length() - '/src/main'.length()) + '/build.gradle'
         } as Set<String>
         Map<String, Set<String>> sourceOwners = [:].withDefault { [] as Set }
-        targets.each { Object raw ->
-            Map target = raw as Map
-            resolveTargetSources(repositoryRoot, catalog, target).java.each { String root -> sourceOwners[root].add(target.id.toString()) }
-            resolveTargetSources(repositoryRoot, catalog, target).resources.each { String root -> sourceOwners[root].add(target.id.toString()) }
+        Map<String, Set<String>> historicalSourceOwners = [:].withDefault { [] as Set }
+        Closure<Void> collectSourceOwners = { Map sourceCatalog, Map<String, Set<String>> owners ->
+            (sourceCatalog.targets as List).each { Object raw ->
+                Map target = raw as Map
+                String targetId = target.id.toString()
+                if (!targetIds.contains(targetId)) return
+                Map sources = resolveTargetSources(repositoryRoot, sourceCatalog, target)
+                (sources.java as List).each { String root -> owners[root].add(targetId) }
+                (sources.resources as List).each { String root -> owners[root].add(targetId) }
+            }
+        }
+        collectSourceOwners(catalog, sourceOwners)
+        historicalCatalogs.each { Map historicalCatalog ->
+            collectSourceOwners(historicalCatalog, historicalSourceOwners)
         }
         rawPaths.each { String raw ->
             String path = raw.startsWith('./') ? raw.substring(2) : raw
@@ -1531,6 +1545,13 @@ final class CatalogTools {
                 matches.each { affected[it].add('source') }
                 return
             }
+            List historicalMatches = historicalSourceOwners.findAll { String root, Set owners ->
+                path == root || path.startsWith(root + '/')
+            }.collectMany { it.value as List }
+            if (historicalMatches) {
+                historicalMatches.each { affected[it].add('historical-source') }
+                return
+            }
             if (path.startsWith('compat/capabilities/') &&
                     !new File(repositoryRoot, path).exists()) {
                 targetIds.each { affected[it].add('removed-capability-source') }
@@ -1555,8 +1576,13 @@ final class CatalogTools {
         affected
     }
 
-    static Map affectedResult(File repositoryRoot, Map catalog, Collection<String> rawPaths) {
-        Map<String, Set<String>> reasons = classifyAffected(repositoryRoot, catalog, rawPaths)
+    static Map affectedResult(
+            File repositoryRoot,
+            Map catalog,
+            Collection<String> rawPaths,
+            Collection<Map> historicalCatalogs = []) {
+        Map<String, Set<String>> reasons = classifyAffected(
+                repositoryRoot, catalog, rawPaths, historicalCatalogs)
         List<String> ids = (catalog.targets as List).collect { it.id.toString() }.findAll { reasons.containsKey(it) && !reasons[it].isEmpty() }
         [paths: rawPaths as List, targetIds: ids, reasons: reasons.collectEntries { String id, Set<String> values -> [id, values.sort()] }]
     }

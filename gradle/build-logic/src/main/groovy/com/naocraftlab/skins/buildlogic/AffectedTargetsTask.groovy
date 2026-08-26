@@ -1,12 +1,11 @@
 package com.naocraftlab.skins.buildlogic
 
 import org.gradle.api.DefaultTask
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
-import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 
 abstract class AffectedTargetsTask extends DefaultTask {
@@ -25,8 +24,13 @@ abstract class AffectedTargetsTask extends DefaultTask {
     @TaskAction
     void report() {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
-        List<String> paths = changedPaths(fromRef.orNull, toRef.orNull)
-        Map result = CatalogTools.affectedResult(repositoryDirectory.get().asFile, catalog, paths)
+        File repository = repositoryDirectory.get().asFile
+        String from = fromRef.orNull
+        List<String> paths = changedPaths(from, toRef.orNull)
+        List<Map> historicalCatalogs = from == null
+                ? [] : [ReleaseSelection.catalogAtRef(repository, from)]
+        Map result = CatalogTools.affectedResult(
+                repository, catalog, paths, historicalCatalogs)
         println CatalogTools.json(result)
     }
 

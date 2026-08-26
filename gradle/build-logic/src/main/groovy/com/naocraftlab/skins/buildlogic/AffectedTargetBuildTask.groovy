@@ -12,8 +12,13 @@ abstract class AffectedTargetBuildTask extends TargetBuildTask {
 
     @Override
     List<String> selectedTargetIds(Map catalog) {
-        List<String> paths = changedPaths(fromRef.orNull, toRef.orNull)
-        Map classified = CatalogTools.affectedResult(repositoryDirectory.get().asFile, catalog, paths)
+        File repository = repositoryDirectory.get().asFile
+        String from = fromRef.orNull
+        List<String> paths = changedPaths(from, toRef.orNull)
+        List<Map> historicalCatalogs = from == null
+                ? [] : [ReleaseSelection.catalogAtRef(repository, from)]
+        Map classified = CatalogTools.affectedResult(
+                repository, catalog, paths, historicalCatalogs)
         classified.targetIds as List<String>
     }
 

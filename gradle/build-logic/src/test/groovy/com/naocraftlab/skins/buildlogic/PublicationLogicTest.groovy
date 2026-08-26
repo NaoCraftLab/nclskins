@@ -61,6 +61,10 @@ final class PublicationLogicTest {
             ReleaseSelection.git(fixture, ['init', '--quiet'])
             ReleaseSelection.git(fixture, ['config', 'user.name', 'NCL Skins Test'])
             ReleaseSelection.git(fixture, ['config', 'user.email', 'test@invalid.example'])
+            File catalogFile = new File(fixture, 'gradle/targets.json')
+            assertTrue(catalogFile.parentFile.mkdirs())
+            Files.writeString(catalogFile.toPath(), JsonOutput.prettyPrint(
+                    JsonOutput.toJson(catalog)) + '\n')
             File marker = new File(fixture, 'targets/1.20.1/forge/marker.txt')
             assertTrue(marker.parentFile.mkdirs())
             Files.writeString(marker.toPath(), 'first\n')
@@ -80,6 +84,71 @@ final class PublicationLogicTest {
                     selection.sourceCommit)
             assertEquals('1.0.0-alpha.1', selection.baseTag)
             assertEquals(['forge-1.20.1'], selection.targetIds)
+        } finally {
+            fixture.deleteDir()
+        }
+    }
+
+    @Test
+    void tagSelectionMapsRemovedLoaderSourcesThroughNearestTagCatalog() {
+        File fixture = Files.createTempDirectory('nclskins-retired-source-selection-').toFile()
+        try {
+            ReleaseSelection.git(fixture, ['init', '--quiet'])
+            ReleaseSelection.git(fixture, ['config', 'user.name', 'NCL Skins Test'])
+            ReleaseSelection.git(fixture, ['config', 'user.email', 'test@invalid.example'])
+
+            Map previousCatalog = CatalogTools.materialize(catalog) as Map
+            Map previousBundles = previousCatalog.sourceBundles as Map
+            Map previousBundle = new LinkedHashMap(
+                    previousBundles['avatar-pip-submission-fabric'] as Map)
+            previousBundle.java = ['loader/fabric/pip-1.21.11/src/main/java']
+            previousBundle.resources = ['loader/fabric/pip-1.21.11/src/main/resources']
+            previousBundles['avatar-pip-submission-fabric'] = previousBundle
+
+            File catalogFile = new File(fixture, 'gradle/targets.json')
+            assertTrue(catalogFile.parentFile.mkdirs())
+            Files.writeString(catalogFile.toPath(), JsonOutput.prettyPrint(
+                    JsonOutput.toJson(previousCatalog)) + '\n')
+            File retired = new File(fixture,
+                    'loader/fabric/pip-1.21.11/src/main/java/example/GuiRendererMixin.java')
+            assertTrue(retired.parentFile.mkdirs())
+            Files.writeString(retired.toPath(), 'final class GuiRendererMixin {}\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'previous'])
+            ReleaseSelection.git(fixture, ['tag', '1.0.0-beta.2'])
+
+            Files.writeString(catalogFile.toPath(), JsonOutput.prettyPrint(
+                    JsonOutput.toJson(catalog)) + '\n')
+            assertTrue(retired.delete())
+            File replacement = new File(fixture,
+                    'loader/fabric/pip-submission/src/main/java/example/GuiRendererMixin.java')
+            assertTrue(replacement.parentFile.mkdirs())
+            Files.writeString(replacement.toPath(), 'final class GuiRendererMixin {}\n')
+            ReleaseSelection.git(fixture, ['add', '-A'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'current'])
+            ReleaseSelection.git(fixture, ['tag', '1.0.0-beta.3'])
+
+            Map loadedPreviousCatalog = ReleaseSelection.catalogAtRef(
+                    fixture, '1.0.0-beta.2')
+            Map previousTarget = CatalogTools.selectTarget(
+                    loadedPreviousCatalog, 'fabric-1.21.11')
+            assertEquals('avatar-pip-submission-fabric', previousTarget.capabilities.preview)
+            assertEquals('avatar-pip-submission-fabric', CatalogTools.capabilityDeclaration(
+                    loadedPreviousCatalog,
+                    previousTarget.capabilities.preview.toString()).bundle)
+            assertEquals(['loader/fabric/pip-1.21.11/src/main/java'],
+                    ((loadedPreviousCatalog.sourceBundles as Map)
+                            ['avatar-pip-submission-fabric'] as Map).java)
+            assertTrue((CatalogTools.resolveTargetSources(
+                    fixture, loadedPreviousCatalog, previousTarget).java as List)
+                    .contains('loader/fabric/pip-1.21.11/src/main/java'))
+
+            Map selection = ReleaseSelection.selectTag(
+                    fixture, catalog, '1.0.0-beta.3')
+
+            assertEquals(CatalogTools.releaseTargets(catalog)*.id, selection.targetIds)
+            assertTrue((selection.reasons['fabric-1.21.11'] as List)
+                    .contains('historical-source'))
         } finally {
             fixture.deleteDir()
         }
