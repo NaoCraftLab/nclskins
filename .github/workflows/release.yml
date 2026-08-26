@@ -28,14 +28,14 @@ concurrency:
 
 jobs:
   backfill-assets:
-    name: Fetch existing GitHub Release assets
+    name: Fetch existing GitHub production assets
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - name: Download existing release assets
+      - name: Download existing production-only release assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -196,7 +196,7 @@ jobs:
           printf 'catalog_source_commit=%s\n' "$CATALOG_SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
           printf 'prerelease=%s\n' "$(jq -er '.prerelease' "$metadata")" >> "$GITHUB_OUTPUT"
 
-      - name: Download existing GitHub assets for backfill
+      - name: Download existing GitHub production assets for backfill
         if: steps.release.outputs.mode == 'backfill' || steps.release.outputs.mode == 'reconcile-tag'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

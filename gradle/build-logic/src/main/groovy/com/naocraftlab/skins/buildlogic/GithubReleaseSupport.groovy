@@ -2,7 +2,7 @@ package com.naocraftlab.skins.buildlogic
 
 final class GithubReleaseSupport {
     static Map plan(Map manifest, List<Map> remoteAssets, Closure<String> remoteSha256) {
-        Map<String, Map> desired = (manifest.assets as List<Map>).collectEntries { Map asset ->
+        Map<String, Map> desired = desiredAssets(manifest).collectEntries { Map asset ->
             [(asset.file.toString()): asset]
         }
         Map<String, List<Map>> remoteByName = remoteAssets.groupBy { it.name?.toString() ?: '' }
@@ -33,6 +33,12 @@ final class GithubReleaseSupport {
             }
         }
         [actions: actions, conflicts: actions.findAll { it.action == 'conflict' }]
+    }
+
+    static List<Map> desiredAssets(Map manifest) {
+        (manifest.assets as List<Map>).findAll { Map asset ->
+            asset.kind in ['mod', 'server-plugin']
+        }
     }
 
     private static String requiredId(Map remote) {

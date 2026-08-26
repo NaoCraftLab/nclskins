@@ -535,6 +535,23 @@ def validateRelease = tasks.register('validateRelease', ValidateReleaseTask) {
     outputs.upToDateWhen { false }
 }
 
+def materializeHistoricalReleaseSources = tasks.register(
+        'materializeHistoricalReleaseSources', MaterializeHistoricalReleaseSourcesTask) {
+    group = 'release setup'
+    description = 'Builds exact-tag source JARs for existing compatibility-backfill binaries.'
+    onlyIf { requestedReleaseMode == 'backfill' }
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
+    releaseTag.set(requestedReleaseTag ?: '')
+    if (requestedExistingReleaseAssets != null) {
+        existingAssetsDirectory.set(layout.projectDirectory.dir(requestedExistingReleaseAssets))
+    }
+    sourcesDirectory.set(layout.buildDirectory.dir(
+            "historical-release-sources/${requestedReleaseTag ?: 'unspecified'}"))
+    outputs.upToDateWhen { false }
+}
+
 tasks.register('assembleRelease', AssembleReleaseTask) {
     group = 'release'
     description = 'Runs the full gate and assembles a tag or backfill publication bundle.'
@@ -551,6 +568,11 @@ tasks.register('assembleRelease', AssembleReleaseTask) {
     releaseMode.set(requestedReleaseMode)
     if (requestedExistingReleaseAssets != null) {
         existingAssetsDirectory.set(layout.projectDirectory.dir(requestedExistingReleaseAssets))
+    }
+    if (requestedReleaseMode == 'backfill') {
+        dependsOn materializeHistoricalReleaseSources
+        historicalSourcesDirectory.set(
+                materializeHistoricalReleaseSources.flatMap { it.sourcesDirectory })
     }
     releaseRoot.set(layout.buildDirectory.dir('release'))
     outputs.upToDateWhen { false }

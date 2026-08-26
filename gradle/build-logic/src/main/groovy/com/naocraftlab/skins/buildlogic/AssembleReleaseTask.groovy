@@ -43,6 +43,10 @@ abstract class AssembleReleaseTask extends DefaultTask {
     @InputDirectory
     abstract DirectoryProperty getExistingAssetsDirectory()
 
+    @Optional
+    @InputDirectory
+    abstract DirectoryProperty getHistoricalSourcesDirectory()
+
     @OutputDirectory
     abstract DirectoryProperty getReleaseRoot()
 
@@ -87,6 +91,10 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
         File existingDirectory = mode == 'tag' ? null : requiredExistingAssetsDirectory()
         validateExistingAssetSet(existingDirectory, catalog, metadata.version.toString())
+        Map<String, File> historicalSources = mode == 'backfill'
+                ? requiredHistoricalSources(
+                        repository, existingDirectory, catalog, metadata.version.toString())
+                : null
 
         File versionDirectory = ReleaseMetadata.write(releaseRoot.get().asFile, metadata)
         File assetsDirectory = new File(versionDirectory, 'assets')
@@ -105,7 +113,8 @@ abstract class AssembleReleaseTask extends DefaultTask {
             String sourcesName = sourceArtifactName(target, metadata.version.toString())
             File builtDirectory = new File(repository, "${target.path}/build/libs")
             Map<String, File> pair = targetArtifactPair(
-                    existingDirectory, builtDirectory, name, sourcesName, target.id.toString())
+                    existingDirectory, builtDirectory, historicalSources,
+                    name, sourcesName, target.id.toString())
             File destination = new File(assetsDirectory, name)
             File sourcesDestination = new File(assetsDirectory, sourcesName)
             Files.copy(pair.production.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
@@ -124,7 +133,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 repository, serverPluginPublicationCatalog(
                         repository, catalog, metadata.version.toString(), mode),
                 metadata, recomputedState, pluginNotes,
-                assetsDirectory, existingDirectory, mode != 'backfill')
+                assetsDirectory, existingDirectory, historicalSources, mode != 'backfill')
         if (serverPublication.publish == true) {
             assets.add(serverPublication.artifact)
             assets.add(serverPublication.sourcesArtifact)
@@ -175,17 +184,45 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
     static void validateExistingAssetSet(File directory, Map catalog, String version) {
         if (directory == null) return
+        if (!directory.isDirectory() || Files.isSymbolicLink(directory.toPath())) {
+            throw new IllegalStateException(
+                    "Existing GitHub release asset directory is missing or unsafe: ${directory}")
+        }
         Set<String> allowed = CatalogTools.releaseTargets(catalog)
                 .collect { artifactName(it as Map, version) } as Set<String>
-        allowed.addAll(CatalogTools.releaseTargets(catalog)
-                .collect { sourceArtifactName(it as Map, version) })
         allowed.add("nclskins-plugin-${version}.jar".toString())
-        allowed.add("nclskins-plugin-${version}-sources.jar".toString())
         directory.eachFile { File file ->
             if (!file.isFile() || Files.isSymbolicLink(file.toPath()) || !allowed.contains(file.name)) {
                 throw new IllegalStateException("Unexpected existing GitHub release asset: ${file.name}")
             }
         }
+    }
+
+    Map<String, File> requiredHistoricalSources(
+            File repository, File existingDirectory, Map catalog, String version) {
+        if (!historicalSourcesDirectory.isPresent()) {
+            throw new IllegalArgumentException(
+                    'compatibility backfill requires exact-tag historical source artifacts')
+        }
+        Set<String> expected = expectedHistoricalSourceNames(existingDirectory, catalog, version)
+        String commit = ReleaseSelection.git(
+                repository, ['rev-parse', "refs/tags/${version}^{commit}"]).trim()
+        HistoricalReleaseSources.verify(
+                historicalSourcesDirectory.get().asFile, version, commit, expected)
+    }
+
+    static Set<String> expectedHistoricalSourceNames(
+            File existingDirectory, Map catalog, String version) {
+        Set<String> expected = CatalogTools.releaseTargets(catalog).findAll { Map target ->
+            new File(existingDirectory, artifactName(target, version)).isFile()
+        }.collect { Map target -> sourceArtifactName(target, version) } as Set<String>
+        String pluginName = catalog.serverPlugin.artifact.toString()
+                .replace('{pluginVersion}', version)
+        if (new File(existingDirectory, pluginName).isFile()) {
+            expected.add(catalog.serverPlugin.sourcesArtifact.toString()
+                    .replace('{pluginVersion}', version))
+        }
+        expected
     }
 
     static Map publicationTarget(Map catalog, Map target, Map release, Map asset, Map sourcesAsset) {
@@ -248,30 +285,23 @@ abstract class AssembleReleaseTask extends DefaultTask {
     static Map<String, File> targetArtifactPair(
             File existingDirectory,
             File builtDirectory,
+            Map<String, File> historicalSources,
             String productionName,
             String sourcesName,
             String targetId) {
         File existingProduction = existingDirectory == null
                 ? null : new File(existingDirectory, productionName)
-        File existingSources = existingDirectory == null
-                ? null : new File(existingDirectory, sourcesName)
         boolean hasExistingProduction = existingProduction != null &&
                 Files.exists(existingProduction.toPath(), LinkOption.NOFOLLOW_LINKS)
-        boolean hasExistingSources = existingSources != null &&
-                Files.exists(existingSources.toPath(), LinkOption.NOFOLLOW_LINKS)
-        if (hasExistingProduction != hasExistingSources) {
-            throw new IllegalStateException(
-                    "${targetId}: existing production/source artifacts must be an exact pair")
-        }
         File production = hasExistingProduction
                 ? existingProduction : new File(builtDirectory, productionName)
-        File sources = hasExistingSources
-                ? existingSources : new File(builtDirectory, sourcesName)
+        File sources = hasExistingProduction && historicalSources != null
+                ? historicalSources[sourcesName] : new File(builtDirectory, sourcesName)
         if (!Files.isRegularFile(production.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             throw new IllegalStateException(
                     "Missing production artifact for ${targetId}: ${production}")
         }
-        if (!Files.isRegularFile(sources.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+        if (sources == null || !Files.isRegularFile(sources.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             throw new IllegalStateException(
                     "Missing sources artifact for ${targetId}: ${sources}")
         }
@@ -315,6 +345,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
             String notes,
             File assetsDirectory,
             File existingDirectory,
+            Map<String, File> historicalSources,
             boolean allowBuild) {
         Map base = [
                 publish              : state.publish,
@@ -342,10 +373,13 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 .replace('{pluginVersion}', version)
         String sourcesName = catalog.serverPlugin.sourcesArtifact.toString()
                 .replace('{pluginVersion}', version)
-        File jar = copyServerArtifact(existingDirectory, assetsDirectory,
-                jarName, new File(repository, "server-plugin/build/libs/${jarName}"), allowBuild)
-        File sources = copyServerArtifact(existingDirectory, assetsDirectory,
-                sourcesName, new File(repository, "server-plugin/build/libs/${sourcesName}"), allowBuild)
+        Map<String, File> pair = copyServerArtifactPair(
+                existingDirectory, assetsDirectory, historicalSources,
+                jarName, sourcesName,
+                new File(repository, "server-plugin/build/libs/${jarName}"),
+                new File(repository, "server-plugin/build/libs/${sourcesName}"), allowBuild)
+        File jar = pair.production
+        File sources = pair.sources
         Map artifact = assetMetadata(jar, 'server-plugin', null)
         Map sourcesArtifact = assetMetadata(sources, 'server-plugin-sources', null)
         List<String> games = serverPluginGameVersions(catalog)
@@ -429,20 +463,38 @@ abstract class AssembleReleaseTask extends DefaultTask {
         releases.sort()
     }
 
-    private static File copyServerArtifact(
-            File existingDirectory, File assetsDirectory, String name, File built, boolean allowBuild) {
-        File existing = existingDirectory == null ? null : new File(existingDirectory, name)
-        File source = existing != null && existing.isFile() ? existing : allowBuild ? built : null
-        if (source == null) {
+    static Map<String, File> copyServerArtifactPair(
+            File existingDirectory,
+            File assetsDirectory,
+            Map<String, File> historicalSources,
+            String productionName,
+            String sourcesName,
+            File builtProduction,
+            File builtSources,
+            boolean allowBuild) {
+        File existingProduction = existingDirectory == null
+                ? null : new File(existingDirectory, productionName)
+        boolean hasExistingProduction = existingProduction != null &&
+                Files.isRegularFile(existingProduction.toPath(), LinkOption.NOFOLLOW_LINKS)
+        File production = hasExistingProduction
+                ? existingProduction : allowBuild ? builtProduction : null
+        if (production == null) {
             throw new IllegalStateException(
-                    "Current-main compatibility backfill cannot create historical server plugin ${name}; " +
+                    "Current-main compatibility backfill cannot create historical server plugin ${productionName}; " +
                     'use reconcile-tag')
         }
-        if (!Files.isRegularFile(source.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            throw new IllegalStateException("Missing server plugin artifact: ${source}")
+        File sources = hasExistingProduction && historicalSources != null
+                ? historicalSources[sourcesName] : builtSources
+        if (!Files.isRegularFile(production.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("Missing server plugin artifact: ${production}")
         }
-        File destination = new File(assetsDirectory, name)
-        Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        destination
+        if (sources == null || !Files.isRegularFile(sources.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("Missing exact server plugin source artifact: ${sourcesName}")
+        }
+        File productionDestination = new File(assetsDirectory, productionName)
+        File sourcesDestination = new File(assetsDirectory, sourcesName)
+        Files.copy(production.toPath(), productionDestination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        Files.copy(sources.toPath(), sourcesDestination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        [production: productionDestination, sources: sourcesDestination]
     }
 }

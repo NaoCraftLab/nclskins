@@ -106,7 +106,14 @@ final class ReleaseLogicTest {
     @Test
     void releaseWorkflowKeepsDistinctSourceContractsForEveryMode() {
         String workflow = new File(repository, '.github/workflows/release.yml').text
+        String rootBuild = new File(repository, 'build.gradle').text
 
+        assertTrue(workflow.contains('Fetch existing GitHub production assets'))
+        assertTrue(workflow.contains('args=(assembleRelease'))
+        assertFalse(workflow.contains('./gradlew materializeHistoricalReleaseSources'))
+        assertTrue(rootBuild.contains("'materializeHistoricalReleaseSources'"))
+        assertTrue(rootBuild.contains('dependsOn materializeHistoricalReleaseSources'))
+        assertTrue(rootBuild.contains("requestedReleaseMode == 'backfill'"))
         assertTrue(workflow.contains('git checkout --detach "refs/tags/${version}"'))
         assertTrue(workflow.contains("mode='reconcile-tag'"))
         assertTrue(workflow.contains(
@@ -191,7 +198,7 @@ final class ReleaseLogicTest {
                 'gradle/build-logic/src/test/groovy/com/naocraftlab/skins/' +
                 'buildlogic/PublicationLogicTest.groovy').text
         assertTrue(publicationTests.contains(
-                'githubPlanKeepsExactAssetsAddsMissingAndProtectsBackfillJars'))
+                'githubPlanPublishesOnlyProductionAndRejectsSourceOrUnknownAssets'))
         assertTrue(publicationTests.contains('conflict.conflicts.size()'))
         String catalogTests = new File(repository,
                 'gradle/build-logic/src/test/groovy/com/naocraftlab/skins/' +

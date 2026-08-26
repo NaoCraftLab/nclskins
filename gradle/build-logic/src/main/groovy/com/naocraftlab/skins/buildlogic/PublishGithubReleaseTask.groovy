@@ -71,11 +71,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         }
         String releaseId = required(release.id, 'GitHub Release ID')
 
-        (plan.actions as List<Map>).findAll { it.action in ['delete', 'replace'] }.each { Map action ->
-            request('DELETE', "${api}/repos/${repository}/releases/assets/${action.remoteId}",
-                    headers(token), null, null, [204] as Set<Integer>, token)
-        }
-        (plan.actions as List<Map>).findAll { it.action in ['upload', 'replace'] }.each { Map action ->
+        (plan.actions as List<Map>).findAll { it.action == 'upload' }.each { Map action ->
             File asset = new File(bundle, "assets/${action.file}")
             String encodedName = URLEncoder.encode(action.file.toString(), StandardCharsets.UTF_8)
             Map uploaded = json(request(
@@ -243,7 +239,9 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         String path = System.getenv('GITHUB_STEP_SUMMARY')
         if (path == null || path.isBlank()) return
         File summary = new File(path)
-        summary << "## GitHub Release ${manifest.version}\n\n| Asset | Result |\n|---|---|\n"
+        summary << "## GitHub Release ${manifest.version} production JARs\n\n" +
+                "Individual source JARs remain in the verified bundle for marketplaces only.\n\n" +
+                "| Asset | Result |\n|---|---|\n"
         (plan.actions as List<Map>).each { Map action -> summary << "| ${action.file} | ${action.action} |\n" }
         summary << '\n'
     }

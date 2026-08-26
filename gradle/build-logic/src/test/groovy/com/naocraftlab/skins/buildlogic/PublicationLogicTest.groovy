@@ -482,7 +482,7 @@ final class PublicationLogicTest {
             IllegalStateException failure = assertThrows(IllegalStateException) {
                 AssembleReleaseTask.serverPluginPublication(
                         repository, catalog, release, state, 'Plugin changes\n',
-                        assets, existing, false)
+                        assets, existing, null, false)
             }
             assertTrue(failure.message.contains(
                     'Current-main compatibility backfill cannot create historical server plugin'))
@@ -490,6 +490,44 @@ final class PublicationLogicTest {
         } finally {
             assets.deleteDir()
             existing.deleteDir()
+        }
+    }
+
+    @Test
+    void compatibilityBackfillPairsExistingPluginWithExactTagSourcesOnly() {
+        File assets = Files.createTempDirectory('nclskins-plugin-pair-output-').toFile()
+        File existing = Files.createTempDirectory('nclskins-plugin-pair-existing-').toFile()
+        File built = Files.createTempDirectory('nclskins-plugin-pair-built-').toFile()
+        File historical = Files.createTempDirectory('nclskins-plugin-pair-historical-').toFile()
+        String productionName = "nclskins-plugin-${release.version}.jar"
+        String sourcesName = "nclskins-plugin-${release.version}-sources.jar"
+        try {
+            File existingProduction = new File(existing, productionName)
+            File builtProduction = new File(built, productionName)
+            File builtSources = new File(built, sourcesName)
+            File historicalSources = new File(historical, sourcesName)
+            existingProduction.bytes = 'existing-plugin'.bytes
+            builtProduction.bytes = 'new-main-plugin'.bytes
+            builtSources.bytes = 'new-main-sources'.bytes
+            historicalSources.bytes = 'exact-tag-sources'.bytes
+
+            Map pair = AssembleReleaseTask.copyServerArtifactPair(
+                    existing, assets, [(sourcesName): historicalSources],
+                    productionName, sourcesName, builtProduction, builtSources, false)
+            assertArrayEquals(existingProduction.bytes, pair.production.bytes)
+            assertArrayEquals(historicalSources.bytes, pair.sources.bytes)
+            assertFalse(Arrays.equals(builtSources.bytes, pair.sources.bytes))
+
+            assertThrows(IllegalStateException) {
+                AssembleReleaseTask.copyServerArtifactPair(
+                        existing, assets, [:], productionName, sourcesName,
+                        builtProduction, builtSources, false)
+            }
+        } finally {
+            assets.deleteDir()
+            existing.deleteDir()
+            built.deleteDir()
+            historical.deleteDir()
         }
     }
 
@@ -509,9 +547,10 @@ final class PublicationLogicTest {
     }
 
     @Test
-    void targetProductionAndSourcesAlwaysComeFromOneOrigin() {
+    void targetSourcesFollowTagReconcileAndBackfillOriginRules() {
         File existing = Files.createTempDirectory('nclskins-target-pair-existing-').toFile()
         File built = Files.createTempDirectory('nclskins-target-pair-built-').toFile()
+        File historical = Files.createTempDirectory('nclskins-target-pair-historical-').toFile()
         String productionName = 'nclskins-1.2.3+1.20.1-fabric.jar'
         String sourcesName = 'nclskins-1.2.3+1.20.1-fabric-sources.jar'
         try {
@@ -520,31 +559,37 @@ final class PublicationLogicTest {
             builtProduction.bytes = 'built-production'.bytes
             builtSources.bytes = 'built-sources'.bytes
             Map builtPair = AssembleReleaseTask.targetArtifactPair(
-                    existing, built, productionName, sourcesName, 'fabric-1.20.1')
+                    existing, built, null,
+                    productionName, sourcesName, 'fabric-1.20.1')
             assertEquals(builtProduction, builtPair.production)
             assertEquals(builtSources, builtPair.sources)
 
             File existingProduction = new File(existing, productionName)
             existingProduction.bytes = 'existing-production'.bytes
-            assertThrows(IllegalStateException) {
-                AssembleReleaseTask.targetArtifactPair(
-                        existing, built, productionName, sourcesName, 'fabric-1.20.1')
-            }
-            File existingSources = new File(existing, sourcesName)
-            existingSources.bytes = 'existing-sources'.bytes
-            Map existingPair = AssembleReleaseTask.targetArtifactPair(
-                    existing, built, productionName, sourcesName, 'fabric-1.20.1')
-            assertEquals(existingProduction, existingPair.production)
-            assertEquals(existingSources, existingPair.sources)
+            Map reconcilePair = AssembleReleaseTask.targetArtifactPair(
+                    existing, built, null,
+                    productionName, sourcesName, 'fabric-1.20.1')
+            assertEquals(existingProduction, reconcilePair.production)
+            assertEquals(builtSources, reconcilePair.sources)
 
-            assertTrue(existingProduction.delete())
+            File historicalSources = new File(historical, sourcesName)
+            historicalSources.bytes = 'historical-sources'.bytes
+            Map backfillPair = AssembleReleaseTask.targetArtifactPair(
+                    existing, built, [(sourcesName): historicalSources],
+                    productionName, sourcesName, 'fabric-1.20.1')
+            assertEquals(existingProduction, backfillPair.production)
+            assertEquals(historicalSources, backfillPair.sources)
+            assertNotEquals(builtSources.bytes as List, backfillPair.sources.bytes as List)
+
             assertThrows(IllegalStateException) {
                 AssembleReleaseTask.targetArtifactPair(
-                        existing, built, productionName, sourcesName, 'fabric-1.20.1')
+                        existing, built, [:],
+                        productionName, sourcesName, 'fabric-1.20.1')
             }
         } finally {
             existing.deleteDir()
             built.deleteDir()
+            historical.deleteDir()
         }
     }
 
@@ -560,13 +605,35 @@ final class PublicationLogicTest {
         File directory = Files.createTempDirectory('nclskins-backfill-assets-').toFile()
         try {
             Map target = CatalogTools.selectTarget(catalog, 'fabric-1.20.1')
-            new File(directory, AssembleReleaseTask.sourceArtifactName(
-                    target, release.version)).bytes = 'sources'.bytes
+            new File(directory, AssembleReleaseTask.artifactName(
+                    target, release.version)).bytes = 'production'.bytes
             AssembleReleaseTask.validateExistingAssetSet(directory, catalog, release.version)
+            File sources = new File(directory, AssembleReleaseTask.sourceArtifactName(
+                    target, release.version))
+            sources.bytes = 'sources'.bytes
+            assertThrows(IllegalStateException) {
+                AssembleReleaseTask.validateExistingAssetSet(directory, catalog, release.version)
+            }
+            assertTrue(sources.delete())
             new File(directory,
                     "nclskins-${release.version}+26.3-fabric.jar".toString()).bytes = 'x'.bytes
             assertThrows(IllegalStateException) {
                 AssembleReleaseTask.validateExistingAssetSet(directory, catalog, release.version)
+            }
+            assertTrue(new File(directory,
+                    "nclskins-${release.version}+26.3-fabric.jar".toString()).delete())
+            Map secondTarget = CatalogTools.selectTarget(catalog, 'forge-1.20.1')
+            File outside = File.createTempFile('nclskins-backfill-symlink-', '.jar')
+            try {
+                Files.createSymbolicLink(
+                        new File(directory, AssembleReleaseTask.artifactName(
+                                secondTarget, release.version)).toPath(), outside.toPath())
+                assertThrows(IllegalStateException) {
+                    AssembleReleaseTask.validateExistingAssetSet(
+                            directory, catalog, release.version)
+                }
+            } finally {
+                outside.delete()
             }
         } finally {
             directory.deleteDir()
@@ -614,33 +681,40 @@ final class PublicationLogicTest {
     }
 
     @Test
-    void githubPlanKeepsExactAssetsAddsMissingAndProtectsBackfillJars() {
+    void githubPlanPublishesOnlyProductionAndRejectsSourceOrUnknownAssets() {
         Map mod = [file: 'nclskins-1.2.3-fabric.jar', kind: 'mod', sha256: 'a' * 64]
         Map sources = [file: 'nclskins-1.2.3-sources.jar', kind: 'mod-sources', sha256: 'b' * 64]
-        Map manifest = [mode: 'backfill', assets: [mod, sources]]
+        Map plugin = [file: 'nclskins-plugin-1.2.3.jar', kind: 'server-plugin', sha256: 'c' * 64]
+        Map pluginSources = [file: 'nclskins-plugin-1.2.3-sources.jar',
+                             kind: 'server-plugin-sources', sha256: 'd' * 64]
+        Map manifest = [mode: 'backfill', assets: [mod, sources, plugin, pluginSources]]
         Closure<String> hash = { Map remote -> remote.sha256 }
+
+        assertEquals([mod, plugin], GithubReleaseSupport.desiredAssets(manifest))
 
         Map exact = GithubReleaseSupport.plan(manifest, [
                 [id: 1, name: mod.file, sha256: mod.sha256],
-                [id: 2, name: sources.file, sha256: sources.sha256]
+                [id: 2, name: plugin.file, sha256: plugin.sha256]
         ], hash)
         assertTrue(exact.conflicts.isEmpty())
         assertEquals(['keep', 'keep'], exact.actions*.action)
+        assertFalse(exact.actions*.file.contains(sources.file))
+        assertFalse(exact.actions*.file.contains(pluginSources.file))
 
-        Map missing = GithubReleaseSupport.plan(manifest, [
-                [id: 1, name: mod.file, sha256: mod.sha256]
-        ], hash)
-        assertEquals(['keep', 'upload'] as Set, missing.actions*.action as Set)
+        Map missing = GithubReleaseSupport.plan(manifest, [], hash)
+        assertEquals(['upload'] as Set, missing.actions*.action as Set)
+        assertEquals([mod.file, plugin.file] as Set, missing.actions*.file as Set)
 
         Map conflict = GithubReleaseSupport.plan(manifest, [
-                [id: 1, name: mod.file, sha256: 'c' * 64],
-                [id: 2, name: sources.file, sha256: 'd' * 64],
-                [id: 3, name: 'old-target.jar', sha256: 'e' * 64]
+                [id: 1, name: mod.file, sha256: 'e' * 64],
+                [id: 2, name: sources.file, sha256: sources.sha256],
+                [id: 3, name: 'old-target.jar', sha256: 'f' * 64]
         ], hash)
         assertEquals(3, conflict.conflicts.size())
         assertEquals('conflict', conflict.actions.find { it.file == mod.file }.action)
         assertEquals('conflict', conflict.actions.find { it.file == sources.file }.action)
         assertEquals('conflict', conflict.actions.find { it.file == 'old-target.jar' }.action)
+        assertFalse(conflict.actions*.action.any { it in ['delete', 'replace'] })
 
         manifest.mode = 'tag'
         Map tagPlan = GithubReleaseSupport.plan(manifest, [
@@ -649,6 +723,66 @@ final class PublicationLogicTest {
         ], hash)
         assertEquals('conflict', tagPlan.actions.find { it.file == mod.file }.action)
         assertEquals('conflict', tagPlan.actions.find { it.file == 'old-target.jar' }.action)
+    }
+
+    @Test
+    void historicalSourceProvenanceRejectsWrongCommitMissingTamperedAndUnexpectedFiles() {
+        File directory = Files.createTempDirectory('nclskins-historical-source-index-').toFile()
+        try {
+            File source = new File(directory, 'nclskins-1.2.3-fabric-sources.jar')
+            source.bytes = 'exact-tag-source'.bytes
+            String commit = 'a' * 40
+            HistoricalReleaseSources.writeIndex(directory, '1.2.3', commit, [source])
+            assertEquals(source, HistoricalReleaseSources.verify(
+                    directory, '1.2.3', commit, [source.name])[source.name])
+            assertThrows(IllegalStateException) {
+                HistoricalReleaseSources.verify(
+                        directory, '1.2.3', 'b' * 40, [source.name])
+            }
+            source.bytes = 'tampered'.bytes
+            assertThrows(IllegalStateException) {
+                HistoricalReleaseSources.verify(directory, '1.2.3', commit, [source.name])
+            }
+            assertTrue(source.delete())
+            assertThrows(IllegalStateException) {
+                HistoricalReleaseSources.verify(directory, '1.2.3', commit, [source.name])
+            }
+            source.bytes = 'exact-tag-source'.bytes
+            new File(directory, 'unexpected-sources.jar').bytes = 'unexpected'.bytes
+            assertThrows(IllegalStateException) {
+                HistoricalReleaseSources.verify(directory, '1.2.3', commit, [source.name])
+            }
+        } finally {
+            directory.deleteDir()
+        }
+    }
+
+    @Test
+    void historicalCheckoutMustMatchExactTagCommitAndVersion() {
+        File fixture = Files.createTempDirectory('nclskins-historical-checkout-').toFile()
+        try {
+            ReleaseSelection.git(fixture, ['init', '--quiet'])
+            ReleaseSelection.git(fixture, ['config', 'user.name', 'NCL Skins Test'])
+            ReleaseSelection.git(fixture, ['config', 'user.email', 'test@invalid.example'])
+            File version = new File(fixture, 'gradle/version.properties')
+            assertTrue(version.parentFile.mkdirs())
+            Files.writeString(version.toPath(), 'modVersion=1.2.3\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'tagged'])
+            ReleaseSelection.git(fixture, ['tag', '1.2.3'])
+            String commit = ReleaseSelection.git(fixture, ['rev-parse', 'HEAD']).trim()
+            assertEquals(commit, HistoricalReleaseSources.requireTaggedCheckout(
+                    fixture, fixture, '1.2.3'))
+
+            Files.writeString(new File(fixture, 'later.txt').toPath(), 'later\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'later'])
+            assertThrows(IllegalStateException) {
+                HistoricalReleaseSources.requireTaggedCheckout(fixture, fixture, '1.2.3')
+            }
+        } finally {
+            fixture.deleteDir()
+        }
     }
 
     @Test
