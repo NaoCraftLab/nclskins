@@ -166,6 +166,7 @@ public final class ExternalImportPresenter {
         List<ViewSpec.Text> texts = new ArrayList<>();
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Preview> previews = new ArrayList<>();
+        List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
         int toggleWidth = Math.min(108, Math.max(76, width / 3));
         texts.add(new ViewSpec.Text(
                 "external.review.title",
@@ -179,8 +180,8 @@ public final class ExternalImportPresenter {
                         ? "nclskins.external_import.clear_all"
                         : "nclskins.external_import.select_all"),
                 !busy));
-        addSection(false, fresh, review, layout, busy, panels, texts, widgets, previews);
-        addSection(true, duplicates, review, layout, busy, panels, texts, widgets, previews);
+        addSection(false, fresh, review, layout, busy, panels, texts, widgets, previews, navigationNodes);
+        addSection(true, duplicates, review, layout, busy, panels, texts, widgets, previews, navigationNodes);
         int selected = review.selectedIds().size();
         int footerWidth = Math.min(420, Math.max(180, width - 32));
         int importWidth = Math.max(96, (footerWidth - 6) * 2 / 3);
@@ -203,9 +204,7 @@ public final class ExternalImportPresenter {
                         ViewSpec.Text.Alignment.LEFT)));
         Bounds viewport = new Bounds(
                 0, CHROME_HEIGHT, width, Math.max(1, layout.contentBottom() - CHROME_HEIGHT));
-        List<ViewSpec.ScrollSurface> surfaces = layout.maximum() == 0
-                ? List.of()
-                : List.of(new ViewSpec.ScrollSurface(
+        List<ViewSpec.ScrollSurface> surfaces = List.of(new ViewSpec.ScrollSurface(
                 "external.review",
                 viewport,
                 ViewSpec.Scrollbar.Orientation.VERTICAL,
@@ -229,7 +228,7 @@ public final class ExternalImportPresenter {
                         List.of("external.review.collection.", "external.review.card:"))),
                 List.of(),
                 List.of(),
-                surfaces);
+                surfaces).withNavigationNodes(navigationNodes);
     }
 
     private static void addSection(
@@ -241,7 +240,8 @@ public final class ExternalImportPresenter {
             List<ViewSpec.Panel> panels,
             List<ViewSpec.Text> texts,
             List<ViewSpec.Widget> widgets,
-            List<ViewSpec.Preview> previews) {
+            List<ViewSpec.Preview> previews,
+            List<ViewSpec.NavigationNode> navigationNodes) {
         int y = layout.contentStart() - layout.scrollOffset();
         if (duplicateSection) {
             int freshCount = review.candidates(false).size();
@@ -281,10 +281,19 @@ public final class ExternalImportPresenter {
                     y + row * (layout.cardHeight() + CARD_GAP),
                     layout.cardWidth(),
                     layout.cardHeight());
+            String id = "external.review.card:" + candidate.id();
+            navigationNodes.add(ViewSpec.NavigationNode.card(
+                    id,
+                    card,
+                    "external.review",
+                    navigationNodes.size(),
+                    -1,
+                    !busy,
+                    ViewSpec.NavigationPattern.GRID,
+                    Optional.empty()));
             if (!intersects(card, layout.contentBottom())) {
                 continue;
             }
-            String id = "external.review.card:" + candidate.id();
             panels.add(new ViewSpec.Panel(id, card, ViewSpec.Panel.Style.VANILLA_LIST));
             widgets.add(ViewSpec.Widget.selectableCard(
                     id,

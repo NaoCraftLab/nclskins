@@ -7,7 +7,7 @@ import java.util.Optional;
 public final class ViewHostCoordinator {
     private List<WidgetShape> widgets = List.of();
     private List<TabShape> tabs = List.of();
-    private long consumedFocusToken;
+    private final FocusRequestLedger focusRequests = new FocusRequestLedger();
 
     public Synchronization synchronize(ViewSpec view) {
         Objects.requireNonNull(view, "view");
@@ -17,19 +17,23 @@ public final class ViewHostCoordinator {
         boolean rebuildTabs = !tabs.equals(nextTabs);
         widgets = nextWidgets;
         tabs = nextTabs;
-        Optional<ViewSpec.FocusRequest> focus = view.focusRequest()
-                .filter(request -> request.token() > consumedFocusToken);
+        Optional<ViewSpec.FocusRequest> focus = focusRequests.pending(view);
         return new Synchronization(rebuildWidgets, rebuildTabs, focus);
     }
 
-    public void acknowledgeFocus(ViewSpec.FocusRequest request) {
+    public void acknowledgeFocus(String screenId, ViewSpec.FocusRequest request) {
+        Objects.requireNonNull(screenId, "screenId");
         Objects.requireNonNull(request, "request");
-        consumedFocusToken = Math.max(consumedFocusToken, request.token());
+        focusRequests.acknowledge(screenId, request);
     }
 
     public void resetNativeState() {
         widgets = List.of();
         tabs = List.of();
+    }
+
+    public void resetFocusSession() {
+        focusRequests.reset();
     }
 
     public record Synchronization(
@@ -46,7 +50,7 @@ public final class ViewHostCoordinator {
             ViewSpec.WidgetKind kind,
             Bounds bounds,
             int maxLength,
-            boolean selectAllOnPrimaryClick,
+            boolean selectAllOnFocusAcquire,
             Optional<String> submitActionId) {
         private static WidgetShape of(ViewSpec.Widget widget) {
             return new WidgetShape(
@@ -54,7 +58,7 @@ public final class ViewHostCoordinator {
                     widget.kind(),
                     widget.bounds(),
                     widget.maxLength(),
-                    widget.selectAllOnPrimaryClick(),
+                    widget.selectAllOnFocusAcquire(),
                     widget.submitActionId());
         }
     }

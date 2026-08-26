@@ -24,12 +24,25 @@
     "view-host-contract": {
       "tests": [
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewSpecGoldenTest.java",
-        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewSpecWidgetInteractionTest.java"
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewSpecWidgetInteractionTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewHostCoordinatorTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewHostPolicyTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewNavigationPolicyTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/VanillaListSurfaceTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/GalleryPresenterTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AddSourceModelPresenterTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ExternalImportPresenterTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/PresetEditorModelTest.java"
       ],
       "supportSources": [],
       "semantics": [
         "complete-view-spec-golden",
         "focus-and-submit-routing",
+        "screen-scoped-one-shot-focus",
+        "logical-card-navigation-and-scroll-to-focus",
+        "native-list-card-surface",
+        "modern-card-workspace-boundaries",
+        "composite-parent-card-hover",
         "explicit-widget-interactions",
         "native-host-input-parity"
       ]

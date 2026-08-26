@@ -6,6 +6,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.resources.ResourceLocation;
 import com.naocraftlab.skins.runtime.Bounds;
+import com.naocraftlab.skins.runtime.VanillaListSurface;
 import com.naocraftlab.skins.runtime.ViewSpec;
 
 
@@ -23,31 +24,59 @@ final class NclSkinsVanillaScreenStyle {
 
     private NclSkinsVanillaScreenStyle() {}
 
-    static void renderListPanel(GuiGraphics graphics, int left, int top, int width, int height) {
+    static void renderListPanel(
+            GuiGraphics graphics,
+            int left,
+            int top,
+            int width,
+            int height,
+            int textureU,
+            int textureV) {
         if (width <= 0 || height <= 0) {
             return;
         }
-        ResourceLocation texture = Minecraft.getInstance().level == null
-                ? MENU_LIST_BACKGROUND
-                : INWORLD_MENU_LIST_BACKGROUND;
+        boolean inWorld = Minecraft.getInstance().level != null;
+        VanillaListSurface.Boundaries boundaries = VanillaListSurface.boundaries(
+                new Bounds(left, top, width, height));
         RenderSystem.enableBlend();
+        renderListBackground(
+                graphics, left, top, width, height, textureU, textureV, inWorld);
         graphics.blit(
-                texture,
-                left,
-                top,
-                left + width,
-                top + height,
-                width,
-                height,
-                32,
-                32);
+                inWorld ? Screen.INWORLD_HEADER_SEPARATOR : Screen.HEADER_SEPARATOR,
+                left, boundaries.topY(), 0.0F, 0.0F, width, 2, 32, 2);
+        graphics.blit(
+                inWorld ? Screen.INWORLD_FOOTER_SEPARATOR : Screen.FOOTER_SEPARATOR,
+                left, boundaries.bottomY(), 0.0F, 0.0F, width, 2, 32, 2);
         RenderSystem.disableBlend();
+    }
+
+    private static void renderListBackground(
+            GuiGraphics graphics,
+            int left,
+            int top,
+            int width,
+            int height,
+            int textureU,
+            int textureV,
+            boolean inWorld) {
+        graphics.blit(
+                inWorld ? INWORLD_MENU_LIST_BACKGROUND : MENU_LIST_BACKGROUND,
+                left, top, textureU, textureV, width, height, 32, 32);
     }
 
     static void renderFramePanel(
             GuiGraphics graphics, Bounds bounds, ViewSpec.Panel.Style style) {
-        renderListPanel(graphics, bounds.x(), bounds.y(), bounds.width(), bounds.height());
         boolean inWorld = Minecraft.getInstance().level != null;
+        RenderSystem.enableBlend();
+        renderListBackground(
+                graphics,
+                bounds.x(),
+                bounds.y(),
+                bounds.width(),
+                bounds.height(),
+                bounds.right(),
+                bounds.bottom(),
+                inWorld);
         ResourceLocation separator;
         int separatorY;
         if (style == ViewSpec.Panel.Style.VANILLA_HEADER) {
@@ -59,7 +88,6 @@ final class NclSkinsVanillaScreenStyle {
         } else {
             throw new IllegalArgumentException("Not a frame panel: " + style);
         }
-        RenderSystem.enableBlend();
         graphics.blit(separator, bounds.x(), separatorY, 0.0F, 0.0F, bounds.width(), 2, 32, 2);
         RenderSystem.disableBlend();
     }

@@ -36,12 +36,34 @@ final class ViewHostPolicyTest {
                 view, "field", true, " value "));
         assertTrue(ViewHostPolicy.submitAction(view, "field", true, "  ").isEmpty());
         assertTrue(ViewHostPolicy.submitAction(view, "field", false, "value").isEmpty());
-        assertTrue(ViewHostPolicy.shouldSelectAll(view, "field", true, "value"));
-        assertFalse(ViewHostPolicy.shouldSelectAll(view, "field", true, ""));
-        assertEquals(Optional.of("field"),
-                ViewHostPolicy.focusTargetAfterMouseDispatch(view, "rename-button"));
-        assertEquals(Optional.empty(),
-                ViewHostPolicy.focusTargetAfterMouseDispatch(view, "field"));
+        assertTrue(ViewHostPolicy.shouldSelectAllOnFocusAcquire(
+                view, "field", ViewHostPolicy.FocusCause.KEYBOARD, false, true, "value"));
+        assertTrue(ViewHostPolicy.shouldSelectAllOnFocusAcquire(
+                view, "field", ViewHostPolicy.FocusCause.POINTER, false, true, "value"));
+        assertTrue(ViewHostPolicy.shouldSelectAllOnFocusAcquire(
+                view, "field", ViewHostPolicy.FocusCause.PROGRAMMATIC, false, true, "value"));
+        assertFalse(ViewHostPolicy.shouldSelectAllOnFocusAcquire(
+                view, "field", ViewHostPolicy.FocusCause.POINTER, true, true, "value"));
+        assertFalse(ViewHostPolicy.shouldSelectAllOnFocusAcquire(
+                view, "field", ViewHostPolicy.FocusCause.RESTORE, false, true, "value"));
+        assertFalse(ViewHostPolicy.shouldSelectAllOnFocusAcquire(
+                view, "field", ViewHostPolicy.FocusCause.POINTER, false, true, ""));
+    }
+
+    @Test
+    void compositeCardKeepsHoverWhenChildActionOwnsPointer() {
+        ViewSpec.Widget card = new ViewSpec.Widget(
+                "card", ViewSpec.WidgetKind.CATALOG_CARD, new Bounds(0, 0, 40, 40),
+                UiMessage.literal("card", UiMessage.Severity.INFO), Optional.empty(),
+                Optional.empty(), true, true, 0);
+        ViewSpec.Widget action = widget("card.action", new Bounds(20, 20, 18, 18));
+        ViewSpec view = view(List.of(card, action), List.of());
+
+        assertEquals("card.action", ViewHostPolicy.pointerOwnerAt(view, 25, 25)
+                .orElseThrow().id());
+        assertTrue(ViewHostPolicy.compositeCardHovered(view, "card", 25, 25));
+        assertFalse(ViewHostPolicy.compositeCardHovered(view, "card", 45, 25));
+        assertFalse(ViewHostPolicy.compositeCardHovered(view, "card.action", 25, 25));
     }
 
     private static ViewSpec.Widget widget(String id, Bounds bounds) {

@@ -29,6 +29,19 @@ public final class ViewHostPolicy {
         return Optional.ofNullable(owner);
     }
 
+    public static boolean compositeCardHovered(
+            ViewSpec view, String widgetId, double pointerX, double pointerY) {
+        Objects.requireNonNull(view, "view");
+        Objects.requireNonNull(widgetId, "widgetId");
+        return view.widget(widgetId)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.CATALOG_CARD)
+                .filter(ViewSpec.Widget::visible)
+                .filter(widget -> widget.bounds().contains(pointerX, pointerY))
+                .filter(widget -> pointerInsideClip(
+                        view, widget.id(), pointerX, pointerY))
+                .isPresent();
+    }
+
     public static Optional<String> submitAction(
             ViewSpec view,
             String focusedWidgetId,
@@ -50,33 +63,33 @@ public final class ViewHostPolicy {
                 .isPresent());
     }
 
-    public static boolean shouldSelectAll(
+    public static boolean shouldSelectAllOnFocusAcquire(
             ViewSpec view,
             String widgetId,
+            FocusCause cause,
+            boolean wasFocused,
             boolean nativeFieldFocused,
             String nativeValue) {
         Objects.requireNonNull(view, "view");
-        return nativeFieldFocused
+        Objects.requireNonNull(cause, "cause");
+        return cause != FocusCause.RESTORE
+                && !wasFocused
+                && nativeFieldFocused
                 && nativeValue != null
                 && !nativeValue.isEmpty()
                 && view.widget(widgetId)
                 .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
-                .filter(ViewSpec.Widget::selectAllOnPrimaryClick)
+                .filter(ViewSpec.Widget::selectAllOnFocusAcquire)
                 .filter(ViewSpec.Widget::enabled)
                 .filter(ViewSpec.Widget::visible)
                 .isPresent();
     }
 
-    public static Optional<String> focusTargetAfterMouseDispatch(
-            ViewSpec view, String currentFocusedWidgetId) {
-        Objects.requireNonNull(view, "view");
-        return view.focusRequest()
-                .map(ViewSpec.FocusRequest::widgetId)
-                .filter(widgetId -> !widgetId.equals(currentFocusedWidgetId))
-                .filter(widgetId -> view.widget(widgetId)
-                        .filter(ViewSpec.Widget::visible)
-                        .filter(ViewSpec.Widget::enabled)
-                        .isPresent());
+    public enum FocusCause {
+        POINTER,
+        KEYBOARD,
+        PROGRAMMATIC,
+        RESTORE
     }
 
     public static List<WidgetShape> widgetShapes(ViewSpec view) {
@@ -90,7 +103,7 @@ public final class ViewHostPolicy {
             Optional<String> icon,
             boolean visible,
             int maxLength,
-            boolean selectAllOnPrimaryClick,
+            boolean selectAllOnFocusAcquire,
             Optional<String> submitActionId) {
         public WidgetShape(ViewSpec.Widget widget) {
             this(
@@ -99,7 +112,7 @@ public final class ViewHostPolicy {
                     widget.icon(),
                     widget.visible(),
                     widget.maxLength(),
-                    widget.selectAllOnPrimaryClick(),
+                    widget.selectAllOnFocusAcquire(),
                     widget.submitActionId());
         }
     }

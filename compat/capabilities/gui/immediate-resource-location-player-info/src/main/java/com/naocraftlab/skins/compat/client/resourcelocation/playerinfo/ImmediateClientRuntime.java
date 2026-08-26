@@ -154,15 +154,19 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
     }
 
     @Override
-    public void renderPanel(GuiGraphics graphics, ViewSpec.Panel panel) {
+    public void renderPanel(
+            GuiGraphics graphics, ViewSpec.Panel panel, int textureU, int textureV) {
         com.naocraftlab.skins.runtime.Bounds bounds = panel.bounds();
+        if (bounds.width() <= 0 || bounds.height() <= 0) {
+            return;
+        }
         graphics.setColor(0.125F, 0.125F, 0.125F, 1.0F);
         graphics.blit(
                 Screen.BACKGROUND_LOCATION,
                 bounds.x(),
                 bounds.y(),
-                0.0F,
-                0.0F,
+                panel.style() == ViewSpec.Panel.Style.VANILLA_LIST ? textureU : 0.0F,
+                panel.style() == ViewSpec.Panel.Style.VANILLA_LIST ? textureV : 0.0F,
                 bounds.width(),
                 bounds.height(),
                 32,

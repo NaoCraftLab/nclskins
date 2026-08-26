@@ -132,7 +132,7 @@ final class GalleryPresenterTest {
 
         ViewSpec addCentered = presentAt(emptyActive, 320, 240, 0.0);
         ViewSpec.Widget search = addCentered.widget("gallery.search").orElseThrow();
-        assertTrue(search.selectAllOnPrimaryClick());
+        assertTrue(search.selectAllOnFocusAcquire());
         assertEquals(Optional.empty(), search.submitActionId());
 
         String filteredQuery = "does-not-match";
@@ -289,6 +289,18 @@ final class GalleryPresenterTest {
         assertEquals(2, cancel.bounds().x() - confirm.bounds().right());
         assertEquals(0, card.bounds().right() - cancel.bounds().right());
         assertEquals(2, card.bounds().bottom() - cancel.bounds().bottom());
+        assertTrue(confirm.enabled());
+        assertTrue(cancel.enabled());
+        assertTrue(confirming.widgets().stream()
+                .filter(widget -> widget.id().startsWith("gallery.preset."))
+                .filter(widget -> widget.id().endsWith(".apply")
+                        || widget.id().endsWith(".edit")
+                        || widget.id().endsWith(".duplicate")
+                        || widget.id().endsWith(".delete"))
+                .allMatch(widget -> !widget.enabled()));
+        assertTrue(confirming.widgets().stream()
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.CATALOG_CARD)
+                .allMatch(widget -> !widget.enabled()));
     }
 
     @Test
@@ -401,6 +413,9 @@ final class GalleryPresenterTest {
         assertTrue(healthy.widget("gallery.retry_session").isEmpty());
         assertTrue(healthy.widget("gallery.retry_cape").isEmpty());
         assertEquals(new Bounds(0, 12, 854, 10), text(healthy, "gallery.title").bounds());
+        assertEquals(
+                List.of("gallery.search", "gallery.add", "gallery.done"),
+                tabIds(healthy));
 
         ViewSpec missing = presenter.present(
                 withState(valid, Optional.empty(), false, false, AppearanceSyncStatus.LOCAL_ONLY),
@@ -412,6 +427,9 @@ final class GalleryPresenterTest {
         assertTrue(text(missing, "gallery.offline").bounds().right()
                 <= text(missing, "gallery.title").bounds().x());
         assertTrue(text(missing, "gallery.title").bounds().right() <= missingRetry.bounds().x());
+        assertEquals(
+                List.of("gallery.retry_session", "gallery.search", "gallery.add", "gallery.done"),
+                tabIds(missing));
 
         SessionValidation invalidSession = new SessionValidation(
                 SessionStatus.OFFLINE_OR_INVALID,
@@ -882,7 +900,8 @@ final class GalleryPresenterTest {
                 PreviewRenderer.CapeMode.CAPE);
 
         ViewSpec.Widget add = view.widget("gallery.add").orElseThrow();
-        assertFalse(add.visible());
+        assertTrue(add.visible());
+        assertEquals(ViewSpec.WidgetKind.CATALOG_CARD, add.kind());
         assertEquals(1, view.iconDecorations().size());
         ViewSpec.IconDecoration plus = view.iconDecorations().get(0);
         assertEquals("gallery.add.icon", plus.id());
@@ -902,6 +921,80 @@ final class GalleryPresenterTest {
         assertEquals(Optional.of(galleryViewport(view)), view.clipFor(plus.id()));
     }
 
+    @Test
+    void activeSelectedCardOwnsOnlyItsEnabledActionsInTabGraph() {
+        AccountState account = TestFixtures.account(3);
+        UUID active = account.presets().get(2).id();
+        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
+        String selected = "gallery.card." + active;
+
+        ViewSpec view = presenter.present(
+                snapshot,
+                854,
+                480,
+                427,
+                180,
+                PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC,
+                "",
+                Optional.empty(),
+                presenter.centeredScrollPosition(snapshot.account(), snapshot.activePresetId(), ""),
+                selected);
+
+        assertEquals(
+                List.of(
+                        "gallery.search",
+                        selected,
+                        "gallery.preset." + active + ".edit",
+                        "gallery.preset." + active + ".duplicate",
+                        "gallery.preset." + active + ".delete",
+                        "gallery.done"),
+                tabIds(view));
+        assertTrue(view.navigationNodes().stream().anyMatch(node ->
+                node.id().equals("gallery.add") && node.tabOrder() < 0));
+        ViewSpec.Widget edit = view.widget("gallery.preset." + active + ".edit").orElseThrow();
+        assertEquals(edit.id(), ViewHostPolicy.pointerOwnerAt(
+                view,
+                edit.bounds().x() + edit.bounds().width() / 2.0,
+                edit.bounds().y() + edit.bounds().height() / 2.0).orElseThrow().id());
+    }
+
+    @Test
+    void selectedCardNormalizationPreservesMatchesAndFallsBackDeterministically() {
+        AccountState account = TestFixtures.account(3);
+        UUID first = account.presets().get(0).id();
+        UUID active = account.presets().get(2).id();
+        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
+
+        assertEquals("gallery.card." + active,
+                presenter.normalizeSelectedCardId(snapshot, "", null));
+        assertEquals("gallery.card." + first,
+                presenter.normalizeSelectedCardId(
+                        snapshot, "Preset 1", "gallery.card." + first));
+        assertEquals("gallery.card." + first,
+                presenter.normalizeSelectedCardId(
+                        snapshot, "Preset 1", "gallery.card." + active));
+        assertEquals("gallery.add",
+                presenter.normalizeSelectedCardId(
+                        snapshot, "does-not-match", "gallery.card." + active));
+        assertEquals("gallery.add",
+                presenter.normalizeSelectedCardId(
+                        TestFixtures.ready(TestFixtures.account(0), null, 0), "", null));
+    }
+
+    @Test
+    void disabledGalleryDoesNotPublishEligibleCardAnchors() {
+        AccountState account = TestFixtures.account(2);
+        ClientSnapshot seeded = initializingSnapshot(Optional.of(account), Optional.empty());
+        ViewSpec view = presenter.present(
+                seeded, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "", Optional.empty(), 0.0, "gallery.add");
+
+        assertTrue(view.navigationNodes().stream()
+                .filter(node -> node.pattern() == ViewSpec.NavigationPattern.HORIZONTAL_LIST)
+                .noneMatch(ViewSpec.NavigationNode::enabled));
+    }
+
     private ViewSpec presentAt(ClientSnapshot snapshot, double scrollPosition) {
         return presentAt(snapshot, 854, 480, scrollPosition);
     }
@@ -919,6 +1012,15 @@ final class GalleryPresenterTest {
                 "",
                 Optional.empty(),
                 scrollPosition);
+    }
+
+    private static List<String> tabIds(ViewSpec view) {
+        return view.navigationNodes().stream()
+                .filter(ViewSpec.NavigationNode::enabled)
+                .filter(node -> node.tabOrder() >= 0)
+                .sorted(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder))
+                .map(ViewSpec.NavigationNode::id)
+                .toList();
     }
 
     private void assertActiveLabel(

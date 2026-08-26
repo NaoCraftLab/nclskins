@@ -23,7 +23,7 @@ final class ViewSpecWidgetInteractionTest {
                 true,
                 Optional.of("add.url.load"));
 
-        assertTrue(field.selectAllOnPrimaryClick());
+        assertTrue(field.selectAllOnFocusAcquire());
         assertEquals(Optional.of("add.url.load"), field.submitActionId());
     }
 

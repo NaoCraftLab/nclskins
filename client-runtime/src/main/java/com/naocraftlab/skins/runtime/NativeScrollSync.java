@@ -25,7 +25,10 @@ public final class NativeScrollSync {
                 && Math.abs(acceptedRuntimeOffset - next.offsetPixels()) > 0.001;
         surface = next;
         acceptedRuntimeOffset = next.offsetPixels();
-        return new Decision(true, geometryChanged, geometryChanged || externalOffset);
+        return new Decision(
+                true,
+                geometryChanged,
+                geometryChanged || externalOffset);
     }
 
     public void acceptedRuntimeOffset(double offsetPixels) {

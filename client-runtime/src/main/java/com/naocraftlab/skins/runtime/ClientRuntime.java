@@ -120,6 +120,9 @@ public final class ClientRuntime implements AutoCloseable {
     private double addSourceScrollbarGrabOffset;
     private double addSourceScrollPosition;
     private double addSourceScrollTarget;
+    private long runtimeFocusToken;
+    private String runtimeFocusScreenId;
+    private String runtimeFocusWidgetId;
     private PreviewRenderer.CapeMode preferredCapeMode = PreviewPreferences.capeMode();
 
     public ClientRuntime(
@@ -445,7 +448,7 @@ public final class ClientRuntime implements AutoCloseable {
                 return;
             }
             if (state.pendingPresetDeleteId != null) {
-                cancelPresetDeletion(state.pendingPresetDeleteId);
+                cancelPresetDeletion(state.pendingPresetDeleteId, InteractionOrigin.PROGRAMMATIC);
                 return;
             }
             if (state.personalRenameHash != null) {
@@ -454,7 +457,7 @@ public final class ClientRuntime implements AutoCloseable {
             }
             if (state.addSource != null
                     && state.addSource.personalSkinDeletion().isPresent()) {
-                cancelPersonalSkinDeletion();
+                cancelPersonalSkinDeletion(InteractionOrigin.PROGRAMMATIC);
                 return;
             }
             if (state.editor != null) {
@@ -480,6 +483,8 @@ public final class ClientRuntime implements AutoCloseable {
         state.generation++;
         state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
         state.busy = false;
+        state.pendingPresetDeleteId = null;
+        clearRuntimeFocus("gallery");
         clearSessionRetryFeedback();
         state.editor = null;
         state.addSource = null;
@@ -664,18 +669,18 @@ public final class ClientRuntime implements AutoCloseable {
         viewportHeight = height;
         PresetEditorModel editor = state.editor;
         if (editor != null) {
-            return editor.present(width, height, editorCapeScrollPosition);
+            return withRuntimeFocus(editor.present(width, height, editorCapeScrollPosition));
         }
         if (state.externalImport != null) {
-            return externalImportPresenter.present(
+            return withRuntimeFocus(externalImportPresenter.present(
                     state.externalImport,
                     state.busy,
                     Optional.of(state.status),
                     width,
-                    height);
+                    height));
         }
         if (state.addSource != null) {
-            return addSourcePresenter.present(
+            return withRuntimeFocus(addSourcePresenter.present(
                     state.addSource,
                     state.busy,
                     Optional.of(state.status),
@@ -686,9 +691,17 @@ public final class ClientRuntime implements AutoCloseable {
                             : Optional.of(new AddSourcePresenter.PersonalSkinRename(
                             state.personalRenameCollectionId,
                             state.personalRenameHash,
-                            state.personalRenameValue)));
+                            state.personalRenameValue))));
         }
-        return galleryView(width, height, mouseX, mouseY);
+        return withRuntimeFocus(galleryView(width, height, mouseX, mouseY));
+    }
+
+    private ViewSpec withRuntimeFocus(ViewSpec view) {
+        if (!view.screenId().equals(runtimeFocusScreenId) || runtimeFocusWidgetId == null) {
+            return view;
+        }
+        return view.withFocusRequest(Optional.of(
+                new ViewSpec.FocusRequest(runtimeFocusWidgetId, runtimeFocusToken)));
     }
 
     public void acknowledgeViewRendered(ViewSpec renderedView) {
@@ -702,6 +715,19 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         onClient(this::acknowledgeSessionRetryFeedbackRendered);
+    }
+
+    public void acknowledgeFocusApplied(
+            String screenId, ViewSpec.FocusRequest appliedRequest) {
+        Objects.requireNonNull(screenId, "screenId");
+        Objects.requireNonNull(appliedRequest, "appliedRequest");
+        if (!disposed
+                && screenId.equals(runtimeFocusScreenId)
+                && appliedRequest.token() == runtimeFocusToken
+                && appliedRequest.widgetId().equals(runtimeFocusWidgetId)) {
+            runtimeFocusScreenId = null;
+            runtimeFocusWidgetId = null;
+        }
     }
 
 
@@ -720,13 +746,98 @@ public final class ClientRuntime implements AutoCloseable {
 
 
     public void dispatchWidget(String widgetId) {
-        dispatchWidget(widgetId, false);
+        dispatchWidget(widgetId, false, InteractionOrigin.PROGRAMMATIC);
     }
 
 
     public void dispatchWidget(String widgetId, boolean reverse) {
+        dispatchWidget(widgetId, reverse, InteractionOrigin.PROGRAMMATIC);
+    }
+
+    public void dispatchWidget(
+            String widgetId, boolean reverse, InteractionOrigin origin) {
         Objects.requireNonNull(widgetId, "widgetId");
-        onClient(() -> dispatchWidgetOnClient(widgetId, reverse));
+        Objects.requireNonNull(origin, "origin");
+        onClient(() -> dispatchWidgetOnClient(widgetId, reverse, origin));
+    }
+
+    public boolean dispatchNavigation(
+            ViewSpec.NavigationCommand command, String focusedWidgetId) {
+        Objects.requireNonNull(command, "command");
+        ensureNotDisposed();
+        if (!clientExecutor.isClientThread()) {
+            throw new IllegalStateException("UI navigation is client-thread-only");
+        }
+        ViewSpec current = view(viewportWidth, viewportHeight, 0, 0);
+        if (command == ViewSpec.NavigationCommand.ACTIVATE) {
+            Optional<String> action = ViewNavigationPolicy.activationAction(
+                    current, focusedWidgetId);
+            if (action.isEmpty()) {
+                return false;
+            }
+            dispatchWidgetOnClient(
+                    action.orElseThrow(), false, InteractionOrigin.KEYBOARD);
+            return true;
+        }
+        Optional<ViewSpec.NavigationNode> target = ViewNavigationPolicy.target(
+                current, focusedWidgetId, command);
+        if (target.isEmpty()) {
+            return false;
+        }
+        ViewSpec.NavigationNode node = target.orElseThrow();
+        if ("gallery".equals(current.screenId())
+                && node.pattern() == ViewSpec.NavigationPattern.HORIZONTAL_LIST) {
+            state.gallerySelectedCardId = node.id();
+        }
+        ViewNavigationPolicy.ensureVisibleOffset(current, node)
+                .ifPresent(offset -> applyNavigationScroll(node, offset));
+        requestRuntimeFocus(current.screenId(), node.id());
+        publish();
+        return true;
+    }
+
+    private void requestRuntimeFocus(String screenId, String widgetId) {
+        runtimeFocusToken = Math.max(1, runtimeFocusToken + 1);
+        runtimeFocusScreenId = Objects.requireNonNull(screenId, "screenId");
+        runtimeFocusWidgetId = Objects.requireNonNull(widgetId, "widgetId");
+    }
+
+    private void clearRuntimeFocus(String screenId) {
+        if (Objects.equals(runtimeFocusScreenId, screenId)) {
+            runtimeFocusScreenId = null;
+            runtimeFocusWidgetId = null;
+        }
+    }
+
+    private void applyNavigationScroll(ViewSpec.NavigationNode node, double offsetPixels) {
+        String surfaceId = node.surfaceId().orElse(null);
+        if ("gallery.cards".equals(surfaceId)) {
+            double position = galleryPresenter.scrollPositionDelta(
+                    viewportWidth, viewportHeight, offsetPixels);
+            double bounded = Math.max(0.0, Math.min(galleryMaximum(), position));
+            state.galleryScrollPosition = bounded;
+            state.galleryScrollTarget = bounded;
+            state.galleryOffset = (int) Math.round(bounded);
+        } else if ("add.catalog".equals(surfaceId) && state.addSource != null) {
+            int bounded = addSourcePresenter.normalizedScrollOffset(
+                    state.addSource,
+                    viewportWidth,
+                    viewportHeight,
+                    (int) Math.round(offsetPixels));
+            state.addSource = state.addSource.withScrollOffset(bounded);
+            addSourceScrollPosition = bounded;
+            addSourceScrollTarget = bounded;
+        } else if ("external.review".equals(surfaceId)
+                && state.externalImport != null
+                && state.externalImport.review().isPresent()) {
+            state.externalImport = state.externalImport.withReviewScroll(
+                    Math.max(0, (int) Math.round(offsetPixels)));
+        } else if ("editor.capes".equals(surfaceId) && state.editor != null) {
+            double bounded = state.editor.normalizedCapeScrollPosition(
+                    viewportWidth, viewportHeight, offsetPixels);
+            editorCapeScrollPosition = bounded;
+            editorCapeScrollTarget = bounded;
+        }
     }
 
     public void dispatchText(String widgetId, String value) {
@@ -740,6 +851,8 @@ public final class ClientRuntime implements AutoCloseable {
                     return;
                 }
                 state.galleryQuery = value;
+                state.gallerySelectedCardId = galleryPresenter.normalizeSelectedCardId(
+                        snapshot, value, state.gallerySelectedCardId);
                 resetGalleryScroll();
                 state.pendingPresetDeleteId = null;
                 publish();
@@ -1376,13 +1489,18 @@ public final class ClientRuntime implements AutoCloseable {
                 && Objects.equals(state.activePresetId, data.activePresetId().orElse(null));
     }
 
-    private void dispatchWidgetOnClient(String widgetId, boolean reverse) {
+    private void dispatchWidgetOnClient(
+            String widgetId, boolean reverse, InteractionOrigin origin) {
         ensureNotDisposed();
         if (state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
             return;
         }
         if (widgetId.startsWith("gallery.preset.")) {
-            dispatchPresetWidget(widgetId);
+            dispatchPresetWidget(widgetId, origin);
+            return;
+        }
+        if (widgetId.startsWith("gallery.card.")) {
+            selectGalleryCard(widgetId, origin);
             return;
         }
         if (widgetId.startsWith("add.catalog.collection:")) {
@@ -1392,7 +1510,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (widgetId.startsWith("add.catalog.delete:")) {
             personalCatalogAction(widgetId, "add.catalog.delete:")
                     .ifPresent(action -> requestPersonalSkinDeletion(
-                            action.collectionId(), action.sha256()));
+                            action.collectionId(), action.sha256(), origin));
             return;
         }
         if (widgetId.startsWith("add.catalog.rename:")) {
@@ -1448,8 +1566,8 @@ public final class ClientRuntime implements AutoCloseable {
             case "add.player.load" -> loadRemoteImport(true);
             case "add.url.load" -> loadRemoteImport(false);
             case "add.catalog.filter" -> cycleCatalogFilter(reverse);
-            case "add.catalog.delete.confirm" -> confirmPersonalSkinDeletion();
-            case "add.catalog.delete.cancel" -> cancelPersonalSkinDeletion();
+            case "add.catalog.delete.confirm" -> confirmPersonalSkinDeletion(origin);
+            case "add.catalog.delete.cancel" -> cancelPersonalSkinDeletion(origin);
             case "add.catalog.rename.save" -> savePersonalSkinRename();
             case "add.catalog.rename.cancel" -> cancelPersonalSkinRename();
             case "add.cancel" -> cancelAddSource();
@@ -1486,7 +1604,7 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
-    private void dispatchPresetWidget(String widgetId) {
+    private void dispatchPresetWidget(String widgetId, InteractionOrigin origin) {
         int actionSeparator = widgetId.lastIndexOf('.');
         if (actionSeparator <= "gallery.preset.".length()) {
             return;
@@ -1502,12 +1620,28 @@ public final class ClientRuntime implements AutoCloseable {
             case "apply" -> applyPreset(presetId, false);
             case "edit" -> openEditor(presetId);
             case "duplicate" -> duplicatePreset(presetId);
-            case "delete" -> requestPresetDeletion(presetId);
-            case "delete_confirm" -> deletePreset(presetId);
-            case "delete_cancel" -> cancelPresetDeletion(presetId);
+            case "delete" -> requestPresetDeletion(presetId, origin);
+            case "delete_confirm" -> deletePreset(presetId, origin);
+            case "delete_cancel" -> cancelPresetDeletion(presetId, origin);
             default -> {
 
             }
+        }
+    }
+
+    private void selectGalleryCard(String widgetId, InteractionOrigin origin) {
+        if (!galleryPresenter.cardIds(snapshot, state.galleryQuery).contains(widgetId)) {
+            return;
+        }
+        boolean changed = !widgetId.equals(state.gallerySelectedCardId);
+        if (changed) {
+            state.gallerySelectedCardId = widgetId;
+        }
+        if (origin.keyboard()) {
+            requestRuntimeFocus("gallery", widgetId);
+        }
+        if (changed || origin.keyboard()) {
+            publish();
         }
     }
 
@@ -1515,6 +1649,8 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.busy || state.account == null) {
             return;
         }
+        state.pendingPresetDeleteId = null;
+        clearRuntimeFocus("gallery");
         state.pendingPresetName = galleryPresenter.matchingPresetCount(
                                 snapshot, state.galleryQuery) == 0
                         && !state.galleryQuery.isBlank()
@@ -1567,10 +1703,10 @@ public final class ClientRuntime implements AutoCloseable {
     private void selectAddSourceTab(AddSourceTab tab) {
         if (state.busy
                 || state.addSource == null
-                || state.addSource.personalSkinDeletion().isPresent()
                 || state.addSource.selectedTab() == tab) {
             return;
         }
+        resetPersonalCatalogInteraction();
         state.addSource = state.addSource.withSelectedTab(tab);
         if (state.uiPreferences != null) {
             state.uiPreferences = state.uiPreferences.withSelectedAddSourceTab(tab);
@@ -1600,13 +1736,15 @@ public final class ClientRuntime implements AutoCloseable {
     private void toggleCatalogCollection(String collectionId) {
         if (state.busy
                 || state.addSource == null
-                || state.addSource.personalSkinDeletion().isPresent()
                 || state.addSource.selectedTab() != AddSourceTab.CATALOG
                 || state.addSource.collections().stream()
                         .noneMatch(collection -> collection.id().equals(collectionId))) {
             return;
         }
         boolean collapsed = !state.addSource.collectionCollapsed(collectionId);
+        if (collapsed && personalCatalogInteractionBelongsTo(collectionId)) {
+            resetPersonalCatalogInteraction();
+        }
         state.addSource = state.addSource.withCollectionCollapsed(collectionId, collapsed);
         clampAddSourceScroll();
         if (state.uiPreferences != null) {
@@ -2105,11 +2243,11 @@ public final class ClientRuntime implements AutoCloseable {
         });
     }
 
-    private void requestPersonalSkinDeletion(String collectionId, String sha256) {
+    private void requestPersonalSkinDeletion(
+            String collectionId, String sha256, InteractionOrigin origin) {
         if (state.busy
                 || state.addSource == null
-                || state.addSource.selectedTab() != AddSourceTab.CATALOG
-                || state.addSource.personalSkinDeletion().isPresent()) {
+                || state.addSource.selectedTab() != AddSourceTab.CATALOG) {
             return;
         }
         SkinCatalogSource.CollectionDescriptor collection = state.addSource.collections().stream()
@@ -2127,14 +2265,18 @@ public final class ClientRuntime implements AutoCloseable {
         if (skin == null || !state.addSource.visibleSkins(collection).contains(skin)) {
             return;
         }
-        state.addSource = state.addSource.requestPersonalSkinDeletion(collection, skin);
+        resetPersonalCatalogInteraction();
+        state.addSource = state.addSource.requestPersonalSkinDeletion(
+                collection, skin, origin.keyboard());
         draggingAddSourceScrollbar = false;
         state.status = UiMessage.info("nclskins.your_skins.delete_note");
         publish();
     }
 
     private void requestPersonalSkinRename(String collectionId, String sha256) {
-        if (state.busy || state.addSource == null || state.personalRenameHash != null) {
+        if (state.busy
+                || state.addSource == null
+                || state.addSource.selectedTab() != AddSourceTab.CATALOG) {
             return;
         }
         SkinCatalogSource.SkinDescriptor skin = state.addSource.collections().stream()
@@ -2147,6 +2289,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (skin == null) {
             return;
         }
+        resetPersonalCatalogInteraction();
         state.personalRenameCollectionId = collectionId;
         state.personalRenameHash = sha256;
         state.personalRenameValue = state.addSource.skinName(skin);
@@ -2197,18 +2340,18 @@ public final class ClientRuntime implements AutoCloseable {
                 });
     }
 
-    private void cancelPersonalSkinDeletion() {
+    private void cancelPersonalSkinDeletion(InteractionOrigin origin) {
         if (state.busy
                 || state.addSource == null
                 || state.addSource.personalSkinDeletion().isEmpty()) {
             return;
         }
-        state.addSource = state.addSource.cancelPersonalSkinDeletion();
+        state.addSource = state.addSource.cancelPersonalSkinDeletion(origin.keyboard());
         state.status = UiMessage.info("nclskins.status.cancelled");
         publish();
     }
 
-    private void confirmPersonalSkinDeletion() {
+    private void confirmPersonalSkinDeletion(InteractionOrigin origin) {
         if (state.busy
                 || state.addSource == null
                 || state.addSource.personalSkinDeletion().isEmpty()) {
@@ -2226,7 +2369,7 @@ public final class ClientRuntime implements AutoCloseable {
                                     .map(AddSourceModel.PersonalSkinDeletion::sha256)
                                     .filter(deletion.sha256()::equals)
                                     .isPresent()) {
-                        state.addSource = state.addSource.removeConfirmedPersonalSkin();
+                        state.addSource = state.addSource.removeConfirmedPersonalSkin(origin.keyboard());
                         int normalized = addSourcePresenter.normalizedScrollOffset(
                                 state.addSource,
                                 viewportWidth,
@@ -2243,14 +2386,6 @@ public final class ClientRuntime implements AutoCloseable {
 
     private void cancelAddSource() {
         if (state.addSource != null && state.editor == null) {
-            if (state.addSource.personalSkinDeletion().isPresent()) {
-                if (state.busy) {
-                    return;
-                }
-                state.addSource = state.addSource.cancelPersonalSkinDeletion();
-                publish();
-                return;
-            }
             if (state.busy && state.addSource.selectedTab() != AddSourceTab.FILE) {
                 return;
             }
@@ -2259,11 +2394,39 @@ public final class ClientRuntime implements AutoCloseable {
                 state.busy = false;
                 state.status = UiMessage.info("nclskins.status.cancelled");
             }
+            resetPersonalCatalogInteraction();
             state.addSource = null;
+            clearRuntimeFocus("add_source");
             draggingAddSourceScrollbar = false;
             resetAddSourceScroll();
             publish();
         }
+    }
+
+    private boolean personalCatalogInteractionBelongsTo(String collectionId) {
+        if (state.addSource == null) {
+            return false;
+        }
+        boolean deletionBelongs = state.addSource.personalSkinDeletion()
+                .map(AddSourceModel.PersonalSkinDeletion::collectionId)
+                .filter(collectionId::equals)
+                .isPresent();
+        return deletionBelongs || Objects.equals(state.personalRenameCollectionId, collectionId);
+    }
+
+    private void resetPersonalCatalogInteraction() {
+        boolean hasRename = state.personalRenameHash != null;
+        boolean hasDeletion = state.addSource != null
+                && state.addSource.personalSkinDeletion().isPresent();
+        if (!hasRename && !hasDeletion) {
+            return;
+        }
+        if (state.addSource != null) {
+            state.addSource = state.addSource.withoutPersonalSkinInteraction();
+        }
+        state.personalRenameCollectionId = null;
+        state.personalRenameHash = null;
+        state.personalRenameValue = "";
     }
 
     private void persistUiPreference(ThrowingSupplier<Void> operation) {
@@ -2283,6 +2446,8 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.busy || state.account == null) {
             return;
         }
+        state.pendingPresetDeleteId = null;
+        clearRuntimeFocus("gallery");
         PresetEditorModel editor = createEditor(presetId);
         if (editor == null) {
             state.status = UiMessage.error("nclskins.gallery.prepare_failed");
@@ -2448,19 +2613,27 @@ public final class ClientRuntime implements AutoCloseable {
         return state.pendingPresetName == null ? editor : editor.withName(state.pendingPresetName);
     }
 
-    private void requestPresetDeletion(UUID presetId) {
+    private void requestPresetDeletion(UUID presetId, InteractionOrigin origin) {
         if (state.busy || findPreset(presetId) == null) {
             return;
         }
         state.pendingPresetDeleteId = presetId;
+        state.gallerySelectedCardId = "gallery.card." + presetId;
+        if (origin.keyboard()) {
+            requestRuntimeFocus(
+                    "gallery", "gallery.preset." + presetId + ".delete_cancel");
+        }
         publish();
     }
 
-    private void cancelPresetDeletion(UUID presetId) {
+    private void cancelPresetDeletion(UUID presetId, InteractionOrigin origin) {
         if (!presetId.equals(state.pendingPresetDeleteId) || state.busy) {
             return;
         }
         state.pendingPresetDeleteId = null;
+        if (origin.keyboard()) {
+            requestRuntimeFocus("gallery", "gallery.preset." + presetId + ".delete");
+        }
         publish();
     }
 
@@ -2497,10 +2670,12 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
-    private void deletePreset(UUID presetId) {
+    private void deletePreset(UUID presetId, InteractionOrigin origin) {
         if (!presetId.equals(state.pendingPresetDeleteId)) {
             return;
         }
+        List<String> previousCards = galleryPresenter.cardIds(snapshot, state.galleryQuery);
+        int removedOrdinal = previousCards.indexOf("gallery.card." + presetId);
         submit(
                 UiMessage.info("nclskins.status.deleting"),
                 () -> operations.deletePreset(presetId),
@@ -2534,6 +2709,19 @@ public final class ClientRuntime implements AutoCloseable {
                                     ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
                         }
                     });
+                    List<String> remainingCards = galleryPresenter.cardIds(
+                            Optional.of(state.account),
+                            Optional.ofNullable(state.activePresetId),
+                            state.galleryQuery);
+                    int nextOrdinal = removedOrdinal < 0
+                            ? 0
+                            : Math.min(removedOrdinal, remainingCards.size() - 1);
+                    state.gallerySelectedCardId = remainingCards.isEmpty()
+                            ? "gallery.add"
+                            : remainingCards.get(Math.max(0, nextOrdinal));
+                    if (origin.keyboard()) {
+                        requestRuntimeFocus("gallery", state.gallerySelectedCardId);
+                    }
                     state.status = deletion.cleanupWarnings().isEmpty()
                             ? UiMessage.success("nclskins.status.deleted")
                             : UiMessage.literal(
@@ -3187,6 +3375,8 @@ public final class ClientRuntime implements AutoCloseable {
 
     private ViewSpec galleryView(
             int width, int height, int mouseX, int mouseY) {
+        state.gallerySelectedCardId = galleryPresenter.normalizeSelectedCardId(
+                snapshot, state.galleryQuery, state.gallerySelectedCardId);
         return galleryPresenter.present(
                 snapshot,
                 width,
@@ -3197,7 +3387,8 @@ public final class ClientRuntime implements AutoCloseable {
                 currentPlayerVariant(),
                 state.galleryQuery,
                 Optional.ofNullable(state.pendingPresetDeleteId),
-                state.galleryScrollPosition);
+                state.galleryScrollPosition,
+                state.gallerySelectedCardId);
     }
 
     private int galleryMaximum() {
@@ -3854,6 +4045,7 @@ public final class ClientRuntime implements AutoCloseable {
         private double galleryScrollPosition;
         private double galleryScrollTarget;
         private String galleryQuery = "";
+        private String gallerySelectedCardId;
         private String pendingPresetName;
         private UUID pendingPresetDeleteId;
         private String personalRenameCollectionId;
@@ -3895,6 +4087,7 @@ public final class ClientRuntime implements AutoCloseable {
             galleryScrollPosition = 0.0;
             galleryScrollTarget = 0.0;
             galleryQuery = "";
+            gallerySelectedCardId = null;
             pendingPresetName = null;
             pendingPresetDeleteId = null;
             personalRenameCollectionId = null;

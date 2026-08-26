@@ -1,11 +1,13 @@
 package com.naocraftlab.skins.runtime;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
-import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
 class ViewHostCoordinatorTest {
@@ -18,7 +20,7 @@ class ViewHostCoordinatorTest {
         assertTrue(initial.rebuildWidgets());
         assertTrue(initial.rebuildTabs());
         assertTrue(initial.focusRequest().isPresent());
-        coordinator.acknowledgeFocus(initial.focusRequest().orElseThrow());
+        coordinator.acknowledgeFocus(first.screenId(), initial.focusRequest().orElseThrow());
 
         var labelOnly = coordinator.synchronize(view("Renamed", new ViewSpec.FocusRequest("name", 7)));
         assertFalse(labelOnly.rebuildWidgets());
@@ -26,13 +28,49 @@ class ViewHostCoordinatorTest {
         assertTrue(labelOnly.focusRequest().isEmpty());
 
         coordinator.resetNativeState();
-        assertTrue(coordinator.synchronize(first).rebuildWidgets());
+        var restored = coordinator.synchronize(first);
+        assertTrue(restored.rebuildWidgets());
+        assertTrue(restored.focusRequest().isEmpty());
+
+        ViewSpec runtimeOverride = view("First", new ViewSpec.FocusRequest("card:second-row", 8));
+        var runtimeFocus = coordinator.synchronize(runtimeOverride);
+        assertTrue(runtimeFocus.focusRequest().isPresent());
+        coordinator.acknowledgeFocus(runtimeOverride.screenId(), runtimeFocus.focusRequest().orElseThrow());
+        assertTrue(coordinator.synchronize(first).focusRequest().isEmpty(),
+                "an older presenter request must stay consumed after a runtime override");
+
+        ViewSpec nextScreen = view("other", "First", new ViewSpec.FocusRequest("name", 7));
+        assertTrue(coordinator.synchronize(nextScreen).focusRequest().isPresent());
+
+        coordinator.acknowledgeFocus(nextScreen.screenId(), nextScreen.focusRequest().orElseThrow());
+        coordinator.resetFocusSession();
+        assertTrue(coordinator.synchronize(nextScreen).focusRequest().isPresent());
+    }
+
+    @Test
+    void ledgerRetainsOnlyRequestValuesAndResetsWhenTheScreenChanges() {
+        FocusRequestLedger ledger = new FocusRequestLedger();
+        ViewSpec first = view("first", "First", new ViewSpec.FocusRequest("name", 1));
+        ViewSpec secondRequest = view("first", "First", new ViewSpec.FocusRequest("card", 2));
+
+        ledger.acknowledge(first.screenId(), first.focusRequest().orElseThrow());
+        ledger.acknowledge(secondRequest.screenId(), secondRequest.focusRequest().orElseThrow());
+        assertEquals(2, ledger.appliedCount());
+        assertTrue(ledger.pending(first).isEmpty());
+
+        ViewSpec nextScreen = view("second", "First", first.focusRequest().orElseThrow());
+        assertTrue(ledger.pending(nextScreen).isPresent());
+        assertEquals(0, ledger.appliedCount());
     }
 
     private static ViewSpec view(String label, ViewSpec.FocusRequest focus) {
+        return view("characterization", label, focus);
+    }
+
+    private static ViewSpec view(String screenId, String label, ViewSpec.FocusRequest focus) {
         Bounds bounds = new Bounds(4, 5, 120, 20);
         return new ViewSpec(
-                "characterization",
+                screenId,
                 UiMessage.literal("Title", UiMessage.Severity.INFO),
                 320,
                 240,

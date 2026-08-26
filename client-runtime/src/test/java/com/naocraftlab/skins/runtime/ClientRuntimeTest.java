@@ -118,6 +118,112 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void galleryNavigationPublishesOneShotFocusAndDoesNotActivatePresetAnchors() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(3);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.view(320, 240, 0, 0);
+
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, null));
+        ViewSpec searchFocused = runtime.view(320, 240, 0, 0);
+        assertEquals(Optional.of("gallery.search"),
+                searchFocused.focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        runtime.acknowledgeViewRendered(searchFocused);
+        assertEquals(Optional.of("gallery.search"),
+                runtime.view(320, 240, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId),
+                "rendering alone must not acknowledge an unapplied native focus request");
+        runtime.acknowledgeFocusApplied(
+                searchFocused.screenId(), searchFocused.focusRequest().orElseThrow());
+        assertTrue(runtime.view(320, 240, 0, 0).focusRequest().isEmpty());
+
+        assertTrue(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.TAB_FORWARD, "gallery.search"));
+        assertEquals(Optional.of("gallery.add"),
+                runtime.view(320, 240, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        assertTrue(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.RIGHT, "gallery.add"));
+        String presetAnchor = runtime.view(320, 240, 0, 0).focusRequest()
+                .orElseThrow().widgetId();
+        assertTrue(presetAnchor.startsWith("gallery.card."));
+        assertFalse(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.ACTIVATE, presetAnchor));
+        assertTrue(runtime.snapshot().addSource().isEmpty());
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals(0, operations.applyCalls);
+
+        assertTrue(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.LEFT, presetAnchor));
+        assertTrue(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.ACTIVATE, "gallery.add"));
+        assertTrue(runtime.snapshot().addSource().isPresent());
+    }
+
+    @Test
+    void galleryDeleteFocusLifecycleOnlyRunsForKeyboardOrigin() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(3);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.view(854, 480, 0, 0);
+        UUID pointerPreset = operations.account.presets().get(0).id();
+
+        runtime.dispatchWidget(
+                "gallery.preset." + pointerPreset + ".delete",
+                false,
+                InteractionOrigin.POINTER);
+        assertTrue(runtime.view(854, 480, 0, 0).focusRequest().isEmpty());
+        runtime.dispatchWidget(
+                "gallery.preset." + pointerPreset + ".delete_cancel",
+                false,
+                InteractionOrigin.POINTER);
+        assertTrue(runtime.view(854, 480, 0, 0).focusRequest().isEmpty());
+
+        UUID keyboardPreset = operations.account.presets().get(1).id();
+        String prefix = "gallery.preset." + keyboardPreset;
+        runtime.dispatchWidget(prefix + ".delete", false, InteractionOrigin.KEYBOARD);
+        assertEquals(Optional.of(prefix + ".delete_cancel"),
+                runtime.view(854, 480, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        runtime.dispatchWidget(prefix + ".delete_cancel", false, InteractionOrigin.KEYBOARD);
+        assertEquals(Optional.of(prefix + ".delete"),
+                runtime.view(854, 480, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId));
+
+        runtime.dispatchWidget(prefix + ".delete", false, InteractionOrigin.KEYBOARD);
+        runtime.dispatchWidget(prefix + ".delete_confirm", false, InteractionOrigin.KEYBOARD);
+        String remainingFocus = runtime.view(854, 480, 0, 0).focusRequest()
+                .orElseThrow().widgetId();
+        assertTrue(remainingFocus.equals("gallery.add")
+                || remainingFocus.startsWith("gallery.card."));
+        assertFalse(remainingFocus.equals("gallery.card." + keyboardPreset));
+    }
+
+    @Test
+    void personalCatalogPointerDeleteNeverCreatesKeyboardFocusIntent() {
+        FakeOperations operations = new FakeOperations();
+        String hash = operations.seedPersonalSkin("Pointer skin");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.view(854, 480, 0, 0);
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        String delete = "add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + hash;
+        Optional<ViewSpec.FocusRequest> baselineFocus = runtime.view(854, 480, 0, 0).focusRequest();
+
+        runtime.dispatchWidget(delete, false, InteractionOrigin.POINTER);
+        assertEquals(baselineFocus, runtime.view(854, 480, 0, 0).focusRequest());
+        runtime.dispatchWidget(
+                "add.catalog.delete.cancel", false, InteractionOrigin.POINTER);
+        assertEquals(baselineFocus, runtime.view(854, 480, 0, 0).focusRequest());
+
+        runtime.dispatchWidget(delete, false, InteractionOrigin.POINTER);
+        runtime.dispatchWidget(
+                "add.catalog.delete.confirm", false, InteractionOrigin.POINTER);
+        assertEquals(baselineFocus, runtime.view(854, 480, 0, 0).focusRequest());
+        assertFalse(operations.account.personalSkins().get(0).visible());
+    }
+
+    @Test
     void fullCommandStateMachineUsesOneImmutableSnapshotSurface() {
         FakeOperations operations = new FakeOperations();
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
@@ -738,12 +844,15 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("gallery.add");
         int assetsBeforeRemoval = operations.account.skinAssets().size();
         int presetsBeforeRemoval = operations.account.presets().size();
-        runtime.dispatchWidget("add.catalog.delete:"
-                + PersonalSkinCatalog.COLLECTION_ID + ":" + hash);
+        runtime.dispatchWidget(
+                "add.catalog.delete:" + PersonalSkinCatalog.COLLECTION_ID + ":" + hash,
+                false,
+                InteractionOrigin.KEYBOARD);
 
         assertEquals("add_source", runtime.view(854, 480, 0, 0).screenId());
         assertEquals(0, operations.removePersonalCalls);
-        runtime.dispatchWidget("add.cancel");
+        runtime.dispatchWidget(
+                "add.catalog.delete.cancel", false, InteractionOrigin.KEYBOARD);
         ViewSpec restored = runtime.view(854, 480, 0, 0);
         assertEquals("add_source", restored.screenId());
         assertEquals(
@@ -795,7 +904,7 @@ final class ClientRuntimeTest {
         ViewSpec rename = runtime.view(854, 480, 0, 0);
         assertEquals(Optional.of("add.catalog.rename.name"),
                 rename.focusRequest().map(ViewSpec.FocusRequest::widgetId));
-        assertTrue(rename.widget("add.catalog.rename.name").orElseThrow().selectAllOnPrimaryClick());
+        assertTrue(rename.widget("add.catalog.rename.name").orElseThrow().selectAllOnFocusAcquire());
         runtime.dispatchText("add.catalog.rename.name", "Dinnerbone");
         runtime.dispatchWidget("add.catalog.rename.save");
         assertEquals("Dinnerbone", operations.account.personalSkins().get(0).displayName());
@@ -807,6 +916,77 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("add.catalog.delete.confirm");
         assertFalse(operations.account.personalSkins().get(0).visible());
         assertEquals(1, operations.removePersonalCalls);
+    }
+
+    @Test
+    void personalCatalogModesResetAtWorkspaceBoundariesAndRemainMutuallyExclusive() {
+        FakeOperations operations = new FakeOperations();
+        String hash = operations.seedPersonalSkin("Workspace skin");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+
+        String collectionId = PersonalSkinCatalog.COLLECTION_ID;
+        String renameId = "add.catalog.rename:" + collectionId + ':' + hash;
+        String deleteId = "add.catalog.delete:" + collectionId + ':' + hash;
+
+        runtime.dispatchWidget(renameId);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("add.catalog.rename.name").isPresent());
+        runtime.dispatchWidget("add.tab.file");
+        assertEquals(AddSourceTab.FILE,
+                runtime.snapshot().addSource().orElseThrow().selectedTab());
+        runtime.dispatchWidget("add.tab.catalog");
+        assertTrue(runtime.view(854, 480, 0, 0).widget(renameId).isPresent());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("add.catalog.rename.name").isEmpty());
+
+        runtime.dispatchWidget(renameId);
+        runtime.dispatchWidget(deleteId);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("add.catalog.rename.name").isEmpty());
+        assertTrue(runtime.snapshot().addSource().orElseThrow().personalSkinDeletion().isPresent());
+        runtime.dispatchWidget(renameId);
+        assertTrue(runtime.snapshot().addSource().orElseThrow().personalSkinDeletion().isEmpty());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("add.catalog.rename.name").isPresent());
+
+        runtime.dispatchWidget("add.catalog.collection:" + collectionId);
+        assertTrue(runtime.snapshot().addSource().orElseThrow().collectionCollapsed(collectionId));
+        assertTrue(runtime.view(854, 480, 0, 0).widget("add.catalog.rename.name").isEmpty());
+        runtime.dispatchWidget("add.catalog.collection:" + collectionId);
+        assertTrue(runtime.view(854, 480, 0, 0).widget(renameId).isPresent());
+
+        runtime.dispatchWidget(deleteId);
+        runtime.dispatchWidget("add.cancel");
+        assertTrue(runtime.snapshot().addSource().isEmpty(),
+                "footer Cancel must close the flow in the same dispatch");
+        runtime.dispatchWidget("gallery.add");
+        assertTrue(runtime.snapshot().addSource().orElseThrow().personalSkinDeletion().isEmpty());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("add.catalog.rename.name").isEmpty());
+    }
+
+    @Test
+    void galleryDeleteConfirmationDoesNotSurviveLeavingGallery() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        UUID presetId = operations.account.presets().get(0).id();
+        String prefix = "gallery.preset." + presetId;
+
+        runtime.dispatchWidget(prefix + ".delete");
+        assertTrue(runtime.view(854, 480, 0, 0)
+                .widget(prefix + ".delete_cancel").isPresent());
+        runtime.dispatchWidget("gallery.add");
+        assertTrue(runtime.snapshot().addSource().isPresent());
+        runtime.dispatchWidget("add.cancel");
+
+        ViewSpec gallery = runtime.view(854, 480, 0, 0);
+        assertTrue(gallery.widgets().stream()
+                .noneMatch(widget -> widget.id().endsWith(".delete_cancel")));
+        assertTrue(gallery.widgets().stream()
+                .noneMatch(widget -> widget.id().endsWith(".delete_confirm")));
+        assertTrue(gallery.widgets().stream()
+                .filter(widget -> widget.id().endsWith(".delete"))
+                .allMatch(ViewSpec.Widget::enabled));
     }
 
     @Test
@@ -968,6 +1148,35 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("editor.cancel");
         runtime.nativeScrollPositionChanged("editor.capes", 0.0);
         assertTrue(runtime.snapshot().editor().isEmpty());
+    }
+
+    @Test
+    void keyboardCapeNavigationScrollsToAnOffscreenLogicalCard() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.ownedCapes = capeInventory(5);
+        operations.session = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                (SessionFailureContext) null,
+                "offline");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.view(320, 240, 0, 0);
+        UUID presetId = operations.account.presets().get(0).id();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        ViewSpec start = runtime.view(320, 240, 0, 0);
+        assertEquals(0.0, start.scrollSurface("editor.capes").orElseThrow().offsetPixels());
+
+        assertTrue(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.DOWN, "editor.cape_choice.3"));
+
+        ViewSpec scrolled = runtime.view(320, 240, 0, 0);
+        assertTrue(scrolled.scrollSurface("editor.capes").orElseThrow().offsetPixels() > 0.0);
+        assertEquals(Optional.of("editor.cape_choice.5"),
+                scrolled.focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        assertTrue(scrolled.widget("editor.cape_choice.5").isPresent());
     }
 
     @Test
@@ -1222,7 +1431,7 @@ final class ClientRuntimeTest {
                 renameView.focusRequest().map(ViewSpec.FocusRequest::widgetId));
         assertTrue(renameView.widget("add.catalog.rename.name")
                 .orElseThrow()
-                .selectAllOnPrimaryClick());
+                .selectAllOnFocusAcquire());
         String renameValue = renameView.widget("add.catalog.rename.name")
                 .orElseThrow()
                 .value()

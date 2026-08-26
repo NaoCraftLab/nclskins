@@ -236,6 +236,22 @@ public final class AddSourceModel {
         return personalSkinDeletion;
     }
 
+    public AddSourceModel withoutPersonalSkinInteraction() {
+        if (personalSkinDeletion.isEmpty() && focusWidgetId.isEmpty()) {
+            return this;
+        }
+        return copy(
+                selectedTab,
+                collapsedCollectionIds,
+                query,
+                filter,
+                preferredVariant,
+                scrollOffset,
+                focusToken,
+                Optional.empty(),
+                Optional.empty());
+    }
+
     public AddSourceModel withSelectedTab(AddSourceTab tab) {
         Objects.requireNonNull(tab, "tab");
         if (tab == selectedTab) {
@@ -340,13 +356,20 @@ public final class AddSourceModel {
     public AddSourceModel requestPersonalSkinDeletion(
             SkinCatalogSource.CollectionDescriptor collection,
             SkinCatalogSource.SkinDescriptor skin) {
+        return requestPersonalSkinDeletion(collection, skin, true);
+    }
+
+    public AddSourceModel requestPersonalSkinDeletion(
+            SkinCatalogSource.CollectionDescriptor collection,
+            SkinCatalogSource.SkinDescriptor skin,
+            boolean requestCancelFocus) {
         Objects.requireNonNull(collection, "collection");
         Objects.requireNonNull(skin, "skin");
         if (collection.order().kind() != CatalogCollectionOrder.Kind.PERSONAL
                 || collection.skins().stream().noneMatch(value -> value.id().equals(skin.id()))) {
             return this;
         }
-        long nextFocus = Math.max(1, focusToken + 1);
+        long nextFocus = requestCancelFocus ? Math.max(1, focusToken + 1) : focusToken;
         return new AddSourceModel(
                 selectedTab,
                 collections,
@@ -358,7 +381,9 @@ public final class AddSourceModel {
                 preferredVariant,
                 scrollOffset,
                 nextFocus,
-                Optional.of("add.catalog.delete.cancel"),
+                requestCancelFocus
+                        ? Optional.of("add.catalog.delete.cancel")
+                        : focusWidgetId,
                 Optional.of(new PersonalSkinDeletion(
                         collection.id(),
                         skin.id(),
@@ -368,6 +393,10 @@ public final class AddSourceModel {
     }
 
     public AddSourceModel cancelPersonalSkinDeletion() {
+        return cancelPersonalSkinDeletion(true);
+    }
+
+    public AddSourceModel cancelPersonalSkinDeletion(boolean requestTriggerFocus) {
         if (personalSkinDeletion.isEmpty()) {
             return this;
         }
@@ -382,13 +411,17 @@ public final class AddSourceModel {
                 filter,
                 preferredVariant,
                 scrollOffset,
-                Math.max(1, focusToken + 1),
-                Optional.of(deletion.returnFocusWidgetId()),
+                requestTriggerFocus ? Math.max(1, focusToken + 1) : focusToken,
+                requestTriggerFocus ? Optional.of(deletion.returnFocusWidgetId()) : focusWidgetId,
                 Optional.empty(),
                 textResolver);
     }
 
     public AddSourceModel removeConfirmedPersonalSkin() {
+        return removeConfirmedPersonalSkin(true);
+    }
+
+    public AddSourceModel removeConfirmedPersonalSkin(boolean requestRemainingFocus) {
         PersonalSkinDeletion deletion = personalSkinDeletion.orElseThrow(
                 () -> new IllegalStateException("no personal skin deletion is pending"));
         List<SkinCatalogSource.CollectionDescriptor> sortedCollections = collections();
@@ -466,8 +499,8 @@ public final class AddSourceModel {
                 filter,
                 preferredVariant,
                 remainingVisible.isEmpty() ? 0 : scrollOffset,
-                Math.max(1, focusToken + 1),
-                Optional.of(nextFocusId),
+                requestRemainingFocus ? Math.max(1, focusToken + 1) : focusToken,
+                requestRemainingFocus ? Optional.of(nextFocusId) : focusWidgetId,
                 Optional.empty(),
                 textResolver);
     }

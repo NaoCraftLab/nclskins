@@ -48,10 +48,10 @@ final class AddSourceModelPresenterTest {
         assertTrue(view.widget("add.external.mod").isPresent());
         ViewSpec.Widget playerInput = view.widget("add.player.input").orElseThrow();
         assertEquals("jeb_", playerInput.value().orElseThrow());
-        assertTrue(playerInput.selectAllOnPrimaryClick());
+        assertTrue(playerInput.selectAllOnFocusAcquire());
         assertEquals(Optional.of("add.player.load"), playerInput.submitActionId());
         ViewSpec.Widget urlInput = view.widget("add.url.input").orElseThrow();
-        assertTrue(urlInput.selectAllOnPrimaryClick());
+        assertTrue(urlInput.selectAllOnFocusAcquire());
         assertEquals(Optional.of("add.url.load"), urlInput.submitActionId());
         assertTrue(view.widget("add.player.load").orElseThrow().enabled());
         assertTrue(view.widget("add.url.load").orElseThrow().enabled());
@@ -120,7 +120,7 @@ final class AddSourceModelPresenterTest {
 
         ViewSpec noResults = presenter.present(opened.withQuery("missing"), false, 320, 240);
         ViewSpec.Widget catalogSearch = noResults.widget("add.catalog.search").orElseThrow();
-        assertTrue(catalogSearch.selectAllOnPrimaryClick());
+        assertTrue(catalogSearch.selectAllOnFocusAcquire());
         assertEquals(Optional.empty(), catalogSearch.submitActionId());
         assertTrue(noResults.texts().stream().anyMatch(text -> text.id().equals("add.catalog.empty")));
     }
@@ -291,6 +291,9 @@ final class AddSourceModelPresenterTest {
         assertTrue(view.tabGroups().get(0).tabs().get(0).selected());
         assertEquals("add.catalog.search", view.focusRequest().orElseThrow().widgetId());
         assertEquals(1L, view.focusRequest().orElseThrow().token());
+        assertTrue(view.panels().stream().anyMatch(panel ->
+                panel.id().startsWith("add.catalog.skin:")
+                        && panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
 
         AddSourceModel collapsed = catalog.withCollectionCollapsed("minecraft", true);
         assertTrue(collapsed.collectionCollapsed("minecraft"));
@@ -522,6 +525,18 @@ final class AddSourceModelPresenterTest {
         assertTrue(canonical.previews().stream().allMatch(preview -> preview.yawDegrees() == -20.0F));
         assertTrue(canonical.previews().stream().allMatch(preview -> preview.pitchDegrees() == 0.0F));
         assertTrue(canonical.previews().stream().allMatch(preview -> preview.capeMode() == PreviewRenderer.CapeMode.OFF));
+        List<ViewSpec.NavigationNode> catalogNodes = narrow.navigationNodes().stream()
+                .filter(node -> node.id().startsWith("add.catalog.skin:"))
+                .toList();
+        long materializedCards = narrow.widgets().stream()
+                .filter(widget -> widget.id().startsWith("add.catalog.skin:"))
+                .count();
+        assertEquals(20, catalogNodes.size());
+        assertTrue(materializedCards < catalogNodes.size());
+        assertTrue(narrow.previews().size() < catalogNodes.size());
+        assertTrue(catalogNodes.stream().allMatch(node ->
+                node.pattern() == ViewSpec.NavigationPattern.GRID
+                        && node.surfaceId().equals(Optional.of("add.catalog"))));
         Bounds clip = canonical.clipRegions().stream()
                 .filter(region -> region.id().equals("add.catalog.viewport"))
                 .findFirst()
@@ -779,6 +794,33 @@ final class AddSourceModelPresenterTest {
     }
 
     @Test
+    void personalRenameDisablesActionsOnOtherCatalogCards() {
+        String firstHash = hash('a');
+        String secondHash = hash('b');
+        AddSourceModel model = openCatalog(List.of(personalCollection(
+                skin(firstHash, "First", SkinModel.CLASSIC),
+                skin(secondHash, "Second", SkinModel.CLASSIC))));
+
+        ViewSpec view = presenter.present(
+                model,
+                false,
+                Optional.empty(),
+                854,
+                480,
+                Optional.of(new AddSourcePresenter.PersonalSkinRename(
+                        PersonalSkinCatalog.COLLECTION_ID, firstHash, "First")));
+
+        assertTrue(view.widget("add.catalog.rename.name").orElseThrow().enabled());
+        assertFalse(view.widget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ':' + secondHash).orElseThrow().enabled());
+        assertFalse(view.widget("add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ':' + secondHash).orElseThrow().enabled());
+        assertTrue(view.navigationNodes().stream()
+                .filter(node -> node.id().startsWith("add.catalog.skin:"))
+                .allMatch(node -> !node.enabled()));
+    }
+
+    @Test
     void partiallyVisiblePersonalRenameOverlayUsesTheCatalogViewportClip() {
         String personalHash = hash('c');
         SkinCatalogSource.CollectionDescriptor personal = personalCollection(
@@ -809,7 +851,7 @@ final class AddSourceModelPresenterTest {
         }
         ViewSpec.Widget renameField = view.widget("add.catalog.rename.name").orElseThrow();
         assertTrue(renameField.bounds().y() < viewport.y());
-        assertTrue(renameField.selectAllOnPrimaryClick());
+        assertTrue(renameField.selectAllOnFocusAcquire());
         assertEquals(Optional.of("add.catalog.rename.save"), renameField.submitActionId());
         String nameId = "add.catalog.skin:"
                 + PersonalSkinCatalog.COLLECTION_ID

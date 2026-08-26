@@ -659,6 +659,7 @@ public final class PresetEditorModel {
         List<ViewSpec.BackEquipmentPreview> backEquipmentPreviews = new ArrayList<>();
         List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
+        List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
         CapeGalleryLayout capeGallery = capeGalleryLayout(
                 controlsX, controlsWidth, height, capeScrollPosition);
         addCapeGallery(
@@ -668,6 +669,7 @@ public final class PresetEditorModel {
                 backEquipmentPreviews,
                 iconDecorations,
                 clipRegions,
+                navigationNodes,
                 capeGallery);
         addPreviewCycleControls(widgets, previewBounds, height);
         widgets.add(ViewSpec.Widget.button(
@@ -738,14 +740,15 @@ public final class PresetEditorModel {
                 clipRegions,
                 backEquipmentPreviews,
                 iconDecorations,
-                capeGallery.maximum() <= 0
+                navigationNodes.isEmpty()
                         ? List.of()
                         : List.of(new ViewSpec.ScrollSurface(
                         "editor.capes",
                         capeGallery.viewport(),
                         ViewSpec.Scrollbar.Orientation.VERTICAL,
                         capeGallery.position(),
-                        capeGallery.maximum())));
+                        capeGallery.maximum())))
+                .withNavigationNodes(navigationNodes);
     }
 
     public int maximumCapeScroll(int width, int height) {
@@ -819,6 +822,7 @@ public final class PresetEditorModel {
             List<ViewSpec.BackEquipmentPreview> backEquipmentPreviews,
             List<ViewSpec.IconDecoration> iconDecorations,
             List<ViewSpec.ClipRegion> clipRegions,
+            List<ViewSpec.NavigationNode> navigationNodes,
             CapeGalleryLayout layout) {
         clipRegions.add(new ViewSpec.ClipRegion(
                 "editor.capes",
@@ -834,11 +838,20 @@ public final class PresetEditorModel {
                     layout.viewport().y() + row * (CAPE_CARD_HEIGHT + CAPE_CARD_GAP) - scroll,
                     layout.cardWidth(),
                     CAPE_CARD_HEIGHT);
+            String choiceWidgetId = "editor.cape_choice." + index;
+            navigationNodes.add(ViewSpec.NavigationNode.card(
+                    choiceWidgetId,
+                    card,
+                    "editor.capes",
+                    index,
+                    -1,
+                    !busy && !choice.id().equals(capeId),
+                    ViewSpec.NavigationPattern.GRID,
+                    Optional.empty()));
             if (!intersects(card, layout.viewport())) {
                 continue;
             }
             String prefix = "editor.cape_card." + index;
-            String choiceWidgetId = "editor.cape_choice." + index;
             panels.add(new ViewSpec.Panel(prefix, card, ViewSpec.Panel.Style.VANILLA_LIST));
             texts.add(new ViewSpec.Text(
                     prefix + ".name",

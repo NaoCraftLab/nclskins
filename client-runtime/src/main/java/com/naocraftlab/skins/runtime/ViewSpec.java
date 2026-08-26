@@ -29,7 +29,8 @@ public record ViewSpec(
         List<IconDecoration> iconDecorations,
         List<ScrollSurface> scrollSurfaces,
         List<TooltipRegion> tooltipRegions,
-        List<ProgressDecoration> progressDecorations) {
+        List<ProgressDecoration> progressDecorations,
+        List<NavigationNode> navigationNodes) {
     public ViewSpec(
             String screenId,
             UiMessage title,
@@ -234,6 +235,45 @@ public record ViewSpec(
                 List.of());
     }
 
+    public ViewSpec(
+            String screenId,
+            UiMessage title,
+            int width,
+            int height,
+            List<Panel> panels,
+            List<Text> texts,
+            List<Widget> widgets,
+            List<Preview> previews,
+            Optional<Scrollbar> scrollbar,
+            List<TabGroup> tabGroups,
+            Optional<FocusRequest> focusRequest,
+            List<ClipRegion> clipRegions,
+            List<BackEquipmentPreview> backEquipmentPreviews,
+            List<IconDecoration> iconDecorations,
+            List<ScrollSurface> scrollSurfaces,
+            List<TooltipRegion> tooltipRegions,
+            List<ProgressDecoration> progressDecorations) {
+        this(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                widgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                focusRequest,
+                clipRegions,
+                backEquipmentPreviews,
+                iconDecorations,
+                scrollSurfaces,
+                tooltipRegions,
+                progressDecorations,
+                List.of());
+    }
+
     public ViewSpec {
         Objects.requireNonNull(screenId, "screenId");
         Objects.requireNonNull(title, "title");
@@ -255,6 +295,7 @@ public record ViewSpec(
         tooltipRegions = List.copyOf(Objects.requireNonNull(tooltipRegions, "tooltipRegions"));
         progressDecorations = List.copyOf(Objects.requireNonNull(
                 progressDecorations, "progressDecorations"));
+        navigationNodes = List.copyOf(Objects.requireNonNull(navigationNodes, "navigationNodes"));
         if (scrollSurfaces.stream().map(ScrollSurface::id).distinct().count() != scrollSurfaces.size()) {
             throw new IllegalArgumentException("scroll surface ids must be unique");
         }
@@ -266,6 +307,26 @@ public record ViewSpec(
         if (progressDecorations.stream().anyMatch(decoration -> checkedWidgets.stream()
                 .noneMatch(widget -> widget.id().equals(decoration.ownerWidgetId())))) {
             throw new IllegalArgumentException("progress decoration owner must exist");
+        }
+        if (navigationNodes.stream().map(NavigationNode::id).distinct().count()
+                != navigationNodes.size()) {
+            throw new IllegalArgumentException("navigation node ids must be unique");
+        }
+        List<ScrollSurface> checkedSurfaces = scrollSurfaces;
+        if (navigationNodes.stream().anyMatch(node ->
+                node.pattern() != NavigationPattern.NONE && node.surfaceId().isEmpty())) {
+            throw new IllegalArgumentException("directional navigation node must own a surface");
+        }
+        if (navigationNodes.stream().flatMap(node -> node.surfaceId().stream()).anyMatch(id ->
+                checkedSurfaces.stream().noneMatch(surface -> surface.id().equals(id)))) {
+            throw new IllegalArgumentException("navigation node surface must exist");
+        }
+        List<Integer> tabOrders = navigationNodes.stream()
+                .filter(node -> node.tabOrder() >= 0)
+                .map(NavigationNode::tabOrder)
+                .toList();
+        if (tabOrders.stream().distinct().count() != tabOrders.size()) {
+            throw new IllegalArgumentException("navigation tab orders must be unique");
         }
     }
 
@@ -341,6 +402,55 @@ public record ViewSpec(
                 .findFirst();
     }
 
+    public Optional<NavigationNode> navigationNode(String id) {
+        Objects.requireNonNull(id, "id");
+        return navigationNodes.stream().filter(node -> node.id().equals(id)).findFirst();
+    }
+
+    public ViewSpec withFocusRequest(Optional<FocusRequest> request) {
+        return new ViewSpec(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                widgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                Objects.requireNonNull(request, "request"),
+                clipRegions,
+                backEquipmentPreviews,
+                iconDecorations,
+                scrollSurfaces,
+                tooltipRegions,
+                progressDecorations,
+                navigationNodes);
+    }
+
+    public ViewSpec withNavigationNodes(List<NavigationNode> nodes) {
+        return new ViewSpec(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                widgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                focusRequest,
+                clipRegions,
+                backEquipmentPreviews,
+                iconDecorations,
+                scrollSurfaces,
+                tooltipRegions,
+                progressDecorations,
+                nodes);
+    }
+
     public enum WidgetKind {
         BUTTON,
         ICON_BUTTON,
@@ -384,6 +494,82 @@ public record ViewSpec(
             if (token <= 0) {
                 throw new IllegalArgumentException("focus token must be positive");
             }
+        }
+    }
+
+    public enum NavigationCommand {
+        TAB_FORWARD,
+        TAB_BACKWARD,
+        LEFT,
+        RIGHT,
+        UP,
+        DOWN,
+        ACTIVATE
+    }
+
+    public enum NavigationPattern {
+        NONE,
+        HORIZONTAL_LIST,
+        GRID
+    }
+
+    public record NavigationNode(
+            String id,
+            Bounds bounds,
+            Optional<String> surfaceId,
+            int documentOrder,
+            int tabOrder,
+            boolean enabled,
+            NavigationPattern pattern,
+            Optional<String> activationActionId) {
+        public NavigationNode {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(bounds, "bounds");
+            surfaceId = Objects.requireNonNull(surfaceId, "surfaceId");
+            Objects.requireNonNull(pattern, "pattern");
+            activationActionId = Objects.requireNonNull(
+                    activationActionId, "activationActionId");
+            if (id.isBlank() || documentOrder < 0 || tabOrder < -1) {
+                throw new IllegalArgumentException("invalid navigation node");
+            }
+            if (surfaceId.filter(String::isBlank).isPresent()
+                    || activationActionId.filter(String::isBlank).isPresent()) {
+                throw new IllegalArgumentException("navigation ids must not be blank");
+            }
+        }
+
+        public static NavigationNode control(
+                Widget widget, int documentOrder, int tabOrder) {
+            Objects.requireNonNull(widget, "widget");
+            return new NavigationNode(
+                    widget.id(),
+                    widget.bounds(),
+                    Optional.empty(),
+                    documentOrder,
+                    tabOrder,
+                    widget.enabled() && widget.visible(),
+                    NavigationPattern.NONE,
+                    Optional.empty());
+        }
+
+        public static NavigationNode card(
+                String id,
+                Bounds bounds,
+                String surfaceId,
+                int documentOrder,
+                int tabOrder,
+                boolean enabled,
+                NavigationPattern pattern,
+                Optional<String> activationActionId) {
+            return new NavigationNode(
+                    id,
+                    bounds,
+                    Optional.of(Objects.requireNonNull(surfaceId, "surfaceId")),
+                    documentOrder,
+                    tabOrder,
+                    enabled,
+                    pattern,
+                    activationActionId);
         }
     }
 
@@ -472,7 +658,7 @@ public record ViewSpec(
             boolean enabled,
             boolean visible,
             int maxLength,
-            boolean selectAllOnPrimaryClick,
+            boolean selectAllOnFocusAcquire,
             Optional<String> submitActionId) {
         public Widget(
                 String id,
@@ -510,7 +696,7 @@ public record ViewSpec(
                 throw new IllegalArgumentException("maxLength must not be negative");
             }
             if (kind != WidgetKind.TEXT_FIELD
-                    && (selectAllOnPrimaryClick || submitActionId.isPresent())) {
+                    && (selectAllOnFocusAcquire || submitActionId.isPresent())) {
                 throw new IllegalArgumentException("text-field interaction belongs only to text fields");
             }
             if (submitActionId.filter(String::isBlank).isPresent()) {
@@ -662,7 +848,7 @@ public record ViewSpec(
                 UiMessage hint,
                 boolean enabled,
                 int maxLength,
-                boolean selectAllOnPrimaryClick,
+                boolean selectAllOnFocusAcquire,
                 Optional<String> submitActionId) {
             return new Widget(
                     id,
@@ -674,7 +860,7 @@ public record ViewSpec(
                     enabled,
                     true,
                     maxLength,
-                    selectAllOnPrimaryClick,
+                    selectAllOnFocusAcquire,
                     submitActionId);
         }
 

@@ -55,6 +55,7 @@ public final class AddSourcePresenter {
         List<ViewSpec.Preview> previews = new ArrayList<>();
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
         List<ViewSpec.TooltipRegion> tooltipRegions = new ArrayList<>();
+        List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
         List<ViewSpec.Tab> tabs = List.of(
                 new ViewSpec.Tab(
                         "add.tab.catalog",
@@ -169,6 +170,7 @@ public final class AddSourcePresenter {
                     widgets,
                     previews,
                     tooltipRegions,
+                    navigationNodes,
                     personalRename);
             clipRegions.add(new ViewSpec.ClipRegion(
                     "add.catalog.viewport",
@@ -181,14 +183,12 @@ public final class AddSourcePresenter {
                             "add.catalog.delete:",
                             "add.catalog.tooltip:")));
             scrollbar = layout.scrollbar();
-            if (layout.maximum() > 0) {
-                scrollSurfaces = List.of(new ViewSpec.ScrollSurface(
-                        "add.catalog",
-                        new Bounds(0, CONTENT_TOP, width, Math.max(1, layout.contentBottom() - CONTENT_TOP)),
-                        ViewSpec.Scrollbar.Orientation.VERTICAL,
-                        Math.min(model.scrollOffset(), layout.maximum()),
-                        layout.maximum()));
-            }
+            scrollSurfaces = List.of(new ViewSpec.ScrollSurface(
+                    "add.catalog",
+                    new Bounds(0, CONTENT_TOP, width, Math.max(1, layout.contentBottom() - CONTENT_TOP)),
+                    ViewSpec.Scrollbar.Orientation.VERTICAL,
+                    Math.min(model.scrollOffset(), layout.maximum()),
+                    layout.maximum()));
             if (layout.matchingSkinCount() == 0) {
                 texts.add(new ViewSpec.Text(
                         "add.catalog.empty",
@@ -229,7 +229,7 @@ public final class AddSourcePresenter {
                 List.of(),
                 List.of(),
                 scrollSurfaces,
-                tooltipRegions);
+                tooltipRegions).withNavigationNodes(navigationNodes);
     }
 
     private static Optional<ViewSpec.FocusRequest> focusRequest(AddSourceModel model) {
@@ -281,8 +281,11 @@ public final class AddSourcePresenter {
             List<ViewSpec.Widget> widgets,
             List<ViewSpec.Preview> previews,
             List<ViewSpec.TooltipRegion> tooltipRegions,
+            List<ViewSpec.NavigationNode> navigationNodes,
             Optional<PersonalSkinRename> personalRename) {
         int contentBottom = layout.contentBottom();
+        boolean transientMode = model.personalSkinDeletion().isPresent()
+                || personalRename.isPresent();
         int y = CONTENT_TOP - Math.min(model.scrollOffset(), layout.maximum());
         for (SkinCatalogSource.CollectionDescriptor collection : model.visibleCollections()) {
             List<SkinCatalogSource.SkinDescriptor> skins = model.visibleSkins(collection);
@@ -320,12 +323,21 @@ public final class AddSourcePresenter {
                 int cardX = layout.cardStartX() + column * (layout.cardWidth() + CARD_GAP);
                 int cardY = y + row * (layout.cardHeight() + CARD_GAP);
                 Bounds card = new Bounds(cardX, cardY, layout.cardWidth(), layout.cardHeight());
+                SkinCatalogSource.SkinDescriptor skin = skins.get(index);
+                String prefix = "add.catalog.skin:" + collection.id() + ":" + skin.id();
+                navigationNodes.add(ViewSpec.NavigationNode.card(
+                        prefix,
+                        card,
+                        "add.catalog",
+                        navigationNodes.size(),
+                        -1,
+                        !busy && !transientMode,
+                        ViewSpec.NavigationPattern.GRID,
+                        Optional.empty()));
                 if (!intersectsViewport(card, contentBottom)) {
                     continue;
                 }
-                SkinCatalogSource.SkinDescriptor skin = skins.get(index);
                 SkinVariant variant = model.selectedVariant(skin);
-                String prefix = "add.catalog.skin:" + collection.id() + ":" + skin.id();
                 panels.add(new ViewSpec.Panel(prefix, card, ViewSpec.Panel.Style.VANILLA_LIST));
                 widgets.add(new ViewSpec.Widget(
                         prefix,
@@ -459,7 +471,7 @@ public final class AddSourcePresenter {
                                         leftAction,
                                         UiMessage.info("nclskins.your_skins.rename"),
                                         "edit",
-                                        !busy && model.personalSkinDeletion().isEmpty()),
+                                        !busy && !transientMode),
                                 contentBottom);
                         addIntersectingWidget(
                                 widgets,
@@ -469,7 +481,7 @@ public final class AddSourcePresenter {
                                         rightAction,
                                         UiMessage.info("nclskins.your_skins.delete"),
                                         "delete",
-                                        !busy && model.personalSkinDeletion().isEmpty()),
+                                        !busy && !transientMode),
                                 contentBottom);
                     }
                 }

@@ -25,7 +25,8 @@ public interface ImmediateScreenCapabilities {
 
     NativeScrollController createScrollController();
 
-    void renderPanel(GuiGraphics graphics, ViewSpec.Panel panel);
+    void renderPanel(
+            GuiGraphics graphics, ViewSpec.Panel panel, int textureU, int textureV);
 
     void renderScrollbar(GuiGraphics graphics, ViewSpec.Scrollbar scrollbar);
 }

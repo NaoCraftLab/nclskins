@@ -16,12 +16,15 @@ import com.naocraftlab.skins.runtime.CatalogCardStyle;
 import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
+import com.naocraftlab.skins.runtime.FocusRequestLedger;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
+import com.naocraftlab.skins.runtime.InteractionOrigin;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
 import com.naocraftlab.skins.runtime.MarqueeText;
 import com.naocraftlab.skins.runtime.PreviewAssetCache;
 import com.naocraftlab.skins.runtime.PointerRouting;
 import com.naocraftlab.skins.runtime.UiMessage;
+import com.naocraftlab.skins.runtime.VanillaListSurface;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import com.naocraftlab.skins.runtime.ViewHostPolicy;
 import java.util.ArrayList;
@@ -127,10 +130,13 @@ public final class NclSkinsScreen extends Screen {
     private boolean syncingTabSelection;
     private boolean pointerCaptured;
     private String pendingTabSelection;
-    private long consumedFocusToken;
+    private final FocusRequestLedger focusRequests = new FocusRequestLedger();
+    private int nativeDispatchDepth;
+    private Map<String, EditBox> retainedEditBoxes = Map.of();
     private int lastMouseX;
     private int lastMouseY;
     private boolean dispatchShiftDown;
+    private InteractionOrigin dispatchOrigin = InteractionOrigin.PROGRAMMATIC;
 
     public NclSkinsScreen(Screen parent) {
         super(Component.translatable("nclskins.title"));
@@ -235,9 +241,16 @@ public final class NclSkinsScreen extends Screen {
 
 
             String focusedWidgetId = currentFocusedWidgetId();
-            long focusTokenBeforeRebuild = consumedFocusToken;
-            rebuildWidgets();
-            if (focusedWidgetId != null && consumedFocusToken == focusTokenBeforeRebuild) {
+            boolean pendingFocusBeforeRebuild = focusRequests.pending(next).isPresent();
+            retainedEditBoxes = retainedEditBoxes();
+            try {
+                rebuildWidgets();
+            } finally {
+                retainedEditBoxes = Map.of();
+            }
+            if (focusedWidgetId != null
+                    && !(pendingFocusBeforeRebuild
+                            && focusRequests.pending(next).isEmpty())) {
                 focusWidget(focusedWidgetId);
             }
         } else {
@@ -245,6 +258,16 @@ public final class NclSkinsScreen extends Screen {
             syncNativeTabState(next);
             applyFocusRequest(next);
         }
+    }
+
+    private Map<String, EditBox> retainedEditBoxes() {
+        Map<String, EditBox> retained = new HashMap<>();
+        nativeWidgets.forEach((id, widget) -> {
+            if (widget instanceof EditBox editBox) {
+                retained.put(id, editBox);
+            }
+        });
+        return retained;
     }
 
     private void addNativeWidgets(ViewSpec view) {
@@ -255,17 +278,25 @@ public final class NclSkinsScreen extends Screen {
             Bounds bounds = spec.bounds();
             AbstractWidget widget;
             if (spec.kind() == ViewSpec.WidgetKind.TEXT_FIELD) {
-                EditBox field = new EditBox(
-                        font,
-                        bounds.x(),
-                        bounds.y(),
-                        bounds.width(),
-                        bounds.height(),
-                        MinecraftClientComponents.resolve(spec.label()));
+                EditBox field = retainedEditBoxes.get(spec.id());
+                boolean retained = field != null;
+                if (!retained) {
+                    field = new EditBox(
+                            font,
+                            bounds.x(),
+                            bounds.y(),
+                            bounds.width(),
+                            bounds.height(),
+                            MinecraftClientComponents.resolve(spec.label()));
+                }
                 field.setMaxLength(spec.maxLength());
                 String initialValue = spec.value().orElse("");
-                field.setValue(initialValue);
-                spec.hint().ifPresent(hint -> field.setHint(MinecraftClientComponents.resolve(hint)));
+                if (!retained) {
+                    field.setValue(initialValue);
+                }
+                if (spec.hint().isPresent()) {
+                    field.setHint(MinecraftClientComponents.resolve(spec.hint().orElseThrow()));
+                }
                 field.setEditable(spec.enabled());
                 field.active = spec.enabled();
                 String[] responderValue = {initialValue};
@@ -280,7 +311,7 @@ public final class NclSkinsScreen extends Screen {
                 CatalogCardWidget card = new CatalogCardWidget(
                         bounds,
                         MinecraftClientComponents.resolve(spec.label()),
-                        () -> runtime.dispatchWidget(spec.id()));
+                        () -> dispatchNativeWidget(spec.id(), false));
                 card.active = spec.enabled();
                 widget = card;
             } else if (spec.kind() == ViewSpec.WidgetKind.CAPE_CARD
@@ -290,7 +321,7 @@ public final class NclSkinsScreen extends Screen {
                         MinecraftClientComponents.resolve(spec.label()),
                         CatalogCardStyle.selectionSelected(spec),
                         CatalogCardStyle.selectionBackgroundBehindContent(spec.kind()),
-                        () -> runtime.dispatchWidget(spec.id()));
+                        () -> dispatchNativeWidget(spec.id(), false));
                 card.active = spec.enabled();
                 widget = card;
             } else if (spec.kind() == ViewSpec.WidgetKind.COLLECTION_HEADER) {
@@ -299,7 +330,7 @@ public final class NclSkinsScreen extends Screen {
                         bounds,
                         MinecraftClientComponents.resolve(spec.label()),
                         spec.collectionHeaderHasTrailingInfo(),
-                        () -> runtime.dispatchWidget(spec.id()));
+                        () -> dispatchNativeWidget(spec.id(), false));
                 header.active = spec.enabled();
                 widget = header;
             } else if (spec.kind() == ViewSpec.WidgetKind.CATALOG_DELETE) {
@@ -307,7 +338,7 @@ public final class NclSkinsScreen extends Screen {
                         font,
                         bounds,
                         MinecraftClientComponents.resolve(spec.label()),
-                        () -> runtime.dispatchWidget(spec.id()));
+                        () -> dispatchNativeWidget(spec.id(), false));
                 delete.active = spec.enabled();
                 widget = delete;
             } else if (spec.kind() == ViewSpec.WidgetKind.ICON_BUTTON) {
@@ -316,7 +347,7 @@ public final class NclSkinsScreen extends Screen {
                         MinecraftClientComponents.resolve(spec.label()),
                         actionIconTexture(spec.icon().orElseThrow(() ->
                                 new IllegalArgumentException("Missing icon for " + spec.id()))),
-                        input -> runtime.dispatchWidget(spec.id(), input.hasShiftDown()));
+                        input -> dispatchNativeWidget(spec.id(), input.hasShiftDown()));
                 iconButton.active = spec.enabled();
                 spec.hint().ifPresent(hint -> iconButton.setTooltip(
                         Tooltip.create(MinecraftClientComponents.resolve(hint))));
@@ -330,7 +361,7 @@ public final class NclSkinsScreen extends Screen {
                         font,
                         bounds,
                         MinecraftClientComponents.resolve(spec.label()),
-                        () -> runtime.dispatchWidget(spec.id()));
+                        () -> dispatchNativeWidget(spec.id(), false));
                 infoButton.active = spec.enabled();
                 infoButton.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
@@ -343,12 +374,12 @@ public final class NclSkinsScreen extends Screen {
                     widget = new TransparentButtonWidget(
                             bounds,
                             MinecraftClientComponents.resolve(spec.label()),
-                            input -> runtime.dispatchWidget(spec.id(), input.hasShiftDown()));
+                            input -> dispatchNativeWidget(spec.id(), input.hasShiftDown()));
                     widget.active = spec.enabled();
                 } else {
                     Button button = Button.builder(
                                     MinecraftClientComponents.resolve(spec.label()),
-                                    ignored -> runtime.dispatchWidget(spec.id(), dispatchShiftDown))
+                                    ignored -> dispatchNativeWidget(spec.id(), dispatchShiftDown))
                             .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height())
                             .build();
                     button.active = spec.enabled();
@@ -478,26 +509,21 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private void applyFocusRequest(ViewSpec view) {
-        if (view.focusRequest().isEmpty()) {
-            consumedFocusToken = 0;
+        if (nativeDispatchDepth > 0) {
             return;
         }
-        ViewSpec.FocusRequest request = view.focusRequest().orElseThrow();
-        if (request.token() > consumedFocusToken && focusWidget(request.widgetId())) {
-            selectAllTextField(view, request.widgetId());
-            consumedFocusToken = request.token();
+        Optional<ViewSpec.FocusRequest> pending = focusRequests.pending(view);
+        if (pending.isEmpty()) {
+            return;
         }
-    }
-
-    private void reassertFocusRequest(ViewSpec view) {
-        ViewHostPolicy.focusTargetAfterMouseDispatch(view, currentFocusedWidgetId())
-                .ifPresent(widgetId -> {
-            if (focusWidget(widgetId)) {
-                selectAllTextField(view, widgetId);
-                consumedFocusToken = Math.max(
-                        consumedFocusToken, view.focusRequest().orElseThrow().token());
-            }
-        });
+        ViewSpec.FocusRequest request = pending.orElseThrow();
+        String previouslyFocused = currentFocusedWidgetId();
+        if (focusWidget(request.widgetId())) {
+            selectAllTextField(
+                    view, request.widgetId(), previouslyFocused, InteractionOrigin.PROGRAMMATIC);
+            focusRequests.acknowledge(view.screenId(), request);
+            runtime.acknowledgeFocusApplied(view.screenId(), request);
+        }
     }
 
     private boolean focusWidget(String widgetId) {
@@ -556,10 +582,10 @@ public final class NclSkinsScreen extends Screen {
         for (ViewSpec.Panel panel : view.panels()) {
             if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
                 drawClipped(graphics, view, panel.id(), () ->
-                        drawVanillaListPanel(graphics, panel.bounds()));
+                        drawVanillaListPanel(graphics, view, panel));
             }
         }
-        if (drawSelectableCardBackgrounds(graphics, view)) {
+        if (drawCardBackgrounds(graphics, view, mouseX, mouseY)) {
             graphics.nextStratum();
         }
         drawPreviews(graphics, view);
@@ -633,15 +659,20 @@ public final class NclSkinsScreen extends Screen {
                 .anyMatch(decoration -> decoration.ownerWidgetId().equals(widgetId));
     }
 
-    private boolean drawSelectableCardBackgrounds(
-            GuiGraphicsExtractor graphics, ViewSpec view) {
+    private boolean drawCardBackgrounds(
+            GuiGraphicsExtractor graphics, ViewSpec view, int mouseX, int mouseY) {
         boolean rendered = false;
         for (ViewSpec.Widget widget : view.widgets()) {
-            if (!CatalogCardStyle.selectionBackgroundBehindContent(widget.kind())) {
+            if (!CatalogCardStyle.backgroundBehindContent(widget.kind())) {
                 continue;
             }
-            int color = CatalogCardStyle.selectableBackgroundColor(
-                    CatalogCardStyle.selectionSelected(widget));
+            boolean hovered = widget.bounds().contains(mouseX, mouseY)
+                    && pointerInsideClip(view, widget.id(), mouseX, mouseY);
+            boolean focused = Optional.ofNullable(nativeWidgets.get(widget.id()))
+                    .map(AbstractWidget::isFocused)
+                    .orElse(false);
+            int color = CatalogCardStyle.backgroundBehindContentColor(
+                    widget, hovered || focused);
             if (color == CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
                 continue;
             }
@@ -668,7 +699,9 @@ public final class NclSkinsScreen extends Screen {
                 renderable.extractRenderState(graphics, mouseX, mouseY, partialTick);
                 continue;
             }
-            boolean receivesPointer = pointerOwner.map(widgetId::equals).orElse(true);
+            boolean receivesPointer = pointerOwner.map(widgetId::equals).orElse(true)
+                    || ViewHostPolicy.compositeCardHovered(
+                            view, widgetId, mouseX, mouseY);
             boolean pointerInsideClip = pointerInsideClip(view, widgetId, mouseX, mouseY);
             int widgetMouseX = receivesPointer && pointerInsideClip
                     ? mouseX
@@ -744,45 +777,39 @@ public final class NclSkinsScreen extends Screen {
         closeMissingRenderers(galleryRenderers, visibleIds);
     }
 
-    private void drawVanillaListPanel(GuiGraphicsExtractor graphics, Bounds bounds) {
+    private void drawVanillaListPanel(
+            GuiGraphicsExtractor graphics, ViewSpec view, ViewSpec.Panel panel) {
+        Bounds bounds = panel.bounds();
+        if (bounds.width() <= 0 || bounds.height() <= 0) {
+            return;
+        }
         Identifier background = minecraft.level == null
                 ? MENU_LIST_BACKGROUND
                 : INWORLD_MENU_LIST_BACKGROUND;
+        VanillaListSurface.Sample sample = VanillaListSurface.sample(view, panel);
         graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
                 background,
                 bounds.x(),
                 bounds.y(),
-                (float) bounds.x(),
-                (float) bounds.y(),
+                sample.u(),
+                sample.v(),
                 bounds.width(),
                 bounds.height(),
                 32,
                 32);
-        Identifier header = minecraft.level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
-        Identifier footer = minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
+        Identifier top = minecraft.level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
+        Identifier bottom = minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
+        VanillaListSurface.Boundaries boundaries = VanillaListSurface.boundaries(bounds);
         graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
-                header,
-                bounds.x(),
-                bounds.y() - 2,
-                0.0F,
-                0.0F,
-                bounds.width(),
-                2,
-                32,
-                2);
+                top,
+                bounds.x(), boundaries.topY(), 0.0F, 0.0F, bounds.width(), 2, 32, 2);
         graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
-                footer,
-                bounds.x(),
-                bounds.bottom(),
-                0.0F,
-                0.0F,
-                bounds.width(),
-                2,
-                32,
-                2);
+                bottom,
+                bounds.x(), boundaries.bottomY(),
+                0.0F, 0.0F, bounds.width(), 2, 32, 2);
     }
 
     private void drawFrameBackgrounds(GuiGraphicsExtractor graphics, ViewSpec view) {
@@ -1110,27 +1137,55 @@ public final class NclSkinsScreen extends Screen {
         if (runtime.closed()) {
             return false;
         }
+        nativeDispatchDepth++;
+        try {
         ViewSpec view = runtime.view(width, height, lastMouseX, lastMouseY);
         currentView = view;
-        if (isEnterKey(event.key()) && dispatchFocusedSubmit(view)) {
-            return true;
-        }
-        for (NativeTabGroup group : nativeTabGroups.values()) {
-            if (group.bar().keyPressed(event)) {
-                dispatchPendingTabSelection();
+        String focusedBefore = currentFocusedWidgetId();
+        InteractionOrigin priorOrigin = dispatchOrigin;
+        dispatchOrigin = InteractionOrigin.KEYBOARD;
+        try {
+            if (isEnterKey(event.key()) && dispatchFocusedSubmit(view)) {
                 return true;
             }
-        }
-        boolean priorShift = dispatchShiftDown;
-        dispatchShiftDown = event.hasShiftDown();
-        boolean consumed;
-        try {
-            consumed = super.keyPressed(event);
+            for (NativeTabGroup group : nativeTabGroups.values()) {
+                if (group.bar().keyPressed(event)) {
+                    dispatchPendingTabSelection();
+                    selectAllTextField(
+                            currentView,
+                            currentFocusedWidgetId(),
+                            focusedBefore,
+                            InteractionOrigin.KEYBOARD);
+                    return true;
+                }
+            }
+            Optional<ViewSpec.NavigationCommand> navigation = navigationCommand(event);
+            if (navigation.isPresent()
+                    && runtime.dispatchNavigation(
+                            navigation.orElseThrow(), currentFocusedWidgetId())) {
+                return true;
+            }
+            boolean priorShift = dispatchShiftDown;
+            dispatchShiftDown = event.hasShiftDown();
+            boolean consumed;
+            try {
+                consumed = super.keyPressed(event);
+            } finally {
+                dispatchShiftDown = priorShift;
+            }
+            dispatchPendingTabSelection();
+            selectAllTextField(
+                    currentView,
+                    currentFocusedWidgetId(),
+                    focusedBefore,
+                    InteractionOrigin.KEYBOARD);
+            return consumed;
         } finally {
-            dispatchShiftDown = priorShift;
+            dispatchOrigin = priorOrigin;
         }
-        dispatchPendingTabSelection();
-        return consumed;
+        } finally {
+            finishNativeDispatch();
+        }
     }
 
     @Override
@@ -1138,24 +1193,21 @@ public final class NclSkinsScreen extends Screen {
         if (runtime.closed()) {
             return false;
         }
+        nativeDispatchDepth++;
+        try {
         ViewSpec view = runtime.view(width, height, (int) event.x(), (int) event.y());
         currentView = view;
+        String focusedBefore = currentFocusedWidgetId();
         Optional<ViewSpec.Widget> pointerOwner = pointerOwnerAt(view, event.x(), event.y());
-        Optional<String> selectAllField = pointerOwner
-                .filter(widget -> event.button() == LEFT_MOUSE_BUTTON)
-                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.TEXT_FIELD)
-                .filter(ViewSpec.Widget::selectAllOnPrimaryClick)
-                .filter(ViewSpec.Widget::enabled)
-                .map(ViewSpec.Widget::id);
         Optional<ViewSpec.Widget> priorityAction = pointerOwner.filter(widget ->
                 widget.kind() == ViewSpec.WidgetKind.INFO_BUTTON
                         || widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE);
         if (priorityAction.isPresent()) {
             ViewSpec.Widget action = priorityAction.orElseThrow();
             if (event.button() == LEFT_MOUSE_BUTTON && action.enabled()) {
-                runtime.dispatchWidget(action.id(), event.hasShiftDown());
+                runtime.dispatchWidget(
+                        action.id(), event.hasShiftDown(), InteractionOrigin.POINTER);
             }
-            reassertFocusRequest(currentView);
             return true;
         }
         if (event.button() == LEFT_MOUSE_BUTTON && pointerOwner.isEmpty()) {
@@ -1164,7 +1216,7 @@ public final class NclSkinsScreen extends Screen {
                         && widget.enabled()
                         && widget.bounds().contains(event.x(), event.y())
                         && pointerInsideClip(view, widget.id(), event.x(), event.y())) {
-                    runtime.dispatchWidget(widget.id());
+                    runtime.dispatchWidget(widget.id(), false, InteractionOrigin.POINTER);
                     return true;
                 }
             }
@@ -1173,11 +1225,14 @@ public final class NclSkinsScreen extends Screen {
                 maskWidgetsOutsideClip(view, event.x(), event.y());
         boolean nativeConsumed;
         boolean priorShift = dispatchShiftDown;
+        InteractionOrigin priorOrigin = dispatchOrigin;
         dispatchShiftDown = event.hasShiftDown();
+        dispatchOrigin = InteractionOrigin.POINTER;
         try {
             nativeConsumed = super.mouseClicked(event, doubleClick);
         } finally {
             dispatchShiftDown = priorShift;
+            dispatchOrigin = priorOrigin;
             ViewSpec latestView = runtime.closed()
                     ? view
                     : runtime.view(width, height, (int) event.x(), (int) event.y());
@@ -1185,8 +1240,11 @@ public final class NclSkinsScreen extends Screen {
             restoreMaskedWidgets(maskedWidgets, latestView);
         }
         dispatchPendingTabSelection();
-        reassertFocusRequest(currentView);
-        selectAllField.ifPresent(id -> selectAllTextField(currentView, id));
+        selectAllTextField(
+                currentView,
+                currentFocusedWidgetId(),
+                focusedBefore,
+                InteractionOrigin.POINTER);
         if (nativeConsumed) {
             return true;
         }
@@ -1201,13 +1259,29 @@ public final class NclSkinsScreen extends Screen {
             return true;
         }
         return false;
+        } finally {
+            finishNativeDispatch();
+        }
+    }
+
+    private void finishNativeDispatch() {
+        nativeDispatchDepth--;
+        if (nativeDispatchDepth < 0) {
+            nativeDispatchDepth = 0;
+            throw new IllegalStateException("native dispatch depth underflow");
+        }
+        if (nativeDispatchDepth == 0 && !runtime.closed()) {
+            ViewSpec latest = runtime.view(width, height, lastMouseX, lastMouseY);
+            currentView = latest;
+            applyFocusRequest(latest);
+        }
     }
 
     private void dispatchPendingTabSelection() {
         String selectedId = pendingTabSelection;
         pendingTabSelection = null;
         if (selectedId != null) {
-            runtime.dispatchWidget(selectedId);
+            dispatchNativeWidget(selectedId, false);
         }
     }
 
@@ -1220,15 +1294,32 @@ public final class NclSkinsScreen extends Screen {
         Optional<String> actionId = ViewHostPolicy.submitAction(
                 view, focusedId, editBox.isFocused(), editBox.getValue());
         if (actionId.isEmpty()) return false;
-        runtime.dispatchWidget(actionId.orElseThrow());
+        runtime.dispatchWidget(actionId.orElseThrow(), false, InteractionOrigin.KEYBOARD);
         return true;
     }
 
-    private void selectAllTextField(ViewSpec view, String widgetId) {
+    private void dispatchNativeWidget(String widgetId, boolean reverse) {
+        runtime.dispatchWidget(widgetId, reverse, dispatchOrigin);
+    }
+
+    private void selectAllTextField(
+            ViewSpec view,
+            String widgetId,
+            String previouslyFocused,
+            InteractionOrigin origin) {
         AbstractWidget nativeSource = nativeWidgets.get(widgetId);
         if (!(nativeSource instanceof EditBox editBox)
-                || !ViewHostPolicy.shouldSelectAll(
-                        view, widgetId, editBox.isFocused(), editBox.getValue())) {
+                || !ViewHostPolicy.shouldSelectAllOnFocusAcquire(
+                        view,
+                        widgetId,
+                        origin == InteractionOrigin.POINTER
+                                ? ViewHostPolicy.FocusCause.POINTER
+                                : origin == InteractionOrigin.KEYBOARD
+                                        ? ViewHostPolicy.FocusCause.KEYBOARD
+                                        : ViewHostPolicy.FocusCause.PROGRAMMATIC,
+                        widgetId.equals(previouslyFocused),
+                        editBox.isFocused(),
+                        editBox.getValue())) {
             return;
         }
         editBox.setCursorPosition(editBox.getValue().length());
@@ -1237,6 +1328,21 @@ public final class NclSkinsScreen extends Screen {
 
     private static boolean isEnterKey(int keyCode) {
         return keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER;
+    }
+
+    private Optional<ViewSpec.NavigationCommand> navigationCommand(KeyEvent event) {
+        return switch (event.key()) {
+            case GLFW.GLFW_KEY_TAB -> Optional.of(event.hasShiftDown()
+                    ? ViewSpec.NavigationCommand.TAB_BACKWARD
+                    : ViewSpec.NavigationCommand.TAB_FORWARD);
+            case GLFW.GLFW_KEY_LEFT -> Optional.of(ViewSpec.NavigationCommand.LEFT);
+            case GLFW.GLFW_KEY_RIGHT -> Optional.of(ViewSpec.NavigationCommand.RIGHT);
+            case GLFW.GLFW_KEY_UP -> Optional.of(ViewSpec.NavigationCommand.UP);
+            case GLFW.GLFW_KEY_DOWN -> Optional.of(ViewSpec.NavigationCommand.DOWN);
+            case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER, GLFW.GLFW_KEY_SPACE ->
+                    Optional.of(ViewSpec.NavigationCommand.ACTIVATE);
+            default -> Optional.empty();
+        };
     }
 
     @Override
@@ -1384,6 +1490,7 @@ public final class NclSkinsScreen extends Screen {
     public void removed() {
         activeScreen = false;
         pointerCaptured = false;
+        focusRequests.reset();
         IdentifierTextureRegistry registry = textureRegistry;
         PreviewAssetCache<SkinKey> skins = skinTextures;
         PreviewAssetCache<String> capes = capeTextures;
@@ -1600,15 +1707,8 @@ public final class NclSkinsScreen extends Screen {
         @Override
         protected void extractContents(
                 GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-            int backgroundColor =
-                    CatalogCardStyle.backgroundColor(active, isHoveredOrFocused());
-            if (backgroundColor != CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
-                graphics.fill(
-                        getX(),
-                        getY(),
-                        getX() + getWidth(),
-                        getY() + getHeight(),
-                        backgroundColor);
+            if (isFocused()) {
+                extractCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
         }
 
@@ -1648,20 +1748,30 @@ public final class NclSkinsScreen extends Screen {
         @Override
         protected void extractContents(
                 GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-            int color = selectedBackgroundBehindPreview
-                    ? CatalogCardStyle.selectableForegroundColor(
-                            selected, active, isHoveredOrFocused())
-                    : selected
-                            ? CatalogCardStyle.SELECTED_BACKGROUND_COLOR
-                            : CatalogCardStyle.backgroundColor(active, isHoveredOrFocused());
-            if (color != CatalogCardStyle.TRANSPARENT_BACKGROUND_COLOR) {
-                graphics.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), color);
+            if (isFocused()) {
+                extractCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
         }
 
         @Override
         public void updateWidgetNarration(NarrationElementOutput output) {
             defaultButtonNarrationText(output);
+        }
+    }
+
+    private static void extractCardFocusFrame(
+            GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+        int right = x + width;
+        int bottom = y + height;
+        graphics.fill(x, y, right, y + 1, CatalogCardStyle.FOCUS_FRAME_SHADOW_COLOR);
+        graphics.fill(x, bottom - 1, right, bottom, CatalogCardStyle.FOCUS_FRAME_SHADOW_COLOR);
+        graphics.fill(x, y + 1, x + 1, bottom - 1, CatalogCardStyle.FOCUS_FRAME_SHADOW_COLOR);
+        graphics.fill(right - 1, y + 1, right, bottom - 1, CatalogCardStyle.FOCUS_FRAME_SHADOW_COLOR);
+        if (width > 3 && height > 3) {
+            graphics.fill(x + 1, y + 1, right - 1, y + 2, CatalogCardStyle.FOCUS_FRAME_COLOR);
+            graphics.fill(x + 1, bottom - 2, right - 1, bottom - 1, CatalogCardStyle.FOCUS_FRAME_COLOR);
+            graphics.fill(x + 1, y + 2, x + 2, bottom - 2, CatalogCardStyle.FOCUS_FRAME_COLOR);
+            graphics.fill(right - 2, y + 2, right - 1, bottom - 2, CatalogCardStyle.FOCUS_FRAME_COLOR);
         }
     }
 

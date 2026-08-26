@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -178,6 +179,9 @@ final class ExternalImportPresenterTest {
                 panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER));
         assertTrue(review.panels().stream().anyMatch(panel ->
                 panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER));
+        assertTrue(review.panels().stream().anyMatch(panel ->
+                panel.id().startsWith("external.review.card:")
+                        && panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
         assertEquals(453, review.widget("external.review.commit").orElseThrow().bounds().y());
         assertEquals(453, review.widget("external.review.cancel").orElseThrow().bounds().y());
         assertEquals(
@@ -196,6 +200,38 @@ final class ExternalImportPresenterTest {
         assertEquals(33, review.clipRegions().get(0).bounds().y());
         assertEquals(447, review.clipRegions().get(0).bounds().bottom());
         assertEquals(37, review.widget("external.review.collection.new").orElseThrow().bounds().y());
+    }
+
+    @Test
+    void reviewPublishesAllExpandedLogicalCardsButMaterializesOnlyViewportCards() {
+        List<ClientOperations.ExternalImportCandidate> candidates = IntStream.range(0, 30)
+                .mapToObj(index -> candidate("candidate-" + index, false))
+                .toList();
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
+                .withReview(new ClientOperations.ExternalImportReview(
+                        ExternalImportSource.SKIN_SHUFFLE, candidates, 30, 0));
+
+        ViewSpec review = presenter.present(model, false, Optional.empty(), 320, 240);
+        List<ViewSpec.NavigationNode> nodes = review.navigationNodes().stream()
+                .filter(node -> node.id().startsWith("external.review.card:"))
+                .toList();
+        long materialized = review.widgets().stream()
+                .filter(widget -> widget.id().startsWith("external.review.card:"))
+                .count();
+
+        assertEquals(30, nodes.size());
+        assertTrue(materialized < nodes.size());
+        assertTrue(review.previews().size() < nodes.size());
+        assertTrue(nodes.stream().allMatch(node ->
+                node.pattern() == ViewSpec.NavigationPattern.GRID
+                        && node.surfaceId().equals(Optional.of("external.review"))));
+
+        ViewSpec collapsed = presenter.present(
+                model.toggleCollection(false), false, Optional.empty(), 320, 240);
+        assertTrue(collapsed.navigationNodes().stream().noneMatch(node ->
+                node.id().startsWith("external.review.card:")));
     }
 
     @Test

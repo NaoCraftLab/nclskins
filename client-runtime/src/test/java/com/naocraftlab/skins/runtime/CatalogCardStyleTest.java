@@ -52,6 +52,35 @@ final class CatalogCardStyleTest {
     }
 
     @Test
+    void everyCardFillIsResolvedInTheBackgroundPassBeforePreviewContent() {
+        ViewSpec.Widget catalog = new ViewSpec.Widget(
+                "catalog",
+                ViewSpec.WidgetKind.CATALOG_CARD,
+                new Bounds(0, 0, 80, 86),
+                UiMessage.literal("Catalog", UiMessage.Severity.INFO),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                true,
+                0);
+        ViewSpec.Widget selectedImport = ViewSpec.Widget.selectableCard(
+                "import",
+                new Bounds(0, 0, 80, 86),
+                UiMessage.literal("Import", UiMessage.Severity.INFO),
+                true,
+                false);
+
+        assertTrue(CatalogCardStyle.backgroundBehindContent(catalog.kind()));
+        assertEquals(
+                CatalogCardStyle.HIGHLIGHT_BACKGROUND_COLOR,
+                CatalogCardStyle.backgroundBehindContentColor(catalog, true));
+        assertEquals(
+                CatalogCardStyle.SELECTED_BACKGROUND_COLOR,
+                CatalogCardStyle.backgroundBehindContentColor(selectedImport, true));
+        assertFalse(CatalogCardStyle.backgroundBehindContent(ViewSpec.WidgetKind.BUTTON));
+    }
+
+    @Test
     void selectedCapeCardActivatesTheSharedBackgroundPass() {
         ViewSpec.Widget cape = new ViewSpec.Widget(
                 "cape",
@@ -71,5 +100,17 @@ final class CatalogCardStyleTest {
                 UiMessage.literal("Import", UiMessage.Severity.INFO),
                 true,
                 false)));
+    }
+
+    @Test
+    void focusFrameHasSharedVanillaPaletteAndOnlyCardKindsSupportIt() {
+        assertEquals(0xFFFFFFFF, CatalogCardStyle.FOCUS_FRAME_COLOR);
+        assertEquals(0xFF000000, CatalogCardStyle.FOCUS_FRAME_SHADOW_COLOR);
+        assertEquals(ViewNavigationPolicy.FOCUS_FRAME_INSET, CatalogCardStyle.FOCUS_FRAME_INSET);
+        assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.CATALOG_CARD));
+        assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.SELECTABLE_CARD));
+        assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.CAPE_CARD));
+        assertFalse(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.BUTTON));
+        assertFalse(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.TEXT_FIELD));
     }
 }

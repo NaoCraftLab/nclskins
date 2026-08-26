@@ -184,7 +184,7 @@ final class PresetEditorModelTest {
 
         ViewSpec.Widget name = view.widget("editor.name").orElseThrow();
         assertEquals(new Bounds(150, 55, 154, 20), name.bounds());
-        assertTrue(name.selectAllOnPrimaryClick());
+        assertTrue(name.selectAllOnFocusAcquire());
         assertEquals(Optional.empty(), name.submitActionId());
         assertEquals(new Bounds(150, 212, 75, 20), view.widget("editor.save").orElseThrow().bounds());
         assertEquals(new Bounds(229, 212, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
@@ -347,10 +347,30 @@ final class PresetEditorModelTest {
                 capes);
 
         ViewSpec start = model.present(320, 240, 0.0);
+        List<ViewSpec.NavigationNode> capeNodes = start.navigationNodes().stream()
+                .filter(node -> node.id().startsWith("editor.cape_choice."))
+                .toList();
+        assertEquals(6, capeNodes.size());
+        assertTrue(start.widgets().stream()
+                .filter(widget -> widget.id().startsWith("editor.cape_choice."))
+                .count() < capeNodes.size());
+        assertTrue(capeNodes.stream().allMatch(node ->
+                node.pattern() == ViewSpec.NavigationPattern.GRID
+                        && node.surfaceId().equals(Optional.of("editor.capes"))));
+        ViewSpec.NavigationNode thirdRow = ViewNavigationPolicy.target(
+                        start,
+                        "editor.cape_choice.3",
+                        ViewSpec.NavigationCommand.DOWN)
+                .orElseThrow();
+        assertEquals("editor.cape_choice.5", thirdRow.id());
+        assertTrue(ViewNavigationPolicy.ensureVisibleOffset(start, thirdRow).isPresent());
         assertTrue(start.widgets().stream().noneMatch(widget ->
                 widget.id().equals("editor.cape_previous") || widget.id().equals("editor.cape_next")));
         assertEquals(ViewSpec.WidgetKind.CAPE_CARD,
                 start.widget("editor.cape_choice.0").orElseThrow().kind());
+        assertTrue(start.panels().stream().anyMatch(panel ->
+                panel.id().startsWith("editor.cape_card.")
+                        && panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
         assertFalse(start.backEquipmentPreviews().isEmpty());
         assertTrue(start.backEquipmentPreviews().stream()
                 .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.CAPE));

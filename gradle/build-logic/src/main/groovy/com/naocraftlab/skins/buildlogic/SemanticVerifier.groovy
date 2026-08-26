@@ -34,7 +34,7 @@ final class SemanticVerifier {
         serverLoader: 'server-loader-lifecycle'
     ]
     static final Map<String, List<String>> SUITE_MARKERS = [
-            'view-host-contract'           : ['ViewSpecGoldenTest', 'selectAllOnPrimaryClick', 'submitActionId'],
+            'view-host-contract'           : ['ViewSpecGoldenTest', 'selectAllOnFocusAcquire', 'ViewNavigationPolicyTest', 'VanillaListSurfaceTest', 'VanillaListSurface.Boundaries', 'compositeCardHovered', 'submitActionId'],
             'texture-ownership-and-normalization': ['TextureRegistryTck', 'PlayerSkinTextureNormalizer', 'NativePlayerSkinLifecycle', 'NativeTextureUploadTracker'],
             'scoped-preview-contract'            : ['PreviewIntent', 'EDITOR_DRAFT', 'EditorPreviewSession', 'EditorPreviewClock', 'ExactLocalPlayerScope', 'CenteredPipPreviewTransform', 'ScreenOwnedRenderTarget', 'PreviewSkinSourceTest'],
             'appearance-orchestration'           : ['AppearanceRefreshCoordinator', 'AppearanceReconnectTracker', 'AppearanceOverrideController', 'deferredReplacementRemainsActiveAndCanAttachWhenPlayerBecomesReady', 'SUPERSEDED', 'DEFERRED'],
@@ -561,6 +561,27 @@ final class SemanticVerifier {
             if (compact.contains('setRectangle(')) {
                 errors.add('identifier-submission: ambiguous 1.21.11 setRectangle argument order is forbidden')
             }
+        }
+        if (implementation == 'identifier-extraction-menu-tab-input-constants'
+                && (!compact.contains('isEnterKey(event.shortcutKey())')
+                        || !compact.contains('switch (event.shortcutKey())')
+                        || compact.contains('isEnterKey(event.key())')
+                        || compact.contains('switch (event.key())'))) {
+            errors.add('identifier-extraction-menu-tab-input-constants: product navigation must classify logical shortcutKey rather than physical scancode')
+        }
+        if ((implementation == 'identifier-submission'
+                || implementation.startsWith('identifier-extraction-'))
+                && !compact.contains('CatalogCardStyle.backgroundBehindContentColor(')) {
+            errors.add("${implementation}: card hover/selection fill must render in the background pass")
+        }
+        if (implementation == 'identifier-submission'
+                && !compact.contains('clipped(graphics, current, panel.id(), () ->')) {
+            errors.add('identifier-submission: VANILLA_LIST panels must use the card viewport clip')
+        }
+        if ((implementation == 'identifier-submission'
+                || implementation.startsWith('identifier-extraction-'))
+                && !compact.contains('VanillaListSurface.boundaries(')) {
+            errors.add("${implementation}: modern card workspace lacks target-native boundary geometry")
         }
         if (key == 'textures') {
             ['NativePlayerSkinLifecycle', 'OwnedSkinFile'].each { String marker ->

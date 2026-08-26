@@ -91,6 +91,32 @@ public final class GalleryPresenter {
             String query,
             Optional<UUID> pendingDeleteId,
             double scrollPosition) {
+        return present(
+                snapshot,
+                width,
+                height,
+                mouseX,
+                mouseY,
+                capeMode,
+                currentPlayerVariant,
+                query,
+                pendingDeleteId,
+                scrollPosition,
+                normalizeSelectedCardId(snapshot, query, null));
+    }
+
+    public ViewSpec present(
+            ClientSnapshot snapshot,
+            int width,
+            int height,
+            int mouseX,
+            int mouseY,
+            PreviewRenderer.CapeMode capeMode,
+            SkinVariant currentPlayerVariant,
+            String query,
+            Optional<UUID> pendingDeleteId,
+            double scrollPosition,
+            String selectedCardId) {
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(capeMode, "capeMode");
         Objects.requireNonNull(currentPlayerVariant, "currentPlayerVariant");
@@ -100,6 +126,7 @@ public final class GalleryPresenter {
 
         query = Objects.requireNonNull(query, "query");
         pendingDeleteId = Objects.requireNonNull(pendingDeleteId, "pendingDeleteId");
+        selectedCardId = normalizeSelectedCardId(snapshot, query, selectedCardId);
         if (snapshot.lifecycle() == ClientSnapshot.Lifecycle.INITIALIZING
                 && snapshot.account().isEmpty()) {
             return coldLoadingView(width, height);
@@ -171,6 +198,19 @@ public final class GalleryPresenter {
                 continue;
             }
             panels.add(new ViewSpec.Panel(card.id(), panelBounds, ViewSpec.Panel.Style.VANILLA_LIST));
+            String anchorId = card.anchorId();
+            widgets.add(new ViewSpec.Widget(
+                    anchorId,
+                    ViewSpec.WidgetKind.CATALOG_CARD,
+                    panelBounds,
+                    card.accessibleLabel(),
+                    Optional.empty(),
+                    Optional.empty(),
+                    !snapshot.busy()
+                            && snapshot.account().isPresent()
+                            && pendingDeleteId.isEmpty(),
+                    true,
+                    0));
             if (card.preset().isEmpty()) {
                 int iconX = x + (cardWidth - DECORATION_ICON_SIZE) / 2;
                 int hintY = layout.cardTop() + Math.max(44, layout.cardHeight() / 2 + 10);
@@ -196,16 +236,6 @@ public final class GalleryPresenter {
                                         UntrustedDisplayName.sanitize(query, ""))
                                 : UiMessage.info("nclskins.gallery.add_hint"),
                         ViewSpec.Text.Alignment.CENTER));
-                widgets.add(new ViewSpec.Widget(
-                        "gallery.add",
-                        ViewSpec.WidgetKind.BUTTON,
-                        panelBounds,
-                        UiMessage.info("nclskins.gallery.add_hint"),
-                        Optional.empty(),
-                        Optional.empty(),
-                        !snapshot.busy() && snapshot.account().isPresent(),
-                        false,
-                        0));
             } else {
                 addPresetCard(
                         snapshot,
@@ -219,6 +249,7 @@ public final class GalleryPresenter {
                         capeMode,
                         currentPlayerVariant,
                         pendingDeleteId.filter(card.preset().orElseThrow().id()::equals).isPresent(),
+                        pendingDeleteId.isPresent(),
                         cardViewport,
                         texts,
                         widgets,
@@ -229,6 +260,16 @@ public final class GalleryPresenter {
 
         Optional<RecoveryWidget> recovery = addGlobalWidgets(snapshot, width, height, widgets);
         addHeader(snapshot, width, recovery, texts);
+        List<ViewSpec.NavigationNode> navigationNodes = galleryNavigationNodes(
+                cards,
+                selectedCardId,
+                centeredCardX,
+                visualOffset,
+                cardStep,
+                layout,
+                widgets,
+                recovery,
+                !snapshot.busy() && snapshot.account().isPresent());
         List<ViewSpec.ProgressDecoration> progressDecorations =
                 rateLimitProgressDecorations(snapshot, widgets);
 
@@ -259,16 +300,124 @@ public final class GalleryPresenter {
                         List.of("gallery.card.", "gallery.add", "gallery.preset."))),
                 List.of(),
                 iconDecorations,
-                maximum <= 0
-                        ? List.of()
-                        : List.of(new ViewSpec.ScrollSurface(
+                List.of(new ViewSpec.ScrollSurface(
                         "gallery.cards",
                         cardViewport,
                         ViewSpec.Scrollbar.Orientation.HORIZONTAL,
                         visualOffset * cardStep,
                         maximum * (double) cardStep)),
                 List.of(),
-                progressDecorations);
+                progressDecorations).withNavigationNodes(navigationNodes);
+    }
+
+    public String normalizeSelectedCardId(
+            ClientSnapshot snapshot, String query, String selectedCardId) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        List<GalleryCard> available = cards(snapshot, Objects.requireNonNull(query, "query"));
+        if (selectedCardId != null
+                && available.stream().anyMatch(card -> card.anchorId().equals(selectedCardId))) {
+            return selectedCardId;
+        }
+        if (selectedCardId == null) {
+            Optional<String> active = snapshot.activePresetId()
+                    .map(id -> "gallery.card." + id)
+                    .filter(id -> available.stream().anyMatch(card -> card.anchorId().equals(id)));
+            if (active.isPresent()) {
+                return active.orElseThrow();
+            }
+            return "gallery.add";
+        }
+        return available.stream()
+                .filter(card -> card.preset().isPresent())
+                .map(GalleryCard::anchorId)
+                .findFirst()
+                .orElse("gallery.add");
+    }
+
+    public List<String> cardIds(ClientSnapshot snapshot, String query) {
+        return cards(snapshot, Objects.requireNonNull(query, "query")).stream()
+                .map(GalleryCard::anchorId)
+                .toList();
+    }
+
+    public List<String> cardIds(
+            Optional<AccountState> account, Optional<UUID> activePresetId, String query) {
+        return cards(
+                        Objects.requireNonNull(account, "account"),
+                        Objects.requireNonNull(activePresetId, "activePresetId"),
+                        Objects.requireNonNull(query, "query"))
+                .stream()
+                .map(GalleryCard::anchorId)
+                .toList();
+    }
+
+    private static List<ViewSpec.NavigationNode> galleryNavigationNodes(
+            List<GalleryCard> cards,
+            String selectedCardId,
+            int centeredCardX,
+            double visualOffset,
+            int cardStep,
+            GalleryLayout layout,
+            List<ViewSpec.Widget> widgets,
+            Optional<RecoveryWidget> recovery,
+            boolean cardsEnabled) {
+        List<ViewSpec.NavigationNode> nodes = new ArrayList<>();
+        int tabOrder = 0;
+        if (recovery.isPresent()) {
+            ViewSpec.Widget widget = widgets.stream()
+                    .filter(candidate -> candidate.id().equals(recovery.orElseThrow().widgetId()))
+                    .findFirst()
+                    .orElseThrow();
+            nodes.add(ViewSpec.NavigationNode.control(widget, 0, tabOrder++));
+        }
+        ViewSpec.Widget search = widgets.stream()
+                .filter(widget -> widget.id().equals("gallery.search"))
+                .findFirst()
+                .orElseThrow();
+        nodes.add(ViewSpec.NavigationNode.control(search, 1, tabOrder++));
+
+        ViewSpec.NavigationNode selected = null;
+        for (int index = 0; index < cards.size(); index++) {
+            GalleryCard card = cards.get(index);
+            Bounds bounds = new Bounds(
+                    centeredCardX + (int) Math.round((index - visualOffset) * cardStep),
+                    layout.cardTop(),
+                    layout.cardWidth(),
+                    layout.cardHeight());
+            ViewSpec.NavigationNode node = ViewSpec.NavigationNode.card(
+                    card.anchorId(),
+                    bounds,
+                    "gallery.cards",
+                    index,
+                    card.anchorId().equals(selectedCardId) ? tabOrder : -1,
+                    cardsEnabled,
+                    ViewSpec.NavigationPattern.HORIZONTAL_LIST,
+                    card.preset().isEmpty() ? Optional.of("gallery.add") : Optional.empty());
+            nodes.add(node);
+            if (card.anchorId().equals(selectedCardId)) {
+                selected = node;
+            }
+        }
+        if (selected != null) {
+            tabOrder++;
+        }
+        String selectedActionPrefix = selectedCardId.startsWith("gallery.card.")
+                ? "gallery.preset." + selectedCardId.substring("gallery.card.".length()) + "."
+                : "";
+        int documentOrder = cards.size() + 2;
+        if (!selectedActionPrefix.isEmpty()) {
+            for (ViewSpec.Widget widget : widgets) {
+                if (widget.id().startsWith(selectedActionPrefix)) {
+                    nodes.add(ViewSpec.NavigationNode.control(widget, documentOrder++, tabOrder++));
+                }
+            }
+        }
+        ViewSpec.Widget done = widgets.stream()
+                .filter(widget -> widget.id().equals("gallery.done"))
+                .findFirst()
+                .orElseThrow();
+        nodes.add(ViewSpec.NavigationNode.control(done, documentOrder, tabOrder));
+        return List.copyOf(nodes);
     }
 
     public int maximumScroll(ClientSnapshot snapshot, int width, int height, String query) {
@@ -352,6 +501,7 @@ public final class GalleryPresenter {
             PreviewRenderer.CapeMode capeMode,
             SkinVariant currentPlayerVariant,
             boolean confirmingDelete,
+            boolean interactionLocked,
             Bounds actionViewport,
             List<ViewSpec.Text> texts,
             List<ViewSpec.Widget> widgets,
@@ -431,6 +581,7 @@ public final class GalleryPresenter {
                     secondaryRow,
                     applyRow,
                     actionViewport,
+                    interactionLocked,
                     widgets);
             return;
         }
@@ -442,14 +593,16 @@ public final class GalleryPresenter {
                         ? UiMessage.info("nclskins.gallery.active")
                         : UiMessage.info("nclskins.gallery.apply"),
                 rateLimitHint(snapshot, active),
-                !snapshot.busy() && (!active || rateLimitedPending(snapshot))), actionViewport);
+                !snapshot.busy()
+                        && !interactionLocked
+                        && (!active || rateLimitedPending(snapshot))), actionViewport);
         int editX = actionX + applyWidth + CARD_ACTION_GAP;
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(editX, applyRow, ACTION_HEIGHT, ACTION_HEIGHT),
                 "edit",
                 UiMessage.info("nclskins.gallery.edit"),
-                !snapshot.busy()), actionViewport);
+                !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".duplicate",
                 new Bounds(
@@ -459,7 +612,7 @@ public final class GalleryPresenter {
                         ACTION_HEIGHT),
                 "duplicate",
                 UiMessage.info("nclskins.gallery.duplicate"),
-                !snapshot.busy()), actionViewport);
+                !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".delete",
                 new Bounds(
@@ -469,7 +622,7 @@ public final class GalleryPresenter {
                         ACTION_HEIGHT),
                 "delete",
                 UiMessage.info("nclskins.gallery.delete"),
-                !snapshot.busy()), actionViewport);
+                !snapshot.busy() && !interactionLocked), actionViewport);
     }
 
     private static void addTwoRowActions(
@@ -481,6 +634,7 @@ public final class GalleryPresenter {
             int secondaryRow,
             int applyRow,
             Bounds actionViewport,
+            boolean interactionLocked,
             List<ViewSpec.Widget> widgets) {
         int availableSecondaryWidth = innerWidth - CARD_ACTION_GAP * 2;
         int outerWidth = availableSecondaryWidth / 3;
@@ -495,25 +649,27 @@ public final class GalleryPresenter {
                         ? UiMessage.info("nclskins.gallery.active")
                         : UiMessage.info("nclskins.gallery.apply"),
                 rateLimitHint(snapshot, active),
-                !snapshot.busy() && (!active || rateLimitedPending(snapshot))), actionViewport);
+                !snapshot.busy()
+                        && !interactionLocked
+                        && (!active || rateLimitedPending(snapshot))), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(editX, secondaryRow, outerWidth, ACTION_HEIGHT),
                 "edit",
                 UiMessage.info("nclskins.gallery.edit"),
-                !snapshot.busy()), actionViewport);
+                !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".duplicate",
                 new Bounds(duplicateX, secondaryRow, middleWidth, ACTION_HEIGHT),
                 "duplicate",
                 UiMessage.info("nclskins.gallery.duplicate"),
-                !snapshot.busy()), actionViewport);
+                !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".delete",
                 new Bounds(deleteX, secondaryRow, outerWidth, ACTION_HEIGHT),
                 "delete",
                 UiMessage.info("nclskins.gallery.delete"),
-                !snapshot.busy()), actionViewport);
+                !snapshot.busy() && !interactionLocked), actionViewport);
     }
 
     private static void addIntersectingAction(
@@ -555,7 +711,7 @@ public final class GalleryPresenter {
                     !snapshot.busy()
                             && !snapshot.syncInProgress()
                             && snapshot.account().isPresent()));
-            return Optional.of(new RecoveryWidget(bounds));
+            return Optional.of(new RecoveryWidget("gallery.retry_session", bounds));
         }
         if (snapshot.recoveryActions().contains(RecoveryAction.RETRY_CAPE)) {
             Bounds bounds = recoveryBounds(width);
@@ -566,7 +722,7 @@ public final class GalleryPresenter {
                     rateLimitHint(snapshot, true),
                     !snapshot.busy()
                             && (!snapshot.remoteControlsBlocked() || snapshot.rateLimited())));
-            return Optional.of(new RecoveryWidget(bounds));
+            return Optional.of(new RecoveryWidget("gallery.retry_cape", bounds));
         }
         return Optional.empty();
     }
@@ -833,6 +989,16 @@ public final class GalleryPresenter {
         private String id() {
             return preset.map(value -> "gallery.card." + value.id()).orElse("gallery.card.add");
         }
+
+        private String anchorId() {
+            return preset.map(value -> "gallery.card." + value.id()).orElse("gallery.add");
+        }
+
+        private UiMessage accessibleLabel() {
+            return preset
+                    .map(value -> UiMessage.literal(value.name(), UiMessage.Severity.INFO))
+                    .orElseGet(() -> UiMessage.info("nclskins.gallery.add_hint"));
+        }
     }
 
     private record IndexRange(int from, int to) {
@@ -858,8 +1024,9 @@ public final class GalleryPresenter {
         }
     }
 
-    private record RecoveryWidget(Bounds bounds) {
+    private record RecoveryWidget(String widgetId, Bounds bounds) {
         private RecoveryWidget {
+            Objects.requireNonNull(widgetId, "widgetId");
             Objects.requireNonNull(bounds, "bounds");
         }
     }
