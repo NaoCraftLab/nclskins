@@ -67,7 +67,7 @@ tasks.register('setVersion') {
     group = 'release setup'
     description = 'Sets the tracked NCL Skins development version.'
     doLast {
-        if (requestedNewVersion == null || !(requestedNewVersion ==~ nclskinsCatalogTools.VERSION_PATTERN)) {
+        if (requestedNewVersion == null || !(requestedNewVersion ==~ CatalogTools.VERSION_PATTERN)) {
             throw new GradleException('Use -PnewVersion=<major.minor.patch[-alpha.N|-beta.N]> with strict SemVer')
         }
         if (requestedNewVersion == modVersion) {

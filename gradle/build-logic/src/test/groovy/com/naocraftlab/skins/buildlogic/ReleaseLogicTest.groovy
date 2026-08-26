@@ -15,20 +15,32 @@ final class ReleaseLogicTest {
     private final File repository = new File('../..').canonicalFile
 
     @Test
-    void currentReleaseMatchesVersionAndChangelog() {
-        Map metadata = ReleaseMetadata.validate(
-                new File(repository, 'gradle/version.properties'),
-                new File(repository, 'CHANGELOG.md'),
-                '1.0.0-beta.3')
+    void currentDevelopmentVersionMatchesTheModChangelogSection() {
+        File versionFile = new File(repository, 'gradle/version.properties')
+        File changelog = new File(repository, 'CHANGELOG.md')
+        String currentVersion = CatalogTools.loadVersion(versionFile.toPath())
+        List<String> lines = changelog.readLines()
+        String currentHeading = "## ${currentVersion}"
 
-        assertEquals('1.0.0-beta.3', metadata.version)
-        assertEquals('beta', metadata.channel)
-        assertTrue(metadata.prerelease)
-        assertTrue(metadata.notes.startsWith(
-                '### Added\n\n- **Cross-platform update notifications**'))
-        assertTrue(metadata.notes.contains(
-                '### Removed\n\n- Technical refresh commands'))
-        assertFalse(metadata.notes.contains('## 1.0.0-beta.3'))
+        assertEquals('1.0.0-beta.4', currentVersion)
+        assertEquals(currentHeading, lines.find { !it.isBlank() })
+        assertEquals(1, lines.count { it == currentHeading })
+        int nextVersion = lines.findIndexOf(1) { it.startsWith('## ') }
+        assertTrue(nextVersion > 0)
+        assertFalse(lines.any { it.startsWith('# ') })
+
+        if (lines.subList(1, nextVersion).every { it.isBlank() }) {
+            IllegalArgumentException incomplete = assertThrows(IllegalArgumentException) {
+                ReleaseMetadata.validate(versionFile, changelog, currentVersion)
+            }
+            assertTrue(incomplete.message.contains(
+                    "CHANGELOG.md section '## ${currentVersion}' must contain release notes"))
+        } else {
+            Map metadata = ReleaseMetadata.validate(versionFile, changelog, currentVersion)
+            assertEquals(currentVersion, metadata.version)
+            assertEquals('beta', metadata.channel)
+            assertTrue(metadata.prerelease)
+        }
 
         File pluginChangelog = new File(repository, 'PLUGIN_CHANGELOG.md')
         List<String> pluginLines = pluginChangelog.readLines()
@@ -56,14 +68,20 @@ final class ReleaseLogicTest {
             Map state = ServerPluginReleaseState.compute(repository, catalog, '1.0.0-beta.3')
             File stateFile = ServerPluginReleaseState.write(
                     fixture.resolve('server-state.json').toFile(), state)
+            File versionFile = fixture.resolve('version.properties').toFile()
+            versionFile.text = 'modVersion=1.0.0-beta.3\n'
+            File changelogFile = fixture.resolve('CHANGELOG.md').toFile()
+            changelogFile.text = '## 1.0.0-beta.3\n\nMod release notes\n'
+            File pluginChangelogFile = fixture.resolve('PLUGIN_CHANGELOG.md').toFile()
+            pluginChangelogFile.text = '## 1.0.0-beta.3\n\nPlugin release notes\n'
 
             ValidateReleaseTask task = ProjectBuilder.builder().build().tasks.create(
                     'validateFixtureRelease', ValidateReleaseTask)
             task.repositoryDirectory.set(repository)
             task.catalogFile.set(catalogFile)
-            task.versionFile.set(new File(repository, 'gradle/version.properties'))
-            task.changelogFile.set(new File(repository, 'CHANGELOG.md'))
-            task.pluginChangelogFile.set(new File(repository, 'PLUGIN_CHANGELOG.md'))
+            task.versionFile.set(versionFile)
+            task.changelogFile.set(changelogFile)
+            task.pluginChangelogFile.set(pluginChangelogFile)
             task.serverPluginStateFile.set(stateFile)
             task.releaseTag.set('1.0.0-beta.3')
             task.releaseRoot.set(fixture.resolve('release').toFile())
