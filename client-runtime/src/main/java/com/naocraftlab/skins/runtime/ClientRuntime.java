@@ -992,7 +992,7 @@ public final class ClientRuntime implements AutoCloseable {
                 Bounds previewBounds = editorView
                         .previews()
                         .get(0)
-                        .bounds();
+                        .anchorBounds();
                 state.editor = state.editor.withPreview(
                         state.editor.preview().beginRotate(previewBounds, mouseX, mouseY));
                 publish();

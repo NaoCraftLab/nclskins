@@ -6,6 +6,7 @@ import java.util.Objects;
 public final class VanillaPlayerModelTransform {
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
     private static final float MODEL_ORIGIN_TO_FEET = -1.501F;
+    private static final float VISIBLE_MODEL_MIDPOINT_Y = 0.5F;
 
     private VanillaPlayerModelTransform() {
     }
@@ -38,13 +39,13 @@ public final class VanillaPlayerModelTransform {
             float pitchDegrees,
             Operations<C> operations) {
         validate(context, 1.0F, yawDegrees, pitchDegrees, operations);
-        operations.translate(
+        operations.rotateZThenX(
                 context,
-                0.0F,
-                CenteredPlayerPreviewGeometry.modernEntityTranslationY(
-                        CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT),
-                0.0F);
-        applyModelTransform(context, yawDegrees, pitchDegrees, operations);
+                (float) Math.PI,
+                pitchDegrees * DEGREES_TO_RADIANS);
+        operations.rotateY(context, yawDegrees * DEGREES_TO_RADIANS);
+        operations.scale(context, -1.0F, -1.0F, 1.0F);
+        operations.translate(context, 0.0F, -VISIBLE_MODEL_MIDPOINT_Y, 0.0F);
     }
 
     private static <C> void validate(

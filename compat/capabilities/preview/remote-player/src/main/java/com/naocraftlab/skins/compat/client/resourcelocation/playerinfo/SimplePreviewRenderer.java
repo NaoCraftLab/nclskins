@@ -132,7 +132,7 @@ public final class SimplePreviewRenderer
                     request.pitchDegrees(),
                     POSE_OPERATIONS);
 
-            setupLighting(request.pitchDegrees());
+            setupLighting();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation skin = location(appearance.skin());
             model.renderToBuffer(
@@ -175,7 +175,7 @@ public final class SimplePreviewRenderer
             VanillaBackEquipmentTransform.applyStandalone(
                     pose, scale, BACK_EQUIPMENT_OPERATIONS);
 
-            setupLighting(0.0F);
+            setupLighting();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation texture = location(request.texture());
             renderBackEquipment(
@@ -292,8 +292,8 @@ public final class SimplePreviewRenderer
         return new Vector3f(direction.x(), direction.y(), direction.z());
     }
 
-    private static void setupLighting(float pitchDegrees) {
-        PlayerPreviewLighting.Rig rig = PlayerPreviewLighting.centeredFrontForPitch(pitchDegrees);
+    private static void setupLighting() {
+        PlayerPreviewLighting.Rig rig = PlayerPreviewLighting.centeredFront();
         RenderSystem.setShaderLights(
                 lightDirection(rig.primary()), lightDirection(rig.fill()));
     }

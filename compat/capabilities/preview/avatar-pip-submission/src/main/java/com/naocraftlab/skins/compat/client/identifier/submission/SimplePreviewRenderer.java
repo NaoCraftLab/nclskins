@@ -3,6 +3,7 @@ package com.naocraftlab.skins.compat.client.identifier.submission;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.PreviewStageGeometry;
 import com.naocraftlab.skins.client.SkinModel;
 import java.util.Optional;
 import net.minecraft.client.model.Model;
@@ -51,10 +52,12 @@ public final class SimplePreviewRenderer
                 request.appearance().outerLayerVisibility(),
                 request.pitchDegrees(),
                 request.yawDegrees(),
-                request.left(),
-                request.top(),
-                request.left() + request.width(),
-                request.top() + request.height(),
+                request.stageLeft(),
+                request.stageTop(),
+                request.stageLeft() + request.stageWidth(),
+                request.stageTop() + request.stageHeight(),
+                PreviewStageGeometry.modelOffsetX(request, scale),
+                PreviewStageGeometry.modelOffsetY(request, scale),
                 scale,
                 false,
                 null);
@@ -89,6 +92,8 @@ public final class SimplePreviewRenderer
                 request.top(),
                 request.left() + request.width(),
                 request.top() + request.height(),
+                0.0F,
+                0.0F,
                 scale,
                 true,
                 null);
@@ -135,10 +140,10 @@ public final class SimplePreviewRenderer
                 vanillaModel,
                 vanillaTexture,
                 scale,
-                request.left(),
-                request.top(),
-                request.left() + request.width(),
-                request.top() + request.height(),
+                request.stageLeft(),
+                request.stageTop(),
+                request.stageLeft() + request.stageWidth(),
+                request.stageTop() + request.stageHeight(),
                 state);
     }
 

@@ -883,6 +883,7 @@ public record ViewSpec(
     public record Preview(
             String id,
             Bounds bounds,
+            Bounds anchorBounds,
             SkinReference skin,
             String imageRevision,
             SkinVariant variant,
@@ -899,6 +900,62 @@ public record ViewSpec(
         public Preview(
                 String id,
                 Bounds bounds,
+                Bounds anchorBounds,
+                SkinReference skin,
+                String imageRevision,
+                SkinVariant variant,
+                Optional<String> capeId,
+                PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility outerLayerVisibility,
+                float yawDegrees,
+                float pitchDegrees,
+                float scale,
+                Optional<UUID> presetId,
+                Optional<CatalogImage> catalogImage,
+                PreviewRenderer.PreviewIntent intent) {
+            this(
+                    id,
+                    bounds,
+                    anchorBounds,
+                    skin,
+                    imageRevision,
+                    variant,
+                    capeId,
+                    capeMode,
+                    outerLayerVisibility,
+                    yawDegrees,
+                    pitchDegrees,
+                    scale,
+                    presetId,
+                    catalogImage,
+                    Optional.empty(),
+                    intent);
+        }
+
+        public Preview(
+                String id,
+                Bounds bounds,
+                SkinReference skin,
+                String imageRevision,
+                SkinVariant variant,
+                Optional<String> capeId,
+                PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility outerLayerVisibility,
+                float yawDegrees,
+                float pitchDegrees,
+                float scale,
+                Optional<UUID> presetId,
+                Optional<CatalogImage> catalogImage,
+                Optional<ExternalImage> externalImage,
+                PreviewRenderer.PreviewIntent intent) {
+            this(id, bounds, bounds, skin, imageRevision, variant, capeId, capeMode,
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId,
+                    catalogImage, externalImage, intent);
+        }
+
+        public Preview(
+                String id,
+                Bounds bounds,
                 SkinReference skin,
                 String imageRevision,
                 SkinVariant variant,
@@ -911,6 +968,7 @@ public record ViewSpec(
                 Optional<UUID> presetId) {
             this(
                     id,
+                    bounds,
                     bounds,
                     skin,
                     imageRevision,
@@ -943,6 +1001,7 @@ public record ViewSpec(
                 Optional<CatalogImage> catalogImage) {
             this(
                     id,
+                    bounds,
                     bounds,
                     skin,
                     imageRevision,
@@ -977,6 +1036,7 @@ public record ViewSpec(
             this(
                     id,
                     bounds,
+                    bounds,
                     skin,
                     imageRevision,
                     variant,
@@ -995,6 +1055,7 @@ public record ViewSpec(
         public Preview {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");
+            Objects.requireNonNull(anchorBounds, "anchorBounds");
             Objects.requireNonNull(skin, "skin");
             Objects.requireNonNull(imageRevision, "imageRevision");
             if (imageRevision.isBlank()) {
@@ -1045,6 +1106,7 @@ public record ViewSpec(
                 Optional<UUID> presetId) {
             this(
                     id,
+                    bounds,
                     bounds,
                     skin,
                     imageRevision,

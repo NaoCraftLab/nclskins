@@ -7,6 +7,7 @@ import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
 import com.naocraftlab.skins.client.EditorPreviewClock;
 import com.naocraftlab.skins.client.EditorPreviewSession;
+import com.naocraftlab.skins.client.EditorPreviewTickGate;
 import com.naocraftlab.skins.client.LegacyPreviewDepth;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
@@ -117,6 +118,7 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
     private final DiagnosticSink diagnostics;
     private final EditorPreviewSession session = new EditorPreviewSession();
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
+    private final EditorPreviewTickGate previewTickGate = new EditorPreviewTickGate();
     private boolean layerFailureLogged;
     private final GameProfile previewProfile =
             new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
@@ -178,7 +180,8 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                     1,
                     Math.round(fittedScale / player.getScale()));
             int legacyAnchorY = Math.round(CenteredPlayerPreviewGeometry.legacyEntityAnchorY(
-                    layout.centerY(), renderedEntityScale, player.getBbHeight()));
+                    layout.centerY(), renderedEntityScale, player.getBbHeight(),
+                    request.pitchDegrees() * DEGREES_TO_RADIANS));
 
 
             pose.translate(0.0F, 0.0F, LegacyPreviewDepth.additional(fittedScale, 50.0F));
@@ -249,6 +252,17 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         if (cameraEntity != null) {
             player.setPos(cameraEntity.getX(), cameraEntity.getY(), cameraEntity.getZ());
         }
+        float previewAge = previewClock.ageTicks(player.tickCount);
+        EditorPreviewSession.SettlingMotion settling = session.capeSettling(
+                request.intent(), true, request.appearance().capeMode(),
+                request.appearance().cape().isPresent(), previewAge);
+        double baseX = player.getX();
+        double baseY = player.getY();
+        double baseZ = player.getZ();
+        player.setPos(baseX, baseY + settling.currentYOffset(), baseZ);
+        player.xo = baseX;
+        player.yo = baseY + settling.previousYOffset();
+        player.zo = baseZ;
         float yaw = 180.0F - request.yawDegrees();
         player.setPose(Pose.STANDING);
         player.setInvisible(false);
@@ -268,13 +282,17 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         player.xCloak = player.getX();
         player.yCloak = player.getY();
         player.zCloak = player.getZ();
-        player.xCloakO = player.getX();
-        player.yCloakO = player.getY();
-        player.zCloakO = player.getZ();
+        player.xCloakO = baseX;
+        player.yCloakO = baseY + settling.previousYOffset();
+        player.zCloakO = baseZ;
         player.elytraRotX = 0.2617994F;
         player.elytraRotY = 0.0F;
         player.elytraRotZ = -0.2617994F;
-        player.tickCount = Math.max(0, (int) Math.floor(previewClock.ageTicks(player.tickCount)));
+        player.tickCount = Math.max(0, (int) Math.floor(previewAge));
+        if (previewTickGate.shouldTick(previewAge, settling.active())) {
+            player.tick();
+            player.tickCount = Math.max(0, (int) Math.floor(previewAge));
+        }
     }
 
     private static byte previewModelParts(PreviewAppearance appearance) {

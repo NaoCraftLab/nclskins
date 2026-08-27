@@ -54,10 +54,10 @@ public final class LivePreviewRenderState
         this.layerFailureSink = Objects.requireNonNull(layerFailureSink, "layerFailureSink");
         this.scissorArea = scissorArea;
         this.bounds = PictureInPictureRenderState.getBounds(
-                request.left(),
-                request.top(),
-                request.left() + request.width(),
-                request.top() + request.height(),
+                request.stageLeft(),
+                request.stageTop(),
+                request.stageLeft() + request.stageWidth(),
+                request.stageTop() + request.stageHeight(),
                 scissorArea);
     }
 
@@ -99,22 +99,22 @@ public final class LivePreviewRenderState
 
     @Override
     public int x0() {
-        return request.left();
+        return request.stageLeft();
     }
 
     @Override
     public int y0() {
-        return request.top();
+        return request.stageTop();
     }
 
     @Override
     public int x1() {
-        return request.left() + request.width();
+        return request.stageLeft() + request.stageWidth();
     }
 
     @Override
     public int y1() {
-        return request.top() + request.height();
+        return request.stageTop() + request.stageHeight();
     }
 
     @Override

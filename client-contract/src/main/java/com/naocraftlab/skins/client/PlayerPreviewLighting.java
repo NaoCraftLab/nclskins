@@ -12,24 +12,6 @@ public final class PlayerPreviewLighting {
         return CENTERED_FRONT;
     }
 
-    public static Rig centeredFrontForPitch(float pitchDegrees) {
-        if (!Float.isFinite(pitchDegrees)) {
-            throw new IllegalArgumentException("Player preview pitch must be finite");
-        }
-        float radians = (float) Math.toRadians(pitchDegrees);
-        return new Rig(rotateX(CENTERED_FRONT.primary(), radians),
-                rotateX(CENTERED_FRONT.fill(), radians));
-    }
-
-    private static Direction rotateX(Direction direction, float radians) {
-        float sin = (float) Math.sin(radians);
-        float cos = (float) Math.cos(radians);
-        return Direction.normalized(
-                direction.x(),
-                direction.y() * cos - direction.z() * sin,
-                direction.y() * sin + direction.z() * cos);
-    }
-
     public record Rig(Direction primary, Direction fill) {
         public Rig {
             if (primary == null || fill == null) {

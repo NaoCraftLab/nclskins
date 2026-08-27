@@ -64,11 +64,11 @@ widgets
 8|editor.save|BUTTON|1324,692,128,20|key:nclskins.editor.save:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 9|editor.cancel|BUTTON|1456,692,128,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
-0|editor.preview|0,0,1324,720|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=draft:039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81|variant=CLASSIC|cape=cape-1|mode=ELYTRA|outer=-|yaw=13.0|pitch=-11.0|scale=1.24|preset=00000000-0000-0002-0000-000000000002
+0|editor.preview|0,0,1600,720|anchor=0,0,1324,720|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=draft:039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81|variant=CLASSIC|cape=cape-1|mode=ELYTRA|outer=-|yaw=13.0|pitch=-11.0|scale=1.24|preset=00000000-0000-0002-0000-000000000002
 back_equipment_previews
 0|editor.cape_card.1.equipment|1415,123,68,65|cape=cape-1|mode=ELYTRA
 icon_decorations
 0|editor.cape_card.0.empty|1349,133,32,32|icon=no_cape|owner=editor.cape_choice.0|idle=0.8|active=1.0
 clip_regions
-0|editor.capes|1324,106,250,576|prefixes=editor.cape_card.,editor.cape_choice.
+0|editor.capes|1324,106,250,581|prefixes=editor.cape_card.,editor.cape_choice.
 scrollbar=-

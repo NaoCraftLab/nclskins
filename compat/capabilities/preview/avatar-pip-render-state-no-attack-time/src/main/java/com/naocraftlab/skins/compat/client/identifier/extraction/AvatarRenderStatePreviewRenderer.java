@@ -3,8 +3,11 @@ package com.naocraftlab.skins.compat.client.identifier.extraction;
 import com.mojang.authlib.GameProfile;
 import com.naocraftlab.skins.client.EditorPreviewSession;
 import com.naocraftlab.skins.client.EditorPreviewClock;
+import com.naocraftlab.skins.client.EditorPreviewTickGate;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.PreviewDepthEnvelope;
+import com.naocraftlab.skins.client.PreviewStageGeometry;
 import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.SkinModel;
@@ -61,6 +64,7 @@ public final class AvatarRenderStatePreviewRenderer
     private final EditorPreviewSession session = new EditorPreviewSession();
     private final DiagnosticSink diagnostics;
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
+    private final EditorPreviewTickGate previewTickGate = new EditorPreviewTickGate();
     private boolean layerFailureLogged;
     private final GameProfile previewProfile =
             new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
@@ -100,18 +104,22 @@ public final class AvatarRenderStatePreviewRenderer
                 return;
             }
             float previewAge = previewClock.ageTicks(renderPlayer.tickCount);
+            applySettling(renderPlayer, previewAge, session.capeSettling(
+                    request.intent(), true, appearance.capeMode(),
+                    appearance.cape().isPresent(), previewAge));
             renderPlayer.tickCount = Math.max(0, (int) Math.floor(previewAge));
             AvatarRenderState state = createRenderState(minecraft, renderPlayer, context);
             state.ageInTicks = previewAge;
             configurePreviewState(state, appearance, skin, request);
             NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
-            previewState.nclskins$setWideDepth(true);
+            float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
+            previewState.nclskins$setDepthExtent(PreviewDepthEnvelope.forRequest(
+                    request.intent(), requestedScale, request.pitchDegrees(), appearance.capeMode()));
             previewState.nclskins$setFailureSink(this::onLiveRenderFailure);
             previewState.nclskins$setLayerFailureSink(this::onLiveLayerFailure);
             previewState.nclskins$setPreviewContext(context);
 
             float pitchRadians = LivePreviewPitch.radians(request.pitchDegrees());
-            float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
             Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
             Quaternionf modelRotation = new Quaternionf()
                     .rotateZ((float) Math.PI)
@@ -121,8 +129,9 @@ public final class AvatarRenderStatePreviewRenderer
                             CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT,
                             pitchRadians);
             Vector3f translation = new Vector3f(
-                    0.0F,
-                    centeredTranslation.y(),
+                    PreviewStageGeometry.modelOffsetX(request, requestedScale),
+                    centeredTranslation.y()
+                            + PreviewStageGeometry.modelOffsetY(request, requestedScale),
                     centeredTranslation.z());
 
             graphics.entity(
@@ -131,10 +140,10 @@ public final class AvatarRenderStatePreviewRenderer
                     translation,
                     modelRotation,
                     cameraPitch,
-                    request.left(),
-                    request.top(),
-                    request.left() + request.width(),
-                    request.top() + request.height());
+                    request.stageLeft(),
+                    request.stageTop(),
+                    request.stageLeft() + request.stageWidth(),
+                    request.stageTop() + request.stageHeight());
         } catch (RuntimeException failure) {
             onLiveRenderFailure(failure);
         }
@@ -197,6 +206,24 @@ public final class AvatarRenderStatePreviewRenderer
         previewPlayer.setInvisible(false);
         previewPlayer.avatarState().tick(previewPlayer.position(), Vec3.ZERO);
         return previewPlayer;
+    }
+
+    private void applySettling(
+            PreviewPlayer player, float previewAge,
+            EditorPreviewSession.SettlingMotion motion) {
+        double baseX = player.getX();
+        double baseY = player.getY();
+        double baseZ = player.getZ();
+        player.setPos(baseX, baseY + motion.currentYOffset(), baseZ);
+        player.xo = baseX;
+        player.yo = baseY + motion.previousYOffset();
+        player.zo = baseZ;
+        player.avatarState().tick(player.position(), Vec3.ZERO);
+        player.tickCount = Math.max(0, (int) Math.floor(previewAge));
+        if (previewTickGate.shouldTick(previewAge, motion.active())) {
+            player.tick();
+            player.tickCount = Math.max(0, (int) Math.floor(previewAge));
+        }
     }
 
     private void onLiveRenderFailure(RuntimeException failure) {

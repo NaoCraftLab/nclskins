@@ -4,10 +4,12 @@ import com.mojang.authlib.GameProfile;
 import com.naocraftlab.skins.client.CenteredPipPreviewTransform;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.EditorPreviewSession;
+import com.naocraftlab.skins.client.EditorPreviewTickGate;
 import com.naocraftlab.skins.client.EditorPreviewClock;
 import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.PreviewStageGeometry;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
 import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
@@ -30,6 +32,7 @@ import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -42,6 +45,7 @@ public final class SubmissionPreviewRenderer
     private final EditorPreviewSession session = new EditorPreviewSession();
     private final DiagnosticSink diagnostics;
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
+    private final EditorPreviewTickGate previewTickGate = new EditorPreviewTickGate();
     private final SimplePreviewRenderer baked =
             new SimplePreviewRenderer();
     private final GameProfile profile = new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
@@ -79,13 +83,19 @@ public final class SubmissionPreviewRenderer
                 return;
             }
             float previewAge = previewClock.ageTicks(renderPlayer.tickCount);
+            applySettling(renderPlayer, previewAge, session.capeSettling(
+                    request.intent(), true, appearance.capeMode(),
+                    appearance.cape().isPresent(), previewAge));
             float pitch = (float) Math.toRadians(request.pitchDegrees());
             Quaternionf cameraPitch = new Quaternionf().rotateX(pitch);
             Quaternionf modelRotation = new Quaternionf().rotateZ((float) Math.PI).mul(cameraPitch);
             var centered = CenteredPlayerPreviewGeometry.centeredEntityTranslation(
                     CenteredPlayerPreviewGeometry.STANDING_PLAYER_HEIGHT, pitch);
             float scale = 0.97F * request.height() / MODEL_HEIGHT * request.scale();
-            Vector3f translation = new Vector3f(0.0F, centered.y(), centered.z());
+            Vector3f translation = new Vector3f(
+                    PreviewStageGeometry.modelOffsetX(request, scale),
+                    centered.y() + PreviewStageGeometry.modelOffsetY(request, scale),
+                    centered.z());
             LivePreviewRenderState state =
                     new LivePreviewRenderState(
                             renderPlayer,
@@ -107,10 +117,10 @@ public final class SubmissionPreviewRenderer
                         translation,
                         modelRotation,
                         cameraPitch,
-                        request.left(),
-                        request.top(),
-                        request.left() + request.width(),
-                        request.top() + request.height());
+                        request.stageLeft(),
+                        request.stageTop(),
+                        request.stageLeft() + request.stageWidth(),
+                        request.stageTop() + request.stageHeight());
                 submission.requireConsumed();
             }
         } catch (RuntimeException failure) {
@@ -155,6 +165,24 @@ public final class SubmissionPreviewRenderer
         previewPlayer.setPose(Pose.STANDING);
         previewPlayer.setInvisible(false);
         return previewPlayer;
+    }
+
+    private void applySettling(
+            PreviewPlayer player, float previewAge,
+            EditorPreviewSession.SettlingMotion motion) {
+        double baseX = player.getX();
+        double baseY = player.getY();
+        double baseZ = player.getZ();
+        player.setPos(baseX, baseY + motion.currentYOffset(), baseZ);
+        player.xo = baseX;
+        player.yo = baseY + motion.previousYOffset();
+        player.zo = baseZ;
+        player.avatarState().tick(player.position(), Vec3.ZERO);
+        player.tickCount = Math.max(0, (int) Math.floor(previewAge));
+        if (previewTickGate.shouldTick(previewAge, motion.active())) {
+            player.tick();
+            player.tickCount = Math.max(0, (int) Math.floor(previewAge));
+        }
     }
 
     private void onLiveRenderFailure(RuntimeException failure) {

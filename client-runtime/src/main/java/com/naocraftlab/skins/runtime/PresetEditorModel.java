@@ -27,6 +27,7 @@ import java.util.UUID;
 
 public final class PresetEditorModel {
     private static final int CAPE_GALLERY_TOP = 106;
+    private static final int FOOTER_HEIGHT = 33;
     private static final int CAPE_CARD_GAP = 4;
     private static final int CAPE_CARD_HEIGHT = 86;
     private static final int CAPE_CARD_MIN_WIDTH = 68;
@@ -628,7 +629,7 @@ public final class PresetEditorModel {
         panels.add(new ViewSpec.Panel(
                 "header", new Bounds(0, 0, width, 33), ViewSpec.Panel.Style.VANILLA_HEADER));
         panels.add(new ViewSpec.Panel(
-                "footer", new Bounds(0, Math.max(0, height - 33), width, 33), ViewSpec.Panel.Style.VANILLA_FOOTER));
+                "footer", new Bounds(0, Math.max(0, height - FOOTER_HEIGHT), width, FOOTER_HEIGHT), ViewSpec.Panel.Style.VANILLA_FOOTER));
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Text> texts = new ArrayList<>();
         widgets.add(ViewSpec.Widget.textField(
@@ -708,6 +709,7 @@ public final class PresetEditorModel {
                 new ViewSpec.CatalogImage(origin.collectionId(), origin.skinId()));
         ViewSpec.Preview previewSpec = new ViewSpec.Preview(
                 "editor.preview",
+                new Bounds(0, 0, width, height),
                 previewBounds,
                 skin,
                 png.map(DraftPng::revision).orElseGet(() -> skin.optionalAssetId()
@@ -897,7 +899,7 @@ public final class PresetEditorModel {
     private CapeGalleryLayout capeGalleryLayout(
             int x, int width, int height, double desiredPosition) {
         int saveY = height - 28;
-        int viewportHeight = Math.max(1, saveY - CAPE_GALLERY_TOP - 10);
+        int viewportHeight = Math.max(1, height - FOOTER_HEIGHT - CAPE_GALLERY_TOP);
         int contentWidth = Math.max(
                 1, width - CAPE_SCROLLBAR_GAP - CAPE_SCROLLBAR_WIDTH);
         Bounds viewport = new Bounds(x, CAPE_GALLERY_TOP, contentWidth, viewportHeight);

@@ -35,15 +35,25 @@ public final class CenteredPlayerPreviewGeometry {
             float viewportCenterY,
             float renderedEntityScale,
             float entityHeight) {
+        return legacyEntityAnchorY(viewportCenterY, renderedEntityScale, entityHeight, 0.0F);
+    }
+
+    public static float legacyEntityAnchorY(
+            float viewportCenterY,
+            float renderedEntityScale,
+            float entityHeight,
+            float pitchRadians) {
         if (!Float.isFinite(viewportCenterY)
                 || !Float.isFinite(renderedEntityScale)
                 || renderedEntityScale <= 0.0F
                 || !Float.isFinite(entityHeight)
-                || entityHeight <= 0.0F) {
+                || entityHeight <= 0.0F
+                || !Float.isFinite(pitchRadians)) {
             throw new IllegalArgumentException("Legacy preview geometry must be finite and positive");
         }
         return viewportCenterY
-                + renderedEntityScale * modernEntityTranslationY(entityHeight);
+                + renderedEntityScale * modernEntityTranslationY(entityHeight)
+                * (float) Math.cos(pitchRadians);
     }
 
     public static float modernEntityTranslationY(float entityHeight) {

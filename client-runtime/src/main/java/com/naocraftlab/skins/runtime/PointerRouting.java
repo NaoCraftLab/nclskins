@@ -9,8 +9,19 @@ public final class PointerRouting {
 
     public static Hit hit(ViewSpec view, double x, double y) {
         Objects.requireNonNull(view, "view");
+        boolean chromeOwnsPointer = view.widgets().stream()
+                .filter(ViewSpec.Widget::visible)
+                .anyMatch(widget -> widget.bounds().contains(x, y))
+                || view.panels().stream()
+                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER
+                        || panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER)
+                .anyMatch(panel -> panel.bounds().contains(x, y))
+                || view.clipRegions().stream()
+                .filter(region -> region.id().equals("editor.capes"))
+                .anyMatch(region -> region.bounds().contains(x, y));
         Optional<String> previewId = view.previews().stream()
-                .filter(preview -> preview.bounds().contains(x, y))
+                .filter(ignored -> !chromeOwnsPointer)
+                .filter(preview -> preview.anchorBounds().contains(x, y))
                 .map(ViewSpec.Preview::id)
                 .findFirst();
         boolean scrollbar = view.scrollbar()

@@ -172,6 +172,13 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
 
         renderEpochBackground(graphics, view, mouseX, mouseY, partialTick);
+        boolean editor = "preset_editor".equals(view.screenId());
+        if (editor) {
+            renderPreviews(graphics, view);
+            if (!view.previews().isEmpty()) {
+                capabilities.finishPreviewPass(graphics);
+            }
+        }
         for (ViewSpec.Panel panel : view.panels()) {
             if (panel.style() != ViewSpec.Panel.Style.VANILLA_LIST) {
                 continue;
@@ -181,16 +188,11 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     graphics, panel, sample.u(), sample.v()));
         }
         renderCardBackgrounds(graphics, view, mouseX, mouseY);
-        for (ViewSpec.Preview preview : view.previews()) {
-            renderClipped(
-                    graphics,
-                    view,
-                    preview.id(),
-                    preview.bounds(),
-                    () -> renderPreview(graphics, preview));
+        if (!editor) {
+            renderPreviews(graphics, view);
         }
         renderBackEquipmentPreviews(graphics, view);
-        if (!view.previews().isEmpty() || !view.backEquipmentPreviews().isEmpty()) {
+        if ((!editor && !view.previews().isEmpty()) || !view.backEquipmentPreviews().isEmpty()) {
             capabilities.finishPreviewPass(graphics);
         }
 
@@ -233,6 +235,17 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         }
         renderPreciseTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
+    }
+
+    private void renderPreviews(GuiGraphics graphics, ViewSpec view) {
+        for (ViewSpec.Preview preview : view.previews()) {
+            renderClipped(
+                    graphics,
+                    view,
+                    preview.id(),
+                    preview.bounds(),
+                    () -> renderPreview(graphics, preview));
+        }
     }
 
     private void renderProgressDecorations(GuiGraphics graphics, ViewSpec view) {
@@ -1414,7 +1427,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 cape,
                 capeMode,
                 preview.outerLayerVisibility());
-        Bounds bounds = preview.bounds();
+        Bounds bounds = preview.anchorBounds();
+        Bounds stage = preview.bounds();
         slot.renderer.render(
                 graphics,
                 new PreviewRenderer.PreviewRequest(
@@ -1426,7 +1440,11 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                         preview.yawDegrees(),
                         preview.pitchDegrees(),
                         preview.scale(),
-                        preview.intent()));
+                        preview.intent(),
+                        stage.x(),
+                        stage.y(),
+                        stage.width(),
+                        stage.height()));
     }
 
     private void releasePreviews() {

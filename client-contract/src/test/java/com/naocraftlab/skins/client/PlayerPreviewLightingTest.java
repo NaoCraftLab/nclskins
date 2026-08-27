@@ -6,24 +6,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlayerPreviewLightingTest {
-    @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(floats = {-30.0F, 0.0F, 30.0F})
-    void pitchedCameraRigKeepsThePlayerFrontPositivelyLit(float pitchDegrees) {
-        PlayerPreviewLighting.Rig rig =
-                PlayerPreviewLighting.centeredFrontForPitch(pitchDegrees);
-        float radians = (float) Math.toRadians(pitchDegrees);
-        PlayerPreviewLighting.Direction front = new PlayerPreviewLighting.Direction(
-                0.0F, -(float) Math.sin(radians), (float) Math.cos(radians));
+    @Test
+    void fixedUiRigProducesASmoothMonotonicPitchGradient() {
+        PlayerPreviewLighting.Direction light = PlayerPreviewLighting.centeredFront().primary();
+        float low = frontLightAtPitch(light, -30.0F);
+        float middle = frontLightAtPitch(light, 0.0F);
+        float high = frontLightAtPitch(light, 30.0F);
 
-        assertTrue(dot(rig.primary(), front) > 0.0F);
-        assertEquals(dot(PlayerPreviewLighting.centeredFront().primary(),
-                        new PlayerPreviewLighting.Direction(0.0F, 0.0F, 1.0F)),
-                dot(rig.primary(), front), 0.0001F);
+        assertTrue(low > 0.0F);
+        assertTrue(low < middle);
+        assertTrue(middle < high);
     }
 
     private static float dot(
             PlayerPreviewLighting.Direction left, PlayerPreviewLighting.Direction right) {
         return left.x() * right.x() + left.y() * right.y() + left.z() * right.z();
+    }
+
+    private static float frontLightAtPitch(
+            PlayerPreviewLighting.Direction light, float pitchDegrees) {
+        float radians = (float) Math.toRadians(pitchDegrees);
+        return dot(light, new PlayerPreviewLighting.Direction(
+                0.0F, -(float) Math.sin(radians), (float) Math.cos(radians)));
     }
     private static final float EPSILON = 0.00001F;
 

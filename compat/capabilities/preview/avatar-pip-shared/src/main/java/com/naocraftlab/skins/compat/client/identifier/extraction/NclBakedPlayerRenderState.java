@@ -29,10 +29,13 @@ public record NclBakedPlayerRenderState(
         int y0,
         int x1,
         int y1,
+        float modelOffsetX,
+        float modelOffsetY,
         float scale,
         boolean standaloneEquipment,
+        float depthExtent,
         ScreenRectangle scissorArea,
-        ScreenRectangle bounds) implements PictureInPictureRenderState {
+        ScreenRectangle bounds) implements PictureInPictureRenderState, NclSkinsDepthEnvelopeState {
 
     public NclBakedPlayerRenderState(
             NclBakedPlayerTarget target,
@@ -52,8 +55,11 @@ public record NclBakedPlayerRenderState(
             int y0,
             int x1,
             int y1,
+            float modelOffsetX,
+            float modelOffsetY,
             float scale,
             boolean standaloneEquipment,
+            float depthExtent,
             ScreenRectangle scissorArea) {
         this(
                 target,
@@ -73,8 +79,11 @@ public record NclBakedPlayerRenderState(
                 y0,
                 x1,
                 y1,
+                modelOffsetX,
+                modelOffsetY,
                 scale,
                 standaloneEquipment,
+                depthExtent,
                 scissorArea,
                 PictureInPictureRenderState.getBounds(x0, y0, x1, y1, scissorArea));
     }
@@ -111,7 +120,10 @@ public record NclBakedPlayerRenderState(
         }
         Objects.requireNonNull(capeMode, "capeMode");
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
-        if (x1 <= x0 || y1 <= y0 || !Float.isFinite(scale) || scale <= 0.0F) {
+        if (x1 <= x0 || y1 <= y0
+                || !Float.isFinite(modelOffsetX) || !Float.isFinite(modelOffsetY)
+                || !Float.isFinite(scale) || scale <= 0.0F
+                || !Float.isFinite(depthExtent) || depthExtent < 0.0F) {
             throw new IllegalArgumentException("Baked preview bounds and scale must be positive");
         }
     }
@@ -135,8 +147,16 @@ public record NclBakedPlayerRenderState(
                 y0,
                 x1,
                 y1,
+                modelOffsetX,
+                modelOffsetY,
                 scale,
                 standaloneEquipment,
+                depthExtent,
                 scissor);
+    }
+
+    @Override
+    public float nclskins$depthExtent() {
+        return depthExtent;
     }
 }

@@ -421,7 +421,11 @@ final class ViewSpecGoldenTest {
         for (int index = 0; index < view.previews().size(); index++) {
             ViewSpec.Preview preview = view.previews().get(index);
             result.append(index).append('|').append(preview.id()).append('|')
-                    .append(bounds(preview.bounds())).append('|')
+                    .append(bounds(preview.bounds())).append('|');
+            if (!preview.anchorBounds().equals(preview.bounds())) {
+                result.append("anchor=").append(bounds(preview.anchorBounds())).append('|');
+            }
+            result
                     .append("skin=").append(preview.skin().kind()).append(':')
                     .append(preview.skin().optionalAssetId().map(UUID::toString).orElse("-")).append('|')
                     .append("revision=").append(preview.imageRevision()).append('|')

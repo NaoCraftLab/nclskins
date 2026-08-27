@@ -1975,6 +1975,69 @@ final class BuildLogicTest {
     }
 
     @Test
+    void editorPreviewCompletesBeforeCapeControlCompositeInEveryGuiHost() {
+        String immediate = new File(
+                repository,
+                'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java').text
+        String submission = new File(
+                repository,
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java').text
+        List<String> extraction = [
+                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+        ].collect { new File(repository, it).text }
+
+        assertTrue(immediate.contains('''if (editor) {
+            renderPreviews(graphics, view);
+            if (!view.previews().isEmpty()) {
+                capabilities.finishPreviewPass(graphics);
+            }
+        }'''))
+        assertTrue(immediate.indexOf('if (editor) {')
+                < immediate.indexOf('renderCardBackgrounds(graphics, view, mouseX, mouseY);'))
+        assertTrue(submission.contains('''if (editor) {
+            renderPreviews(graphics, current);
+            graphics.nextStratum();
+            renderListPanels(graphics, current);
+            renderCardBackgrounds(graphics, current, mouseX, mouseY);
+            graphics.nextStratum();
+            renderBackEquipment(graphics, current);'''))
+        extraction.each { String source ->
+            assertTrue(source.contains('''if (editor) {
+            drawPreviews(graphics, view);
+            graphics.nextStratum();
+            drawListPanels(graphics, view);
+            drawCardBackgrounds(graphics, view, mouseX, mouseY);
+            graphics.nextStratum();
+            drawBackEquipmentPreviews(graphics, view);'''))
+        }
+    }
+
+    @Test
+    void previewDepthAndSettlingUseExactHostSeams() {
+        String depthMixin = new File(
+                repository,
+                'compat/capabilities/preview/avatar-pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/mixin/PictureInPictureRendererDepthMixin.java').text
+        assertTrue(depthMixin.contains(
+                'CachedOrthoProjectionMatrixBuffer;<init>(Ljava/lang/String;FFZ)V'))
+        assertTrue(depthMixin.contains('require = 1'))
+        assertTrue(depthMixin.contains('expect = 1'))
+        assertTrue(depthMixin.contains('allow = 1'))
+
+        [
+                'compat/capabilities/preview/remote-player/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/RemotePlayerPreviewRenderer.java',
+                'compat/capabilities/preview/player-skin/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/VanillaAppearancePreviewRenderer.java',
+                'compat/capabilities/preview/avatar-pip-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/SubmissionPreviewRenderer.java',
+                'compat/capabilities/preview/avatar-pip-render-state-attack-time/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/AvatarRenderStatePreviewRenderer.java',
+                'compat/capabilities/preview/avatar-pip-render-state-no-attack-time/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/AvatarRenderStatePreviewRenderer.java'
+        ].each { String path ->
+            String source = new File(repository, path).text
+            assertTrue(source.contains('previewTickGate.shouldTick('), path)
+            assertTrue(source.contains('player.tick();'), path)
+        }
+    }
+
+    @Test
     void playerLayerAnchorsCoverRemotePlayersWithoutSuppressingWorldFailures() {
         Map<String, String> layerMixins = [
                 '1.20.1': 'compat/capabilities/gui/immediate-resource-location-player-info/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/LivingEntityRendererPreviewMixin.java',

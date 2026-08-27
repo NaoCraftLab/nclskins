@@ -3,6 +3,8 @@ package com.naocraftlab.skins.compat.client.identifier.extraction;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PreviewDepthEnvelope;
+import com.naocraftlab.skins.client.PreviewStageGeometry;
 import com.naocraftlab.skins.client.SkinModel;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.model.Model;
@@ -67,12 +69,16 @@ final class AvatarPipPreviewRenderer
                 appearance.outerLayerVisibility(),
                 request.pitchDegrees(),
                 request.yawDegrees(),
-                request.left(),
-                request.top(),
-                request.left() + request.width(),
-                request.top() + request.height(),
+                request.stageLeft(),
+                request.stageTop(),
+                request.stageLeft() + request.stageWidth(),
+                request.stageTop() + request.stageHeight(),
+                PreviewStageGeometry.modelOffsetX(request, scale),
+                PreviewStageGeometry.modelOffsetY(request, scale),
                 scale,
                 false,
+                PreviewDepthEnvelope.forRequest(
+                        request.intent(), scale, request.pitchDegrees(), appearance.capeMode()),
                 null);
         try (NclBakedPlayerSubmission submission =
                 NclBakedPlayerSubmission.open(graphics, state)) {
@@ -116,8 +122,11 @@ final class AvatarPipPreviewRenderer
                 request.top(),
                 request.left() + request.width(),
                 request.top() + request.height(),
+                0.0F,
+                0.0F,
                 scale,
                 true,
+                0.0F,
                 null);
         try (NclBakedPlayerSubmission submission = NclBakedPlayerSubmission.open(graphics, state)) {
             submit(
@@ -150,10 +159,10 @@ final class AvatarPipPreviewRenderer
                 request.pitchDegrees(),
                 request.yawDegrees(),
                 0.0F,
-                request.left(),
-                request.top(),
-                request.left() + request.width(),
-                request.top() + request.height());
+                request.stageLeft(),
+                request.stageTop(),
+                request.stageLeft() + request.stageWidth(),
+                request.stageTop() + request.stageHeight());
     }
 
     private static void submit(

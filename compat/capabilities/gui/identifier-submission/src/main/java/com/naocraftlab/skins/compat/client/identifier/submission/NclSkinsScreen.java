@@ -448,12 +448,22 @@ public final class NclSkinsScreen extends Screen {
                 OFFSCREEN_MOUSE_COORDINATE,
                 partialTick);
         publishNativeScroll(current);
-        renderListPanels(graphics, current);
-        if (renderCardBackgrounds(graphics, current, mouseX, mouseY)) {
+        boolean editor = "preset_editor".equals(current.screenId());
+        if (editor) {
+            renderPreviews(graphics, current);
             graphics.nextStratum();
+            renderListPanels(graphics, current);
+            renderCardBackgrounds(graphics, current, mouseX, mouseY);
+            graphics.nextStratum();
+            renderBackEquipment(graphics, current);
+        } else {
+            renderListPanels(graphics, current);
+            if (renderCardBackgrounds(graphics, current, mouseX, mouseY)) {
+                graphics.nextStratum();
+            }
+            renderPreviews(graphics, current);
+            renderBackEquipment(graphics, current);
         }
-        renderPreviews(graphics, current);
-        renderBackEquipment(graphics, current);
         graphics.nextStratum();
         renderFramePanels(graphics, current);
         renderScrollbar(graphics, current, mouseX, mouseY);
@@ -695,10 +705,12 @@ public final class NclSkinsScreen extends Screen {
                     cape,
                     cape.isPresent() ? preview.capeMode() : PreviewRenderer.CapeMode.OFF,
                     preview.outerLayerVisibility());
-            Bounds b = preview.bounds();
+            Bounds b = preview.anchorBounds();
+            Bounds stage = preview.bounds();
             PreviewRenderer.PreviewRequest request = new PreviewRenderer.PreviewRequest(
                     appearance, b.x(), b.y(), b.width(), b.height(),
-                    preview.yawDegrees(), preview.pitchDegrees(), preview.scale(), preview.intent());
+                    preview.yawDegrees(), preview.pitchDegrees(), preview.scale(), preview.intent(),
+                    stage.x(), stage.y(), stage.width(), stage.height());
             clipped(graphics, current, preview.id(), () -> {
                 if ("preset_editor".equals(current.screenId()) && minecraft.level != null) {
                     editorRenderer.render(graphics, request);

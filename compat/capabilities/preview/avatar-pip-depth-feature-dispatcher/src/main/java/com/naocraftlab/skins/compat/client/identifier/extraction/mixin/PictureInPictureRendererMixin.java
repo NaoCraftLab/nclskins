@@ -3,7 +3,8 @@ package com.naocraftlab.skins.compat.client.identifier.extraction.mixin;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import com.naocraftlab.skins.compat.client.identifier.extraction.NclSkinsWideDepthState;
+import com.naocraftlab.skins.compat.client.identifier.extraction.NclSkinsDepthEnvelopeState;
+import com.naocraftlab.skins.client.PreviewDepthEnvelope;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.renderer.Projection;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
@@ -16,9 +17,8 @@ import org.spongepowered.asm.mixin.injection.At;
 
 @Mixin(PictureInPictureRenderer.class)
 abstract class PictureInPictureRendererMixin {
-    @Unique private static final float NCLSKINS_EDITOR_DEPTH = 32_768.0F;
-    @Unique private static final ThreadLocal<Boolean> NCLSKINS_WIDE_DEPTH =
-            ThreadLocal.withInitial(() -> false);
+    @Unique private static final ThreadLocal<Float> NCLSKINS_DEPTH_EXTENT =
+            ThreadLocal.withInitial(() -> 0.0F);
 
     @WrapMethod(
             method = "prepare(Lnet/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;I)V",
@@ -27,8 +27,8 @@ abstract class PictureInPictureRendererMixin {
             PictureInPictureRenderState state, GuiRenderState guiRenderState,
             FeatureRenderDispatcher featureRenderDispatcher, int guiScale,
             Operation<Void> original) {
-        boolean previous = NCLSKINS_WIDE_DEPTH.get();
-        NCLSKINS_WIDE_DEPTH.set(nclskins$usesWideDepth(state));
+        float previous = NCLSKINS_DEPTH_EXTENT.get();
+        NCLSKINS_DEPTH_EXTENT.set(nclskins$physicalDepthExtent(state, guiScale));
         try {
             original.call(state, guiRenderState, featureRenderDispatcher, guiScale);
         } finally {
@@ -44,23 +44,39 @@ abstract class PictureInPictureRendererMixin {
     private void nclskins$expandEditorDepth(
             Projection projection, float near, float far, float width, float height,
             boolean flipY, Operation<Void> original) {
-        boolean wideDepth = NCLSKINS_WIDE_DEPTH.get();
+        float depthExtent = NCLSKINS_DEPTH_EXTENT.get();
         original.call(projection,
-                wideDepth ? -NCLSKINS_EDITOR_DEPTH : near,
-                wideDepth ? NCLSKINS_EDITOR_DEPTH : far,
+                depthExtent > 0.0F ? -depthExtent : near,
+                depthExtent > 0.0F ? depthExtent : far,
                 width, height, flipY);
     }
 
     @Unique
-    private static boolean nclskins$usesWideDepth(PictureInPictureRenderState state) {
+    private static float nclskins$depthExtent(PictureInPictureRenderState state) {
+        if (state instanceof NclSkinsDepthEnvelopeState depthState) {
+            return depthState.nclskins$depthExtent();
+        }
         return state instanceof GuiEntityRenderState entityState
-                && entityState.renderState() instanceof NclSkinsWideDepthState depthState
-                && depthState.nclskins$usesWideDepth();
+                && entityState.renderState() instanceof NclSkinsDepthEnvelopeState depthState
+                ? depthState.nclskins$depthExtent()
+                : 0.0F;
     }
 
     @Unique
-    private static void nclskins$restoreDepth(boolean previous) {
-        if (previous) NCLSKINS_WIDE_DEPTH.set(true);
-        else NCLSKINS_WIDE_DEPTH.remove();
+    private static float nclskins$physicalDepthExtent(
+            PictureInPictureRenderState state, int guiScale) {
+        float logicalExtent = nclskins$depthExtent(state);
+        if (logicalExtent <= 0.0F) {
+            return 0.0F;
+        }
+        return Math.max(
+                PreviewDepthEnvelope.UPSTREAM_MINIMUM,
+                Math.min(PreviewDepthEnvelope.MAXIMUM, logicalExtent * Math.max(1, guiScale)));
+    }
+
+    @Unique
+    private static void nclskins$restoreDepth(float previous) {
+        if (previous > 0.0F) NCLSKINS_DEPTH_EXTENT.set(previous);
+        else NCLSKINS_DEPTH_EXTENT.remove();
     }
 }

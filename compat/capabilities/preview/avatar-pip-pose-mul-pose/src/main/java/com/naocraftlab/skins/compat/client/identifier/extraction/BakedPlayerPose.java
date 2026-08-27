@@ -58,6 +58,7 @@ public final class BakedPlayerPose {
     }
 
     public static void applyPlayer(PoseStack pose, NclBakedPlayerRenderState state) {
+        pose.translate(state.modelOffsetX(), state.modelOffsetY(), 0.0F);
         CenteredPipPreviewTransform.applyPlayerPose(pose, state.yawDegrees(), OPERATIONS);
     }
 

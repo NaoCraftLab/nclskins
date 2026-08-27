@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.Unique;
 @Mixin(AvatarRenderState.class)
 abstract class AvatarRenderStateMixin implements NclSkinsWideDepthState {
     @Unique
-    private boolean nclskins$wideDepth;
+    private float nclskins$depthExtent;
 
     @Unique
     private PreviewRenderFailureSink nclskins$failureSink;
@@ -22,13 +22,13 @@ abstract class AvatarRenderStateMixin implements NclSkinsWideDepthState {
     private AvatarPreviewContext nclskins$previewContext;
 
     @Override
-    public boolean nclskins$usesWideDepth() {
-        return nclskins$wideDepth;
+    public float nclskins$depthExtent() {
+        return nclskins$depthExtent;
     }
 
     @Override
-    public void nclskins$setWideDepth(boolean wideDepth) {
-        nclskins$wideDepth = wideDepth;
+    public void nclskins$setDepthExtent(float depthExtent) {
+        nclskins$depthExtent = depthExtent;
     }
 
     @Override

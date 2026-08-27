@@ -7,7 +7,7 @@ IconDecoration:id,bounds,icon,ownerWidgetId,idleOpacity,activeOpacity
 MarqueeActivation:hoverBounds,focusWidgetIds
 NavigationNode:id,bounds,surfaceId,documentOrder,tabOrder,enabled,pattern,activationActionId
 Panel:id,bounds,style
-Preview:id,bounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent
+Preview:id,bounds,anchorBounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent
 ProgressDecoration:id,ownerWidgetId,fraction,color,height
 ScrollSurface:id,viewport,orientation,offsetPixels,maximumPixels,wheelStepPixels
 Scrollbar:track,thumb,offset,maximum,orientation

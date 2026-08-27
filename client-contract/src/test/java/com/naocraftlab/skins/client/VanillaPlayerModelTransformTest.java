@@ -49,22 +49,18 @@ class VanillaPlayerModelTransformTest {
     }
 
     @Test
-    void centeredTransformTranslatesBeforeRotationAndKeepsFeetTransform() {
+    void centeredTransformMovesTheFullVisibleMeshMidpointToTheRotationOrigin() {
         RecordingOperations operations = new RecordingOperations();
 
         VanillaPlayerModelTransform.applyCentered(
                 new Object(), 2.0F, -15.0F, 25.0F, operations);
 
         assertEquals(List.of(
-                        "scale", "translate", "rotateZThenX", "rotateY", "scale", "translate"),
+                        "scale", "rotateZThenX", "rotateY", "scale", "translate"),
                 operations.names);
         assertArrayEquals(
-                new float[]{0.0F, 1.8F / 2.0F + 0.0625F, 0.0F},
-                operations.values.get(1),
-                EPSILON);
-        assertArrayEquals(
-                new float[]{0.0F, -1.501F, 0.0F},
-                operations.values.get(5),
+                new float[]{0.0F, -0.5F, 0.0F},
+                operations.values.get(4),
                 EPSILON);
     }
 

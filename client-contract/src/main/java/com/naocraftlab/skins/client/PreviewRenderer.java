@@ -62,7 +62,37 @@ public interface PreviewRenderer<C> {
             float yawDegrees,
             float pitchDegrees,
             float scale,
-            PreviewIntent intent) {
+            PreviewIntent intent,
+            int stageLeft,
+            int stageTop,
+            int stageWidth,
+            int stageHeight) {
+        public PreviewRequest(
+                PreviewAppearance appearance,
+                int left,
+                int top,
+                int width,
+                int height,
+                float yawDegrees,
+                float pitchDegrees,
+                float scale,
+                PreviewIntent intent) {
+            this(
+                    appearance,
+                    left,
+                    top,
+                    width,
+                    height,
+                    yawDegrees,
+                    pitchDegrees,
+                    scale,
+                    intent,
+                    left,
+                    top,
+                    width,
+                    height);
+        }
+
         public PreviewRequest(
                 PreviewAppearance appearance,
                 int left,
@@ -87,7 +117,8 @@ public interface PreviewRenderer<C> {
         public PreviewRequest {
             Objects.requireNonNull(appearance, "appearance");
             Objects.requireNonNull(intent, "intent");
-            if (width <= 0 || height <= 0 || !Float.isFinite(scale) || scale <= 0.0F) {
+            if (width <= 0 || height <= 0 || stageWidth <= 0 || stageHeight <= 0
+                    || !Float.isFinite(scale) || scale <= 0.0F) {
                 throw new IllegalArgumentException("Invalid preview bounds or scale");
             }
         }

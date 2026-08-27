@@ -1,9 +1,10 @@
 package com.naocraftlab.skins.compat.client.identifier.extraction;
 
-public interface NclSkinsWideDepthState {
-    boolean nclskins$usesWideDepth();
+public interface NclSkinsWideDepthState extends NclSkinsDepthEnvelopeState {
+    @Override
+    float nclskins$depthExtent();
 
-    void nclskins$setWideDepth(boolean wideDepth);
+    void nclskins$setDepthExtent(float depthExtent);
 
     PreviewRenderFailureSink nclskins$failureSink();
 

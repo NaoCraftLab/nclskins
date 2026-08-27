@@ -188,7 +188,8 @@ final class PresetEditorModelTest {
         assertEquals(Optional.empty(), name.submitActionId());
         assertEquals(new Bounds(150, 212, 75, 20), view.widget("editor.save").orElseThrow().bounds());
         assertEquals(new Bounds(229, 212, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
-        assertEquals(new Bounds(0, 0, 150, 240), view.previews().get(0).bounds());
+        assertEquals(new Bounds(0, 0, 320, 240), view.previews().get(0).bounds());
+        assertEquals(new Bounds(0, 0, 150, 240), view.previews().get(0).anchorBounds());
         assertEquals(0.6958763F, view.previews().get(0).scale(), 0.000001F);
     }
 
@@ -204,7 +205,8 @@ final class PresetEditorModelTest {
                 PreviewRenderer.CapeMode.ELYTRA);
         ViewSpec defaultView = medium.present(854, 480);
         assertEquals(new Bounds(578, 55, 260, 20), defaultView.widget("editor.name").orElseThrow().bounds());
-        assertEquals(new Bounds(0, 0, 578, 480), defaultView.previews().get(0).bounds());
+        assertEquals(new Bounds(0, 0, 854, 480), defaultView.previews().get(0).bounds());
+        assertEquals(new Bounds(0, 0, 578, 480), defaultView.previews().get(0).anchorBounds());
         assertEquals(new Bounds(578, 452, 128, 20), defaultView.widget("editor.save").orElseThrow().bounds());
 
         PresetEditorModel wide = PresetEditorModel.open(
@@ -217,7 +219,8 @@ final class PresetEditorModelTest {
                 PreviewRenderer.CapeMode.CAPE);
         ViewSpec wideView = wide.present(1600, 720);
         assertEquals(new Bounds(1324, 55, 260, 20), wideView.widget("editor.name").orElseThrow().bounds());
-        assertEquals(new Bounds(0, 0, 1324, 720), wideView.previews().get(0).bounds());
+        assertEquals(new Bounds(0, 0, 1600, 720), wideView.previews().get(0).bounds());
+        assertEquals(new Bounds(0, 0, 1324, 720), wideView.previews().get(0).anchorBounds());
     }
 
     @Test
@@ -328,6 +331,13 @@ final class PresetEditorModelTest {
         Bounds scrollbar = view.scrollbar().orElseThrow().track();
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL,
                 view.scrollbar().orElseThrow().orientation());
+        assertEquals(106, capeViewport.y());
+        assertEquals(view.panels().stream()
+                .filter(panel -> panel.id().equals("footer"))
+                .findFirst()
+                .orElseThrow()
+                .bounds()
+                .y(), capeViewport.bottom());
         assertEquals(capeViewport.y(), scrollbar.y());
         assertEquals(capeViewport.height(), scrollbar.height());
     }

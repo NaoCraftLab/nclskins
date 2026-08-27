@@ -112,6 +112,7 @@ public final class BakedPreviewRenderer
             configure(state);
             pose.pushPose();
             try {
+                pose.translate(state.modelOffsetX(), state.modelOffsetY(), 0.0F);
                 pose.mulPose(new Quaternionf().rotateX(
                         CenteredPipPreviewTransform.modelPitchRadians(state.pitchDegrees())));
                 if (state.standaloneEquipment()) {

@@ -581,17 +581,22 @@ public final class NclSkinsScreen extends Screen {
         currentView = view;
         syncPreviewAssets(view);
 
-        for (ViewSpec.Panel panel : view.panels()) {
-            if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
-                drawClipped(graphics, view, panel.id(), () ->
-                        drawVanillaListPanel(graphics, view, panel));
-            }
-        }
-        if (drawCardBackgrounds(graphics, view, mouseX, mouseY)) {
+        boolean editor = "preset_editor".equals(view.screenId());
+        if (editor) {
+            drawPreviews(graphics, view);
             graphics.nextStratum();
+            drawListPanels(graphics, view);
+            drawCardBackgrounds(graphics, view, mouseX, mouseY);
+            graphics.nextStratum();
+            drawBackEquipmentPreviews(graphics, view);
+        } else {
+            drawListPanels(graphics, view);
+            if (drawCardBackgrounds(graphics, view, mouseX, mouseY)) {
+                graphics.nextStratum();
+            }
+            drawPreviews(graphics, view);
+            drawBackEquipmentPreviews(graphics, view);
         }
-        drawPreviews(graphics, view);
-        drawBackEquipmentPreviews(graphics, view);
 
 
         graphics.nextStratum();
@@ -605,6 +610,15 @@ public final class NclSkinsScreen extends Screen {
         drawTexts(graphics, view, mouseX, mouseY);
         drawPreciseTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
+    }
+
+    private void drawListPanels(GuiGraphicsExtractor graphics, ViewSpec view) {
+        for (ViewSpec.Panel panel : view.panels()) {
+            if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
+                drawClipped(graphics, view, panel.id(), () ->
+                        drawVanillaListPanel(graphics, view, panel));
+            }
+        }
     }
 
     private void drawProgressDecorations(GuiGraphicsExtractor graphics, ViewSpec view) {
@@ -757,7 +771,8 @@ public final class NclSkinsScreen extends Screen {
                     cape,
                     capeMode,
                     preview.outerLayerVisibility());
-            Bounds bounds = preview.bounds();
+            Bounds bounds = preview.anchorBounds();
+            Bounds stage = preview.bounds();
             PreviewRenderer.PreviewRequest request = new PreviewRenderer.PreviewRequest(
                     appearance,
                     bounds.x(),
@@ -767,7 +782,11 @@ public final class NclSkinsScreen extends Screen {
                     preview.yawDegrees(),
                     preview.pitchDegrees(),
                     preview.scale(),
-                    preview.intent());
+                    preview.intent(),
+                    stage.x(),
+                    stage.y(),
+                    stage.width(),
+                    stage.height());
             if ("preset_editor".equals(view.screenId())) {
                 drawClipped(graphics, view, preview.id(), () -> editorRenderer.render(graphics, request));
             } else {

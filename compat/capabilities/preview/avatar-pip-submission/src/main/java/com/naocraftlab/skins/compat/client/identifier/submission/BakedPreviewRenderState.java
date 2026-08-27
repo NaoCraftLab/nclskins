@@ -28,6 +28,8 @@ public record BakedPreviewRenderState(
         int y0,
         int x1,
         int y1,
+        float modelOffsetX,
+        float modelOffsetY,
         float scale,
         boolean standaloneEquipment,
         ScreenRectangle scissorArea,
@@ -49,6 +51,8 @@ public record BakedPreviewRenderState(
             int y0,
             int x1,
             int y1,
+            float modelOffsetX,
+            float modelOffsetY,
             float scale,
             boolean standaloneEquipment,
             ScreenRectangle scissorArea) {
@@ -68,6 +72,8 @@ public record BakedPreviewRenderState(
                 y0,
                 x1,
                 y1,
+                modelOffsetX,
+                modelOffsetY,
                 scale,
                 standaloneEquipment,
                 scissorArea,
@@ -100,6 +106,8 @@ public record BakedPreviewRenderState(
         }
         if (x1 <= x0
                 || y1 <= y0
+                || !Float.isFinite(modelOffsetX)
+                || !Float.isFinite(modelOffsetY)
                 || !Float.isFinite(scale)
                 || scale <= 0.0F
                 || !Float.isFinite(pitchDegrees)
@@ -125,6 +133,8 @@ public record BakedPreviewRenderState(
                 y0,
                 x1,
                 y1,
+                modelOffsetX,
+                modelOffsetY,
                 scale,
                 standaloneEquipment,
                 scissor);
