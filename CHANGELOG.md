@@ -1,5 +1,19 @@
 ## 1.0.0-beta.4
 
+### Added
+
+- **Full keyboard navigation**
+    - Navigate `My looks`, `Catalog`, `Review import`, and cape selection with Tab and the arrow keys
+    - Open cards and actions with Enter or Space, including creating a look and confirming deletion
+- **Collapse and expand all**
+    - Collapse or expand every collection in `Catalog`
+    - Collapse or expand every group in `Review import` as well
+
+### Fixed
+
+- Numerous minor UI fixes
+- Fixed session checking and offline mode behavior
+
 ## 1.0.0-beta.3
 
 ### Added
