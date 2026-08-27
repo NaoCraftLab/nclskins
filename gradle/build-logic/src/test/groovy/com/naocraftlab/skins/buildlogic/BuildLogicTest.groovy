@@ -1105,6 +1105,8 @@ final class BuildLogicTest {
     @Test
     void metadataMatchesEveryLoaderContract() {
         String version = CatalogTools.loadVersion(repository)
+        String requiredServerPluginVersion =
+                MetadataRenderer.effectiveRequiredServerPluginVersion(version)
         catalog.targets.each { Map target ->
             Map<String, String> resources = MetadataRenderer.render(catalog, target, version)
             assertEquals(((target.metadata.files as List) +
@@ -1113,7 +1115,7 @@ final class BuildLogicTest {
             assertTrue(resources.values().any { it.contains('GPL-3.0-only') }, target.id.toString())
             Map compatibility = new JsonSlurper().parseText(
                     resources['nclskins-server-compatibility.json']) as Map
-            assertEquals(version, compatibility.requiredServerPluginVersion)
+            assertEquals(requiredServerPluginVersion, compatibility.requiredServerPluginVersion)
             assertEquals(['appearance-refresh-v1', 'proxy-refresh-v1'],
                     compatibility.protocolIds)
             assertEquals('official-v1', compatibility.matrixId)
