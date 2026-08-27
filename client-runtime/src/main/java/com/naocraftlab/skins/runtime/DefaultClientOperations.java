@@ -669,6 +669,13 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
+    public void replaceCollapsedCollectionIds(Set<String> collectionIds) throws IOException {
+        UUID accountId = resolveAccountId(pinCurrentSession().identity());
+        storage.replaceCollapsedCollectionIds(
+                accountId, Objects.requireNonNull(collectionIds, "collectionIds"));
+    }
+
+    @Override
     public void setPreferredSkinVariant(SkinVariant variant) throws IOException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
         storage.setPreferredSkinVariant(accountId, Objects.requireNonNull(variant, "variant"));

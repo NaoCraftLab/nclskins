@@ -309,6 +309,66 @@ final class AddSourceModelPresenterTest {
     }
 
     @Test
+    void catalogBulkDisclosureUsesAllNonemptyCollectionsBeforeFilteringAndPreservesOtherState() {
+        SkinCatalogSource.CollectionDescriptor minecraft = collection(
+                "minecraft", skin("steve", "Steve", SkinModel.CLASSIC));
+        SkinCatalogSource.CollectionDescriptor event = collection(
+                "event", skin("fox", "Fox", SkinModel.SLIM));
+        SkinCatalogSource.CollectionDescriptor empty = collection("empty");
+        AddSourceModel model = AddSourceModel.open(
+                        new AccountUiPreferences(
+                                AccountUiPreferences.CURRENT_SCHEMA_VERSION,
+                                TestFixtures.ACCOUNT_ID,
+                                AddSourceTab.CATALOG,
+                                Set.of("future:unknown")),
+                        List.of(minecraft, event, empty))
+                .withQuery("Steve")
+                .cycleFilter()
+                .withScrollOffset(42);
+
+        AddSourceModel collapsed = model.withAvailableCollectionsCollapsed(true);
+        assertEquals(Set.of("minecraft", "event", "future:unknown"),
+                collapsed.collapsedCollectionIds());
+        assertEquals(Set.of("minecraft", "event"), collapsed.availableCollectionIds());
+        assertTrue(collapsed.anyAvailableCollectionCollapsed());
+        assertEquals(model.query(), collapsed.query());
+        assertEquals(model.filter(), collapsed.filter());
+        assertEquals(model.scrollOffset(), collapsed.scrollOffset());
+
+        AddSourceModel expanded = collapsed.withAvailableCollectionsCollapsed(false);
+        assertEquals(Set.of("future:unknown"), expanded.collapsedCollectionIds());
+        assertFalse(expanded.anyAvailableCollectionCollapsed());
+    }
+
+    @Test
+    void catalogDisclosureIsTheLastHeaderControlWithStableIconAndAccessibleCopy() {
+        AddSourceModel model = openCatalog(collection(
+                "minecraft", skin("steve", "Steve", SkinModel.CLASSIC)));
+        ViewSpec view = presenter.present(model, false, 240, 240);
+        ViewSpec.Widget search = view.widget("add.catalog.search").orElseThrow();
+        ViewSpec.Widget filter = view.widget("add.catalog.filter").orElseThrow();
+        ViewSpec.Widget disclosure = view.widget("add.catalog.disclosure").orElseThrow();
+
+        assertEquals(List.of(
+                        "add.catalog.search", "add.catalog.filter", "add.catalog.disclosure"),
+                view.widgets().stream().limit(3).map(ViewSpec.Widget::id).toList());
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, disclosure.kind());
+        assertEquals(new Bounds(204, 31, 20, 20), disclosure.bounds());
+        assertEquals(Optional.of("collapse_all"), disclosure.icon());
+        assertEquals(UiMessage.info("nclskins.collection.collapse_all"), disclosure.label());
+        assertEquals(Optional.of(disclosure.label()), disclosure.hint());
+        assertEquals(6, filter.bounds().x() - search.bounds().right());
+        assertEquals(6, disclosure.bounds().x() - filter.bounds().right());
+
+        ViewSpec.Widget expanded = presenter.present(
+                        model.withAvailableCollectionsCollapsed(true), false, 240, 240)
+                .widget("add.catalog.disclosure")
+                .orElseThrow();
+        assertEquals(Optional.of("expand_all"), expanded.icon());
+        assertEquals(UiMessage.info("nclskins.collection.expand_all"), expanded.label());
+    }
+
+    @Test
     void catalogCardsMatchCompactGalleryStructureAcrossSupportedWidths() {
         SkinCatalogSource.CollectionDescriptor collection = collection(
                 "minecraft",
@@ -326,9 +386,9 @@ final class AddSourceModelPresenterTest {
                 narrow,
                 4,
                 new Bounds(16, 58, 290, 16),
-                new Bounds(16, 78, 68, 114),
+                new Bounds(16, 78, 68, 121),
                 new Bounds(20, 85, 60, 10),
-                new Bounds(21, 98, 58, 89));
+                new Bounds(21, 98, 58, 96));
 
 
         ViewSpec scaledDefault = presenter.present(model, false, 427, 240);
@@ -336,18 +396,18 @@ final class AddSourceModelPresenterTest {
                 scaledDefault,
                 5,
                 new Bounds(16, 58, 397, 16),
-                new Bounds(17, 78, 74, 114),
-                new Bounds(21, 85, 66, 10),
-                new Bounds(22, 98, 64, 89));
+                new Bounds(16, 78, 74, 121),
+                new Bounds(20, 85, 66, 10),
+                new Bounds(21, 98, 64, 96));
 
         ViewSpec canonical = presenter.present(model, false, 854, 480);
         assertCompactCatalogLayout(
                 canonical,
                 9,
                 new Bounds(16, 58, 824, 16),
-                new Bounds(17, 78, 86, 132),
-                new Bounds(21, 85, 78, 10),
-                new Bounds(22, 98, 76, 107));
+                new Bounds(16, 78, 86, 132),
+                new Bounds(20, 85, 78, 10),
+                new Bounds(21, 98, 76, 107));
         assertEquals(
                 9,
                 canonical.previews().size(),
@@ -358,9 +418,9 @@ final class AddSourceModelPresenterTest {
                 wide,
                 9,
                 new Bounds(16, 58, 1570, 16),
-                new Bounds(345, 78, 96, 132),
-                new Bounds(349, 85, 88, 10),
-                new Bounds(350, 98, 86, 107));
+                new Bounds(16, 78, 96, 132),
+                new Bounds(20, 85, 88, 10),
+                new Bounds(21, 98, 86, 107));
     }
 
     @Test
@@ -542,8 +602,28 @@ final class AddSourceModelPresenterTest {
                 .findFirst()
                 .orElseThrow()
                 .bounds();
-        assertEquals(440, clip.bottom(), "Create World footer reserves 36 px plus a 4 px gap");
+        assertEquals(447, clip.bottom(), "catalog content ends exactly at the native footer top");
         assertTrue(canonical.previews().stream().allMatch(preview -> intersects(preview.bounds(), clip)));
+
+        ViewSpec legacyChrome = presenter.present(
+                model,
+                false,
+                Optional.empty(),
+                854,
+                480,
+                Optional.empty(),
+                new ViewChromeMetrics(38));
+        Bounds legacyClip = legacyChrome.clipRegions().stream()
+                .filter(region -> region.id().equals("add.catalog.viewport"))
+                .findFirst()
+                .orElseThrow()
+                .bounds();
+        assertEquals(442, legacyClip.bottom(),
+                "a taller target-native footer must move the catalog viewport and clip together");
+        assertEquals(legacyClip,
+                legacyChrome.scrollSurface("add.catalog").orElseThrow().viewport());
+        assertTrue(legacyChrome.previews().stream()
+                .allMatch(preview -> intersects(preview.bounds(), legacyClip)));
 
         ViewSpec.Scrollbar scrollbar = canonical.scrollbar().orElseThrow();
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL, scrollbar.orientation());
@@ -885,6 +965,80 @@ final class AddSourceModelPresenterTest {
             assertTrue(intersects(overlay.bounds(), viewport));
             assertEquals(Optional.of(viewport), topActionsClipped.clipFor(id));
         }
+    }
+
+    @Test
+    void partiallyVisiblePersonalDeleteConfirmationUsesTheCatalogViewportClip() {
+        String topHash = hash('d');
+        SkinCatalogSource.SkinDescriptor topSkin =
+                skin(topHash, "Top hero", SkinModel.CLASSIC);
+        SkinCatalogSource.CollectionDescriptor topCollection = personalCollection(topSkin);
+        AddSourceModel topModel = openCatalog(List.of(
+                topCollection, MinecraftSkinCatalog.collections().get(0)))
+                .withScrollOffset(120);
+        ViewSpec topActionView = presenter.present(topModel, false, 320, 240);
+        Bounds viewport = topActionView.clipRegions().stream()
+                .filter(region -> region.id().equals("add.catalog.viewport"))
+                .findFirst()
+                .orElseThrow()
+                .bounds();
+        String topActionId = "add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + topHash;
+        ViewSpec.Widget topAction = topActionView.widget(topActionId).orElseThrow();
+        assertTrue(topAction.bounds().y() < viewport.y());
+        assertEquals(Optional.of(viewport), topActionView.clipFor(topActionId));
+
+        ViewSpec topConfirmation = presenter.present(
+                topModel.requestPersonalSkinDeletion(topCollection, topSkin), false, 320, 240);
+        for (String id : List.of("add.catalog.delete.confirm", "add.catalog.delete.cancel")) {
+            ViewSpec.Widget overlay = topConfirmation.widget(id).orElseThrow();
+            assertTrue(overlay.bounds().y() < viewport.y());
+            assertTrue(intersects(overlay.bounds(), viewport));
+            assertEquals(Optional.of(viewport), topConfirmation.clipFor(id));
+        }
+
+        List<SkinCatalogSource.SkinDescriptor> bottomSkins = IntStream.range(0, 5)
+                .mapToObj(index -> skin(
+                        hash((char) ('1' + index)),
+                        "Bottom hero " + index,
+                        SkinModel.CLASSIC))
+                .toList();
+        SkinCatalogSource.CollectionDescriptor bottomCollection = personalCollection(
+                bottomSkins.toArray(SkinCatalogSource.SkinDescriptor[]::new));
+        SkinCatalogSource.SkinDescriptor bottomSkin = bottomSkins.get(4);
+        AddSourceModel bottomModel = openCatalog(List.of(
+                bottomCollection, MinecraftSkinCatalog.collections().get(0)))
+                .withScrollOffset(105);
+        String bottomActionId = "add.catalog.delete:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + bottomSkin.id();
+        ViewSpec bottomActionView = presenter.present(bottomModel, false, 320, 240);
+        ViewSpec.Widget bottomAction = bottomActionView.widget(bottomActionId).orElseThrow();
+        assertTrue(bottomAction.bounds().bottom() > viewport.bottom());
+        assertEquals(Optional.of(viewport), bottomActionView.clipFor(bottomActionId));
+
+        ViewSpec bottomConfirmation = presenter.present(
+                bottomModel.requestPersonalSkinDeletion(bottomCollection, bottomSkin), false, 320, 240);
+        for (String id : List.of("add.catalog.delete.confirm", "add.catalog.delete.cancel")) {
+            ViewSpec.Widget overlay = bottomConfirmation.widget(id).orElseThrow();
+            assertTrue(overlay.bounds().bottom() > viewport.bottom());
+            assertTrue(intersects(overlay.bounds(), viewport));
+            assertEquals(Optional.of(viewport), bottomConfirmation.clipFor(id));
+        }
+    }
+
+    @Test
+    void shallowWideCatalogKeepsTheCollectionGridLeftAligned() {
+        String personalHash = hash('z');
+        AddSourceModel model = openCatalog(personalCollection(
+                skin(personalHash, "Wide hero", SkinModel.CLASSIC)));
+
+        ViewSpec catalog = presenter.present(model, false, 1600, 120);
+
+        assertEquals(16, catalog.widget("add.catalog.skin:"
+                + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
+                .orElseThrow()
+                .bounds()
+                .x());
     }
 
     @Test

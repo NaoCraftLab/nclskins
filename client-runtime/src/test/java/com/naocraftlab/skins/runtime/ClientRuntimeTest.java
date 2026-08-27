@@ -1135,6 +1135,136 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void catalogBulkDisclosurePersistsOneReplacementAndPreservesWorkspaceState() {
+        FakeOperations operations = new FakeOperations();
+        operations.uiPreferences = new AccountUiPreferences(
+                AccountUiPreferences.CURRENT_SCHEMA_VERSION,
+                TestFixtures.ACCOUNT_ID,
+                AddSourceTab.CATALOG,
+                Set.of("future:unknown"));
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        runtime.dispatchText("add.catalog.search", "Steve");
+        runtime.dispatchWidget("add.catalog.filter");
+        runtime.view(320, 240, 0, 0);
+
+        runtime.dispatchWidget("add.catalog.disclosure");
+
+        AddSourceModel collapsed = runtime.snapshot().addSource().orElseThrow();
+        assertTrue(collapsed.anyAvailableCollectionCollapsed());
+        assertEquals("Steve", collapsed.query());
+        assertEquals(AddSourceModel.CatalogFilter.CLASSIC, collapsed.filter());
+        assertTrue(operations.uiPreferences.collapsedCollectionIds().contains("future:unknown"));
+        assertTrue(operations.uiPreferences.collapsedCollectionIds()
+                .containsAll(collapsed.availableCollectionIds()));
+        assertEquals(1, operations.collapsedReplacementCalls);
+        assertEquals(UiMessage.info("nclskins.collection.expand_all"),
+                runtime.view(320, 240, 0, 0)
+                        .widget("add.catalog.disclosure").orElseThrow().label());
+
+        runtime.dispatchWidget("add.catalog.disclosure");
+        assertFalse(runtime.snapshot().addSource().orElseThrow().anyAvailableCollectionCollapsed());
+        assertEquals(Set.of("future:unknown"), operations.uiPreferences.collapsedCollectionIds());
+        assertEquals(2, operations.collapsedReplacementCalls);
+    }
+
+    @Test
+    void keyboardCatalogBulkDisclosureKeepsFocusOnItsStableId() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        ViewSpec initial = runtime.view(320, 240, 0, 0);
+        Optional<ViewSpec.FocusRequest> baselineFocus = initial.focusRequest();
+
+        runtime.dispatchWidget(
+                "add.catalog.disclosure", false, InteractionOrigin.POINTER);
+        assertEquals(baselineFocus, runtime.view(320, 240, 0, 0).focusRequest());
+
+        runtime.dispatchWidget(
+                "add.catalog.disclosure", false, InteractionOrigin.KEYBOARD);
+
+        assertEquals(Optional.of("add.catalog.disclosure"),
+                runtime.view(320, 240, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId));
+    }
+
+    @Test
+    void catalogBulkDisclosureDoesNotPublishAGlobalDisabledIntermediateView() {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        worker.runFirst();
+        runtime.dispatchWidget("gallery.add");
+        worker.runFirst();
+
+        ViewSpec before = runtime.view(320, 240, 0, 0);
+        assertTrue(before.widget("add.catalog.search").orElseThrow().enabled());
+        assertTrue(before.widget("add.catalog.filter").orElseThrow().enabled());
+        assertTrue(before.widget("add.catalog.disclosure").orElseThrow().enabled());
+        assertTrue(before.tabGroups().stream()
+                .flatMap(group -> group.tabs().stream())
+                .allMatch(ViewSpec.Tab::enabled));
+
+        runtime.dispatchWidget(
+                "add.catalog.disclosure", false, InteractionOrigin.KEYBOARD);
+
+        ViewSpec optimistic = runtime.view(320, 240, 0, 0);
+        assertTrue(optimistic.widget("add.catalog.search").orElseThrow().enabled());
+        assertTrue(optimistic.widget("add.catalog.filter").orElseThrow().enabled());
+        assertTrue(optimistic.widget("add.catalog.disclosure").orElseThrow().enabled());
+        assertTrue(optimistic.tabGroups().stream()
+                .flatMap(group -> group.tabs().stream())
+                .allMatch(ViewSpec.Tab::enabled));
+        assertEquals(1, worker.size(), "durable replacement remains asynchronous");
+
+        worker.runFirst();
+        assertEquals(1, operations.collapsedReplacementCalls);
+    }
+
+    @Test
+    void catalogBulkDisclosureRollsBackTheWholeWorkspaceOnPersistenceFailure() {
+        FakeOperations operations = new FakeOperations();
+        String hash = operations.seedPersonalSkin("Rollback skin");
+        operations.uiPreferences = new AccountUiPreferences(
+                AccountUiPreferences.CURRENT_SCHEMA_VERSION,
+                TestFixtures.ACCOUNT_ID,
+                AddSourceTab.CATALOG,
+                Set.of("future:unknown"));
+        operations.collapsedReplacementFailure = new IOException("simulated replacement failure");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        runtime.dispatchText("add.catalog.search", "Rollback");
+        runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ':' + hash);
+        assertTrue(runtime.view(320, 240, 0, 0)
+                .widget("add.catalog.rename.name").isPresent());
+
+        runtime.dispatchWidget("add.catalog.disclosure");
+
+        AddSourceModel rolledBack = runtime.snapshot().addSource().orElseThrow();
+        assertFalse(rolledBack.anyAvailableCollectionCollapsed());
+        assertEquals(Set.of("future:unknown"), rolledBack.collapsedCollectionIds());
+        assertEquals("Rollback", rolledBack.query());
+        assertEquals(Set.of("future:unknown"), operations.uiPreferences.collapsedCollectionIds());
+        assertEquals(1, operations.collapsedReplacementCalls);
+        assertEquals(UiMessage.error("nclskins.add_source.disclosure_failed"),
+                runtime.snapshot().status());
+        assertTrue(runtime.view(320, 240, 0, 0)
+                .widget("add.catalog.rename.name").isPresent());
+        assertTrue(runtime.view(320, 240, 0, 0).texts().stream().anyMatch(text ->
+                text.id().equals("add.catalog.status")
+                        && text.message().equals(
+                        UiMessage.error("nclskins.add_source.disclosure_failed"))));
+    }
+
+    @Test
     void galleryDeleteConfirmationDoesNotSurviveLeavingGallery() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(2);
@@ -1781,6 +1911,58 @@ final class ClientRuntimeTest {
         assertEquals(Optional.of(directory.toAbsolutePath().normalize()),
                 operations.lastExternalRoot.map(path -> path.toAbsolutePath().normalize()));
         assertEquals(1, operations.externalCommitCalls);
+    }
+
+    @Test
+    void externalReviewBulkDisclosureIsTransientAndPreservesSelection() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.external.mod");
+        runtime.dispatchWidget("external.source.skin_shuffle");
+        ViewSpec expandedView = runtime.view(320, 240, 0, 0);
+        assertTrue(expandedView.widget("external.review.card:candidate-0")
+                .orElseThrow().selectableCardSelected());
+        assertEquals(UiMessage.info("nclskins.collection.collapse_all"),
+                expandedView.widget("external.review.disclosure").orElseThrow().label());
+
+        runtime.dispatchWidget("external.review.disclosure");
+
+        ViewSpec collapsed = runtime.view(320, 240, 0, 0);
+        assertTrue(collapsed.widget("external.review.card:candidate-0").isEmpty());
+        assertTrue(collapsed.widget("external.review.commit").orElseThrow().enabled());
+        assertEquals(0.0, collapsed.scrollSurface("external.review").orElseThrow().offsetPixels());
+        assertEquals(UiMessage.info("nclskins.collection.expand_all"),
+                collapsed.widget("external.review.disclosure").orElseThrow().label());
+
+        runtime.dispatchWidget("external.review.disclosure");
+        ViewSpec reopened = runtime.view(320, 240, 0, 0);
+        assertTrue(reopened.widget("external.review.card:candidate-0")
+                .orElseThrow().selectableCardSelected());
+    }
+
+    @Test
+    void keyboardExternalBulkDisclosureKeepsFocusOnItsStableId() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.external.mod");
+        runtime.dispatchWidget("external.source.skin_shuffle");
+        runtime.view(320, 240, 0, 0);
+
+        runtime.dispatchWidget(
+                "external.review.disclosure", false, InteractionOrigin.POINTER);
+        assertTrue(runtime.view(320, 240, 0, 0).focusRequest().isEmpty());
+
+        runtime.dispatchWidget(
+                "external.review.disclosure", false, InteractionOrigin.KEYBOARD);
+
+        assertEquals(Optional.of("external.review.disclosure"),
+                runtime.view(320, 240, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId));
     }
 
     @Test
@@ -3046,6 +3228,8 @@ final class ClientRuntimeTest {
         private Set<SkinModel> failedCatalogModels = Set.of();
         private byte[] catalogPng = skinPng();
         private int catalogPreviewCalls;
+        private int collapsedReplacementCalls;
+        private Exception collapsedReplacementFailure;
         private UUID personalCatalogAssetId;
         private int removePersonalCalls;
         private boolean failPersonalRemoval;
@@ -3162,6 +3346,15 @@ final class ClientRuntimeTest {
         @Override
         public void setCollectionCollapsed(String collectionId, boolean collapsed) {
             uiPreferences = uiPreferences.withCollectionCollapsed(collectionId, collapsed);
+        }
+
+        @Override
+        public void replaceCollapsedCollectionIds(Set<String> collectionIds) throws Exception {
+            collapsedReplacementCalls++;
+            if (collapsedReplacementFailure != null) {
+                throw collapsedReplacementFailure;
+            }
+            uiPreferences = uiPreferences.withCollapsedCollectionIds(collectionIds);
         }
 
         @Override

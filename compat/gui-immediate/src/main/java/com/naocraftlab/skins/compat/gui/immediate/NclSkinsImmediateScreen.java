@@ -66,6 +66,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             "plus",
             "duplicate",
             "delete",
+            "collapse_all",
+            "expand_all",
             "no_cape",
             "cape",
             "elytra",
@@ -491,7 +493,12 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     }
 
     private ViewSpec currentView() {
-        return runtime.view(Math.max(1, width), Math.max(1, height), lastMouseX, lastMouseY);
+        return runtime.view(
+                Math.max(1, width),
+                Math.max(1, height),
+                lastMouseX,
+                lastMouseY,
+                capabilities.viewChromeMetrics());
     }
 
     private void synchronizeWidgets(ViewSpec view) {

@@ -5,11 +5,16 @@ import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ViewSpec;
+import com.naocraftlab.skins.runtime.ViewChromeMetrics;
 import net.minecraft.client.gui.GuiGraphics;
 
 
 public interface ImmediateScreenCapabilities {
     ClientRuntime runtime();
+
+    default ViewChromeMetrics viewChromeMetrics() {
+        return ViewChromeMetrics.STANDARD;
+    }
 
     TextureRegistry createTextureRegistry();
 

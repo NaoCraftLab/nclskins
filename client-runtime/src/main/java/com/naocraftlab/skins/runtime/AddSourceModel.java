@@ -165,6 +165,17 @@ public final class AddSourceModel {
         return collapsedCollectionIds;
     }
 
+    public Set<String> availableCollectionIds() {
+        return collections().stream()
+                .filter(collection -> !collection.skins().isEmpty())
+                .map(SkinCatalogSource.CollectionDescriptor::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    public boolean anyAvailableCollectionCollapsed() {
+        return availableCollectionIds().stream().anyMatch(collapsedCollectionIds::contains);
+    }
+
     public String query() {
         return query;
     }
@@ -330,6 +341,30 @@ public final class AddSourceModel {
                 focusToken,
                 focusWidgetId,
                 personalSkinDeletion);
+    }
+
+    public AddSourceModel withCollapsedCollectionIds(Set<String> collectionIds) {
+        return copy(
+                selectedTab,
+                Objects.requireNonNull(collectionIds, "collectionIds"),
+                query,
+                filter,
+                preferredVariant,
+                scrollOffset,
+                focusToken,
+                focusWidgetId,
+                personalSkinDeletion);
+    }
+
+    public AddSourceModel withAvailableCollectionsCollapsed(boolean collapsed) {
+        Set<String> changed = new HashSet<>(collapsedCollectionIds);
+        Set<String> available = availableCollectionIds();
+        if (collapsed) {
+            changed.addAll(available);
+        } else {
+            changed.removeAll(available);
+        }
+        return withCollapsedCollectionIds(changed);
     }
 
     public AddSourceModel withScrollOffset(int value) {

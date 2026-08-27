@@ -268,7 +268,7 @@ final class BuildLogicTest {
                 .findAll { it.name.endsWith('.png') }
                 .collect { it.name } as Set
         assertEquals(ArtifactVerifier.BUTTON_ICON_SIZES.keySet(), sourceNames)
-        assertEquals(20, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
+        assertEquals(22, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
         assertEquals(2, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 32 })
         ArtifactVerifier.BUTTON_ICON_SIZES.each { String name, int size ->
             def image = ImageIO.read(new File(icons, name))
@@ -286,6 +286,16 @@ final class BuildLogicTest {
                     }
                 }
             }
+        }
+        ['collapse_all.png', 'expand_all.png'].each { String name ->
+            def image = ImageIO.read(new File(icons, name))
+            Set<Integer> pixels = (0..<image.height).collectMany { int y ->
+                (0..<image.width).collect { int x -> image.getRGB(x, y) }
+            } as Set<Integer>
+            assertEquals([0, 255] as Set, pixels.collect { it >>> 24 } as Set, name)
+            assertTrue(pixels.contains(0xFFFFFFFF as int), "${name} must contain a white glyph")
+            assertTrue(pixels.contains(0xFF3F3F3F as int), "${name} must contain a #3F3F3F shadow")
+            assertEquals(3, pixels.size(), "${name} must remain transparent plus two opaque colors")
         }
     }
 
@@ -589,6 +599,10 @@ final class BuildLogicTest {
         assertEquals('Поиск', russian['nclskins.gallery.search_hint'])
         assertEquals('Обновить сессию', russian['nclskins.session.retry'])
         assertEquals('Оффлайн', russian['nclskins.session.offline'])
+        assertEquals('Remove', english['nclskins.your_skins.delete'])
+        assertEquals('Remove', english['nclskins.your_skins.delete_confirm'])
+        assertEquals('Убрать', russian['nclskins.your_skins.delete'])
+        assertEquals('Убрать', russian['nclskins.your_skins.delete_confirm'])
         assertEquals(
                 'Minecraft временно задерживает смену скина и плаща. Последний образ применится автоматически.',
                 russian['nclskins.rate_limit.delayed'])
@@ -598,6 +612,12 @@ final class BuildLogicTest {
         assertEquals(
                 'Сайт не разрешил автоматическое скачивание',
                 russian['nclskins.add_source.url_site_blocked'])
+        assertEquals('From skin file', english['nclskins.add_source.choose_file'])
+        assertEquals('Из файла скина', russian['nclskins.add_source.choose_file'])
+        assertEquals('Collapse all', english['nclskins.collection.collapse_all'])
+        assertEquals('Expand all', english['nclskins.collection.expand_all'])
+        assertEquals('Свернуть всё', russian['nclskins.collection.collapse_all'])
+        assertEquals('Развернуть всё', russian['nclskins.collection.expand_all'])
         assertEquals('Minecraft Event Skins', english['pack.nclskins.mojang_collections.name'])
         assertEquals(
                 'Officially published skins by Mojang',
@@ -1936,6 +1956,9 @@ final class BuildLogicTest {
         assertTrue(screenSource.contains('NativeWidgetSignature'))
         assertTrue(screenSource.contains('NativeTabGroup'))
         assertTrue(screenSource.contains('maskWidgetsOutsideClip('))
+        assertTrue(screenSource.contains('''if (nativeDispatchDepth == 0 && !runtime.closed()) {
+            refresh();
+        }'''))
         assertTrue(screenSource.contains('''
                             ACTION_ICON_RENDER_SIZE,
                             ACTION_ICON_RENDER_SIZE,

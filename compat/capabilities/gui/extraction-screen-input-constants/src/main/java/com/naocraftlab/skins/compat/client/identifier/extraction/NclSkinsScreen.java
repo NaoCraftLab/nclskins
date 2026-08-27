@@ -83,6 +83,8 @@ public final class NclSkinsScreen extends Screen {
             "plus",
             "duplicate",
             "delete",
+            "collapse_all",
+            "expand_all",
             "no_cape",
             "cape",
             "elytra",

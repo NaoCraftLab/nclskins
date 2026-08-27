@@ -17,6 +17,7 @@ import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.TextResolver;
 import com.naocraftlab.skins.runtime.UiMessage;
 import com.naocraftlab.skins.runtime.ViewSpec;
+import com.naocraftlab.skins.runtime.ViewChromeMetrics;
 import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
@@ -120,6 +121,11 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
     @Override
     public ClientRuntime runtime() {
         return application().runtime();
+    }
+
+    @Override
+    public ViewChromeMetrics viewChromeMetrics() {
+        return new ViewChromeMetrics(38);
     }
 
     @Override

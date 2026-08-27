@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 
@@ -105,6 +106,16 @@ public interface ClientOperations extends AutoCloseable {
 
     default void setCollectionCollapsed(String collectionId, boolean collapsed) throws Exception {
         Objects.requireNonNull(collectionId, "collectionId");
+    }
+
+
+    default void replaceCollapsedCollectionIds(Set<String> collectionIds) throws Exception {
+        Objects.requireNonNull(collectionIds, "collectionIds");
+        for (String collectionId : collectionIds) {
+            if (Objects.requireNonNull(collectionId, "collectionIds contains null").isBlank()) {
+                throw new IllegalArgumentException("collectionId must not be blank");
+            }
+        }
     }
 
 

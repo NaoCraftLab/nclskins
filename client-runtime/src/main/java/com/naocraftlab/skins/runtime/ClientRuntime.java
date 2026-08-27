@@ -116,6 +116,7 @@ public final class ClientRuntime implements AutoCloseable {
     private boolean startupWarmupStarted;
     private int viewportWidth = 320;
     private int viewportHeight = 240;
+    private ViewChromeMetrics viewChromeMetrics = ViewChromeMetrics.STANDARD;
     private boolean draggingGalleryScrollbar;
     private double galleryScrollbarGrabOffset;
     private boolean draggingEditorCapeScrollbar;
@@ -129,6 +130,7 @@ public final class ClientRuntime implements AutoCloseable {
     private long runtimeFocusToken;
     private String runtimeFocusScreenId;
     private String runtimeFocusWidgetId;
+    private long catalogDisclosureRevision;
     private PreviewRenderer.CapeMode preferredCapeMode = PreviewPreferences.capeMode();
 
     public ClientRuntime(
@@ -719,6 +721,20 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     public ViewSpec view(int width, int height, int mouseX, int mouseY) {
+        return viewInternal(width, height, mouseX, mouseY);
+    }
+
+    public ViewSpec view(
+            int width,
+            int height,
+            int mouseX,
+            int mouseY,
+            ViewChromeMetrics chromeMetrics) {
+        viewChromeMetrics = Objects.requireNonNull(chromeMetrics, "chromeMetrics");
+        return viewInternal(width, height, mouseX, mouseY);
+    }
+
+    private ViewSpec viewInternal(int width, int height, int mouseX, int mouseY) {
         ensureNotDisposed();
         viewportWidth = width;
         viewportHeight = height;
@@ -746,7 +762,8 @@ public final class ClientRuntime implements AutoCloseable {
                             : Optional.of(new AddSourcePresenter.PersonalSkinRename(
                             state.personalRenameCollectionId,
                             state.personalRenameHash,
-                            state.personalRenameValue))));
+                            state.personalRenameValue)),
+                    viewChromeMetrics));
         }
         return withRuntimeFocus(galleryView(width, height, mouseX, mouseY));
     }
@@ -876,7 +893,8 @@ public final class ClientRuntime implements AutoCloseable {
                     state.addSource,
                     viewportWidth,
                     viewportHeight,
-                    (int) Math.round(offsetPixels));
+                    (int) Math.round(offsetPixels),
+                    viewChromeMetrics);
             state.addSource = state.addSource.withScrollOffset(bounded);
             addSourceScrollPosition = bounded;
             addSourceScrollTarget = bounded;
@@ -985,7 +1003,13 @@ public final class ClientRuntime implements AutoCloseable {
                     return;
                 }
                 ViewSpec addSource = addSourcePresenter.present(
-                        state.addSource, state.busy, viewportWidth, viewportHeight);
+                        state.addSource,
+                        state.busy,
+                        Optional.empty(),
+                        viewportWidth,
+                        viewportHeight,
+                        Optional.empty(),
+                        viewChromeMetrics);
                 addSource.scrollbar().ifPresent(scrollbar -> {
                     if (scrollbar.orientation() != ViewSpec.Scrollbar.Orientation.VERTICAL
                             || !scrollbar.track().contains(mouseX, mouseY)) {
@@ -999,7 +1023,8 @@ public final class ClientRuntime implements AutoCloseable {
                             state.addSource,
                             viewportWidth,
                             viewportHeight,
-                            mouseY - addSourceScrollbarGrabOffset));
+                            mouseY - addSourceScrollbarGrabOffset,
+                            viewChromeMetrics));
                 });
                 return;
             }
@@ -1043,7 +1068,8 @@ public final class ClientRuntime implements AutoCloseable {
                         state.addSource,
                         viewportWidth,
                         viewportHeight,
-                        mouseY - addSourceScrollbarGrabOffset));
+                        mouseY - addSourceScrollbarGrabOffset,
+                        viewChromeMetrics));
             } else if (draggingGalleryScrollbar) {
                 setGalleryPosition(galleryPresenter.positionFromScrollbar(
                         snapshot, viewportWidth, viewportHeight, state.galleryQuery,
@@ -1699,6 +1725,8 @@ public final class ClientRuntime implements AutoCloseable {
             case "add.player.load" -> loadRemoteImport(true);
             case "add.url.load" -> loadRemoteImport(false);
             case "add.catalog.filter" -> cycleCatalogFilter(reverse);
+            case "add.catalog.disclosure" ->
+                    toggleAllCatalogCollections(origin, widgetId);
             case "add.catalog.delete.confirm" -> confirmPersonalSkinDeletion(origin);
             case "add.catalog.delete.cancel" -> cancelPersonalSkinDeletion(origin);
             case "add.catalog.rename.save" -> savePersonalSkinRename();
@@ -1706,6 +1734,10 @@ public final class ClientRuntime implements AutoCloseable {
             case "add.cancel" -> cancelAddSource();
             case "external.back" -> cancelExternalImport();
             case "external.review.toggle_all" -> toggleAllExternalCandidates();
+            case "external.review.disclosure" -> {
+                toggleAllExternalCollections();
+                retainKeyboardFocus(origin, "external_review", widgetId);
+            }
             case "external.review.commit" -> commitExternalImport();
             case "external.review.cancel" -> cancelExternalReview();
             case "editor.model" -> toggleEditorVariant();
@@ -1734,6 +1766,18 @@ public final class ClientRuntime implements AutoCloseable {
             default -> {
 
             }
+        }
+    }
+
+    private void retainKeyboardFocus(
+            InteractionOrigin origin, String screenId, String widgetId) {
+        if (!origin.keyboard()) {
+            return;
+        }
+        ViewSpec updated = viewInternal(viewportWidth, viewportHeight, 0, 0);
+        if (updated.screenId().equals(screenId) && updated.widget(widgetId).isPresent()) {
+            requestRuntimeFocus(screenId, widgetId);
+            publish();
         }
     }
 
@@ -1889,6 +1933,70 @@ public final class ClientRuntime implements AutoCloseable {
             operations.setCollectionCollapsed(collectionId, collapsed);
             return null;
         });
+    }
+
+    private void toggleAllCatalogCollections(
+            InteractionOrigin origin, String widgetId) {
+        if (state.busy
+                || state.addSource == null
+                || state.addSource.selectedTab() != AddSourceTab.CATALOG
+                || state.addSource.availableCollectionIds().isEmpty()) {
+            return;
+        }
+        boolean collapsed = !state.addSource.anyAvailableCollectionCollapsed();
+        AddSourceModel previousModel = state.addSource;
+        AccountUiPreferences previousPreferences = state.uiPreferences;
+        double previousPosition = addSourceScrollPosition;
+        double previousTarget = addSourceScrollTarget;
+        String previousRenameCollectionId = state.personalRenameCollectionId;
+        String previousRenameHash = state.personalRenameHash;
+        String previousRenameValue = state.personalRenameValue;
+        if (collapsed) {
+            resetPersonalCatalogInteraction();
+        }
+        state.addSource = state.addSource.withAvailableCollectionsCollapsed(collapsed);
+        clampAddSourceScroll();
+        Set<String> replacement = state.addSource.collapsedCollectionIds();
+        if (state.uiPreferences != null) {
+            state.uiPreferences = state.uiPreferences.withCollapsedCollectionIds(replacement);
+        }
+        addSourceScrollPosition = state.addSource.scrollOffset();
+        addSourceScrollTarget = state.addSource.scrollOffset();
+        if (origin.keyboard()) {
+            requestRuntimeFocus("add_source", widgetId);
+        }
+        publish();
+        long revision = ++catalogDisclosureRevision;
+        long generation = state.generation;
+        CompletableFuture.runAsync(() -> {
+                    try {
+                        operations.replaceCollapsedCollectionIds(replacement);
+                    } catch (Exception failure) {
+                        throw new CompletionException(failure);
+                    }
+                }, worker)
+                .whenComplete((ignored, failure) -> onClient(() -> {
+                    if (failure == null
+                            || disposed
+                            || revision != catalogDisclosureRevision
+                            || generation != state.generation) {
+                        return;
+                    }
+                    diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure);
+                    if (state.addSource == null
+                            || !state.addSource.collapsedCollectionIds().equals(replacement)) {
+                        return;
+                    }
+                    state.addSource = previousModel;
+                    state.uiPreferences = previousPreferences;
+                    addSourceScrollPosition = previousPosition;
+                    addSourceScrollTarget = previousTarget;
+                    state.personalRenameCollectionId = previousRenameCollectionId;
+                    state.personalRenameHash = previousRenameHash;
+                    state.personalRenameValue = previousRenameValue;
+                    state.status = UiMessage.error("nclskins.add_source.disclosure_failed");
+                    publish();
+                }));
     }
 
     private void selectCatalogSkin(String encodedId) {
@@ -2221,6 +2329,22 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
+    private void toggleAllExternalCollections() {
+        if (state.externalImport == null || state.externalImport.review().isEmpty() || state.busy) {
+            return;
+        }
+        ExternalImportModel.ReviewState review = state.externalImport.review().orElseThrow();
+        if (review.availableCollections().isEmpty()) {
+            return;
+        }
+        ExternalImportModel changed = state.externalImport.withAllCollectionsCollapsed(
+                !review.anyCollectionCollapsed());
+        int normalized = externalImportPresenter.normalizedReviewScrollOffset(
+                changed, viewportWidth, viewportHeight, review.scrollOffset());
+        state.externalImport = changed.withReviewScroll(normalized);
+        publish();
+    }
+
     private void toggleAllExternalCandidates() {
         if (state.externalImport == null || state.externalImport.review().isEmpty() || state.busy) {
             return;
@@ -2507,7 +2631,8 @@ public final class ClientRuntime implements AutoCloseable {
                                 state.addSource,
                                 viewportWidth,
                                 viewportHeight,
-                                state.addSource.scrollOffset());
+                                state.addSource.scrollOffset(),
+                                viewChromeMetrics);
                         state.addSource = state.addSource.withScrollOffset(normalized);
                         clampAddSourceScroll();
                     }
@@ -3629,7 +3754,11 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         int bounded = addSourcePresenter.normalizedScrollOffset(
-                state.addSource, viewportWidth, viewportHeight, offset);
+                state.addSource,
+                viewportWidth,
+                viewportHeight,
+                offset,
+                viewChromeMetrics);
         if (bounded != state.addSource.scrollOffset()
                 || Math.abs(addSourceScrollPosition - bounded) > 0.001
                 || Math.abs(addSourceScrollTarget - bounded) > 0.001) {
@@ -3645,7 +3774,7 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         int maximum = addSourcePresenter.maximumScroll(
-                state.addSource, viewportWidth, viewportHeight);
+                state.addSource, viewportWidth, viewportHeight, viewChromeMetrics);
         double bounded = Math.max(
                 0.0, Math.min(maximum, addSourceScrollPosition + delta));
         if (Math.abs(bounded - addSourceScrollPosition) > 0.001
@@ -3670,7 +3799,7 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         int maximum = addSourcePresenter.maximumScroll(
-                state.addSource, viewportWidth, viewportHeight);
+                state.addSource, viewportWidth, viewportHeight, viewChromeMetrics);
         addSourceScrollPosition = Math.max(0.0, Math.min(maximum, addSourceScrollPosition));
         addSourceScrollTarget = Math.max(0.0, Math.min(maximum, addSourceScrollTarget));
         state.addSource = state.addSource.withScrollOffset((int) Math.round(addSourceScrollPosition));

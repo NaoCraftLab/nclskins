@@ -74,12 +74,17 @@ public record AccountUiPreferences(
         } else {
             replacement.remove(collectionId);
         }
+        return withCollapsedCollectionIds(replacement);
+    }
+
+    public AccountUiPreferences withCollapsedCollectionIds(Set<String> collectionIds) {
+        Objects.requireNonNull(collectionIds, "collectionIds");
         return new AccountUiPreferences(
                 schemaVersion,
                 accountId,
                 selectedAddSourceTab,
                 preferredSkinVariant,
-                replacement);
+                collectionIds);
     }
 
     private static void requireCollectionId(String collectionId) {

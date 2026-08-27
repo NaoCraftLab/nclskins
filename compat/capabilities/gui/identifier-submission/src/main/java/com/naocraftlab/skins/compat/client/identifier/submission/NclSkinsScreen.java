@@ -72,6 +72,31 @@ public final class NclSkinsScreen extends Screen {
     private static final int DECORATION_ICON_SIZE = 32;
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
+    private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
+            "edit",
+            "folder",
+            "plus",
+            "duplicate",
+            "delete",
+            "collapse_all",
+            "expand_all",
+            "no_cape",
+            "cape",
+            "elytra",
+            "head_on",
+            "head_off",
+            "body_all_on",
+            "body_all_off",
+            "body_both_arms_off",
+            "body_left_arm_off",
+            "body_right_arm_off",
+            "body_only_arms_on",
+            "body_only_left_arm",
+            "body_only_right_arm",
+            "legs_all_on",
+            "legs_all_off",
+            "legs_left_off",
+            "legs_right_off");
     private static final int LEFT_MOUSE_BUTTON = 0;
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
@@ -563,7 +588,7 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private static Identifier actionIconTexture(String icon) {
-        if (icon.isBlank() || icon.indexOf(':') >= 0) {
+        if (!APPROVED_ACTION_ICONS.contains(icon)) {
             throw new IllegalArgumentException("Unsupported action icon: " + icon);
         }
         return Identifier.fromNamespaceAndPath(
@@ -1079,9 +1104,7 @@ public final class NclSkinsScreen extends Screen {
             throw new IllegalStateException("native dispatch depth underflow");
         }
         if (nativeDispatchDepth == 0 && !runtime.closed()) {
-            ViewSpec latest = runtime.view(width, height, mouseX, mouseY);
-            view = latest;
-            applyFocusRequest(latest);
+            refresh();
         }
     }
 

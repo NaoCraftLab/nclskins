@@ -95,6 +95,10 @@ public record ExternalImportModel(
         return withChangedReview(review.orElseThrow().toggleCollection(duplicates));
     }
 
+    public ExternalImportModel withAllCollectionsCollapsed(boolean collapsed) {
+        return withChangedReview(review.orElseThrow().withAllCollectionsCollapsed(collapsed));
+    }
+
     public ExternalImportModel withReviewScroll(int scrollOffset) {
         return withChangedReview(review.orElseThrow().withScrollOffset(scrollOffset));
     }
@@ -268,6 +272,29 @@ public record ExternalImportModel(
                 changed.add(duplicates);
             }
             return new ReviewState(review, selectedIds, changed, scrollOffset);
+        }
+
+        public Set<Boolean> availableCollections() {
+            Set<Boolean> available = new HashSet<>();
+            if (!candidates(false).isEmpty()) {
+                available.add(false);
+            }
+            if (!candidates(true).isEmpty()) {
+                available.add(true);
+            }
+            return Set.copyOf(available);
+        }
+
+        public boolean anyCollectionCollapsed() {
+            return availableCollections().stream().anyMatch(collapsedCollections::contains);
+        }
+
+        public ReviewState withAllCollectionsCollapsed(boolean collapsed) {
+            return new ReviewState(
+                    review,
+                    selectedIds,
+                    collapsed ? availableCollections() : Set.of(),
+                    scrollOffset);
         }
 
         public ReviewState withScrollOffset(int value) {

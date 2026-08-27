@@ -15,9 +15,13 @@ import java.util.Optional;
 
 
 public final class AddSourcePresenter {
-    private static final int CONTROLS_TOP = 31;
-    private static final int CONTENT_TOP = 58;
-    private static final int ADD_SOURCE_FOOTER_HEIGHT = 36;
+    private static final int TAB_BAR_HEIGHT = 24;
+    private static final int CONTROLS_GAP = 7;
+    private static final int CONTROLS_HEIGHT = 20;
+    private static final int CONTROLS_TOP = TAB_BAR_HEIGHT + CONTROLS_GAP;
+    private static final int CONTENT_TOP = CONTROLS_TOP + CONTROLS_HEIGHT + CONTROLS_GAP;
+    private static final int DISCLOSURE_BUTTON_SIZE = 20;
+    private static final int CONTROL_GAP = 6;
     private static final int CARD_GAP = 6;
     private static final int MAX_CARD_HEIGHT = 132;
     private static final int MIN_CARD_HEIGHT = 72;
@@ -43,9 +47,28 @@ public final class AddSourcePresenter {
             int width,
             int height,
             Optional<PersonalSkinRename> personalRename) {
+        return present(
+                model,
+                busy,
+                operationStatus,
+                width,
+                height,
+                personalRename,
+                ViewChromeMetrics.STANDARD);
+    }
+
+    public ViewSpec present(
+            AddSourceModel model,
+            boolean busy,
+            Optional<UiMessage> operationStatus,
+            int width,
+            int height,
+            Optional<PersonalSkinRename> personalRename,
+            ViewChromeMetrics chromeMetrics) {
         Objects.requireNonNull(model, "model");
         operationStatus = Objects.requireNonNull(operationStatus, "operationStatus");
         personalRename = Objects.requireNonNull(personalRename, "personalRename");
+        chromeMetrics = Objects.requireNonNull(chromeMetrics, "chromeMetrics");
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("view dimensions must be positive");
         }
@@ -143,10 +166,11 @@ public final class AddSourcePresenter {
                     ViewSpec.Text.Alignment.CENTER)));
         } else {
             int filterWidth = Math.min(104, Math.max(72, width / 4));
-            int controlsWidth = Math.max(120, width - 32);
+            int disclosureX = width - 16 - DISCLOSURE_BUTTON_SIZE;
+            int filterX = disclosureX - CONTROL_GAP - filterWidth;
             widgets.add(ViewSpec.Widget.textField(
                     "add.catalog.search",
-                    new Bounds(16, CONTROLS_TOP, Math.max(40, controlsWidth - filterWidth - 6), 20),
+                    new Bounds(16, CONTROLS_TOP, Math.max(1, filterX - CONTROL_GAP - 16), CONTROLS_HEIGHT),
                     UiMessage.info("nclskins.add_source.search"),
                     model.query(),
                     UiMessage.info("nclskins.add_source.search_hint"),
@@ -156,11 +180,20 @@ public final class AddSourcePresenter {
                     Optional.empty()));
             widgets.add(ViewSpec.Widget.button(
                     "add.catalog.filter",
-                    new Bounds(width - 16 - filterWidth, CONTROLS_TOP, filterWidth, 20),
+                    new Bounds(filterX, CONTROLS_TOP, filterWidth, CONTROLS_HEIGHT),
                     filterLabel(model.filter()),
                     !busy));
+            boolean anyCollapsed = model.anyAvailableCollectionCollapsed();
+            widgets.add(ViewSpec.Widget.iconButton(
+                    "add.catalog.disclosure",
+                    new Bounds(disclosureX, CONTROLS_TOP, DISCLOSURE_BUTTON_SIZE, DISCLOSURE_BUTTON_SIZE),
+                    UiMessage.info(anyCollapsed
+                            ? "nclskins.collection.expand_all"
+                            : "nclskins.collection.collapse_all"),
+                    anyCollapsed ? "expand_all" : "collapse_all",
+                    !busy && !model.availableCollectionIds().isEmpty()));
 
-            CatalogLayout layout = catalogLayout(model, width, height);
+            CatalogLayout layout = catalogLayout(model, width, height, chromeMetrics);
             addCatalogContent(
                     model,
                     busy,
@@ -181,6 +214,7 @@ public final class AddSourcePresenter {
                             "add.catalog.rename:",
                             "add.catalog.rename.",
                             "add.catalog.delete:",
+                            "add.catalog.delete.",
                             "add.catalog.tooltip:")));
             scrollbar = layout.scrollbar();
             scrollSurfaces = List.of(new ViewSpec.ScrollSurface(
@@ -197,7 +231,8 @@ public final class AddSourcePresenter {
                         ViewSpec.Text.Alignment.CENTER));
             }
             operationStatus.filter(status ->
-                            "nclskins.your_skins.delete_failed".equals(status.key()))
+                            "nclskins.your_skins.delete_failed".equals(status.key())
+                                    || "nclskins.add_source.disclosure_failed".equals(status.key()))
                     .ifPresent(status -> texts.add(new ViewSpec.Text(
                     "add.catalog.status",
                     new Bounds(16, Math.max(CONTENT_TOP, height - 39), Math.max(1, width - 32), 10),
@@ -223,7 +258,8 @@ public final class AddSourcePresenter {
                 widgets,
                 previews,
                 scrollbar,
-                List.of(new ViewSpec.TabGroup("add.tabs", new Bounds(0, 0, width, 24), tabs)),
+                List.of(new ViewSpec.TabGroup(
+                        "add.tabs", new Bounds(0, 0, width, TAB_BAR_HEIGHT), tabs)),
                 focus,
                 clipRegions,
                 List.of(),
@@ -241,18 +277,43 @@ public final class AddSourcePresenter {
     }
 
     public int maximumScroll(AddSourceModel model, int width, int height) {
-        return catalogLayout(model, width, height).maximum();
+        return maximumScroll(model, width, height, ViewChromeMetrics.STANDARD);
+    }
+
+    public int maximumScroll(
+            AddSourceModel model, int width, int height, ViewChromeMetrics chromeMetrics) {
+        return catalogLayout(model, width, height, chromeMetrics).maximum();
     }
 
     public int normalizedScrollOffset(
             AddSourceModel model, int width, int height, int desired) {
-        CatalogLayout layout = catalogLayout(model, width, height);
+        return normalizedScrollOffset(
+                model, width, height, desired, ViewChromeMetrics.STANDARD);
+    }
+
+    public int normalizedScrollOffset(
+            AddSourceModel model,
+            int width,
+            int height,
+            int desired,
+            ViewChromeMetrics chromeMetrics) {
+        CatalogLayout layout = catalogLayout(model, width, height, chromeMetrics);
         return Math.max(0, Math.min(layout.maximum(), desired));
     }
 
     public int offsetFromScrollbar(
             AddSourceModel model, int width, int height, double desiredThumbTop) {
-        CatalogLayout layout = catalogLayout(model, width, height);
+        return offsetFromScrollbar(
+                model, width, height, desiredThumbTop, ViewChromeMetrics.STANDARD);
+    }
+
+    public int offsetFromScrollbar(
+            AddSourceModel model,
+            int width,
+            int height,
+            double desiredThumbTop,
+            ViewChromeMetrics chromeMetrics) {
+        CatalogLayout layout = catalogLayout(model, width, height, chromeMetrics);
         if (layout.maximum() == 0 || layout.scrollbar().isEmpty()) {
             return 0;
         }
@@ -267,7 +328,8 @@ public final class AddSourcePresenter {
 
     public int nextScrollOffset(
             AddSourceModel model, int width, int height, int direction) {
-        CatalogLayout layout = catalogLayout(model, width, height);
+        CatalogLayout layout = catalogLayout(
+                model, width, height, ViewChromeMetrics.STANDARD);
         return Math.max(0, Math.min(
                 layout.maximum(), model.scrollOffset() + Integer.signum(direction) * 32));
     }
@@ -514,7 +576,12 @@ public final class AddSourcePresenter {
         }
     }
 
-    private static CatalogLayout catalogLayout(AddSourceModel model, int width, int height) {
+    private static CatalogLayout catalogLayout(
+            AddSourceModel model,
+            int width,
+            int height,
+            ViewChromeMetrics chromeMetrics) {
+        Objects.requireNonNull(chromeMetrics, "chromeMetrics");
         List<SkinCatalogSource.CollectionDescriptor> collections = model.visibleCollections();
         List<CollectionGridLayout.Section> sections = collections.stream()
                 .map(collection -> new CollectionGridLayout.Section(
@@ -525,9 +592,9 @@ public final class AddSourcePresenter {
                 width,
                 height,
                 CONTENT_TOP,
-                ADD_SOURCE_FOOTER_HEIGHT,
+                chromeMetrics.catalogFooterHeight(),
                 0,
-                4,
+                0,
                 COLLECTION_HEADER_HEIGHT,
                 CARD_GAP,
                 68,

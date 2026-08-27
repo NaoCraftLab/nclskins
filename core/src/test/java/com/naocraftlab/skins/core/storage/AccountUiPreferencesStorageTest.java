@@ -1,28 +1,30 @@
 package com.naocraftlab.skins.core.storage;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.LibraryService;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AccountUiPreferencesStorageTest {
     private static final Instant NOW = Instant.parse("2026-07-31T00:00:00Z");
@@ -79,7 +81,8 @@ class AccountUiPreferencesStorageTest {
             Future<?> collectionUpdate = executor.submit(() -> {
                 ready.countDown();
                 start.await();
-                second.setCollectionCollapsed(accountId, "minecraft:defaults", true);
+                second.replaceCollapsedCollectionIds(
+                        accountId, Set.of("minecraft:defaults"));
                 return null;
             });
             Future<?> variantUpdate = executor.submit(() -> {
@@ -142,6 +145,37 @@ class AccountUiPreferencesStorageTest {
 
         assertEquals(
                 Set.of("pack:other"),
+                storage.loadUiPreferences(accountId).preferences().collapsedCollectionIds());
+    }
+
+    @Test
+    void replacementUpdatesTheWholeCollapsedSetWithoutChangingOtherPreferences() throws Exception {
+        NclSkinsStorage storage = storage();
+        UUID accountId = UUID.randomUUID();
+        storage.setPreferredSkinVariant(accountId, SkinVariant.SLIM);
+        storage.setCollectionCollapsed(accountId, "stale:collection", true);
+
+        AccountUiPreferencesResult replaced = storage.replaceCollapsedCollectionIds(
+                accountId, Set.of("pack:first", "pack:second"));
+
+        assertEquals(Set.of("pack:first", "pack:second"),
+                replaced.preferences().collapsedCollectionIds());
+        assertEquals(Optional.of(SkinVariant.SLIM),
+                replaced.preferences().preferredSkinVariant());
+        assertEquals(replaced.preferences(), storage.loadUiPreferences(accountId).preferences());
+    }
+
+    @Test
+    void invalidReplacementDoesNotOverwriteTheExistingPreferencesFile() throws Exception {
+        NclSkinsStorage storage = storage();
+        UUID accountId = UUID.randomUUID();
+        storage.replaceCollapsedCollectionIds(accountId, Set.of("pack:stable"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> storage.replaceCollapsedCollectionIds(accountId, Set.of("")));
+
+        assertEquals(Set.of("pack:stable"),
                 storage.loadUiPreferences(accountId).preferences().collapsedCollectionIds());
     }
 

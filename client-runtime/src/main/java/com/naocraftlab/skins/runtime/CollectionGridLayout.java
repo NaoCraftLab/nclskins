@@ -44,8 +44,7 @@ final class CollectionGridLayout {
         int cardWidth = Math.min(
                 maximumCardWidth,
                 Math.max(1, (available - (columns - 1) * cardGap) / columns));
-        int rowWidth = columns * cardWidth + (columns - 1) * cardGap;
-        int cardStartX = 16 + Math.max(0, (available - rowWidth) / 2);
+        int cardStartX = 16;
         int viewportHeight = Math.max(1, contentBottom - contentTop);
         int cardHeight = Math.min(
                 maximumCardHeight,

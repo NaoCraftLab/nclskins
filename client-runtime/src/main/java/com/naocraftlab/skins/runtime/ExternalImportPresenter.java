@@ -13,11 +13,12 @@ import java.util.Optional;
 
 public final class ExternalImportPresenter {
     private static final int CHROME_HEIGHT = 33;
-    private static final int REVIEW_CONTENT_PADDING = 4;
-    private static final int REVIEW_ERROR_CONTENT_PADDING = 18;
+    private static final int REVIEW_CONTENT_TOP_INSET = 4;
     private static final int FOOTER_HEIGHT = 33;
     private static final int HEADER_HEIGHT = 16;
     private static final int CARD_GAP = 6;
+    private static final int DISCLOSURE_BUTTON_SIZE = 20;
+    private static final int CONTROL_GAP = 6;
 
     public ViewSpec present(
             ExternalImportModel model,
@@ -128,8 +129,6 @@ public final class ExternalImportPresenter {
             int width,
             int height) {
         ExternalImportModel.ReviewState review = model.review().orElseThrow();
-        boolean showError = status.stream()
-                .anyMatch(message -> message.severity() == UiMessage.Severity.ERROR);
         List<ClientOperations.ExternalImportCandidate> fresh = review.candidates(false);
         List<ClientOperations.ExternalImportCandidate> duplicates = review.candidates(true);
         List<CollectionGridLayout.Section> sections = new ArrayList<>();
@@ -141,21 +140,8 @@ public final class ExternalImportPresenter {
             sections.add(new CollectionGridLayout.Section(
                     duplicates.size(), review.collectionCollapsed(true)));
         }
-        CollectionGridLayout.Layout layout = CollectionGridLayout.calculate(
-                width,
-                height,
-                CHROME_HEIGHT,
-                FOOTER_HEIGHT,
-                showError ? REVIEW_ERROR_CONTENT_PADDING : REVIEW_CONTENT_PADDING,
-                0,
-                HEADER_HEIGHT,
-                CARD_GAP,
-                68,
-                96,
-                72,
-                132,
-                review.scrollOffset(),
-                sections);
+        CollectionGridLayout.Layout layout = reviewLayout(
+                width, height, review.scrollOffset(), sections);
         List<ViewSpec.Panel> panels = new ArrayList<>();
         panels.add(new ViewSpec.Panel(
                 "header", new Bounds(0, 0, width, CHROME_HEIGHT), ViewSpec.Panel.Style.VANILLA_HEADER));
@@ -168,18 +154,29 @@ public final class ExternalImportPresenter {
         List<ViewSpec.Preview> previews = new ArrayList<>();
         List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
         int toggleWidth = Math.min(108, Math.max(76, width / 3));
+        int disclosureX = width - 8 - DISCLOSURE_BUTTON_SIZE;
+        int toggleX = disclosureX - CONTROL_GAP - toggleWidth;
         texts.add(new ViewSpec.Text(
                 "external.review.title",
-                new Bounds(8, 12, Math.max(1, width - toggleWidth - 28), 10),
+                new Bounds(8, 12, Math.max(1, toggleX - 16), 10),
                 UiMessage.info("nclskins.external_import.review_title"),
                 ViewSpec.Text.Alignment.CENTER));
         widgets.add(ViewSpec.Widget.button(
                 "external.review.toggle_all",
-                new Bounds(width - toggleWidth - 8, 6, toggleWidth, 20),
+                new Bounds(toggleX, 6, toggleWidth, 20),
                 UiMessage.info(review.allSelected()
                         ? "nclskins.external_import.clear_all"
                         : "nclskins.external_import.select_all"),
                 !busy));
+        boolean anyCollapsed = review.anyCollectionCollapsed();
+        widgets.add(ViewSpec.Widget.iconButton(
+                "external.review.disclosure",
+                new Bounds(disclosureX, 6, DISCLOSURE_BUTTON_SIZE, DISCLOSURE_BUTTON_SIZE),
+                UiMessage.info(anyCollapsed
+                        ? "nclskins.collection.expand_all"
+                        : "nclskins.collection.collapse_all"),
+                anyCollapsed ? "expand_all" : "collapse_all",
+                !busy && !review.availableCollections().isEmpty()));
         addSection(false, fresh, review, layout, busy, panels, texts, widgets, previews, navigationNodes);
         addSection(true, duplicates, review, layout, busy, panels, texts, widgets, previews, navigationNodes);
         int selected = review.selectedIds().size();
@@ -199,11 +196,14 @@ public final class ExternalImportPresenter {
         status.filter(message -> message.severity() == UiMessage.Severity.ERROR)
                 .ifPresent(message -> texts.add(new ViewSpec.Text(
                         "external.review.status",
-                        new Bounds(12, 39, Math.max(1, width - toggleWidth - 28), 10),
+                        new Bounds(12, 35, Math.max(1, width - 24), 10),
                         message,
                         ViewSpec.Text.Alignment.LEFT)));
         Bounds viewport = new Bounds(
-                0, CHROME_HEIGHT, width, Math.max(1, layout.contentBottom() - CHROME_HEIGHT));
+                0,
+                CHROME_HEIGHT,
+                width,
+                Math.max(1, layout.contentBottom() - CHROME_HEIGHT));
         List<ViewSpec.ScrollSurface> surfaces = List.of(new ViewSpec.ScrollSurface(
                 "external.review",
                 viewport,
@@ -229,6 +229,46 @@ public final class ExternalImportPresenter {
                 List.of(),
                 List.of(),
                 surfaces).withNavigationNodes(navigationNodes);
+    }
+
+    public int normalizedReviewScrollOffset(
+            ExternalImportModel model, int width, int height, int desired) {
+        Objects.requireNonNull(model, "model");
+        ExternalImportModel.ReviewState review = model.review().orElseThrow();
+        List<CollectionGridLayout.Section> sections = new ArrayList<>();
+        List<ClientOperations.ExternalImportCandidate> fresh = review.candidates(false);
+        List<ClientOperations.ExternalImportCandidate> duplicates = review.candidates(true);
+        if (!fresh.isEmpty()) {
+            sections.add(new CollectionGridLayout.Section(
+                    fresh.size(), review.collectionCollapsed(false)));
+        }
+        if (!duplicates.isEmpty()) {
+            sections.add(new CollectionGridLayout.Section(
+                    duplicates.size(), review.collectionCollapsed(true)));
+        }
+        return reviewLayout(width, height, desired, sections).scrollOffset();
+    }
+
+    private static CollectionGridLayout.Layout reviewLayout(
+            int width,
+            int height,
+            int scrollOffset,
+            List<CollectionGridLayout.Section> sections) {
+        return CollectionGridLayout.calculate(
+                width,
+                height,
+                CHROME_HEIGHT,
+                FOOTER_HEIGHT,
+                REVIEW_CONTENT_TOP_INSET,
+                0,
+                HEADER_HEIGHT,
+                CARD_GAP,
+                68,
+                96,
+                72,
+                132,
+                scrollOffset,
+                sections);
     }
 
     private static void addSection(

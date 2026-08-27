@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -179,6 +180,11 @@ final class ExternalImportPresenterTest {
                 panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER));
         assertTrue(review.panels().stream().anyMatch(panel ->
                 panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER));
+        assertEquals(new Bounds(0, 0, 854, 33), review.panels().stream()
+                .filter(panel -> panel.id().equals("header"))
+                .findFirst()
+                .orElseThrow()
+                .bounds());
         assertTrue(review.panels().stream().anyMatch(panel ->
                 panel.id().startsWith("external.review.card:")
                         && panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
@@ -200,6 +206,15 @@ final class ExternalImportPresenterTest {
         assertEquals(33, review.clipRegions().get(0).bounds().y());
         assertEquals(447, review.clipRegions().get(0).bounds().bottom());
         assertEquals(37, review.widget("external.review.collection.new").orElseThrow().bounds().y());
+        ViewSpec.Widget disclosure = review.widget("external.review.disclosure").orElseThrow();
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, disclosure.kind());
+        assertEquals(new Bounds(826, 6, 20, 20), disclosure.bounds());
+        assertEquals(Optional.of("collapse_all"), disclosure.icon());
+        assertEquals(UiMessage.info("nclskins.collection.collapse_all"), disclosure.label());
+        assertEquals(Optional.of(disclosure.label()), disclosure.hint());
+        assertEquals(
+                List.of("external.review.toggle_all", "external.review.disclosure"),
+                review.widgets().stream().limit(2).map(ViewSpec.Widget::id).toList());
     }
 
     @Test
@@ -232,6 +247,53 @@ final class ExternalImportPresenterTest {
                 model.toggleCollection(false), false, Optional.empty(), 320, 240);
         assertTrue(collapsed.navigationNodes().stream().noneMatch(node ->
                 node.id().startsWith("external.review.card:")));
+    }
+
+    @Test
+    void reviewContentKeepsACompactHeaderGapAndTheExistingFooterGap() {
+        List<ClientOperations.ExternalImportCandidate> candidates = IntStream.range(0, 10)
+                .mapToObj(index -> candidate("candidate-" + index, false))
+                .toList();
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
+                .withReview(new ClientOperations.ExternalImportReview(
+                        ExternalImportSource.SKIN_SHUFFLE, candidates, 10, 0));
+
+        ViewSpec initial = presenter.present(model, false, Optional.empty(), 320, 240);
+        Bounds viewport = new Bounds(0, 33, 320, 174);
+        assertEquals(viewport, initial.clipRegions().get(0).bounds());
+        assertEquals(viewport.y() + 4, initial.widget(
+                "external.review.collection.new").orElseThrow().bounds().y());
+
+        ViewSpec scrolled = presenter.present(
+                model.withReviewScroll(12), false, Optional.empty(), 320, 240);
+        assertEquals(viewport, scrolled.clipRegions().get(0).bounds());
+        assertEquals(viewport.y() + 4 - 12, scrolled.widget(
+                "external.review.collection.new").orElseThrow().bounds().y());
+
+        ViewSpec maximumScroll = presenter.present(
+                model.withReviewScroll(Integer.MAX_VALUE), false, Optional.empty(), 320, 240);
+        Bounds lastCard = maximumScroll.widget(
+                "external.review.card:candidate-9").orElseThrow().bounds();
+        assertEquals(14, viewport.bottom() - lastCard.bottom());
+    }
+
+    @Test
+    void shallowWideReviewKeepsTheCollectionGridLeftAligned() {
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
+                .withReview(new ClientOperations.ExternalImportReview(
+                        ExternalImportSource.SKIN_SHUFFLE,
+                        List.of(candidate("candidate-0", false)),
+                        1,
+                        0));
+
+        ViewSpec review = presenter.present(model, false, Optional.empty(), 1600, 120);
+
+        assertEquals(16, review.widget(
+                "external.review.card:candidate-0").orElseThrow().bounds().x());
     }
 
     @Test
@@ -284,14 +346,40 @@ final class ExternalImportPresenterTest {
                 320,
                 240);
 
-        assertEquals(39, review.texts().stream()
+        assertEquals(35, review.texts().stream()
                 .filter(text -> text.id().equals("external.review.status"))
                 .findFirst()
                 .orElseThrow()
                 .bounds()
                 .y());
-        assertEquals(51, review.widget("external.review.collection.new").orElseThrow().bounds().y());
+        assertEquals(37, review.widget("external.review.collection.new").orElseThrow().bounds().y());
         assertEquals(new Bounds(0, 33, 320, 174), review.clipRegions().get(0).bounds());
+    }
+
+    @Test
+    void reviewBulkDisclosurePreservesSelectionAndClampsScrollForTheChangedLayout() {
+        List<ClientOperations.ExternalImportCandidate> candidates = IntStream.range(0, 30)
+                .mapToObj(index -> candidate("candidate-" + index, index >= 20))
+                .toList();
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withAutomaticProbes(Map.of(
+                        ExternalImportSource.SKIN_SHUFFLE, ExternalImportProbe.AVAILABLE))
+                .withReview(new ClientOperations.ExternalImportReview(
+                        ExternalImportSource.SKIN_SHUFFLE, candidates, 20, 10))
+                .toggleCandidate("candidate-0")
+                .toggleCandidate("candidate-20")
+                .withReviewScroll(10_000);
+        Set<String> selected = model.review().orElseThrow().selectedIds();
+
+        ExternalImportModel collapsed = model.withAllCollectionsCollapsed(true);
+        assertEquals(Set.of(false, true), collapsed.review().orElseThrow().collapsedCollections());
+        assertEquals(selected, collapsed.review().orElseThrow().selectedIds());
+        int normalized = presenter.normalizedReviewScrollOffset(collapsed, 320, 240, 10_000);
+        assertEquals(0, normalized);
+
+        ExternalImportModel expanded = collapsed.withAllCollectionsCollapsed(false);
+        assertTrue(expanded.review().orElseThrow().collapsedCollections().isEmpty());
+        assertEquals(selected, expanded.review().orElseThrow().selectedIds());
     }
 
     @Test

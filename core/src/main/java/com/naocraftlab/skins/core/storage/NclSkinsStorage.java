@@ -641,6 +641,22 @@ public final class NclSkinsStorage {
 
 
     @SuppressWarnings("try")
+    public AccountUiPreferencesResult replaceCollapsedCollectionIds(
+            UUID accountId, Set<String> collectionIds) throws IOException {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(collectionIds, "collectionIds");
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            AccountUiPreferencesResult loaded = loadUiPreferencesLocked(accountId);
+            AccountUiPreferences replacement = loaded.preferences()
+                    .withCollapsedCollectionIds(collectionIds);
+            saveUiPreferencesLocked(replacement);
+            return new AccountUiPreferencesResult(replacement, loaded.warnings());
+        }
+    }
+
+
+    @SuppressWarnings("try")
     public AccountUiPreferencesResult setPreferredSkinVariant(
             UUID accountId, SkinVariant preferredVariant) throws IOException {
         Objects.requireNonNull(accountId, "accountId");

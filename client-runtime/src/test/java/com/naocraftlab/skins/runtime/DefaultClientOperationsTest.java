@@ -447,6 +447,9 @@ final class DefaultClientOperationsTest {
         assertTrue(initial.uiPreferences().preferredSkinVariant().isEmpty());
         first.setSelectedAddSourceTab(AddSourceTab.CATALOG);
         first.setCollectionCollapsed(MinecraftSkinCatalog.COLLECTION_ID, true);
+        first.replaceCollapsedCollectionIds(Set.of(
+                MinecraftSkinCatalog.COLLECTION_ID,
+                "pack:secondary"));
         first.setPreferredSkinVariant(SkinVariant.SLIM);
         assertArrayEquals(
                 new PngValidator().normalizeSkin(slim),
@@ -488,6 +491,9 @@ final class DefaultClientOperationsTest {
         assertTrue(reopened.uiPreferences()
                 .collapsedCollectionIds()
                 .contains(MinecraftSkinCatalog.COLLECTION_ID));
+        assertTrue(reopened.uiPreferences()
+                .collapsedCollectionIds()
+                .contains("pack:secondary"));
         assertEquals(Optional.of(reopened.uiPreferences()), second.loadUiPreferences());
     }
 
