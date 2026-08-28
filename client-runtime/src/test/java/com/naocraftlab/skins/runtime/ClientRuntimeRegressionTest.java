@@ -90,14 +90,10 @@ final class ClientRuntimeRegressionTest {
     }
 
     @Test
-    void editorShowsWarningWhenNativeTextureCacheReusesTheGalleryPreview() throws Exception {
+    void storedLegacyPaddingShowsWarningInGalleryAndEditorWhenPreviewIsReused() throws Exception {
         StubOperations operations = new StubOperations();
-        BufferedImage skin = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        for (int y = 0; y < 4; y++) {
-            for (int x = 4; x < 8; x++) {
-                skin.setRGB(x, y, 0xff123456);
-            }
-        }
+        BufferedImage skin = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+        skin.setRGB(4, 0, 0xff123456);
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ImageIO.write(skin, "png", output);
         operations.skinPreviewBytes = output.toByteArray();
@@ -114,6 +110,10 @@ final class ClientRuntimeRegressionTest {
                 .findFirst().orElseThrow();
         runtime.loadSkinPreview(galleryPreview).join();
         assertEquals(1, operations.skinPreviewCalls.get());
+        ViewSpec gallery = runtime.view(854, 480, 0, 0);
+        assertEquals(Optional.of("compatibility_warning"), gallery.widget(
+                        "gallery.preset." + presetId + ".compatibility")
+                .orElseThrow().icon());
 
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
         ViewSpec editor = runtime.view(854, 480, 0, 0);

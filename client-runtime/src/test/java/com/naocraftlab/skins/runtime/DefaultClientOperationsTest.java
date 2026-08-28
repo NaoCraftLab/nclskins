@@ -14,16 +14,21 @@ import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApiException;
+import com.naocraftlab.skins.core.compatibility.SkinConflictReason;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AddSourceTab;
+import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
 import com.naocraftlab.skins.core.model.MutationResult;
+import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.RemoteSkin;
+import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -46,11 +51,14 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -585,6 +593,62 @@ final class DefaultClientOperationsTest {
         assertEquals(4, restored.account().presets().size());
         assertEquals(PersonalSkinCatalog.COLLECTION_ID, operations.catalogCollections().get(0).id());
         assertNotEquals(classic.presetId(), slim.presetId());
+    }
+
+    @Test
+    void storedLegacyEvidenceDiffersFromCleanImportAcrossAssetsAndPersonalCatalog()
+            throws Exception {
+        NclSkinsStorage shared = storage();
+        LibraryService library = new LibraryService(shared, fixedClock());
+        PngValidator validator = new PngValidator();
+        byte[] rawLegacy = skinPng(64, 32, 0xFF285A7C);
+        byte[] cleanImport = validator.projectImport(rawLegacy).pngBytes();
+        shared.initialize();
+        String rawSha256 = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(rawLegacy));
+        Files.write(shared.assetPath(rawSha256), rawLegacy);
+        UUID rawAssetId = UUID.randomUUID();
+        Instant now = fixedClock().instant();
+        shared.updateAccount(TestFixtures.ACCOUNT_ID, current -> new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
+                TestFixtures.ACCOUNT_ID,
+                List.of(new SkinAsset(
+                        rawAssetId, "Raw legacy", rawSha256, SkinVariant.CLASSIC,
+                        SkinSource.IMPORTED, now, now)),
+                List.of(new PersonalSkinEntry(
+                        rawSha256, "Raw legacy", PersonalSkinSource.PLAYER_NAME,
+                        now, now, Map.of(SkinVariant.CLASSIC, rawAssetId), true)),
+                List.of(new AppearancePreset(
+                        UUID.randomUUID(), "Raw", SkinReference.asset(rawAssetId),
+                        null, now, now)),
+                now));
+        var clean = library.createPresetFromPersonalSkin(
+                TestFixtures.ACCOUNT_ID, "Clean", "Clean import", SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE, cleanImport, null);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), shared, ignored -> cleanImport.clone(), fixedClock());
+        operations.initialize();
+
+        assertEquals(
+                List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA),
+                operations.assetFeatureEvidence().get(rawAssetId).potentialConflicts());
+        assertEquals(
+                SkinFeatureEvidence.ORDINARY,
+                operations.assetFeatureEvidence().get(clean.asset().id()));
+
+        operations.catalogCollections();
+        assertEquals(
+                List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA),
+                operations.catalogFeatureEvidence().get(new ClientOperations.CatalogVariant(
+                        PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
+                        rawSha256,
+                        SkinVariant.CLASSIC)).potentialConflicts());
+        assertEquals(
+                SkinFeatureEvidence.ORDINARY,
+                operations.catalogFeatureEvidence().get(new ClientOperations.CatalogVariant(
+                        PersonalSkinCatalog.COLLECTION_ID,
+                        clean.personalSkin().sha256(),
+                        SkinVariant.CLASSIC)));
     }
 
     @Test
@@ -3074,9 +3138,13 @@ final class DefaultClientOperationsTest {
     }
 
     private static byte[] skinPng(int color) throws IOException {
-        BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        for (int y = 0; y < 64; y++) {
-            for (int x = 0; x < 64; x++) {
+        return skinPng(64, 64, color);
+    }
+
+    private static byte[] skinPng(int width, int height, int color) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
                 image.setRGB(x, y, color);
             }
         }

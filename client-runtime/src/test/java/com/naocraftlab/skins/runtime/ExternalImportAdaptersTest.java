@@ -7,10 +7,16 @@ import com.naocraftlab.skins.core.importing.ExternalImportBatch;
 import com.naocraftlab.skins.core.importing.ExternalImportContext;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.importing.SkinLocator;
+import com.naocraftlab.skins.core.model.AccountState;
+import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
+import com.naocraftlab.skins.core.model.SkinAsset;
+import com.naocraftlab.skins.core.model.SkinReference;
+import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.LibraryService;
@@ -45,7 +51,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.CRC32;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ExternalImportAdaptersTest {
@@ -477,7 +485,7 @@ final class ExternalImportAdaptersTest {
     }
 
     @Test
-    void quickSkinTreatsExpandedLegacyPlayerSkinAsDuplicate(@TempDir Path root)
+    void quickSkinKeepsCleanLegacyExpansionSeparateFromStoredRawSkin(@TempDir Path root)
             throws Exception {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         NclSkinsStorage storage = new NclSkinsStorage(
@@ -485,18 +493,26 @@ final class ExternalImportAdaptersTest {
         LibraryService library = new LibraryService(storage, clock);
         byte[] playerPng = legacySkinPng();
         byte[] quickPng = expandedLegacySkinPng(playerPng);
-        assertEquals(
-                new PngValidator().pixelSha256(playerPng),
-                new PngValidator().pixelSha256(quickPng));
-        var saved = library.savePresetWithPersonalSkin(
+        assertNotEquals(
+                new PngValidator().renderSha256(playerPng),
+                new PngValidator().renderSha256(quickPng));
+        storage.initialize();
+        String rawSha256 = sha256Hex(playerPng);
+        Files.write(storage.assetPath(rawSha256), playerPng);
+        UUID rawAssetId = UUID.randomUUID();
+        storage.updateAccount(ACCOUNT_ID, current -> new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
                 ACCOUNT_ID,
-                Optional.empty(),
-                "jeb_",
-                "jeb_",
-                SkinVariant.CLASSIC,
-                PersonalSkinSource.PLAYER_NAME,
-                playerPng,
-                null);
+                List.of(new SkinAsset(
+                        rawAssetId, "Legacy source", rawSha256, SkinVariant.CLASSIC,
+                        SkinSource.IMPORTED, NOW, NOW)),
+                List.of(new PersonalSkinEntry(
+                        rawSha256, "Legacy source", PersonalSkinSource.PLAYER_NAME,
+                        NOW, NOW, Map.of(SkinVariant.CLASSIC, rawAssetId), true)),
+                List.of(new AppearancePreset(
+                        UUID.randomUUID(), "Legacy source", SkinReference.asset(rawAssetId),
+                        null, NOW, NOW)),
+                NOW));
         ExternalImportAdapter adapter = new ExternalImportAdapter() {
             @Override
             public ExternalImportSource source() {
@@ -512,7 +528,7 @@ final class ExternalImportAdaptersTest {
             public ExternalImportBatch discover(Path ignored, ExternalImportContext context) {
                 return new ExternalImportBatch(source(), List.of(new ExternalAppearanceRecord(
                         "quick-0",
-                        "jeb_",
+                        "Legacy source",
                         Optional.of(SkinVariant.CLASSIC),
                         new SkinLocator.EmbeddedPng(quickPng),
                         Optional.empty(),
@@ -539,11 +555,18 @@ final class ExternalImportAdaptersTest {
                                 NOW))
                 .candidates().get(0);
 
-        assertTrue(candidate.duplicate());
-        assertEquals(saved.personalSkin().sha256(), candidate.sha256());
+        assertFalse(candidate.duplicate());
+        assertNotEquals(rawSha256, candidate.sha256());
+        assertTrue(MessageDigest.isEqual(quickPng, candidate.normalizedPng()));
+
+        ExternalAppearanceImportService.Result imported = service.commitAppearances(
+                ACCOUNT_ID, List.of(candidate), 0, 0);
+        assertEquals(1, imported.imported());
+        assertEquals(2, imported.state().personalSkins().size());
+        assertEquals(2, imported.state().skinAssets().size());
+        assertEquals(2, imported.state().presets().size());
         assertTrue(MessageDigest.isEqual(
-                storage.readAsset(saved.personalSkin().sha256()),
-                candidate.normalizedPng()));
+                playerPng, storage.readAsset(rawSha256)));
     }
 
     @Test

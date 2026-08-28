@@ -52,7 +52,7 @@ class SkinFeatureCompatibilityTest {
     }
 
     @Test
-    void recognizesCompleteExpressiveLayoutAndIgnoresIncompleteAuthorPixels() {
+    void recognizesCompleteExpressiveLayoutAndFlagsIncompleteSampledPixels() {
         BufferedImage complete = blank();
         for (int y = 2; y < 5; y++) {
             for (int x = 24; x < 28; x++) {
@@ -65,14 +65,28 @@ class SkinFeatureCompatibilityTest {
         assertEquals(
                 List.of(SkinFeature.FRESH_MOVES, SkinFeature.JUST_EXPRESSIONS),
                 analyzer.analyze(complete).supportedFeatures());
-        assertEquals(SkinFeatureEvidence.ORDINARY, analyzer.analyze(partial));
+        assertEquals(
+                List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA),
+                analyzer.analyze(partial).potentialConflicts());
     }
 
     @Test
-    void zombieHorseOnesieLikeAuthorPixelsAreNotExpressiveEvidence() {
+    void sampledAuthorPixelsArePotentialExpressiveConflict() {
         BufferedImage skin = blank();
         skin.setRGB(4, 6, 0xff123456);
         skin.setRGB(5, 6, 0xff123456);
+
+        assertEquals(
+                List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA),
+                analyzer.analyze(skin).potentialConflicts());
+    }
+
+    @Test
+    void transparentRgbAndPixelsOutsideSampledUnionRemainOrdinary() {
+        BufferedImage skin = blank();
+        skin.setRGB(4, 0, 0x00123456);
+        skin.setRGB(3, 0, 0xff123456);
+        skin.setRGB(8, 0, 0xff123456);
 
         assertEquals(SkinFeatureEvidence.ORDINARY, analyzer.analyze(skin));
     }
@@ -88,6 +102,33 @@ class SkinFeatureCompatibilityTest {
                 List.of(SkinFeature.FRESH_MOVES, SkinFeature.JUST_EXPRESSIONS);
         assertEquals(expected, analyzer.analyze(example).supportedFeatures());
         assertEquals(expected, analyzer.analyze(current).supportedFeatures());
+    }
+
+    @Test
+    void recognizesEverySupportedVersionedExpressiveLayoutBoundary() {
+        int[][] layouts = {
+                {4, 0, 4, 2}, {4, 2, 4, 2}, {4, 4, 4, 2}, {4, 6, 4, 2},
+                {24, 2, 4, 3}, {24, 5, 4, 3}, {28, 2, 4, 3}, {28, 5, 4, 3},
+                {60, 0, 4, 2}, {60, 2, 4, 2}, {60, 4, 4, 2}, {60, 6, 4, 2}
+        };
+        List<SkinFeature> expected =
+                List.of(SkinFeature.FRESH_MOVES, SkinFeature.JUST_EXPRESSIONS);
+
+        for (int[] layout : layouts) {
+            BufferedImage skin = blank();
+            fill(skin, layout[0], layout[1], layout[2], layout[3]);
+            assertEquals(expected, analyzer.analyze(skin).supportedFeatures(),
+                    "layout at " + layout[0] + "," + layout[1]);
+
+            skin.setRGB(
+                    layout[0] + layout[2] - 1,
+                    layout[1] + layout[3] - 1,
+                    0);
+            assertEquals(
+                    List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA),
+                    analyzer.analyze(skin).potentialConflicts(),
+                    "partial layout at " + layout[0] + "," + layout[1]);
+        }
     }
 
     @Test

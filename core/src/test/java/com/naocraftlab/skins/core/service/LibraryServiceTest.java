@@ -3,10 +3,12 @@ package com.naocraftlab.skins.core.service;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
+import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
 import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
+import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -16,20 +18,29 @@ import com.naocraftlab.skins.core.test.TestPng;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.CRC32;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -300,6 +311,92 @@ class LibraryServiceTest {
         assertEquals(first.asset().id(), repeated.asset().id());
         assertTrue(personal.updatedAt().isAfter(personal.addedAt()));
         assertEquals(stored, repeated.state());
+    }
+
+    @Test
+    void cleanLegacyReimportDoesNotReuseStoredRawBlobOrMutateOldPreset() throws Exception {
+        NclSkinsStorage storage = storage();
+        LibraryService library = new LibraryService(storage, Clock.fixed(NOW, ZoneOffset.UTC));
+        PngValidator validator = new PngValidator();
+        UUID accountId = UUID.randomUUID();
+        byte[] rawLegacy = TestPng.create(64, 32);
+        byte[] cleanImport = validator.projectImport(rawLegacy).pngBytes();
+        storage.initialize();
+        String rawSha256 = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(rawLegacy));
+        Files.write(storage.assetPath(rawSha256), rawLegacy);
+        UUID rawAssetId = UUID.randomUUID();
+        UUID rawPresetId = UUID.randomUUID();
+        storage.updateAccount(accountId, current -> new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
+                accountId,
+                List.of(new SkinAsset(
+                        rawAssetId, "Raw legacy", rawSha256, SkinVariant.CLASSIC,
+                        SkinSource.IMPORTED, NOW, NOW)),
+                List.of(new PersonalSkinEntry(
+                        rawSha256, "Raw legacy", PersonalSkinSource.PLAYER_NAME,
+                        NOW, NOW, Map.of(SkinVariant.CLASSIC, rawAssetId), true)),
+                List.of(new AppearancePreset(
+                        rawPresetId, "Raw preset", SkinReference.asset(rawAssetId),
+                        null, NOW, NOW)),
+                NOW));
+
+        SavedPersonalSkinPreset clean = library.createPresetFromPersonalSkin(
+                accountId, "Clean preset", "Clean import", SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE, cleanImport, null);
+
+        assertNotEquals(
+                validator.renderSha256(rawLegacy), validator.renderSha256(cleanImport));
+        assertNotEquals(rawSha256, clean.personalSkin().sha256());
+        assertNotEquals(rawAssetId, clean.asset().id());
+        assertEquals(2, clean.state().personalSkins().size());
+        assertEquals(2, clean.state().skinAssets().size());
+        assertEquals(2, clean.state().presets().size());
+        assertEquals(rawAssetId, clean.state().presets().get(0).skin()
+                .optionalAssetId().orElseThrow());
+        assertEquals(clean.asset().id(), clean.state().presets().get(1).skin()
+                .optionalAssetId().orElseThrow());
+        assertArrayEquals(rawLegacy, storage.readAsset(rawSha256));
+        assertArrayEquals(cleanImport, storage.readAsset(clean.personalSkin().sha256()));
+    }
+
+    @Test
+    void concurrentEquivalentPngEncodingsRecheckReuseInsideAccountMutation() throws Exception {
+        LibraryService library = library();
+        UUID accountId = UUID.randomUUID();
+        byte[] plain = TestPng.create(64, 64);
+        byte[] metadata = withTextChunk(plain, "fixture", "same-raster");
+        assertNotEquals(sha256(plain), sha256(metadata));
+
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Callable<SavedPersonalSkinPreset>> imports = List.of(
+                    () -> {
+                        start.await();
+                        return library.createPresetFromPersonalSkin(
+                                accountId, "First", "Shared", SkinVariant.CLASSIC,
+                                PersonalSkinSource.FILE, plain, null);
+                    },
+                    () -> {
+                        start.await();
+                        return library.createPresetFromPersonalSkin(
+                                accountId, "Second", "Shared", SkinVariant.CLASSIC,
+                                PersonalSkinSource.URL, metadata, null);
+                    });
+            var futures = imports.stream().map(executor::submit).toList();
+            start.countDown();
+            for (var future : futures) {
+                future.get();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        AccountState state = library.load(accountId);
+        assertEquals(1, state.personalSkins().size());
+        assertEquals(1, state.skinAssets().size());
+        assertEquals(2, state.presets().size());
     }
 
     @Test
@@ -621,6 +718,29 @@ class LibraryServiceTest {
                 temporaryDirectory.resolve("nclskins"),
                 new PngValidator(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private static byte[] withTextChunk(byte[] source, String key, String value) {
+        byte[] data = (key + "\0" + value).getBytes(StandardCharsets.ISO_8859_1);
+        byte[] type = "tEXt".getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer chunk = ByteBuffer.allocate(12 + data.length);
+        chunk.putInt(data.length);
+        chunk.put(type);
+        chunk.put(data);
+        CRC32 crc = new CRC32();
+        crc.update(type);
+        crc.update(data);
+        chunk.putInt((int) crc.getValue());
+        int iend = source.length - 12;
+        byte[] result = new byte[source.length + chunk.capacity()];
+        System.arraycopy(source, 0, result, 0, iend);
+        System.arraycopy(chunk.array(), 0, result, iend, chunk.capacity());
+        System.arraycopy(source, iend, result, iend + chunk.capacity(), 12);
+        return result;
+    }
+
+    private static String sha256(byte[] bytes) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
     }
 
     private static AccountAppearanceState pendingDefault(UUID accountId, long revision) {

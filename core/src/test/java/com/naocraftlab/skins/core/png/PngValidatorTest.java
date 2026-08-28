@@ -1,5 +1,7 @@
 package com.naocraftlab.skins.core.png;
 
+import com.naocraftlab.skins.core.compatibility.SkinConflictReason;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.test.TestPng;
 import org.junit.jupiter.api.Test;
@@ -133,14 +135,32 @@ class PngValidatorTest {
     }
 
     @Test
-    void pixelIdentityMatchesLegacySkinWithItsModernUvExpansion() throws Exception {
+    void renderIdentityPreservesLegacyConsumerPixelsAndSeparatesCleanImport() throws Exception {
         BufferedImage legacy = coordinateImage(64, 32);
-        BufferedImage expanded = expandLegacy(legacy);
+        byte[] raw = encode(legacy);
+        byte[] clean = validator.projectImport(raw).pngBytes();
+        BufferedImage rendererExpanded = expandLegacy(legacy, false);
+        StoredSkinProjection stored = validator.projectStoredRender(raw);
+        BufferedImage storedImage = ImageIO.read(new ByteArrayInputStream(stored.pngBytes()));
+        BufferedImage cleanImage = ImageIO.read(new ByteArrayInputStream(clean));
 
-        assertEquals(validator.pixelSha256(encode(legacy)), validator.pixelSha256(encode(expanded)));
+        assertEquals(
+                validator.renderSha256(raw),
+                validator.renderSha256(encode(rendererExpanded)));
+        assertNotEquals(validator.renderSha256(raw), validator.renderSha256(clean));
+        assertEquals(legacy.getRGB(4, 0), storedImage.getRGB(4, 0));
+        assertEquals(legacy.getRGB(4, 16), storedImage.getRGB(23, 48));
+        assertEquals(0, cleanImage.getRGB(4, 0));
+        assertEquals(
+                java.util.List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA),
+                stored.featureEvidence().potentialConflicts());
+        assertEquals(SkinFeatureEvidence.ORDINARY,
+                validator.projectImport(raw).featureEvidence());
 
-        expanded.setRGB(0, 32, 0xff123456);
-        assertNotEquals(validator.pixelSha256(encode(legacy)), validator.pixelSha256(encode(expanded)));
+        rendererExpanded.setRGB(0, 32, 0xff123456);
+        assertNotEquals(
+                validator.renderSha256(raw),
+                validator.renderSha256(encode(rendererExpanded)));
     }
 
     @Test
@@ -174,6 +194,8 @@ class PngValidatorTest {
 
         assertArrayEquals(modern, validator.normalizeSkin(modern));
         assertArrayEquals(modern, validator.normalizeSkinWithVariant(modern).pngBytes());
+        assertArrayEquals(modern, validator.projectImport(modern).pngBytes());
+        assertArrayEquals(modern, validator.projectStoredRender(modern).pngBytes());
         assertFalse(Arrays.equals(legacy, validator.normalizeSkin(legacy)));
         assertEquals(64, validator.validate(validator.normalizeSkin(legacy)).height());
     }
@@ -379,7 +401,7 @@ class PngValidatorTest {
         return image;
     }
 
-    private static BufferedImage expandLegacy(BufferedImage legacy) {
+    private static BufferedImage expandLegacy(BufferedImage legacy, boolean clearUnusedRegions) {
         BufferedImage expanded = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
         expanded.setRGB(0, 0, 64, 32, legacy.getRGB(0, 0, 64, 32, null, 0, 64), 0, 64);
         mirrorLimb(legacy, expanded, 0, 16, 16, 48);
@@ -388,6 +410,9 @@ class PngValidatorTest {
         applyLegacyHatTransparency(expanded, 32, 0, 64, 32);
         setOpaque(expanded, 0, 16, 64, 32);
         setOpaque(expanded, 16, 48, 48, 64);
+        if (!clearUnusedRegions) {
+            return expanded;
+        }
         boolean[][] renderable = new boolean[64][64];
         mark(renderable, 8, 0, 16, 8);
         mark(renderable, 16, 0, 24, 8);

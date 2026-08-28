@@ -14,11 +14,13 @@ public final class SkinFeatureAnalyzer {
     private static final Set<Integer> EARS_MAGIC_COLORS = Set.of(
             0x3f23d8, 0x23d848, 0xd82350, 0xb923d8, 0x23d8c6,
             0xd87823, 0xd823b7, 0xd823ff, 0xfefdf2, 0x5e605a);
-    private static final int[][] EXPRESSIVE_LAYOUTS = {
+    private static final int[][] EXPRESSIVE_PROFILE_LAYOUTS = {
             {4, 0, 4, 2}, {4, 2, 4, 2}, {4, 4, 4, 2}, {4, 6, 4, 2},
             {24, 2, 4, 3}, {24, 5, 4, 3}, {28, 2, 4, 3}, {28, 5, 4, 3},
             {60, 0, 4, 2}, {60, 2, 4, 2}, {60, 4, 4, 2}, {60, 6, 4, 2}
     };
+    private static final int[][] EXPRESSIVE_PROFILE_SAMPLED_REGIONS =
+            EXPRESSIVE_PROFILE_LAYOUTS;
     private static final int ALFALFA_MAGIC = 0xea1fa1fa;
     private static final int[][] ALFALFA_REGIONS = {
             {8, 0, 24, 8}, {0, 8, 8, 16}, {16, 8, 32, 16},
@@ -163,7 +165,7 @@ public final class SkinFeatureAnalyzer {
             List<SkinFeature> features,
             List<SkinConflictReason> conflicts) {
         int completeLayouts = 0;
-        for (int[] layout : EXPRESSIVE_LAYOUTS) {
+        for (int[] layout : EXPRESSIVE_PROFILE_LAYOUTS) {
             if (opaqueRectangle(image, layout)) {
                 completeLayouts++;
             }
@@ -171,9 +173,22 @@ public final class SkinFeatureAnalyzer {
         if (completeLayouts == 1) {
             features.add(SkinFeature.FRESH_MOVES);
             features.add(SkinFeature.JUST_EXPRESSIONS);
-        } else if (completeLayouts > 1) {
+        } else if (completeLayouts > 1 || hasExpressiveSamples(image)) {
             conflicts.add(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA);
         }
+    }
+
+    private static boolean hasExpressiveSamples(BufferedImage image) {
+        for (int[] layout : EXPRESSIVE_PROFILE_SAMPLED_REGIONS) {
+            for (int y = layout[1]; y < layout[1] + layout[3]; y++) {
+                for (int x = layout[0]; x < layout[0] + layout[2]; x++) {
+                    if (alpha(image.getRGB(x, y)) != 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean opaqueRectangle(BufferedImage image, int[] layout) {

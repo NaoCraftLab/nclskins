@@ -22,7 +22,7 @@ final class ReleaseLogicTest {
         List<String> lines = changelog.readLines()
         String currentHeading = "## ${currentVersion}"
 
-        assertEquals('1.0.0-beta.5', currentVersion)
+        assertEquals('1.0.0-beta.6', currentVersion)
         assertEquals(currentHeading, lines.find { !it.isBlank() })
         assertEquals(1, lines.count { it == currentHeading })
         int nextVersion = lines.findIndexOf(1) { it.startsWith('## ') }

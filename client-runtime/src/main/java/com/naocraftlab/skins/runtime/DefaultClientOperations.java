@@ -457,7 +457,7 @@ public final class DefaultClientOperations implements ClientOperations {
         for (SkinAsset asset : account.skinAssets()) {
             evidence.put(
                     asset.id(),
-                    validator.normalizeSkinWithVariant(storage.readAsset(asset.sha256()))
+                    validator.projectStoredRender(storage.readAsset(asset.sha256()))
                             .featureEvidence());
         }
         return Map.copyOf(evidence);
@@ -540,7 +540,7 @@ public final class DefaultClientOperations implements ClientOperations {
                                                 ? SkinVariant.SLIM
                                                 : SkinVariant.CLASSIC),
                                 new PngValidator()
-                                        .normalizeSkinWithVariant(normalized)
+                                        .projectImport(normalized)
                                         .featureEvidence());
                         availableModels.add(model);
                     } catch (IOException | PngValidationException unavailableVariant) {
@@ -649,7 +649,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         new ClientOperations.CatalogVariant(
                                 collectionId, entry.sha256(), variant),
                         new PngValidator()
-                                .normalizeSkinWithVariant(normalized)
+                                .projectStoredRender(normalized)
                                 .featureEvidence());
             } catch (IOException | PngValidationException unavailableAsset) {
             }

@@ -1,3 +1,10 @@
+## 1.0.0-beta.6
+
+### Fixed
+
+- Fixed distorted eyes on legacy 64x32 looks when Fresh Moves or Just Expressions is active
+- Restored compatibility warnings for affected legacy looks in `Catalog`, `My looks`, and the look editor
+
 ## 1.0.0-beta.5
 
 ### Added

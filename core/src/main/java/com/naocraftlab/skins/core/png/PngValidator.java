@@ -80,18 +80,40 @@ public final class PngValidator {
 
 
     public byte[] normalizeSkin(byte[] bytes) throws PngValidationException {
-        return normalizeSkinWithVariant(bytes).pngBytes();
+        return projectImport(bytes).pngBytes();
     }
 
     public NormalizedSkin normalizeSkinWithVariant(byte[] bytes) throws PngValidationException {
+        return projectImport(bytes);
+    }
+
+    public NormalizedSkin projectImport(byte[] bytes) throws PngValidationException {
+        SkinProjection projection = project(bytes, true);
+        return new NormalizedSkin(
+                projection.pngBytes(),
+                projection.detectedVariant(),
+                featureAnalyzer.analyze(projection.image()));
+    }
+
+    public StoredSkinProjection projectStoredRender(byte[] bytes)
+            throws PngValidationException {
+        SkinProjection projection = project(bytes, false);
+        return new StoredSkinProjection(
+                projection.pngBytes(),
+                projection.detectedVariant(),
+                featureAnalyzer.analyze(projection.image()));
+    }
+
+    private SkinProjection project(byte[] bytes, boolean cleanLegacyImport)
+            throws PngValidationException {
         Inspection inspection = inspect(bytes, true, true);
         int sourceWidth = inspection.info().width();
         int sourceHeight = inspection.info().height();
         if (sourceWidth == 64 && sourceHeight == 64) {
-            return new NormalizedSkin(
+            return new SkinProjection(
                     inspection.canonicalBytes(),
                     detectSkinVariant(inspection.image()),
-                    featureAnalyzer.analyze(inspection.image()));
+                    inspection.image());
         }
 
         int scale = sourceWidth / 64;
@@ -109,26 +131,25 @@ public final class PngValidator {
                 ? SkinVariant.CLASSIC
                 : detectSkinVariant(target);
         if (targetHeight == 32) {
-            target = expandLegacySkin(target);
+            target = expandLegacySkin(target, cleanLegacyImport);
         }
 
         try {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            if (!ImageIO.write(target, "png", output)) {
-                throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG encoder is unavailable");
-            }
-            byte[] normalized = output.toByteArray();
+            byte[] normalized = encode(target);
             validate(normalized);
-            return new NormalizedSkin(
-                    normalized, variant, featureAnalyzer.analyze(target));
+            return new SkinProjection(normalized, variant, target);
         } catch (IOException | RuntimeException exception) {
             throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG could not be normalized");
         }
     }
 
     public String pixelSha256(byte[] bytes) throws PngValidationException {
-        NormalizedSkin normalized = normalizeSkinWithVariant(bytes);
-        Inspection inspection = inspect(normalized.pngBytes(), false, false);
+        return renderSha256(bytes);
+    }
+
+    public String renderSha256(byte[] bytes) throws PngValidationException {
+        StoredSkinProjection projection = projectStoredRender(bytes);
+        Inspection inspection = inspect(projection.pngBytes(), false, false);
         BufferedImage image = inspection.image();
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -149,7 +170,8 @@ public final class PngValidator {
         }
     }
 
-    private static BufferedImage expandLegacySkin(BufferedImage legacy) {
+    private static BufferedImage expandLegacySkin(
+            BufferedImage legacy, boolean clearUnusedRegions) {
         BufferedImage expanded = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
         expanded.setRGB(
                 0, 0, 64, 32,
@@ -158,8 +180,18 @@ public final class PngValidator {
         mirrorLegacyLimb(legacy, expanded, 0, 16, 16, 48);
         mirrorLegacyLimb(legacy, expanded, 40, 16, 32, 48);
         applyLegacyOpacitySemantics(expanded);
-        clearLegacyUnusedRegions(expanded);
+        if (clearUnusedRegions) {
+            clearLegacyUnusedRegions(expanded);
+        }
         return expanded;
+    }
+
+    private static byte[] encode(BufferedImage image) throws IOException, PngValidationException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        if (!ImageIO.write(image, "png", output)) {
+            throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG encoder is unavailable");
+        }
+        return output.toByteArray();
     }
 
     private static void applyLegacyOpacitySemantics(BufferedImage image) {
@@ -293,24 +325,34 @@ public final class PngValidator {
     }
 
     public byte[] normalizeSkin(Path path) throws IOException, PngValidationException {
-        return normalizeSkinWithVariant(path).pngBytes();
+        return projectImport(path).pngBytes();
     }
 
     public NormalizedSkin normalizeSkinWithVariant(Path path)
             throws IOException, PngValidationException {
+        return projectImport(path);
+    }
+
+    public NormalizedSkin projectImport(Path path)
+            throws IOException, PngValidationException {
         Objects.requireNonNull(path, "path");
         try (InputStream input = Files.newInputStream(path)) {
-            return normalizeSkinWithVariant(readBounded(input));
+            return projectImport(readBounded(input));
         }
     }
 
     public byte[] normalizeSkin(InputStream input) throws IOException, PngValidationException {
-        return normalizeSkinWithVariant(input).pngBytes();
+        return projectImport(input).pngBytes();
     }
 
     public NormalizedSkin normalizeSkinWithVariant(InputStream input)
             throws IOException, PngValidationException {
-        return normalizeSkinWithVariant(readBounded(Objects.requireNonNull(input, "input")));
+        return projectImport(input);
+    }
+
+    public NormalizedSkin projectImport(InputStream input)
+            throws IOException, PngValidationException {
+        return projectImport(readBounded(Objects.requireNonNull(input, "input")));
     }
 
     private static SkinVariant detectSkinVariant(BufferedImage image) {
@@ -638,6 +680,20 @@ public final class PngValidator {
 
     private static PngValidationException failure(PngValidationException.Reason reason, String message) {
         return new PngValidationException(reason, message);
+    }
+
+    private record SkinProjection(
+            byte[] pngBytes, SkinVariant detectedVariant, BufferedImage image) {
+        private SkinProjection {
+            pngBytes = pngBytes.clone();
+            Objects.requireNonNull(detectedVariant, "detectedVariant");
+            Objects.requireNonNull(image, "image");
+        }
+
+        @Override
+        public byte[] pngBytes() {
+            return pngBytes.clone();
+        }
     }
 
     private record Inspection(PngInfo info, BufferedImage image, byte[] canonicalBytes) {

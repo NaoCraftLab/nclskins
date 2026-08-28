@@ -6,6 +6,7 @@ import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibilityController;
+import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.PreviewPreferences;
 import com.naocraftlab.skins.client.PreviewRenderer;
@@ -1401,8 +1402,9 @@ public final class ClientRuntime implements AutoCloseable {
                 }
             } else {
                 try {
-                    SkinFeatureEvidence evidence = analyzeSkinFeatureEvidence(
-                            bytes.orElseThrow());
+                    SkinFeatureEvidence evidence = previewUsesStoredSkin(preview)
+                            ? analyzeStoredSkinFeatureEvidence(bytes.orElseThrow())
+                            : analyzeImportedSkinFeatureEvidence(bytes.orElseThrow());
                     onClient(() -> {
                         boolean changed = false;
                         if ("editor.preview".equals(preview.id())
@@ -1442,9 +1444,21 @@ public final class ClientRuntime implements AutoCloseable {
         return editorEvidenceStillCurrent(preview.imageRevision(), preview.variant());
     }
 
-    private static SkinFeatureEvidence analyzeSkinFeatureEvidence(byte[] pngBytes)
+    private static boolean previewUsesStoredSkin(ViewSpec.Preview preview) {
+        return preview.skin().optionalAssetId().isPresent()
+                || preview.catalogImage()
+                        .map(image -> PersonalSkinCatalog.isCollection(image.collectionId()))
+                        .orElse(false);
+    }
+
+    private static SkinFeatureEvidence analyzeImportedSkinFeatureEvidence(byte[] pngBytes)
             throws PngValidationException {
-        return new PngValidator().normalizeSkinWithVariant(pngBytes).featureEvidence();
+        return new PngValidator().projectImport(pngBytes).featureEvidence();
+    }
+
+    private static SkinFeatureEvidence analyzeStoredSkinFeatureEvidence(byte[] pngBytes)
+            throws PngValidationException {
+        return new PngValidator().projectStoredRender(pngBytes).featureEvidence();
     }
 
     public void importSkin(String name, SkinVariant variant, byte[] pngBytes) {
@@ -4024,7 +4038,7 @@ public final class ClientRuntime implements AutoCloseable {
         Optional<UUID> assetId = editor.skin().optionalAssetId();
         if (editor.png().isPresent()) {
             try {
-                SkinFeatureEvidence evidence = analyzeSkinFeatureEvidence(
+                SkinFeatureEvidence evidence = analyzeImportedSkinFeatureEvidence(
                         editor.png().orElseThrow().bytes());
                 state.editorEvidence = evidence;
             } catch (PngValidationException ignored) {
@@ -4047,7 +4061,8 @@ public final class ClientRuntime implements AutoCloseable {
                 return;
             }
             try {
-                SkinFeatureEvidence evidence = analyzeSkinFeatureEvidence(bytes.orElseThrow());
+                SkinFeatureEvidence evidence = analyzeStoredSkinFeatureEvidence(
+                        bytes.orElseThrow());
                 onClient(() -> {
                     boolean changed = !evidence.equals(state.assetEvidence.put(
                             assetId.orElseThrow(), evidence));

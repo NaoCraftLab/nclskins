@@ -147,7 +147,7 @@ final class ExternalAppearanceImportService {
                 SkinVariant variant = record.declaredVariant().orElse(resolution.variant());
                 byte[] resolvedPng = resolution.pngBytes();
                 ExistingPersonalSkin existing = existingSkins.get(
-                        pngValidator.pixelSha256(resolvedPng));
+                        pngValidator.renderSha256(resolvedPng));
                 byte[] candidatePng = existing == null ? resolvedPng : existing.pngBytes();
                 String sha256 = existing == null ? sha256(candidatePng) : existing.sha256();
                 resolved.add(new ClientOperations.ExternalImportCandidate(
@@ -160,7 +160,7 @@ final class ExternalAppearanceImportService {
                         capeId,
                         record.sourceOrder(),
                         existing != null && existing.visible(),
-                        pngValidator.normalizeSkinWithVariant(candidatePng).featureEvidence()));
+                        pngValidator.projectImport(candidatePng).featureEvidence()));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw interrupted;
@@ -189,7 +189,7 @@ final class ExternalAppearanceImportService {
             try {
                 byte[] png = library.resolveSkin(account, assetId.orElseThrow()).pngBytes();
                 existing.putIfAbsent(
-                        pngValidator.pixelSha256(png),
+                        pngValidator.renderSha256(png),
                         new ExistingPersonalSkin(entry.sha256(), png, entry.visible()));
             } catch (IOException | PngValidationException | RuntimeException invalidExistingAsset) {
             }
@@ -293,7 +293,7 @@ final class ExternalAppearanceImportService {
     private Resolution normalized(
             byte[] png, PersonalSkinSource source, Optional<SkinVariant> suggestedVariant)
             throws Exception {
-        NormalizedSkin skin = pngValidator.normalizeSkinWithVariant(png);
+        NormalizedSkin skin = pngValidator.projectImport(png);
         return new Resolution(
                 skin.pngBytes(), suggestedVariant.orElse(skin.detectedVariant()), source);
     }

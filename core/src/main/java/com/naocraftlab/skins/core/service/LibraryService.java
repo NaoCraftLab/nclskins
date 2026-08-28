@@ -130,12 +130,17 @@ public final class LibraryService {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(catalogOrigin, "catalogOrigin");
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
-        StoredAsset stored = storeOrReusePersonalAsset(
-                accountId, Objects.requireNonNull(pngBytes, "pngBytes"));
+        byte[] requiredPng = Objects.requireNonNull(pngBytes, "pngBytes");
+        String renderSha256 = pngValidator.renderSha256(requiredPng);
+        StoredAsset stored = storeOrReusePersonalAsset(accountId, requiredPng, renderSha256);
+        StoredAsset[] selectedStored = {stored};
         UUID assetId = UUID.randomUUID();
         UUID createdPresetId = UUID.randomUUID();
         Instant now = clock.instant();
         AccountState state = storage.updateAccount(accountId, current -> {
+            StoredAsset mutationStored = recheckPersonalAssetReuse(
+                    current, renderSha256, selectedStored[0]);
+            selectedStored[0] = mutationStored;
             int presetIndex = originalPresetId
                     .map(presetId -> indexOfPreset(current.presets(), presetId))
                     .orElse(-1);
@@ -143,7 +148,7 @@ public final class LibraryService {
             SkinAsset asset = new SkinAsset(
                     assetId,
                     assetName,
-                    stored.sha256(),
+                    mutationStored.sha256(),
                     variant,
                     source,
                     mutationTime,
@@ -187,7 +192,7 @@ public final class LibraryService {
                 state,
                 findPreset(state, presetId),
                 findSkin(state, assetId),
-                stored);
+                selectedStored[0]);
     }
 
 
@@ -221,18 +226,23 @@ public final class LibraryService {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
         String displayName = requirePersonalSkinDisplayName(personalSkinDisplayName);
-        StoredAsset stored = storeOrReusePersonalAsset(
-                accountId, Objects.requireNonNull(pngBytes, "pngBytes"));
+        byte[] requiredPng = Objects.requireNonNull(pngBytes, "pngBytes");
+        String renderSha256 = pngValidator.renderSha256(requiredPng);
+        StoredAsset stored = storeOrReusePersonalAsset(accountId, requiredPng, renderSha256);
+        StoredAsset[] selectedStored = {stored};
         UUID candidateAssetId = UUID.randomUUID();
         UUID createdPresetId = UUID.randomUUID();
         Instant now = clock.instant();
 
         AccountState state = storage.updateAccount(accountId, current -> {
+            StoredAsset mutationStored = recheckPersonalAssetReuse(
+                    current, renderSha256, selectedStored[0]);
+            selectedStored[0] = mutationStored;
             int presetIndex = originalPresetId
                     .map(presetId -> indexOfPreset(current.presets(), presetId))
                     .orElse(-1);
             PersonalSkinEntry existingEntry = current.personalSkins().stream()
-                    .filter(entry -> entry.sha256().equals(stored.sha256()))
+                    .filter(entry -> entry.sha256().equals(mutationStored.sha256()))
                     .findFirst()
                     .orElse(null);
             Instant mutationTime = nextRevision(current, now);
@@ -240,7 +250,8 @@ public final class LibraryService {
                 mutationTime = existingEntry.updatedAt().plusNanos(1L);
             }
 
-            SkinAsset asset = reusablePersonalAsset(current, existingEntry, stored.sha256(), variant)
+            SkinAsset asset = reusablePersonalAsset(
+                    current, existingEntry, mutationStored.sha256(), variant)
                     .orElse(null);
             List<SkinAsset> assets = current.skinAssets();
             if (asset == null) {
@@ -250,7 +261,7 @@ public final class LibraryService {
                 asset = new SkinAsset(
                         candidateAssetId,
                         assetName,
-                        stored.sha256(),
+                        mutationStored.sha256(),
                         variant,
                         SkinSource.IMPORTED,
                         mutationTime,
@@ -261,7 +272,7 @@ public final class LibraryService {
             PersonalSkinEntry personalSkin;
             if (existingEntry == null) {
                 personalSkin = new PersonalSkinEntry(
-                        stored.sha256(),
+                        mutationStored.sha256(),
                         displayName,
                         source,
                         mutationTime,
@@ -316,14 +327,14 @@ public final class LibraryService {
                     mutationTime);
         });
 
-        PersonalSkinEntry personalSkin = findPersonalSkin(state, stored.sha256());
+        PersonalSkinEntry personalSkin = findPersonalSkin(state, selectedStored[0].sha256());
         SkinAsset asset = findSkin(
                 state,
                 personalSkin.optionalAssetId(variant)
                         .orElseThrow(() -> new IllegalStateException("Saved personal variant is missing")));
         UUID presetId = originalPresetId.orElse(createdPresetId);
         return new SavedPersonalSkinPreset(
-                state, findPreset(state, presetId), personalSkin, asset, stored);
+                state, findPreset(state, presetId), personalSkin, asset, selectedStored[0]);
     }
 
     public SavedPersonalSkinPreset createPresetFromPersonalSkin(
@@ -382,13 +393,15 @@ public final class LibraryService {
         Map<String, StoredAsset> canonicalAssets = new java.util.LinkedHashMap<>();
         for (PersonalSkinPresetImport candidate : requested) {
             Objects.requireNonNull(candidate, "imports contains null");
-            String pixelSha256 = pngValidator.pixelSha256(candidate.pngBytes());
-            StoredAsset stored = canonicalAssets.get(pixelSha256);
+            String renderSha256 = pngValidator.renderSha256(candidate.pngBytes());
+            StoredAsset stored = canonicalAssets.get(renderSha256);
             if (stored == null) {
-                stored = storeOrReusePersonalAsset(accountId, candidate.pngBytes());
-                canonicalAssets.put(pixelSha256, stored);
+                stored = storeOrReusePersonalAsset(
+                        accountId, candidate.pngBytes(), renderSha256);
+                canonicalAssets.put(renderSha256, stored);
             }
-            prepared.add(new PreparedPersonalSkinPresetImport(candidate, stored));
+            prepared.add(new PreparedPersonalSkinPresetImport(
+                    candidate, stored, renderSha256));
         }
 
         Instant now = clock.instant();
@@ -405,7 +418,9 @@ public final class LibraryService {
 
             for (PreparedPersonalSkinPresetImport item : prepared) {
                 PersonalSkinPresetImport candidate = item.candidate();
-                String sha256 = item.stored().sha256();
+                StoredAsset mutationStored = recheckPersonalAssetReuse(
+                        current, item.renderSha256(), item.stored());
+                String sha256 = mutationStored.sha256();
                 PersonalSkinEntry existingEntry = personalSkins.stream()
                         .filter(entry -> entry.sha256().equals(sha256))
                         .findFirst()
@@ -936,24 +951,38 @@ public final class LibraryService {
         return trimmed;
     }
 
-    private StoredAsset storeOrReusePersonalAsset(UUID accountId, byte[] pngBytes)
+    private StoredAsset storeOrReusePersonalAsset(
+            UUID accountId, byte[] pngBytes, String incomingRenderSha256)
             throws IOException, PngValidationException {
-        String incomingPixelSha256 = pngValidator.pixelSha256(pngBytes);
         AccountState current = storage.loadOrCreateAccount(accountId);
+        Optional<StoredAsset> reusable = findReusablePersonalAsset(
+                current, incomingRenderSha256);
+        return reusable.isPresent() ? reusable.orElseThrow() : storage.storeAsset(pngBytes);
+    }
+
+    private StoredAsset recheckPersonalAssetReuse(
+            AccountState current,
+            String incomingRenderSha256,
+            StoredAsset fallback) {
+        return findReusablePersonalAsset(current, incomingRenderSha256).orElse(fallback);
+    }
+
+    private Optional<StoredAsset> findReusablePersonalAsset(
+            AccountState current, String incomingRenderSha256) {
         for (PersonalSkinEntry entry : current.personalSkins()) {
             try {
                 byte[] existingPng = storage.readAsset(entry.sha256());
-                if (incomingPixelSha256.equals(pngValidator.pixelSha256(existingPng))) {
-                    return new StoredAsset(
+                if (incomingRenderSha256.equals(pngValidator.renderSha256(existingPng))) {
+                    return Optional.of(new StoredAsset(
                             entry.sha256(),
                             storage.assetPath(entry.sha256()),
                             pngValidator.validate(existingPng),
-                            true);
+                            true));
                 }
             } catch (IOException | PngValidationException invalidExistingAsset) {
             }
         }
-        return storage.storeAsset(pngBytes);
+        return Optional.empty();
     }
 
     private static String requireSha256(String value) {
@@ -1015,10 +1044,13 @@ public final class LibraryService {
     }
 
     private record PreparedPersonalSkinPresetImport(
-            PersonalSkinPresetImport candidate, StoredAsset stored) {
+            PersonalSkinPresetImport candidate,
+            StoredAsset stored,
+            String renderSha256) {
         private PreparedPersonalSkinPresetImport {
             Objects.requireNonNull(candidate, "candidate");
             Objects.requireNonNull(stored, "stored");
+            Objects.requireNonNull(renderSha256, "renderSha256");
         }
     }
 
