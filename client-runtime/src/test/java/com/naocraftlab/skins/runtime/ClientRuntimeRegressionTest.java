@@ -6,6 +6,7 @@ import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
+import com.naocraftlab.skins.client.SkinExtensionEnvironmentSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
@@ -20,6 +21,9 @@ import com.naocraftlab.skins.core.service.SessionValidation;
 import com.naocraftlab.skins.diagnostics.DiagnosticSinks;
 import org.junit.jupiter.api.Test;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +33,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -57,6 +62,77 @@ final class ClientRuntimeRegressionTest {
                 "The local player preview will update after reconnecting.";
         default -> message.key();
     };
+
+    @Test
+    void tickPublishesAChangedSkinExtensionEnvironmentGeneration() {
+        StubOperations operations = new StubOperations();
+        AtomicReference<SkinExtensionEnvironmentSource.Snapshot> environment =
+                new AtomicReference<>(new SkinExtensionEnvironmentSource.Snapshot(
+                        1, java.util.Map.of(
+                                SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES,
+                                SkinExtensionEnvironmentSource.State.INACTIVE)));
+        ClientRuntime runtime = runtime(operations)
+                .useSkinExtensionEnvironmentSource(environment::get);
+        runtime.initialize();
+        assertEquals(1, runtime.snapshot().skinExtensionEnvironment().generation());
+
+        environment.set(new SkinExtensionEnvironmentSource.Snapshot(
+                2, java.util.Map.of(
+                        SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES,
+                        SkinExtensionEnvironmentSource.State.ACTIVE)));
+        runtime.tick();
+
+        assertEquals(2, runtime.snapshot().skinExtensionEnvironment().generation());
+        assertEquals(
+                com.naocraftlab.skins.core.compatibility.SkinConsumerState.ACTIVE,
+                runtime.snapshot().skinExtensionEnvironment().state(
+                        com.naocraftlab.skins.core.compatibility.SkinConsumer.FRESH_MOVES));
+    }
+
+    @Test
+    void editorShowsWarningWhenNativeTextureCacheReusesTheGalleryPreview() throws Exception {
+        StubOperations operations = new StubOperations();
+        BufferedImage skin = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < 4; y++) {
+            for (int x = 4; x < 8; x++) {
+                skin.setRGB(x, y, 0xff123456);
+            }
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(skin, "png", output);
+        operations.skinPreviewBytes = output.toByteArray();
+        ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() ->
+                new SkinExtensionEnvironmentSource.Snapshot(
+                        3, java.util.Map.of(
+                                SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES,
+                                SkinExtensionEnvironmentSource.State.ACTIVE)));
+        runtime.initialize();
+        AppearancePreset preset = runtime.snapshot().account().orElseThrow().presets().get(0);
+        UUID presetId = preset.id();
+        ViewSpec.Preview galleryPreview = runtime.view(854, 480, 0, 0).previews().stream()
+                .filter(candidate -> candidate.skin().equals(preset.skin()))
+                .findFirst().orElseThrow();
+        runtime.loadSkinPreview(galleryPreview).join();
+        assertEquals(1, operations.skinPreviewCalls.get());
+
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        ViewSpec editor = runtime.view(854, 480, 0, 0);
+
+        assertEquals(1, operations.skinPreviewCalls.get());
+        ViewSpec.Widget indicator = editor.widget("editor.compatibility").orElseThrow();
+        assertEquals(ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR, indicator.kind());
+        assertTrue(indicator.enabled());
+        assertEquals(Optional.of(indicator.label()), indicator.hint());
+        assertEquals("nclskins.compatibility.tooltip.1", indicator.label().key());
+        assertEquals(
+                editor.widgets().indexOf(editor.widget("editor.outer_layer.legs").orElseThrow()) + 1,
+                editor.widgets().indexOf(indicator));
+        assertEquals(Optional.of("compatibility_warning"), indicator.icon());
+        assertEquals(20, indicator.bounds().width());
+        assertEquals(20, indicator.bounds().height());
+        assertTrue(editor.iconDecorations().stream().noneMatch(icon ->
+                icon.ownerWidgetId().equals(indicator.id())));
+    }
 
     @Test
     void failedEditorSaveReleasesBusyPreservesDraftAndCanStillBeCancelled() {
@@ -192,6 +268,7 @@ final class ClientRuntimeRegressionTest {
         UUID presetId = operations.account.presets().get(1).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
         ViewSpec.Preview preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        worker.runFirst();
 
         operations.failNextCapePreview = true;
         CompletableFuture<Optional<byte[]>> failedCape = runtime.loadCapePreview(preview);
@@ -202,7 +279,6 @@ final class ClientRuntimeRegressionTest {
                 runtime.snapshot().editor().orElseThrow().status().orElseThrow().key());
 
         CompletableFuture<Optional<byte[]>> successfulSkin = runtime.loadSkinPreview(preview);
-        worker.runFirst();
         assertTrue(successfulSkin.join().isPresent());
         assertEquals(
                 "nclskins.error.cape_preview",
@@ -423,6 +499,7 @@ final class ClientRuntimeRegressionTest {
         private boolean failNextSkinPreview;
         private boolean failNextCapePreview;
         private boolean visibilityInResults;
+        private byte[] skinPreviewBytes = {1, 2, 3};
         private boolean warmCheckpoint;
         private long appearanceRevision;
 
@@ -621,7 +698,7 @@ final class ClientRuntimeRegressionTest {
                 failNextSkinPreview = false;
                 throw new IllegalStateException("characterized preview failure");
             }
-            return new byte[] {1, 2, 3};
+            return skinPreviewBytes.clone();
         }
 
         @Override

@@ -2,6 +2,11 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
+import com.naocraftlab.skins.core.compatibility.SkinConflictReason;
+import com.naocraftlab.skins.core.compatibility.SkinConsumer;
+import com.naocraftlab.skins.core.compatibility.SkinConsumerState;
+import com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -13,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +28,46 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class GalleryPresenterTest {
     private final GalleryPresenter presenter = new GalleryPresenter();
+
+    @Test
+    void galleryHideFlagKeepsOnlyMatchingActiveIncompatibleLookAfterAdd() {
+        AccountState account = TestFixtures.account(2);
+        UUID active = account.presets().get(1).id();
+        ClientSnapshot base = TestFixtures.ready(account, active, 0);
+        SkinFeatureEvidence conflict = new SkinFeatureEvidence(
+                List.of(), List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA));
+        ClientSnapshot hidden = withCompatibility(
+                base,
+                new SkinExtensionEnvironment(
+                        7, Map.of(SkinConsumer.FRESH_MOVES, SkinConsumerState.ACTIVE)),
+                Map.of(TestFixtures.CLASSIC_ID, conflict, TestFixtures.SLIM_ID, conflict),
+                true);
+
+        assertEquals(
+                List.of("gallery.add", "gallery.card." + active),
+                presenter.cardIds(hidden, "Preset"));
+        ViewSpec view = presenter.present(
+                hidden, 854, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "Preset", Optional.empty());
+        String indicatorId = "gallery.preset." + active + ".compatibility";
+        ViewSpec.Widget indicator = view.widget(indicatorId).orElseThrow();
+        assertEquals(ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR, indicator.kind());
+        assertEquals(Optional.of(indicator.label()), indicator.hint());
+        assertTrue(view.navigationNode(indicatorId).isPresent());
+        assertEquals(Optional.of("compatibility_warning"), indicator.icon());
+        assertEquals(20, indicator.bounds().width());
+        assertEquals(20, indicator.bounds().height());
+        ViewSpec.Widget apply = view.widget("gallery.preset." + active + ".apply").orElseThrow();
+        Bounds card = view.widget("gallery.card." + active).orElseThrow().bounds();
+        assertEquals(card.x() + 2, indicator.bounds().x());
+        assertEquals(apply.bounds().y() - 2, indicator.bounds().bottom());
+        assertTrue(view.iconDecorations().stream()
+                .noneMatch(icon -> icon.ownerWidgetId().equals(indicatorId)));
+
+        ClientSnapshot visible = withCompatibility(
+                base, hidden.skinExtensionEnvironment(), hidden.assetEvidence(), false);
+        assertEquals(3, presenter.cardIds(visible, "Preset").size());
+    }
 
     @Test
     void coldInitializationIsNeutralUntilAccountDataExists() {
@@ -1374,5 +1420,20 @@ final class GalleryPresenterTest {
                 0,
                 AppearanceSyncStatus.LOCAL_ONLY,
                 false);
+    }
+
+    private static ClientSnapshot withCompatibility(
+            ClientSnapshot base,
+            SkinExtensionEnvironment environment,
+            Map<UUID, SkinFeatureEvidence> evidence,
+            boolean hideGallery) {
+        return new ClientSnapshot(
+                base.lifecycle(), base.account(), base.session(), base.remoteProfile(),
+                base.lastMutation(), base.selectedSkinId(), base.selectedPresetId(),
+                base.selectedCapeId(), base.currentOfficialSkinId(), base.activePresetId(),
+                base.editor(), base.addSource(), base.status(), base.busy(), base.rateLimited(),
+                base.rateLimitProgress(), base.galleryOffset(), base.generation(),
+                base.intentRevision(), base.syncStatus(), base.syncInProgress(),
+                base.sessionActivity(), environment, evidence, Map.of(), false, hideGallery);
     }
 }

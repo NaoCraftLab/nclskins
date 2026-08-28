@@ -164,18 +164,38 @@ class PngValidatorTest {
         assertEquals(64, validator.validate(modern).width());
         assertEquals(64, validator.validate(modern).height());
         assertEquals(64, validator.validate(legacy).width());
-        assertEquals(32, validator.validate(legacy).height());
+        assertEquals(64, validator.validate(legacy).height());
     }
 
     @Test
-    void leavesApiSizedPngBytesUnchanged() throws Exception {
+    void leavesModernApiSizedPngUnchangedAndCleansLegacyLayout() throws Exception {
         byte[] modern = TestPng.create(64, 64);
         byte[] legacy = TestPng.create(64, 32);
 
         assertArrayEquals(modern, validator.normalizeSkin(modern));
-        assertArrayEquals(legacy, validator.normalizeSkin(legacy));
         assertArrayEquals(modern, validator.normalizeSkinWithVariant(modern).pngBytes());
-        assertArrayEquals(legacy, validator.normalizeSkinWithVariant(legacy).pngBytes());
+        assertFalse(Arrays.equals(legacy, validator.normalizeSkin(legacy)));
+        assertEquals(64, validator.validate(validator.normalizeSkin(legacy)).height());
+    }
+
+    @Test
+    void legacyNormalizationClearsEveryPixelOutsideRenderableUvMask() throws Exception {
+        BufferedImage legacy = opaqueSkin(64, 32);
+        BufferedImage normalized = ImageIO.read(new ByteArrayInputStream(
+                validator.normalizeSkin(encode(legacy))));
+
+        int[][] unused = {
+                {0, 0}, {24, 0}, {32, 0}, {56, 0},
+                {0, 16}, {12, 16}, {16, 16}, {36, 16}, {40, 16}, {52, 16}, {56, 16},
+                {0, 32}, {15, 47}, {48, 48}, {63, 63}
+        };
+        for (int[] pixel : unused) {
+            assertEquals(0, normalized.getRGB(pixel[0], pixel[1]),
+                    "unused legacy pixel " + pixel[0] + "," + pixel[1]);
+        }
+        assertEquals(0xff3186d8, normalized.getRGB(8, 0));
+        assertEquals(0xff3186d8, normalized.getRGB(20, 16));
+        assertEquals(0xff3186d8, normalized.getRGB(20, 48));
     }
 
     @Test
@@ -364,7 +384,76 @@ class PngValidatorTest {
         expanded.setRGB(0, 0, 64, 32, legacy.getRGB(0, 0, 64, 32, null, 0, 64), 0, 64);
         mirrorLimb(legacy, expanded, 0, 16, 16, 48);
         mirrorLimb(legacy, expanded, 40, 16, 32, 48);
+        setOpaque(expanded, 0, 0, 32, 16);
+        applyLegacyHatTransparency(expanded, 32, 0, 64, 32);
+        setOpaque(expanded, 0, 16, 64, 32);
+        setOpaque(expanded, 16, 48, 48, 64);
+        boolean[][] renderable = new boolean[64][64];
+        mark(renderable, 8, 0, 16, 8);
+        mark(renderable, 16, 0, 24, 8);
+        mark(renderable, 0, 8, 32, 16);
+        mark(renderable, 40, 0, 56, 8);
+        mark(renderable, 32, 8, 64, 16);
+        mark(renderable, 4, 16, 12, 20);
+        mark(renderable, 0, 20, 16, 32);
+        mark(renderable, 20, 16, 36, 20);
+        mark(renderable, 16, 20, 40, 32);
+        mark(renderable, 44, 16, 52, 20);
+        mark(renderable, 40, 20, 56, 32);
+        mark(renderable, 20, 48, 28, 52);
+        mark(renderable, 16, 52, 32, 64);
+        mark(renderable, 36, 48, 44, 52);
+        mark(renderable, 32, 52, 48, 64);
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                if (!renderable[y][x]) {
+                    expanded.setRGB(x, y, 0);
+                }
+            }
+        }
         return expanded;
+    }
+
+    private static void mark(
+            boolean[][] mask, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                mask[y][x] = true;
+            }
+        }
+    }
+
+    private static void clear(BufferedImage image, int x, int y, int width, int height) {
+        for (int row = y; row < y + height; row++) {
+            for (int column = x; column < x + width; column++) {
+                image.setRGB(column, row, 0);
+            }
+        }
+    }
+
+    private static void setOpaque(
+            BufferedImage image, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                image.setRGB(x, y, image.getRGB(x, y) | 0xff000000);
+            }
+        }
+    }
+
+    private static void applyLegacyHatTransparency(
+            BufferedImage image, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                if ((image.getRGB(x, y) >>> 24) < 128) {
+                    return;
+                }
+            }
+        }
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                image.setRGB(x, y, image.getRGB(x, y) & 0x00ffffff);
+            }
+        }
     }
 
     private static void mirrorLimb(
@@ -374,8 +463,8 @@ class PngValidatorTest {
             int sourceY,
             int targetX,
             int targetY) {
-        copyMirrored(source, target, sourceX, sourceY, 4, 4, targetX, targetY);
         copyMirrored(source, target, sourceX + 4, sourceY, 4, 4, targetX + 4, targetY);
+        copyMirrored(source, target, sourceX + 8, sourceY, 4, 4, targetX + 8, targetY);
         copyMirrored(source, target, sourceX, sourceY + 4, 4, 12, targetX + 8, targetY + 4);
         copyMirrored(source, target, sourceX + 4, sourceY + 4, 4, 12, targetX + 4, targetY + 4);
         copyMirrored(source, target, sourceX + 8, sourceY + 4, 4, 12, targetX, targetY + 4);

@@ -1,5 +1,8 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment;
+import com.naocraftlab.skins.core.compatibility.SkinFeature;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
@@ -419,6 +422,73 @@ final class ExternalImportPresenterTest {
         ViewSpec cleared = presenter.present(
                 model.toggleCandidate("candidate-1"), false, Optional.empty(), 854, 480);
         assertFalse(cleared.widget("external.review.commit").orElseThrow().enabled());
+    }
+
+    @Test
+    void reviewCardShowsIntrinsicCompatibilityMarkerOverPreview() {
+        ClientOperations.ExternalImportCandidate expressive = new ClientOperations.ExternalImportCandidate(
+                "candidate-0",
+                "Expressive",
+                SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE,
+                new byte[]{1, 2, 3},
+                "0".repeat(64),
+                null,
+                0,
+                false,
+                new SkinFeatureEvidence(List.of(SkinFeature.FRESH_MOVES), List.of()));
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withReview(new ClientOperations.ExternalImportReview(
+                        ExternalImportSource.SKIN_SHUFFLE, List.of(expressive), 0, 0));
+
+        ViewSpec view = presenter.present(
+                model,
+                false,
+                Optional.empty(),
+                854,
+                480,
+                SkinExtensionEnvironment.unknown(7));
+
+        String indicatorId = "external.review.card:candidate-0.compatibility";
+        ViewSpec.Widget indicator = view.widget(indicatorId).orElseThrow();
+        assertEquals(Optional.of(indicator.label()), indicator.hint());
+        ViewSpec.Widget card = view.widget("external.review.card:candidate-0").orElseThrow();
+        assertEquals(card.bounds().x() + 2, indicator.bounds().x());
+        assertEquals(card.bounds().bottom() - 2, indicator.bounds().bottom());
+        assertEquals(Optional.of("compatibility_sparkle"), indicator.icon());
+        assertEquals(20, indicator.bounds().width());
+        assertEquals(20, indicator.bounds().height());
+        assertTrue(view.iconDecorations().stream().noneMatch(icon ->
+                icon.ownerWidgetId().equals(indicatorId)));
+    }
+
+    @Test
+    void reviewNavigationReachesCollapsedDuplicateHeaderBelowFreshCards() {
+        List<ClientOperations.ExternalImportCandidate> candidates = new java.util.ArrayList<>(
+                IntStream.range(0, 30)
+                        .mapToObj(index -> candidate("fresh-" + index, false))
+                        .toList());
+        candidates.add(candidate("duplicate", true));
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
+                .withReview(new ClientOperations.ExternalImportReview(
+                        ExternalImportSource.SKIN_SHUFFLE, candidates, 30, 1))
+                .toggleCollection(true);
+
+        ViewSpec view = presenter.present(model, false, Optional.empty(), 320, 240);
+        ViewSpec.NavigationNode lastFresh = view.navigationNodes().stream()
+                .filter(node -> node.id().startsWith("external.review.card:fresh-"))
+                .max(java.util.Comparator.comparingInt(node -> node.bounds().y()))
+                .orElseThrow();
+        ViewSpec.NavigationNode duplicateHeader = view.navigationNode(
+                "external.review.collection.duplicates").orElseThrow();
+
+        assertTrue(view.widget(duplicateHeader.id()).isEmpty());
+        assertEquals(
+                duplicateHeader.id(),
+                ViewNavigationPolicy.target(view, lastFresh.id(), ViewSpec.NavigationCommand.DOWN)
+                        .orElseThrow().id());
+        assertTrue(ViewNavigationPolicy.ensureVisibleOffset(view, duplicateHeader).isPresent());
+        assertEquals(Optional.of(duplicateHeader.id()), duplicateHeader.activationActionId());
     }
 
     private static ClientOperations.ExternalImportCandidate candidate(String id, boolean duplicate) {

@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.core.png;
 
+import com.naocraftlab.skins.core.compatibility.SkinFeatureAnalyzer;
 import com.naocraftlab.skins.core.model.SkinVariant;
 
 import javax.imageio.ImageIO;
@@ -40,6 +41,7 @@ public final class PngValidator {
     };
 
     private final int maxBytes;
+    private final SkinFeatureAnalyzer featureAnalyzer = new SkinFeatureAnalyzer();
 
     public PngValidator() {
         this(DEFAULT_MAX_BYTES);
@@ -85,9 +87,11 @@ public final class PngValidator {
         Inspection inspection = inspect(bytes, true, true);
         int sourceWidth = inspection.info().width();
         int sourceHeight = inspection.info().height();
-        if (sourceWidth == 64) {
+        if (sourceWidth == 64 && sourceHeight == 64) {
             return new NormalizedSkin(
-                    inspection.canonicalBytes(), detectSkinVariant(inspection.image()));
+                    inspection.canonicalBytes(),
+                    detectSkinVariant(inspection.image()),
+                    featureAnalyzer.analyze(inspection.image()));
         }
 
         int scale = sourceWidth / 64;
@@ -101,6 +105,13 @@ public final class PngValidator {
             }
         }
 
+        SkinVariant variant = targetHeight == 32
+                ? SkinVariant.CLASSIC
+                : detectSkinVariant(target);
+        if (targetHeight == 32) {
+            target = expandLegacySkin(target);
+        }
+
         try {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             if (!ImageIO.write(target, "png", output)) {
@@ -108,23 +119,24 @@ public final class PngValidator {
             }
             byte[] normalized = output.toByteArray();
             validate(normalized);
-            return new NormalizedSkin(normalized, detectSkinVariant(target));
+            return new NormalizedSkin(
+                    normalized, variant, featureAnalyzer.analyze(target));
         } catch (IOException | RuntimeException exception) {
             throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG could not be normalized");
         }
     }
 
     public String pixelSha256(byte[] bytes) throws PngValidationException {
-        Inspection inspection = inspect(bytes, true, true);
+        NormalizedSkin normalized = normalizeSkinWithVariant(bytes);
+        Inspection inspection = inspect(normalized.pngBytes(), false, false);
         BufferedImage image = inspection.image();
-        int identityHeight = isExpandedLegacyLayout(image) ? 32 : image.getHeight();
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             ByteBuffer pixel = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.BIG_ENDIAN);
             digest.update(pixel.putInt(image.getWidth()).array());
             pixel.clear();
-            digest.update(pixel.putInt(identityHeight).array());
-            for (int y = 0; y < identityHeight; y++) {
+            digest.update(pixel.putInt(64).array());
+            for (int y = 0; y < 64; y++) {
                 for (int x = 0; x < image.getWidth(); x++) {
                     int argb = visibleArgb(image.getRGB(x, y));
                     pixel.clear();
@@ -134,6 +146,94 @@ public final class PngValidator {
             return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private static BufferedImage expandLegacySkin(BufferedImage legacy) {
+        BufferedImage expanded = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        expanded.setRGB(
+                0, 0, 64, 32,
+                legacy.getRGB(0, 0, 64, 32, null, 0, 64),
+                0, 64);
+        mirrorLegacyLimb(legacy, expanded, 0, 16, 16, 48);
+        mirrorLegacyLimb(legacy, expanded, 40, 16, 32, 48);
+        applyLegacyOpacitySemantics(expanded);
+        clearLegacyUnusedRegions(expanded);
+        return expanded;
+    }
+
+    private static void applyLegacyOpacitySemantics(BufferedImage image) {
+        setOpaque(image, 0, 0, 32, 16);
+        applyLegacyHatTransparency(image, 32, 0, 64, 32);
+        setOpaque(image, 0, 16, 64, 32);
+        setOpaque(image, 16, 48, 48, 64);
+    }
+
+    private static void applyLegacyHatTransparency(
+            BufferedImage image, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                if ((image.getRGB(x, y) >>> 24) < 128) {
+                    return;
+                }
+            }
+        }
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                image.setRGB(x, y, image.getRGB(x, y) & 0x00ffffff);
+            }
+        }
+    }
+
+    private static void setOpaque(
+            BufferedImage image, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                image.setRGB(x, y, image.getRGB(x, y) | 0xff000000);
+            }
+        }
+    }
+
+    private static void clearLegacyUnusedRegions(BufferedImage image) {
+        boolean[][] renderable = new boolean[64][64];
+        mark(renderable, 8, 0, 16, 8);
+        mark(renderable, 16, 0, 24, 8);
+        mark(renderable, 0, 8, 32, 16);
+        mark(renderable, 40, 0, 56, 8);
+        mark(renderable, 32, 8, 64, 16);
+        mark(renderable, 4, 16, 12, 20);
+        mark(renderable, 0, 20, 16, 32);
+        mark(renderable, 20, 16, 36, 20);
+        mark(renderable, 16, 20, 40, 32);
+        mark(renderable, 44, 16, 52, 20);
+        mark(renderable, 40, 20, 56, 32);
+        mark(renderable, 20, 48, 28, 52);
+        mark(renderable, 16, 52, 32, 64);
+        mark(renderable, 36, 48, 44, 52);
+        mark(renderable, 32, 52, 48, 64);
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                if (!renderable[y][x]) {
+                    image.setRGB(x, y, 0);
+                }
+            }
+        }
+    }
+
+    private static void mark(
+            boolean[][] mask, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                mask[y][x] = true;
+            }
+        }
+    }
+
+    private static void clear(BufferedImage image, int x, int y, int width, int height) {
+        for (int row = y; row < y + height; row++) {
+            for (int column = x; column < x + width; column++) {
+                image.setRGB(column, row, 0);
+            }
         }
     }
 
@@ -161,8 +261,8 @@ public final class PngValidator {
             int sourceY,
             int targetX,
             int targetY) {
-        copyMirrored(source, target, sourceX, sourceY, 4, 4, targetX, targetY);
         copyMirrored(source, target, sourceX + 4, sourceY, 4, 4, targetX + 4, targetY);
+        copyMirrored(source, target, sourceX + 8, sourceY, 4, 4, targetX + 8, targetY);
         copyMirrored(source, target, sourceX, sourceY + 4, 4, 12, targetX + 8, targetY + 4);
         copyMirrored(source, target, sourceX + 4, sourceY + 4, 4, 12, targetX + 4, targetY + 4);
         copyMirrored(source, target, sourceX + 8, sourceY + 4, 4, 12, targetX, targetY + 4);

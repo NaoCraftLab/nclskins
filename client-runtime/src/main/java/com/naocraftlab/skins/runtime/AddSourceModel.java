@@ -5,9 +5,15 @@ import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibility;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityEvaluator;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityStatus;
+import com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.SkinVariant;
+
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -55,6 +61,9 @@ public final class AddSourceModel {
     private final Optional<String> focusWidgetId;
     private final Optional<PersonalSkinDeletion> personalSkinDeletion;
     private final TextResolver textResolver;
+    private final SkinExtensionEnvironment skinExtensionEnvironment;
+    private final Map<String, SkinFeatureEvidence> compatibilityEvidence;
+    private final boolean hideIncompatibleCatalogSkins;
 
     private AddSourceModel(
             AddSourceTab selectedTab,
@@ -69,7 +78,10 @@ public final class AddSourceModel {
             long focusToken,
             Optional<String> focusWidgetId,
             Optional<PersonalSkinDeletion> personalSkinDeletion,
-            TextResolver textResolver) {
+            TextResolver textResolver,
+            SkinExtensionEnvironment skinExtensionEnvironment,
+            Map<String, SkinFeatureEvidence> compatibilityEvidence,
+            boolean hideIncompatibleCatalogSkins) {
         this.selectedTab = Objects.requireNonNull(selectedTab, "selectedTab");
         this.collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
         this.collapsedCollectionIds = Set.copyOf(
@@ -93,6 +105,11 @@ public final class AddSourceModel {
         this.personalSkinDeletion = Objects.requireNonNull(
                 personalSkinDeletion, "personalSkinDeletion");
         this.textResolver = Objects.requireNonNull(textResolver, "textResolver");
+        this.skinExtensionEnvironment = Objects.requireNonNull(
+                skinExtensionEnvironment, "skinExtensionEnvironment");
+        this.compatibilityEvidence = Map.copyOf(Objects.requireNonNull(
+                compatibilityEvidence, "compatibilityEvidence"));
+        this.hideIncompatibleCatalogSkins = hideIncompatibleCatalogSkins;
 
         Set<String> collectionIds = new HashSet<>();
         for (SkinCatalogSource.CollectionDescriptor collection : this.collections) {
@@ -141,7 +158,10 @@ public final class AddSourceModel {
                         ? Optional.of("add.catalog.search")
                         : Optional.empty(),
                 Optional.empty(),
-                textResolver);
+                textResolver,
+                SkinExtensionEnvironment.unknown(0),
+                Map.of(),
+                false);
     }
 
     public AddSourceTab selectedTab() {
@@ -424,7 +444,10 @@ public final class AddSourceModel {
                         skin.id(),
                         skinName(skin),
                         personalActionId("add.catalog.delete:", collection.id(), skin.id()))),
-                textResolver);
+                textResolver,
+                skinExtensionEnvironment,
+                compatibilityEvidence,
+                hideIncompatibleCatalogSkins);
     }
 
     public AddSourceModel cancelPersonalSkinDeletion() {
@@ -449,7 +472,10 @@ public final class AddSourceModel {
                 requestTriggerFocus ? Math.max(1, focusToken + 1) : focusToken,
                 requestTriggerFocus ? Optional.of(deletion.returnFocusWidgetId()) : focusWidgetId,
                 Optional.empty(),
-                textResolver);
+                textResolver,
+                skinExtensionEnvironment,
+                compatibilityEvidence,
+                hideIncompatibleCatalogSkins);
     }
 
     public AddSourceModel removeConfirmedPersonalSkin() {
@@ -537,7 +563,10 @@ public final class AddSourceModel {
                 requestRemainingFocus ? Math.max(1, focusToken + 1) : focusToken,
                 requestRemainingFocus ? Optional.of(nextFocusId) : focusWidgetId,
                 Optional.empty(),
-                textResolver);
+                textResolver,
+                skinExtensionEnvironment,
+                compatibilityEvidence,
+                hideIncompatibleCatalogSkins);
     }
 
     public List<SkinCatalogSource.SkinDescriptor> visibleSkins(
@@ -552,6 +581,8 @@ public final class AddSourceModel {
                                 || names.get(skin.id())
                                         .toLowerCase(Locale.ROOT)
                                         .contains(needle))
+                        .map(skin -> compatibleDescriptor(collection, skin).orElse(null))
+                        .filter(Objects::nonNull)
                         .filter(this::matchesFilter);
         if (collection.order().kind() == CatalogCollectionOrder.Kind.RESOURCE_PACK) {
             visible = visible.sorted(Comparator
@@ -562,6 +593,70 @@ public final class AddSourceModel {
                     .thenComparing(SkinCatalogSource.SkinDescriptor::id));
         }
         return visible.toList();
+    }
+
+    public AddSourceModel withCompatibilityContext(
+            SkinExtensionEnvironment environment,
+            Map<String, SkinFeatureEvidence> evidence,
+            boolean hideIncompatible) {
+        Objects.requireNonNull(environment, "environment");
+        Objects.requireNonNull(evidence, "evidence");
+        if (skinExtensionEnvironment.equals(environment)
+                && compatibilityEvidence.equals(evidence)
+                && hideIncompatibleCatalogSkins == hideIncompatible) {
+            return this;
+        }
+        return new AddSourceModel(
+                selectedTab,
+                collections,
+                collapsedCollectionIds,
+                query,
+                playerInput,
+                urlInput,
+                filter,
+                preferredVariant,
+                scrollOffset,
+                focusToken,
+                focusWidgetId,
+                personalSkinDeletion,
+                textResolver,
+                environment,
+                evidence,
+                hideIncompatible);
+    }
+
+    public SkinCompatibility compatibility(
+            String collectionId,
+            SkinCatalogSource.SkinDescriptor skin,
+            SkinVariant variant) {
+        String key = collectionId + ':' + skin.id() + ':' + variant.name();
+        return new SkinCompatibilityEvaluator().evaluate(
+                compatibilityEvidence.getOrDefault(key, SkinFeatureEvidence.ORDINARY),
+                skinExtensionEnvironment);
+    }
+
+    private Optional<SkinCatalogSource.SkinDescriptor> compatibleDescriptor(
+            SkinCatalogSource.CollectionDescriptor collection,
+            SkinCatalogSource.SkinDescriptor skin) {
+        if (!hideIncompatibleCatalogSkins) {
+            return Optional.of(skin);
+        }
+        List<SkinModel> models = skin.models().stream()
+                .filter(model -> compatibility(
+                                collection.id(),
+                                skin,
+                                model == SkinModel.SLIM ? SkinVariant.SLIM : SkinVariant.CLASSIC)
+                        .status() != SkinCompatibilityStatus.INCOMPATIBLE)
+                .toList();
+        if (models.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new SkinCatalogSource.SkinDescriptor(
+                skin.id(),
+                skin.nameText(),
+                skin.descriptionText(),
+                skin.authorsText(),
+                models));
     }
 
     public String collectionName(SkinCatalogSource.CollectionDescriptor collection) {
@@ -624,7 +719,8 @@ public final class AddSourceModel {
         return new AddSourceModel(
                 selectedTab, renamed, collapsedCollectionIds, query, playerInput, urlInput,
                 filter, preferredVariant, scrollOffset, focusToken, focusWidgetId,
-                personalSkinDeletion, textResolver);
+                personalSkinDeletion, textResolver, skinExtensionEnvironment,
+                compatibilityEvidence, hideIncompatibleCatalogSkins);
     }
 
     static String personalActionId(String prefix, String collectionId, String sha256) {
@@ -719,7 +815,10 @@ public final class AddSourceModel {
                 nextFocusToken,
                 nextFocusWidgetId,
                 nextPersonalSkinDeletion,
-                textResolver);
+                textResolver,
+                skinExtensionEnvironment,
+                compatibilityEvidence,
+                hideIncompatibleCatalogSkins);
     }
 
     private static Comparator<SkinCatalogSource.CollectionDescriptor> collectionComparator(

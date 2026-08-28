@@ -97,6 +97,28 @@ public final class YaclConfigurationScreenFactory {
                         draft::setPauseMenuPreview)
                 .controller(TickBoxControllerBuilder::create)
                 .build();
+        Option<Boolean> hideIncompatibleCatalogSkins = Option.<Boolean>createBuilder()
+                .name(Component.translatable(
+                        "nclskins.config.client.compatibility.hide_incompatible_catalog_skins.name"))
+                .description(description(
+                        "nclskins.config.client.compatibility.hide_incompatible_catalog_skins.description"))
+                .binding(
+                        defaults.compatibility().hideIncompatibleCatalogSkins(),
+                        () -> draft.value().compatibility().hideIncompatibleCatalogSkins(),
+                        draft::setHideIncompatibleCatalogSkins)
+                .controller(TickBoxControllerBuilder::create)
+                .build();
+        Option<Boolean> hideIncompatibleGalleryLooks = Option.<Boolean>createBuilder()
+                .name(Component.translatable(
+                        "nclskins.config.client.compatibility.hide_incompatible_gallery_looks.name"))
+                .description(description(
+                        "nclskins.config.client.compatibility.hide_incompatible_gallery_looks.description"))
+                .binding(
+                        defaults.compatibility().hideIncompatibleGalleryLooks(),
+                        () -> draft.value().compatibility().hideIncompatibleGalleryLooks(),
+                        draft::setHideIncompatibleGalleryLooks)
+                .controller(TickBoxControllerBuilder::create)
+                .build();
         Option<String> dataDirectory = Option.<String>createBuilder()
                 .name(Component.translatable(
                         "nclskins.config.client.storage.data_directory.name"))
@@ -119,6 +141,11 @@ public final class YaclConfigurationScreenFactory {
                         .name(Component.translatable("nclskins.config.group.menu_preview"))
                         .option(titleScreen)
                         .option(pauseMenu)
+                        .build())
+                .group(OptionGroup.createBuilder()
+                        .name(Component.translatable("nclskins.config.group.compatibility"))
+                        .option(hideIncompatibleCatalogSkins)
+                        .option(hideIncompatibleGalleryLooks)
                         .build())
                 .group(OptionGroup.createBuilder()
                         .name(Component.translatable("nclskins.config.group.storage"))

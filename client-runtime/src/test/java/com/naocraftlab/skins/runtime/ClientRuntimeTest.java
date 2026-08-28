@@ -139,10 +139,12 @@ final class ClientRuntimeTest {
 
         assertTrue(runtime.dispatchNavigation(
                 ViewSpec.NavigationCommand.TAB_FORWARD, "gallery.search"));
-        assertEquals(Optional.of("gallery.add"),
-                runtime.view(320, 240, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        String visibleAnchor = runtime.view(320, 240, 0, 0).focusRequest()
+                .orElseThrow().widgetId();
+        assertTrue(visibleAnchor.startsWith("gallery.card."),
+                "Tab from Search must enter at the central visible card");
         assertTrue(runtime.dispatchNavigation(
-                ViewSpec.NavigationCommand.RIGHT, "gallery.add"));
+                ViewSpec.NavigationCommand.RIGHT, visibleAnchor));
         String presetAnchor = runtime.view(320, 240, 0, 0).focusRequest()
                 .orElseThrow().widgetId();
         assertTrue(presetAnchor.startsWith("gallery.card."));

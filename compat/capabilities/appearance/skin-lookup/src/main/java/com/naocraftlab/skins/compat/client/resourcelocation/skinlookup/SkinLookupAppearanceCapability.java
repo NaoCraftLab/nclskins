@@ -155,8 +155,9 @@ final class SkinLookupAppearanceCapability
         if (!expected.profileId().equals(minecraft.getUser().getProfileId())) {
             return ApplyResult.DEFERRED;
         }
-        overrides.clear();
-        return ApplyResult.UPDATED;
+        PlayerSkin accountDefault = DefaultPlayerSkin.get(expected.profileId());
+        return overrides.install(new InstalledOverride(
+                expected, accountDefault, () -> accountDefault, null, null));
     }
 
 

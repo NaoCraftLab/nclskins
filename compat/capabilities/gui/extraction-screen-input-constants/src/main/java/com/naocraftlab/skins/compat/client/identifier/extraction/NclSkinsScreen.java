@@ -101,7 +101,9 @@ public final class NclSkinsScreen extends Screen {
             "legs_all_on",
             "legs_all_off",
             "legs_left_off",
-            "legs_right_off");
+            "legs_right_off",
+            "compatibility_sparkle",
+            "compatibility_warning");
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
     private static final int ERROR_COLOR = 0xFFFF9A9A;
@@ -370,6 +372,15 @@ public final class NclSkinsScreen extends Screen {
                 infoButton.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
                 widget = infoButton;
+            } else if (spec.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
+                widget = new CompatibilityIndicatorWidget(
+                        bounds,
+                        MinecraftClientComponents.resolve(spec.label()),
+                        actionIconTexture(spec.icon().orElseThrow(() ->
+                                new IllegalArgumentException("Missing icon for " + spec.id()))));
+                widget.active = spec.enabled();
+                widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
+                        spec.hint().orElse(spec.label()))));
             } else {
                 if (spec.kind() != ViewSpec.WidgetKind.BUTTON) {
                     throw new IllegalArgumentException("Unsupported widget kind: " + spec.kind());
@@ -457,6 +468,13 @@ public final class NclSkinsScreen extends Screen {
             if (widget instanceof IconButtonWidget iconButton) {
                 widget.setMessage(MinecraftClientComponents.resolve(spec.label()));
                 iconButton.setIcon(actionIconTexture(spec.icon().orElseThrow(() ->
+                        new IllegalArgumentException("Missing icon for " + spec.id()))));
+                widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
+                        spec.hint().orElse(spec.label()))));
+            }
+            if (widget instanceof CompatibilityIndicatorWidget indicator) {
+                widget.setMessage(MinecraftClientComponents.resolve(spec.label()));
+                indicator.setIcon(actionIconTexture(spec.icon().orElseThrow(() ->
                         new IllegalArgumentException("Missing icon for " + spec.id()))));
                 widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
@@ -1672,25 +1690,69 @@ public final class NclSkinsScreen extends Screen {
         protected void extractContents(
                 GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
             extractDefaultSprite(graphics);
-            graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
-                    icon,
-                    getX() + (getWidth() - ACTION_ICON_RENDER_SIZE) / 2,
-                    getY() + (getHeight() - ACTION_ICON_RENDER_SIZE) / 2,
-                    0.0F,
-                    0.0F,
-                    ACTION_ICON_RENDER_SIZE,
-                    ACTION_ICON_RENDER_SIZE,
-                    ACTION_ICON_TEXTURE_SIZE,
-                    ACTION_ICON_TEXTURE_SIZE,
-                    ACTION_ICON_TEXTURE_SIZE,
-                    ACTION_ICON_TEXTURE_SIZE);
+            extractActionIcon(graphics, getX(), getY(), getWidth(), getHeight(), icon);
         }
 
         @Override
         public void updateWidgetNarration(NarrationElementOutput output) {
             defaultButtonNarrationText(output);
         }
+    }
+
+
+    private static final class CompatibilityIndicatorWidget extends AbstractButton {
+        private Identifier icon;
+
+        private CompatibilityIndicatorWidget(Bounds bounds, Component message, Identifier icon) {
+            super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
+            this.icon = Objects.requireNonNull(icon, "icon");
+        }
+
+        private void setIcon(Identifier icon) {
+            this.icon = Objects.requireNonNull(icon, "icon");
+        }
+
+        @Override
+        public void onPress(InputWithModifiers input) {
+
+        }
+
+        @Override
+        protected void extractContents(
+                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+            extractActionIcon(graphics, getX(), getY(), getWidth(), getHeight(), icon);
+            if (isHoveredOrFocused()) {
+                extractCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
+            }
+        }
+
+        @Override
+        public void updateWidgetNarration(NarrationElementOutput output) {
+            defaultButtonNarrationText(output);
+        }
+    }
+
+
+    private static void extractActionIcon(
+            GuiGraphicsExtractor graphics,
+            int x,
+            int y,
+            int width,
+            int height,
+            Identifier icon) {
+        graphics.blit(
+                RenderPipelines.GUI_TEXTURED,
+                icon,
+                x + (width - ACTION_ICON_RENDER_SIZE) / 2,
+                y + (height - ACTION_ICON_RENDER_SIZE) / 2,
+                0.0F,
+                0.0F,
+                ACTION_ICON_RENDER_SIZE,
+                ACTION_ICON_RENDER_SIZE,
+                ACTION_ICON_TEXTURE_SIZE,
+                ACTION_ICON_TEXTURE_SIZE,
+                ACTION_ICON_TEXTURE_SIZE,
+                ACTION_ICON_TEXTURE_SIZE);
     }
 
 

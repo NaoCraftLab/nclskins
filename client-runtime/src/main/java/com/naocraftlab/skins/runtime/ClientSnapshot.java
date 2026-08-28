@@ -1,5 +1,9 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.compatibility.SkinCompatibility;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityEvaluator;
+import com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
@@ -12,6 +16,7 @@ import com.naocraftlab.skins.core.service.SessionValidation;
 
 import java.time.Duration;
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -40,7 +45,64 @@ public record ClientSnapshot(
         long intentRevision,
         AppearanceSyncStatus syncStatus,
         boolean syncInProgress,
-        SessionActivity sessionActivity) {
+        SessionActivity sessionActivity,
+        SkinExtensionEnvironment skinExtensionEnvironment,
+        Map<UUID, SkinFeatureEvidence> assetEvidence,
+        Map<String, SkinFeatureEvidence> catalogEvidence,
+        boolean hideIncompatibleCatalogSkins,
+        boolean hideIncompatibleGalleryLooks) {
+    public ClientSnapshot(
+            Lifecycle lifecycle,
+            Optional<AccountState> account,
+            Optional<SessionValidation> session,
+            Optional<RemoteProfile> remoteProfile,
+            Optional<PresetApplicationOutcome> lastMutation,
+            Optional<UUID> selectedSkinId,
+            Optional<UUID> selectedPresetId,
+            Optional<String> selectedCapeId,
+            Optional<UUID> currentOfficialSkinId,
+            Optional<UUID> activePresetId,
+            Optional<PresetEditorModel> editor,
+            Optional<AddSourceModel> addSource,
+            UiMessage status,
+            boolean busy,
+            boolean rateLimited,
+            Optional<RateLimitProgress> rateLimitProgress,
+            int galleryOffset,
+            long generation,
+            long intentRevision,
+            AppearanceSyncStatus syncStatus,
+            boolean syncInProgress,
+            SessionActivity sessionActivity) {
+        this(
+                lifecycle,
+                account,
+                session,
+                remoteProfile,
+                lastMutation,
+                selectedSkinId,
+                selectedPresetId,
+                selectedCapeId,
+                currentOfficialSkinId,
+                activePresetId,
+                editor,
+                addSource,
+                status,
+                busy,
+                rateLimited,
+                rateLimitProgress,
+                galleryOffset,
+                generation,
+                intentRevision,
+                syncStatus,
+                syncInProgress,
+                sessionActivity,
+                SkinExtensionEnvironment.unknown(0),
+                Map.of(),
+                Map.of(),
+                false,
+                false);
+    }
     public ClientSnapshot(
             Lifecycle lifecycle,
             Optional<AccountState> account,
@@ -242,9 +304,32 @@ public record ClientSnapshot(
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(syncStatus, "syncStatus");
         Objects.requireNonNull(sessionActivity, "sessionActivity");
+        Objects.requireNonNull(skinExtensionEnvironment, "skinExtensionEnvironment");
+        assetEvidence = Map.copyOf(Objects.requireNonNull(assetEvidence, "assetEvidence"));
+        catalogEvidence = Map.copyOf(Objects.requireNonNull(catalogEvidence, "catalogEvidence"));
         if (galleryOffset < 0 || generation < 0 || intentRevision < 0) {
             throw new IllegalArgumentException("offset and revisions must not be negative");
         }
+    }
+
+    public SkinCompatibility compatibilityFor(AppearancePreset preset) {
+        Objects.requireNonNull(preset, "preset");
+        SkinFeatureEvidence evidence = preset.skin().optionalAssetId()
+                .map(assetEvidence::get)
+                .orElse(null);
+        return new SkinCompatibilityEvaluator().evaluate(
+                evidence == null ? SkinFeatureEvidence.ORDINARY : evidence,
+                skinExtensionEnvironment);
+    }
+
+    public SkinCompatibility catalogCompatibility(
+            String collectionId, String skinId, com.naocraftlab.skins.core.model.SkinVariant variant) {
+        String key = Objects.requireNonNull(collectionId, "collectionId")
+                + ':' + Objects.requireNonNull(skinId, "skinId")
+                + ':' + Objects.requireNonNull(variant, "variant").name();
+        return new SkinCompatibilityEvaluator().evaluate(
+                catalogEvidence.getOrDefault(key, SkinFeatureEvidence.ORDINARY),
+                skinExtensionEnvironment);
     }
 
     public record RateLimitProgress(Duration remaining, Duration total, double fraction) {

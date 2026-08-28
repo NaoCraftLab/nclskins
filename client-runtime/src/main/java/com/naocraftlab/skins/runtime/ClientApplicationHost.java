@@ -1,9 +1,11 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.config.ClientConfiguration;
 import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 
 public final class ClientApplicationHost<C> implements AutoCloseable {
@@ -16,10 +18,27 @@ public final class ClientApplicationHost<C> implements AutoCloseable {
             Path dataRoot,
             DiagnosticSink diagnostics,
             Runnable closeNativeResources) {
+        this(
+                capabilities,
+                textResolver,
+                dataRoot,
+                ClientConfiguration::defaults,
+                diagnostics,
+                closeNativeResources);
+    }
+
+    public ClientApplicationHost(
+            ClientCapabilitySet capabilities,
+            TextResolver textResolver,
+            Path dataRoot,
+            Supplier<ClientConfiguration> configurationSource,
+            DiagnosticSink diagnostics,
+            Runnable closeNativeResources) {
         Objects.requireNonNull(capabilities, "capabilities");
         runtime = capabilities.createRuntime(
                 textResolver,
                 Objects.requireNonNull(dataRoot, "dataRoot"),
+                Objects.requireNonNull(configurationSource, "configurationSource"),
                 Objects.requireNonNull(diagnostics, "diagnostics"));
         process = new ClientProcessHost<>(runtime, closeNativeResources);
     }

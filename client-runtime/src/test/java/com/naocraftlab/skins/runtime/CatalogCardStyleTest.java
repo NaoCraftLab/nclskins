@@ -78,6 +78,8 @@ final class CatalogCardStyleTest {
                 CatalogCardStyle.SELECTED_BACKGROUND_COLOR,
                 CatalogCardStyle.backgroundBehindContentColor(selectedImport, true));
         assertFalse(CatalogCardStyle.backgroundBehindContent(ViewSpec.WidgetKind.BUTTON));
+        assertFalse(CatalogCardStyle.backgroundBehindContent(
+                ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR));
     }
 
     @Test
@@ -103,13 +105,15 @@ final class CatalogCardStyleTest {
     }
 
     @Test
-    void focusFrameHasSharedVanillaPaletteAndOnlyCardKindsSupportIt() {
+    void focusFrameHasSharedVanillaPaletteAndSupportsCardsAndCompatibilityMarker() {
         assertEquals(0xFFFFFFFF, CatalogCardStyle.FOCUS_FRAME_COLOR);
         assertEquals(0xFF000000, CatalogCardStyle.FOCUS_FRAME_SHADOW_COLOR);
         assertEquals(ViewNavigationPolicy.FOCUS_FRAME_INSET, CatalogCardStyle.FOCUS_FRAME_INSET);
         assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.CATALOG_CARD));
         assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.SELECTABLE_CARD));
         assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.CAPE_CARD));
+        assertTrue(CatalogCardStyle.focusFrameSupported(
+                ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR));
         assertFalse(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.BUTTON));
         assertFalse(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.TEXT_FIELD));
     }

@@ -18,7 +18,8 @@
     "serverProfileMutation",
     "serverTracking",
     "serverPlayerInfoPublication",
-    "serverLoader"
+    "serverLoader",
+    "skinExtensionEnvironment"
   ],
   "sharedSuites": {
     "view-host-contract": {
@@ -277,6 +278,24 @@
         "unchanged-bounded-admission-and-publication"
       ]
     },
+    "skin-extension-environment": {
+      "tests": [
+        "client-contract/src/test/java/com/naocraftlab/skins/client/SkinExtensionResourceDetectorTest.java",
+        "core/src/test/java/com/naocraftlab/skins/core/compatibility/SkinFeatureCompatibilityTest.java"
+      ],
+      "supportSources": [
+        "client-contract/src/main/java/com/naocraftlab/skins/client/SkinExtensionEnvironmentSource.java",
+        "client-contract/src/main/java/com/naocraftlab/skins/client/SkinExtensionResourceDetector.java"
+      ],
+      "semantics": [
+        "exact-loader-mod-presence",
+        "effective-active-resource-signatures",
+        "model-runtime-prerequisites",
+        "missing-resource-inactive",
+        "adapter-failure-unknown",
+        "resource-generation-refresh"
+      ]
+    },
     "server-loader-lifecycle": {
       "tests": [
         "server-runtime/src/test/java/com/naocraftlab/skins/server/runtime/ServerAppearanceRefreshServiceTest.java",
@@ -434,6 +453,21 @@
       "capabilityKey": "loaderScreen",
       "sharedSuite": "client-loader-lifecycle",
       "leafSource": "loader/neoforge/extraction/src/main/java/com/naocraftlab/skins/loader/neoforge/NeoForgeClientBridge.java"
+    },
+    "fabric-resource-stack-v1": {
+      "capabilityKey": "skinExtensionEnvironment",
+      "sharedSuite": "skin-extension-environment",
+      "leafSource": "compat/capabilities/skin-extension-environment/fabric/src/main/java/com/naocraftlab/skins/compat/environment/FabricSkinExtensionEnvironmentSource.java"
+    },
+    "forge47-resource-stack-v1": {
+      "capabilityKey": "skinExtensionEnvironment",
+      "sharedSuite": "skin-extension-environment",
+      "leafSource": "compat/capabilities/skin-extension-environment/forge/src/main/java/com/naocraftlab/skins/compat/environment/ForgeSkinExtensionEnvironmentSource.java"
+    },
+    "neoforge-resource-stack-v1": {
+      "capabilityKey": "skinExtensionEnvironment",
+      "sharedSuite": "skin-extension-environment",
+      "leafSource": "compat/capabilities/skin-extension-environment/neoforge/src/main/java/com/naocraftlab/skins/compat/environment/NeoForgeSkinExtensionEnvironmentSource.java"
     },
     "minecraft-user-v1": {
       "capabilityKey": "session",

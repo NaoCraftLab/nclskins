@@ -12,6 +12,7 @@ import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.MinecraftProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApi;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.importing.ExternalImportContext;
 import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
@@ -434,8 +435,37 @@ public final class DefaultClientOperations implements ClientOperations {
                             accountId, account.personalSkins(), generation, discovery);
         }
         catalogSnapshot = new CatalogSnapshot(
-                accountId, discovery.variantHashes(), discovery.personalAssets());
+                accountId,
+                discovery.variantHashes(),
+                discovery.personalAssets(),
+                discovery.featureEvidence());
         return discovery.collections();
+    }
+
+    @Override
+    public Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> catalogFeatureEvidence() {
+        return catalogSnapshot.featureEvidence();
+    }
+
+    @Override
+    public Map<UUID, SkinFeatureEvidence> assetFeatureEvidence()
+            throws IOException, PngValidationException {
+        UUID accountId = resolveAccountId(pinCurrentSession().identity());
+        AccountState account = library.load(accountId);
+        Map<UUID, SkinFeatureEvidence> evidence = new HashMap<>();
+        PngValidator validator = new PngValidator();
+        for (SkinAsset asset : account.skinAssets()) {
+            evidence.put(
+                    asset.id(),
+                    validator.normalizeSkinWithVariant(storage.readAsset(asset.sha256()))
+                            .featureEvidence());
+        }
+        return Map.copyOf(evidence);
+    }
+
+    @Override
+    public boolean supportsAssetFeatureEvidence() {
+        return true;
     }
 
     private CatalogDiscovery discoverAvailableCatalogCollections(
@@ -443,6 +473,7 @@ public final class DefaultClientOperations implements ClientOperations {
         List<SkinCatalogSource.CollectionDescriptor> collections = new ArrayList<>();
         Map<CatalogVariantKey, String> variantHashes = new HashMap<>();
         Map<CatalogVariantKey, UUID> personalAssets = new HashMap<>();
+        Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence = new HashMap<>();
         List<PersonalSkinEntry> visiblePersonalSkins = account.personalSkins().stream()
                 .filter(PersonalSkinEntry::visible)
                 .sorted(Comparator.comparing(PersonalSkinEntry::addedAt)
@@ -456,7 +487,8 @@ public final class DefaultClientOperations implements ClientOperations {
                         .toList(),
                 PersonalSkinCatalog.COLLECTION_ID,
                 variantHashes,
-                personalAssets);
+                personalAssets,
+                featureEvidence);
         if (!personalSkins.isEmpty()) {
             collections.add(new SkinCatalogSource.CollectionDescriptor(
                     PersonalSkinCatalog.COLLECTION_ID,
@@ -473,7 +505,8 @@ public final class DefaultClientOperations implements ClientOperations {
                         .toList(),
                 PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
                 variantHashes,
-                personalAssets);
+                personalAssets,
+                featureEvidence);
         if (!otherPlayerSkins.isEmpty()) {
             collections.add(new SkinCatalogSource.CollectionDescriptor(
                     PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
@@ -499,6 +532,16 @@ public final class DefaultClientOperations implements ClientOperations {
                         variantHashes.put(
                                 new CatalogVariantKey(collection.id(), skin.id(), model),
                                 sha256(normalized));
+                        featureEvidence.put(
+                                new ClientOperations.CatalogVariant(
+                                        collection.id(),
+                                        skin.id(),
+                                        model == SkinModel.SLIM
+                                                ? SkinVariant.SLIM
+                                                : SkinVariant.CLASSIC),
+                                new PngValidator()
+                                        .normalizeSkinWithVariant(normalized)
+                                        .featureEvidence());
                         availableModels.add(model);
                     } catch (IOException | PngValidationException unavailableVariant) {
 
@@ -523,7 +566,8 @@ public final class DefaultClientOperations implements ClientOperations {
                         collection.order()));
             }
         }
-        return new CatalogDiscovery(collections, variantHashes, personalAssets);
+        return new CatalogDiscovery(
+                collections, variantHashes, personalAssets, featureEvidence);
     }
 
     private List<SkinCatalogSource.SkinDescriptor> personalSkinDescriptors(
@@ -531,10 +575,16 @@ public final class DefaultClientOperations implements ClientOperations {
             List<PersonalSkinEntry> entries,
             String collectionId,
             Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets) {
+            Map<CatalogVariantKey, UUID> personalAssets,
+            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
         return entries.stream()
                 .map(entry -> personalSkinDescriptor(
-                        accountId, entry, collectionId, variantHashes, personalAssets))
+                        accountId,
+                        entry,
+                        collectionId,
+                        variantHashes,
+                        personalAssets,
+                        featureEvidence))
                 .toList();
     }
 
@@ -543,7 +593,8 @@ public final class DefaultClientOperations implements ClientOperations {
             PersonalSkinEntry entry,
             String collectionId,
             Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets) {
+            Map<CatalogVariantKey, UUID> personalAssets,
+            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
         List<SkinModel> models = new ArrayList<>(2);
         addPersonalVariant(
                 accountId,
@@ -553,7 +604,8 @@ public final class DefaultClientOperations implements ClientOperations {
                 collectionId,
                 models,
                 variantHashes,
-                personalAssets);
+                personalAssets,
+                featureEvidence);
         addPersonalVariant(
                 accountId,
                 entry,
@@ -562,7 +614,8 @@ public final class DefaultClientOperations implements ClientOperations {
                 collectionId,
                 models,
                 variantHashes,
-                personalAssets);
+                personalAssets,
+                featureEvidence);
         if (models.isEmpty()) {
             throw new IllegalStateException("Personal skin has no indexed variants");
         }
@@ -574,7 +627,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 models);
     }
 
-    private static void addPersonalVariant(
+    private void addPersonalVariant(
             UUID accountId,
             PersonalSkinEntry entry,
             SkinVariant variant,
@@ -582,13 +635,24 @@ public final class DefaultClientOperations implements ClientOperations {
             String collectionId,
             List<SkinModel> models,
             Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets) {
+            Map<CatalogVariantKey, UUID> personalAssets,
+            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
         entry.optionalAssetId(variant).ifPresent(assetId -> {
             CatalogVariantKey key = new CatalogVariantKey(
                     collectionId, entry.sha256(), model);
             models.add(model);
             variantHashes.put(key, entry.sha256());
             personalAssets.put(key, assetId);
+            try {
+                byte[] normalized = storage.readAsset(entry.sha256());
+                featureEvidence.put(
+                        new ClientOperations.CatalogVariant(
+                                collectionId, entry.sha256(), variant),
+                        new PngValidator()
+                                .normalizeSkinWithVariant(normalized)
+                                .featureEvidence());
+            } catch (IOException | PngValidationException unavailableAsset) {
+            }
         });
     }
 
@@ -2439,11 +2503,14 @@ public final class DefaultClientOperations implements ClientOperations {
     private record CatalogDiscovery(
             List<SkinCatalogSource.CollectionDescriptor> collections,
             Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets) {
+            Map<CatalogVariantKey, UUID> personalAssets,
+            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
         private CatalogDiscovery {
             collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
             variantHashes = Map.copyOf(Objects.requireNonNull(variantHashes, "variantHashes"));
             personalAssets = Map.copyOf(Objects.requireNonNull(personalAssets, "personalAssets"));
+            featureEvidence = Map.copyOf(Objects.requireNonNull(
+                    featureEvidence, "featureEvidence"));
         }
     }
 
@@ -2471,16 +2538,19 @@ public final class DefaultClientOperations implements ClientOperations {
     private record CatalogSnapshot(
             UUID accountId,
             Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets) {
+            Map<CatalogVariantKey, UUID> personalAssets,
+            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
         private CatalogSnapshot {
             Objects.requireNonNull(accountId, "accountId");
             variantHashes = Map.copyOf(Objects.requireNonNull(variantHashes, "variantHashes"));
             personalAssets = Map.copyOf(Objects.requireNonNull(personalAssets, "personalAssets"));
+            featureEvidence = Map.copyOf(Objects.requireNonNull(
+                    featureEvidence, "featureEvidence"));
         }
 
         private static CatalogSnapshot empty() {
             return new CatalogSnapshot(
-                    new UUID(0L, 0L), Map.of(), Map.of());
+                    new UUID(0L, 0L), Map.of(), Map.of(), Map.of());
         }
     }
 }

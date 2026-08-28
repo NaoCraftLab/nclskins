@@ -49,16 +49,26 @@ public final class VanillaPackBundledSkinSource implements SkinCatalogSource {
 
     @Override
     public byte[] loadResource(String identifier) throws IOException {
+        return findResource(identifier)
+                .orElseThrow(() -> new IOException("Minecraft resource is unavailable"));
+    }
+
+    @Override
+    public java.util.Optional<byte[]> findResource(String identifier) throws IOException {
         final ResourceLocation location;
         try {
             location = ResourceLocation.parse(identifier);
         } catch (RuntimeException invalid) {
             throw new IOException("Invalid Minecraft resource identifier", invalid);
         }
-        Resource resource = Minecraft.getInstance().getResourceManager().getResource(location)
-                .orElseThrow(() -> new IOException("Minecraft resource skin is unavailable"));
-        try (InputStream input = resource.open()) {
-            return readBounded(input);
+        java.util.Optional<Resource> resource = Minecraft.getInstance()
+                .getResourceManager()
+                .getResource(location);
+        if (resource.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        try (InputStream input = resource.orElseThrow().open()) {
+            return java.util.Optional.of(readBounded(input));
         }
     }
 

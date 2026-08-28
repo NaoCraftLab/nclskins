@@ -38,6 +38,8 @@ final class ArtifactVerifier {
         'body_right_arm_off.png' : 20,
         'cape.png'               : 20,
         'collapse_all.png'       : 20,
+        'compatibility_sparkle.png': 20,
+        'compatibility_warning.png': 20,
         'delete.png'             : 20,
         'duplicate.png'          : 20,
         'edit.png'               : 20,

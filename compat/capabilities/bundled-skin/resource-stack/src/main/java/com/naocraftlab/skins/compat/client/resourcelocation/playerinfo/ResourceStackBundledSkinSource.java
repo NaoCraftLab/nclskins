@@ -50,14 +50,24 @@ public final class ResourceStackBundledSkinSource implements SkinCatalogSource {
 
     @Override
     public byte[] loadResource(String identifier) throws IOException {
+        return findResource(identifier)
+                .orElseThrow(() -> new IOException("Minecraft resource is unavailable"));
+    }
+
+    @Override
+    public java.util.Optional<byte[]> findResource(String identifier) throws IOException {
         ResourceLocation location = ResourceLocation.tryParse(identifier);
         if (location == null) {
             throw new IOException("Invalid Minecraft resource identifier");
         }
-        Resource resource = Minecraft.getInstance().getResourceManager().getResource(location)
-                .orElseThrow(() -> new IOException("Minecraft resource skin is unavailable"));
-        try (InputStream input = resource.open()) {
-            return readBounded(input);
+        java.util.Optional<Resource> resource = Minecraft.getInstance()
+                .getResourceManager()
+                .getResource(location);
+        if (resource.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        try (InputStream input = resource.orElseThrow().open()) {
+            return java.util.Optional.of(readBounded(input));
         }
     }
 

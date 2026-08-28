@@ -59,6 +59,21 @@ final class ClientConfigurationDraftTest {
                 Path.of("/folderX").toString()));
     }
 
+    @Test
+    void compatibilitySettingsRemainIndependentInDraft() {
+        ClientConfigurationDraft draft = new ClientConfigurationDraft(
+                ClientConfiguration.defaults(), new QueueDirectoryPicker());
+
+        draft.setHideIncompatibleCatalogSkins(true);
+        assertEquals(true, draft.value().compatibility().hideIncompatibleCatalogSkins());
+        assertEquals(false, draft.value().compatibility().hideIncompatibleGalleryLooks());
+
+        draft.setHideIncompatibleGalleryLooks(true);
+        draft.setHideIncompatibleCatalogSkins(false);
+        assertEquals(false, draft.value().compatibility().hideIncompatibleCatalogSkins());
+        assertEquals(true, draft.value().compatibility().hideIncompatibleGalleryLooks());
+    }
+
     private static final class QueueDirectoryPicker implements FilePicker {
         private final Queue<Optional<Path>> selections = new ArrayDeque<>();
         private Path lastInitialDirectory;

@@ -28,11 +28,38 @@ final class Json5ConfigurationRepositoryTest {
         String server = read(Json5ConfigurationRepository.SERVER_FILE_NAME);
         assertTrue(client.contains("// Show the clickable NCL Skins player preview on the title screen."));
         assertTrue(client.contains("\"dataDirectory\": \"\""));
+        assertTrue(client.contains("\"hideIncompatibleCatalogSkins\": false"));
+        assertTrue(client.contains("\"hideIncompatibleGalleryLooks\": false"));
         assertTrue(server.contains("// Update your skin for other players without reconnecting"));
         assertTrue(server.contains("\"lookupRatePerSecond\": 10.0"));
         assertFalse(server.contains("\"advanced\""));
         assertTrue(client.endsWith("\n"));
         assertTrue(server.endsWith("\n"));
+    }
+
+    @Test
+    void compatibilityHideSettingsRoundTripIndependentlyAndMissingFieldsDefaultFalse()
+            throws IOException {
+        Json5ConfigurationRepository repository = bundledRepository();
+        for (boolean catalog : new boolean[] {false, true}) {
+            for (boolean gallery : new boolean[] {false, true}) {
+                ClientConfiguration configured = ClientConfiguration.defaults()
+                        .withHideIncompatibleCatalogSkins(catalog)
+                        .withHideIncompatibleGalleryLooks(gallery);
+                repository.saveClient(configured);
+                ClientConfiguration loaded = repository.loadClient();
+                assertEquals(catalog, loaded.compatibility().hideIncompatibleCatalogSkins());
+                assertEquals(gallery, loaded.compatibility().hideIncompatibleGalleryLooks());
+            }
+        }
+
+        Files.writeString(
+                temporaryDirectory.resolve(Json5ConfigurationRepository.CLIENT_FILE_NAME),
+                "{ menuPreview: { titleScreen: true, pauseMenu: true }, storage: { dataDirectory: \"\" } }",
+                StandardCharsets.UTF_8);
+        ClientConfiguration legacy = repository.loadClient();
+        assertFalse(legacy.compatibility().hideIncompatibleCatalogSkins());
+        assertFalse(legacy.compatibility().hideIncompatibleGalleryLooks());
     }
 
     @Test

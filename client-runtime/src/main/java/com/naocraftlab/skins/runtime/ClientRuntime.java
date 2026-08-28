@@ -12,9 +12,18 @@ import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
+import com.naocraftlab.skins.client.SkinExtensionEnvironmentSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.PublicSkinImportException;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibility;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityEvaluator;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityStatus;
+import com.naocraftlab.skins.core.compatibility.SkinConsumer;
+import com.naocraftlab.skins.core.compatibility.SkinConsumerState;
+import com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
+import com.naocraftlab.skins.core.config.ClientConfiguration;
 import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
@@ -63,6 +72,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 
 public final class ClientRuntime implements AutoCloseable {
@@ -98,6 +108,9 @@ public final class ClientRuntime implements AutoCloseable {
     private boolean reconciliationRunning;
     private long catalogPreviewEpoch;
     private final State state = new State();
+    private Supplier<ClientConfiguration> configurationSource = ClientConfiguration::defaults;
+    private SkinExtensionEnvironmentSource skinExtensionEnvironmentSource =
+            SkinExtensionEnvironmentSource.unknown();
     private long sessionRetryTicket = -1L;
     private long sessionActivitySequence;
     private long sessionActivityTicket = -1L;
@@ -399,6 +412,23 @@ public final class ClientRuntime implements AutoCloseable {
         return snapshot;
     }
 
+    public ClientRuntime useConfigurationSource(Supplier<ClientConfiguration> source) {
+        if (state.lifecycle != ClientSnapshot.Lifecycle.NEW) {
+            throw new IllegalStateException("configuration source must be installed before initialization");
+        }
+        configurationSource = Objects.requireNonNull(source, "source");
+        return this;
+    }
+
+    public ClientRuntime useSkinExtensionEnvironmentSource(
+            SkinExtensionEnvironmentSource source) {
+        if (state.lifecycle != ClientSnapshot.Lifecycle.NEW) {
+            throw new IllegalStateException("environment source must be installed before initialization");
+        }
+        skinExtensionEnvironmentSource = Objects.requireNonNull(source, "source");
+        return this;
+    }
+
     public DiagnosticSink diagnostics() {
         return diagnostics;
     }
@@ -544,6 +574,7 @@ public final class ClientRuntime implements AutoCloseable {
         clearRuntimeFocus("gallery");
         clearSessionRetryFeedback();
         state.editor = null;
+        state.editorEvidence = null;
         state.addSource = null;
         state.externalImport = null;
         if (draggingGalleryScrollbar) {
@@ -569,6 +600,8 @@ public final class ClientRuntime implements AutoCloseable {
                 }
                 return;
             }
+            boolean environmentChanged = !currentSkinExtensionEnvironment()
+                    .equals(snapshot.skinExtensionEnvironment());
             advanceSessionRetryFeedback();
             boolean scrollChanged = clampGalleryScroll();
             if (state.editor != null) {
@@ -585,7 +618,7 @@ public final class ClientRuntime implements AutoCloseable {
                         || Math.abs(beforeTarget - addSourceScrollTarget) > 0.001
                         || beforeOffset != state.addSource.scrollOffset();
             }
-            if (rateLimitChanged || scrollChanged) {
+            if (rateLimitChanged || scrollChanged || environmentChanged) {
                 publish();
             }
         });
@@ -740,7 +773,26 @@ public final class ClientRuntime implements AutoCloseable {
         viewportHeight = height;
         PresetEditorModel editor = state.editor;
         if (editor != null) {
-            return withRuntimeFocus(editor.present(width, height, editorCapeScrollPosition));
+            ViewSpec editorView = editor.present(width, height, editorCapeScrollPosition);
+            SkinFeatureEvidence evidence = state.editorEvidence;
+            if (evidence != null) {
+                SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(
+                        evidence, snapshot.skinExtensionEnvironment());
+                if (compatibility.status() != SkinCompatibilityStatus.ORDINARY) {
+                    Bounds indicatorBounds = new Bounds(
+                            2,
+                            Math.max(35, height - 55),
+                            20,
+                            20);
+                    editorView = editorView.withCompatibilityIndicator(
+                            "editor.compatibility",
+                            indicatorBounds,
+                            CompatibilityMessages.accessibleLabel(compatibility),
+                            CompatibilityMessages.icon(compatibility),
+                            Optional.of("editor.outer_layer.legs"));
+                }
+            }
+            return withRuntimeFocus(editorView);
         }
         if (state.externalImport != null) {
             return withRuntimeFocus(externalImportPresenter.present(
@@ -748,7 +800,8 @@ public final class ClientRuntime implements AutoCloseable {
                     state.busy,
                     Optional.of(state.status),
                     width,
-                    height));
+                    height,
+                    snapshot.skinExtensionEnvironment()));
         }
         if (state.addSource != null) {
             return withRuntimeFocus(addSourcePresenter.present(
@@ -851,6 +904,18 @@ public final class ClientRuntime implements AutoCloseable {
                     action.orElseThrow(), false, InteractionOrigin.KEYBOARD);
             return true;
         }
+        if ("gallery".equals(current.screenId())
+                && command == ViewSpec.NavigationCommand.TAB_FORWARD
+                && "gallery.search".equals(focusedWidgetId)) {
+            Optional<ViewSpec.NavigationNode> visible = galleryVisibleEntryTarget(current);
+            if (visible.isPresent()) {
+                ViewSpec.NavigationNode node = visible.orElseThrow();
+                state.gallerySelectedCardId = node.id();
+                requestRuntimeFocus(current.screenId(), node.id());
+                publish();
+                return true;
+            }
+        }
         Optional<ViewSpec.NavigationNode> target = ViewNavigationPolicy.target(
                 current, focusedWidgetId, command);
         if (target.isEmpty()) {
@@ -866,6 +931,32 @@ public final class ClientRuntime implements AutoCloseable {
         requestRuntimeFocus(current.screenId(), node.id());
         publish();
         return true;
+    }
+
+    private static Optional<ViewSpec.NavigationNode> galleryVisibleEntryTarget(ViewSpec view) {
+        ViewSpec.ScrollSurface surface = view.scrollSurface("gallery.cards").orElse(null);
+        if (surface == null) {
+            return Optional.empty();
+        }
+        Bounds viewport = surface.viewport();
+        List<ViewSpec.NavigationNode> entries = view.navigationNodes().stream()
+                .filter(ViewSpec.NavigationNode::enabled)
+                .filter(node -> node.pattern() == ViewSpec.NavigationPattern.HORIZONTAL_LIST)
+                .filter(node -> node.surfaceId().filter("gallery.cards"::equals).isPresent())
+                .filter(node -> node.bounds().right() > viewport.x()
+                        && node.bounds().x() < viewport.right())
+                .toList();
+        int viewportCenter = viewport.x() + viewport.width() / 2;
+        Optional<ViewSpec.NavigationNode> centered = entries.stream()
+                .filter(node -> node.bounds().x() >= viewport.x()
+                        && node.bounds().right() <= viewport.right())
+                .min(java.util.Comparator
+                        .comparingInt((ViewSpec.NavigationNode node) -> Math.abs(
+                                node.bounds().x() + node.bounds().width() / 2 - viewportCenter))
+                        .thenComparingInt(node -> node.bounds().x()));
+        return centered.isPresent()
+                ? centered
+                : entries.stream().min(java.util.Comparator.comparingInt(node -> node.bounds().x()));
     }
 
     private void requestRuntimeFocus(String screenId, String widgetId) {
@@ -1309,9 +1400,51 @@ public final class ClientRuntime implements AutoCloseable {
                     reportSkinPreviewFailure(preview);
                 }
             } else {
+                try {
+                    SkinFeatureEvidence evidence = analyzeSkinFeatureEvidence(
+                            bytes.orElseThrow());
+                    onClient(() -> {
+                        boolean changed = false;
+                        if ("editor.preview".equals(preview.id())
+                                && editorPreviewStillCurrent(preview)) {
+                            changed = !evidence.equals(state.editorEvidence);
+                            state.editorEvidence = evidence;
+                        }
+                        Optional<UUID> assetId = preview.skin().optionalAssetId();
+                        if (assetId.isPresent()
+                                && preview.imageRevision().equals(
+                                        "asset:" + assetId.orElseThrow())) {
+                            changed |= !evidence.equals(state.assetEvidence.put(
+                                    assetId.orElseThrow(), evidence));
+                        }
+                        Optional<ViewSpec.CatalogImage> catalogImage = preview.catalogImage();
+                        if (catalogImage.isPresent()) {
+                            ViewSpec.CatalogImage image = catalogImage.orElseThrow();
+                            changed |= !evidence.equals(state.catalogEvidence.put(
+                                    catalogEvidenceKey(
+                                            image.collectionId(),
+                                            image.skinId(),
+                                            preview.variant()),
+                                    evidence));
+                        }
+                        if (changed && !disposed) {
+                            publish();
+                        }
+                    });
+                } catch (PngValidationException ignored) {
+                }
                 clearEditorPreviewFailure(preview, "nclskins.error.preview", false);
             }
         });
+    }
+
+    private boolean editorPreviewStillCurrent(ViewSpec.Preview preview) {
+        return editorEvidenceStillCurrent(preview.imageRevision(), preview.variant());
+    }
+
+    private static SkinFeatureEvidence analyzeSkinFeatureEvidence(byte[] pngBytes)
+            throws PngValidationException {
+        return new PngValidator().normalizeSkinWithVariant(pngBytes).featureEvidence();
     }
 
     public void importSkin(String name, SkinVariant variant, byte[] pngBytes) {
@@ -1409,6 +1542,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.busy = false;
             clearSessionRetryFeedback();
             state.editor = null;
+            state.editorEvidence = null;
             state.addSource = null;
             appearanceRefresh.ifPresent(AppearanceRefreshCoordinator::close);
             serverAppearanceReadiness.ifPresent(ServerAppearanceReadinessCoordinator::close);
@@ -1572,6 +1706,9 @@ public final class ClientRuntime implements AutoCloseable {
         state.uiPreferences = data.uiPreferences();
         state.ownedCapes = data.ownedCapes();
         state.readyData = true;
+        if (operations.supportsAssetFeatureEvidence()) {
+            refreshAssetFeatureEvidence(state.generation, state.account.accountId());
+        }
         state.rateLimited = operations.rateLimited();
         state.selectedCapeId = data.session().optionalProfile()
                 .flatMap(RemoteProfile::activeCape)
@@ -1620,6 +1757,32 @@ public final class ClientRuntime implements AutoCloseable {
                     }
                 }, worker);
         return localRebind;
+    }
+
+    private void refreshAssetFeatureEvidence(long generation, UUID accountId) {
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return operations.assetFeatureEvidence();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return Map.<UUID, SkinFeatureEvidence>of();
+                    } catch (Exception unavailable) {
+                        return Map.<UUID, SkinFeatureEvidence>of();
+                    }
+                }, worker)
+                .thenAccept(evidence -> onClient(() -> {
+                    if (disposed
+                            || state.generation != generation
+                            || state.account == null
+                            || !state.account.accountId().equals(accountId)) {
+                        return;
+                    }
+                    if (!state.assetEvidence.equals(evidence)) {
+                        state.assetEvidence.clear();
+                        state.assetEvidence.putAll(evidence);
+                        publish();
+                    }
+                }));
     }
 
     private boolean currentSessionOwns(ClientOperations.InitialData data) {
@@ -1844,7 +2007,8 @@ public final class ClientRuntime implements AutoCloseable {
 
 
         SkinVariant fallbackVariant = currentPlayerVariant();
-        UiMessage previousStatus = state.status;
+        SkinExtensionEnvironment catalogEnvironment = currentSkinExtensionEnvironment();
+        boolean hideIncompatibleCatalogSkins = snapshot.hideIncompatibleCatalogSkins();
         submit(
                 UiMessage.info("nclskins.status.loading"),
                 () -> {
@@ -1859,21 +2023,39 @@ public final class ClientRuntime implements AutoCloseable {
                     } catch (Exception failure) {
                         diagnose(DiagnosticEvent.CLIENT_PREFERENCES_LOAD_FAILED, failure);
                     }
-                    return new AddSourceData(latest, operations.catalogCollections());
+                    List<SkinCatalogSource.CollectionDescriptor> collections =
+                            operations.catalogCollections();
+                    return new AddSourceData(
+                            latest, collections, operations.catalogFeatureEvidence());
                 },
                 data -> {
                     state.uiPreferences = data.preferences();
+                    state.catalogEvidence.clear();
+                    data.featureEvidence().forEach((variant, evidence) ->
+                            state.catalogEvidence.put(
+                                    catalogEvidenceKey(
+                                            variant.collectionId(),
+                                            variant.skinId(),
+                                            variant.variant()),
+                                    evidence));
                     state.addSource = AddSourceModel.open(
-                            data.preferences(), data.collections(), fallbackVariant, textResolver);
+                                    data.preferences(), data.collections(), fallbackVariant, textResolver)
+                            .withCompatibilityContext(
+                                    catalogEnvironment,
+                                    state.catalogEvidence,
+                                    hideIncompatibleCatalogSkins);
                     resetAddSourceScroll();
                     state.selectedPresetId = null;
-                    state.status = previousStatus;
+                    state.status = UiMessage.info("nclskins.external_import.choose_source");
                 },
                 failure -> {
                     state.addSource = AddSourceModel.open(
-                            cachedPreferences, List.of(), fallbackVariant, textResolver);
+                                    cachedPreferences, List.of(), fallbackVariant, textResolver)
+                            .withCompatibilityContext(
+                                    catalogEnvironment, Map.of(), hideIncompatibleCatalogSkins);
                     resetAddSourceScroll();
                     state.selectedPresetId = null;
+                    state.status = UiMessage.info("nclskins.external_import.choose_source");
                 });
     }
 
@@ -1885,6 +2067,9 @@ public final class ClientRuntime implements AutoCloseable {
         }
         resetPersonalCatalogInteraction();
         state.addSource = state.addSource.withSelectedTab(tab);
+        if (tab == AddSourceTab.FILE) {
+            state.status = UiMessage.info("nclskins.external_import.choose_source");
+        }
         if (state.uiPreferences != null) {
             state.uiPreferences = state.uiPreferences.withSelectedAddSourceTab(tab);
         }
@@ -2052,6 +2237,7 @@ public final class ClientRuntime implements AutoCloseable {
                                     state.ownedCapes.capes(),
                                     viewportHeight,
                                     preferredCapeMode);
+                    prepareEditorEvidence(state.editor);
                     resetEditorCapeScroll();
                     state.selectedPresetId = null;
                     state.status = UiMessage.info("nclskins.status.png_ready");
@@ -2481,6 +2667,7 @@ public final class ClientRuntime implements AutoCloseable {
             editor = editor.withName(draft.name());
         }
         state.editor = applyPendingPresetName(editor);
+        prepareEditorEvidence(state.editor);
         resetEditorCapeScroll();
         state.editorPersonalSource = draft.source();
         state.selectedPresetId = null;
@@ -2714,6 +2901,7 @@ public final class ClientRuntime implements AutoCloseable {
         }
         state.addSource = null;
         state.editor = editor;
+        prepareEditorEvidence(editor);
         resetEditorCapeScroll();
         state.selectedPresetId = presetId;
         publish();
@@ -2784,6 +2972,7 @@ public final class ClientRuntime implements AutoCloseable {
                                         path.getFileName().toString(),
                                         skin.pngBytes(),
                                         skin.detectedVariant());
+                                prepareEditorEvidence(state.editor);
                                 rememberPreferredSkinVariant(skin.detectedVariant());
                             }
                             publish();
@@ -2829,6 +3018,7 @@ public final class ClientRuntime implements AutoCloseable {
                     state.selectedSkinId = preset == null ? null : preset.skin().assetId();
                     state.selectedCapeId = preset == null ? null : preset.capeId();
                     state.editor = null;
+                    state.editorEvidence = null;
                     state.editorPersonalSource = PersonalSkinSource.FILE;
                     state.addSource = null;
                     state.pendingPresetName = null;
@@ -2862,6 +3052,7 @@ public final class ClientRuntime implements AutoCloseable {
     private void cancelEditor() {
         if (state.editor != null && !state.editor.busy()) {
             state.editor = null;
+            state.editorEvidence = null;
             resetEditorCapeScroll();
             publish();
         }
@@ -2918,6 +3109,7 @@ public final class ClientRuntime implements AutoCloseable {
                     preferredCapeMode,
                     preferredSkinVariant(),
                     state.ownedCapes == null ? List.of() : state.ownedCapes.capes());
+            prepareEditorEvidence(state.editor);
             resetEditorCapeScroll();
             state.selectedPresetId = presetId;
             publish();
@@ -3820,9 +4012,71 @@ public final class ClientRuntime implements AutoCloseable {
         SkinVariant before = state.editor.variant();
         state.editor = state.editor.toggleVariant();
         if (state.editor.variant() != before) {
+            prepareEditorEvidence(state.editor);
             rememberPreferredSkinVariant(state.editor.variant());
         }
         publish();
+    }
+
+    private void prepareEditorEvidence(PresetEditorModel editor) {
+        Objects.requireNonNull(editor, "editor");
+        state.editorEvidence = null;
+        Optional<UUID> assetId = editor.skin().optionalAssetId();
+        if (editor.png().isPresent()) {
+            try {
+                SkinFeatureEvidence evidence = analyzeSkinFeatureEvidence(
+                        editor.png().orElseThrow().bytes());
+                state.editorEvidence = evidence;
+            } catch (PngValidationException ignored) {
+            }
+            return;
+        }
+        if (assetId.isEmpty()) {
+            return;
+        }
+        SkinFeatureEvidence cached = state.assetEvidence.get(assetId.orElseThrow());
+        if (cached != null) {
+            state.editorEvidence = cached;
+            return;
+        }
+        String revision = editorEvidenceRevision(editor);
+        SkinVariant variant = editor.variant();
+        CompletableFuture<Optional<byte[]>> loaded = loadSkinPreview(editor.skin());
+        loaded.whenComplete((bytes, failure) -> {
+            if (failure != null || bytes == null || bytes.isEmpty()) {
+                return;
+            }
+            try {
+                SkinFeatureEvidence evidence = analyzeSkinFeatureEvidence(bytes.orElseThrow());
+                onClient(() -> {
+                    boolean changed = !evidence.equals(state.assetEvidence.put(
+                            assetId.orElseThrow(), evidence));
+                    if (editorEvidenceStillCurrent(revision, variant)) {
+                        changed |= !evidence.equals(state.editorEvidence);
+                        state.editorEvidence = evidence;
+                    }
+                    if (changed && !disposed) {
+                        publish();
+                    }
+                });
+            } catch (PngValidationException ignored) {
+            }
+        });
+    }
+
+    private boolean editorEvidenceStillCurrent(String revision, SkinVariant variant) {
+        PresetEditorModel editor = state.editor;
+        return editor != null
+                && editorEvidenceRevision(editor).equals(revision)
+                && editor.variant() == variant;
+    }
+
+    private static String editorEvidenceRevision(PresetEditorModel editor) {
+        return editor.png()
+                .map(PresetEditorModel.DraftPng::revision)
+                .orElseGet(() -> editor.skin().optionalAssetId()
+                        .map(id -> "asset:" + id)
+                        .orElse("current-player"));
     }
 
     private void rememberPreferredSkinVariant(SkinVariant variant) {
@@ -3962,6 +4216,14 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void publish() {
+        ClientConfiguration configuration;
+        try {
+            configuration = Objects.requireNonNull(
+                    configurationSource.get(), "configuration source result");
+        } catch (RuntimeException unavailable) {
+            configuration = ClientConfiguration.defaults();
+        }
+        SkinExtensionEnvironment environment = currentSkinExtensionEnvironment();
         snapshot = new ClientSnapshot(
                 state.lifecycle,
                 Optional.ofNullable(state.account),
@@ -3984,9 +4246,36 @@ public final class ClientRuntime implements AutoCloseable {
                 state.intentRevision,
                 state.syncStatus,
                 state.syncInProgress,
-                state.sessionActivity);
+                state.sessionActivity,
+                environment,
+                state.assetEvidence,
+                state.catalogEvidence,
+                configuration.compatibility().hideIncompatibleCatalogSkins(),
+                configuration.compatibility().hideIncompatibleGalleryLooks());
         ClientSnapshot published = snapshot;
         listeners.forEach(listener -> listener.accept(published));
+    }
+
+    private SkinExtensionEnvironment currentSkinExtensionEnvironment() {
+        try {
+            SkinExtensionEnvironmentSource.Snapshot source = Objects.requireNonNull(
+                    skinExtensionEnvironmentSource.snapshot(), "environment snapshot");
+            EnumMap<SkinConsumer, SkinConsumerState> states = new EnumMap<>(SkinConsumer.class);
+            for (SkinExtensionEnvironmentSource.Consumer consumer
+                    : SkinExtensionEnvironmentSource.Consumer.values()) {
+                states.put(
+                        SkinConsumer.valueOf(consumer.name()),
+                        SkinConsumerState.valueOf(source.consumers().get(consumer).name()));
+            }
+            return new SkinExtensionEnvironment(source.generation(), states);
+        } catch (RuntimeException unavailable) {
+            return SkinExtensionEnvironment.unknown(0);
+        }
+    }
+
+    private static String catalogEvidenceKey(
+            String collectionId, String skinId, SkinVariant variant) {
+        return collectionId + ':' + skinId + ':' + variant.name();
     }
 
     private void onClient(Runnable action) {
@@ -4254,10 +4543,13 @@ public final class ClientRuntime implements AutoCloseable {
 
     private record AddSourceData(
             AccountUiPreferences preferences,
-            List<SkinCatalogSource.CollectionDescriptor> collections) {
+            List<SkinCatalogSource.CollectionDescriptor> collections,
+            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
         private AddSourceData {
             Objects.requireNonNull(preferences, "preferences");
             collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
+            featureEvidence = Map.copyOf(Objects.requireNonNull(
+                    featureEvidence, "featureEvidence"));
         }
     }
 
@@ -4350,6 +4642,9 @@ public final class ClientRuntime implements AutoCloseable {
         private String personalRenameValue = "";
         private long generation;
         private boolean readyData;
+        private final Map<UUID, SkinFeatureEvidence> assetEvidence = new LinkedHashMap<>();
+        private final Map<String, SkinFeatureEvidence> catalogEvidence = new LinkedHashMap<>();
+        private SkinFeatureEvidence editorEvidence;
 
         private void resetForReopen() {
             boolean retainReadyData = readyData && account != null;
@@ -4392,6 +4687,11 @@ public final class ClientRuntime implements AutoCloseable {
             personalRenameCollectionId = null;
             personalRenameHash = null;
             personalRenameValue = "";
+            if (!retainReadyData) {
+                assetEvidence.clear();
+            }
+            catalogEvidence.clear();
+            editorEvidence = null;
         }
     }
 }

@@ -4,6 +4,8 @@ import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinCatalogSource;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibility;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityStatus;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -78,6 +80,7 @@ public final class AddSourcePresenter {
         List<ViewSpec.Preview> previews = new ArrayList<>();
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
         List<ViewSpec.TooltipRegion> tooltipRegions = new ArrayList<>();
+        List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
         List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
         List<ViewSpec.Tab> tabs = List.of(
                 new ViewSpec.Tab(
@@ -157,8 +160,7 @@ public final class AddSourcePresenter {
                     new Bounds(contentX, 161, contentWidth, 20),
                     UiMessage.info("nclskins.external_import.from_mod"),
                     !busy));
-            operationStatus.filter(status ->
-                            !"nclskins.external_import.choose_source".equals(status.key()))
+            operationStatus.filter(status -> status.severity() == UiMessage.Severity.ERROR)
                     .ifPresent(status -> texts.add(new ViewSpec.Text(
                     "add.import.status",
                             new Bounds(contentX, Math.min(height - 40, 196), contentWidth, 10),
@@ -202,6 +204,7 @@ public final class AddSourcePresenter {
                     texts,
                     widgets,
                     previews,
+                    iconDecorations,
                     tooltipRegions,
                     navigationNodes,
                     personalRename);
@@ -263,7 +266,7 @@ public final class AddSourcePresenter {
                 focus,
                 clipRegions,
                 List.of(),
-                List.of(),
+                iconDecorations,
                 scrollSurfaces,
                 tooltipRegions).withNavigationNodes(navigationNodes);
     }
@@ -342,6 +345,7 @@ public final class AddSourcePresenter {
             List<ViewSpec.Text> texts,
             List<ViewSpec.Widget> widgets,
             List<ViewSpec.Preview> previews,
+            List<ViewSpec.IconDecoration> iconDecorations,
             List<ViewSpec.TooltipRegion> tooltipRegions,
             List<ViewSpec.NavigationNode> navigationNodes,
             Optional<PersonalSkinRename> personalRename) {
@@ -353,10 +357,20 @@ public final class AddSourcePresenter {
             List<SkinCatalogSource.SkinDescriptor> skins = model.visibleSkins(collection);
             boolean collapsed = model.collectionCollapsed(collection.id());
             Bounds header = new Bounds(16, y, Math.max(1, layout.contentRight() - 16), COLLECTION_HEADER_HEIGHT);
+            String headerId = "add.catalog.collection:" + collection.id();
+            navigationNodes.add(ViewSpec.NavigationNode.card(
+                    headerId,
+                    header,
+                    "add.catalog",
+                    navigationNodes.size(),
+                    -1,
+                    !busy,
+                    ViewSpec.NavigationPattern.GRID,
+                    Optional.of(headerId)));
             if (intersectsViewport(header, contentBottom)) {
                 Optional<String> collectionInfo = model.collectionInfo(collection);
                 widgets.add(ViewSpec.Widget.collectionHeader(
-                        "add.catalog.collection:" + collection.id(),
+                        headerId,
                         header,
                         UiMessage.literal(
                                 (collapsed ? "▶ " : "▼ ") + model.collectionName(collection),
@@ -400,6 +414,10 @@ public final class AddSourcePresenter {
                     continue;
                 }
                 SkinVariant variant = model.selectedVariant(skin);
+                SkinCompatibility compatibility = model.compatibility(
+                        collection.id(), skin, variant);
+                boolean hasCompatibility = compatibility.status()
+                        != SkinCompatibilityStatus.ORDINARY;
                 panels.add(new ViewSpec.Panel(prefix, card, ViewSpec.Panel.Style.VANILLA_LIST));
                 widgets.add(new ViewSpec.Widget(
                         prefix,
@@ -462,6 +480,23 @@ public final class AddSourcePresenter {
                             Optional.of(new ViewSpec.CatalogImage(collection.id(), skin.id())),
                             PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL));
                 }
+                if (hasCompatibility) {
+                    String indicatorId = prefix + ".compatibility";
+                    int indicatorBottom = personal
+                            ? card.bottom() - 24
+                            : card.bottom() - 2;
+                    Bounds indicatorBounds = new Bounds(
+                            card.x() + 2,
+                            indicatorBottom - 20,
+                            20,
+                            20);
+                    ViewSpec.Widget indicator = ViewSpec.Widget.compatibilityIndicator(
+                            indicatorId,
+                            indicatorBounds,
+                            CompatibilityMessages.accessibleLabel(compatibility),
+                            CompatibilityMessages.icon(compatibility));
+                    addIntersectingWidget(widgets, indicator, contentBottom);
+                }
                 if (renamingThisCard) {
                     PersonalSkinRename rename = personalRename.orElseThrow();
                     addIntersectingWidget(
@@ -508,22 +543,24 @@ public final class AddSourcePresenter {
                             .filter(deletion -> deletion.sha256().equals(skin.id()))
                             .isPresent();
                     if (pendingDelete) {
-                        addIntersectingWidget(
+                        addIntersectingNavigableWidget(
                                 widgets,
                                 ViewSpec.Widget.button(
                                         "add.catalog.delete.confirm",
                                         leftAction,
                                         UiMessage.info("nclskins.your_skins.delete_confirm"),
                                         !busy),
-                                contentBottom);
-                        addIntersectingWidget(
+                                contentBottom,
+                                navigationNodes);
+                        addIntersectingNavigableWidget(
                                 widgets,
                                 ViewSpec.Widget.button(
                                         "add.catalog.delete.cancel",
                                         rightAction,
                                         UiMessage.info("gui.cancel"),
                                         !busy),
-                                contentBottom);
+                                contentBottom,
+                                navigationNodes);
                     } else {
                         addIntersectingWidget(
                                 widgets,
@@ -623,6 +660,18 @@ public final class AddSourcePresenter {
             List<ViewSpec.Widget> widgets, ViewSpec.Widget widget, int contentBottom) {
         if (intersectsViewport(widget.bounds(), contentBottom)) {
             widgets.add(widget);
+        }
+    }
+
+    private static void addIntersectingNavigableWidget(
+            List<ViewSpec.Widget> widgets,
+            ViewSpec.Widget widget,
+            int contentBottom,
+            List<ViewSpec.NavigationNode> navigationNodes) {
+        if (intersectsViewport(widget.bounds(), contentBottom)) {
+            widgets.add(widget);
+            navigationNodes.add(ViewSpec.NavigationNode.control(
+                    widget, navigationNodes.size(), -1));
         }
     }
 

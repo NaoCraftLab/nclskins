@@ -1,6 +1,8 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibility;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityStatus;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
@@ -232,7 +234,8 @@ public final class GalleryPresenter {
                         cardViewport,
                         texts,
                         widgets,
-                        previews);
+                        previews,
+                        iconDecorations);
             }
         }
 
@@ -482,12 +485,15 @@ public final class GalleryPresenter {
             Bounds actionViewport,
             List<ViewSpec.Text> texts,
             List<ViewSpec.Widget> widgets,
-            List<ViewSpec.Preview> previews) {
+            List<ViewSpec.Preview> previews,
+            List<ViewSpec.IconDecoration> iconDecorations) {
         String prefix = "gallery.preset." + preset.id();
         boolean active = snapshot.activePresetId().filter(preset.id()::equals).isPresent();
+        SkinCompatibility compatibility = snapshot.compatibilityFor(preset);
+        boolean hasCompatibility = compatibility.status() != SkinCompatibilityStatus.ORDINARY;
         texts.add(new ViewSpec.Text(
                 prefix + ".name",
-                new Bounds(x + 8, top + 8, cardWidth - 16, 10),
+                new Bounds(x + 8, top + 8, Math.max(1, cardWidth - 16), 10),
                 UiMessage.literal(preset.name(), UiMessage.Severity.INFO),
                 ViewSpec.Text.Alignment.CENTER,
                 Optional.of(new ViewSpec.MarqueeActivation(
@@ -527,6 +533,21 @@ public final class GalleryPresenter {
                 pitch,
                 0.88F,
                 Optional.of(preset.id())));
+
+        if (hasCompatibility) {
+            String indicatorId = prefix + ".compatibility";
+            int indicatorBottom = (confirmingDelete ? applyRow : secondaryRow) - 2;
+            Bounds indicatorBounds = new Bounds(
+                    x + 2,
+                    indicatorBottom - 20,
+                    20,
+                    20);
+            widgets.add(ViewSpec.Widget.compatibilityIndicator(
+                    indicatorId,
+                    indicatorBounds,
+                    CompatibilityMessages.accessibleLabel(compatibility),
+                    CompatibilityMessages.icon(compatibility)));
+        }
 
         if (confirmingDelete) {
             int confirmationX = x + CARD_ACTION_SIDE_INSET;
@@ -901,7 +922,22 @@ public final class GalleryPresenter {
     }
 
     private static List<GalleryCard> cards(ClientSnapshot snapshot, String query) {
-        return cards(snapshot.account(), snapshot.activePresetId(), query);
+        List<GalleryCard> cards = new ArrayList<>();
+        cards.add(new GalleryCard(Optional.empty()));
+        String normalized = query.trim().toLowerCase(java.util.Locale.ROOT);
+        snapshot.account().ifPresent(value -> PresetGalleryOrder.arrange(
+                        value.presets().stream()
+                                .filter(preset -> normalized.isEmpty()
+                                        || preset.name().toLowerCase(java.util.Locale.ROOT)
+                                                .contains(normalized))
+                                .filter(preset -> !snapshot.hideIncompatibleGalleryLooks()
+                                        || snapshot.activePresetId().filter(preset.id()::equals).isPresent()
+                                        || snapshot.compatibilityFor(preset).status()
+                                                != SkinCompatibilityStatus.INCOMPATIBLE)
+                                .toList(),
+                        snapshot.activePresetId().orElse(null))
+                .forEach(preset -> cards.add(new GalleryCard(Optional.of(preset)))));
+        return List.copyOf(cards);
     }
 
     private static List<GalleryCard> cards(

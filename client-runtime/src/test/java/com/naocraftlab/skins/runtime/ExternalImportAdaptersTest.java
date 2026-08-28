@@ -485,6 +485,9 @@ final class ExternalImportAdaptersTest {
         LibraryService library = new LibraryService(storage, clock);
         byte[] playerPng = legacySkinPng();
         byte[] quickPng = expandedLegacySkinPng(playerPng);
+        assertEquals(
+                new PngValidator().pixelSha256(playerPng),
+                new PngValidator().pixelSha256(quickPng));
         var saved = library.savePresetWithPersonalSkin(
                 ACCOUNT_ID,
                 Optional.empty(),
@@ -538,7 +541,9 @@ final class ExternalImportAdaptersTest {
 
         assertTrue(candidate.duplicate());
         assertEquals(saved.personalSkin().sha256(), candidate.sha256());
-        assertTrue(MessageDigest.isEqual(playerPng, candidate.normalizedPng()));
+        assertTrue(MessageDigest.isEqual(
+                storage.readAsset(saved.personalSkin().sha256()),
+                candidate.normalizedPng()));
     }
 
     @Test
@@ -726,6 +731,11 @@ final class ExternalImportAdaptersTest {
         target.setRGB(0, 0, 64, 32, source.getRGB(0, 0, 64, 32, null, 0, 64), 0, 64);
         mirrorLegacyLimb(source, target, 0, 16, 16, 48);
         mirrorLegacyLimb(source, target, 40, 16, 32, 48);
+        setOpaque(target, 0, 0, 32, 16);
+        applyLegacyHatTransparency(target, 32, 0, 64, 32);
+        setOpaque(target, 0, 16, 64, 32);
+        setOpaque(target, 16, 48, 48, 64);
+        clearLegacyUnusedRegions(target);
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ImageIO.write(target, "png", output);
         return output.toByteArray();
@@ -738,12 +748,81 @@ final class ExternalImportAdaptersTest {
             int sourceY,
             int targetX,
             int targetY) {
-        copyMirrored(source, target, sourceX, sourceY, 4, 4, targetX, targetY);
         copyMirrored(source, target, sourceX + 4, sourceY, 4, 4, targetX + 4, targetY);
+        copyMirrored(source, target, sourceX + 8, sourceY, 4, 4, targetX + 8, targetY);
         copyMirrored(source, target, sourceX, sourceY + 4, 4, 12, targetX + 8, targetY + 4);
         copyMirrored(source, target, sourceX + 4, sourceY + 4, 4, 12, targetX + 4, targetY + 4);
         copyMirrored(source, target, sourceX + 8, sourceY + 4, 4, 12, targetX, targetY + 4);
         copyMirrored(source, target, sourceX + 12, sourceY + 4, 4, 12, targetX + 12, targetY + 4);
+    }
+
+    private static void clear(
+            BufferedImage image, int x, int y, int width, int height) {
+        for (int row = y; row < y + height; row++) {
+            for (int column = x; column < x + width; column++) {
+                image.setRGB(column, row, 0);
+            }
+        }
+    }
+
+    private static void clearLegacyUnusedRegions(BufferedImage image) {
+        boolean[][] renderable = new boolean[64][64];
+        mark(renderable, 8, 0, 16, 8);
+        mark(renderable, 16, 0, 24, 8);
+        mark(renderable, 0, 8, 32, 16);
+        mark(renderable, 40, 0, 56, 8);
+        mark(renderable, 32, 8, 64, 16);
+        mark(renderable, 4, 16, 12, 20);
+        mark(renderable, 0, 20, 16, 32);
+        mark(renderable, 20, 16, 36, 20);
+        mark(renderable, 16, 20, 40, 32);
+        mark(renderable, 44, 16, 52, 20);
+        mark(renderable, 40, 20, 56, 32);
+        mark(renderable, 20, 48, 28, 52);
+        mark(renderable, 16, 52, 32, 64);
+        mark(renderable, 36, 48, 44, 52);
+        mark(renderable, 32, 52, 48, 64);
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                if (!renderable[y][x]) {
+                    image.setRGB(x, y, 0);
+                }
+            }
+        }
+    }
+
+    private static void mark(
+            boolean[][] mask, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                mask[y][x] = true;
+            }
+        }
+    }
+
+    private static void setOpaque(
+            BufferedImage image, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                image.setRGB(x, y, image.getRGB(x, y) | 0xff000000);
+            }
+        }
+    }
+
+    private static void applyLegacyHatTransparency(
+            BufferedImage image, int left, int top, int right, int bottom) {
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                if ((image.getRGB(x, y) >>> 24) < 128) {
+                    return;
+                }
+            }
+        }
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                image.setRGB(x, y, image.getRGB(x, y) & 0x00ffffff);
+            }
+        }
     }
 
     private static void copyMirrored(

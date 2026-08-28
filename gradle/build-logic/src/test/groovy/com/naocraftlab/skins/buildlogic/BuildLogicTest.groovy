@@ -268,7 +268,7 @@ final class BuildLogicTest {
                 .findAll { it.name.endsWith('.png') }
                 .collect { it.name } as Set
         assertEquals(ArtifactVerifier.BUTTON_ICON_SIZES.keySet(), sourceNames)
-        assertEquals(22, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
+        assertEquals(24, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
         assertEquals(2, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 32 })
         ArtifactVerifier.BUTTON_ICON_SIZES.each { String name, int size ->
             def image = ImageIO.read(new File(icons, name))
@@ -1974,6 +1974,70 @@ final class BuildLogicTest {
         assertTrue(new File(
                 repository,
                 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/ViewHostCoordinator.java').exists())
+    }
+
+    @Test
+    void everyNativeGuiHostAcceptsCompatibilityIndicatorIcons() {
+        [
+                'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java',
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
+                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+        ].each { String path ->
+            String source = new File(repository, path).text
+            assertTrue(source.contains('"compatibility_sparkle"'), path)
+            assertTrue(source.contains('"compatibility_warning"'), path)
+        }
+    }
+
+    @Test
+    void compatibilityIndicatorsInstallTooltipsWithoutHoverFill() {
+        String immediate = new File(
+                repository,
+                'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java').text
+        String submission = new File(
+                repository,
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java').text
+        List<String> extraction = [
+                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+        ].collect { new File(repository, it).text }
+
+        String cardStyle = new File(
+                repository,
+                'client-runtime/src/main/java/com/naocraftlab/skins/runtime/CatalogCardStyle.java').text
+        String backgroundKinds = cardStyle.substring(
+                cardStyle.indexOf('public static boolean backgroundBehindContent('),
+                cardStyle.indexOf('public static int backgroundBehindContentColor('))
+        assertFalse(backgroundKinds.contains('COMPATIBILITY_INDICATOR'))
+
+        String immediateIndicator = immediate.substring(
+                immediate.indexOf('private final class CompatibilityIndicatorWidget'),
+                immediate.indexOf('private static void renderActionIcon'))
+        assertTrue(immediateIndicator.contains('renderActionIcon('))
+        assertTrue(immediateIndicator.contains('isHoveredOrFocused()'))
+        assertTrue(immediateIndicator.contains('drawCardFocusFrame('))
+        assertFalse(immediateIndicator.contains('super.renderWidget('))
+        assertTrue(immediate.count('renderActionIcon(') >= 3)
+        assertTrue(submission.contains('spec.hint()'))
+        String submissionIndicator = submission.substring(
+                submission.indexOf('case COMPATIBILITY_INDICATOR -> {'),
+                submission.indexOf('case CATALOG_DELETE -> {'))
+        assertTrue(submissionIndicator.contains('actionIconTexture('))
+        assertTrue(submissionIndicator.contains('ACTION_ICON_RENDER_SIZE'))
+        assertFalse(submissionIndicator.contains('renderDefaultSprite('))
+        assertTrue(submission.contains(
+                'kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR && isHoveredOrFocused()'))
+        extraction.each { String source ->
+            String indicator = source.substring(
+                    source.indexOf('private static final class CompatibilityIndicatorWidget'),
+                    source.indexOf('private static void extractActionIcon'))
+            assertTrue(indicator.contains('extractActionIcon('))
+            assertTrue(indicator.contains('isHoveredOrFocused()'))
+            assertTrue(indicator.contains('extractCardFocusFrame('))
+            assertFalse(indicator.contains('extractDefaultSprite('))
+            assertTrue(source.count('extractActionIcon(') >= 3)
+        }
     }
 
     @Test

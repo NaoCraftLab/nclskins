@@ -68,6 +68,11 @@ abstract class GenerateTargetBindingsTask extends DefaultTask {
     public static com.naocraftlab.skins.runtime.ClientCapabilityProvider.Provision provision() {
         return new ${targetClientProvider(target)}().provision();
     }
+
+    public static com.naocraftlab.skins.client.SkinExtensionEnvironmentSource skinExtensionEnvironment(
+            com.naocraftlab.skins.client.SkinCatalogSource resources) {
+        return new ${skinExtensionEnvironmentClass(target)}(resources);
+    }
 """
                 : ''
         destination.setText("""package com.naocraftlab.skins.generated;
@@ -92,6 +97,19 @@ ${providerMethod}
 
     private static String targetClientProvider(Map target) {
         target.__clientProviderClass?.toString() ?: target.clientProviderClass?.toString()
+    }
+
+    private static String skinExtensionEnvironmentClass(Map target) {
+        switch ((target.capabilities as Map).skinExtensionEnvironment?.toString()) {
+            case 'fabric-resource-stack-v1':
+                return 'com.naocraftlab.skins.compat.environment.FabricSkinExtensionEnvironmentSource'
+            case 'forge47-resource-stack-v1':
+                return 'com.naocraftlab.skins.compat.environment.ForgeSkinExtensionEnvironmentSource'
+            case 'neoforge-resource-stack-v1':
+                return 'com.naocraftlab.skins.compat.environment.NeoForgeSkinExtensionEnvironmentSource'
+            default:
+                throw new IllegalArgumentException('unsupported skin extension environment capability')
+        }
     }
 
     private static String escape(Object value) {

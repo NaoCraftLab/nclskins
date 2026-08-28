@@ -112,6 +112,18 @@ public final class Json5ConfigurationRepository {
                 defaults.menuPreview().pauseMenu(),
                 "pauseMenu",
                 "menuPreview");
+        boolean hideCatalog = booleanValue(
+                root,
+                scanner,
+                defaults.compatibility().hideIncompatibleCatalogSkins(),
+                "hideIncompatibleCatalogSkins",
+                "compatibility");
+        boolean hideGallery = booleanValue(
+                root,
+                scanner,
+                defaults.compatibility().hideIncompatibleGalleryLooks(),
+                "hideIncompatibleGalleryLooks",
+                "compatibility");
         String dataDirectory = stringValue(
                 root,
                 scanner,
@@ -123,6 +135,7 @@ public final class Json5ConfigurationRepository {
         }
         return new ClientConfiguration(
                 new ClientConfiguration.MenuPreview(titleScreen, pauseMenu),
+                new ClientConfiguration.Compatibility(hideCatalog, hideGallery),
                 new ClientConfiguration.Storage(dataDirectory));
     }
 
@@ -211,6 +224,16 @@ public final class Json5ConfigurationRepository {
                 .append(",\n\n");
         appendComment(out, 4, ConfigurationDescriptions.CLIENT_PAUSE_MENU);
         out.append("    \"pauseMenu\": ").append(configuration.menuPreview().pauseMenu())
+                .append("\n");
+        out.append("  },\n\n");
+        out.append("  \"compatibility\": {\n");
+        appendComment(out, 4, ConfigurationDescriptions.CLIENT_HIDE_INCOMPATIBLE_CATALOG);
+        out.append("    \"hideIncompatibleCatalogSkins\": ")
+                .append(configuration.compatibility().hideIncompatibleCatalogSkins())
+                .append(",\n\n");
+        appendComment(out, 4, ConfigurationDescriptions.CLIENT_HIDE_INCOMPATIBLE_GALLERY);
+        out.append("    \"hideIncompatibleGalleryLooks\": ")
+                .append(configuration.compatibility().hideIncompatibleGalleryLooks())
                 .append("\n");
         out.append("  },\n\n");
         out.append("  \"storage\": {\n");

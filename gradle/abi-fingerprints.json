@@ -5880,6 +5880,107 @@
       "mixinAnchors": [],
       "baselineSha256": "06f567c78d21da1ca013d7243cf9b9177119a90430e8edd4b1b0fb56283755fd"
     },
+    "fabric-resource-stack-v1": {
+      "kind": "skinExtensionEnvironment",
+      "epochs": [
+        "1.20.1",
+        "1.21.1",
+        "1.21.11",
+        "26.1",
+        "26.2",
+        "26.3"
+      ],
+      "classes": [
+        {
+          "name": "net.fabricmc.loader.api.FabricLoader",
+          "access": "public",
+          "finality": "interface",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getInstance",
+              "descriptor": "()Lnet/fabricmc/loader/api/FabricLoader;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "isModLoaded",
+              "descriptor": "(Ljava/lang/String;)Z",
+              "access": "public abstract",
+              "finality": "abstract"
+            }
+          ]
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "d7001d47ddde30f042dbfde798ae5889253640c0d9a8fcdb06e8caaa878d4b18"
+    },
+    "forge47-resource-stack-v1": {
+      "kind": "skinExtensionEnvironment",
+      "epochs": [
+        "1.20.1"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraftforge.fml.ModList",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "get",
+              "descriptor": "()Lnet/minecraftforge/fml/ModList;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "isLoaded",
+              "descriptor": "(Ljava/lang/String;)Z",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "e2d8eade716142a796be7f0314f8c2928681a75cb1935b035c4f8158431698a5"
+    },
+    "neoforge-resource-stack-v1": {
+      "kind": "skinExtensionEnvironment",
+      "epochs": [
+        "1.21.1",
+        "1.21.11",
+        "26.1",
+        "26.2"
+      ],
+      "classes": [
+        {
+          "name": "net.neoforged.fml.ModList",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "get",
+              "descriptor": "()Lnet/neoforged/fml/ModList;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "isLoaded",
+              "descriptor": "(Ljava/lang/String;)Z",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "20aa13efa4225e121e7ce805a54049f97f6169cd7c9a40c3323d45a60ee61190"
+    },
     "fabric-serverbound-payload-receiver-v1": {
       "kind": "serverSignalReceiver",
       "epochs": [
@@ -5913,6 +6014,12 @@
   },
   "resolvedByProfile": {
     "legacy-resource-location-authlib4": {
+      "fabric-resource-stack-v1": {
+        "net.fabricmc.loader.api.FabricLoader": "9e87c86bf06784ab61b2b94fda9b333e9c8a72a4592667e46a3e1769a3a6156d"
+      },
+      "forge47-resource-stack-v1": {
+        "net.minecraftforge.fml.ModList": "7c1eaeceebf7ff83ad57e89c403ede11c0e4a27c10198720593a5f55eff18b5c"
+      },
       "resource-location-current": {
         "net.minecraft.client.Minecraft": "7eae65b7627f5973d3510ca29ee2398203b867e901379d3c4e032c8971f1ef7c",
         "net.minecraft.client.player.AbstractClientPlayer": "a9d1b5fc4de6fd7a3e38997c72555f2b8f73ea21982a0bd806c51e4639021ee5",
@@ -6034,6 +6141,12 @@
       }
     },
     "modern-resource-location-authlib6": {
+      "fabric-resource-stack-v1": {
+        "net.fabricmc.loader.api.FabricLoader": "9e87c86bf06784ab61b2b94fda9b333e9c8a72a4592667e46a3e1769a3a6156d"
+      },
+      "neoforge-resource-stack-v1": {
+        "net.neoforged.fml.ModList": "958ee9d4118401fe29353ec27f8e4507c37843a979d8ae9b6f2f38e6b83e263b"
+      },
       "neoforge-immediate": {
         "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
         "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
@@ -6155,6 +6268,12 @@
       }
     },
     "identifier-submission-authlib7": {
+      "fabric-resource-stack-v1": {
+        "net.fabricmc.loader.api.FabricLoader": "9e87c86bf06784ab61b2b94fda9b333e9c8a72a4592667e46a3e1769a3a6156d"
+      },
+      "neoforge-resource-stack-v1": {
+        "net.neoforged.fml.ModList": "958ee9d4118401fe29353ec27f8e4507c37843a979d8ae9b6f2f38e6b83e263b"
+      },
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
         "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
@@ -6297,6 +6416,12 @@
       }
     },
     "identifier-extraction-authlib7": {
+      "fabric-resource-stack-v1": {
+        "net.fabricmc.loader.api.FabricLoader": "9e87c86bf06784ab61b2b94fda9b333e9c8a72a4592667e46a3e1769a3a6156d"
+      },
+      "neoforge-resource-stack-v1": {
+        "net.neoforged.fml.ModList": "958ee9d4118401fe29353ec27f8e4507c37843a979d8ae9b6f2f38e6b83e263b"
+      },
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
         "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
@@ -6419,6 +6544,12 @@
       }
     },
     "identifier-extraction-authlib9": {
+      "fabric-resource-stack-v1": {
+        "net.fabricmc.loader.api.FabricLoader": "9e87c86bf06784ab61b2b94fda9b333e9c8a72a4592667e46a3e1769a3a6156d"
+      },
+      "neoforge-resource-stack-v1": {
+        "net.neoforged.fml.ModList": "958ee9d4118401fe29353ec27f8e4507c37843a979d8ae9b6f2f38e6b83e263b"
+      },
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",
         "net.minecraft.server.TickTask": "4352ef7c4214dbe873f2f43c73e1a87f77ede63a30dd301f98b13de5baca376c",
@@ -6541,6 +6672,9 @@
       }
     },
     "identifier-extraction-authlib10": {
+      "fabric-resource-stack-v1": {
+        "net.fabricmc.loader.api.FabricLoader": "9e87c86bf06784ab61b2b94fda9b333e9c8a72a4592667e46a3e1769a3a6156d"
+      },
       "fabric-extraction": {
         "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
         "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"

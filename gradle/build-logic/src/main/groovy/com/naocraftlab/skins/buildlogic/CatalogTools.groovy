@@ -14,7 +14,7 @@ final class CatalogTools {
     static final Set<String> REQUIRED_CAPABILITIES = [
         'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
         'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
-        'updateNotification',
+        'updateNotification', 'skinExtensionEnvironment',
         'serverSignal', 'serverSignalReceiver', 'serverProfileVerification',
         'serverProfileMutation', 'serverTracking', 'serverPlayerInfoPublication',
         'serverLoader'
@@ -1188,7 +1188,7 @@ final class CatalogTools {
         Map epoch = selected.epochProfile instanceof Map ? selected.epochProfile as Map : [:]
         Set<String> epochCapabilities = REQUIRED_CAPABILITIES -
                 ['loaderScreen', 'serverLoader', 'preview', 'updateNotification',
-                 'serverSignal', 'serverSignalReceiver'] as Set
+                'serverSignal', 'serverSignalReceiver', 'skinExtensionEnvironment'] as Set
         if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass',
                 'clientProviderBundle', 'accessBundles', 'previewCapabilities',
                 'serverSignalCapabilities', 'serverSignalReceiverCapabilities',
@@ -1235,9 +1235,12 @@ final class CatalogTools {
         }
 
         Map loaderProfile = selected.loaderProfile instanceof Map ? selected.loaderProfile as Map : [:]
-        if ((loaderProfile.keySet() as Set) != ['loader', 'serverLoader'] as Set ||
+        if ((loaderProfile.keySet() as Set) !=
+                ['loader', 'serverLoader', 'skinExtensionEnvironment'] as Set ||
                 loaderProfile.loader != loader ||
-                loaderProfile.serverLoader != (target.capabilities as Map).serverLoader) {
+                loaderProfile.serverLoader != (target.capabilities as Map).serverLoader ||
+                loaderProfile.skinExtensionEnvironment !=
+                        (target.capabilities as Map).skinExtensionEnvironment) {
             errors.add("${target.id}: loader profile differs from target loader/server capability")
         }
 

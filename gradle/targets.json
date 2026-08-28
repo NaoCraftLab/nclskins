@@ -325,9 +325,9 @@
       }
     },
     "loaders": {
-      "fabric-loader": {"loader": "fabric", "serverLoader": "fabric-server-v1"},
-      "forge47-loader": {"loader": "forge", "serverLoader": "forge47-server"},
-      "neoforge-loader": {"loader": "neoforge", "serverLoader": "neoforge-server-v1"}
+      "fabric-loader": {"loader": "fabric", "serverLoader": "fabric-server-v1", "skinExtensionEnvironment": "fabric-resource-stack-v1"},
+      "forge47-loader": {"loader": "forge", "serverLoader": "forge47-server", "skinExtensionEnvironment": "forge47-resource-stack-v1"},
+      "neoforge-loader": {"loader": "neoforge", "serverLoader": "neoforge-server-v1", "skinExtensionEnvironment": "neoforge-resource-stack-v1"}
     },
     "integrations": {
       "fabric-immediate": {"loader": "fabric", "loaderScreen": "fabric-immediate"},
@@ -948,6 +948,30 @@
       "side": "client",
       "requires": ["neoforge-client-common"]
     },
+    "skin-extension-environment-shared": {
+      "java": ["compat/capabilities/skin-extension-environment/shared/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "fabric-resource-stack-v1": {
+      "java": ["compat/capabilities/skin-extension-environment/fabric/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["skin-extension-environment-shared"]
+    },
+    "forge47-resource-stack-v1": {
+      "java": ["compat/capabilities/skin-extension-environment/forge/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["skin-extension-environment-shared"]
+    },
+    "neoforge-resource-stack-v1": {
+      "java": ["compat/capabilities/skin-extension-environment/neoforge/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["skin-extension-environment-shared"]
+    },
     "minecraft-user-v1": {
       "java": ["compat/capabilities/session/minecraft-user-v1/src/main/java"],
       "resources": [],
@@ -1213,6 +1237,9 @@
     "forge47": {"bundle": "forge47", "abiImplementation": "forge47"},
     "neoforge-immediate": {"bundle": "neoforge-immediate", "abiImplementation": "neoforge-immediate"},
     "neoforge-extraction": {"bundle": "neoforge-extraction", "abiImplementation": "neoforge-extraction"},
+    "fabric-resource-stack-v1": {"bundle": "fabric-resource-stack-v1", "abiImplementation": "fabric-resource-stack-v1"},
+    "forge47-resource-stack-v1": {"bundle": "forge47-resource-stack-v1", "abiImplementation": "forge47-resource-stack-v1"},
+    "neoforge-resource-stack-v1": {"bundle": "neoforge-resource-stack-v1", "abiImplementation": "neoforge-resource-stack-v1"},
     "modmenu-default-index": {"bundle": "modmenu-default-index", "abiImplementation": "modmenu-default-index"},
     "modmenu-static-catalog": {"bundle": "modmenu-static-catalog", "abiImplementation": "modmenu-static-catalog"},
     "native-static-catalog": {"bundle": "native-static-catalog", "abiImplementation": "native-static-catalog"},
@@ -1312,7 +1339,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v4",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "fabric-server-v1"
+        "serverLoader": "fabric-server-v1",
+        "skinExtensionEnvironment": "fabric-resource-stack-v1"
       },
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -1380,7 +1408,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v4",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "forge47-server"
+        "serverLoader": "forge47-server",
+        "skinExtensionEnvironment": "forge47-resource-stack-v1"
       },
       "metadata": {
         "files": ["META-INF/mods.toml", "pack.mcmeta", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -1450,7 +1479,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v6",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "fabric-server-v1"
+        "serverLoader": "fabric-server-v1",
+        "skinExtensionEnvironment": "fabric-resource-stack-v1"
       },
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -1518,7 +1548,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v6",
         "serverTracking": "tracking-chunkmap-serverlevel-v1",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "neoforge-server-v1"
+        "serverLoader": "neoforge-server-v1",
+        "skinExtensionEnvironment": "neoforge-resource-stack-v1"
       },
       "metadata": {
         "files": ["META-INF/neoforge.mods.toml", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -1588,7 +1619,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "fabric-server-v1"
+        "serverLoader": "fabric-server-v1",
+        "skinExtensionEnvironment": "fabric-resource-stack-v1"
       },
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -1656,7 +1688,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "neoforge-server-v1"
+        "serverLoader": "neoforge-server-v1",
+        "skinExtensionEnvironment": "neoforge-resource-stack-v1"
       },
       "metadata": {
         "files": ["META-INF/neoforge.mods.toml", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -1726,7 +1759,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "fabric-server-v1"
+        "serverLoader": "fabric-server-v1",
+        "skinExtensionEnvironment": "fabric-resource-stack-v1"
       },
       "metadata": {
         "files": [
@@ -1821,7 +1855,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v7",
         "serverTracking": "tracking-chunkmap-level-v2",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "neoforge-server-v1"
+        "serverLoader": "neoforge-server-v1",
+        "skinExtensionEnvironment": "neoforge-resource-stack-v1"
       },
       "metadata": {
         "files": [
@@ -1918,7 +1953,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v9",
         "serverTracking": "tracking-chunkmap-level-v2",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "fabric-server-v1"
+        "serverLoader": "fabric-server-v1",
+        "skinExtensionEnvironment": "fabric-resource-stack-v1"
       },
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -1986,7 +2022,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v9",
         "serverTracking": "tracking-chunkmap-level-v2",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "neoforge-server-v1"
+        "serverLoader": "neoforge-server-v1",
+        "skinExtensionEnvironment": "neoforge-resource-stack-v1"
       },
       "metadata": {
         "files": ["META-INF/neoforge.mods.toml", "resourcepacks/mojang_collections/pack.mcmeta"],
@@ -2059,7 +2096,8 @@
         "serverProfileMutation": "profile-mutation-authlib-v9",
         "serverTracking": "tracking-chunkmap-level-v2",
         "serverPlayerInfoPublication": "player-info-initialize-v1",
-        "serverLoader": "fabric-server-v1"
+        "serverLoader": "fabric-server-v1",
+        "skinExtensionEnvironment": "fabric-resource-stack-v1"
       },
       "metadata": {
         "files": ["fabric.mod.json", "resourcepacks/mojang_collections/pack.mcmeta"],

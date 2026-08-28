@@ -48,7 +48,6 @@ panels
 1|footer|0,207,427,33|VANILLA_FOOTER
 texts
 0|external.title|8,12,411,10|key:nclskins.external_import.launcher_title:INFO|CENTER
-1|external.status|53,142,320,10|key:nclskins.external_import.searching:INFO|CENTER
 widgets
 0|external.source.minecraft_launcher|BUTTON|53,42,298,20|key:nclskins.external_import.minecraft_launcher:INFO|value=-|hint=-|enabled=false|visible=true|max=0
 1|external.folder.minecraft_launcher|ICON_BUTTON|353,42,20,20|key:nclskins.external_import.choose_folder:INFO|value=folder|hint=key:nclskins.external_import.choose_folder:INFO|enabled=false|visible=true|max=0

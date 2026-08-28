@@ -6,6 +6,7 @@ import com.naocraftlab.skins.compat.client.MinecraftFilePicker;
 import com.naocraftlab.skins.compat.client.MinecraftGameSessionTokenSource;
 import com.naocraftlab.skins.compat.client.MinecraftServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.compat.gui.immediate.MinecraftSignedTextureVerifier;
+import com.naocraftlab.skins.generated.TargetClientBindings;
 import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.ClientCapabilitySet;
 
@@ -18,17 +19,19 @@ public final class SkinLookupClientCapabilityProvider implements ClientCapabilit
         CurrentPlayerAppearanceSource currentAppearance =
                 new PlayerSkinCurrentAppearanceSource(appearance::installedAppearance);
         MinecraftClientExecutor clientExecutor = new MinecraftClientExecutor();
+        VanillaPackBundledSkinSource bundledSkins = new VanillaPackBundledSkinSource();
         return new Provision(
                 new ClientCapabilitySet(
                         new MinecraftGameSessionTokenSource(),
-                        new VanillaPackBundledSkinSource(),
+                        bundledSkins,
                         currentAppearance,
                         clientExecutor,
                         new MinecraftFilePicker(clientExecutor),
                         new MinecraftSignedTextureVerifier(),
                         appearance,
                         new SkinLookupOuterLayerVisibilityController(),
-                        new MinecraftServerAppearanceRefreshNotifier()),
+                        new MinecraftServerAppearanceRefreshNotifier(),
+                        TargetClientBindings.skinExtensionEnvironment(bundledSkins)),
                 appearance::maintain,
                 appearance::close);
     }

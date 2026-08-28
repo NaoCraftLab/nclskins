@@ -2,6 +2,10 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibility;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityEvaluator;
+import com.naocraftlab.skins.core.compatibility.SkinCompatibilityStatus;
+import com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.SkinReference;
 
@@ -26,13 +30,24 @@ public final class ExternalImportPresenter {
             Optional<UiMessage> status,
             int width,
             int height) {
+        return present(model, busy, status, width, height, SkinExtensionEnvironment.unknown(0));
+    }
+
+    public ViewSpec present(
+            ExternalImportModel model,
+            boolean busy,
+            Optional<UiMessage> status,
+            int width,
+            int height,
+            SkinExtensionEnvironment environment) {
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(status, "status");
+        Objects.requireNonNull(environment, "environment");
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("view dimensions must be positive");
         }
         return model.review().isPresent()
-                ? presentReview(model, busy, status, width, height)
+                ? presentReview(model, busy, status, width, height, environment)
                 : presentChooser(model, busy, status, width, height);
     }
 
@@ -98,7 +113,7 @@ public final class ExternalImportPresenter {
         int statusY = Math.min(
                 Math.max(CHROME_HEIGHT + 4, height - FOOTER_HEIGHT - 14),
                 y + 4);
-        status.filter(message -> !"nclskins.external_import.choose_source".equals(message.key()))
+        status.filter(message -> message.severity() == UiMessage.Severity.ERROR)
                 .ifPresent(message -> texts.add(new ViewSpec.Text(
                         "external.status",
                         new Bounds(x, statusY, contentWidth, 10),
@@ -127,7 +142,8 @@ public final class ExternalImportPresenter {
             boolean busy,
             Optional<UiMessage> status,
             int width,
-            int height) {
+            int height,
+            SkinExtensionEnvironment environment) {
         ExternalImportModel.ReviewState review = model.review().orElseThrow();
         List<ClientOperations.ExternalImportCandidate> fresh = review.candidates(false);
         List<ClientOperations.ExternalImportCandidate> duplicates = review.candidates(true);
@@ -152,6 +168,7 @@ public final class ExternalImportPresenter {
         List<ViewSpec.Text> texts = new ArrayList<>();
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Preview> previews = new ArrayList<>();
+        List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
         List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
         int toggleWidth = Math.min(108, Math.max(76, width / 3));
         int disclosureX = width - 8 - DISCLOSURE_BUTTON_SIZE;
@@ -177,8 +194,10 @@ public final class ExternalImportPresenter {
                         : "nclskins.collection.collapse_all"),
                 anyCollapsed ? "expand_all" : "collapse_all",
                 !busy && !review.availableCollections().isEmpty()));
-        addSection(false, fresh, review, layout, busy, panels, texts, widgets, previews, navigationNodes);
-        addSection(true, duplicates, review, layout, busy, panels, texts, widgets, previews, navigationNodes);
+        addSection(false, fresh, review, layout, busy, environment,
+                panels, texts, widgets, previews, iconDecorations, navigationNodes);
+        addSection(true, duplicates, review, layout, busy, environment,
+                panels, texts, widgets, previews, iconDecorations, navigationNodes);
         int selected = review.selectedIds().size();
         int footerWidth = Math.min(420, Math.max(180, width - 32));
         int importWidth = Math.max(96, (footerWidth - 6) * 2 / 3);
@@ -227,7 +246,7 @@ public final class ExternalImportPresenter {
                         viewport,
                         List.of("external.review.collection.", "external.review.card:"))),
                 List.of(),
-                List.of(),
+                iconDecorations,
                 surfaces).withNavigationNodes(navigationNodes);
     }
 
@@ -277,10 +296,12 @@ public final class ExternalImportPresenter {
             ExternalImportModel.ReviewState review,
             CollectionGridLayout.Layout layout,
             boolean busy,
+            SkinExtensionEnvironment environment,
             List<ViewSpec.Panel> panels,
             List<ViewSpec.Text> texts,
             List<ViewSpec.Widget> widgets,
             List<ViewSpec.Preview> previews,
+            List<ViewSpec.IconDecoration> iconDecorations,
             List<ViewSpec.NavigationNode> navigationNodes) {
         int y = layout.contentStart() - layout.scrollOffset();
         if (duplicateSection) {
@@ -298,9 +319,19 @@ public final class ExternalImportPresenter {
         }
         String sectionId = duplicateSection ? "duplicates" : "new";
         Bounds header = new Bounds(16, y, Math.max(1, layout.contentRight() - 16), HEADER_HEIGHT);
+        String headerId = "external.review.collection." + sectionId;
+        navigationNodes.add(ViewSpec.NavigationNode.card(
+                headerId,
+                header,
+                "external.review",
+                navigationNodes.size(),
+                -1,
+                !busy,
+                ViewSpec.NavigationPattern.GRID,
+                Optional.of(headerId)));
         if (intersects(header, layout.contentBottom())) {
             widgets.add(ViewSpec.Widget.collectionHeader(
-                    "external.review.collection." + sectionId,
+                    headerId,
                     header,
                     UiMessage.info(collectionHeaderKey(
                             duplicateSection,
@@ -370,6 +401,22 @@ public final class ExternalImportPresenter {
                     Optional.empty(),
                     Optional.of(new ViewSpec.ExternalImage(candidate.id())),
                     PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL));
+            SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(
+                    candidate.featureEvidence(), environment);
+            if (compatibility.status() != SkinCompatibilityStatus.ORDINARY) {
+                String indicatorId = id + ".compatibility";
+                Bounds previewBounds = previews.get(previews.size() - 1).anchorBounds();
+                Bounds indicatorBounds = new Bounds(
+                        card.x() + 2,
+                        card.bottom() - 22,
+                        20,
+                        20);
+                widgets.add(ViewSpec.Widget.compatibilityIndicator(
+                        indicatorId,
+                        indicatorBounds,
+                        CompatibilityMessages.accessibleLabel(compatibility),
+                        CompatibilityMessages.icon(compatibility)));
+            }
         }
     }
 

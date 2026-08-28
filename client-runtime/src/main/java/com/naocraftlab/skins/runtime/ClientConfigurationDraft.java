@@ -33,6 +33,14 @@ public final class ClientConfigurationDraft {
         value.updateAndGet(current -> current.withPauseMenuPreview(enabled));
     }
 
+    public void setHideIncompatibleCatalogSkins(boolean enabled) {
+        value.updateAndGet(current -> current.withHideIncompatibleCatalogSkins(enabled));
+    }
+
+    public void setHideIncompatibleGalleryLooks(boolean enabled) {
+        value.updateAndGet(current -> current.withHideIncompatibleGalleryLooks(enabled));
+    }
+
     public void setDataDirectory(String directory) {
         String checked = Objects.requireNonNull(directory, "directory");
         if (!ClientConfiguration.validDataDirectory(checked)) {

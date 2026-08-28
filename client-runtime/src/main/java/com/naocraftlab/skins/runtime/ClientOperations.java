@@ -4,6 +4,7 @@ import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.importing.ExternalImportProbe;
 import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
@@ -22,6 +23,7 @@ import com.naocraftlab.skins.core.service.SessionValidation;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -79,6 +81,21 @@ public interface ClientOperations extends AutoCloseable {
     }
 
 
+    default Map<CatalogVariant, SkinFeatureEvidence> catalogFeatureEvidence() {
+        return Map.of();
+    }
+
+
+    default Map<UUID, SkinFeatureEvidence> assetFeatureEvidence() throws Exception {
+        return Map.of();
+    }
+
+
+    default boolean supportsAssetFeatureEvidence() {
+        return false;
+    }
+
+
     default byte[] loadCatalogSkin(String collectionId, String skinId, SkinModel model)
             throws Exception {
         throw new UnsupportedOperationException("Skin catalog is unavailable");
@@ -91,6 +108,15 @@ public interface ClientOperations extends AutoCloseable {
         Objects.requireNonNull(skinId, "skinId");
         Objects.requireNonNull(model, "model");
         return Optional.empty();
+    }
+
+
+    record CatalogVariant(String collectionId, String skinId, SkinVariant variant) {
+        public CatalogVariant {
+            Objects.requireNonNull(collectionId, "collectionId");
+            Objects.requireNonNull(skinId, "skinId");
+            Objects.requireNonNull(variant, "variant");
+        }
     }
 
 
@@ -226,7 +252,8 @@ public interface ClientOperations extends AutoCloseable {
             String sha256,
             String capeId,
             int sourceOrder,
-            boolean duplicate) {
+            boolean duplicate,
+            SkinFeatureEvidence featureEvidence) {
         public ExternalImportCandidate {
             id = Objects.requireNonNull(id, "id");
             displayName = Objects.requireNonNull(displayName, "displayName");
@@ -234,6 +261,7 @@ public interface ClientOperations extends AutoCloseable {
             Objects.requireNonNull(source, "source");
             normalizedPng = Objects.requireNonNull(normalizedPng, "normalizedPng").clone();
             sha256 = Objects.requireNonNull(sha256, "sha256");
+            featureEvidence = Objects.requireNonNull(featureEvidence, "featureEvidence");
             if (!id.matches("[a-z0-9][a-z0-9_-]{0,127}")) {
                 throw new IllegalArgumentException("external import candidate id is invalid");
             }
@@ -252,6 +280,29 @@ public interface ClientOperations extends AutoCloseable {
             if (sourceOrder < 0) {
                 throw new IllegalArgumentException("external import source order must not be negative");
             }
+        }
+
+        public ExternalImportCandidate(
+                String id,
+                String displayName,
+                SkinVariant variant,
+                PersonalSkinSource source,
+                byte[] normalizedPng,
+                String sha256,
+                String capeId,
+                int sourceOrder,
+                boolean duplicate) {
+            this(
+                    id,
+                    displayName,
+                    variant,
+                    source,
+                    normalizedPng,
+                    sha256,
+                    capeId,
+                    sourceOrder,
+                    duplicate,
+                    SkinFeatureEvidence.ORDINARY);
         }
 
         @Override

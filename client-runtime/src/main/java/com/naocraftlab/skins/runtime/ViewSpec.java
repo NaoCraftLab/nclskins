@@ -451,11 +451,58 @@ public record ViewSpec(
                 nodes);
     }
 
+    public ViewSpec withCompatibilityIndicator(
+            String id,
+            Bounds bounds,
+            UiMessage accessibleLabel,
+            String icon) {
+        return withCompatibilityIndicator(
+                id, bounds, accessibleLabel, icon, Optional.empty());
+    }
+
+    public ViewSpec withCompatibilityIndicator(
+            String id,
+            Bounds bounds,
+            UiMessage accessibleLabel,
+            String icon,
+            Optional<String> afterWidgetId) {
+        Widget indicator = Widget.compatibilityIndicator(id, bounds, accessibleLabel, icon);
+        List<Widget> nextWidgets = new java.util.ArrayList<>(widgets);
+        int insertion = afterWidgetId
+                .flatMap(after -> java.util.stream.IntStream.range(0, nextWidgets.size())
+                        .filter(index -> nextWidgets.get(index).id().equals(after))
+                        .boxed()
+                        .findFirst())
+                .map(index -> index + 1)
+                .orElse(nextWidgets.size());
+        nextWidgets.add(insertion, indicator);
+        return new ViewSpec(
+                screenId,
+                title,
+                width,
+                height,
+                panels,
+                texts,
+                nextWidgets,
+                previews,
+                scrollbar,
+                tabGroups,
+                focusRequest,
+                clipRegions,
+                backEquipmentPreviews,
+                iconDecorations,
+                scrollSurfaces,
+                tooltipRegions,
+                progressDecorations,
+                navigationNodes);
+    }
+
     public enum WidgetKind {
         BUTTON,
         ICON_BUTTON,
 
         INFO_BUTTON,
+        COMPATIBILITY_INDICATOR,
         TEXT_FIELD,
         COLLECTION_HEADER,
 
@@ -541,6 +588,10 @@ public record ViewSpec(
         public static NavigationNode control(
                 Widget widget, int documentOrder, int tabOrder) {
             Objects.requireNonNull(widget, "widget");
+            Optional<String> activation = switch (widget.kind()) {
+                case COMPATIBILITY_INDICATOR, INFO_BUTTON, TEXT_FIELD -> Optional.empty();
+                default -> Optional.of(widget.id());
+            };
             return new NavigationNode(
                     widget.id(),
                     widget.bounds(),
@@ -549,7 +600,7 @@ public record ViewSpec(
                     tabOrder,
                     widget.enabled() && widget.visible(),
                     NavigationPattern.NONE,
-                    Optional.empty());
+                    activation);
         }
 
         public static NavigationNode card(
@@ -771,6 +822,24 @@ public record ViewSpec(
                     0);
         }
 
+        public static Widget compatibilityIndicator(
+                String id,
+                Bounds bounds,
+                UiMessage accessibleLabel,
+                String icon) {
+            requireIconId(icon);
+            return new Widget(
+                    id,
+                    WidgetKind.COMPATIBILITY_INDICATOR,
+                    bounds,
+                    accessibleLabel,
+                    Optional.of(icon),
+                    Optional.of(accessibleLabel),
+                    true,
+                    true,
+                    0);
+        }
+
         public static Widget selectableCard(
                 String id,
                 Bounds bounds,
@@ -813,7 +882,10 @@ public record ViewSpec(
         }
 
         public Optional<String> icon() {
-            return kind == WidgetKind.ICON_BUTTON ? value : Optional.empty();
+            return kind == WidgetKind.ICON_BUTTON
+                    || kind == WidgetKind.COMPATIBILITY_INDICATOR
+                    ? value
+                    : Optional.empty();
         }
 
         public boolean collectionHeaderHasTrailingInfo() {

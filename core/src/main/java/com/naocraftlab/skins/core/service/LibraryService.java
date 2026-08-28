@@ -12,6 +12,7 @@ import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
+import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.StoredAsset;
 
@@ -30,6 +31,7 @@ import java.util.UUID;
 public final class LibraryService {
     private final NclSkinsStorage storage;
     private final Clock clock;
+    private final PngValidator pngValidator = new PngValidator();
 
     public LibraryService(NclSkinsStorage storage, Clock clock) {
         this.storage = Objects.requireNonNull(storage, "storage");
@@ -128,7 +130,8 @@ public final class LibraryService {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(catalogOrigin, "catalogOrigin");
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
-        StoredAsset stored = storage.storeAsset(Objects.requireNonNull(pngBytes, "pngBytes"));
+        StoredAsset stored = storeOrReusePersonalAsset(
+                accountId, Objects.requireNonNull(pngBytes, "pngBytes"));
         UUID assetId = UUID.randomUUID();
         UUID createdPresetId = UUID.randomUUID();
         Instant now = clock.instant();
@@ -218,7 +221,8 @@ public final class LibraryService {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
         String displayName = requirePersonalSkinDisplayName(personalSkinDisplayName);
-        StoredAsset stored = storage.storeAsset(Objects.requireNonNull(pngBytes, "pngBytes"));
+        StoredAsset stored = storeOrReusePersonalAsset(
+                accountId, Objects.requireNonNull(pngBytes, "pngBytes"));
         UUID candidateAssetId = UUID.randomUUID();
         UUID createdPresetId = UUID.randomUUID();
         Instant now = clock.instant();
@@ -375,9 +379,15 @@ public final class LibraryService {
         }
 
         List<PreparedPersonalSkinPresetImport> prepared = new ArrayList<>(requested.size());
+        Map<String, StoredAsset> canonicalAssets = new java.util.LinkedHashMap<>();
         for (PersonalSkinPresetImport candidate : requested) {
             Objects.requireNonNull(candidate, "imports contains null");
-            StoredAsset stored = storage.storeAsset(candidate.pngBytes());
+            String pixelSha256 = pngValidator.pixelSha256(candidate.pngBytes());
+            StoredAsset stored = canonicalAssets.get(pixelSha256);
+            if (stored == null) {
+                stored = storeOrReusePersonalAsset(accountId, candidate.pngBytes());
+                canonicalAssets.put(pixelSha256, stored);
+            }
             prepared.add(new PreparedPersonalSkinPresetImport(candidate, stored));
         }
 
@@ -924,6 +934,26 @@ public final class LibraryService {
                     "personalSkinDisplayName must contain between 1 and 128 characters");
         }
         return trimmed;
+    }
+
+    private StoredAsset storeOrReusePersonalAsset(UUID accountId, byte[] pngBytes)
+            throws IOException, PngValidationException {
+        String incomingPixelSha256 = pngValidator.pixelSha256(pngBytes);
+        AccountState current = storage.loadOrCreateAccount(accountId);
+        for (PersonalSkinEntry entry : current.personalSkins()) {
+            try {
+                byte[] existingPng = storage.readAsset(entry.sha256());
+                if (incomingPixelSha256.equals(pngValidator.pixelSha256(existingPng))) {
+                    return new StoredAsset(
+                            entry.sha256(),
+                            storage.assetPath(entry.sha256()),
+                            pngValidator.validate(existingPng),
+                            true);
+                }
+            } catch (IOException | PngValidationException invalidExistingAsset) {
+            }
+        }
+        return storage.storeAsset(pngBytes);
     }
 
     private static String requireSha256(String value) {

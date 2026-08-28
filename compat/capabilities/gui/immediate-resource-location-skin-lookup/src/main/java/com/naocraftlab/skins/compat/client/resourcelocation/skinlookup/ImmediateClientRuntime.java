@@ -9,6 +9,7 @@ import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.compat.gui.immediate.ImmediateScreenCapabilities;
 import com.naocraftlab.skins.compat.gui.immediate.NclSkinsImmediateScreen;
 import com.naocraftlab.skins.compat.gui.immediate.NativeScrollController;
+import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.generated.TargetClientBindings;
 import com.naocraftlab.skins.diagnostics.Slf4jDiagnosticSink;
 import com.naocraftlab.skins.runtime.ClientRuntime;
@@ -59,6 +60,7 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
                             message -> resolve(message).getString(),
                             (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
                     Objects.requireNonNull(dataRoot, "dataRoot"),
+                    MinecraftConfigurationBridge.service()::client,
                     new Slf4jDiagnosticSink(LoggerFactory.getLogger("nclskins")),
                     provision::closeNative);
         }

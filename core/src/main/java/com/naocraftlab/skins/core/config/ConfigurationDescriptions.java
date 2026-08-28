@@ -20,6 +20,10 @@ public final class ConfigurationDescriptions {
             "nclskins.config.client.menu_preview.pause_menu.description";
     public static final String CLIENT_DATA_DIRECTORY =
             "nclskins.config.client.storage.data_directory.description";
+    public static final String CLIENT_HIDE_INCOMPATIBLE_CATALOG =
+            "nclskins.config.client.compatibility.hide_incompatible_catalog_skins.description";
+    public static final String CLIENT_HIDE_INCOMPATIBLE_GALLERY =
+            "nclskins.config.client.compatibility.hide_incompatible_gallery_looks.description";
     public static final String SERVER_ENABLED =
             "nclskins.config.server.realtime_refresh.enabled.description";
     public static final String SERVER_TRUSTED_PROXY =
@@ -35,6 +39,8 @@ public final class ConfigurationDescriptions {
     private static final java.util.Set<String> REQUIRED_KEYS = java.util.Set.of(
             CLIENT_TITLE_SCREEN,
             CLIENT_PAUSE_MENU,
+            CLIENT_HIDE_INCOMPATIBLE_CATALOG,
+            CLIENT_HIDE_INCOMPATIBLE_GALLERY,
             CLIENT_DATA_DIRECTORY,
             SERVER_ENABLED,
             SERVER_TRUSTED_PROXY,

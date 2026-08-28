@@ -20,6 +20,11 @@ public interface SkinCatalogSource {
     }
 
 
+    default Optional<byte[]> findResource(String identifier) throws IOException {
+        return Optional.of(loadResource(identifier));
+    }
+
+
     default List<CollectionDescriptor> collections() {
         return MinecraftSkinCatalog.collections();
     }
@@ -60,6 +65,11 @@ public interface SkinCatalogSource {
             @Override
             public byte[] loadResource(String identifier) throws IOException {
                 return resourcePacks.loadResource(identifier);
+            }
+
+            @Override
+            public Optional<byte[]> findResource(String identifier) throws IOException {
+                return resourcePacks.findResource(identifier);
             }
 
             @Override

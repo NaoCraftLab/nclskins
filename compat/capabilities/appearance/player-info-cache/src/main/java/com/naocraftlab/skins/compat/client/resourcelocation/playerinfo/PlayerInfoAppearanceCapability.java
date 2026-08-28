@@ -152,8 +152,15 @@ final class PlayerInfoAppearanceCapability
         if (!expected.profileId().equals(minecraft.getUser().getProfileId())) {
             return ApplyResult.DEFERRED;
         }
-        overrides.clear();
-        return ApplyResult.UPDATED;
+        UUID profileId = expected.profileId();
+        InstalledOverride accountDefault = new InstalledOverride(
+                expected,
+                DefaultPlayerSkin.getDefaultSkin(profileId),
+                null,
+                DefaultPlayerSkin.getSkinModelName(profileId),
+                null,
+                null);
+        return overrides.install(accountDefault);
     }
 
 

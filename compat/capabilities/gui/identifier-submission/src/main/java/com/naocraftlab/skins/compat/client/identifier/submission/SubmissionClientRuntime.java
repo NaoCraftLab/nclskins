@@ -7,6 +7,7 @@ import com.naocraftlab.skins.runtime.ClientApplicationHost;
 import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.TextResolver;
+import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
@@ -46,6 +47,7 @@ final class SubmissionClientRuntime {
                             SubmissionComponents::resolveString,
                             (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
                     dataRoot,
+                    MinecraftConfigurationBridge.service()::client,
                     new Slf4jDiagnosticSink(LoggerFactory.getLogger("nclskins")),
                     provision::closeNative);
         }

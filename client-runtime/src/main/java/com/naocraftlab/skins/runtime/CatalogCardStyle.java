@@ -37,7 +37,9 @@ public final class CatalogCardStyle {
     }
 
     public static boolean backgroundBehindContent(ViewSpec.WidgetKind kind) {
-        return focusFrameSupported(kind);
+        return kind == ViewSpec.WidgetKind.CATALOG_CARD
+                || kind == ViewSpec.WidgetKind.SELECTABLE_CARD
+                || kind == ViewSpec.WidgetKind.CAPE_CARD;
     }
 
     public static int backgroundBehindContentColor(
@@ -58,6 +60,7 @@ public final class CatalogCardStyle {
     public static boolean focusFrameSupported(ViewSpec.WidgetKind kind) {
         return kind == ViewSpec.WidgetKind.CATALOG_CARD
                 || kind == ViewSpec.WidgetKind.SELECTABLE_CARD
-                || kind == ViewSpec.WidgetKind.CAPE_CARD;
+                || kind == ViewSpec.WidgetKind.CAPE_CARD
+                || kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR;
     }
 }

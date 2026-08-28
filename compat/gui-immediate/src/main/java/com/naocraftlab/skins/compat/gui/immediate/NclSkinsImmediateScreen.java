@@ -84,7 +84,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             "legs_all_on",
             "legs_all_off",
             "legs_left_off",
-            "legs_right_off");
+            "legs_right_off",
+            "compatibility_sparkle",
+            "compatibility_warning");
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
     private static final int ERROR_COLOR = 0xFFFF9A9A;
@@ -576,6 +578,12 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     nativeWidget.setTooltip(Tooltip.create(resolve(
                             widget.hint().orElse(widget.label()))));
                 }
+                if (widget.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
+                    ((CompatibilityIndicatorWidget) nativeWidget).setIconTexture(
+                            actionIconTexture(widget));
+                    nativeWidget.setTooltip(Tooltip.create(resolve(
+                            widget.hint().orElse(widget.label()))));
+                }
                 if (nativeWidget instanceof EditBox editBox) {
                     String value = widget.value().orElse("");
                     if (!editBox.getValue().equals(value)) {
@@ -660,6 +668,18 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.width(),
                     bounds.height(),
                     resolve(widget.label()));
+            button.setTooltip(Tooltip.create(resolve(
+                    widget.hint().orElse(widget.label()))));
+            return button;
+        }
+        if (widget.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
+            CompatibilityIndicatorWidget button = new CompatibilityIndicatorWidget(
+                    bounds.x(),
+                    bounds.y(),
+                    bounds.width(),
+                    bounds.height(),
+                    resolve(widget.label()),
+                    actionIconTexture(widget));
             button.setTooltip(Tooltip.create(resolve(
                     widget.hint().orElse(widget.label()))));
             return button;
@@ -817,29 +837,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         protected void renderWidget(
                 GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
             super.renderWidget(graphics, mouseX, mouseY, partialTick);
-            int iconX = getX() + (getWidth() - ACTION_ICON_RENDER_SIZE) / 2;
-            int iconY = getY() + (getHeight() - ACTION_ICON_RENDER_SIZE) / 2;
-            float tint = active ? 1.0F : 0.5F;
-            graphics.setColor(tint, tint, tint, 1.0F);
-            graphics.pose().pushPose();
-            try {
-                graphics.pose().translate(iconX, iconY, 0.0F);
-                float scale = (float) ACTION_ICON_RENDER_SIZE / ACTION_ICON_TEXTURE_SIZE;
-                graphics.pose().scale(scale, scale, 1.0F);
-                graphics.blit(
-                        iconTexture,
-                        0,
-                        0,
-                        0.0F,
-                        0.0F,
-                        ACTION_ICON_TEXTURE_SIZE,
-                        ACTION_ICON_TEXTURE_SIZE,
-                        ACTION_ICON_TEXTURE_SIZE,
-                        ACTION_ICON_TEXTURE_SIZE);
-            } finally {
-                graphics.pose().popPose();
-                graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
-            }
+            renderActionIcon(
+                    graphics, getX(), getY(), getWidth(), getHeight(), iconTexture, active);
         }
 
         @Override
@@ -850,6 +849,80 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         @Override
         protected void updateWidgetNarration(NarrationElementOutput output) {
             defaultButtonNarrationText(output);
+        }
+    }
+
+
+    private final class CompatibilityIndicatorWidget extends AbstractButton {
+        private ResourceLocation iconTexture;
+
+        private CompatibilityIndicatorWidget(
+                int x,
+                int y,
+                int width,
+                int height,
+                Component message,
+                ResourceLocation iconTexture) {
+            super(x, y, width, height, message);
+            this.iconTexture = Objects.requireNonNull(iconTexture, "iconTexture");
+        }
+
+        private void setIconTexture(ResourceLocation iconTexture) {
+            this.iconTexture = Objects.requireNonNull(iconTexture, "iconTexture");
+        }
+
+        @Override
+        public void onPress() {
+
+        }
+
+        @Override
+        protected void renderWidget(
+                GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            renderActionIcon(
+                    graphics, getX(), getY(), getWidth(), getHeight(), iconTexture, active);
+            if (isHoveredOrFocused()) {
+                drawCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
+            }
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput output) {
+            defaultButtonNarrationText(output);
+        }
+    }
+
+
+    private static void renderActionIcon(
+            GuiGraphics graphics,
+            int x,
+            int y,
+            int width,
+            int height,
+            ResourceLocation iconTexture,
+            boolean active) {
+        int iconX = x + (width - ACTION_ICON_RENDER_SIZE) / 2;
+        int iconY = y + (height - ACTION_ICON_RENDER_SIZE) / 2;
+        float tint = active ? 1.0F : 0.5F;
+        graphics.setColor(tint, tint, tint, 1.0F);
+        graphics.pose().pushPose();
+        try {
+            graphics.pose().translate(iconX, iconY, 0.0F);
+            float scale = (float) ACTION_ICON_RENDER_SIZE / ACTION_ICON_TEXTURE_SIZE;
+            graphics.pose().scale(scale, scale, 1.0F);
+            graphics.blit(
+                    iconTexture,
+                    0,
+                    0,
+                    0.0F,
+                    0.0F,
+                    ACTION_ICON_TEXTURE_SIZE,
+                    ACTION_ICON_TEXTURE_SIZE,
+                    ACTION_ICON_TEXTURE_SIZE,
+                    ACTION_ICON_TEXTURE_SIZE);
+        } finally {
+            graphics.pose().popPose();
+            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
     }
 

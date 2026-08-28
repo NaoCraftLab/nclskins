@@ -8,7 +8,7 @@ final class SemanticVerifier {
     static final Set<String> REQUIRED_KEYS = [
             'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
             'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
-            'updateNotification',
+            'updateNotification', 'skinExtensionEnvironment',
             'serverSignal', 'serverSignalReceiver',
         'serverProfileVerification', 'serverProfileMutation', 'serverTracking',
         'serverPlayerInfoPublication', 'serverLoader'
@@ -25,6 +25,7 @@ final class SemanticVerifier {
             bundledSkin      : 'resource-pack-access-contract',
             currentAppearance: 'current-appearance-contract',
         updateNotification: 'update-notification-contract',
+        skinExtensionEnvironment: 'skin-extension-environment',
         serverSignal: 'server-refresh-notification',
         serverSignalReceiver: 'server-refresh-reception',
         serverProfileVerification: 'official-server-profile',
@@ -53,6 +54,7 @@ final class SemanticVerifier {
         'official-server-profile': ['OfficialSessionProfileClient', 'OfficialTextureAppearanceParser', 'timestampTransportAndSignatureChangesDoNotChangeTheSemanticKey', 'parsesRetryAfterDeltaAndHttpDateWithSafeFallback', 'mismatchedOfficialIdentityIsRejectedBeforePublication'],
         'vanilla-observer-republication': ['VanillaBatchAppearancePublisher', 'continuesAcrossTicksAndNeverExceedsDeliveryBudget', 'reportsTotalAndMaximumPlatformThreadTimeSeparatelyAcrossTicks', 'semanticCompletionResumesOnFollowingLogicalTickWithoutFreshSameTickBudget', 'retriesFailedRetrackBeforeCompletingAndRestoresExactPair', 'cancelledHeadRetainsRetrackBarrierUntilRecoveryBeforeNextInstall', 'sixtyFourActorBatchKeepsOneRecipientFanoutAcrossOneThousandPlayers', 'watcherChannelRetracksBeforeLargeTabOnlyTail', 'explicitSupersedeFencesAdmittedIntentAndDoesNotPoisonFutureIntent', 'concurrentIntentCannotEnterBetweenLatestCheckAndProfileInstall', 'visibilityPortPreventsProfileDisclosureToHiddenRecipient', 'oneThousandDistinctSignalsAreAdmittedAndDrainWithoutLocalDrops', 'oneFiveTenAndFiftyChangesPerSecondAllConvergeAfterTheBurst', 'reconciliationAttemptsAreBoundedToOnePerFollowingTick', 'successfulWatcherRetryRefreshesWorldPairAfterInitializeFailure'],
         'server-loader-lifecycle': ['eligibilityRequiresOnlineIdentityOrExplicitAttestedProxyOptIn', 'trustedProxyForwarding', 'defaultsMatchThePortableScaleContract', 'sameListenerRegistrationIsIdempotentAndIdentityBound', 'changedAssuranceRotatesGenerationAndSupersedesInFlightTrust', 'reconnectSupersedesOldGenerationAndLateDisconnectCannotRemoveNewBinding'],
+        'skin-extension-environment': ['SkinExtensionResourceDetectorTest', 'synthetic failure', 'MALFORMED_EXPRESSIVE_DATA', 'SkinExtensionEnvironment'],
     ]
     static final Pattern PLATFORM_IMPORT = Pattern.compile('(?m)^\\s*import\\s+(?:com\\.mojang\\.authlib(?:\\.|;)|net\\.minecraft(?:\\.|;)|net\\.fabricmc(?:\\.|;)|net\\.neoforged(?:\\.|;)|net\\.minecraftforge(?:\\.|;)|org\\.bukkit(?:\\.|;)|org\\.spongepowered\\.asm(?:\\.|;))')
     static final Pattern VERSION_NAMED_PACKAGE = Pattern.compile(

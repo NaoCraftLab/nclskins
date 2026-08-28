@@ -7,6 +7,12 @@ import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.core.compatibility.SkinConflictReason;
+import com.naocraftlab.skins.core.compatibility.SkinConsumer;
+import com.naocraftlab.skins.core.compatibility.SkinConsumerState;
+import com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment;
+import com.naocraftlab.skins.core.compatibility.SkinFeature;
+import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -25,6 +31,65 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AddSourceModelPresenterTest {
     private final AddSourcePresenter presenter = new AddSourcePresenter();
+
+    @Test
+    void catalogHidingRemovesOnlyIncompatibleVariantsAndMarkersAreFocusable() {
+        SkinCatalogSource.CollectionDescriptor mixed = collection(
+                "mixed", skin("dual", "Dual", SkinModel.CLASSIC, SkinModel.SLIM));
+        SkinCatalogSource.CollectionDescriptor blocked = collection(
+                "blocked", skin("only", "Only", SkinModel.CLASSIC));
+        SkinExtensionEnvironment environment = new SkinExtensionEnvironment(
+                4, Map.of(SkinConsumer.FRESH_MOVES, SkinConsumerState.ACTIVE));
+        SkinFeatureEvidence conflict = new SkinFeatureEvidence(
+                List.of(), List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA));
+        Map<String, SkinFeatureEvidence> evidence = Map.of(
+                "mixed:dual:CLASSIC", conflict,
+                "mixed:dual:SLIM", new SkinFeatureEvidence(
+                        List.of(
+                                SkinFeature.EARS,
+                                SkinFeature.FRESH_MOVES,
+                                SkinFeature.JUST_EXPRESSIONS),
+                        List.of()),
+                "blocked:only:CLASSIC", conflict);
+
+        AddSourceModel hidden = openCatalog(List.of(mixed, blocked))
+                .withCompatibilityContext(environment, evidence, true);
+        assertEquals(List.of("mixed"), hidden.visibleCollections().stream()
+                .map(SkinCatalogSource.CollectionDescriptor::id).toList());
+        SkinCatalogSource.SkinDescriptor remaining = hidden.visibleSkins(mixed).get(0);
+        assertEquals(List.of(SkinModel.SLIM), remaining.models());
+        assertEquals(SkinVariant.SLIM, hidden.selectedVariant(remaining));
+
+        ViewSpec hiddenView = presenter.present(hidden, false, 854, 480);
+        String sparkleId = "add.catalog.skin:mixed:dual.compatibility";
+        assertEquals(
+                ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR,
+                hiddenView.widget(sparkleId).orElseThrow().kind());
+        assertTrue(hiddenView.widget(sparkleId).orElseThrow().enabled());
+        assertEquals(
+                Optional.of(hiddenView.widget(sparkleId).orElseThrow().label()),
+                hiddenView.widget(sparkleId).orElseThrow().hint());
+        Bounds sparkleCard = hiddenView.widget("add.catalog.skin:mixed:dual").orElseThrow().bounds();
+        Bounds sparkleBounds = hiddenView.widget(sparkleId).orElseThrow().bounds();
+        assertEquals(sparkleCard.x() + 2, sparkleBounds.x());
+        assertEquals(sparkleCard.bottom() - 2, sparkleBounds.bottom());
+        assertTrue(hiddenView.widget("add.catalog.collection:blocked").isEmpty());
+
+        AddSourceModel visible = openCatalog(List.of(mixed, blocked))
+                .withCompatibilityContext(environment, evidence, false);
+        ViewSpec visibleView = presenter.present(visible, false, 854, 480);
+        String warningId = "add.catalog.skin:mixed:dual.compatibility";
+        assertEquals(
+                Optional.of(visibleView.widget(warningId).orElseThrow().label()),
+                visibleView.widget(warningId).orElseThrow().hint());
+        assertEquals(
+                Optional.of("compatibility_warning"),
+                visibleView.widget(warningId).orElseThrow().icon());
+        assertEquals(20, visibleView.widget(warningId).orElseThrow().bounds().width());
+        assertTrue(visibleView.iconDecorations().stream().noneMatch(icon ->
+                icon.ownerWidgetId().equals(warningId)));
+        assertTrue(visibleView.widget("add.catalog.collection:blocked").isPresent());
+    }
 
     @Test
     void importTabShowsFilePlayerAndUrlWithoutStartingNetworkFromTextInput() {
@@ -66,7 +131,7 @@ final class AddSourceModelPresenterTest {
         ViewSpec view = presenter.present(
                 model,
                 false,
-                Optional.of(UiMessage.info("nclskins.status.cancelled")),
+                Optional.of(UiMessage.error("nclskins.error.png")),
                 240,
                 240);
 
@@ -657,6 +722,47 @@ final class AddSourceModelPresenterTest {
     }
 
     @Test
+    void directionalNavigationReachesCollapsedHeadersBelowExpandedCollection() {
+        SkinCatalogSource.CollectionDescriptor expanded = orderedCollection(
+                "expanded", 0,
+                IntStream.range(0, 40)
+                        .mapToObj(index -> skin(
+                                "skin-" + index,
+                                "Skin " + index,
+                                SkinModel.CLASSIC))
+                        .toArray(SkinCatalogSource.SkinDescriptor[]::new));
+        SkinCatalogSource.CollectionDescriptor collapsedA = orderedCollection(
+                "collapsed-a", 1, skin("a", "A", SkinModel.CLASSIC));
+        SkinCatalogSource.CollectionDescriptor collapsedB = orderedCollection(
+                "collapsed-b", 2, skin("b", "B", SkinModel.CLASSIC));
+        AddSourceModel model = openCatalog(List.of(expanded, collapsedA, collapsedB))
+                .withCollectionCollapsed("collapsed-a", true)
+                .withCollectionCollapsed("collapsed-b", true);
+
+        ViewSpec view = presenter.present(model, false, 320, 240);
+        ViewSpec.NavigationNode lastCard = view.navigationNodes().stream()
+                .filter(node -> node.id().startsWith("add.catalog.skin:expanded:"))
+                .max(java.util.Comparator.comparingInt(node -> node.bounds().y()))
+                .orElseThrow();
+        ViewSpec.NavigationNode firstHeader = view.navigationNode(
+                "add.catalog.collection:collapsed-a").orElseThrow();
+        ViewSpec.NavigationNode secondHeader = view.navigationNode(
+                "add.catalog.collection:collapsed-b").orElseThrow();
+
+        assertTrue(view.widget(firstHeader.id()).isEmpty(), "offscreen header is logical only");
+        assertEquals(
+                firstHeader.id(),
+                ViewNavigationPolicy.target(view, lastCard.id(), ViewSpec.NavigationCommand.DOWN)
+                        .orElseThrow().id());
+        assertTrue(ViewNavigationPolicy.ensureVisibleOffset(view, firstHeader).isPresent());
+        assertEquals(
+                secondHeader.id(),
+                ViewNavigationPolicy.target(view, firstHeader.id(), ViewSpec.NavigationCommand.DOWN)
+                        .orElseThrow().id());
+        assertEquals(Optional.of(firstHeader.id()), firstHeader.activationActionId());
+    }
+
+    @Test
     void partiallyVisibleCatalogHeadersCardsAndNameTooltipsRemainClippedAndInteractive() {
         List<SkinCatalogSource.SkinDescriptor> skins = IntStream.range(0, 20)
                 .mapToObj(index -> new SkinCatalogSource.SkinDescriptor(
@@ -1075,6 +1181,10 @@ final class AddSourceModelPresenterTest {
         assertTrue(confirmationView.widget("add.catalog.delete.confirm").orElseThrow().enabled());
         assertTrue(confirmationView.widget("add.catalog.delete.cancel").orElseThrow().enabled());
         assertEquals(
+                Optional.of("add.catalog.delete.confirm"),
+                ViewNavigationPolicy.activationAction(
+                        confirmationView, "add.catalog.delete.confirm"));
+        assertEquals(
                 "add.catalog.delete.cancel",
                 confirmationView.focusRequest().orElseThrow().widgetId());
         assertTrue(confirmation.focusToken().orElseThrow() > catalog.focusToken().orElseThrow());
@@ -1278,6 +1388,17 @@ final class AddSourceModelPresenterTest {
                 Optional.empty(),
                 Optional.empty(),
                 List.of(skins));
+    }
+
+    private static SkinCatalogSource.CollectionDescriptor orderedCollection(
+            String id, int sourceOrder, SkinCatalogSource.SkinDescriptor... skins) {
+        return new SkinCatalogSource.CollectionDescriptor(
+                id,
+                CatalogText.literal("Minecraft"),
+                Optional.empty(),
+                Optional.empty(),
+                List.of(skins),
+                CatalogCollectionOrder.resourcePack(id, sourceOrder));
     }
 
     private static SkinCatalogSource.SkinDescriptor skin(String id, String name, SkinModel... models) {

@@ -159,7 +159,8 @@ final class ExternalAppearanceImportService {
                         sha256,
                         capeId,
                         record.sourceOrder(),
-                        existing != null));
+                        existing != null && existing.visible(),
+                        pngValidator.normalizeSkinWithVariant(candidatePng).featureEvidence()));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw interrupted;
@@ -181,9 +182,6 @@ final class ExternalAppearanceImportService {
         AccountState account = library.load(accountId);
         Map<String, ExistingPersonalSkin> existing = new HashMap<>();
         for (PersonalSkinEntry entry : account.personalSkins()) {
-            if (!entry.visible()) {
-                continue;
-            }
             Optional<UUID> assetId = entry.variantAssetIds().values().stream().findFirst();
             if (assetId.isEmpty()) {
                 continue;
@@ -192,7 +190,7 @@ final class ExternalAppearanceImportService {
                 byte[] png = library.resolveSkin(account, assetId.orElseThrow()).pngBytes();
                 existing.putIfAbsent(
                         pngValidator.pixelSha256(png),
-                        new ExistingPersonalSkin(entry.sha256(), png));
+                        new ExistingPersonalSkin(entry.sha256(), png, entry.visible()));
             } catch (IOException | PngValidationException | RuntimeException invalidExistingAsset) {
             }
         }
@@ -425,7 +423,7 @@ final class ExternalAppearanceImportService {
         }
     }
 
-    private record ExistingPersonalSkin(String sha256, byte[] pngBytes) {
+    private record ExistingPersonalSkin(String sha256, byte[] pngBytes, boolean visible) {
         private ExistingPersonalSkin {
             Objects.requireNonNull(sha256, "sha256");
             pngBytes = Objects.requireNonNull(pngBytes, "pngBytes").clone();

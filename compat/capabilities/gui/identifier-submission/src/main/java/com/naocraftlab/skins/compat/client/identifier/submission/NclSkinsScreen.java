@@ -96,7 +96,9 @@ public final class NclSkinsScreen extends Screen {
             "legs_all_on",
             "legs_all_off",
             "legs_left_off",
-            "legs_right_off");
+            "legs_right_off",
+            "compatibility_sparkle",
+            "compatibility_warning");
     private static final int LEFT_MOUSE_BUTTON = 0;
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
@@ -323,7 +325,11 @@ public final class NclSkinsScreen extends Screen {
                 spec.collectionHeaderHasTrailingInfo(),
                 CatalogCardStyle.selectionSelected(spec),
                 !spec.visible(),
-                input -> dispatchNativeWidget(spec.id(), input.hasShiftDown()));
+                input -> {
+                    if (spec.kind() != ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
+                        dispatchNativeWidget(spec.id(), input.hasShiftDown());
+                    }
+                });
         spec.hint()
                 .or(() -> spec.kind() == ViewSpec.WidgetKind.ICON_BUTTON
                                 || spec.kind() == ViewSpec.WidgetKind.INFO_BUTTON
@@ -1374,6 +1380,22 @@ public final class NclSkinsScreen extends Screen {
                         getX() + getWidth() / 2,
                         getY() + Math.max(0, (getHeight() - font.lineHeight) / 2),
                         InfoButtonStyle.labelColor(active, isHoveredOrFocused()));
+                case COMPATIBILITY_INDICATOR -> {
+                    Identifier texture = actionIconTexture(icon.orElseThrow());
+                    graphics.blit(
+                            RenderPipelines.GUI_TEXTURED,
+                            texture,
+                            getX() + (getWidth() - ACTION_ICON_RENDER_SIZE) / 2,
+                            getY() + (getHeight() - ACTION_ICON_RENDER_SIZE) / 2,
+                            0.0F,
+                            0.0F,
+                            ACTION_ICON_RENDER_SIZE,
+                            ACTION_ICON_RENDER_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE,
+                            ACTION_ICON_TEXTURE_SIZE);
+                }
                 case CATALOG_DELETE -> {
                     int background = isHoveredOrFocused() ? 0xCC7A3030 : 0x99302020;
                     graphics.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), background);
@@ -1389,7 +1411,10 @@ public final class NclSkinsScreen extends Screen {
                 case COLLECTION_HEADER -> renderCollectionHeader(graphics, font);
                 case TEXT_FIELD -> throw new IllegalStateException("Text field uses EditBox");
             }
-            if (isFocused() && CatalogCardStyle.focusFrameSupported(kind)) {
+            if ((kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR && isHoveredOrFocused())
+                    || (kind != ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR
+                    && isFocused()
+                    && CatalogCardStyle.focusFrameSupported(kind))) {
                 drawCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
         }
