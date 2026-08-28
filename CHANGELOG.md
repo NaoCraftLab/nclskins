@@ -1,5 +1,9 @@
 ## 1.0.0-beta.6
 
+### Added
+
+- Added Spanish, Brazilian Portuguese, and German translations
+
 ### Fixed
 
 - Fixed distorted eyes on legacy 64x32 looks when Fresh Moves or Just Expressions is active

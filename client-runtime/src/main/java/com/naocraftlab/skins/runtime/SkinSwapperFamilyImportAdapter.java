@@ -39,7 +39,8 @@ public final class SkinSwapperFamilyImportAdapter implements ExternalImportAdapt
     @Override
     public ExternalImportBatch discover(Path root, ExternalImportContext context) throws IOException {
         Path skins = findSkinsDirectory(root.toAbsolutePath().normalize())
-                .orElseThrow(() -> new IOException("Simple/SkinSwapper skins directory was not found"));
+                .orElseThrow(() -> new IOException(
+                        "SimpleSkinSwapper / Skin Swapper skins directory was not found"));
         List<Path> pngFiles = pngFiles(skins);
         List<String> warnings = new ArrayList<>();
         Map<String, Object> declaredTypes = readTypes(skins.resolve(TYPES_FILE), warnings);

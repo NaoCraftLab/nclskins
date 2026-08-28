@@ -105,6 +105,9 @@ final class ArtifactVerifier {
         zip.withCloseable { archive ->
             List<String> names = archive.entries().collect { it.name }
             if (names.size() != (names as Set).size()) errors.add("${target.id}: artifact contains duplicate ZIP entries")
+            if (names.any { containsFinderMetadata(it) }) {
+                errors.add("${target.id}: artifact contains Finder metadata")
+            }
             if (names.any { String name -> FORBIDDEN_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds a forbidden auth/native/JSON dependency")
             if (names.any { String name -> forbiddenLoggingPayload(name) }) {
                 errors.add("${target.id}: artifact embeds a logging implementation, provider, or configuration")
@@ -137,6 +140,11 @@ final class ArtifactVerifier {
         name.endsWith('/JndiLookup.class') || name.endsWith('/JndiManager.class') ||
                 lower.endsWith('log4j2.xml') || lower.endsWith('log4j2.json') ||
                 lower.endsWith('log4j2.yaml') || lower.endsWith('logback.xml')
+    }
+
+    static boolean containsFinderMetadata(String name) {
+        List<String> segments = name.split('/') as List<String>
+        segments.contains('.DS_Store') || segments.contains('__MACOSX')
     }
 
     static void verifyPreviewRegistration(
@@ -264,6 +272,10 @@ final class ArtifactVerifier {
         selectedResources.removeIf { it.endsWith('.pixel.json') }
         selectedResources.addAll(target.metadata.files as List)
         selectedResources.add('nclskins-server-compatibility.json')
+        LocalizationVerifier.aliases(catalog).keySet().each { String alias ->
+            selectedResources.add("assets/nclskins/lang/${alias}.json".toString())
+            selectedResources.add((COLLECTIONS + "assets/nclskins/lang/${alias}.json").toString())
+        }
         selectedResources.addAll(['META-INF/MANIFEST.MF', 'META-INF/LICENSE', 'META-INF/NOTICE'])
         if (forgeRefmap != null) selectedResources.add(forgeRefmap.path.toString())
         selectedResources.addAll(mixinExtrasResources(catalog, target))
@@ -555,30 +567,65 @@ final class ArtifactVerifier {
     }
 
     static void verifyResources(File root, ZipFile archive, Map catalog, Map target, List<String> names, List<String> errors) {
-        Set<String> expected = [catalog.mod.icon, 'assets/nclskins/lang/en_us.json', 'assets/nclskins/lang/ru_ru.json', COLLECTIONS + 'assets/nclskins/lang/en_us.json', COLLECTIONS + 'assets/nclskins/lang/ru_ru.json', COLLECTIONS + 'NOTICE-MOJANG.md', COLLECTIONS + 'pack.mcmeta'] as Set
+        List<String> locales = LocalizationVerifier.artifactLocales(catalog)
+        Set<String> expected = [catalog.mod.icon, COLLECTIONS + 'NOTICE-MOJANG.md', COLLECTIONS + 'pack.mcmeta'] as Set
+        expected.addAll(locales.collect { "assets/nclskins/lang/${it}.json".toString() })
+        expected.addAll(locales.collect {
+            (COLLECTIONS + "assets/nclskins/lang/${it}.json").toString()
+        })
         if (target.metadata.accessWidener) expected.add(target.metadata.accessWidener.toString())
         if (target.metadata.accessTransformer) expected.add(target.metadata.accessTransformer.toString())
         expected.addAll(target.metadata.serverMixins ?: [])
         expected.addAll(target.metadata.mixins ?: [])
         expected.findAll { !names.contains(it) }.each { errors.add("${target.id}: missing required resource ${it}") }
-        ['en_us', 'ru_ru'].each { String locale ->
+        Set<String> expectedCanonicalLanguages = locales.collect {
+            "assets/nclskins/lang/${it}.json".toString()
+        } as Set
+        Set<String> actualCanonicalLanguages = names.findAll {
+            it.startsWith('assets/nclskins/lang/') && it.endsWith('.json')
+        } as Set
+        if (actualCanonicalLanguages != expectedCanonicalLanguages) {
+            errors.add("${target.id}: canonical locale inventory differs")
+        }
+        Set<String> expectedCollectionLanguages = locales.collect {
+            (COLLECTIONS + "assets/nclskins/lang/${it}.json").toString()
+        } as Set
+        Set<String> actualCollectionLanguages = names.findAll {
+            it.startsWith(COLLECTIONS + 'assets/nclskins/lang/') && it.endsWith('.json')
+        } as Set
+        if (actualCollectionLanguages != expectedCollectionLanguages) {
+            errors.add("${target.id}: Mojang collection locale inventory differs")
+        }
+
+        Map english = json(archive, 'assets/nclskins/lang/en_us.json', target, errors)
+        locales.each { String locale ->
+            String source = LocalizationVerifier.sourceLocale(catalog, locale)
             Map language = json(archive, "assets/nclskins/lang/${locale}.json", target, errors)
             if (language != null) {
-                String description = catalog.mod.descriptions[locale].toString()
-                ['modmenu.descriptionTranslation.nclskins',
-                 'fml.menu.mods.info.description.nclskins',
-                 'neoforge.screen.mods.info.description.nclskins'].each { String key ->
+                String description = catalog.mod.descriptions[source].toString()
+                LocalizationVerifier.DESCRIPTION_KEYS.each { String key ->
                     if (language[key] != description) errors.add("${target.id}: ${locale} ${key} differs from catalog")
                 }
-                Map expectedLinkLabels = locale == 'en_us'
-                        ? ['nclskins.modmenu.youtube': 'YouTube',
-                           'nclskins.modmenu.telegram_bot': 'Telegram Bot',
-                           'nclskins.modmenu.x': 'X']
-                        : ['nclskins.modmenu.youtube': 'YouTube',
-                           'nclskins.modmenu.telegram_bot': 'Telegram-бот',
-                           'nclskins.modmenu.x': 'X']
-                expectedLinkLabels.each { String key, String value ->
-                    if (language[key] != value) errors.add("${target.id}: ${locale} ${key} differs from catalog")
+                if (english != null) {
+                    LocalizationVerifier.validateLanguage(locale, language, english, false, errors)
+                }
+                if (language.values().any { it.toString().contains('@NCLSKINS_DESCRIPTION@') }) {
+                    errors.add("${target.id}: ${locale} retains a raw description token")
+                }
+            }
+            Map collection = json(archive,
+                    COLLECTIONS + "assets/nclskins/lang/${locale}.json", target, errors)
+            if (collection != null && collection.keySet() != LocalizationVerifier.collectionKeys(root)) {
+                errors.add("${target.id}: ${locale} Mojang collection key manifest differs")
+            }
+        }
+        LocalizationVerifier.aliases(catalog).each { String alias, String source ->
+            ['assets/nclskins/lang/', COLLECTIONS + 'assets/nclskins/lang/'].each { String prefix ->
+                String aliasPath = prefix + alias + '.json'
+                String sourcePath = prefix + source + '.json'
+                if (archive.getEntry(aliasPath) != null && archive.getEntry(sourcePath) != null &&
+                        !MessageDigest.isEqual(read(archive, aliasPath), read(archive, sourcePath))) {
+                    errors.add("${target.id}: ${aliasPath} differs from processed ${sourcePath}")
                 }
             }
         }

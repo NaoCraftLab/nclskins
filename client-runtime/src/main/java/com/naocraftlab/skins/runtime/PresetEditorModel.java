@@ -889,7 +889,7 @@ public final class PresetEditorModel {
                     card,
                     choice.label(),
                     Optional.of(choice.id().equals(capeId) ? "selected" : "unselected"),
-                    Optional.of(UiMessage.info("nclskins.editor.cape", choice.label())),
+                    Optional.of(choice.id().isEmpty() ? choice.label() : capeLabel(choice.label())),
                     !busy && !choice.id().equals(capeId),
                     true,
                     0));
@@ -987,7 +987,7 @@ public final class PresetEditorModel {
             int size) {
         EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(
                 id, preview.outerLayerVisibility());
-        UiMessage accessibleLabel = UiMessage.info(state.stateKey());
+        UiMessage accessibleLabel = state.label();
         widgets.add(ViewSpec.Widget.iconButton(
                 "editor.outer_layer." + id,
                 new Bounds(x, y, size, size),
@@ -1002,9 +1002,8 @@ public final class PresetEditorModel {
                 .findFirst()
                 .orElse(new CapeChoice(capeId, capeId
                         .map(PresetEditorModel::shortId)
-                        .map(value -> UiMessage.info("nclskins.editor.cape", value))
-                        .orElseGet(() -> UiMessage.info(
-                                "nclskins.editor.cape", UiMessage.info("nclskins.editor.no_cape")))));
+                        .map(value -> UiMessage.literal(value, UiMessage.Severity.INFO))
+                        .orElseGet(() -> UiMessage.info("nclskins.editor.no_cape"))));
         return selected.label();
     }
 
@@ -1022,8 +1021,8 @@ public final class PresetEditorModel {
 
     private UiMessage previewModeLabel() {
         return UiMessage.info(preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA
-                ? "nclskins.editor.preview_elytra"
-                : "nclskins.editor.preview_cape");
+                ? "item.minecraft.elytra"
+                : "options.modelPart.cape");
     }
 
     private boolean hasCapePreview() {
@@ -1100,7 +1099,7 @@ public final class PresetEditorModel {
                 && choices.stream().noneMatch(choice -> choice.id().equals(selectedCapeId))) {
             String id = selectedCapeId.orElseThrow();
             choices.add(new CapeChoice(
-                    Optional.of(id), UiMessage.info("nclskins.editor.cape", shortId(id))));
+                    Optional.of(id), UiMessage.literal(shortId(id), UiMessage.Severity.INFO)));
         }
         return List.copyOf(choices);
     }
@@ -1115,6 +1114,10 @@ public final class PresetEditorModel {
 
     private static String shortId(String value) {
         return value.length() <= 8 ? value : value.substring(0, 8);
+    }
+
+    private static UiMessage capeLabel(Object value) {
+        return UiMessage.info("nclskins.editor.cape", UiMessage.info("options.modelPart.cape"), value);
     }
 
     public record CapeChoice(Optional<String> id, UiMessage label) {

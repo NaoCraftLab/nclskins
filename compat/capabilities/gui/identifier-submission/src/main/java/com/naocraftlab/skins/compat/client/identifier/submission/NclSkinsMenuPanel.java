@@ -135,7 +135,7 @@ public final class NclSkinsMenuPanel {
 
         private final class Action extends AbstractButton {
             private Action() {
-                super(0, 0, 0, 0, Component.translatable("nclskins.open"));
+                super(0, 0, 0, 0, Component.translatable("nclskins.menu.preview"));
                 visible = false;
             }
 

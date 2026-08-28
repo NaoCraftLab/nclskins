@@ -121,7 +121,22 @@ final class EditorOuterLayerCycleTest {
             String stateKey) {
         EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(control, visibility);
         assertEquals(icon, state.icon());
-        assertEquals(stateKey, state.stateKey());
+        assertEquals(stateKey, state.label().key());
+        List<String> expectedPartKeys = switch (control) {
+            case "head" -> List.of("options.modelPart.hat");
+            case "body" -> List.of(
+                    "options.modelPart.jacket",
+                    "options.modelPart.left_sleeve",
+                    "options.modelPart.right_sleeve");
+            case "legs" -> List.of(
+                    "options.modelPart.left_pants_leg",
+                    "options.modelPart.right_pants_leg");
+            default -> throw new IllegalArgumentException(control);
+        };
+        assertEquals(expectedPartKeys, state.label().arguments().stream()
+                .map(UiMessage.class::cast)
+                .map(UiMessage::key)
+                .toList());
     }
 
     private static ExpectedStep step(

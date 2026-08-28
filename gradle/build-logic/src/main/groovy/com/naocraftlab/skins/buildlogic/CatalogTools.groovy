@@ -27,7 +27,7 @@ final class CatalogTools {
     ] as Set
     static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility'] as Set
     static final Set<String> MOD_KEYS = [
-            'id', 'name', 'group', 'license', 'descriptions', 'contact', 'links', 'platforms',
+            'id', 'name', 'group', 'license', 'localization', 'descriptions', 'contact', 'links', 'platforms',
             'authors', 'icon', 'iconBlur'
     ] as Set
     static final Pattern VERSION_PATTERN = Pattern.compile(
@@ -448,7 +448,7 @@ final class CatalogTools {
                 'optionalDependencies', 'publicationDependencies',
                 'serverPlugin', 'serverPluginRuntimes', 'serverPluginTopologies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 21) {
+        if (catalog.schemaVersion != 22) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -474,11 +474,7 @@ final class CatalogTools {
         if (mod.license != 'GPL-3.0-only') {
             errors.add('mod.license must be GPL-3.0-only')
         }
-        Map descriptions = mod.descriptions instanceof Map ? mod.descriptions as Map : [:]
-        if ((descriptions.keySet() as Set) != ['en_us', 'ru_ru'] as Set ||
-                descriptions.values().any { !(it instanceof String) || it.isBlank() || it.contains('\u2014') || it.contains('\u2013') }) {
-            errors.add('mod.descriptions must define non-empty en_us and ru_ru strings without long dashes')
-        }
+        LocalizationVerifier.validateDeclaration(catalog, errors)
         Map contact = mod.contact instanceof Map ? mod.contact as Map : [:]
         if ((contact.keySet() as Set) != ['homepage', 'sources', 'issues'] as Set ||
                 contact.values().any { !(it instanceof String) || !(it ==~ /https:\/\/[^\s]+/) }) {
@@ -591,43 +587,7 @@ final class CatalogTools {
                 errors.add("cannot read mod.icon: ${error.message}")
             }
         }
-        ['en_us', 'ru_ru'].each { String locale ->
-            File language = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/assets/nclskins/lang/${locale}.json")
-            try {
-                Map values = loadJson(language)
-                values.findAll { key, value -> value instanceof String && (value.contains('\u2014') || value.contains('\u2013')) }
-                        .keySet()
-                        .each { String key -> errors.add("${locale}: ${key} must not use long dashes") }
-                ['modmenu.descriptionTranslation.nclskins',
-                 'fml.menu.mods.info.description.nclskins',
-                 'neoforge.screen.mods.info.description.nclskins'].each { String key ->
-                    if (values[key] != '@NCLSKINS_DESCRIPTION@') errors.add("${locale}: ${key} must use the catalog description template token")
-                }
-                Map expectedLinkLabels = locale == 'en_us'
-                        ? ['nclskins.modmenu.youtube': 'YouTube',
-                           'nclskins.modmenu.telegram_bot': 'Telegram Bot',
-                           'nclskins.modmenu.x': 'X']
-                        : ['nclskins.modmenu.youtube': 'YouTube',
-                           'nclskins.modmenu.telegram_bot': 'Telegram-бот',
-                           'nclskins.modmenu.x': 'X']
-                expectedLinkLabels.each { String key, String value ->
-                    if (values[key] != value) errors.add("${locale}: ${key} must equal ${value}")
-                }
-            } catch (Exception error) {
-                errors.add("cannot read ${locale} translations: ${error.message}")
-            }
-        }
-        ['en_us', 'ru_ru'].each { String locale ->
-            File language = new File(repositoryRoot, "compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections/assets/nclskins/lang/${locale}.json")
-            try {
-                Map values = loadJson(language)
-                values.findAll { key, value -> value instanceof String && (value.contains('\u2014') || value.contains('\u2013')) }
-                        .keySet()
-                        .each { String key -> errors.add("mojang-collections ${locale}: ${key} must not use long dashes") }
-            } catch (Exception error) {
-                errors.add("cannot read mojang-collections ${locale} translations: ${error.message}")
-            }
-        }
+        LocalizationVerifier.validateRepository(repositoryRoot, catalog, errors)
         Map gson = catalog.gsonCompatibility instanceof Map ? catalog.gsonCompatibility as Map : [:]
         if ((gson.keySet() as Set) != ['minimum', 'maximum'] as Set || gson.values().any { !(it instanceof String) || it.isBlank() }) {
             errors.add('gsonCompatibility must define non-empty minimum and maximum versions')

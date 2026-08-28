@@ -8,6 +8,10 @@ def catalogFile = repositoryRoot.file('gradle/targets.json').asFile
 def versionFile = repositoryRoot.file('gradle/version.properties').asFile
 def catalog = new JsonSlurper().parse(catalogFile)
 def descriptionToken = '@NCLSKINS_DESCRIPTION@'
+def sourceLocales = (catalog.mod.localization.sourceLocales as List).collect { it.toString() }
+def localeAliases = (catalog.mod.localization.aliases as Map).collectEntries { alias, source ->
+    [alias.toString(), source.toString()]
+}
 def escapedDescription = { String locale ->
     String encoded = JsonOutput.toJson(catalog.mod.descriptions[locale].toString())
     encoded.substring(1, encoded.length() - 1)
@@ -259,13 +263,19 @@ tasks.withType(Jar).configureEach {
 tasks.named('processResources', ProcessResources).configure {
     dependsOn generateTargetMetadata
     inputs.file(catalogFile)
-    inputs.property('nclskinsDescriptionEnUs', catalog.mod.descriptions.en_us.toString())
-    inputs.property('nclskinsDescriptionRuRu', catalog.mod.descriptions.ru_ru.toString())
-    filesMatching('assets/nclskins/lang/en_us.json') {
-        filter { String line -> line.replace(descriptionToken, escapedDescription('en_us')) }
+    sourceLocales.each { String locale ->
+        inputs.property("nclskinsDescription.${locale}", catalog.mod.descriptions[locale].toString())
+        filesMatching("assets/nclskins/lang/${locale}.json") {
+            filter { String line -> line.replace(descriptionToken, escapedDescription(locale)) }
+        }
     }
-    filesMatching('assets/nclskins/lang/ru_ru.json') {
-        filter { String line -> line.replace(descriptionToken, escapedDescription('ru_ru')) }
+    inputs.property('nclskinsLocaleAliases', localeAliases)
+    localeAliases.each { String alias, String source ->
+        from(sourceSets.main.resources.srcDirs) {
+            include "**/lang/${source}.json"
+            rename { String name -> name == "${source}.json" ? "${alias}.json" : name }
+            filter { String line -> line.replace(descriptionToken, escapedDescription(source)) }
+        }
     }
     duplicatesStrategy = DuplicatesStrategy.FAIL
     exclude '**/*.pixel.json'

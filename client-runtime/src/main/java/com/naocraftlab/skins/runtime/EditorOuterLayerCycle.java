@@ -103,13 +103,41 @@ final class EditorOuterLayerCycle {
     }
 
     private static Step step(Set<OuterLayerPart> visibleParts, String icon, String stateKey) {
-        return new Step(visibleParts, new State(icon, stateKey));
+        List<Object> arguments = switch (stateKey) {
+            case "nclskins.editor.outer_head_on",
+                    "nclskins.editor.outer_head_off" -> vanilla("options.modelPart.hat");
+            case "nclskins.editor.outer_body_all_on",
+                    "nclskins.editor.outer_body_all_off",
+                    "nclskins.editor.outer_body_no_arms",
+                    "nclskins.editor.outer_body_arms_without_body",
+                    "nclskins.editor.outer_body_only_left_arm",
+                    "nclskins.editor.outer_body_only_right_arm",
+                    "nclskins.editor.outer_body_and_left_arm",
+                    "nclskins.editor.outer_body_and_right_arm" -> vanilla(
+                    "options.modelPart.jacket", "options.modelPart.left_sleeve",
+                    "options.modelPart.right_sleeve");
+            case "nclskins.editor.outer_legs_all_on",
+                    "nclskins.editor.outer_legs_all_off",
+                    "nclskins.editor.outer_legs_no_left_leg",
+                    "nclskins.editor.outer_legs_no_right_leg" -> vanilla(
+                    "options.modelPart.left_pants_leg", "options.modelPart.right_pants_leg");
+            default -> throw new IllegalArgumentException("unknown outer-layer state: " + stateKey);
+        };
+        return new Step(visibleParts, new State(
+                icon, new UiMessage(stateKey, arguments, UiMessage.Severity.INFO)));
     }
 
-    record State(String icon, String stateKey) {
+    private static List<Object> vanilla(String... keys) {
+        return java.util.Arrays.stream(keys)
+                .map(key -> UiMessage.info(key))
+                .map(value -> (Object) value)
+                .toList();
+    }
+
+    record State(String icon, UiMessage label) {
         State {
             Objects.requireNonNull(icon, "icon");
-            Objects.requireNonNull(stateKey, "stateKey");
+            Objects.requireNonNull(label, "label");
         }
     }
 

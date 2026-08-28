@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 21,
+  "schemaVersion": 22,
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
@@ -45,9 +45,23 @@
     "name": "NCL Skins",
     "group": "com.naocraftlab.skins",
     "license": "GPL-3.0-only",
+    "localization": {
+      "sourceLocales": ["en_us", "ru_ru", "de_de", "pt_br", "es_mx", "es_es"],
+      "aliases": {
+        "es_ar": "es_mx",
+        "es_cl": "es_mx",
+        "es_ec": "es_mx",
+        "es_uy": "es_mx",
+        "es_ve": "es_mx"
+      }
+    },
     "descriptions": {
       "en_us": "Skin management that feels like part of Minecraft",
-      "ru_ru": "Управление скинами как часть Minecraft"
+      "ru_ru": "Управление скинами как часть Minecraft",
+      "de_de": "Skin-Verwaltung, die sich wie ein Teil von Minecraft anfühlt",
+      "pt_br": "Gerenciamento de skins integrado ao Minecraft",
+      "es_mx": "Gestión de skins integrada en Minecraft",
+      "es_es": "Gestión de skins integrada en Minecraft"
     },
     "contact": {
       "homepage": "https://naocraftlab.com",

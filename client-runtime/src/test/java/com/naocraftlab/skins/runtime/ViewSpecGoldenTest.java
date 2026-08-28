@@ -222,7 +222,7 @@ final class ViewSpecGoldenTest {
                 + "[failed-320]\n" + describe(presenter.present(
                 failed,
                 false,
-                Optional.of(UiMessage.error("nclskins.external_import.not_found.skin_shuffle")),
+                Optional.of(UiMessage.error("nclskins.external_import.unavailable.skin_shuffle")),
                 320,
                 240))
                 + "[busy-427]\n" + describe(presenter.present(

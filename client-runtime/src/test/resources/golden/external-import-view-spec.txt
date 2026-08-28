@@ -27,7 +27,7 @@ panels
 1|footer|0,207,320,33|VANILLA_FOOTER
 texts
 0|external.title|8,12,304,10|key:nclskins.external_import.mod_title:INFO|CENTER
-1|external.status|16,118,288,10|key:nclskins.external_import.not_found.skin_shuffle:ERROR|CENTER
+1|external.status|16,118,288,10|key:nclskins.external_import.unavailable.skin_shuffle:ERROR|CENTER
 widgets
 0|external.source.skin_shuffle|BUTTON|16,42,266,20|key:nclskins.external_import.skin_shuffle:INFO|value=-|hint=key:nclskins.external_import.invalid_folder.skin_shuffle:INFO|enabled=false|visible=true|max=0
 1|external.folder.skin_shuffle|ICON_BUTTON|284,42,20,20|key:nclskins.external_import.choose_folder:INFO|value=folder|hint=key:nclskins.external_import.choose_folder:INFO|enabled=true|visible=true|max=0

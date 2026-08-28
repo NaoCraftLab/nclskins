@@ -22,8 +22,9 @@ Your library is shared across every Minecraft instance on your computer that use
 Import a skin from a file or direct link, or find a player's current skin by name or UUID. NCL Skins automatically detects whether it
 uses the Classic or Slim model, and you can change it in the editor when needed.
 
-Bring over saved looks from Minecraft Launcher, Modrinth App, CurseForge App, Prism Launcher, Skin Shuffle, Simple/SkinSwapper, and
-Quick Skin. Before importing, NCL Skins shows new skins and those already in your catalog, then lets you choose only the ones you want.
+Bring over saved looks from Minecraft Launcher, Modrinth App, CurseForge App, Prism Launcher, Skin Shuffle,
+SimpleSkinSwapper / Skin Swapper, and Quick Skin. Before importing, NCL Skins shows new skins and those already in your catalog, then lets you
+choose only the ones you want.
 
 The built-in Catalog includes the standard Minecraft characters and optional collections of official Mojang event skins. Resource packs
 can add their own skin collections.

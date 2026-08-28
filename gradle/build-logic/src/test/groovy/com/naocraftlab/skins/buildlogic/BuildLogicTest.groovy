@@ -24,7 +24,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(21, catalog.schemaVersion)
+        assertEquals(22, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
@@ -569,15 +569,15 @@ final class BuildLogicTest {
 
     @Test
     void canonicalPlayerFacingTranslationsHaveLocaleParityAndLookTerminology() {
-        Map english = CatalogTools.loadJson(new File(
-                repository,
-                'compat/resources/canonical/src/main/resources/assets/nclskins/lang/en_us.json'))
-        Map russian = CatalogTools.loadJson(new File(
-                repository,
-                'compat/resources/canonical/src/main/resources/assets/nclskins/lang/ru_ru.json'))
+        File localeDirectory = new File(repository,
+                'compat/resources/canonical/src/main/resources/assets/nclskins/lang')
+        Map english = CatalogTools.loadJson(new File(localeDirectory, 'en_us.json'))
+        Map russian = CatalogTools.loadJson(new File(localeDirectory, 'ru_ru.json'))
 
-        assertEquals(english.keySet(), russian.keySet())
-        [en_us: english, ru_ru: russian].each { String locale, Map translations ->
+        LocalizationVerifier.sourceLocales(catalog).each { String locale ->
+            Map translations = CatalogTools.loadJson(
+                    new File(localeDirectory, "${locale}.json"))
+            assertEquals(english.keySet(), translations.keySet(), locale)
             translations.each { String key, Object value ->
                 assertInstanceOf(String, value, "${locale}: ${key}")
                 String normalized = value.toString().toLowerCase(Locale.ROOT)

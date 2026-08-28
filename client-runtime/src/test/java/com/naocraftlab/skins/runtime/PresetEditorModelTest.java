@@ -378,6 +378,10 @@ final class PresetEditorModelTest {
                 widget.id().equals("editor.cape_previous") || widget.id().equals("editor.cape_next")));
         assertEquals(ViewSpec.WidgetKind.CAPE_CARD,
                 start.widget("editor.cape_choice.0").orElseThrow().kind());
+        assertEquals(UiMessage.info("nclskins.editor.no_cape"),
+                start.widget("editor.cape_choice.0").orElseThrow().label());
+        assertEquals(Optional.of(UiMessage.info("nclskins.editor.no_cape")),
+                start.widget("editor.cape_choice.0").orElseThrow().hint());
         assertTrue(start.panels().stream().anyMatch(panel ->
                 panel.id().startsWith("editor.cape_card.")
                         && panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
@@ -386,7 +390,7 @@ final class PresetEditorModelTest {
                 .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.CAPE));
         ViewSpec.Widget noCapePreviewMode = start.widget("editor.preview_mode").orElseThrow();
         assertEquals(Optional.of("cape"), noCapePreviewMode.icon());
-        assertEquals(UiMessage.info("nclskins.editor.preview_cape"), noCapePreviewMode.label());
+        assertEquals(UiMessage.info("options.modelPart.cape"), noCapePreviewMode.label());
 
         PresetEditorModel noCapeElytra = model.cyclePreviewMode();
         ViewSpec noCapeElytraView = noCapeElytra.present(320, 240, 0.0);
@@ -514,9 +518,9 @@ final class PresetEditorModelTest {
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, widget.kind());
         assertEquals(bounds, widget.bounds());
         assertEquals(Optional.of(icon), widget.icon());
-        UiMessage accessibleLabel = UiMessage.info(stateKey);
-        assertEquals(accessibleLabel, widget.label());
-        assertEquals(Optional.of(accessibleLabel), widget.hint());
+        assertEquals(stateKey, widget.label().key());
+        assertFalse(widget.label().arguments().isEmpty());
+        assertEquals(Optional.of(widget.label()), widget.hint());
     }
 
     private static List<OwnedCapeEntry> capes(int count) {
