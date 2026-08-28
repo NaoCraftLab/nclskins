@@ -1,3 +1,18 @@
+## 1.0.0-beta.5
+
+### Added
+
+- **Skin compatibility guidance**
+    - Compatibility markers in `Catalog`, `My looks`, the look editor, and `Review import` show embedded skin features, with details available by mouse or keyboard
+    - Quickly spot skins made for Ears, Fresh Moves, and Just Expressions, as well as warnings about conflicts with active mods and resource packs
+- **Hide incompatible skins**
+    - Choose independently whether to hide incompatible skins from `Catalog` and incompatible looks from `My looks`
+    - Keep the active look visible even when other incompatible looks are hidden
+
+### Fixed
+
+- 64x32 skins are automatically converted to the modern layout before previewing and saving, preventing stray pixels from appearing as facial details in animations
+
 ## 1.0.0-beta.4
 
 ### Added
