@@ -2,12 +2,22 @@
 
 ### Added
 
-- Added Spanish, Brazilian Portuguese, and German translations
+- Added German, Spanish (Spain and Mexico), and Brazilian Portuguese translations
+
+### Changed
+
+- **Updated interface icons**
+    - Redrawn icons across all main screens
+    - Second-layer, cape, and elytra controls are cleaner and describe their current state more clearly
 
 ### Fixed
 
-- Fixed distorted eyes on legacy 64x32 looks when Fresh Moves or Just Expressions is active
-- Restored compatibility warnings for affected legacy looks in `Catalog`, `My looks`, and the look editor
+- **Legacy 64×32 skins**
+    - Fixed distorted eyes when Fresh Moves or Just Expressions is active
+    - Restored compatibility warnings in `Catalog`, `My looks`, and the look editor
+- **Imports from other apps**
+    - Long warnings are now fully visible and wrap onto multiple lines in narrow windows
+    - Messages clarify when no looks were found for the current account and no longer linger after going back or trying again
 
 ## 1.0.0-beta.5
 
