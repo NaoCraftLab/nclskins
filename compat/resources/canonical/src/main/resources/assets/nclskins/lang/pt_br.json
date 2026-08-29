@@ -74,6 +74,7 @@
   "nclskins.external_import.database_picker_title": "Escolher o app.db do launcher",
   "nclskins.external_import.picker_failed": "O seletor de arquivos do sistema não está disponível.",
   "nclskins.external_import.no_valid": "Foram encontrados dados, mas nenhum visual compatível pôde ser importado. Escolha outra pasta.",
+  "nclskins.external_import.no_valid_current_account": "Nenhum visual foi encontrado para a conta atual.",
   "nclskins.external_import.complete": "Importados: %s; ignorados: %s; já existentes: %s; avisos: %s",
   "nclskins.add_source.search": "Pesquisar skins",
   "nclskins.add_source.search_hint": "Pesquisar",

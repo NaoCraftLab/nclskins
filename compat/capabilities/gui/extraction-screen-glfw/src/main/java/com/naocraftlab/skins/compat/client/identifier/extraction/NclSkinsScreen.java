@@ -956,6 +956,33 @@ public final class NclSkinsScreen extends Screen {
             int mouseY) {
             Component component = MinecraftClientComponents.resolve(text.message());
             int color = textColor(text);
+            if (text.layout() == ViewSpec.Text.Layout.WRAP) {
+                graphics.enableScissor(
+                        text.bounds().x(),
+                        text.bounds().y(),
+                        text.bounds().right(),
+                        text.bounds().bottom());
+                try {
+                    int lineY = text.bounds().y();
+                    for (var line : font.split(component, text.bounds().width())) {
+                        if (lineY + font.lineHeight > text.bounds().bottom()) {
+                            break;
+                        }
+                        int lineWidth = font.width(line);
+                        int lineX = switch (text.alignment()) {
+                            case LEFT -> text.bounds().x();
+                            case CENTER -> text.bounds().x()
+                                    + Math.max(0, (text.bounds().width() - lineWidth) / 2);
+                            case RIGHT -> text.bounds().right() - lineWidth;
+                        };
+                        graphics.text(font, line, lineX, lineY, color);
+                        lineY += font.lineHeight;
+                    }
+                } finally {
+                    graphics.disableScissor();
+                }
+                return;
+            }
             if (font.width(component) > text.bounds().width()
                     && marqueeActive(view, text, mouseX, mouseY)) {
                 int offset = MarqueeText.offset(

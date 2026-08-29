@@ -1921,6 +1921,135 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void noValidExternalLooksExplainsCurrentAccountOnlyForAccountScopedLaunchers() {
+        FakeOperations accountScopedOperations = new FakeOperations();
+        ClientRuntime accountScopedRuntime = runtime(
+                accountScopedOperations, Runnable::run, Optional.empty());
+        accountScopedRuntime.initialize();
+        accountScopedRuntime.dispatchWidget("gallery.add");
+        accountScopedRuntime.dispatchWidget("add.tab.file");
+        accountScopedRuntime.dispatchWidget("add.external.launcher");
+        accountScopedOperations.externalImportFailure = new ExternalImportException(
+                ExternalImportException.Code.NO_VALID_APPEARANCES, "empty");
+
+        accountScopedRuntime.dispatchWidget("external.source.curseforge_app");
+
+        assertEquals(
+                UiMessage.error("nclskins.external_import.no_valid_current_account"),
+                accountScopedRuntime.snapshot().status());
+
+        FakeOperations sharedLibraryOperations = new FakeOperations();
+        ClientRuntime sharedLibraryRuntime = runtime(
+                sharedLibraryOperations, Runnable::run, Optional.empty());
+        sharedLibraryRuntime.initialize();
+        sharedLibraryRuntime.dispatchWidget("gallery.add");
+        sharedLibraryRuntime.dispatchWidget("add.tab.file");
+        sharedLibraryRuntime.dispatchWidget("add.external.launcher");
+        sharedLibraryOperations.externalImportFailure = new ExternalImportException(
+                ExternalImportException.Code.NO_VALID_APPEARANCES, "empty");
+
+        sharedLibraryRuntime.dispatchWidget("external.source.prism_launcher");
+
+        assertEquals(
+                UiMessage.error("nclskins.external_import.no_valid"),
+                sharedLibraryRuntime.snapshot().status());
+    }
+
+    @Test
+    void externalChooserWarningDoesNotLeakToImportTabAfterBackOrEscape() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.external.launcher");
+        operations.externalImportFailure = new ExternalImportException(
+                ExternalImportException.Code.NO_VALID_APPEARANCES, "empty");
+        runtime.dispatchWidget("external.source.curseforge_app");
+        assertTrue(runtime.view(320, 240, 0, 0).texts().stream()
+                .anyMatch(text -> text.id().equals("external.status")));
+
+        runtime.dispatchWidget("external.back");
+
+        ViewSpec afterBack = runtime.view(320, 240, 0, 0);
+        assertEquals("add_source", afterBack.screenId());
+        assertTrue(afterBack.texts().stream()
+                .noneMatch(text -> text.id().equals("add.import.status")));
+        assertEquals(
+                UiMessage.info("nclskins.external_import.choose_source"),
+                runtime.snapshot().status());
+
+        operations.externalImportFailure = null;
+        runtime.dispatchWidget("add.external.launcher");
+        operations.externalImportFailure = new ExternalImportException(
+                ExternalImportException.Code.NO_VALID_APPEARANCES, "empty");
+        runtime.dispatchWidget("external.source.curseforge_app");
+
+        runtime.escapePressed();
+
+        ViewSpec afterEscape = runtime.view(320, 240, 0, 0);
+        assertEquals("add_source", afterEscape.screenId());
+        assertTrue(afterEscape.texts().stream()
+                .noneMatch(text -> text.id().equals("add.import.status")));
+        assertEquals(
+                UiMessage.info("nclskins.external_import.choose_source"),
+                runtime.snapshot().status());
+    }
+
+    @Test
+    void nextExternalChooserSourceAndFolderActionsReplaceWarningImmediately() {
+        CompletableFuture<Optional<Path>> folderSelection = new CompletableFuture<>();
+        FilePicker picker = new FilePicker() {
+            @Override
+            public CompletableFuture<Optional<Path>> chooseSkinPng() {
+                return CompletableFuture.completedFuture(Optional.empty());
+            }
+
+            @Override
+            public CompletableFuture<Optional<Path>> chooseSqliteDatabase() {
+                return folderSelection;
+            }
+        };
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, picker);
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.external.launcher");
+        operations.externalImportFailure = new ExternalImportException(
+                ExternalImportException.Code.NO_VALID_APPEARANCES, "empty");
+        runtime.dispatchWidget("external.source.curseforge_app");
+
+        operations.externalImportFailure = null;
+        runtime.dispatchWidget("external.source.modrinth_app");
+
+        assertEquals("external_review", runtime.view(320, 240, 0, 0).screenId());
+        assertEquals(
+                UiMessage.info("nclskins.external_import.review_ready"),
+                runtime.snapshot().status());
+
+        runtime.dispatchWidget("external.review.cancel");
+        operations.externalImportFailure = new ExternalImportException(
+                ExternalImportException.Code.NO_VALID_APPEARANCES, "empty");
+        runtime.dispatchWidget("external.source.curseforge_app");
+        operations.externalImportFailure = null;
+
+        runtime.dispatchWidget("external.folder.curseforge_app");
+
+        ViewSpec choosingFolder = runtime.view(320, 240, 0, 0);
+        assertEquals("external_chooser", choosingFolder.screenId());
+        assertTrue(choosingFolder.texts().stream()
+                .noneMatch(text -> text.id().equals("external.status")));
+        assertEquals(
+                UiMessage.info("nclskins.external_import.choose_folder_status"),
+                runtime.snapshot().status());
+        folderSelection.complete(Optional.empty());
+        assertEquals(
+                UiMessage.info("nclskins.external_import.choose_source"),
+                runtime.snapshot().status());
+    }
+
+    @Test
     void externalReviewBulkDisclosureIsTransientAndPreservesSelection() {
         FakeOperations operations = new FakeOperations();
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());

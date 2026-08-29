@@ -161,6 +161,97 @@ final class ExternalImportPresenterTest {
     }
 
     @Test
+    void chooserPublishesOnlyTypedErrorFeedback() {
+        ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER);
+
+        ViewSpec informational = presenter.present(
+                model,
+                false,
+                Optional.of(UiMessage.info("nclskins.external_import.searching")),
+                320,
+                240);
+        assertTrue(informational.texts().stream().noneMatch(text ->
+                text.id().equals("external.status")));
+
+        UiMessage failure = UiMessage.error("nclskins.external_import.no_valid");
+        ViewSpec failed = presenter.present(model, false, Optional.of(failure), 320, 240);
+        ViewSpec.Text status = failed.texts().stream()
+                .filter(text -> text.id().equals("external.status"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(failure, status.message());
+        assertEquals(UiMessage.Severity.ERROR, status.message().severity());
+    }
+
+    @Test
+    void chooserErrorUsesCenteredAdaptiveWrappedBoundsAcrossTheFullSourceRow() {
+        UiMessage failure = UiMessage.error("nclskins.external_import.no_valid");
+        for (int[] size : List.of(
+                new int[]{240, 240},
+                new int[]{320, 240},
+                new int[]{427, 240},
+                new int[]{854, 480})) {
+            ExternalImportModel.Category category = size[0] == 320
+                    ? ExternalImportModel.Category.MOD
+                    : ExternalImportModel.Category.LAUNCHER;
+            ViewSpec view = presenter.present(
+                    ExternalImportModel.open(category),
+                    false,
+                    Optional.of(failure),
+                    size[0],
+                    size[1]);
+            ViewSpec.Text status = view.texts().stream()
+                    .filter(text -> text.id().equals("external.status"))
+                    .findFirst()
+                    .orElseThrow();
+            ViewSpec.Widget source = view.widget(ExternalImportPresenter.sourceId(
+                    category.sources().get(0))).orElseThrow();
+            ViewSpec.Widget folder = view.widget(ExternalImportPresenter.folderId(
+                    category.sources().get(0))).orElseThrow();
+            Bounds footer = view.panels().stream()
+                    .filter(panel -> panel.id().equals("footer"))
+                    .findFirst()
+                    .orElseThrow()
+                    .bounds();
+
+            assertEquals(ViewSpec.Text.Layout.WRAP, status.layout());
+            assertEquals(ViewSpec.Text.Alignment.CENTER, status.alignment());
+            assertEquals(source.bounds().x(), status.bounds().x());
+            assertEquals(folder.bounds().right() - source.bounds().x(), status.bounds().width());
+            assertTrue(status.bounds().width() < size[0]);
+            assertTrue(status.bounds().y() > view.widgets().stream()
+                    .filter(widget -> widget.id().startsWith("external.source."))
+                    .mapToInt(widget -> widget.bounds().bottom())
+                    .max()
+                    .orElseThrow());
+            assertEquals(footer.y() - 4, status.bounds().bottom());
+        }
+
+        ViewSpec compact = presenter.present(
+                ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER),
+                false,
+                Optional.of(failure),
+                427,
+                240);
+        ViewSpec tall = presenter.present(
+                ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER),
+                false,
+                Optional.of(failure),
+                427,
+                480);
+        Bounds compactStatus = compact.texts().stream()
+                .filter(text -> text.id().equals("external.status"))
+                .findFirst().orElseThrow().bounds();
+        Bounds tallStatus = tall.texts().stream()
+                .filter(text -> text.id().equals("external.status"))
+                .findFirst().orElseThrow().bounds();
+        assertEquals(compactStatus.x(), tallStatus.x());
+        assertEquals(compactStatus.width(), tallStatus.width());
+        assertEquals(compactStatus.y(), tallStatus.y());
+        assertTrue(tallStatus.height() > compactStatus.height());
+    }
+
+    @Test
     void reviewDefaultsToNewCandidatesAndCanSelectDuplicates() {
         ExternalImportModel model = ExternalImportModel.open(ExternalImportModel.Category.MOD)
                 .withAutomaticProbes(Map.of(

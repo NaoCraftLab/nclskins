@@ -2006,6 +2006,43 @@ final class BuildLogicTest {
     }
 
     @Test
+    void everyNativeGuiHostWrapsLocalizedTextInsideItsDeclaredBounds() {
+        [
+                [
+                        'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java',
+                        'private void renderText(',
+                        'private void renderPreciseTooltip('
+                ],
+                [
+                        'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
+                        'private void renderText(',
+                        'private static int textColor('
+                ],
+                [
+                        'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                        'private void drawText(',
+                        'private void drawPreciseTooltip('
+                ],
+                [
+                        'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                        'private void drawText(',
+                        'private void drawPreciseTooltip('
+                ]
+        ].each { List<String> host ->
+            String source = new File(repository, host[0]).text
+            String renderer = source.substring(source.indexOf(host[1]), source.indexOf(host[2]))
+            assertTrue(renderer.contains('text.layout() == ViewSpec.Text.Layout.WRAP'), host[0])
+            assertTrue(renderer.contains('font.split('), host[0])
+            assertTrue(renderer.contains('lineY + font.lineHeight'), host[0])
+            assertTrue(renderer.contains('lineY += font.lineHeight'), host[0])
+            assertTrue(renderer.contains('enableScissor('), host[0])
+            assertTrue(renderer.contains('disableScissor()'), host[0])
+            assertTrue(renderer.indexOf('text.layout() == ViewSpec.Text.Layout.WRAP')
+                    < renderer.indexOf('plainSubstrByWidth('), host[0])
+        }
+    }
+
+    @Test
     void compatibilityIndicatorsAndAppearanceTogglesShareIconOnlyFrames() {
         String immediate = new File(
                 repository,

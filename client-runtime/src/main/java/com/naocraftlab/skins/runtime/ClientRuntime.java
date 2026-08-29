@@ -2590,7 +2590,12 @@ public final class ClientRuntime implements AutoCloseable {
         Throwable cause = unwrap(failure);
         if (cause instanceof ExternalImportException external
                 && external.code() == ExternalImportException.Code.NO_VALID_APPEARANCES) {
-            state.status = UiMessage.error("nclskins.external_import.no_valid");
+            state.status = UiMessage.error(switch (source) {
+                case CURSEFORGE_APP, MODRINTH_APP ->
+                        "nclskins.external_import.no_valid_current_account";
+                case MINECRAFT_LAUNCHER, SKIN_SHUFFLE, SKIN_SWAPPER_FAMILY,
+                        QUICK_SKIN, PRISM_LAUNCHER -> "nclskins.external_import.no_valid";
+            });
             return;
         }
         if (cause instanceof ExternalImportException external
@@ -2628,6 +2633,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.externalImport == null) {
             return;
         }
+        boolean cancelledBusyOperation = state.busy;
         if (state.busy) {
             state.generation++;
             state.busy = false;
@@ -2637,6 +2643,9 @@ public final class ClientRuntime implements AutoCloseable {
             state.externalImport = state.externalImport.clearReview();
         } else {
             state.externalImport = null;
+        }
+        if (!cancelledBusyOperation) {
+            state.status = UiMessage.info("nclskins.external_import.choose_source");
         }
         publish();
     }

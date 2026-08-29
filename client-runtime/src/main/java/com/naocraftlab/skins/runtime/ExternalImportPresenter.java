@@ -78,11 +78,12 @@ public final class ExternalImportPresenter {
                 new Bounds(8, 12, Math.max(1, width - 16), 10),
                 title,
                 ViewSpec.Text.Alignment.CENTER));
+        int folderWidth = 20;
+        int rowGap = 2;
+        int sourceButtonWidth = contentWidth - folderWidth - rowGap;
         int y = 42;
         for (ExternalImportSource source : model.category().sources()) {
             ExternalImportModel.SourceState state = model.sources().get(source);
-            int folderWidth = 20;
-            int rowGap = 2;
             Optional<UiMessage> dependencyHint =
                     state.availability() == ExternalImportModel.Availability.DEPENDENCY_MISSING
                             ? Optional.of(UiMessage.info(
@@ -94,7 +95,7 @@ public final class ExternalImportPresenter {
                     : stateKey.map(UiMessage::info);
             widgets.add(ViewSpec.Widget.button(
                     sourceId(source),
-                    new Bounds(x, y, contentWidth - folderWidth - rowGap, 20),
+                    new Bounds(x, y, sourceButtonWidth, 20),
                     UiMessage.info(sourceLabel(source)),
                     sourceHint,
                     !busy && state.availability().available()));
@@ -110,15 +111,18 @@ public final class ExternalImportPresenter {
                             != ExternalImportModel.Availability.DEPENDENCY_MISSING));
             y += 24;
         }
+        int footerTop = Math.max(0, height - FOOTER_HEIGHT);
         int statusY = Math.min(
-                Math.max(CHROME_HEIGHT + 4, height - FOOTER_HEIGHT - 14),
+                Math.max(CHROME_HEIGHT + 4, footerTop - 14),
                 y + 4);
+        int statusBottom = Math.max(statusY + 1, footerTop - 4);
         status.filter(message -> message.severity() == UiMessage.Severity.ERROR)
                 .ifPresent(message -> texts.add(new ViewSpec.Text(
                         "external.status",
-                        new Bounds(x, statusY, contentWidth, 10),
+                        new Bounds(x, statusY, contentWidth, statusBottom - statusY),
                         message,
-                        ViewSpec.Text.Alignment.CENTER)));
+                        ViewSpec.Text.Alignment.CENTER,
+                        ViewSpec.Text.Layout.WRAP)));
         int backWidth = Math.min(200, Math.max(100, width - 32));
         widgets.add(ViewSpec.Widget.button(
                 "external.back",

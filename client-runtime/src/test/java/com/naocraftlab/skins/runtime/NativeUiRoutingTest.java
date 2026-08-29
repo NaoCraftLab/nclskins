@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
@@ -62,7 +64,27 @@ final class NativeUiRoutingTest {
         ViewSpec.Text staticText = new ViewSpec.Text(
                 "static", new Bounds(0, 0, 10, 10), UiMessage.info("static"),
                 ViewSpec.Text.Alignment.LEFT);
+        assertTrue(text.marqueeActivation().isPresent());
+        assertEquals(Optional.empty(), staticText.marqueeActivation());
+        assertEquals(ViewSpec.Text.Layout.SINGLE_LINE, text.layout());
+        assertEquals(ViewSpec.Text.Layout.SINGLE_LINE, staticText.layout());
         assertFalse(MarqueeRouting.active(view, staticText, 1, 1, ignored -> true));
+
+        ViewSpec.Text wrapped = new ViewSpec.Text(
+                "wrapped",
+                new Bounds(0, 0, 40, 30),
+                UiMessage.info("wrapped"),
+                ViewSpec.Text.Alignment.CENTER,
+                ViewSpec.Text.Layout.WRAP);
+        assertEquals(ViewSpec.Text.Layout.WRAP, wrapped.layout());
+        assertThrows(IllegalArgumentException.class, () -> new ViewSpec.Text(
+                "invalid",
+                new Bounds(0, 0, 40, 30),
+                UiMessage.info("invalid"),
+                ViewSpec.Text.Alignment.CENTER,
+                Optional.of(new ViewSpec.MarqueeActivation(
+                        new Bounds(0, 0, 40, 30), List.of("action"))),
+                ViewSpec.Text.Layout.WRAP));
     }
 
     private static ViewSpec.ScrollSurface surface(double offset, double maximum) {

@@ -74,6 +74,7 @@
   "nclskins.external_import.database_picker_title": "Elegir el app.db del launcher",
   "nclskins.external_import.picker_failed": "El selector de archivos del sistema no está disponible.",
   "nclskins.external_import.no_valid": "Se encontraron datos, pero no se pudo importar ningún aspecto compatible. Elige otra carpeta.",
+  "nclskins.external_import.no_valid_current_account": "No se encontraron aspectos para la cuenta actual.",
   "nclskins.external_import.complete": "Importados: %s; omitidos: %s; ya existentes: %s; advertencias: %s",
   "nclskins.add_source.search": "Buscar skins",
   "nclskins.add_source.search_hint": "Buscar",

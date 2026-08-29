@@ -404,7 +404,11 @@ final class ViewSpecGoldenTest {
             ViewSpec.Text text = view.texts().get(index);
             result.append(index).append('|').append(text.id()).append('|')
                     .append(bounds(text.bounds())).append('|').append(message(text.message())).append('|')
-                    .append(text.alignment()).append('\n');
+                    .append(text.alignment());
+            if (text.layout() != ViewSpec.Text.Layout.SINGLE_LINE) {
+                result.append("|layout=").append(text.layout());
+            }
+            result.append('\n');
         }
         result.append("widgets\n");
         for (int index = 0; index < view.widgets().size(); index++) {

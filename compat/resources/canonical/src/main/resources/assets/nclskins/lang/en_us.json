@@ -74,6 +74,7 @@
   "nclskins.external_import.database_picker_title": "Choose the launcher app.db",
   "nclskins.external_import.picker_failed": "The system file picker is unavailable.",
   "nclskins.external_import.no_valid": "Data was found, but no supported looks could be imported. Choose another folder.",
+  "nclskins.external_import.no_valid_current_account": "No looks were found for the current account.",
   "nclskins.external_import.complete": "Imported %s; skipped %s; already present %s; warnings %s",
   "nclskins.add_source.search": "Search skins",
   "nclskins.add_source.search_hint": "Search",

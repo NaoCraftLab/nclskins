@@ -74,6 +74,7 @@
   "nclskins.external_import.database_picker_title": "Выберите файл app.db лаунчера",
   "nclskins.external_import.picker_failed": "Системный выбор файла недоступен.",
   "nclskins.external_import.no_valid": "Данные найдены, но поддерживаемых образов в них нет. Выберите другую папку.",
+  "nclskins.external_import.no_valid_current_account": "Для текущего аккаунта образы не найдены.",
   "nclskins.external_import.complete": "Импортировано: %s; пропущено: %s; уже было: %s; предупреждений: %s",
   "nclskins.add_source.search": "Поиск скинов",
   "nclskins.add_source.search_hint": "Поиск",

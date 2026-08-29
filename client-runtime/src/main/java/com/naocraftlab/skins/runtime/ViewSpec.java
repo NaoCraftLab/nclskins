@@ -644,9 +644,28 @@ public record ViewSpec(
             Bounds bounds,
             UiMessage message,
             Alignment alignment,
-            Optional<MarqueeActivation> marqueeActivation) {
+            Optional<MarqueeActivation> marqueeActivation,
+            Layout layout) {
         public Text(String id, Bounds bounds, UiMessage message, Alignment alignment) {
-            this(id, bounds, message, alignment, Optional.empty());
+            this(id, bounds, message, alignment, Optional.empty(), Layout.SINGLE_LINE);
+        }
+
+        public Text(
+                String id,
+                Bounds bounds,
+                UiMessage message,
+                Alignment alignment,
+                Optional<MarqueeActivation> marqueeActivation) {
+            this(id, bounds, message, alignment, marqueeActivation, Layout.SINGLE_LINE);
+        }
+
+        public Text(
+                String id,
+                Bounds bounds,
+                UiMessage message,
+                Alignment alignment,
+                Layout layout) {
+            this(id, bounds, message, alignment, Optional.empty(), layout);
         }
 
         public Text {
@@ -655,12 +674,21 @@ public record ViewSpec(
             Objects.requireNonNull(message, "message");
             Objects.requireNonNull(alignment, "alignment");
             marqueeActivation = Objects.requireNonNull(marqueeActivation, "marqueeActivation");
+            Objects.requireNonNull(layout, "layout");
+            if (layout == Layout.WRAP && marqueeActivation.isPresent()) {
+                throw new IllegalArgumentException("wrapped text cannot use marquee activation");
+            }
         }
 
         public enum Alignment {
             LEFT,
             CENTER,
             RIGHT
+        }
+
+        public enum Layout {
+            SINGLE_LINE,
+            WRAP
         }
     }
 

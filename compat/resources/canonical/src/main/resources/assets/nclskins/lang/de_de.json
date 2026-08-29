@@ -74,6 +74,7 @@
   "nclskins.external_import.database_picker_title": "app.db des Launchers auswählen",
   "nclskins.external_import.picker_failed": "Die Systemdateiauswahl ist nicht verfügbar.",
   "nclskins.external_import.no_valid": "Daten wurden gefunden, aber es konnten keine unterstützten Looks importiert werden. Wählen Sie einen anderen Ordner.",
+  "nclskins.external_import.no_valid_current_account": "Für das aktuelle Konto wurden keine Looks gefunden.",
   "nclskins.external_import.complete": "Importiert: %s; übersprungen: %s; bereits vorhanden: %s; Warnungen: %s",
   "nclskins.add_source.search": "Skins durchsuchen",
   "nclskins.add_source.search_hint": "Suchen",

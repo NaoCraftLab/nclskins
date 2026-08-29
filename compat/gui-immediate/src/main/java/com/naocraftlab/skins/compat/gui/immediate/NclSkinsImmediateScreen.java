@@ -1341,6 +1341,28 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         Bounds bounds = resolveTextBounds(view, text);
         Component message = resolve(text.message());
         int color = textColor(text);
+        if (text.layout() == ViewSpec.Text.Layout.WRAP) {
+            graphics.enableScissor(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
+            try {
+                int lineY = bounds.y();
+                for (var line : font.split(message, bounds.width())) {
+                    if (lineY + font.lineHeight > bounds.bottom()) {
+                        break;
+                    }
+                    int lineWidth = font.width(line);
+                    int lineX = switch (text.alignment()) {
+                        case LEFT -> bounds.x();
+                        case CENTER -> bounds.x() + Math.max(0, (bounds.width() - lineWidth) / 2);
+                        case RIGHT -> bounds.right() - lineWidth;
+                    };
+                    graphics.drawString(font, line, lineX, lineY, color, false);
+                    lineY += font.lineHeight;
+                }
+            } finally {
+                graphics.disableScissor();
+            }
+            return;
+        }
         if (font.width(message) > bounds.width()
                 && marqueeActive(view, text, mouseX, mouseY)) {
             int offset = MarqueeText.offset(
