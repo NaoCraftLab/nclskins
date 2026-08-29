@@ -2300,6 +2300,14 @@ final class BuildLogicTest {
             assertNotEquals(empty, added)
             Files.delete(sourceRoot.resolve('compat/capabilities/gui/example/src/main/java/Example.java'))
             assertEquals(empty, TargetBuildTask.sourceGraphFingerprint(sourceRoot.toFile()))
+
+            Path transientOutput = sourceRoot.resolve(
+                    'targets/example/build/resources/main/assets/nclskins/lang/es_cl.json')
+            Files.createDirectories(transientOutput.parent)
+            Files.writeString(transientOutput, '{}')
+            assertEquals(empty, TargetBuildTask.sourceGraphFingerprint(sourceRoot.toFile()))
+            Files.delete(transientOutput)
+            assertEquals(empty, TargetBuildTask.sourceGraphFingerprint(sourceRoot.toFile()))
         } finally {
             sourceRoot.toFile().deleteDir()
         }
@@ -2308,6 +2316,8 @@ final class BuildLogicTest {
                 repository,
                 'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/TargetBuildTask.groovy').text
         assertTrue(source.contains('"-PnclskinsSourceGraph=${sourceGraphFingerprint(root)}".toString()'))
+        assertTrue(source.contains('FileVisitResult.SKIP_SUBTREE'))
+        assertFalse(source.contains('Files.walk(directory.toPath())'))
         assertFalse(source.contains("'--no-configuration-cache'"))
     }
 

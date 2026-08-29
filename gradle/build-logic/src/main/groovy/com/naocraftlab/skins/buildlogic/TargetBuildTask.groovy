@@ -11,7 +11,11 @@ import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
 
 import java.nio.charset.StandardCharsets
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -106,18 +110,28 @@ abstract class TargetBuildTask extends DefaultTask {
          'server-vanilla-publication', 'compat', 'loader', 'targets'].each { String topLevel ->
             File directory = new File(root, topLevel)
             if (!directory.isDirectory()) return
-            def stream = Files.walk(directory.toPath())
-            try {
-                stream.filter { Files.isRegularFile(it) }
-                        .map { root.toPath().relativize(it).toString().replace(File.separatorChar, '/' as char) }
-                        .filter { !it.contains('/build/') && !it.contains('/.gradle/') }
-                        .sorted()
-                        .forEach { String path ->
-                            digest.update(path.getBytes(StandardCharsets.UTF_8))
-                            digest.update((byte) 0)
-                        }
-            } finally {
-                stream.close()
+            List<String> paths = []
+            Files.walkFileTree(directory.toPath(), new SimpleFileVisitor<Path>() {
+                @Override
+                FileVisitResult preVisitDirectory(Path path, BasicFileAttributes attributes) {
+                    if (path != directory.toPath() && path.fileName.toString() in ['build', '.gradle']) {
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+                    FileVisitResult.CONTINUE
+                }
+
+                @Override
+                FileVisitResult visitFile(Path path, BasicFileAttributes attributes) {
+                    if (attributes.isRegularFile()) {
+                        paths.add(root.toPath().relativize(path).toString()
+                                .replace(File.separatorChar, '/' as char))
+                    }
+                    FileVisitResult.CONTINUE
+                }
+            })
+            paths.sort().each { String path ->
+                digest.update(path.getBytes(StandardCharsets.UTF_8))
+                digest.update((byte) 0)
             }
         }
         digest.digest().encodeHex().toString()
