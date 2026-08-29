@@ -173,7 +173,6 @@
   "nclskins.status.saved": "Look gespeichert.",
   "nclskins.status.choose_png": "Warten auf Dateiauswahl…",
   "nclskins.status.cancelled": "Auswahl abgebrochen",
-  "nclskins.status.png_ready": "Datei ausgewählt. Speichern Sie den Look, um ihn zur Bibliothek hinzuzufügen",
   "nclskins.status.saving": "Look wird gespeichert…",
   "nclskins.error.picker": "Die native Dateiauswahl ist nicht verfügbar",
   "nclskins.error.png": "Wählen Sie eine 64×64/64×32 Skin-Datei oder ein ganzzahlskaliertes Äquivalent bis zu 1 MiB (2048 px max)",

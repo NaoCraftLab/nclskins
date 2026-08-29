@@ -1801,6 +1801,8 @@ final class ClientRuntimeTest {
         assertEquals(SkinVariant.SLIM, editor.saveRequest().initialVariant());
         assertEquals(Optional.of(SkinVariant.SLIM), operations.uiPreferences.preferredSkinVariant());
         assertFalse(runtime.snapshot().session().orElseThrow().valid());
+        assertTrue(runtime.view(320, 240, 0, 0).texts().stream()
+                .noneMatch(text -> text.id().equals("editor.status")));
     }
 
     @Test
@@ -1821,6 +1823,8 @@ final class ClientRuntimeTest {
         assertEquals(SkinVariant.SLIM, editor.saveRequest().initialVariant());
         assertEquals(Optional.of(SkinVariant.SLIM), operations.uiPreferences.preferredSkinVariant());
         assertTrue(runtime.view(854, 480, 0, 0).widget("editor.model").orElseThrow().enabled());
+        assertTrue(runtime.view(854, 480, 0, 0).texts().stream()
+                .noneMatch(text -> text.id().equals("editor.status")));
 
         runtime.dispatchWidget("editor.model");
 
@@ -1847,6 +1851,7 @@ final class ClientRuntimeTest {
 
         assertTrue(runtime.snapshot().editor().isEmpty());
         assertTrue(operations.uiPreferences.preferredSkinVariant().isEmpty());
+        assertEquals(UiMessage.info("nclskins.status.cancelled"), runtime.snapshot().status());
     }
 
     @Test
@@ -2046,6 +2051,8 @@ final class ClientRuntimeTest {
 
         assertEquals(SkinVariant.SLIM, runtime.snapshot().editor().orElseThrow().variant());
         assertEquals(Optional.of(SkinVariant.SLIM), operations.uiPreferences.preferredSkinVariant());
+        assertTrue(runtime.view(320, 240, 0, 0).texts().stream()
+                .noneMatch(text -> text.id().equals("editor.status")));
         runtime.dispatchWidget("editor.cancel");
         assertEquals(
                 SkinVariant.SLIM,

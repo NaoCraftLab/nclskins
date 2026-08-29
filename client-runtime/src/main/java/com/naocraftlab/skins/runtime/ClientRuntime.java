@@ -2254,7 +2254,6 @@ public final class ClientRuntime implements AutoCloseable {
                     prepareEditorEvidence(state.editor);
                     resetEditorCapeScroll();
                     state.selectedPresetId = null;
-                    state.status = UiMessage.info("nclskins.status.png_ready");
                 },
                 failure -> state.status = UiMessage.error("nclskins.add_source.load_failed"));
     }
@@ -2656,9 +2655,7 @@ public final class ClientRuntime implements AutoCloseable {
                         : "nclskins.add_source.url_loading"),
                 () -> player ? operations.loadPlayerSkin(input) : operations.loadUrlSkin(input),
                 draft -> {
-                    if (openImportedDraft(draft, draft.name() + ".png", true)) {
-                        state.status = UiMessage.success("nclskins.status.png_ready");
-                    }
+                    openImportedDraft(draft, draft.name() + ".png", true);
                 },
                 failure -> state.status = UiMessage.error(player
                         ? publicImportFailureKey(failure, true)

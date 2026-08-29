@@ -541,7 +541,7 @@ public final class PresetEditorModel {
                 Map.of(),
                 Map.of(),
                 false,
-                Optional.of(UiMessage.info("nclskins.status.png_ready")),
+                Optional.empty(),
                 preview);
     }
 
@@ -686,7 +686,7 @@ public final class PresetEditorModel {
 
         texts.add(new ViewSpec.Text(
                 "editor.title",
-                new Bounds(0, 8, width, 12),
+                new Bounds(0, 12, width, 10),
                 UiMessage.info(originalPresetId.isPresent()
                         ? "nclskins.editor.edit_title"
                         : "nclskins.editor.add_title"),
@@ -698,7 +698,7 @@ public final class PresetEditorModel {
                 ViewSpec.Text.Alignment.LEFT));
         status.ifPresent(message -> texts.add(new ViewSpec.Text(
                 "editor.status",
-                new Bounds(controlsX, 21, controlsWidth, 10),
+                new Bounds(0, bottom, Math.max(1, controlsX), 10),
                 message,
                 ViewSpec.Text.Alignment.CENTER)));
 

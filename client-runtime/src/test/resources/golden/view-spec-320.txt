@@ -44,9 +44,8 @@ panels
 texts
 0|editor.cape_card.0.name|153,111,64,10|key:nclskins.editor.no_cape:INFO|CENTER
 1|editor.cape_card.1.name|227,111,64,10|literal:cape-1:INFO|CENTER
-2|editor.title|0,8,320,12|key:nclskins.editor.edit_title:INFO|CENTER
+2|editor.title|0,12,320,10|key:nclskins.editor.edit_title:INFO|CENTER
 3|editor.name_label|150,43,154,10|key:nclskins.editor.name:INFO|LEFT
-4|editor.status|150,21,154,10|key:nclskins.status.png_ready:INFO|CENTER
 widgets
 0|editor.name|TEXT_FIELD|150,55,154,20|key:nclskins.editor.name:INFO|value=Golden draft|hint=key:nclskins.editor.name_hint:INFO|enabled=true|visible=true|max=128
 1|editor.model|BUTTON|150,82,154,20|key:nclskins.editor.arms_classic:INFO|value=-|hint=-|enabled=true|visible=true|max=0

@@ -173,7 +173,6 @@
   "nclskins.status.saved": "Look saved.",
   "nclskins.status.choose_png": "Waiting for a file selection…",
   "nclskins.status.cancelled": "Selection cancelled",
-  "nclskins.status.png_ready": "File selected. Save it to add it to the library",
   "nclskins.status.saving": "Saving look…",
   "nclskins.error.picker": "The native file picker is unavailable",
   "nclskins.error.png": "Choose a 64×64/64×32 skin file or an integer-scaled equivalent up to 1 MiB (2048 px max)",

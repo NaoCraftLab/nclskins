@@ -132,6 +132,72 @@ final class PresetEditorModelTest {
     }
 
     @Test
+    void successfulPngSelectionClearsStatusWhileActionableFeedbackRemainsAvailable() {
+        PresetEditorModel model = PresetEditorModel.open(
+                TestFixtures.account(0),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                ENGLISH,
+                480,
+                PreviewRenderer.CapeMode.OFF);
+
+        PresetEditorModel selected = model
+                .withStatus(UiMessage.info("nclskins.status.cancelled"))
+                .withImportedPng("skin.png", new byte[] {1}, SkinVariant.SLIM);
+
+        assertTrue(selected.status().isEmpty());
+        assertTrue(selected.present(320, 240).texts().stream()
+                .noneMatch(text -> text.id().equals("editor.status")));
+        assertEquals(
+                Optional.of(UiMessage.info("nclskins.status.choose_png")),
+                model.withBusy(UiMessage.info("nclskins.status.choose_png")).status());
+        assertEquals(
+                Optional.of(UiMessage.error("nclskins.error.png")),
+                model.withStatus(UiMessage.error("nclskins.error.png")).status());
+    }
+
+    @Test
+    void editorHeaderContainsOnlyTheStandardTitleAndActionableStatusUsesTheFooter() {
+        PresetEditorModel model = PresetEditorModel.open(
+                TestFixtures.account(0),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                ENGLISH,
+                240,
+                PreviewRenderer.CapeMode.OFF);
+
+        ViewSpec normal = model.present(320, 240);
+        ViewSpec.Text title = normal.texts().stream()
+                .filter(text -> text.id().equals("editor.title"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(new Bounds(0, 12, 320, 10), title.bounds());
+        assertEquals(
+                List.of("editor.title"),
+                normal.texts().stream()
+                        .filter(text -> text.bounds().y() < 33 && text.bounds().bottom() > 0)
+                        .map(ViewSpec.Text::id)
+                        .toList());
+        assertTrue(normal.widgets().stream()
+                .noneMatch(widget -> widget.bounds().y() < 33 && widget.bounds().bottom() > 0));
+
+        ViewSpec busy = model.withBusy(UiMessage.info("nclskins.status.saving")).present(320, 240);
+        ViewSpec.Text status = busy.texts().stream()
+                .filter(text -> text.id().equals("editor.status"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(new Bounds(0, 212, 150, 10), status.bounds());
+        assertEquals(
+                List.of("editor.title"),
+                busy.texts().stream()
+                        .filter(text -> text.bounds().y() < 33 && text.bounds().bottom() > 0)
+                        .map(ViewSpec.Text::id)
+                        .toList());
+    }
+
+    @Test
     void personalCatalogDraftSwitchesReusableAssetsAndNeverCopiesItsPngOnSave() {
         PresetEditorModel model = PresetEditorModel.openPersonalCatalog(
                 "Saved skin",

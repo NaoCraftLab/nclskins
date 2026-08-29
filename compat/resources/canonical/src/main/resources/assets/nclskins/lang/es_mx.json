@@ -173,7 +173,6 @@
   "nclskins.status.saved": "Aspecto guardado.",
   "nclskins.status.choose_png": "Esperando la selección de un archivo…",
   "nclskins.status.cancelled": "Selección cancelada",
-  "nclskins.status.png_ready": "Archivo seleccionado. Guarda el aspecto para añadirlo a la biblioteca",
   "nclskins.status.saving": "Guardando aspecto…",
   "nclskins.error.picker": "El selector de archivos nativo no está disponible",
   "nclskins.error.png": "Elige un archivo de skin de 64×64/64×32 o un equivalente con escala entera de hasta 1 MiB (2048 px máx.)",

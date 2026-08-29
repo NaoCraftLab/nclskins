@@ -173,7 +173,6 @@
   "nclskins.status.saved": "Visual salvo.",
   "nclskins.status.choose_png": "Aguardando a seleção de um arquivo…",
   "nclskins.status.cancelled": "Seleção cancelada",
-  "nclskins.status.png_ready": "Arquivo selecionado. Salve o visual para adicioná-lo à biblioteca",
   "nclskins.status.saving": "Salvando visual…",
   "nclskins.error.picker": "O seletor de arquivos nativo não está disponível",
   "nclskins.error.png": "Escolha um arquivo de skin 64×64/64×32 ou um equivalente em escala inteira até 1 MiB (máximo de 2048 px)",
