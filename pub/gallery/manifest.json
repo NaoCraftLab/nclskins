@@ -4,50 +4,66 @@
     {
       "file": "01-my-looks.png",
       "order": 1,
-      "featured": false,
-      "title": "My looks",
-      "description": "Keep complete looks in one in-game gallery and switch between them with one click",
-      "alt": "The My looks gallery in NCL Skins with saved player looks"
+      "featured": true,
+      "title": "Every look in one gallery",
+      "description": "Combine a skin, model, cape or elytra, and outer layers into complete looks, then switch between them with a single click",
+      "alt": "The NCL Skins My Looks gallery with several saved looks, one active look, and actions on each card"
     },
     {
-      "file": "02-editor-and-preview.png",
+      "file": "02-skin-compatibility.png",
       "order": 2,
       "featured": false,
-      "title": "Edit and preview your complete look",
-      "description": "Customize the skin, Classic or Slim model, Cape or Elytra, and individual Second layer parts before saving",
-      "alt": "The Edit look screen in NCL Skins with a large player preview and appearance controls"
+      "title": "See skin compatibility at a glance",
+      "description": "Badges show support for Ears, Fresh Moves, and Just Expressions and warn you about conflicts with active mods and resource packs",
+      "alt": "The NCL Skins look editor with an Ears skin preview, an incompatibility warning, and an open compatibility tooltip"
     },
     {
-      "file": "03-skin-catalog.png",
+      "file": "03-editor-and-preview.png",
       "order": 3,
       "featured": false,
-      "title": "Browse skin collections",
-      "description": "Find standard Minecraft characters, Mojang event skins, and collections from active resourcepacks",
-      "alt": "The NCL Skins Catalog with Search, a model filter, and skin cards from the Standard collection"
+      "title": "Build your look with a live preview",
+      "description": "Choose a Classic or Slim model, cape or elytra, and outer layers, then see the combined result from Ears, 3D Skin Layers, Fresh Moves, and Just Expressions in game",
+      "alt": "The NCL Skins look editor with a large player preview, cape selection, outer-layer controls, and a skin compatibility badge"
     },
     {
-      "file": "04-skin-import.png",
+      "file": "04-skin-catalog.png",
       "order": 4,
       "featured": false,
-      "title": "Import a skin from your preferred source",
-      "description": "Choose a file, find a player skin by name or UUID, add a direct link, or import from other apps",
-      "alt": "The NCL Skins Import screen with options for a file, player name or UUID, direct link, and other apps"
+      "title": "Explore entire skin collections",
+      "description": "Browse standard Minecraft characters, skins from Mojang events, and collections from active resource packs using search and model filters",
+      "alt": "The NCL Skins Catalog showing the Standard collection, search, the Slim model filter, and the control for collapsing or expanding every section"
     },
     {
-      "file": "05-import-review.png",
+      "file": "05-skin-import.png",
       "order": 5,
       "featured": false,
-      "title": "Review looks before importing",
-      "description": "Separate new looks from ones you already have and select only the ones you want to add",
-      "alt": "The NCL Skins import review screen with new and duplicate looks and selected cards"
+      "title": "Import skins your way",
+      "description": "Add PNG files or direct links, look up a skin by player name or UUID, and bring over looks from launchers and other mods",
+      "alt": "The NCL Skins import screen with file upload, player name or UUID lookup, a direct link, and options for importing looks from other apps"
     },
     {
-      "file": "06-minecraft-integration.png",
+      "file": "06-import-review.png",
       "order": 6,
       "featured": false,
-      "title": "Built into Minecraft",
-      "description": "Open My looks by clicking your player on the Main Menu or Game Menu",
-      "alt": "The Minecraft Main Menu with the integrated current-player preview from NCL Skins"
+      "title": "Review everything before importing",
+      "description": "Separate new looks from duplicates, check skin compatibility, and select only what you want to add to your library",
+      "alt": "The NCL Skins import review screen with groups of new and duplicate looks, selected cards, and compatibility badges"
+    },
+    {
+      "file": "07-minecraft-integration.png",
+      "order": 7,
+      "featured": false,
+      "title": "Open your gallery right from Minecraft",
+      "description": "Click your player preview in the main or pause menu to open My Looks without a separate launcher or website",
+      "alt": "The Minecraft pause menu with an integrated preview of the current player that opens the NCL Skins gallery"
+    },
+    {
+      "file": "08-offline-support.png",
+      "order": 8,
+      "featured": false,
+      "title": "Keep using your gallery offline",
+      "description": "Create, edit, and apply looks locally even when Minecraft services are unavailable, then sync your official appearance later",
+      "alt": "The NCL Skins My Looks gallery in Offline mode with local look actions still available"
     }
   ]
 }
