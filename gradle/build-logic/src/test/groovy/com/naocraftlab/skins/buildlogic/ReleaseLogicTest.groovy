@@ -22,7 +22,7 @@ final class ReleaseLogicTest {
         List<String> lines = changelog.readLines()
         String currentHeading = "## ${currentVersion}"
 
-        assertEquals('1.0.0-beta.6', currentVersion)
+        assertEquals('1.0.0', currentVersion)
         assertEquals(currentHeading, lines.find { !it.isBlank() })
         assertEquals(1, lines.count { it == currentHeading })
         int nextVersion = lines.findIndexOf(1) { it.startsWith('## ') }
@@ -38,22 +38,22 @@ final class ReleaseLogicTest {
         } else {
             Map metadata = ReleaseMetadata.validate(versionFile, changelog, currentVersion)
             assertEquals(currentVersion, metadata.version)
-            assertEquals('beta', metadata.channel)
-            assertTrue(metadata.prerelease)
+            assertEquals('release', metadata.channel)
+            assertFalse(metadata.prerelease)
         }
 
         File pluginChangelog = new File(repository, 'PLUGIN_CHANGELOG.md')
         List<String> pluginLines = pluginChangelog.readLines()
         assertTrue(pluginChangelog.isFile())
         assertFalse(new File(repository, 'SERVER_CHANGELOG.md').exists())
-        assertEquals('## 1.0.0-beta.3', pluginLines.find { !it.isBlank() })
+        assertEquals('## 1.0.0', pluginLines.find { !it.isBlank() })
         assertFalse(pluginLines.any { it.startsWith('# ') })
         String pluginNotes = ServerPluginChangelog.validate(pluginChangelog, [
-                currentVersion: '1.0.0-beta.3', publish: true, reason: 'server-change'
+                currentVersion: '1.0.0', publish: true, reason: 'stable-promotion'
         ])
         assertTrue(pluginNotes.startsWith(
-                '### Changed\n\n- Replaced technical refresh commands'))
-        assertFalse(pluginNotes.contains('## 1.0.0-beta.3'))
+                '### Added\n\n- **Universal server plugin for NCL Skins**'))
+        assertFalse(pluginNotes.contains('## 1.0.0'))
     }
 
     @Test

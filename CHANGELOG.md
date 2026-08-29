@@ -1,3 +1,41 @@
+## 1.0.0
+
+### Added
+
+- **Look library and editor with preview**
+    - Build complete looks from a skin, model, cape or elytra, and outer layers, then switch between them with one click
+    - Search, edit, duplicate, and delete looks in `My looks`
+- **Import skins and complete looks**
+    - Add skins from a file, direct link, player name, or UUID with automatic Classic or Slim model detection
+    - Transfer looks from Minecraft Launcher, CurseForge App, Modrinth App, Prism Launcher, Skin Shuffle, SimpleSkinSwapper, Skin Swapper, and Quick Skin
+    - Review new looks and duplicates before importing, select only the entries you want, and choose the app folder manually when needed
+- **Skin catalog and resource pack collections**
+    - Choose from standard Minecraft characters, Mojang event skins, and collections from your active resource packs
+    - Search for skins by name and filter them by model
+    - Add your own collections through resource packs
+- **Extended skin compatibility**
+    - Use compatibility markers to identify skins made for Ears, Fresh Moves, and Just Expressions
+    - See warnings about conflicts with active mods and resource packs, and optionally hide incompatible skins and looks
+    - Preview Ears skins with their original transparency, 3D Skin Layers geometry, and Fresh Moves or Just Expressions animations directly in the editor
+- **Reliable legacy and modern skins**
+    - Imported 64×32 skins are automatically converted to the modern layout for clean previews and saves without interfering with facial animations
+    - Every import method preserves the specified skin model or detects it automatically when the source does not provide one
+- **Offline support and Minecraft account sync**
+    - Use one library across all game instances with separate data for each account
+    - Change your look locally even when Minecraft services are unavailable, then sync the selected skin and cape with your profile when the connection returns
+    - Your latest choice applies automatically after temporary Minecraft limits, while the interface shows its waiting state
+- **Minecraft integration and accessible controls**
+    - Open `My looks` through your player preview on the title screen or pause menu, or from Skin Customization
+    - Navigate `My looks`, `Catalog`, `Review import`, and cape selection with the keyboard
+- **Appearance refresh without reconnecting**
+    - Show other players your skin changes without rejoining when the server uses NCL Skins
+    - Players without NCL Skins can also see your appearance update
+    - Keep your latest selected look working correctly through rapid changes, connections, disconnects, and a singleplayer world opened to LAN
+- **Settings, visuals, and translations**
+    - Open settings from the installed mods screen, choose the preview position, and select the shared library folder
+    - Configure realtime appearance refresh, trusted proxy connections, and profile lookup limits for the server
+    - Use the interface in English, Russian, German, Spanish for Spain and Mexico, or Brazilian Portuguese
+
 ## 1.0.0-beta.6
 
 ### Added

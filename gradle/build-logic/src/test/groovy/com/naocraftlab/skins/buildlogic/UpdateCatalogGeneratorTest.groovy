@@ -428,6 +428,45 @@ final class UpdateCatalogGeneratorTest {
     }
 
     @Test
+    void nativePromosKeepNewestStableRecommendedAfterLaterPrerelease() {
+        String targetId = 'neoforge-26.1'
+        Map prereleaseOnly = UpdateCatalogSite.nativeCatalog(catalog, parse([
+                release('1.0.0-beta.6', [targetId])
+        ]), targetId)
+        Map firstStable = UpdateCatalogSite.nativeCatalog(catalog, parse([
+                release('1.0.0-beta.6', [targetId]),
+                release('1.0.0', [targetId])
+        ]), targetId)
+        Map laterPrerelease = UpdateCatalogSite.nativeCatalog(catalog, parse([
+                release('1.0.0-beta.6', [targetId]),
+                release('1.0.0', [targetId]),
+                release('1.1.0-beta.1', [targetId]),
+                release('1.2.0', ['forge-1.20.1'])
+        ]), targetId)
+
+        ['26.1', '26.1.1', '26.1.2'].each { String runtimeVersion ->
+            assertEquals('1.0.0-beta.6',
+                    prereleaseOnly.promos["${runtimeVersion}-latest".toString()])
+            assertEquals('1.0.0-beta.6',
+                    prereleaseOnly.promos["${runtimeVersion}-recommended".toString()])
+            assertEquals('1.0.0',
+                    firstStable.promos["${runtimeVersion}-latest".toString()])
+            assertEquals('1.0.0',
+                    firstStable.promos["${runtimeVersion}-recommended".toString()])
+            assertEquals('1.1.0-beta.1',
+                    laterPrerelease.promos["${runtimeVersion}-latest".toString()])
+            assertEquals('1.0.0',
+                    laterPrerelease.promos["${runtimeVersion}-recommended".toString()])
+        }
+        assertEquals([
+                '1.0.0-beta.6', '1.0.0', '1.1.0-beta.1'
+        ], laterPrerelease.'26.1'.keySet().toList())
+        assertEquals(
+                'https://github.com/NaoCraftLab/nclskins/releases/tag/1.1.0-beta.1',
+                laterPrerelease.homepage)
+    }
+
+    @Test
     void channelMatrixNeverPromotesAcrossExactTargets() {
         Map current = fixtureCatalog('catalog-current.json')
         Map<String, String> site = UpdateCatalogSite.files(current,

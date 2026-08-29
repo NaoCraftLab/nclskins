@@ -68,10 +68,14 @@ final class UpdateCatalogSite {
         String homepage = (catalog.mod as Map).contact.homepage.toString()
         if (!versions.isEmpty()) {
             String newest = versions.last()
+            List<String> stableVersions = versions.findAll { String version ->
+                ((common.releases as Map)[version] as Map).channel == 'release'
+            }
+            String recommended = stableVersions.isEmpty() ? newest : stableVersions.last()
             homepage = ((common.releases as Map)[newest] as Map).url.toString()
             runtimeVersions.each { String runtimeVersion ->
                 promos["${runtimeVersion}-latest".toString()] = newest
-                promos["${runtimeVersion}-recommended".toString()] = newest
+                promos["${runtimeVersion}-recommended".toString()] = recommended
             }
         }
         Map<String, Object> nativeCatalog = new TreeMap<>()
