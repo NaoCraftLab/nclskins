@@ -17,6 +17,7 @@ import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.FocusRequestLedger;
+import com.naocraftlab.skins.runtime.GuiIcon;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.InteractionOrigin;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
@@ -72,38 +73,8 @@ public final class NclSkinsScreen extends Screen {
             Identifier.withDefaultNamespace("widget/scroller");
     private static final Identifier SCROLLER_BACKGROUND_SPRITE =
             Identifier.withDefaultNamespace("widget/scroller_background");
-    private static final int ACTION_ICON_RENDER_SIZE = 16;
-    private static final int ACTION_ICON_TEXTURE_SIZE = 20;
-    private static final int DECORATION_ICON_SIZE = 32;
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
-    private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
-            "edit",
-            "folder",
-            "plus",
-            "duplicate",
-            "delete",
-            "collapse_all",
-            "expand_all",
-            "no_cape",
-            "cape",
-            "elytra",
-            "head_on",
-            "head_off",
-            "body_all_on",
-            "body_all_off",
-            "body_both_arms_off",
-            "body_left_arm_off",
-            "body_right_arm_off",
-            "body_only_arms_on",
-            "body_only_left_arm",
-            "body_only_right_arm",
-            "legs_all_on",
-            "legs_all_off",
-            "legs_left_off",
-            "legs_right_off",
-            "compatibility_sparkle",
-            "compatibility_warning");
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
     private static final int ERROR_COLOR = 0xFFFF9A9A;
@@ -345,12 +316,14 @@ public final class NclSkinsScreen extends Screen {
                         () -> dispatchNativeWidget(spec.id(), false));
                 delete.active = spec.enabled();
                 widget = delete;
-            } else if (spec.kind() == ViewSpec.WidgetKind.ICON_BUTTON) {
+            } else if (spec.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                    || spec.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON) {
                 IconButtonWidget iconButton = new IconButtonWidget(
                         bounds,
                         MinecraftClientComponents.resolve(spec.label()),
-                        actionIconTexture(spec.icon().orElseThrow(() ->
-                                new IllegalArgumentException("Missing icon for " + spec.id()))),
+                        spec.icon().orElseThrow(() ->
+                                new IllegalArgumentException("Missing icon for " + spec.id())),
+                        spec.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON,
                         input -> dispatchNativeWidget(spec.id(), input.hasShiftDown()));
                 iconButton.active = spec.enabled();
                 spec.hint().ifPresent(hint -> iconButton.setTooltip(
@@ -374,8 +347,8 @@ public final class NclSkinsScreen extends Screen {
                 widget = new CompatibilityIndicatorWidget(
                         bounds,
                         MinecraftClientComponents.resolve(spec.label()),
-                        actionIconTexture(spec.icon().orElseThrow(() ->
-                                new IllegalArgumentException("Missing icon for " + spec.id()))));
+                        spec.icon().orElseThrow(() ->
+                                new IllegalArgumentException("Missing icon for " + spec.id())));
                 widget.active = spec.enabled();
                 widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
@@ -406,12 +379,9 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private static Identifier actionIconTexture(String icon) {
-        if (!APPROVED_ACTION_ICONS.contains(icon)) {
-            throw new IllegalArgumentException("Unsupported action icon: " + icon);
-        }
+    private static Identifier iconTexture(GuiIcon icon) {
         return Identifier.fromNamespaceAndPath(
-                "nclskins", "textures/gui/icons/" + icon + ".png");
+                "nclskins", icon.resourcePath());
     }
 
     private void addNativeTabGroups(ViewSpec view) {
@@ -465,15 +435,15 @@ public final class NclSkinsScreen extends Screen {
             widget.setRectangle(bounds.width(), bounds.height(), bounds.x(), bounds.y());
             if (widget instanceof IconButtonWidget iconButton) {
                 widget.setMessage(MinecraftClientComponents.resolve(spec.label()));
-                iconButton.setIcon(actionIconTexture(spec.icon().orElseThrow(() ->
-                        new IllegalArgumentException("Missing icon for " + spec.id()))));
+                iconButton.setIcon(spec.icon().orElseThrow(() ->
+                        new IllegalArgumentException("Missing icon for " + spec.id())));
                 widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
             }
             if (widget instanceof CompatibilityIndicatorWidget indicator) {
                 widget.setMessage(MinecraftClientComponents.resolve(spec.label()));
-                indicator.setIcon(actionIconTexture(spec.icon().orElseThrow(() ->
-                        new IllegalArgumentException("Missing icon for " + spec.id()))));
+                indicator.setIcon(spec.icon().orElseThrow(() ->
+                        new IllegalArgumentException("Missing icon for " + spec.id())));
                 widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
             }
@@ -673,17 +643,18 @@ public final class NclSkinsScreen extends Screen {
                     : decoration.idleOpacity();
             int color = Math.round(opacity * 255.0F) << 24 | 0x00FFFFFF;
             Bounds bounds = decoration.bounds();
+            int size = decoration.icon().baseCanvas();
             drawClipped(graphics, view, decoration.id(), () -> graphics.blit(
                     RenderPipelines.GUI_TEXTURED,
-                    actionIconTexture(decoration.icon()),
-                    bounds.x(),
-                    bounds.y(),
+                    iconTexture(decoration.icon()),
+                    bounds.x() + (bounds.width() - size) / 2,
+                    bounds.y() + (bounds.height() - size) / 2,
                     0.0F,
                     0.0F,
-                    bounds.width(),
-                    bounds.height(),
-                    DECORATION_ICON_SIZE,
-                    DECORATION_ICON_SIZE,
+                    size,
+                    size,
+                    size,
+                    size,
                     color));
         }
     }
@@ -1629,7 +1600,7 @@ public final class NclSkinsScreen extends Screen {
             String id,
             ViewSpec.WidgetKind kind,
             String label,
-            Optional<String> icon,
+            Optional<GuiIcon> icon,
             Optional<UiMessage> hint,
             boolean visible,
             int maxLength) {
@@ -1639,13 +1610,16 @@ public final class NclSkinsScreen extends Screen {
             this(
                     widget.id(),
                     widget.kind(),
-                    widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                    (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                            || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON)
                             ? ""
                             : MinecraftClientComponents.resolveString(widget.label()),
-                    widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                    (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                            || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON)
                             ? Optional.empty()
                             : widget.icon(),
-                    widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                    (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                            || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON)
                             ? Optional.empty()
                             : widget.hint(),
                     widget.visible(),
@@ -1655,20 +1629,23 @@ public final class NclSkinsScreen extends Screen {
 
 
     private static final class IconButtonWidget extends AbstractButton {
-        private Identifier icon;
+        private GuiIcon icon;
+        private final boolean iconOnly;
         private final Consumer<InputWithModifiers> onPress;
 
         private IconButtonWidget(
                 Bounds bounds,
                 Component message,
-                Identifier icon,
+                GuiIcon icon,
+                boolean iconOnly,
                 Consumer<InputWithModifiers> onPress) {
             super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
             this.icon = Objects.requireNonNull(icon, "icon");
+            this.iconOnly = iconOnly;
             this.onPress = Objects.requireNonNull(onPress, "onPress");
         }
 
-        private void setIcon(Identifier icon) {
+        private void setIcon(GuiIcon icon) {
             this.icon = Objects.requireNonNull(icon, "icon");
         }
 
@@ -1680,8 +1657,13 @@ public final class NclSkinsScreen extends Screen {
         @Override
         protected void extractContents(
                 GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-            extractDefaultSprite(graphics);
+            if (!iconOnly) {
+                extractDefaultSprite(graphics);
+            }
             extractActionIcon(graphics, getX(), getY(), getWidth(), getHeight(), icon);
+            if (iconOnly && isHoveredOrFocused()) {
+                extractCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
+            }
         }
 
         @Override
@@ -1692,14 +1674,14 @@ public final class NclSkinsScreen extends Screen {
 
 
     private static final class CompatibilityIndicatorWidget extends AbstractButton {
-        private Identifier icon;
+        private GuiIcon icon;
 
-        private CompatibilityIndicatorWidget(Bounds bounds, Component message, Identifier icon) {
+        private CompatibilityIndicatorWidget(Bounds bounds, Component message, GuiIcon icon) {
             super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
             this.icon = Objects.requireNonNull(icon, "icon");
         }
 
-        private void setIcon(Identifier icon) {
+        private void setIcon(GuiIcon icon) {
             this.icon = Objects.requireNonNull(icon, "icon");
         }
 
@@ -1730,20 +1712,19 @@ public final class NclSkinsScreen extends Screen {
             int y,
             int width,
             int height,
-            Identifier icon) {
+            GuiIcon icon) {
+        int size = icon.baseCanvas();
         graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
-                icon,
-                x + (width - ACTION_ICON_RENDER_SIZE) / 2,
-                y + (height - ACTION_ICON_RENDER_SIZE) / 2,
+                iconTexture(icon),
+                x + (width - size) / 2,
+                y + (height - size) / 2,
                 0.0F,
                 0.0F,
-                ACTION_ICON_RENDER_SIZE,
-                ACTION_ICON_RENDER_SIZE,
-                ACTION_ICON_TEXTURE_SIZE,
-                ACTION_ICON_TEXTURE_SIZE,
-                ACTION_ICON_TEXTURE_SIZE,
-                ACTION_ICON_TEXTURE_SIZE);
+                size,
+                size,
+                size,
+                size);
     }
 
 

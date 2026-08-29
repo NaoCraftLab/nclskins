@@ -17,6 +17,7 @@ import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.FocusRequestLedger;
+import com.naocraftlab.skins.runtime.GuiIcon;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.InteractionOrigin;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
@@ -67,38 +68,8 @@ public final class NclSkinsScreen extends Screen {
     private static final Identifier SCROLLER = Identifier.withDefaultNamespace("widget/scroller");
     private static final Identifier SCROLLER_BACKGROUND =
             Identifier.withDefaultNamespace("widget/scroller_background");
-    private static final int ACTION_ICON_RENDER_SIZE = 16;
-    private static final int ACTION_ICON_TEXTURE_SIZE = 20;
-    private static final int DECORATION_ICON_SIZE = 32;
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
-    private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
-            "edit",
-            "folder",
-            "plus",
-            "duplicate",
-            "delete",
-            "collapse_all",
-            "expand_all",
-            "no_cape",
-            "cape",
-            "elytra",
-            "head_on",
-            "head_off",
-            "body_all_on",
-            "body_all_off",
-            "body_both_arms_off",
-            "body_left_arm_off",
-            "body_right_arm_off",
-            "body_only_arms_on",
-            "body_only_left_arm",
-            "body_only_right_arm",
-            "legs_all_on",
-            "legs_all_off",
-            "legs_left_off",
-            "legs_right_off",
-            "compatibility_sparkle",
-            "compatibility_warning");
     private static final int LEFT_MOUSE_BUTTON = 0;
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
@@ -332,6 +303,7 @@ public final class NclSkinsScreen extends Screen {
                 });
         spec.hint()
                 .or(() -> spec.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                                || spec.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
                                 || spec.kind() == ViewSpec.WidgetKind.INFO_BUTTON
                         ? Optional.of(spec.label())
                         : Optional.empty())
@@ -583,17 +555,18 @@ public final class NclSkinsScreen extends Screen {
                     : decoration.idleOpacity();
             int color = Math.round(opacity * 255.0F) << 24 | 0x00FFFFFF;
             Bounds bounds = decoration.bounds();
+            int size = decoration.icon().baseCanvas();
             clipped(graphics, current, decoration.id(), () -> graphics.blit(
                     RenderPipelines.GUI_TEXTURED,
-                    actionIconTexture(decoration.icon()),
-                    bounds.x(),
-                    bounds.y(),
+                    iconTexture(decoration.icon()),
+                    bounds.x() + (bounds.width() - size) / 2,
+                    bounds.y() + (bounds.height() - size) / 2,
                     0.0F,
                     0.0F,
-                    bounds.width(),
-                    bounds.height(),
-                    DECORATION_ICON_SIZE,
-                    DECORATION_ICON_SIZE,
+                    size,
+                    size,
+                    size,
+                    size,
                     color));
         }
     }
@@ -603,12 +576,9 @@ public final class NclSkinsScreen extends Screen {
                 .anyMatch(decoration -> decoration.ownerWidgetId().equals(widgetId));
     }
 
-    private static Identifier actionIconTexture(String icon) {
-        if (!APPROVED_ACTION_ICONS.contains(icon)) {
-            throw new IllegalArgumentException("Unsupported action icon: " + icon);
-        }
+    private static Identifier iconTexture(GuiIcon icon) {
         return Identifier.fromNamespaceAndPath(
-                "nclskins", "textures/gui/icons/" + icon + ".png");
+                "nclskins", icon.resourcePath());
     }
 
     private void renderListPanels(GuiGraphics graphics, ViewSpec current) {
@@ -1244,7 +1214,7 @@ public final class NclSkinsScreen extends Screen {
             String id,
             ViewSpec.WidgetKind kind,
             String label,
-            Optional<String> icon,
+            Optional<GuiIcon> icon,
             Optional<UiMessage> hint,
             boolean visible,
             int maxLength,
@@ -1306,7 +1276,7 @@ public final class NclSkinsScreen extends Screen {
     private static final class ActionButton extends AbstractButton {
         private final Consumer<InputWithModifiers> action;
         private final ViewSpec.WidgetKind kind;
-        private Optional<String> icon;
+        private Optional<GuiIcon> icon;
         private boolean trailingInfo;
         private boolean selected;
         private final boolean transparent;
@@ -1315,7 +1285,7 @@ public final class NclSkinsScreen extends Screen {
                 Bounds bounds,
                 Component label,
                 ViewSpec.WidgetKind kind,
-                Optional<String> icon,
+                Optional<GuiIcon> icon,
                 boolean trailingInfo,
                 boolean selected,
                 boolean transparent,
@@ -1359,20 +1329,19 @@ public final class NclSkinsScreen extends Screen {
                 }
                 case ICON_BUTTON -> {
                     renderDefaultSprite(graphics);
-                    Identifier texture = actionIconTexture(icon.orElseThrow());
+                    GuiIcon guiIcon = icon.orElseThrow();
+                    int size = guiIcon.baseCanvas();
                     graphics.blit(
                             RenderPipelines.GUI_TEXTURED,
-                            texture,
-                            getX() + (getWidth() - ACTION_ICON_RENDER_SIZE) / 2,
-                            getY() + (getHeight() - ACTION_ICON_RENDER_SIZE) / 2,
+                            iconTexture(guiIcon),
+                            getX() + (getWidth() - size) / 2,
+                            getY() + (getHeight() - size) / 2,
                             0.0F,
                             0.0F,
-                            ACTION_ICON_RENDER_SIZE,
-                            ACTION_ICON_RENDER_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE);
+                            size,
+                            size,
+                            size,
+                            size);
                 }
                 case INFO_BUTTON -> graphics.drawCenteredString(
                         font,
@@ -1380,21 +1349,20 @@ public final class NclSkinsScreen extends Screen {
                         getX() + getWidth() / 2,
                         getY() + Math.max(0, (getHeight() - font.lineHeight) / 2),
                         InfoButtonStyle.labelColor(active, isHoveredOrFocused()));
-                case COMPATIBILITY_INDICATOR -> {
-                    Identifier texture = actionIconTexture(icon.orElseThrow());
+                case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {
+                    GuiIcon guiIcon = icon.orElseThrow();
+                    int size = guiIcon.baseCanvas();
                     graphics.blit(
                             RenderPipelines.GUI_TEXTURED,
-                            texture,
-                            getX() + (getWidth() - ACTION_ICON_RENDER_SIZE) / 2,
-                            getY() + (getHeight() - ACTION_ICON_RENDER_SIZE) / 2,
+                            iconTexture(guiIcon),
+                            getX() + (getWidth() - size) / 2,
+                            getY() + (getHeight() - size) / 2,
                             0.0F,
                             0.0F,
-                            ACTION_ICON_RENDER_SIZE,
-                            ACTION_ICON_RENDER_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE);
+                            size,
+                            size,
+                            size,
+                            size);
                 }
                 case CATALOG_DELETE -> {
                     int background = isHoveredOrFocused() ? 0xCC7A3030 : 0x99302020;
@@ -1411,10 +1379,12 @@ public final class NclSkinsScreen extends Screen {
                 case COLLECTION_HEADER -> renderCollectionHeader(graphics, font);
                 case TEXT_FIELD -> throw new IllegalStateException("Text field uses EditBox");
             }
-            if ((kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR && isHoveredOrFocused())
-                    || (kind != ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR
-                    && isFocused()
-                    && CatalogCardStyle.focusFrameSupported(kind))) {
+            boolean iconOnlyFrame = kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
+                    || kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR;
+            if ((iconOnlyFrame && isHoveredOrFocused())
+                    || (!iconOnlyFrame
+                            && isFocused()
+                            && CatalogCardStyle.focusFrameSupported(kind))) {
                 drawCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
         }

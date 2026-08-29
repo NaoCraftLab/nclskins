@@ -455,7 +455,7 @@ public record ViewSpec(
             String id,
             Bounds bounds,
             UiMessage accessibleLabel,
-            String icon) {
+            GuiIcon icon) {
         return withCompatibilityIndicator(
                 id, bounds, accessibleLabel, icon, Optional.empty());
     }
@@ -464,7 +464,7 @@ public record ViewSpec(
             String id,
             Bounds bounds,
             UiMessage accessibleLabel,
-            String icon,
+            GuiIcon icon,
             Optional<String> afterWidgetId) {
         Widget indicator = Widget.compatibilityIndicator(id, bounds, accessibleLabel, icon);
         List<Widget> nextWidgets = new java.util.ArrayList<>(widgets);
@@ -500,6 +500,7 @@ public record ViewSpec(
     public enum WidgetKind {
         BUTTON,
         ICON_BUTTON,
+        ICON_ONLY_BUTTON,
 
         INFO_BUTTON,
         COMPATIBILITY_INDICATOR,
@@ -677,7 +678,7 @@ public record ViewSpec(
     public record IconDecoration(
             String id,
             Bounds bounds,
-            String icon,
+            GuiIcon icon,
             String ownerWidgetId,
             float idleOpacity,
             float activeOpacity) {
@@ -686,8 +687,8 @@ public record ViewSpec(
             Objects.requireNonNull(bounds, "bounds");
             Objects.requireNonNull(icon, "icon");
             Objects.requireNonNull(ownerWidgetId, "ownerWidgetId");
-            if (id.isBlank() || icon.isBlank() || icon.indexOf(':') >= 0 || ownerWidgetId.isBlank()) {
-                throw new IllegalArgumentException("decoration ids must be non-blank and icon must contain no colon");
+            if (id.isBlank() || ownerWidgetId.isBlank()) {
+                throw new IllegalArgumentException("decoration ids must be non-blank");
             }
             if (!Float.isFinite(idleOpacity)
                     || !Float.isFinite(activeOpacity)
@@ -710,7 +711,24 @@ public record ViewSpec(
             boolean visible,
             int maxLength,
             boolean selectAllOnFocusAcquire,
-            Optional<String> submitActionId) {
+            Optional<String> submitActionId,
+            Optional<GuiIcon> icon) {
+        public Widget(
+                String id,
+                WidgetKind kind,
+                Bounds bounds,
+                UiMessage label,
+                Optional<String> value,
+                Optional<UiMessage> hint,
+                boolean enabled,
+                boolean visible,
+                int maxLength,
+                boolean selectAllOnFocusAcquire,
+                Optional<String> submitActionId) {
+            this(id, kind, bounds, label, value, hint, enabled, visible, maxLength,
+                    selectAllOnFocusAcquire, submitActionId, Optional.empty());
+        }
+
         public Widget(
                 String id,
                 WidgetKind kind,
@@ -732,6 +750,7 @@ public record ViewSpec(
                     visible,
                     maxLength,
                     false,
+                    Optional.empty(),
                     Optional.empty());
         }
 
@@ -743,6 +762,7 @@ public record ViewSpec(
             value = Objects.requireNonNull(value, "value");
             hint = Objects.requireNonNull(hint, "hint");
             submitActionId = Objects.requireNonNull(submitActionId, "submitActionId");
+            icon = Objects.requireNonNull(icon, "icon");
             if (maxLength < 0) {
                 throw new IllegalArgumentException("maxLength must not be negative");
             }
@@ -781,9 +801,8 @@ public record ViewSpec(
                 String id,
                 Bounds bounds,
                 UiMessage accessibleLabel,
-                String icon,
+                GuiIcon icon,
                 boolean enabled) {
-            requireIconId(icon);
             return iconButton(id, bounds, accessibleLabel, Optional.of(accessibleLabel), icon, enabled);
         }
 
@@ -792,19 +811,42 @@ public record ViewSpec(
                 Bounds bounds,
                 UiMessage accessibleLabel,
                 Optional<UiMessage> hint,
-                String icon,
+                GuiIcon icon,
                 boolean enabled) {
-            requireIconId(icon);
             return new Widget(
                     id,
                     WidgetKind.ICON_BUTTON,
                     bounds,
                     accessibleLabel,
-                    Optional.of(icon),
+                    Optional.empty(),
                     Objects.requireNonNull(hint, "hint"),
                     enabled,
                     true,
-                    0);
+                    0,
+                    false,
+                    Optional.empty(),
+                    Optional.of(Objects.requireNonNull(icon, "icon")));
+        }
+
+        public static Widget iconOnlyButton(
+                String id,
+                Bounds bounds,
+                UiMessage accessibleLabel,
+                GuiIcon icon,
+                boolean enabled) {
+            return new Widget(
+                    id,
+                    WidgetKind.ICON_ONLY_BUTTON,
+                    bounds,
+                    accessibleLabel,
+                    Optional.empty(),
+                    Optional.of(accessibleLabel),
+                    enabled,
+                    true,
+                    0,
+                    false,
+                    Optional.empty(),
+                    Optional.of(Objects.requireNonNull(icon, "icon")));
         }
 
         public static Widget infoButton(
@@ -826,18 +868,20 @@ public record ViewSpec(
                 String id,
                 Bounds bounds,
                 UiMessage accessibleLabel,
-                String icon) {
-            requireIconId(icon);
+                GuiIcon icon) {
             return new Widget(
                     id,
                     WidgetKind.COMPATIBILITY_INDICATOR,
                     bounds,
                     accessibleLabel,
-                    Optional.of(icon),
+                    Optional.empty(),
                     Optional.of(accessibleLabel),
                     true,
                     true,
-                    0);
+                    0,
+                    false,
+                    Optional.empty(),
+                    Optional.of(Objects.requireNonNull(icon, "icon")));
         }
 
         public static Widget selectableCard(
@@ -881,24 +925,11 @@ public record ViewSpec(
                     0);
         }
 
-        public Optional<String> icon() {
-            return kind == WidgetKind.ICON_BUTTON
-                    || kind == WidgetKind.COMPATIBILITY_INDICATOR
-                    ? value
-                    : Optional.empty();
-        }
-
         public boolean collectionHeaderHasTrailingInfo() {
             return kind == WidgetKind.COLLECTION_HEADER
                     && value.filter("trailing_info"::equals).isPresent();
         }
 
-        private static void requireIconId(String icon) {
-            Objects.requireNonNull(icon, "icon");
-            if (icon.isBlank() || icon.indexOf(':') >= 0) {
-                throw new IllegalArgumentException("icon id must be non-blank and contain no colon");
-            }
-        }
 
         public static Widget textField(
                 String id,

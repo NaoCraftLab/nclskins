@@ -235,11 +235,11 @@ final class PresetEditorModelTest {
                 PreviewRenderer.CapeMode.OFF);
 
         ViewSpec enabled = model.present(854, 480, 0.0);
-        assertCycleButton(enabled, "head", new Bounds(2, 208, 20, 20), "head_on",
+        assertCycleButton(enabled, "head", new Bounds(2, 208, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_ON,
                 "nclskins.editor.outer_head_on");
-        assertCycleButton(enabled, "body", new Bounds(2, 230, 20, 20), "body_all_on",
+        assertCycleButton(enabled, "body", new Bounds(2, 230, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ALL_ON,
                 "nclskins.editor.outer_body_all_on");
-        assertCycleButton(enabled, "legs", new Bounds(2, 252, 20, 20), "legs_all_on",
+        assertCycleButton(enabled, "legs", new Bounds(2, 252, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_ALL_ON,
                 "nclskins.editor.outer_legs_all_on");
         assertEquals(3, enabled.widgets().stream()
                 .filter(widget -> widget.id().startsWith("editor.outer_layer."))
@@ -253,11 +253,11 @@ final class PresetEditorModelTest {
                 .cycleOuterLayer("body", -1)
                 .cycleOuterLayer("legs", -1);
         ViewSpec changedView = changed.present(854, 480, 0.0);
-        assertCycleButton(changedView, "head", new Bounds(2, 208, 20, 20), "head_off",
+        assertCycleButton(changedView, "head", new Bounds(2, 208, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_OFF,
                 "nclskins.editor.outer_head_off");
-        assertCycleButton(changedView, "body", new Bounds(2, 230, 20, 20), "body_left_arm_off",
+        assertCycleButton(changedView, "body", new Bounds(2, 230, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_BODY_LEFT_ARM_OFF,
                 "nclskins.editor.outer_body_and_right_arm");
-        assertCycleButton(changedView, "legs", new Bounds(2, 252, 20, 20), "legs_right_off",
+        assertCycleButton(changedView, "legs", new Bounds(2, 252, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_RIGHT_OFF,
                 "nclskins.editor.outer_legs_no_right_leg");
     }
 
@@ -315,7 +315,7 @@ final class PresetEditorModelTest {
         ViewSpec view = model.selectCape(1).present(320, 240, 0.0);
         assertEquals(new Bounds(2, 35, 20, 20),
                 view.widget("editor.preview_mode").orElseThrow().bounds());
-        assertEquals(Optional.of("cape"), view.widget("editor.preview_mode").orElseThrow().icon());
+        assertEquals(Optional.of(GuiIcon.APPEARANCE_BACK_CAPE), view.widget("editor.preview_mode").orElseThrow().icon());
         assertEquals(new Bounds(2, 88, 20, 20),
                 view.widget("editor.outer_layer.head").orElseThrow().bounds());
         assertEquals(new Bounds(2, 110, 20, 20),
@@ -389,7 +389,8 @@ final class PresetEditorModelTest {
         assertTrue(start.backEquipmentPreviews().stream()
                 .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.CAPE));
         ViewSpec.Widget noCapePreviewMode = start.widget("editor.preview_mode").orElseThrow();
-        assertEquals(Optional.of("cape"), noCapePreviewMode.icon());
+        assertEquals(ViewSpec.WidgetKind.ICON_ONLY_BUTTON, noCapePreviewMode.kind());
+        assertEquals(Optional.of(GuiIcon.APPEARANCE_BACK_CAPE), noCapePreviewMode.icon());
         assertEquals(UiMessage.info("options.modelPart.cape"), noCapePreviewMode.label());
 
         PresetEditorModel noCapeElytra = model.cyclePreviewMode();
@@ -397,12 +398,12 @@ final class PresetEditorModelTest {
         assertTrue(noCapeElytraView.previews().get(0).capeId().isEmpty());
         assertEquals(PreviewRenderer.CapeMode.OFF,
                 noCapeElytraView.previews().get(0).capeMode());
-        assertEquals(Optional.of("elytra"),
+        assertEquals(Optional.of(GuiIcon.APPEARANCE_BACK_ELYTRA),
                 noCapeElytraView.widget("editor.preview_mode").orElseThrow().icon());
         assertTrue(noCapeElytraView.backEquipmentPreviews().stream()
                 .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA));
         ViewSpec.IconDecoration noCape = start.iconDecorations().stream()
-                .filter(decoration -> decoration.icon().equals("no_cape"))
+                .filter(decoration -> decoration.icon() == GuiIcon.APPEARANCE_BACK_NONE)
                 .findFirst()
                 .orElseThrow();
         assertEquals("editor.cape_choice.0", noCape.ownerWidgetId());
@@ -512,10 +513,10 @@ final class PresetEditorModelTest {
             ViewSpec view,
             String id,
             Bounds bounds,
-            String icon,
+            GuiIcon icon,
             String stateKey) {
         ViewSpec.Widget widget = view.widget("editor.outer_layer." + id).orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, widget.kind());
+        assertEquals(ViewSpec.WidgetKind.ICON_ONLY_BUTTON, widget.kind());
         assertEquals(bounds, widget.bounds());
         assertEquals(Optional.of(icon), widget.icon());
         assertEquals(stateKey, widget.label().key());

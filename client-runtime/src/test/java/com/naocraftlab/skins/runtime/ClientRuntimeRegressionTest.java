@@ -111,7 +111,7 @@ final class ClientRuntimeRegressionTest {
         runtime.loadSkinPreview(galleryPreview).join();
         assertEquals(1, operations.skinPreviewCalls.get());
         ViewSpec gallery = runtime.view(854, 480, 0, 0);
-        assertEquals(Optional.of("compatibility_warning"), gallery.widget(
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), gallery.widget(
                         "gallery.preset." + presetId + ".compatibility")
                 .orElseThrow().icon());
 
@@ -127,7 +127,7 @@ final class ClientRuntimeRegressionTest {
         assertEquals(
                 editor.widgets().indexOf(editor.widget("editor.outer_layer.legs").orElseThrow()) + 1,
                 editor.widgets().indexOf(indicator));
-        assertEquals(Optional.of("compatibility_warning"), indicator.icon());
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), indicator.icon());
         assertEquals(20, indicator.bounds().width());
         assertEquals(20, indicator.bounds().height());
         assertTrue(editor.iconDecorations().stream().noneMatch(icon ->

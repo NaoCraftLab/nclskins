@@ -318,7 +318,8 @@ final class SemanticVerifier {
         }
         String text = sources.toString().replaceAll('\\s+', ' ')
         [
-                'ACTION_ICON_RENDER_SIZE, ACTION_ICON_RENDER_SIZE, ACTION_ICON_TEXTURE_SIZE, ACTION_ICON_TEXTURE_SIZE, ACTION_ICON_TEXTURE_SIZE, ACTION_ICON_TEXTURE_SIZE);',
+                'int size = guiIcon.baseCanvas();',
+                'icon.resourcePath()',
                 'extends AbstractScrollArea',
                 'super.mouseScrolled(mouseX, mouseY, 0.0, amount)',
                 'protected double scrollRate() { return wheelStep;',

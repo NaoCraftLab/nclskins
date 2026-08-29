@@ -801,11 +801,13 @@ public final class PresetEditorModel {
         int inset = gap;
         int x = previewBounds.x() + inset;
         if (hasCapePreview()) {
-            widgets.add(ViewSpec.Widget.iconButton(
+            widgets.add(ViewSpec.Widget.iconOnlyButton(
                     "editor.preview_mode",
                     new Bounds(x, 33 + inset, size, size),
                     previewModeLabel(),
-                    preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA ? "elytra" : "cape",
+                    preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA
+                            ? GuiIcon.APPEARANCE_BACK_ELYTRA
+                            : GuiIcon.APPEARANCE_BACK_CAPE,
                     !busy));
         }
 
@@ -878,7 +880,7 @@ public final class PresetEditorModel {
                                 card.y() + (card.height() - EMPTY_CAPE_ICON_SIZE) / 2,
                                 EMPTY_CAPE_ICON_SIZE,
                                 EMPTY_CAPE_ICON_SIZE),
-                        "no_cape",
+                        GuiIcon.APPEARANCE_BACK_NONE,
                         choiceWidgetId,
                         0.8F,
                         1.0F));
@@ -988,7 +990,7 @@ public final class PresetEditorModel {
         EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(
                 id, preview.outerLayerVisibility());
         UiMessage accessibleLabel = state.label();
-        widgets.add(ViewSpec.Widget.iconButton(
+        widgets.add(ViewSpec.Widget.iconOnlyButton(
                 "editor.outer_layer." + id,
                 new Bounds(x, y, size, size),
                 accessibleLabel,

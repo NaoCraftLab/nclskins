@@ -105,7 +105,7 @@ public final class ExternalImportPresenter {
                     dependencyHint.isPresent()
                             ? dependencyHint
                             : Optional.of(UiMessage.info("nclskins.external_import.choose_folder")),
-                    "folder",
+                    GuiIcon.ACTION_SELECT_FOLDER,
                     !busy && state.availability()
                             != ExternalImportModel.Availability.DEPENDENCY_MISSING));
             y += 24;
@@ -192,7 +192,7 @@ public final class ExternalImportPresenter {
                 UiMessage.info(anyCollapsed
                         ? "nclskins.collection.expand_all"
                         : "nclskins.collection.collapse_all"),
-                anyCollapsed ? "expand_all" : "collapse_all",
+                anyCollapsed ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL,
                 !busy && !review.availableCollections().isEmpty()));
         addSection(false, fresh, review, layout, busy, environment,
                 panels, texts, widgets, previews, iconDecorations, navigationNodes);

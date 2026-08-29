@@ -192,7 +192,7 @@ public final class AddSourcePresenter {
                     UiMessage.info(anyCollapsed
                             ? "nclskins.collection.expand_all"
                             : "nclskins.collection.collapse_all"),
-                    anyCollapsed ? "expand_all" : "collapse_all",
+                    anyCollapsed ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL,
                     !busy && !model.availableCollectionIds().isEmpty()));
 
             CatalogLayout layout = catalogLayout(model, width, height, chromeMetrics);
@@ -569,7 +569,7 @@ public final class AddSourcePresenter {
                                                 "add.catalog.rename:", collection.id(), skin.id()),
                                         leftAction,
                                         UiMessage.info("nclskins.your_skins.rename"),
-                                        "edit",
+                                        GuiIcon.ACTION_EDIT,
                                         !busy && !transientMode),
                                 contentBottom);
                         addIntersectingWidget(
@@ -579,7 +579,7 @@ public final class AddSourcePresenter {
                                                 "add.catalog.delete:", collection.id(), skin.id()),
                                         rightAction,
                                         UiMessage.info("nclskins.your_skins.delete"),
-                                        "delete",
+                                        GuiIcon.ACTION_DELETE,
                                         !busy && !transientMode),
                                 contentBottom);
                     }

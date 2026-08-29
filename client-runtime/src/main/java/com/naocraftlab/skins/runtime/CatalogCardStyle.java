@@ -61,6 +61,7 @@ public final class CatalogCardStyle {
         return kind == ViewSpec.WidgetKind.CATALOG_CARD
                 || kind == ViewSpec.WidgetKind.SELECTABLE_CARD
                 || kind == ViewSpec.WidgetKind.CAPE_CARD
+                || kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
                 || kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR;
     }
 }

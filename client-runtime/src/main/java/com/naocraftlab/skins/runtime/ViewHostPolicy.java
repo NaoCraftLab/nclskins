@@ -100,7 +100,7 @@ public final class ViewHostPolicy {
     public record WidgetShape(
             String id,
             ViewSpec.WidgetKind kind,
-            Optional<String> icon,
+            Optional<GuiIcon> icon,
             boolean visible,
             int maxLength,
             boolean selectAllOnFocusAcquire,

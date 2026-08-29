@@ -9,6 +9,7 @@ import javax.imageio.ImageIO
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 import java.util.regex.Pattern
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -263,31 +264,46 @@ final class BuildLogicTest {
         assertEquals(128, modIcon.width)
         assertEquals(128, modIcon.height)
 
-        File icons = new File(resources, ArtifactVerifier.BUTTONS)
-        Set<String> sourceNames = icons.listFiles()
-                .findAll { it.name.endsWith('.png') }
-                .collect { it.name } as Set
-        assertEquals(ArtifactVerifier.BUTTON_ICON_SIZES.keySet(), sourceNames)
-        assertEquals(24, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 20 })
-        assertEquals(2, ArtifactVerifier.BUTTON_ICON_SIZES.values().count { it == 32 })
-        ArtifactVerifier.BUTTON_ICON_SIZES.each { String name, int size ->
-            def image = ImageIO.read(new File(icons, name))
+        File icons = new File(resources, ArtifactVerifier.GUI_ICONS)
+        Map<String, File> sourceIcons = [:]
+        Files.walk(icons.toPath()).withCloseable { stream ->
+            stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }.forEach { Path path ->
+                sourceIcons[icons.toPath().relativize(path).toString().replace('\\', '/')] = path.toFile()
+            }
+        }
+        assertEquals(ArtifactVerifier.GUI_ICON_SIZES.keySet(), sourceIcons.keySet())
+        assertEquals(24, ArtifactVerifier.GUI_ICON_SIZES.values().count { it == 16 })
+        assertEquals(2, ArtifactVerifier.GUI_ICON_SIZES.values().count { it == 32 })
+        assertEquals([
+                'action/edit.png',
+                'action/duplicate.png',
+                'action/delete.png',
+                'action/select_folder.png',
+                'status/compatibility/extended.png',
+                'status/compatibility/incompatible.png'
+        ] as Set, ArtifactVerifier.GUI_ICON_SAFE_AREA_REQUIRED)
+        ArtifactVerifier.GUI_ICON_SIZES.each { String name, int size ->
+            def image = ImageIO.read(sourceIcons[name])
             assertEquals(size, image.width, name)
             assertEquals(size, image.height, name)
-            if (size == 20) {
-                for (int y = 0; y < size; y++) {
-                    for (int x = 0; x < size; x++) {
-                        if (x < 2 || y < 2 || x >= size - 2 || y >= size - 2) {
-                            assertEquals(
-                                    0,
-                                    image.getRGB(x, y) >>> 24,
-                                    "${name} must keep a transparent two-pixel source border at ${x},${y}")
+            Set<Integer> alpha = (0..<image.height).collectMany { int y ->
+                (0..<image.width).collect { int x -> image.getRGB(x, y) >>> 24 }
+            } as Set<Integer>
+            assertTrue(alpha.every { it == 0 || it == 255 }, "${name} must use binary alpha")
+            if (ArtifactVerifier.GUI_ICON_SAFE_AREA_REQUIRED.contains(name)) {
+                (0..<image.height).each { int y ->
+                    (0..<image.width).each { int x ->
+                        if (x < 2 || x >= 14 || y < 2 || y >= 14) {
+                            assertEquals(0, image.getRGB(x, y) >>> 24, "${name} at ${x},${y}")
                         }
                     }
                 }
             }
         }
-        ['collapse_all.png', 'expand_all.png'].each { String name ->
+        ArtifactVerifier.GUI_ICON_LOCKED_SHA256.each { String name, String expected ->
+            assertEquals(expected, sha256(sourceIcons[name]), name)
+        }
+        ['action/collapse_all.png', 'action/expand_all.png'].each { String name ->
             def image = ImageIO.read(new File(icons, name))
             Set<Integer> pixels = (0..<image.height).collectMany { int y ->
                 (0..<image.width).collect { int x -> image.getRGB(x, y) }
@@ -1961,13 +1977,9 @@ final class BuildLogicTest {
         assertTrue(screenSource.contains('''if (nativeDispatchDepth == 0 && !runtime.closed()) {
             refresh();
         }'''))
-        assertTrue(screenSource.contains('''
-                            ACTION_ICON_RENDER_SIZE,
-                            ACTION_ICON_RENDER_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE,
-                            ACTION_ICON_TEXTURE_SIZE);'''))
+        assertTrue(screenSource.contains('int size = guiIcon.baseCanvas();'))
+        assertTrue(screenSource.contains('iconTexture(guiIcon)'))
+        assertFalse(screenSource.contains('ACTION_ICON_TEXTURE_SIZE'))
         assertTrue(menuSource.contains('panelBounds().contains(mouseX, mouseY)'))
         assertTrue(mixinSource.contains('"OptionsScreenMixin"'))
         assertTrue(mixinSource.contains('"AccessibilityOptionsScreenMixin"'))
@@ -1977,7 +1989,7 @@ final class BuildLogicTest {
     }
 
     @Test
-    void everyNativeGuiHostAcceptsCompatibilityIndicatorIcons() {
+    void everyNativeGuiHostUsesTypedSemanticIconResources() {
         [
                 'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java',
                 'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
@@ -1985,13 +1997,16 @@ final class BuildLogicTest {
                 'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ].each { String path ->
             String source = new File(repository, path).text
-            assertTrue(source.contains('"compatibility_sparkle"'), path)
-            assertTrue(source.contains('"compatibility_warning"'), path)
+            assertTrue(source.contains('GuiIcon'), path)
+            assertTrue(source.contains('icon.resourcePath()'), path)
+            assertTrue(source.contains('baseCanvas()'), path)
+            assertFalse(source.contains('APPROVED_ACTION_ICONS'), path)
+            assertFalse(source.contains('ACTION_ICON_TEXTURE_SIZE'), path)
         }
     }
 
     @Test
-    void compatibilityIndicatorsInstallTooltipsWithoutHoverFill() {
+    void compatibilityIndicatorsAndAppearanceTogglesShareIconOnlyFrames() {
         String immediate = new File(
                 repository,
                 'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java').text
@@ -2018,17 +2033,30 @@ final class BuildLogicTest {
         assertTrue(immediateIndicator.contains('isHoveredOrFocused()'))
         assertTrue(immediateIndicator.contains('drawCardFocusFrame('))
         assertFalse(immediateIndicator.contains('super.renderWidget('))
+        String immediateIconButton = immediate.substring(
+                immediate.indexOf('private final class IconButtonWidget'),
+                immediate.indexOf('private final class CompatibilityIndicatorWidget'))
+        assertTrue(immediateIconButton.contains('if (!iconOnly)'))
+        assertTrue(immediateIconButton.contains('if (iconOnly && isHoveredOrFocused())'))
+        assertTrue(immediateIconButton.contains('dispatchNativeWidget(widgetId, hasShiftDown())'))
         assertTrue(immediate.count('renderActionIcon(') >= 3)
         assertTrue(submission.contains('spec.hint()'))
         String submissionIndicator = submission.substring(
-                submission.indexOf('case COMPATIBILITY_INDICATOR -> {'),
+                submission.indexOf('case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {'),
                 submission.indexOf('case CATALOG_DELETE -> {'))
-        assertTrue(submissionIndicator.contains('actionIconTexture('))
-        assertTrue(submissionIndicator.contains('ACTION_ICON_RENDER_SIZE'))
+        assertTrue(submissionIndicator.contains('iconTexture(guiIcon)'))
+        assertTrue(submissionIndicator.contains('guiIcon.baseCanvas()'))
         assertFalse(submissionIndicator.contains('renderDefaultSprite('))
-        assertTrue(submission.contains(
-                'kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR && isHoveredOrFocused()'))
+        assertTrue(submission.contains('boolean iconOnlyFrame = kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON'))
+        assertTrue(submission.contains('if ((iconOnlyFrame && isHoveredOrFocused())'))
+        assertTrue(submission.contains('spec.kind() != ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR'))
         extraction.each { String source ->
+            String iconButton = source.substring(
+                    source.indexOf('private static final class IconButtonWidget'),
+                    source.indexOf('private static final class CompatibilityIndicatorWidget'))
+            assertTrue(iconButton.contains('if (!iconOnly)'))
+            assertTrue(iconButton.contains('if (iconOnly && isHoveredOrFocused())'))
+            assertTrue(iconButton.contains('onPress.accept(input)'))
             String indicator = source.substring(
                     source.indexOf('private static final class CompatibilityIndicatorWidget'),
                     source.indexOf('private static void extractActionIcon'))
@@ -2515,6 +2543,11 @@ final class BuildLogicTest {
 
     private static int occurrences(String value, String needle) {
         value.split(Pattern.quote(needle), -1).length - 1
+    }
+
+    private static String sha256(File file) {
+        MessageDigest.getInstance('SHA-256').digest(file.bytes)
+                .collect { String.format('%02x', it & 0xff) }.join()
     }
 
     private static List<String> nestedPackIconErrors(

@@ -83,7 +83,7 @@ final class AddSourceModelPresenterTest {
                 Optional.of(visibleView.widget(warningId).orElseThrow().label()),
                 visibleView.widget(warningId).orElseThrow().hint());
         assertEquals(
-                Optional.of("compatibility_warning"),
+                Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE),
                 visibleView.widget(warningId).orElseThrow().icon());
         assertEquals(20, visibleView.widget(warningId).orElseThrow().bounds().width());
         assertTrue(visibleView.iconDecorations().stream().noneMatch(icon ->
@@ -419,7 +419,7 @@ final class AddSourceModelPresenterTest {
                 view.widgets().stream().limit(3).map(ViewSpec.Widget::id).toList());
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, disclosure.kind());
         assertEquals(new Bounds(204, 31, 20, 20), disclosure.bounds());
-        assertEquals(Optional.of("collapse_all"), disclosure.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_COLLAPSE_ALL), disclosure.icon());
         assertEquals(UiMessage.info("nclskins.collection.collapse_all"), disclosure.label());
         assertEquals(Optional.of(disclosure.label()), disclosure.hint());
         assertEquals(6, filter.bounds().x() - search.bounds().right());
@@ -429,7 +429,7 @@ final class AddSourceModelPresenterTest {
                         model.withAvailableCollectionsCollapsed(true), false, 240, 240)
                 .widget("add.catalog.disclosure")
                 .orElseThrow();
-        assertEquals(Optional.of("expand_all"), expanded.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_EXPAND_ALL), expanded.icon());
         assertEquals(UiMessage.info("nclskins.collection.expand_all"), expanded.label());
     }
 
@@ -961,8 +961,8 @@ final class AddSourceModelPresenterTest {
         ViewSpec.Widget rename = view.widget("add.catalog.rename:"
                 + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, rename.kind());
-        assertEquals(Optional.of("edit"), rename.icon());
-        assertEquals(Optional.of("delete"), delete.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_EDIT), rename.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_DELETE), delete.icon());
         assertTrue(view.widget("add.catalog.skin:alpha:external").isPresent());
         assertTrue(view.widget("add.catalog.delete:external").isEmpty());
 

@@ -13,11 +13,11 @@ final class EditorOuterLayerCycleTest {
     @Test
     void headCyclesForwardAndBackwardWithWrap() {
         OuterLayerVisibility all = OuterLayerVisibility.allVisible();
-        assertState("head", all, "head_on", "nclskins.editor.outer_head_on");
+        assertState("head", all, GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_ON, "nclskins.editor.outer_head_on");
 
         OuterLayerVisibility off = EditorOuterLayerCycle.cycle("head", all, 1);
         assertFalse(off.visible(OuterLayerPart.HEAD));
-        assertState("head", off, "head_off", "nclskins.editor.outer_head_off");
+        assertState("head", off, GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_OFF, "nclskins.editor.outer_head_off");
         assertEquals(all, EditorOuterLayerCycle.cycle("head", off, 1));
         assertEquals(off, EditorOuterLayerCycle.cycle("head", all, -1));
     }
@@ -25,18 +25,18 @@ final class EditorOuterLayerCycleTest {
     @Test
     void bodyCycleCoversAllEightMasksInExactForwardAndReverseOrder() {
         List<ExpectedStep> expected = List.of(
-                step(true, true, true, "body_all_on", "nclskins.editor.outer_body_all_on"),
-                step(false, false, false, "body_all_off", "nclskins.editor.outer_body_all_off"),
-                step(true, false, false, "body_both_arms_off", "nclskins.editor.outer_body_no_arms"),
-                step(false, true, true, "body_only_arms_on",
+                step(true, true, true, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ALL_ON, "nclskins.editor.outer_body_all_on"),
+                step(false, false, false, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ALL_OFF, "nclskins.editor.outer_body_all_off"),
+                step(true, false, false, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_BOTH_ARMS_OFF, "nclskins.editor.outer_body_no_arms"),
+                step(false, true, true, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ONLY_ARMS_ON,
                         "nclskins.editor.outer_body_arms_without_body"),
-                step(false, true, false, "body_only_left_arm",
+                step(false, true, false, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ONLY_LEFT_ARM,
                         "nclskins.editor.outer_body_only_left_arm"),
-                step(false, false, true, "body_only_right_arm",
+                step(false, false, true, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ONLY_RIGHT_ARM,
                         "nclskins.editor.outer_body_only_right_arm"),
-                step(true, true, false, "body_right_arm_off",
+                step(true, true, false, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_RIGHT_ARM_OFF,
                         "nclskins.editor.outer_body_and_left_arm"),
-                step(true, false, true, "body_left_arm_off",
+                step(true, false, true, GuiIcon.APPEARANCE_OUTER_LAYER_BODY_LEFT_ARM_OFF,
                         "nclskins.editor.outer_body_and_right_arm"));
         OuterLayerVisibility visibility = OuterLayerVisibility.allVisible()
                 .with(OuterLayerPart.HEAD, false)
@@ -65,10 +65,10 @@ final class EditorOuterLayerCycleTest {
     @Test
     void legCycleUsesLiteralLeftThenRightOrderAndPreservesOtherParts() {
         List<ExpectedStep> expected = List.of(
-                legStep(true, true, "legs_all_on", "nclskins.editor.outer_legs_all_on"),
-                legStep(false, false, "legs_all_off", "nclskins.editor.outer_legs_all_off"),
-                legStep(false, true, "legs_left_off", "nclskins.editor.outer_legs_no_left_leg"),
-                legStep(true, false, "legs_right_off", "nclskins.editor.outer_legs_no_right_leg"));
+                legStep(true, true, GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_ALL_ON, "nclskins.editor.outer_legs_all_on"),
+                legStep(false, false, GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_ALL_OFF, "nclskins.editor.outer_legs_all_off"),
+                legStep(false, true, GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_LEFT_OFF, "nclskins.editor.outer_legs_no_left_leg"),
+                legStep(true, false, GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_RIGHT_OFF, "nclskins.editor.outer_legs_no_right_leg"));
         OuterLayerVisibility visibility = OuterLayerVisibility.allVisible()
                 .with(OuterLayerPart.HEAD, false)
                 .with(OuterLayerPart.BODY, false);
@@ -117,7 +117,7 @@ final class EditorOuterLayerCycleTest {
     private static void assertState(
             String control,
             OuterLayerVisibility visibility,
-            String icon,
+            GuiIcon icon,
             String stateKey) {
         EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(control, visibility);
         assertEquals(icon, state.icon());
@@ -143,16 +143,16 @@ final class EditorOuterLayerCycleTest {
             boolean body,
             boolean leftArm,
             boolean rightArm,
-            String icon,
+            GuiIcon icon,
             String stateKey) {
         return new ExpectedStep(body, leftArm, rightArm, icon, stateKey);
     }
 
     private static ExpectedStep legStep(
-            boolean leftLeg, boolean rightLeg, String icon, String stateKey) {
+            boolean leftLeg, boolean rightLeg, GuiIcon icon, String stateKey) {
         return new ExpectedStep(leftLeg, rightLeg, false, icon, stateKey);
     }
 
     private record ExpectedStep(
-            boolean first, boolean second, boolean third, String icon, String stateKey) {}
+            boolean first, boolean second, boolean third, GuiIcon icon, String stateKey) {}
 }

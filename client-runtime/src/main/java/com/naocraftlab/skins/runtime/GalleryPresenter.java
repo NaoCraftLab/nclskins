@@ -199,7 +199,7 @@ public final class GalleryPresenter {
                 iconDecorations.add(new ViewSpec.IconDecoration(
                         "gallery.add.icon",
                         new Bounds(iconX, iconY, DECORATION_ICON_SIZE, DECORATION_ICON_SIZE),
-                        "plus",
+                        GuiIcon.ACTION_ADD_LOOK,
                         "gallery.add",
                         0.65F,
                         1.0F));
@@ -600,7 +600,7 @@ public final class GalleryPresenter {
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(editX, applyRow, ACTION_HEIGHT, ACTION_HEIGHT),
-                "edit",
+                GuiIcon.ACTION_EDIT,
                 UiMessage.info("nclskins.gallery.edit"),
                 !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
@@ -610,7 +610,7 @@ public final class GalleryPresenter {
                         applyRow,
                         ACTION_HEIGHT,
                         ACTION_HEIGHT),
-                "duplicate",
+                GuiIcon.ACTION_DUPLICATE,
                 UiMessage.info("nclskins.gallery.duplicate"),
                 !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
@@ -620,7 +620,7 @@ public final class GalleryPresenter {
                         applyRow,
                         ACTION_HEIGHT,
                         ACTION_HEIGHT),
-                "delete",
+                GuiIcon.ACTION_DELETE,
                 UiMessage.info("nclskins.gallery.delete"),
                 !snapshot.busy() && !interactionLocked), actionViewport);
     }
@@ -655,19 +655,19 @@ public final class GalleryPresenter {
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(editX, secondaryRow, outerWidth, ACTION_HEIGHT),
-                "edit",
+                GuiIcon.ACTION_EDIT,
                 UiMessage.info("nclskins.gallery.edit"),
                 !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".duplicate",
                 new Bounds(duplicateX, secondaryRow, middleWidth, ACTION_HEIGHT),
-                "duplicate",
+                GuiIcon.ACTION_DUPLICATE,
                 UiMessage.info("nclskins.gallery.duplicate"),
                 !snapshot.busy() && !interactionLocked), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".delete",
                 new Bounds(deleteX, secondaryRow, outerWidth, ACTION_HEIGHT),
-                "delete",
+                GuiIcon.ACTION_DELETE,
                 UiMessage.info("nclskins.gallery.delete"),
                 !snapshot.busy() && !interactionLocked), actionViewport);
     }
@@ -680,7 +680,7 @@ public final class GalleryPresenter {
     }
 
     private static ViewSpec.Widget compactIconAction(
-            String id, Bounds bounds, String icon, UiMessage accessibleLabel, boolean enabled) {
+            String id, Bounds bounds, GuiIcon icon, UiMessage accessibleLabel, boolean enabled) {
         return ViewSpec.Widget.iconButton(id, bounds, accessibleLabel, icon, enabled);
     }
 

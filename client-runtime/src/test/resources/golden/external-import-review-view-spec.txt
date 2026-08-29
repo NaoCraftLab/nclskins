@@ -9,7 +9,7 @@ texts
 1|external.review.card:candidate-0.name|20,64,88,10|literal:New classic:INFO|CENTER
 widgets
 0|external.review.toggle_all|BUTTON|126,6,80,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-1|external.review.disclosure|ICON_BUTTON|212,6,20,20|key:nclskins.collection.collapse_all:INFO|value=collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
+1|external.review.disclosure|ICON_BUTTON|212,6,20,20|key:nclskins.collection.collapse_all:INFO|value=action/collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
 2|external.review.collection.new|COLLECTION_HEADER|16,37,210,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 3|external.review.card:candidate-0|SELECTABLE_CARD|16,57,96,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
 4|external.review.collection.duplicates|COLLECTION_HEADER|16,203,210,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
@@ -33,7 +33,7 @@ texts
 1|external.review.card:candidate-0.name|20,64,60,10|literal:New classic:INFO|CENTER
 widgets
 0|external.review.toggle_all|BUTTON|180,6,106,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-1|external.review.disclosure|ICON_BUTTON|292,6,20,20|key:nclskins.collection.collapse_all:INFO|value=collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
+1|external.review.disclosure|ICON_BUTTON|292,6,20,20|key:nclskins.collection.collapse_all:INFO|value=action/collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
 2|external.review.collection.new|COLLECTION_HEADER|16,37,290,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 3|external.review.card:candidate-0|SELECTABLE_CARD|16,57,68,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
 4|external.review.collection.duplicates|COLLECTION_HEADER|16,203,290,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
@@ -57,7 +57,7 @@ texts
 1|external.review.card:candidate-0.name|20,64,66,10|literal:New classic:INFO|CENTER
 widgets
 0|external.review.toggle_all|BUTTON|285,6,108,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-1|external.review.disclosure|ICON_BUTTON|399,6,20,20|key:nclskins.collection.collapse_all:INFO|value=collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
+1|external.review.disclosure|ICON_BUTTON|399,6,20,20|key:nclskins.collection.collapse_all:INFO|value=action/collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
 2|external.review.collection.new|COLLECTION_HEADER|16,37,397,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 3|external.review.card:candidate-0|SELECTABLE_CARD|16,57,74,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
 4|external.review.collection.duplicates|COLLECTION_HEADER|16,203,397,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
@@ -83,7 +83,7 @@ texts
 2|external.review.card:candidate-1.name|20,230,78,10|literal:Existing slim:INFO|CENTER
 widgets
 0|external.review.toggle_all|BUTTON|712,6,108,20|key:nclskins.external_import.select_all:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-1|external.review.disclosure|ICON_BUTTON|826,6,20,20|key:nclskins.collection.collapse_all:INFO|value=collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
+1|external.review.disclosure|ICON_BUTTON|826,6,20,20|key:nclskins.collection.collapse_all:INFO|value=action/collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
 2|external.review.collection.new|COLLECTION_HEADER|16,37,824,16|key:nclskins.external_import.new_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 3|external.review.card:candidate-0|SELECTABLE_CARD|16,57,86,132|literal:New classic:INFO|value=selected|hint=-|enabled=true|visible=true|max=0
 4|external.review.collection.duplicates|COLLECTION_HEADER|16,203,824,16|key:nclskins.external_import.duplicates_expanded(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0

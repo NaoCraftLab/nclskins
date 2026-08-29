@@ -2,8 +2,10 @@ package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonSlurper
 
+import javax.imageio.ImageIO
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.regex.Pattern
 import java.util.zip.ZipEntry
@@ -26,34 +28,46 @@ final class ArtifactVerifier {
     static final Pattern FORBIDDEN_MIXIN = Pattern.compile('(?:User|Session|Authlib).*Mixin\\.class$')
     static final Pattern TOKEN = Pattern.compile('Bearer\\s+[A-Za-z0-9._~+/=-]{20,}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}')
     static final String COLLECTIONS = 'resourcepacks/mojang_collections/'
-    static final String BUTTONS = 'assets/nclskins/textures/gui/icons/'
-    static final Map<String, Integer> BUTTON_ICON_SIZES = [
-        'body_all_off.png'       : 20,
-        'body_all_on.png'        : 20,
-        'body_both_arms_off.png' : 20,
-        'body_left_arm_off.png'  : 20,
-        'body_only_arms_on.png'  : 20,
-        'body_only_left_arm.png' : 20,
-        'body_only_right_arm.png': 20,
-        'body_right_arm_off.png' : 20,
-        'cape.png'               : 20,
-        'collapse_all.png'       : 20,
-        'compatibility_sparkle.png': 20,
-        'compatibility_warning.png': 20,
-        'delete.png'             : 20,
-        'duplicate.png'          : 20,
-        'edit.png'               : 20,
-        'elytra.png'             : 20,
-        'expand_all.png'         : 20,
-        'folder.png'             : 20,
-        'head_off.png'           : 20,
-        'head_on.png'            : 20,
-        'legs_all_off.png'       : 20,
-        'legs_all_on.png'        : 20,
-        'legs_left_off.png'      : 20,
-        'legs_right_off.png'     : 20,
-        'no_cape.png'            : 32,
-        'plus.png'               : 32
+    static final String GUI_ICONS = 'assets/nclskins/textures/gui/icons/'
+    static final Map<String, Integer> GUI_ICON_SIZES = [
+        'action/edit.png': 16,
+        'action/duplicate.png': 16,
+        'action/delete.png': 16,
+        'action/select_folder.png': 16,
+        'action/collapse_all.png': 16,
+        'action/expand_all.png': 16,
+        'action/add_look.png': 32,
+        'appearance/back/cape.png': 16,
+        'appearance/back/elytra.png': 16,
+        'appearance/back/none.png': 32,
+        'appearance/outer_layer/head/on.png': 16,
+        'appearance/outer_layer/head/off.png': 16,
+        'appearance/outer_layer/body/all_on.png': 16,
+        'appearance/outer_layer/body/all_off.png': 16,
+        'appearance/outer_layer/body/both_arms_off.png': 16,
+        'appearance/outer_layer/body/left_arm_off.png': 16,
+        'appearance/outer_layer/body/right_arm_off.png': 16,
+        'appearance/outer_layer/body/only_arms_on.png': 16,
+        'appearance/outer_layer/body/only_left_arm.png': 16,
+        'appearance/outer_layer/body/only_right_arm.png': 16,
+        'appearance/outer_layer/legs/all_on.png': 16,
+        'appearance/outer_layer/legs/all_off.png': 16,
+        'appearance/outer_layer/legs/left_off.png': 16,
+        'appearance/outer_layer/legs/right_off.png': 16,
+        'status/compatibility/extended.png': 16,
+        'status/compatibility/incompatible.png': 16
+    ].asImmutable()
+    static final Set<String> GUI_ICON_SAFE_AREA_REQUIRED = ([
+        'action/edit.png',
+        'action/duplicate.png',
+        'action/delete.png',
+        'action/select_folder.png',
+        'status/compatibility/extended.png',
+        'status/compatibility/incompatible.png'
+    ] as Set).asImmutable()
+    static final Map<String, String> GUI_ICON_LOCKED_SHA256 = [
+        'action/add_look.png'       : 'a464363bc11e82b82b03b694445be850b679da9284a594da06d0137092752570',
+        'appearance/back/none.png' : 'c9aebc28c8111459ba09b9523ee0fcb014542651932f65eaacd61a0669f70f0c'
     ].asImmutable()
     static final Map<String, Map> FORGE_REFMAPS = [
         'forge-1.20.1': [
@@ -642,16 +656,47 @@ final class ArtifactVerifier {
                 }
             }
         }
-        List<String> archiveButtons = names.findAll { it.startsWith(BUTTONS) && it.endsWith('.png') }.sort()
+        List<String> archiveIcons = names.findAll { it.startsWith(GUI_ICONS) && it.endsWith('.png') }.sort()
         File canonicalResources = new File(root, 'compat/resources/canonical/src/main/resources')
-        List<File> sourceButtons = new File(canonicalResources, BUTTONS).listFiles()?.findAll { it.name.endsWith('.png') }?.sort { it.name } ?: []
-        Set<String> sourceButtonNames = sourceButtons.collect { it.name } as Set
-        Set<String> expectedButtons = BUTTON_ICON_SIZES.keySet().collect { BUTTONS + it } as Set
-        if (sourceButtonNames != BUTTON_ICON_SIZES.keySet()) errors.add("${target.id}: source button icon manifest differs from the size contract")
-        if ((archiveButtons as Set) != expectedButtons) errors.add("${target.id}: button icon manifest differs")
-        sourceButtons.each { File source ->
-            Integer size = BUTTON_ICON_SIZES[source.name]
-            if (size != null) compareResource(archive, BUTTONS + source.name, source, target, size, size, errors)
+        Path sourceIconRoot = new File(canonicalResources, GUI_ICONS).toPath()
+        Map<String, File> sourceIcons = [:]
+        Files.walk(sourceIconRoot).withCloseable { stream ->
+            stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }.forEach { Path source ->
+                sourceIcons[sourceIconRoot.relativize(source).toString().replace('\\', '/')] = source.toFile()
+            }
+        }
+        Set<String> expectedIcons = GUI_ICON_SIZES.keySet().collect { GUI_ICONS + it } as Set
+        if (sourceIcons.keySet() != GUI_ICON_SIZES.keySet()) errors.add("${target.id}: source GUI icon manifest differs from the size contract")
+        if ((archiveIcons as Set) != expectedIcons) errors.add("${target.id}: GUI icon manifest differs")
+        sourceIcons.each { String relative, File source ->
+            Integer size = GUI_ICON_SIZES[relative]
+            if (size != null) {
+                compareResource(archive, GUI_ICONS + relative, source, target, size, size, errors)
+                def image = ImageIO.read(source)
+                if (image == null) {
+                    errors.add("${target.id}: invalid source GUI icon ${relative}")
+                } else {
+                    boolean nonBinaryAlpha = (0..<image.height).any { int y ->
+                        (0..<image.width).any { int x ->
+                            int alpha = image.getRGB(x, y) >>> 24
+                            alpha != 0 && alpha != 255
+                        }
+                    }
+                    if (nonBinaryAlpha) errors.add("${target.id}: source GUI icon ${relative} has fractional alpha")
+                    if (GUI_ICON_SAFE_AREA_REQUIRED.contains(relative)) {
+                        boolean touchesSafeArea = (0..<image.height).any { int y ->
+                            (0..<image.width).any { int x ->
+                                (x < 2 || x >= 14 || y < 2 || y >= 14) && (image.getRGB(x, y) >>> 24) != 0
+                            }
+                        }
+                        if (touchesSafeArea) errors.add("${target.id}: source GUI icon ${relative} violates the 2 px safe area")
+                    }
+                }
+                String lockedHash = GUI_ICON_LOCKED_SHA256[relative]
+                if (lockedHash != null && sha256(source) != lockedHash) {
+                    errors.add("${target.id}: source GUI icon ${relative} differs from its accepted pixel baseline")
+                }
+            }
         }
         compareResource(archive, catalog.mod.icon.toString(), new File(canonicalResources, catalog.mod.icon.toString()), target, 128, 128, errors)
         verifyNestedPackIcon(root, archive, catalog, target, errors)

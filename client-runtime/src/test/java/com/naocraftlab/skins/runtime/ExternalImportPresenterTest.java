@@ -60,7 +60,7 @@ final class ExternalImportPresenterTest {
                 ViewSpec.WidgetKind.ICON_BUTTON,
                 chooser.widget("external.folder.prism_launcher").orElseThrow().kind());
         assertEquals(
-                Optional.of("folder"),
+                Optional.of(GuiIcon.ACTION_SELECT_FOLDER),
                 chooser.widget("external.folder.prism_launcher").orElseThrow().icon());
         assertEquals(
                 2,
@@ -212,7 +212,7 @@ final class ExternalImportPresenterTest {
         ViewSpec.Widget disclosure = review.widget("external.review.disclosure").orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, disclosure.kind());
         assertEquals(new Bounds(826, 6, 20, 20), disclosure.bounds());
-        assertEquals(Optional.of("collapse_all"), disclosure.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_COLLAPSE_ALL), disclosure.icon());
         assertEquals(UiMessage.info("nclskins.collection.collapse_all"), disclosure.label());
         assertEquals(Optional.of(disclosure.label()), disclosure.hint());
         assertEquals(
@@ -455,7 +455,7 @@ final class ExternalImportPresenterTest {
         ViewSpec.Widget card = view.widget("external.review.card:candidate-0").orElseThrow();
         assertEquals(card.bounds().x() + 2, indicator.bounds().x());
         assertEquals(card.bounds().bottom() - 2, indicator.bounds().bottom());
-        assertEquals(Optional.of("compatibility_sparkle"), indicator.icon());
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_EXTENDED), indicator.icon());
         assertEquals(20, indicator.bounds().width());
         assertEquals(20, indicator.bounds().height());
         assertTrue(view.iconDecorations().stream().noneMatch(icon ->

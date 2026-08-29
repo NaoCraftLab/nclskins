@@ -47,8 +47,8 @@ final class EditorOuterLayerCycle {
             case "head" -> new Cycle(
                     HEAD,
                     List.of(
-                            step(Set.of(OuterLayerPart.HEAD), "head_on", "nclskins.editor.outer_head_on"),
-                            step(Set.of(), "head_off", "nclskins.editor.outer_head_off")));
+                            step(Set.of(OuterLayerPart.HEAD), GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_ON, "nclskins.editor.outer_head_on"),
+                            step(Set.of(), GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_OFF, "nclskins.editor.outer_head_off")));
             case "body" -> bodyCycle();
             case "legs" -> legCycle();
             default -> throw new IllegalArgumentException("unknown outer-layer cycle: " + control);
@@ -63,26 +63,26 @@ final class EditorOuterLayerCycle {
                                         OuterLayerPart.BODY,
                                         OuterLayerPart.LEFT_ARM,
                                         OuterLayerPart.RIGHT_ARM),
-                                "body_all_on",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ALL_ON,
                                 "nclskins.editor.outer_body_all_on"),
-                        step(Set.of(), "body_all_off", "nclskins.editor.outer_body_all_off"),
+                        step(Set.of(), GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ALL_OFF, "nclskins.editor.outer_body_all_off"),
                         step(Set.of(OuterLayerPart.BODY),
-                                "body_both_arms_off",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_BODY_BOTH_ARMS_OFF,
                                 "nclskins.editor.outer_body_no_arms"),
                         step(Set.of(OuterLayerPart.LEFT_ARM, OuterLayerPart.RIGHT_ARM),
-                                "body_only_arms_on",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ONLY_ARMS_ON,
                                 "nclskins.editor.outer_body_arms_without_body"),
                         step(Set.of(OuterLayerPart.LEFT_ARM),
-                                "body_only_left_arm",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ONLY_LEFT_ARM,
                                 "nclskins.editor.outer_body_only_left_arm"),
                         step(Set.of(OuterLayerPart.RIGHT_ARM),
-                                "body_only_right_arm",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ONLY_RIGHT_ARM,
                                 "nclskins.editor.outer_body_only_right_arm"),
                         step(Set.of(OuterLayerPart.BODY, OuterLayerPart.LEFT_ARM),
-                                "body_right_arm_off",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_BODY_RIGHT_ARM_OFF,
                                 "nclskins.editor.outer_body_and_left_arm"),
                         step(Set.of(OuterLayerPart.BODY, OuterLayerPart.RIGHT_ARM),
-                                "body_left_arm_off",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_BODY_LEFT_ARM_OFF,
                                 "nclskins.editor.outer_body_and_right_arm")));
     }
 
@@ -91,18 +91,18 @@ final class EditorOuterLayerCycle {
                 LEGS,
                 List.of(
                         step(Set.of(OuterLayerPart.LEFT_LEG, OuterLayerPart.RIGHT_LEG),
-                                "legs_all_on",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_ALL_ON,
                                 "nclskins.editor.outer_legs_all_on"),
-                        step(Set.of(), "legs_all_off", "nclskins.editor.outer_legs_all_off"),
+                        step(Set.of(), GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_ALL_OFF, "nclskins.editor.outer_legs_all_off"),
                         step(Set.of(OuterLayerPart.RIGHT_LEG),
-                                "legs_left_off",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_LEFT_OFF,
                                 "nclskins.editor.outer_legs_no_left_leg"),
                         step(Set.of(OuterLayerPart.LEFT_LEG),
-                                "legs_right_off",
+                                GuiIcon.APPEARANCE_OUTER_LAYER_LEGS_RIGHT_OFF,
                                 "nclskins.editor.outer_legs_no_right_leg")));
     }
 
-    private static Step step(Set<OuterLayerPart> visibleParts, String icon, String stateKey) {
+    private static Step step(Set<OuterLayerPart> visibleParts, GuiIcon icon, String stateKey) {
         List<Object> arguments = switch (stateKey) {
             case "nclskins.editor.outer_head_on",
                     "nclskins.editor.outer_head_off" -> vanilla("options.modelPart.hat");
@@ -134,7 +134,7 @@ final class EditorOuterLayerCycle {
                 .toList();
     }
 
-    record State(String icon, UiMessage label) {
+    record State(GuiIcon icon, UiMessage label) {
         State {
             Objects.requireNonNull(icon, "icon");
             Objects.requireNonNull(label, "label");

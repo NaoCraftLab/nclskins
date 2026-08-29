@@ -411,7 +411,9 @@ final class ViewSpecGoldenTest {
             ViewSpec.Widget widget = view.widgets().get(index);
             result.append(index).append('|').append(widget.id()).append('|').append(widget.kind()).append('|')
                     .append(bounds(widget.bounds())).append('|').append(message(widget.label())).append('|')
-                    .append("value=").append(widget.value().orElse("-")).append('|')
+                    .append("value=").append(widget.icon()
+                            .map(GuiIcon::semanticPath)
+                            .orElseGet(() -> widget.value().orElse("-"))).append('|')
                     .append("hint=").append(widget.hint().map(ViewSpecGoldenTest::message).orElse("-")).append('|')
                     .append("enabled=").append(widget.enabled()).append('|')
                     .append("visible=").append(widget.visible()).append('|')
@@ -449,7 +451,8 @@ final class ViewSpecGoldenTest {
         for (int index = 0; index < view.iconDecorations().size(); index++) {
             ViewSpec.IconDecoration decoration = view.iconDecorations().get(index);
             result.append(index).append('|').append(decoration.id()).append('|')
-                    .append(bounds(decoration.bounds())).append("|icon=").append(decoration.icon()).append('|')
+                    .append(bounds(decoration.bounds())).append("|icon=")
+                    .append(decoration.icon().semanticPath()).append('|')
                     .append("owner=").append(decoration.ownerWidgetId()).append('|')
                     .append("idle=").append(decoration.idleOpacity()).append('|')
                     .append("active=").append(decoration.activeOpacity()).append('\n');

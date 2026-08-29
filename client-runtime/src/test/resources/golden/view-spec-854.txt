@@ -16,20 +16,20 @@ widgets
 1|gallery.add|CATALOG_CARD|11,58,281,375|key:nclskins.gallery.add_hint:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 2|gallery.card.00000000-0000-0002-0000-000000000004|CATALOG_CARD|304,58,281,375|literal:Preset 4:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 3|gallery.preset.00000000-0000-0002-0000-000000000004.apply|BUTTON|306,411,211,20|key:nclskins.gallery.active:INFO|value=-|hint=-|enabled=false|visible=true|max=0
-4|gallery.preset.00000000-0000-0002-0000-000000000004.edit|ICON_BUTTON|519,411,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
-5|gallery.preset.00000000-0000-0002-0000-000000000004.duplicate|ICON_BUTTON|541,411,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
-6|gallery.preset.00000000-0000-0002-0000-000000000004.delete|ICON_BUTTON|563,411,20,20|key:nclskins.gallery.delete:INFO|value=delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
+4|gallery.preset.00000000-0000-0002-0000-000000000004.edit|ICON_BUTTON|519,411,20,20|key:nclskins.gallery.edit:INFO|value=action/edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
+5|gallery.preset.00000000-0000-0002-0000-000000000004.duplicate|ICON_BUTTON|541,411,20,20|key:nclskins.gallery.duplicate:INFO|value=action/duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
+6|gallery.preset.00000000-0000-0002-0000-000000000004.delete|ICON_BUTTON|563,411,20,20|key:nclskins.gallery.delete:INFO|value=action/delete|hint=key:nclskins.gallery.delete:INFO|enabled=true|visible=true|max=0
 7|gallery.card.00000000-0000-0002-0000-000000000003|CATALOG_CARD|597,58,281,375|literal:Preset 3:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 8|gallery.preset.00000000-0000-0002-0000-000000000003.apply|BUTTON|599,411,211,20|key:nclskins.gallery.apply:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-9|gallery.preset.00000000-0000-0002-0000-000000000003.edit|ICON_BUTTON|812,411,20,20|key:nclskins.gallery.edit:INFO|value=edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
-10|gallery.preset.00000000-0000-0002-0000-000000000003.duplicate|ICON_BUTTON|834,411,20,20|key:nclskins.gallery.duplicate:INFO|value=duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
+9|gallery.preset.00000000-0000-0002-0000-000000000003.edit|ICON_BUTTON|812,411,20,20|key:nclskins.gallery.edit:INFO|value=action/edit|hint=key:nclskins.gallery.edit:INFO|enabled=true|visible=true|max=0
+10|gallery.preset.00000000-0000-0002-0000-000000000003.duplicate|ICON_BUTTON|834,411,20,20|key:nclskins.gallery.duplicate:INFO|value=action/duplicate|hint=key:nclskins.gallery.duplicate:INFO|enabled=true|visible=true|max=0
 11|gallery.done|BUTTON|327,452,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
 0|gallery.preset.00000000-0000-0002-0000-000000000004.preview|312,78,265,329|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-3.85|pitch=3.6831982|scale=0.88|preset=00000000-0000-0002-0000-000000000004
 1|gallery.preset.00000000-0000-0002-0000-000000000003.preview|605,78,265,329|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-28.0|pitch=3.6831982|scale=0.88|preset=00000000-0000-0002-0000-000000000003
 back_equipment_previews
 icon_decorations
-0|gallery.add.icon|135,215,32,32|icon=plus|owner=gallery.add|idle=0.65|active=1.0
+0|gallery.add.icon|135,215,32,32|icon=action/add_look|owner=gallery.add|idle=0.65|active=1.0
 clip_regions
 0|gallery.cards|0,58,854,375|prefixes=gallery.card.,gallery.add,gallery.preset.
 scrollbar=40,437,774,6|41,437,442,6|offset=1|maximum=623
@@ -51,10 +51,10 @@ widgets
 1|editor.model|BUTTON|578,82,260,20|key:nclskins.editor.arms_classic:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 2|editor.cape_choice.0|CAPE_CARD|579,106,80,86|key:nclskins.editor.no_cape:INFO|value=unselected|hint=key:nclskins.editor.no_cape:INFO|enabled=true|visible=true|max=0
 3|editor.cape_choice.1|CAPE_CARD|663,106,80,86|literal:cape-1:INFO|value=selected|hint=key:nclskins.editor.cape(key:options.modelPart.cape:INFO,literal:cape-1:INFO):INFO|enabled=false|visible=true|max=0
-4|editor.preview_mode|ICON_BUTTON|2,35,20,20|key:item.minecraft.elytra:INFO|value=elytra|hint=key:item.minecraft.elytra:INFO|enabled=true|visible=true|max=0
-5|editor.outer_layer.head|ICON_BUTTON|2,208,20,20|key:nclskins.editor.outer_head_off(key:options.modelPart.hat:INFO):INFO|value=head_off|hint=key:nclskins.editor.outer_head_off(key:options.modelPart.hat:INFO):INFO|enabled=true|visible=true|max=0
-6|editor.outer_layer.body|ICON_BUTTON|2,230,20,20|key:nclskins.editor.outer_body_all_off(key:options.modelPart.jacket:INFO,key:options.modelPart.left_sleeve:INFO,key:options.modelPart.right_sleeve:INFO):INFO|value=body_all_off|hint=key:nclskins.editor.outer_body_all_off(key:options.modelPart.jacket:INFO,key:options.modelPart.left_sleeve:INFO,key:options.modelPart.right_sleeve:INFO):INFO|enabled=true|visible=true|max=0
-7|editor.outer_layer.legs|ICON_BUTTON|2,252,20,20|key:nclskins.editor.outer_legs_all_off(key:options.modelPart.left_pants_leg:INFO,key:options.modelPart.right_pants_leg:INFO):INFO|value=legs_all_off|hint=key:nclskins.editor.outer_legs_all_off(key:options.modelPart.left_pants_leg:INFO,key:options.modelPart.right_pants_leg:INFO):INFO|enabled=true|visible=true|max=0
+4|editor.preview_mode|ICON_ONLY_BUTTON|2,35,20,20|key:item.minecraft.elytra:INFO|value=appearance/back/elytra|hint=key:item.minecraft.elytra:INFO|enabled=true|visible=true|max=0
+5|editor.outer_layer.head|ICON_ONLY_BUTTON|2,208,20,20|key:nclskins.editor.outer_head_off(key:options.modelPart.hat:INFO):INFO|value=appearance/outer_layer/head/off|hint=key:nclskins.editor.outer_head_off(key:options.modelPart.hat:INFO):INFO|enabled=true|visible=true|max=0
+6|editor.outer_layer.body|ICON_ONLY_BUTTON|2,230,20,20|key:nclskins.editor.outer_body_all_off(key:options.modelPart.jacket:INFO,key:options.modelPart.left_sleeve:INFO,key:options.modelPart.right_sleeve:INFO):INFO|value=appearance/outer_layer/body/all_off|hint=key:nclskins.editor.outer_body_all_off(key:options.modelPart.jacket:INFO,key:options.modelPart.left_sleeve:INFO,key:options.modelPart.right_sleeve:INFO):INFO|enabled=true|visible=true|max=0
+7|editor.outer_layer.legs|ICON_ONLY_BUTTON|2,252,20,20|key:nclskins.editor.outer_legs_all_off(key:options.modelPart.left_pants_leg:INFO,key:options.modelPart.right_pants_leg:INFO):INFO|value=appearance/outer_layer/legs/all_off|hint=key:nclskins.editor.outer_legs_all_off(key:options.modelPart.left_pants_leg:INFO,key:options.modelPart.right_pants_leg:INFO):INFO|enabled=true|visible=true|max=0
 8|editor.save|BUTTON|578,452,128,20|key:nclskins.editor.save:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 9|editor.cancel|BUTTON|710,452,128,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
@@ -62,7 +62,7 @@ previews
 back_equipment_previews
 0|editor.cape_card.1.equipment|669,123,68,65|cape=cape-1|mode=ELYTRA
 icon_decorations
-0|editor.cape_card.0.empty|603,133,32,32|icon=no_cape|owner=editor.cape_choice.0|idle=0.8|active=1.0
+0|editor.cape_card.0.empty|603,133,32,32|icon=appearance/back/none|owner=editor.cape_choice.0|idle=0.8|active=1.0
 clip_regions
 0|editor.capes|578,106,250,341|prefixes=editor.cape_card.,editor.cape_choice.
 scrollbar=-

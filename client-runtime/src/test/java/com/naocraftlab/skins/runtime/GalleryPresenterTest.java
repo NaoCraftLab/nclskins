@@ -54,7 +54,7 @@ final class GalleryPresenterTest {
         assertEquals(ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR, indicator.kind());
         assertEquals(Optional.of(indicator.label()), indicator.hint());
         assertTrue(view.navigationNode(indicatorId).isPresent());
-        assertEquals(Optional.of("compatibility_warning"), indicator.icon());
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), indicator.icon());
         assertEquals(20, indicator.bounds().width());
         assertEquals(20, indicator.bounds().height());
         ViewSpec.Widget apply = view.widget("gallery.preset." + active + ".apply").orElseThrow();
@@ -980,19 +980,19 @@ final class GalleryPresenterTest {
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, edit.kind());
         assertEquals(UiMessage.info("nclskins.gallery.edit"), edit.label());
         assertEquals(Optional.of(UiMessage.info("nclskins.gallery.edit")), edit.hint());
-        assertEquals(Optional.of("edit"), edit.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_EDIT), edit.icon());
 
         ViewSpec.Widget duplicate = view.widget(prefix + ".duplicate").orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, duplicate.kind());
         assertEquals(UiMessage.info("nclskins.gallery.duplicate"), duplicate.label());
         assertEquals(Optional.of(UiMessage.info("nclskins.gallery.duplicate")), duplicate.hint());
-        assertEquals(Optional.of("duplicate"), duplicate.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_DUPLICATE), duplicate.icon());
 
         ViewSpec.Widget delete = view.widget(prefix + ".delete").orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, delete.kind());
         assertEquals(UiMessage.info("nclskins.gallery.delete"), delete.label());
         assertEquals(Optional.of(UiMessage.info("nclskins.gallery.delete")), delete.hint());
-        assertEquals(Optional.of("delete"), delete.icon());
+        assertEquals(Optional.of(GuiIcon.ACTION_DELETE), delete.icon());
 
         ViewSpec.Widget apply = view.widget(prefix + ".apply").orElseThrow();
         Bounds card = view.panels().stream()
@@ -1067,22 +1067,22 @@ final class GalleryPresenterTest {
         assertTrue(add.visible());
         assertEquals(ViewSpec.WidgetKind.CATALOG_CARD, add.kind());
         assertEquals(1, view.iconDecorations().size());
-        ViewSpec.IconDecoration plus = view.iconDecorations().get(0);
-        assertEquals("gallery.add.icon", plus.id());
-        assertEquals("gallery.add", plus.ownerWidgetId());
-        assertEquals("plus", plus.icon());
-        assertEquals(32, plus.bounds().width());
-        assertEquals(32, plus.bounds().height());
-        assertEquals(add.bounds().x() + (add.bounds().width() - plus.bounds().width()) / 2,
-                plus.bounds().x());
+        ViewSpec.IconDecoration addLook = view.iconDecorations().get(0);
+        assertEquals("gallery.add.icon", addLook.id());
+        assertEquals("gallery.add", addLook.ownerWidgetId());
+        assertEquals(GuiIcon.ACTION_ADD_LOOK, addLook.icon());
+        assertEquals(32, addLook.bounds().width());
+        assertEquals(32, addLook.bounds().height());
+        assertEquals(add.bounds().x() + (add.bounds().width() - addLook.bounds().width()) / 2,
+                addLook.bounds().x());
         ViewSpec.Text hint = view.texts().stream()
                 .filter(text -> text.id().equals("gallery.add.hint"))
                 .findFirst()
                 .orElseThrow();
-        assertEquals(8, hint.bounds().y() - plus.bounds().bottom());
-        assertEquals(0.65F, plus.idleOpacity());
-        assertEquals(1.0F, plus.activeOpacity());
-        assertEquals(Optional.of(galleryViewport(view)), view.clipFor(plus.id()));
+        assertEquals(8, hint.bounds().y() - addLook.bounds().bottom());
+        assertEquals(0.65F, addLook.idleOpacity());
+        assertEquals(1.0F, addLook.activeOpacity());
+        assertEquals(Optional.of(galleryViewport(view)), view.clipFor(addLook.id()));
     }
 
     @Test

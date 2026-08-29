@@ -37,10 +37,10 @@ final class CompatibilityMessages {
                 "nclskins.compatibility.tooltip." + lines.size(), lines.toArray());
     }
 
-    static String icon(SkinCompatibility compatibility) {
+    static GuiIcon icon(SkinCompatibility compatibility) {
         return compatibility.status() == SkinCompatibilityStatus.INCOMPATIBLE
-                ? "compatibility_warning"
-                : "compatibility_sparkle";
+                ? GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE
+                : GuiIcon.STATUS_COMPATIBILITY_EXTENDED;
     }
 
     private static UiMessage feature(SkinFeature feature) {

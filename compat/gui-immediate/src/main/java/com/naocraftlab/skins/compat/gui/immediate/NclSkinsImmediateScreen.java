@@ -15,6 +15,7 @@ import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.FocusRequestLedger;
+import com.naocraftlab.skins.runtime.GuiIcon;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.InteractionOrigin;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
@@ -54,39 +55,9 @@ import org.lwjgl.glfw.GLFW;
 
 
 public abstract class NclSkinsImmediateScreen extends Screen {
-    private static final int ACTION_ICON_RENDER_SIZE = 16;
-    private static final int ACTION_ICON_TEXTURE_SIZE = 20;
-    private static final int DECORATION_ICON_SIZE = 32;
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
     private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
     private static final String PRESET_EDITOR_SCREEN_ID = "preset_editor";
-    private static final Set<String> APPROVED_ACTION_ICONS = Set.of(
-            "edit",
-            "folder",
-            "plus",
-            "duplicate",
-            "delete",
-            "collapse_all",
-            "expand_all",
-            "no_cape",
-            "cape",
-            "elytra",
-            "head_on",
-            "head_off",
-            "body_all_on",
-            "body_all_off",
-            "body_both_arms_off",
-            "body_left_arm_off",
-            "body_right_arm_off",
-            "body_only_arms_on",
-            "body_only_left_arm",
-            "body_only_right_arm",
-            "legs_all_on",
-            "legs_all_off",
-            "legs_left_off",
-            "legs_right_off",
-            "compatibility_sparkle",
-            "compatibility_warning");
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
     private static final int ERROR_COLOR = 0xFFFF9A9A;
@@ -368,6 +339,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             Optional<ViewSpec.Widget> invisibleHit = view.widgets().stream()
                     .filter(widget -> widget.kind() == ViewSpec.WidgetKind.BUTTON
                             || widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                            || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
                             || widget.kind() == ViewSpec.WidgetKind.COLLECTION_HEADER)
                     .filter(widget -> !widget.visible() && widget.enabled())
                     .filter(widget -> widget.bounds().contains(mouseX, mouseY))
@@ -569,8 +541,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     header.setTrailingInfo(widget.collectionHeaderHasTrailingInfo());
                 }
                 nativeWidget.setMessage(resolve(widget.label()));
-                if (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON) {
-                    ((IconButtonWidget) nativeWidget).setIconTexture(actionIconTexture(widget));
+                if (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                        || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON) {
+                    ((IconButtonWidget) nativeWidget).setIcon(widget.icon().orElseThrow());
                     nativeWidget.setTooltip(Tooltip.create(resolve(
                             widget.hint().orElse(widget.label()))));
                 }
@@ -579,8 +552,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                             widget.hint().orElse(widget.label()))));
                 }
                 if (widget.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
-                    ((CompatibilityIndicatorWidget) nativeWidget).setIconTexture(
-                            actionIconTexture(widget));
+                    ((CompatibilityIndicatorWidget) nativeWidget).setIcon(
+                            widget.icon().orElseThrow());
                     nativeWidget.setTooltip(Tooltip.create(resolve(
                             widget.hint().orElse(widget.label()))));
                 }
@@ -645,7 +618,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.height(),
                     resolve(widget.label()));
         }
-        if (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON) {
+        if (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON) {
             IconButtonWidget button = new IconButtonWidget(
                     widget.id(),
                     bounds.x(),
@@ -653,7 +627,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.width(),
                     bounds.height(),
                     resolve(widget.label()),
-                    actionIconTexture(widget));
+                    widget.icon().orElseThrow(),
+                    widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON);
             widget.hint().ifPresent(hint -> button.setTooltip(Tooltip.create(resolve(hint))));
             if (widget.hint().isEmpty()) {
                 button.setTooltip(Tooltip.create(resolve(widget.label())));
@@ -679,7 +654,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.width(),
                     bounds.height(),
                     resolve(widget.label()),
-                    actionIconTexture(widget));
+                    widget.icon().orElseThrow());
             button.setTooltip(Tooltip.create(resolve(
                     widget.hint().orElse(widget.label()))));
             return button;
@@ -730,19 +705,10 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         return editBox;
     }
 
-    private static ResourceLocation actionIconTexture(ViewSpec.Widget widget) {
-        String icon = widget.icon().orElseThrow(
-                () -> new IllegalArgumentException("Icon button has no icon: " + widget.id()));
-        return actionIconTexture(icon);
-    }
-
-    private static ResourceLocation actionIconTexture(String icon) {
-        if (!APPROVED_ACTION_ICONS.contains(icon)) {
-            throw new IllegalArgumentException("Unsupported action icon: " + icon);
-        }
+    private static ResourceLocation iconTexture(GuiIcon icon) {
         return Objects.requireNonNull(
-                ResourceLocation.tryParse("nclskins:textures/gui/icons/" + icon + ".png"),
-                "actionIconTexture");
+                ResourceLocation.tryParse("nclskins:" + icon.resourcePath()),
+                "iconTexture");
     }
 
     private void renderIconDecorations(
@@ -762,16 +728,17 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             renderClipped(graphics, view, decoration.id(), () -> {
                 graphics.setColor(1.0F, 1.0F, 1.0F, opacity);
                 try {
+                    int size = decoration.icon().baseCanvas();
                     graphics.blit(
-                            actionIconTexture(decoration.icon()),
-                            bounds.x(),
-                            bounds.y(),
+                            iconTexture(decoration.icon()),
+                            bounds.x() + (bounds.width() - size) / 2,
+                            bounds.y() + (bounds.height() - size) / 2,
                             0.0F,
                             0.0F,
-                            bounds.width(),
-                            bounds.height(),
-                            DECORATION_ICON_SIZE,
-                            DECORATION_ICON_SIZE);
+                            size,
+                            size,
+                            size,
+                            size);
                 } finally {
                     graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
                 }
@@ -809,7 +776,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
     private final class IconButtonWidget extends AbstractButton {
         private final String widgetId;
-        private ResourceLocation iconTexture;
+        private final boolean iconOnly;
+        private GuiIcon icon;
 
         private IconButtonWidget(
                 String widgetId,
@@ -818,14 +786,16 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 int width,
                 int height,
                 Component message,
-                ResourceLocation iconTexture) {
+                GuiIcon icon,
+                boolean iconOnly) {
             super(x, y, width, height, message);
             this.widgetId = Objects.requireNonNull(widgetId, "widgetId");
-            this.iconTexture = Objects.requireNonNull(iconTexture, "iconTexture");
+            this.icon = Objects.requireNonNull(icon, "icon");
+            this.iconOnly = iconOnly;
         }
 
-        private void setIconTexture(ResourceLocation iconTexture) {
-            this.iconTexture = Objects.requireNonNull(iconTexture, "iconTexture");
+        private void setIcon(GuiIcon icon) {
+            this.icon = Objects.requireNonNull(icon, "icon");
         }
 
         @Override
@@ -836,9 +806,14 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         @Override
         protected void renderWidget(
                 GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-            super.renderWidget(graphics, mouseX, mouseY, partialTick);
+            if (!iconOnly) {
+                super.renderWidget(graphics, mouseX, mouseY, partialTick);
+            }
             renderActionIcon(
-                    graphics, getX(), getY(), getWidth(), getHeight(), iconTexture, active);
+                    graphics, getX(), getY(), getWidth(), getHeight(), icon, active);
+            if (iconOnly && isHoveredOrFocused()) {
+                drawCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
+            }
         }
 
         @Override
@@ -854,7 +829,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
 
     private final class CompatibilityIndicatorWidget extends AbstractButton {
-        private ResourceLocation iconTexture;
+        private GuiIcon icon;
 
         private CompatibilityIndicatorWidget(
                 int x,
@@ -862,13 +837,13 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 int width,
                 int height,
                 Component message,
-                ResourceLocation iconTexture) {
+                GuiIcon icon) {
             super(x, y, width, height, message);
-            this.iconTexture = Objects.requireNonNull(iconTexture, "iconTexture");
+            this.icon = Objects.requireNonNull(icon, "icon");
         }
 
-        private void setIconTexture(ResourceLocation iconTexture) {
-            this.iconTexture = Objects.requireNonNull(iconTexture, "iconTexture");
+        private void setIcon(GuiIcon icon) {
+            this.icon = Objects.requireNonNull(icon, "icon");
         }
 
         @Override
@@ -880,7 +855,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         protected void renderWidget(
                 GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
             renderActionIcon(
-                    graphics, getX(), getY(), getWidth(), getHeight(), iconTexture, active);
+                    graphics, getX(), getY(), getWidth(), getHeight(), icon, active);
             if (isHoveredOrFocused()) {
                 drawCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
@@ -899,29 +874,25 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             int y,
             int width,
             int height,
-            ResourceLocation iconTexture,
+            GuiIcon icon,
             boolean active) {
-        int iconX = x + (width - ACTION_ICON_RENDER_SIZE) / 2;
-        int iconY = y + (height - ACTION_ICON_RENDER_SIZE) / 2;
+        int size = icon.baseCanvas();
+        int iconX = x + (width - size) / 2;
+        int iconY = y + (height - size) / 2;
         float tint = active ? 1.0F : 0.5F;
         graphics.setColor(tint, tint, tint, 1.0F);
-        graphics.pose().pushPose();
         try {
-            graphics.pose().translate(iconX, iconY, 0.0F);
-            float scale = (float) ACTION_ICON_RENDER_SIZE / ACTION_ICON_TEXTURE_SIZE;
-            graphics.pose().scale(scale, scale, 1.0F);
             graphics.blit(
-                    iconTexture,
-                    0,
-                    0,
+                    iconTexture(icon),
+                    iconX,
+                    iconY,
                     0.0F,
                     0.0F,
-                    ACTION_ICON_TEXTURE_SIZE,
-                    ACTION_ICON_TEXTURE_SIZE,
-                    ACTION_ICON_TEXTURE_SIZE,
-                    ACTION_ICON_TEXTURE_SIZE);
+                    size,
+                    size,
+                    size,
+                    size);
         } finally {
-            graphics.pose().popPose();
             graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
     }
