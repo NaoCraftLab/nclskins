@@ -95,11 +95,20 @@ final class BuildLogicTest {
                 .contains('actor-receives-no-respawn-or-self-refresh'))
         Map experimental = catalog.targets.find { it.id == 'fabric-26.3' } as Map
         assertFalse(experimental.releaseEligible as boolean)
-        assertEquals('26.3-snapshot-10', CatalogTools.minecraftCompileVersion(experimental))
-        assertEquals('26.3-alpha.10', experimental.minecraft.runtimeVersion)
-        assertEquals('26.3-alpha.10', experimental.minecraft.minimumRuntimeVersion)
-        assertEquals('>=26.3-alpha.10', experimental.minecraft.predicate)
-        assertEquals('0.158.2+26.3', experimental.loader.apiVersion)
+        assertEquals('26.3-pre-2', CatalogTools.minecraftCompileVersion(experimental))
+        assertEquals('26.3-pre.2', experimental.minecraft.runtimeVersion)
+        assertEquals('26.3-pre.2', experimental.minecraft.minimumRuntimeVersion)
+        assertEquals('>=26.3-pre.2', experimental.minecraft.predicate)
+        assertEquals('0.19.5', experimental.loader.version)
+        assertEquals('>=0.19.5', experimental.loader.predicate)
+        assertEquals('0.159.4+26.3', experimental.loader.apiVersion)
+        assertEquals('>=0.159.4+26.3', experimental.loader.apiPredicate)
+        assertEquals('21.0.0-alpha.1', experimental.loader.modMenuVersion)
+        assertEquals('3.9.6+26.3-fabric',
+                catalog.optionalDependencies.yet_another_config_lib_v3.versions['fabric-26.3'])
+        assertEquals('maven.modrinth:bTTf2DEw:EEE7nXWy',
+                catalog.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].coordinate)
+        assertEquals([97, 1], experimental.metadata.packFormat)
         CatalogTools.validate(repository, catalog)
     }
 
@@ -152,6 +161,34 @@ final class BuildLogicTest {
         assertFalse(fabric.contains("tasks.named('runServer').classpath(sqliteClientRuntime)"))
         assertFalse(fabric.contains('org.xerial:sqlite-jdbc'))
         assertFalse(fabric.contains('maven.modrinth:sqlite-jdbc'))
+    }
+
+    @Test
+    void preReleaseVanillaPackBindingUsesTheResourceManagerProvider() {
+        Map implementation = CatalogTools.loadJson(
+                new File(repository, 'gradle/abi-fingerprints.json'))
+                .implementations['vanilla-pack-identifier-provider'] as Map
+        Map vanillaResources = (implementation.classes as List<Map>).find {
+            it.name == 'net.minecraft.server.packs.VanillaPackResources'
+        } as Map
+        assertEquals([[
+                kind: 'method',
+                name: 'asResourceManager',
+                descriptor: '()Lnet/minecraft/server/packs/resources/ResourceManager;',
+                access: 'public',
+                finality: 'virtual'
+        ]], vanillaResources.members)
+        String source = new File(repository,
+                'compat/capabilities/bundled-skin/vanilla-pack-identifier-provider/src/main/java/' +
+                        'com/naocraftlab/skins/compat/client/identifier/IdentifierBundledSkinSource.java').text
+        assertTrue(source.contains('.asResourceManager()'))
+        assertFalse(source.contains('.asProvider()'))
+    }
+
+    @Test
+    void loggingConventionGateExcludesAgentOnlyRoots() {
+        String rootBuild = new File(repository, 'build.gradle').text
+        assertTrue(rootBuild.contains("'.agents/**', 'openspec/**', '.codex/**'"))
     }
 
     @Test
@@ -565,7 +602,7 @@ final class BuildLogicTest {
         Map family = catalog.targets.find { it.id == 'fabric-26.1' } as Map
         assertEquals(['26.1', '26.1.1', '26.1.2'], family.compatibility.minecraftVersions)
         assertEquals(
-                [minecraftVersion: '26.1.2', loaderVersion: '0.19.3', serverPort: 25578],
+                [minecraftVersion: '26.1.2', loaderVersion: '0.19.5', serverPort: 25578],
                 CatalogTools.compatibilityRuntime(family, '26.1.2'))
         assertThrows(IllegalArgumentException) {
             CatalogTools.compatibilityRuntime(family, '26.1.3')
@@ -709,7 +746,8 @@ final class BuildLogicTest {
                 assertEquals("[${target.minecraft.version},)".toString(), target.minecraft.predicate)
             }
         }
-        assertEquals(['0.19.3'] as Set, catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
+        assertEquals(['0.19.5'] as Set,
+                catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
         Map neoForgeExtraction = catalog.targets.find { it.id == 'neoforge-26.2' } as Map
         assertEquals('26.2.0.57', neoForgeExtraction.loader.version)
         assertEquals('[26.2.0.57,)', neoForgeExtraction.loader.predicate)
@@ -741,17 +779,79 @@ final class BuildLogicTest {
         Map mismatchedLoader = cloneMap(catalog)
         mismatchedLoader.targets.find { it.id == 'fabric-26.2' }.loader.predicate = '>=0.19.0'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedLoader) }
-        Map exactSnapshot = cloneMap(catalog)
-        exactSnapshot.targets.find { it.id == 'fabric-26.3' }.minecraft.predicate = '26.3-alpha.10'
-        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, exactSnapshot) }
-        Map mismatchedSnapshotAlias = cloneMap(catalog)
-        mismatchedSnapshotAlias.targets.find { it.id == 'fabric-26.3' }.minecraft.runtimeVersion = '26.3-alpha.7'
-        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedSnapshotAlias) }
-        Map futureSnapshotFloor = cloneMap(catalog)
-        Map futureMinecraft = futureSnapshotFloor.targets.find { it.id == 'fabric-26.3' }.minecraft
-        futureMinecraft.minimumRuntimeVersion = '26.3-alpha.11'
-        futureMinecraft.predicate = '>=26.3-alpha.11'
-        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, futureSnapshotFloor) }
+        Map exactExperimental = cloneMap(catalog)
+        exactExperimental.targets.find { it.id == 'fabric-26.3' }.minecraft.predicate = '26.3-pre.2'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, exactExperimental) }
+        Map mismatchedRuntimeAlias = cloneMap(catalog)
+        mismatchedRuntimeAlias.targets.find { it.id == 'fabric-26.3' }.minecraft.runtimeVersion = '26.3-alpha.10'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, mismatchedRuntimeAlias) }
+        Map staleExperimentalFloor = cloneMap(catalog)
+        Map staleMinecraft = staleExperimentalFloor.targets.find { it.id == 'fabric-26.3' }.minecraft
+        staleMinecraft.minimumRuntimeVersion = '26.3-alpha.10'
+        staleMinecraft.predicate = '>=26.3-alpha.10'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, staleExperimentalFloor) }
+        Map futureExperimentalFloor = cloneMap(catalog)
+        Map futureMinecraft = futureExperimentalFloor.targets.find { it.id == 'fabric-26.3' }.minecraft
+        futureMinecraft.minimumRuntimeVersion = '26.3-rc.1'
+        futureMinecraft.predicate = '>=26.3-rc.1'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, futureExperimentalFloor) }
+    }
+
+    @Test
+    void experimentalMinecraftVersionsUseExactPhaseAwareRuntimeAliases() {
+        assertEquals('26.3-alpha.10', CatalogTools.minecraftExperimentalRuntimeVersion(
+                '26.3', '26.3-snapshot-10'))
+        assertEquals('26.3-pre.2', CatalogTools.minecraftExperimentalRuntimeVersion(
+                '26.3', '26.3-pre-2'))
+        assertEquals('26.3-rc.1', CatalogTools.minecraftExperimentalRuntimeVersion(
+                '26.3', '26.3-rc-1'))
+        assertNull(CatalogTools.minecraftExperimentalRuntimeVersion('26.3', '26.3-preview-2'))
+        assertNull(CatalogTools.minecraftExperimentalRuntimeVersion('26.3', '26.3-pre-two'))
+        assertNull(CatalogTools.minecraftExperimentalRuntimeVersion('26.3', '26.4-pre-2'))
+
+        ['snapshot-10': 'alpha.10', 'pre-2': 'pre.2', 'rc-1': 'rc.1'].each {
+            String compileSuffix, String runtimeSuffix ->
+            Map valid = cloneMap(catalog)
+            Map target = valid.targets.find { it.id == 'fabric-26.3' } as Map
+            target.minecraft.compileVersion = "26.3-${compileSuffix}".toString()
+            target.minecraft.runtimeVersion = "26.3-${runtimeSuffix}".toString()
+            target.minecraft.minimumRuntimeVersion = "26.3-${runtimeSuffix}".toString()
+            target.minecraft.predicate = ">=26.3-${runtimeSuffix}".toString()
+            CatalogTools.validate(repository, valid)
+        }
+
+        Map malformed = cloneMap(catalog)
+        Map malformedMinecraft = malformed.targets.find { it.id == 'fabric-26.3' }.minecraft as Map
+        malformedMinecraft.compileVersion = '26.3-preview-2'
+        malformedMinecraft.runtimeVersion = '26.3-pre.2'
+        malformedMinecraft.minimumRuntimeVersion = '26.3-pre.2'
+        malformedMinecraft.predicate = '>=26.3-pre.2'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, malformed) }
+
+        Map stale = cloneMap(catalog)
+        Map staleMinecraft = stale.targets.find { it.id == 'fabric-26.3' }.minecraft as Map
+        staleMinecraft.compileVersion = '26.3-pre-2'
+        staleMinecraft.runtimeVersion = '26.3-pre.2'
+        staleMinecraft.minimumRuntimeVersion = '26.3-alpha.10'
+        staleMinecraft.predicate = '>=26.3-alpha.10'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, stale) }
+
+        Map future = cloneMap(catalog)
+        Map futureMinecraft = future.targets.find { it.id == 'fabric-26.3' }.minecraft as Map
+        futureMinecraft.compileVersion = '26.3-pre-2'
+        futureMinecraft.runtimeVersion = '26.3-pre.2'
+        futureMinecraft.minimumRuntimeVersion = '26.3-rc.1'
+        futureMinecraft.predicate = '>=26.3-rc.1'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, future) }
+
+        Map released = cloneMap(catalog)
+        Map releasedTarget = released.targets.find { it.id == 'fabric-26.3' } as Map
+        releasedTarget.minecraft.compileVersion = '26.3-pre-2'
+        releasedTarget.minecraft.runtimeVersion = '26.3-pre.2'
+        releasedTarget.minecraft.minimumRuntimeVersion = '26.3-pre.2'
+        releasedTarget.minecraft.predicate = '>=26.3-pre.2'
+        releasedTarget.releaseEligible = true
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, released) }
     }
 
     @Test

@@ -235,7 +235,8 @@ tasks.register('verifyLoggingConventions') {
     description = 'Enforces the bounded diagnostics contract across production Java sources.'
     def productionSources = fileTree(rootDir) {
         include '**/src/main/java/**/*.java'
-        exclude '**/build/**', '.gradle/**', 'runs/**', 'do' + 'cs/**'
+        exclude '**/build/**', '.gradle/**', 'runs/**', 'do' + 'cs/**',
+                '.agents/**', 'openspec/**', '.codex/**'
     }
     def repositoryPath = rootDir.toPath()
     inputs.files(productionSources)

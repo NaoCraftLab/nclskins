@@ -1319,8 +1319,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.3",
-        "predicate": ">=0.19.3",
+        "version": "0.19.5",
+        "predicate": ">=0.19.5",
         "apiVersion": "0.92.11+1.20.1",
         "apiPredicate": ">=0.92.11+1.20.1",
         "modMenuVersion": "7.2.2"
@@ -1459,8 +1459,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.3",
-        "predicate": ">=0.19.3",
+        "version": "0.19.5",
+        "predicate": ">=0.19.5",
         "apiVersion": "0.116.15+1.21.1",
         "apiPredicate": ">=0.116.15+1.21.1",
         "modMenuVersion": "11.0.4"
@@ -1599,8 +1599,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.3",
-        "predicate": ">=0.19.3",
+        "version": "0.19.5",
+        "predicate": ">=0.19.5",
         "apiVersion": "0.141.6+1.21.11",
         "apiPredicate": ">=0.141.6+1.21.11",
         "modMenuVersion": "17.0.0"
@@ -1739,8 +1739,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.3",
-        "predicate": ">=0.19.3",
+        "version": "0.19.5",
+        "predicate": ">=0.19.5",
         "apiVersion": "0.145.1+26.1",
         "apiPredicate": ">=0.145.1+26.1",
         "modMenuVersion": "18.0.0"
@@ -1809,9 +1809,9 @@
           "26.1.2"
         ],
         "loaderVersions": {
-          "26.1": "0.19.3",
-          "26.1.1": "0.19.3",
-          "26.1.2": "0.19.3"
+          "26.1": "0.19.5",
+          "26.1.1": "0.19.5",
+          "26.1.2": "0.19.5"
         },
         "serverPorts": {
           "26.1": 25569,
@@ -1933,8 +1933,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.3",
-        "predicate": ">=0.19.3",
+        "version": "0.19.5",
+        "predicate": ">=0.19.5",
         "apiVersion": "0.156.0+26.2",
         "apiPredicate": ">=0.156.0+26.2",
         "modMenuVersion": "20.0.1"
@@ -2068,18 +2068,18 @@
       "path": "targets/26.3/fabric",
       "minecraft": {
         "version": "26.3",
-        "compileVersion": "26.3-snapshot-10",
-        "runtimeVersion": "26.3-alpha.10",
-        "minimumRuntimeVersion": "26.3-alpha.10",
-        "predicate": ">=26.3-alpha.10",
+        "compileVersion": "26.3-pre-2",
+        "runtimeVersion": "26.3-pre.2",
+        "minimumRuntimeVersion": "26.3-pre.2",
+        "predicate": ">=26.3-pre.2",
         "epoch": "26.3"
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.3",
-        "predicate": ">=0.19.3",
-        "apiVersion": "0.158.2+26.3",
-        "apiPredicate": ">=0.158.2+26.3",
+        "version": "0.19.5",
+        "predicate": ">=0.19.5",
+        "apiVersion": "0.159.4+26.3",
+        "apiPredicate": ">=0.159.4+26.3",
         "modMenuVersion": "21.0.0-alpha.1"
       },
       "java": {
@@ -2119,7 +2119,7 @@
         "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
-        "packFormat": [96, 0],
+        "packFormat": [97, 1],
         "mixins": ["nclskins.identifier-extraction.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },

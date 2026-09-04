@@ -3885,8 +3885,8 @@
           "members": [
             {
               "kind": "method",
-              "name": "asProvider",
-              "descriptor": "()Lnet/minecraft/server/packs/resources/ResourceProvider;",
+              "name": "asResourceManager",
+              "descriptor": "()Lnet/minecraft/server/packs/resources/ResourceManager;",
               "access": "public",
               "finality": "virtual"
             }
@@ -3908,7 +3908,7 @@
         }
       ],
       "mixinAnchors": [],
-      "baselineSha256": "b51f1cf6c3ae2e70c066464a028e0179947f5295319efbd341d997135a938bf8"
+      "baselineSha256": "8bbc5c467e94fc073cc60aab0ef859336a059e6040fc873fecab61e7f8717da8"
     },
     "resource-location-current": {
       "kind": "currentAppearance",
@@ -6763,7 +6763,7 @@
       },
       "vanilla-pack-identifier-provider": {
         "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
-        "net.minecraft.server.packs.VanillaPackResources": "6248f917c2303315edb3a08e74e7181d4a6f428f9d7e57bb618b6ebced581b00",
+        "net.minecraft.server.packs.VanillaPackResources": "cd2c024513c46bde893297da84518292ef202af5d58f62908f933303791e0b5a",
         "net.minecraft.server.packs.resources.ResourceProvider": "bef5c52769d77a5d93e46284503f97d7247e79808f63a2b7a84328edcd3497c8"
       },
       "fabric-typed-payload-v1": {

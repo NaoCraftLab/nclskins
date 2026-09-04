@@ -30,7 +30,7 @@ public final class IdentifierBundledSkinSource implements SkinCatalogSource {
         Identifier location = Identifier.withDefaultNamespace(path);
         Resource resource = Minecraft.getInstance()
                 .getVanillaPackResources()
-                .asProvider()
+                .asResourceManager()
                 .getResource(location)
                 .orElseThrow(() -> new IOException("Catalog skin variant is unavailable: " + path));
         try (InputStream input = resource.open()) {

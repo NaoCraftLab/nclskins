@@ -114,6 +114,15 @@ final class CatalogTools {
         raw == null ? target.minecraft.version.toString() : raw.toString()
     }
 
+    static String minecraftExperimentalRuntimeVersion(String minecraft, String compileVersion) {
+        def match = compileVersion =~ /${java.util.regex.Pattern.quote(minecraft)}-(snapshot|pre|rc)-([0-9]+)/
+        if (!match.matches()) {
+            return null
+        }
+        String phase = match.group(1) == 'snapshot' ? 'alpha' : match.group(1)
+        "${minecraft}-${phase}.${match.group(2)}".toString()
+    }
+
     static List<Map> releaseTargets(Map catalog) {
         (catalog.targets as List<Map>).findAll { Map target ->
             target.releaseEligible == true
@@ -765,23 +774,17 @@ final class CatalogTools {
             if (compileVersion != null) {
                 String runtimeVersion = minecraftDeclaration.runtimeVersion?.toString()
                 String minimumRuntimeVersion = minecraftDeclaration.minimumRuntimeVersion?.toString()
-                def compileMatch = compileVersion =~ /${java.util.regex.Pattern.quote(minecraft)}-snapshot-([0-9]+)/
-                def runtimeMatch = runtimeVersion =~ /${java.util.regex.Pattern.quote(minecraft)}-alpha\.([0-9]+)/
-                def minimumRuntimeMatch = minimumRuntimeVersion =~ /${java.util.regex.Pattern.quote(minecraft)}-alpha\.([0-9]+)/
+                String expectedRuntimeVersion = minecraftExperimentalRuntimeVersion(minecraft, compileVersion)
                 if (compileVersion == minecraft ||
-                        !compileMatch.matches() ||
-                        !runtimeMatch.matches() ||
-                        !minimumRuntimeMatch.matches() ||
+                        expectedRuntimeVersion == null ||
+                        runtimeVersion != expectedRuntimeVersion ||
+                        minimumRuntimeVersion != expectedRuntimeVersion ||
                         minecraftDeclaration.predicate != ">=${minimumRuntimeVersion}" ||
-                        (compileMatch.matches() && runtimeMatch.matches()
-                                && compileMatch.group(1) != runtimeMatch.group(1)) ||
-                        (runtimeMatch.matches() && minimumRuntimeMatch.matches()
-                                && Integer.parseInt(minimumRuntimeMatch.group(1))
-                                > Integer.parseInt(runtimeMatch.group(1)))) {
-                    errors.add("${target.id}: snapshot compileVersion must map to its runtimeVersion and use an explicit lower-only minimumRuntimeVersion predicate")
+                        minecraftDeclaration.predicate != ">=${expectedRuntimeVersion}") {
+                    errors.add("${target.id}: experimental compileVersion must map to its current runtimeVersion and use that version as the explicit lower-only minimumRuntimeVersion predicate")
                 }
                 if (target.releaseEligible != false) {
-                    errors.add("${target.id}: snapshot compileVersion target must not be release eligible")
+                    errors.add("${target.id}: experimental compileVersion target must not be release eligible")
                 }
             }
             Map loaderDeclaration = target.loader instanceof Map ? target.loader as Map : [:]
