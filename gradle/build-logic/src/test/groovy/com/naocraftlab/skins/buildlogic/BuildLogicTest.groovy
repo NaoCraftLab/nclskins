@@ -95,15 +95,15 @@ final class BuildLogicTest {
                 .contains('actor-receives-no-respawn-or-self-refresh'))
         Map experimental = catalog.targets.find { it.id == 'fabric-26.3' } as Map
         assertFalse(experimental.releaseEligible as boolean)
-        assertEquals('26.3-pre-2', CatalogTools.minecraftCompileVersion(experimental))
-        assertEquals('26.3-pre.2', experimental.minecraft.runtimeVersion)
-        assertEquals('26.3-pre.2', experimental.minecraft.minimumRuntimeVersion)
-        assertEquals('>=26.3-pre.2', experimental.minecraft.predicate)
+        assertEquals('26.3-rc-2', CatalogTools.minecraftCompileVersion(experimental))
+        assertEquals('26.3-rc.2', experimental.minecraft.runtimeVersion)
+        assertEquals('26.3-rc.2', experimental.minecraft.minimumRuntimeVersion)
+        assertEquals('>=26.3-rc.2', experimental.minecraft.predicate)
         assertEquals('0.19.5', experimental.loader.version)
         assertEquals('>=0.19.5', experimental.loader.predicate)
-        assertEquals('0.159.4+26.3', experimental.loader.apiVersion)
-        assertEquals('>=0.159.4+26.3', experimental.loader.apiPredicate)
-        assertEquals('21.0.0-alpha.1', experimental.loader.modMenuVersion)
+        assertEquals('0.160.3+26.3', experimental.loader.apiVersion)
+        assertEquals('>=0.160.3+26.3', experimental.loader.apiPredicate)
+        assertEquals('21.0.0-beta.1', experimental.loader.modMenuVersion)
         assertEquals('3.9.6+26.3-fabric',
                 catalog.optionalDependencies.yet_another_config_lib_v3.versions['fabric-26.3'])
         assertEquals('maven.modrinth:bTTf2DEw:EEE7nXWy',
@@ -718,7 +718,7 @@ final class BuildLogicTest {
         assertTrue(folderController.contains('selected.ifPresent(option::requestSet)'))
         assertTrue(folderController.contains('public boolean canReset()'))
         assertTrue(folderController.contains('return true;'))
-        assertTrue(bridge.contains('new ConfirmLinkScreen(callback, YACL_URL, true)'))
+        assertTrue(bridge.contains('ConfigurationLinkApi.createScreen(callback, URI.create(YACL_URL))'))
         assertFalse(bridge.contains('nclskins.config.missing_yacl'))
         assertTrue(bridge.contains('screenSetter.accept(parent)'))
         assertTrue(bridge.contains('linkOpener.accept(URI.create(YACL_URL))'))
@@ -792,8 +792,8 @@ final class BuildLogicTest {
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, staleExperimentalFloor) }
         Map futureExperimentalFloor = cloneMap(catalog)
         Map futureMinecraft = futureExperimentalFloor.targets.find { it.id == 'fabric-26.3' }.minecraft
-        futureMinecraft.minimumRuntimeVersion = '26.3-rc.1'
-        futureMinecraft.predicate = '>=26.3-rc.1'
+        futureMinecraft.minimumRuntimeVersion = '26.3-rc.3'
+        futureMinecraft.predicate = '>=26.3-rc.3'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, futureExperimentalFloor) }
     }
 
@@ -852,6 +852,20 @@ final class BuildLogicTest {
         releasedTarget.minecraft.predicate = '>=26.3-pre.2'
         releasedTarget.releaseEligible = true
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, released) }
+    }
+
+    @Test
+    void configurationLinksSelectOneNativeApi() {
+        catalog.targets.each { Map target ->
+            Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
+            List roots = resolved.java.findAll { it.startsWith('compat/capabilities/configuration-link/') }
+            String api = target.capabilities.gui == 'identifier-extraction-menu-tab-input-constants'
+                    ? 'uri-blaze3d'
+                    : target.capabilities.gui.toString().startsWith('immediate-')
+                            ? 'string-root-util' : 'string-package-util'
+            assertEquals(["compat/capabilities/configuration-link/${api}/src/main/java".toString()],
+                    roots, target.id.toString())
+        }
     }
 
     @Test

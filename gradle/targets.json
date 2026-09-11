@@ -566,6 +566,24 @@
       "side": "common",
       "requires": []
     },
+    "configuration-link-string-root-util": {
+      "java": ["compat/capabilities/configuration-link/string-root-util/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "configuration-link-string-package-util": {
+      "java": ["compat/capabilities/configuration-link/string-package-util/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "configuration-link-uri-blaze3d": {
+      "java": ["compat/capabilities/configuration-link/uri-blaze3d/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
     "config-screen-common": {
       "java": ["compat/config-screen/src/main/java"],
       "resources": [],
@@ -654,7 +672,7 @@
       "java": ["compat/gui-immediate/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": []
+      "requires": ["configuration-link-string-root-util"]
     },
     "immediate-resource-location-player-info": {
       "java": ["compat/capabilities/gui/immediate-resource-location-player-info/src/main/java"],
@@ -672,7 +690,7 @@
       "java": ["compat/capabilities/gui/identifier-submission/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": []
+      "requires": ["configuration-link-string-package-util"]
     },
     "extraction-shared": {
       "java": ["compat/capabilities/gui/extraction-shared/src/main/java"],
@@ -696,7 +714,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["extraction-shared", "extraction-api-tab-navigation", "extraction-screen-glfw-input"]
+      "requires": ["extraction-shared", "extraction-api-tab-navigation", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
     },
     "extraction-screen-glfw-input": {
       "java": ["compat/capabilities/gui/extraction-screen-glfw/src/main/java"],
@@ -708,7 +726,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["extraction-shared", "extraction-api-menu-tab", "extraction-screen-glfw-input"]
+      "requires": ["extraction-shared", "extraction-api-menu-tab", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
     },
     "extraction-screen-input-constants": {
       "java": ["compat/capabilities/gui/extraction-screen-input-constants/src/main/java"],
@@ -720,7 +738,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["extraction-shared", "extraction-api-menu-tab", "extraction-screen-input-constants"]
+      "requires": ["extraction-shared", "extraction-api-menu-tab", "extraction-screen-input-constants", "configuration-link-uri-blaze3d"]
     },
     "resource-location-legacy": {
       "java": ["compat/capabilities/textures/resource-location-legacy/src/main/java"],
@@ -2068,19 +2086,19 @@
       "path": "targets/26.3/fabric",
       "minecraft": {
         "version": "26.3",
-        "compileVersion": "26.3-pre-2",
-        "runtimeVersion": "26.3-pre.2",
-        "minimumRuntimeVersion": "26.3-pre.2",
-        "predicate": ">=26.3-pre.2",
+        "compileVersion": "26.3-rc-2",
+        "runtimeVersion": "26.3-rc.2",
+        "minimumRuntimeVersion": "26.3-rc.2",
+        "predicate": ">=26.3-rc.2",
         "epoch": "26.3"
       },
       "loader": {
         "id": "fabric",
         "version": "0.19.5",
         "predicate": ">=0.19.5",
-        "apiVersion": "0.159.4+26.3",
-        "apiPredicate": ">=0.159.4+26.3",
-        "modMenuVersion": "21.0.0-alpha.1"
+        "apiVersion": "0.160.3+26.3",
+        "apiPredicate": ">=0.160.3+26.3",
+        "modMenuVersion": "21.0.0-beta.1"
       },
       "java": {
         "release": 25,

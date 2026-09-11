@@ -9,7 +9,6 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -106,7 +105,7 @@ public final class MinecraftConfigurationBridge {
             }
             restoreScreen(parent);
         };
-        return new ConfirmLinkScreen(callback, YACL_URL, true);
+        return ConfigurationLinkApi.createScreen(callback, URI.create(YACL_URL));
     }
 
     private static void restoreScreen(Screen parent) {

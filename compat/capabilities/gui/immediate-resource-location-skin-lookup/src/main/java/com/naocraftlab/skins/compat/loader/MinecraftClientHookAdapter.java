@@ -2,12 +2,12 @@ package com.naocraftlab.skins.compat.loader;
 
 import com.naocraftlab.skins.client.MinecraftClientHooks;
 import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
+import com.naocraftlab.skins.compat.config.ConfigurationLinkApi;
 import com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.ImmediateClientRuntime;
 import com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.NclSkinsMenuPreview;
 import java.util.Objects;
 import java.nio.file.Path;
 import java.util.function.Consumer;
-import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -32,7 +32,7 @@ public final class MinecraftClientHookAdapter
                 configurationDirectory,
                 client.nativeFileDialog(),
                 screen -> Minecraft.getInstance().setScreen(screen),
-                uri -> Util.getPlatform().openUri(uri)).activeDataRoot());
+                ConfigurationLinkApi::open).activeDataRoot());
     }
 
     @Override
