@@ -140,6 +140,12 @@ final class BuildLogicTest {
     }
 
     @Test
+    void historicalReleaseSourcesRunAfterCurrentFullCheck() {
+        String rootBuild = new File(repository, 'build.gradle').text
+        assertTrue(rootBuild.contains('mustRunAfter fullCheck'))
+    }
+
+    @Test
     void sqliteDevelopmentRuntimeIsExactAndClientOnly() {
         Map experimental = CatalogTools.selectTarget(catalog, 'fabric-26.3')
         Map artifact = CatalogTools.optionalDevelopmentArtifact(

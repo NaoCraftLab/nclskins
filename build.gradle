@@ -544,6 +544,7 @@ def materializeHistoricalReleaseSources = tasks.register(
         'materializeHistoricalReleaseSources', MaterializeHistoricalReleaseSourcesTask) {
     group = 'release setup'
     description = 'Builds exact-tag source JARs for existing compatibility-backfill binaries.'
+    mustRunAfter fullCheck
     onlyIf { requestedReleaseMode in ['backfill', 'moved-tag'] }
     repositoryDirectory.set(layout.projectDirectory)
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))

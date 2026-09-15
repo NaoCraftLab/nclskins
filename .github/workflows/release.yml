@@ -18,6 +18,10 @@ on:
         options:
           - reconcile-tag
           - compatibility-backfill
+      historical_ref:
+        description: Exact previous tag commit for compatibility-backfill recovery
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -106,6 +110,7 @@ jobs:
           TAG_BEFORE: ${{ github.event.before }}
           BACKFILL_VERSION: ${{ inputs.version }}
           REQUESTED_MODE: ${{ inputs.mode }}
+          BACKFILL_HISTORICAL_REF: ${{ inputs.historical_ref }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
@@ -136,6 +141,33 @@ jobs:
                 echo '::error title=Historical current-main build forbidden::Use reconcile-tag for a version other than current modVersion.'
                 exit 1
               }
+              if [[ -n "$BACKFILL_HISTORICAL_REF" ]]; then
+                [[ "$BACKFILL_HISTORICAL_REF" =~ ^[0-9a-f]{40}$ ]] || {
+                  echo '::error title=Invalid recovery provenance::historical_ref must be an exact lowercase commit identifier.'
+                  exit 1
+                }
+                git rev-parse --verify "${BACKFILL_HISTORICAL_REF}^{commit}" >/dev/null
+                historical_commit="$(git rev-parse "${BACKFILL_HISTORICAL_REF}^{commit}")"
+                tagged_commit="$(git rev-parse "refs/tags/${version}^{commit}")"
+                [[ "$historical_commit" != "$tagged_commit" ]] || {
+                  echo '::error title=Invalid recovery provenance::Historical and current tag commits must differ.'
+                  exit 1
+                }
+                git merge-base --is-ancestor "$historical_commit" "$tagged_commit" || {
+                  echo '::error title=Invalid recovery history::The historical commit must be an ancestor of the current tag commit.'
+                  exit 1
+                }
+                [[ "$(git rev-list --first-parent "$tagged_commit" | sed -n "\\|^${historical_commit}$|p")" == "$historical_commit" ]] || {
+                  echo '::error title=Invalid recovery mainline::The historical commit must be on the current tag first-parent history.'
+                  exit 1
+                }
+                historical_version="$(git show "${historical_commit}:gradle/version.properties" | sed -n 's/^modVersion=//p')"
+                [[ "$historical_version" == "$version" ]] || {
+                  echo '::error title=Recovery version mismatch::The historical commit must declare the same release version.'
+                  exit 1
+                }
+                historical_source_ref="$historical_commit"
+              fi
               mode='backfill'
             else
               echo '::error title=Invalid manual release mode::Choose reconcile-tag or compatibility-backfill.'
@@ -265,14 +297,15 @@ jobs:
           NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           RELEASE_MODE: ${{ steps.release.outputs.mode }}
+          HISTORICAL_SOURCE_REF: ${{ steps.source.outputs.historical_source_ref }}
         run: |
           set -euo pipefail
           args=(assembleRelease -PreleaseTag="$RELEASE_VERSION" -PreleaseMode="$RELEASE_MODE")
           if [[ "$RELEASE_MODE" == 'moved-tag' || "$RELEASE_MODE" == 'backfill' || "$RELEASE_MODE" == 'reconcile-tag' ]]; then
             args+=(-PexistingReleaseAssets=existing-release-assets)
           fi
-          if [[ "$RELEASE_MODE" == 'moved-tag' ]]; then
-            args+=(-PhistoricalReleaseRef='${{ steps.source.outputs.historical_source_ref }}')
+          if [[ -n "$HISTORICAL_SOURCE_REF" ]]; then
+            args+=(-PhistoricalReleaseRef="$HISTORICAL_SOURCE_REF")
           fi
           ./gradlew "${args[@]}"
 
