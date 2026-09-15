@@ -1104,6 +1104,29 @@ final class PublicationLogicTest {
     }
 
     @Test
+    void alreadyReleasedParentPreservesItsKnownMissingSourceWithoutRepairWrites() {
+        RecordingPublishTask task = ProjectBuilder.builder().build().tasks.create('preservedIncomplete', RecordingPublishTask)
+        Map target = desired('fabric-1.20.1')
+        Map inventory = [modrinth: [exactModrinth(target)], curseforge: [exactCurseForge(target)]]
+        Map selection = ReleasePlan.classify(target, inventory, true, true)
+        assertTrue(selection.preserve)
+        assertFalse(selection.build)
+        target.states = selection.states
+        Map manifest = [targets: [target], preservedTargetIds: [target.id], releasePlanDigest: 'fixture',
+                        releaseNotes: [text: 'Changes\n'], platforms: catalog.mod.platforms]
+        task.modrinth = inventory.modrinth
+        task.curseForge = inventory.curseforge
+        task.publishManifest(manifest, repository, 'fixture', 'fixture', 'fixture')
+        assertTrue(task.uploads.isEmpty())
+        task.curseForge = [exactCurseForge(target) + [id: 99]]
+        assertThrows(IllegalStateException) { task.publishManifest(manifest, repository, 'fixture', 'fixture', 'fixture') }
+        task.curseForge = inventory.curseforge
+        target.states = [modrinth: [action: 'skip'], curseforge: [action: 'skip', remoteId: '42']]
+        assertThrows(IllegalStateException) { task.publishManifest(manifest, repository, 'fixture', 'fixture', 'fixture') }
+        assertTrue(task.uploads.isEmpty())
+    }
+
+    @Test
     void platformPreflightNeverWritesEvenWhenEveryPublicationIsMissing() {
         RecordingPublishTask task = ProjectBuilder.builder().build().tasks.create(
                 'recordingPreflight', RecordingPublishTask)

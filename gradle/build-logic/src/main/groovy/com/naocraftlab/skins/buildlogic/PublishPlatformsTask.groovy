@@ -81,7 +81,7 @@ abstract class PublishPlatformsTask extends DefaultTask {
         ['modrinth', 'curseforge'].each { String platform ->
             targets.each { Map target ->
                 Map state = recheck[platform][target.id] as Map
-                if (state.action == 'skip') {
+                if (state.action == 'skip' || (manifest.preservedTargetIds ?: []).contains(target.id)) {
                     results.add([target.name.toString(), platform, 'skipped', state.remoteId?.toString() ?: ''])
                     return
                 }
@@ -144,7 +144,14 @@ abstract class PublishPlatformsTask extends DefaultTask {
         }
         (manifest.preservedTargetIds ?: []).each { Object id ->
             ['modrinth', 'curseforge'].each { String platform ->
-                if (plan[platform][id]?.action != 'skip') {
+                Map component = ((manifest.targets ?: []) +
+                        (manifest.serverPlugin?.publication ? [manifest.serverPlugin.publication] : [])).find { it.id == id } as Map
+                Map baseline = component?.states?.get(platform) as Map
+                Map current = plan[platform][id] as Map
+                boolean unchangedMissingSource = platform == 'curseforge' &&
+                        baseline?.action == 'upload-source' && current?.action == 'upload-source' &&
+                        baseline.remoteId == current.remoteId
+                if (current?.action != 'skip' && !unchangedMissingSource) {
                     throw new IllegalStateException("Preserved ${platform} ${id} changed since planning")
                 }
             }

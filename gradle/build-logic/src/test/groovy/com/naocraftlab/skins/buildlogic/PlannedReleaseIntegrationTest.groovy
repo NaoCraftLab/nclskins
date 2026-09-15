@@ -127,7 +127,7 @@ final class PlannedReleaseIntegrationTest {
                 Map sources = [id: index * 2 + 2, parentProjectFileId: cf.id,
                                fileName: target.sourcesAsset.file, hashes: [[algo: 1, value: target.sourcesAsset.sha1]]]
                 result.modrinth[target.id] = [mr]
-                result.curseforge[target.id] = [cf, sources]
+                result.curseforge[target.id] = target.id == 'server-plugin' ? [cf] : [cf, sources]
             }
             result
         }

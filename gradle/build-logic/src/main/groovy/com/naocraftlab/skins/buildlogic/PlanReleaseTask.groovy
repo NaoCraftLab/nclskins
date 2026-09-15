@@ -82,11 +82,11 @@ abstract class PlanReleaseTask extends DefaultTask {
         components.each { Map component ->
             Map remote = [modrinth: inventories.modrinth[component.id], curseforge: inventories.curseforge[component.id]]
             boolean recovered = recoverPair(component, remote, githubAssets, output, this.&download)
-            Map classification = ReleasePlan.classify(component, remote, recovered)
+            Map githubAsset = githubAssets.find { it.name == component.asset.file }
+            Map classification = ReleasePlan.classify(component, remote, recovered, githubAsset != null)
             component.build = classification.build
             component.preserve = classification.preserve
             component.states = classification.states
-            Map githubAsset = githubAssets.find { it.name == component.asset.file }
             if (githubAsset != null) {
                 if (!classification.preserve) {
                     throw new IllegalStateException("${component.id}: published component requires repair; refusing implicit marketplace writes")

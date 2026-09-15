@@ -19,7 +19,7 @@ final class ReleasePlan {
         new LinkedHashMap(plan) + [digest: CatalogTools.sha256(CatalogTools.json(plan).getBytes('UTF-8'))]
     }
 
-    static Map classify(Map desired, Map inventories, boolean recovered) {
+    static Map classify(Map desired, Map inventories, boolean recovered, boolean alreadyReleased = false) {
         Map states = [:]
         ['modrinth', 'curseforge'].each { String platform ->
             Map state = PublicationSupport.classify(platform, desired, inventories[platform] as List<Map>)
@@ -31,7 +31,10 @@ final class ReleasePlan {
         if (!recovered && states.values().any { it.action != 'upload' }) {
             throw new IllegalStateException("${desired.id}: recover exact production/source bytes before retry")
         }
-        [build: !recovered, preserve: recovered && states.values().every { it.action == 'skip' }, states: states]
+        boolean preserve = recovered && states.every { String platform, Map state ->
+            state.action == 'skip' || (alreadyReleased && platform == 'curseforge' && state.action == 'upload-source')
+        }
+        [build: !recovered, preserve: preserve, states: states]
     }
 
     static void requireCheckout(File repository, Map plan) {
