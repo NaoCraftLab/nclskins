@@ -296,8 +296,8 @@ final class PublicationSupport {
         if (normalizedLoaders(platform, remote) != expectedRemoteLoaders(platform, desired)) {
             mismatches.add('loader differs')
         }
-        if (platform == 'modrinth' && remote.environment?.toString() !=
-                (desired.kind == 'server-plugin' ? 'server_only' : 'client_only_server_optional')) {
+        if (platform == 'modrinth' && desired.kind != 'server-plugin' &&
+                remote.environment?.toString() != 'client_only_server_optional') {
             mismatches.add('environment differs')
         }
         if (normalizedDependencies(platform, remote) != desiredDependencies(platform, desired)) {

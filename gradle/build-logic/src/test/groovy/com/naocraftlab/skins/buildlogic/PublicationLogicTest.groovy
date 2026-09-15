@@ -475,6 +475,10 @@ final class PublicationLogicTest {
                 hashes: [[algo: 1, value: sources.sha1]]]
         assertEquals('skip', PublicationSupport.classify(
                 'modrinth', target, [exactModrinth]).action)
+        Map unknownPluginEnvironment = CatalogTools.materialize(exactModrinth) as Map
+        unknownPluginEnvironment.environment = 'unknown'
+        assertEquals('skip', PublicationSupport.classify(
+                'modrinth', target, [unknownPluginEnvironment]).action)
         assertEquals('skip', PublicationSupport.classify(
                 'curseforge', target, [exactCurse, exactCurseSources]).action)
 
