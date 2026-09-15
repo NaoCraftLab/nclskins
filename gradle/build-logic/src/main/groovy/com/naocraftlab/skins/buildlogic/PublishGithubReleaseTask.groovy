@@ -94,7 +94,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                     JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8),
                     'application/json', [201] as Set<Integer>, token)) as Map
         } else if (manifest.existingRelease == null ||
-                (manifest.pluginReplacement != null && release.body != metadata.body)) {
+                release.body != metadata.body) {
             Map update = manifest.existingRelease == null ? new LinkedHashMap(metadata) : [body: metadata.body]
             update.remove('tag_name')
             release = json(request(
@@ -143,6 +143,17 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
     }
 
     static String releaseBody(Map manifest) {
+        if (manifest.existingRelease != null) {
+            String existing = (manifest.existingRelease.body ?: '').toString()
+            boolean existingPlugin = manifest.pluginReplacement != null ||
+                    (manifest.preservedGithub ?: []).any { it.file.toString().startsWith('nclskins-plugin-') }
+            if (existingPlugin || manifest.serverPlugin?.publish != true) return existing
+            String notes = (manifest.serverPlugin.publication.releaseNotes ?: '').toString().trim()
+            if (notes.isBlank()) {
+                throw new IllegalStateException('Published server plugin requires non-empty release notes')
+            }
+            return existing + (existing.isEmpty() ? '' : '\n\n') + "## Plugin Changelog\n\n${notes}\n"
+        }
         List<String> sections = []
         if (manifest.targets instanceof List && !(manifest.targets as List).isEmpty()) {
             String notes = manifest.releaseNotes.text.toString().trim()

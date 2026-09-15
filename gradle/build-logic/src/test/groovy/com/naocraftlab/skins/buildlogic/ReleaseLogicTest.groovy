@@ -237,6 +237,28 @@ Plugin changes
     }
 
     @Test
+    void githubCompatibilityBuildPreservesOriginalBodyExactly() {
+        String original = 'Custom intro\r\n\r\n## Mod Changelog\n\nMod notes\n\n## Plugin Changelog\n\nFull first-build notes\n'
+        Map manifest = [existingRelease: [body: original], pluginReplacement: [file: 'nclskins-plugin-1.0.0.1.jar'],
+                        serverPlugin: [publish: true, publication: [releaseNotes: 'Compatibility build notes']]]
+        assertEquals(original, PublishGithubReleaseTask.releaseBody(manifest))
+        manifest.remove('pluginReplacement')
+        manifest.preservedGithub = [[file: 'nclskins-plugin-1.0.0.2.jar']]
+        assertEquals(original, PublishGithubReleaseTask.releaseBody(manifest))
+    }
+
+    @Test
+    void firstPluginAppendsNotesToExistingModRelease() {
+        String original = 'Custom mod release notes\n'
+        Map manifest = [existingRelease: [body: original], preservedGithub: [[file: 'mod.jar']],
+                        serverPlugin: [publish: true, publication: [releaseNotes: 'Full plugin notes\n']]]
+        assertEquals(original + '\n\n## Plugin Changelog\n\nFull plugin notes\n',
+                PublishGithubReleaseTask.releaseBody(manifest))
+        manifest.serverPlugin.publish = false
+        assertEquals(original, PublishGithubReleaseTask.releaseBody(manifest))
+    }
+
+    @Test
     void githubReleaseBodyRejectsEmptyOrMissingComponentNotes() {
         assertThrows(IllegalStateException) {
             PublishGithubReleaseTask.releaseBody([

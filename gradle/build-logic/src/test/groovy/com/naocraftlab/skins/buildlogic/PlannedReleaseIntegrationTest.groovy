@@ -95,11 +95,14 @@ final class PlannedReleaseIntegrationTest {
             assertEquals(replacePlugin ? 11 : 12, githubPlan.actions.count { it.action == 'keep' })
             assertEquals(replacePlugin ? 2 : 1, githubPlan.actions.count { it.action == 'upload' })
             if (replacePlugin) {
+                String originalBody = github.body
+                assertEquals('Fixture plugin notes', manifest.serverPlugin.publication.releaseNotes.toString().trim())
                 github.bundleDirectory.set(bundle)
                 github.publish()
-                assertEquals(['PATCH', 'POST', 'POST', 'DELETE'], github.mutations)
+                assertEquals(['POST', 'POST', 'DELETE'], github.mutations)
                 github.publish()
-                assertEquals(['PATCH', 'POST', 'POST', 'DELETE'], github.mutations)
+                assertEquals(['POST', 'POST', 'DELETE'], github.mutations)
+                assertEquals(originalBody, github.body)
                 assertFalse(github.release().assets.any { it.name == plan.pluginReplacement.file })
             }
             assembly.assemble()
