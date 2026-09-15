@@ -78,7 +78,8 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                     'paper/authlib4/PaperAuthlib4NativeAdapter.class',
                     'paper/authlib6/PaperAuthlib6NativeAdapter.class',
                     'paper/authlib7/PaperAuthlib7NativeAdapter.class',
-                    'paper/authlib9/PaperAuthlib9NativeAdapter.class'
+                    'paper/authlib9/PaperAuthlib9NativeAdapter.class',
+                    'paper/authlib10/PaperAuthlib10NativeAdapter.class'
             ] as Set
             adapterPrefixes.each { String leaf ->
                 if (!names.contains('com/naocraftlab/skins/server/plugin/adapter/' + leaf)) {

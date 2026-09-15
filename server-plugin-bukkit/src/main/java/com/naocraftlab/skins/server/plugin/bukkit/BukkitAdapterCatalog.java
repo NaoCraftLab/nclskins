@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.server.plugin.bukkit;
 
 import com.naocraftlab.skins.server.plugin.adapter.legacy.authlib4.LegacyAuthlib4NativeAdapter;
+import com.naocraftlab.skins.server.plugin.adapter.paper.authlib10.PaperAuthlib10NativeAdapter;
 import com.naocraftlab.skins.server.plugin.adapter.paper.authlib4.PaperAuthlib4NativeAdapter;
 import com.naocraftlab.skins.server.plugin.adapter.paper.authlib6.PaperAuthlib6NativeAdapter;
 import com.naocraftlab.skins.server.plugin.adapter.paper.authlib7.PaperAuthlib7NativeAdapter;
@@ -32,6 +33,8 @@ final class BukkitAdapterCatalog {
                 PaperAuthlib7NativeAdapter::new);
         registerPaperFamily(registrations, "26.1.2", PaperAuthlib7NativeAdapter::new);
         registerPaperFamily(registrations, "26.2", PaperAuthlib9NativeAdapter::new);
+        register(registrations, "26.3", ServerRuntimeIdentity.Family.PAPER,
+                PaperAuthlib10NativeAdapter::new);
         return new ExactAdapterSelector<>(registrations);
     }
 

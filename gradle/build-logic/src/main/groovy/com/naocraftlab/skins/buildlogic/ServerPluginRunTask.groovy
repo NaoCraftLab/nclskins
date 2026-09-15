@@ -138,9 +138,10 @@ abstract class ServerPluginRunTask extends DefaultTask {
     private Role backendRole(File root, Map catalog, Map topology, File stateRoot,
                              String name, File plugin) {
         boolean buildToolsKernel = topology.kernel in ['craftbukkit', 'spigot']
+        String backendRuntime = topology.backendRuntime?.toString()
         Map runtimeSpec = runtime(catalog, buildToolsKernel
                 ? 'buildtools-200'
-                : "${topology.kernel}-${topology.minecraft}")
+                : backendRuntime ?: "${topology.kernel}-${topology.minecraft}")
         File serverJar = resolveRuntime(root, catalog, runtimeSpec, topology.kernel.toString())
         File directory = new File(stateRoot, name)
         install(directory, plugin)

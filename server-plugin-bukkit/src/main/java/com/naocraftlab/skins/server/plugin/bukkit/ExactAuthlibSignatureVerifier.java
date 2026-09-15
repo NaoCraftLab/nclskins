@@ -43,7 +43,7 @@ public final class ExactAuthlibSignatureVerifier implements AuthlibSignatureVeri
             String authlibFamily,
             boolean legacyMapped) throws ReflectiveOperationException {
         Objects.requireNonNull(authlibFamily, "authlibFamily");
-        if (!authlibFamily.matches("authlib-v(4|6|7|9)")) {
+        if (!authlibFamily.matches("authlib-v(4|6|7|9|10)")) {
             throw new IllegalArgumentException("Unsupported exact authlib family " + authlibFamily);
         }
         Class<?> craftServer = Class.forName(
@@ -51,7 +51,10 @@ public final class ExactAuthlibSignatureVerifier implements AuthlibSignatureVeri
         Class<?> property = Class.forName(
                 "com.mojang.authlib.properties.Property", false, classLoader);
         Class<?> sessionServiceType = Class.forName(
-                "com.mojang.authlib.minecraft.MinecraftSessionService", false, classLoader);
+                authlibFamily.equals("authlib-v10")
+                        ? "com.mojang.authlib.minecraft.SessionService"
+                        : "com.mojang.authlib.minecraft.MinecraftSessionService",
+                false, classLoader);
         Constructor<?> propertyConstructor = property.getConstructor(
                 String.class, String.class, String.class);
         Method hasSignature = property.getMethod("hasSignature");
@@ -64,7 +67,8 @@ public final class ExactAuthlibSignatureVerifier implements AuthlibSignatureVeri
         Class<?> sessionOwner = minecraftServerType;
         String sessionMethod = legacyMapped ? "am" : "getSessionService";
         if (authlibFamily.equals("authlib-v7")
-                || authlibFamily.equals("authlib-v9")) {
+                || authlibFamily.equals("authlib-v9")
+                || authlibFamily.equals("authlib-v10")) {
             services = minecraftServerType.getMethod("services");
             sessionOwner = services.getReturnType();
             sessionMethod = "sessionService";
@@ -78,7 +82,8 @@ public final class ExactAuthlibSignatureVerifier implements AuthlibSignatureVeri
                 "getSecurePropertyValue", property);
         if (securePropertyValue.getReturnType() != String.class) {
             throw new NoSuchMethodException(
-                    "MinecraftSessionService#getSecurePropertyValue(Property)String");
+                    sessionServiceType.getSimpleName()
+                            + "#getSecurePropertyValue(Property)String");
         }
         return new ExactAuthlibSignatureVerifier(
                 craftServer, propertyConstructor, minecraftServer,

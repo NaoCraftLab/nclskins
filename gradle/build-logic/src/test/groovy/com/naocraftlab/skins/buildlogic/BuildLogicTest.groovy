@@ -39,7 +39,7 @@ final class BuildLogicTest {
 
     @Test
     void currentCatalogIsValid() {
-        assertEquals(22, catalog.schemaVersion)
+        assertEquals(23, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
@@ -85,7 +85,16 @@ final class BuildLogicTest {
                 catalog.serverPlugin.platforms.modrinth.projectId)
         assertNotEquals(catalog.mod.platforms.curseforge.projectId,
                 catalog.serverPlugin.platforms.curseforge.projectId)
-        assertEquals(20, catalog.serverPluginRuntimes.size())
+        assertEquals(21, catalog.serverPluginRuntimes.size())
+        assertEquals([
+                id: 'paper-26.3-rc-3', platform: 'paper', version: '26.3-rc-3',
+                build: '1', channel: 'ALPHA',
+                url: 'https://fill-data.papermc.io/v1/objects/' +
+                        '098602998d2676ad8ec36e53b0da3ccb9f5e9b901ddfac9ee5b6fe50a330f6f3/' +
+                        'paper-26.3-rc-3-1.jar',
+                sha256: '098602998d2676ad8ec36e53b0da3ccb9f5e9b901ddfac9ee5b6fe50a330f6f3',
+                javaRelease: 25
+        ], catalog.serverPluginRuntimes.find { it.id == 'paper-26.3-rc-3' })
         assertEquals(
                 'https://fill-data.papermc.io/v1/objects/' +
                         '4540289f48c83e305fc2f2c495a84d1f4d0b7f360830251e169dd5a208740e70/' +
@@ -94,10 +103,21 @@ final class BuildLogicTest {
         assertEquals(
                 'https://github.com/lucko/BungeeGuard/releases/download/v1.4.0/BungeeGuard.jar',
                 catalog.serverPluginRuntimes.find { it.id == 'bungeeguard-1.4.0' }.url)
-        assertEquals(30, catalog.serverPluginTopologies.size())
-        assertEquals(56, catalog.serverPluginTopologies.collectMany {
+        assertEquals(31, catalog.serverPluginTopologies.size())
+        assertEquals(57, catalog.serverPluginTopologies.collectMany {
             (it.ports as Map).values()
         }.toSet().size())
+        Map paper263 = catalog.serverPluginTopologies.find {
+            it.id == '26.3-paper-standalone'
+        } as Map
+        assertEquals(true, paper263.developmentOnly)
+        assertEquals('paper-26.3-rc-3', paper263.backendRuntime)
+        assertEquals(['paper'], catalog.serverPlugin.developmentCompatibility['26.3'])
+        assertFalse(catalog.serverPlugin.compatibility.containsKey('26.3'))
+        assertTrue(catalog.serverPlugin.excluded.contains('26.3'))
+        assertFalse(catalog.serverPluginTopologies.any {
+            it.minecraft == '26.3' && it.mode != 'standalone'
+        })
         Map characterization = CatalogTools.loadJson(
                 new File(repository, 'gradle/server-plugin-characterization.json'))
         assertEquals(1, characterization.schemaVersion)
@@ -1431,7 +1451,13 @@ final class BuildLogicTest {
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
                 IdeaRunConfigurations.RUN_KINDS.size() +
                 catalog.serverPluginTopologies.size(), taskNames.size())
-        assertEquals(75, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
+        assertEquals(76, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
+        Map paper263 = catalog.serverPluginTopologies.find {
+            it.id == '26.3-paper-standalone'
+        } as Map
+        assertEquals('runServerPluginPaper263', ServerPluginRuntimeSupport.taskName(paper263))
+        assertEquals('26.3:paper:runServer',
+                ServerPluginRuntimeSupport.configurationName(paper263))
         assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
         assertEquals('26.1.1', IdeaRunConfigurations.displayFolder('26.1.1'))
         assertEquals('26.1.2', IdeaRunConfigurations.displayFolder('26.1.2'))
@@ -1742,7 +1768,7 @@ final class BuildLogicTest {
                            'Velocity Paper', 'BungeeCord Paper'],
                 '26.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
                          'Velocity Paper', 'BungeeCord Paper'],
-                '26.3': ['LAN', 'Fabric']
+                '26.3': ['LAN', 'Fabric', 'Paper']
         ]
         expectedNames.each { String version, List<String> names ->
             List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)
@@ -1762,6 +1788,8 @@ final class BuildLogicTest {
                 .find { it.name == 'Paper' }.ip)
         assertEquals('127.0.0.1:25578', RunDirectorySupport.serverEntries(catalog, '26.1.2')
                 .find { it.name == 'Fabric' }.ip)
+        assertEquals('127.0.0.1:26056', RunDirectorySupport.serverEntries(catalog, '26.3')
+                .find { it.name == 'Paper' }.ip)
     }
 
     @Test

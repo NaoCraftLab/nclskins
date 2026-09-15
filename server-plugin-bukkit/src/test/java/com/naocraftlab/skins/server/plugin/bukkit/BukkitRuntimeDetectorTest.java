@@ -21,6 +21,8 @@ final class BukkitRuntimeDetectorTest {
                 "26.1.2.build.74"));
         assertEquals("26.2", BukkitRuntimeDetector.minecraftVersion(
                 "26.2.build.112"));
+        assertEquals("26.3", BukkitRuntimeDetector.minecraftVersion(
+                "26.3-rc-3-R0.1-SNAPSHOT"));
     }
 
     @Test
@@ -34,6 +36,15 @@ final class BukkitRuntimeDetectorTest {
         assertEquals("paper-authlib7", selector.select(firstPatch).load().id());
         assertEquals("paper-authlib7", selector.select(secondPatch).load().id());
         assertFalse(selector.select(paper("26.1.3")).supported());
+    }
+
+    @Test
+    void selectsExactAuthlib10AdapterOnlyForPaper263() {
+        ExactAdapterSelector<BukkitNativeAdapter> selector = BukkitAdapterCatalog.selector();
+
+        assertTrue(selector.select(paper("26.3")).supported());
+        assertEquals("paper-authlib10", selector.select(paper("26.3")).load().id());
+        assertFalse(selector.select(paper("26.3.1")).supported());
     }
 
     private static ServerRuntimeIdentity paper(String version) {

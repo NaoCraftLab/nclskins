@@ -7,6 +7,7 @@ def packaging = rootProject.extensions.extraProperties
 
 repositories {
     maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+    maven { url = 'https://libraries.minecraft.net/' }
 }
 
 dependencies {
@@ -19,6 +20,7 @@ dependencies {
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'com.mojang:authlib:10.0.77'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -27,5 +29,6 @@ sourceSets.main.java.srcDirs += [
     rootProject.file('server-plugin-adapters/paper-authlib4/src/main/java'),
     rootProject.file('server-plugin-adapters/paper-authlib6/src/main/java'),
     rootProject.file('server-plugin-adapters/paper-authlib7/src/main/java'),
-    rootProject.file('server-plugin-adapters/paper-authlib9/src/main/java')
+    rootProject.file('server-plugin-adapters/paper-authlib9/src/main/java'),
+    rootProject.file('server-plugin-adapters/paper-authlib10/src/main/java')
 ]

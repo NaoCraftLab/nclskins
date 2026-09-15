@@ -70,7 +70,7 @@ final class PaperProfileStateBinding {
         return switch (authlibFamily) {
             case "authlib-v4", "authlib-v6" -> resolveMutable(
                     gameProfile, propertyMap, propertyConstructor, authlibFamily);
-            case "authlib-v7", "authlib-v9" -> {
+            case "authlib-v7", "authlib-v9", "authlib-v10" -> {
                 Class<?> multimap = Class.forName(
                         "com.google.common.collect.Multimap", false, classLoader);
                 Class<?> immutableMultimap = Class.forName(
