@@ -46,7 +46,7 @@ final class ReleaseLogicTest {
         List<String> pluginLines = pluginChangelog.readLines()
         assertTrue(pluginChangelog.isFile())
         assertFalse(new File(repository, 'SERVER_CHANGELOG.md').exists())
-        assertEquals('## 1.0.0', pluginLines.find { !it.isBlank() })
+        assertEquals('## 1.0.0.1', pluginLines.find { !it.isBlank() })
         assertFalse(pluginLines.any { it.startsWith('# ') })
         String pluginNotes = ServerPluginChangelog.validate(pluginChangelog, [
                 currentVersion: '1.0.0', publish: true, reason: 'stable-promotion'
@@ -54,6 +54,17 @@ final class ReleaseLogicTest {
         assertTrue(pluginNotes.startsWith(
                 '### Added\n\n- **Universal server plugin for NCL Skins**'))
         assertFalse(pluginNotes.contains('## 1.0.0'))
+    }
+
+    @Test
+    void pluginChangelogAcceptsBuildSuffixBeforePrereleaseQualifier() {
+        withPluginChangelogFixture(
+                '## 1.0.0.2-beta.3\n\nPlugin release notes\n\n## 1.0.0.1-beta.2\n\nOlder notes\n') {
+            File pluginChangelog ->
+                assertEquals('Plugin release notes\n', ServerPluginChangelog.validate(pluginChangelog, [
+                        currentVersion: '1.0.0-beta.3', publish: true, reason: 'server-change'
+                ]))
+        }
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.naocraftlab.skins.buildlogic
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.util.regex.Pattern
 
 
 final class ServerPluginChangelog {
@@ -11,18 +12,20 @@ final class ServerPluginChangelog {
         }
         String version = state.currentVersion.toString()
         List<String> lines = Files.readAllLines(changelog.toPath(), StandardCharsets.UTF_8)
-        String heading = "## ${version}"
-        requireVersionFirstFormat(lines, state.publish == true ? heading : null)
+        Pattern headingPattern = headingPattern(version)
+        requireVersionFirstFormat(lines, null)
         List<Integer> matches = []
         lines.eachWithIndex { String line, int index ->
-            if (line == heading) matches.add(index)
+            if (headingPattern.matcher(line).matches()) matches.add(index)
         }
         if (state.publish == true) {
             if (matches.size() != 1) {
                 throw new IllegalArgumentException(
-                        "PLUGIN_CHANGELOG.md must contain exactly one '${heading}' section when " +
+                        "PLUGIN_CHANGELOG.md must contain exactly one section for '${version}' when " +
                                 "server plugin publication is ${state.reason}; found ${matches.size()}")
             }
+            String heading = lines[matches.first()]
+            requireVersionFirstFormat(lines, heading)
             int start = matches.first() + 1
             int end = lines.size()
             for (int index = start; index < lines.size(); index++) {
@@ -51,15 +54,23 @@ final class ServerPluginChangelog {
         }
         if (!matches.isEmpty()) {
             throw new IllegalArgumentException(
-                    "PLUGIN_CHANGELOG.md must not contain '${heading}' when server plugin is unchanged")
+                    "PLUGIN_CHANGELOG.md must not contain a '${version}' section when server plugin is unchanged")
         }
         null
+    }
+
+    private static Pattern headingPattern(String version) {
+        def matcher = version =~ /^(\d+\.\d+\.\d+)(-(?:alpha|beta)\.\d+)?$/
+        if (!matcher.matches()) throw new IllegalArgumentException("Invalid plugin release version ${version}")
+        String base = Pattern.quote(matcher.group(1))
+        String qualifier = Pattern.quote(matcher.group(2) ?: '')
+        Pattern.compile("^## ${base}(?:\\.[1-9][0-9]*)?${qualifier}\$")
     }
 
     private static void requireVersionFirstFormat(List<String> lines, String expectedHeading) {
         String first = lines.find { !it.isBlank() }
         boolean versionHeading = first != null && first.startsWith('## ') &&
-                CatalogTools.VERSION_PATTERN.matcher(first.substring(3)).matches()
+                first.substring(3) ==~ /\d+\.\d+\.\d+(?:\.[1-9][0-9]*)?(?:-(?:alpha|beta)\.\d+)?/
         if (!versionHeading || (expectedHeading != null && first != expectedHeading) ||
                 lines.any { it.startsWith('# ') }) {
             String expected = expectedHeading == null ? 'a version heading' : "'${expectedHeading}'"
