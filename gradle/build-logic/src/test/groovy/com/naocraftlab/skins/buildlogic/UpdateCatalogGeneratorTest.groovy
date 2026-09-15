@@ -83,7 +83,11 @@ final class UpdateCatalogGeneratorTest {
         assertEquals(['1.0.0'], common.targets.'fabric-26.3'.versions)
         assertEquals('fabric', common.targets.'fabric-26.3'.loader)
         assertEquals('26.3', common.targets.'fabric-26.3'.minecraftVersion)
+        assertEquals(['1.0.0'], common.targets.'neoforge-26.3'.versions)
+        assertEquals('neoforge', common.targets.'neoforge-26.3'.loader)
+        assertEquals('26.3', common.targets.'neoforge-26.3'.minecraftVersion)
         assertFalse(site.containsKey('updates/v1/native/fabric-26.3.json'))
+        assertTrue(site.containsKey('updates/v1/native/neoforge-26.3.json'))
     }
 
     @Test
@@ -214,7 +218,8 @@ final class UpdateCatalogGeneratorTest {
                 'neoforge-1.21.1',
                 'neoforge-1.21.11',
                 'neoforge-26.1',
-                'neoforge-26.2'
+                'neoforge-26.2',
+                'neoforge-26.3'
         ], nativeTargets*.id.sort())
 
         nativeTargets.each { Map target ->
@@ -326,7 +331,8 @@ final class UpdateCatalogGeneratorTest {
                 'updates/v1/native/neoforge-1.21.1.json',
                 'updates/v1/native/neoforge-1.21.11.json',
                 'updates/v1/native/neoforge-26.1.json',
-                'updates/v1/native/neoforge-26.2.json'
+                'updates/v1/native/neoforge-26.2.json',
+                'updates/v1/native/neoforge-26.3.json'
         ], files)
         assertTrue(Files.readString(output.resolve('updates/v1/catalog.json'))
                 .contains('"fabric-1.21.1"'))

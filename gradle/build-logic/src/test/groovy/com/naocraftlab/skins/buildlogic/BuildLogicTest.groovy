@@ -75,8 +75,8 @@ final class BuildLogicTest {
         assertEquals(
                 catalog.targets.collect { "targets/${it.minecraft.version}/${it.loader.id}".toString() },
                 catalog.targets.collect { it.path })
-        assertEquals(11, catalog.targets.size())
-        assertEquals(11, CatalogTools.releaseTargets(catalog).size())
+        assertEquals(12, catalog.targets.size())
+        assertEquals(12, CatalogTools.releaseTargets(catalog).size())
         assertEquals('NCL Skins Plugin', catalog.serverPlugin.name)
         assertEquals('nclskins-plugin', catalog.serverPlugin.slug)
         assertEquals(25, catalog.serverPlugin.packaging.buildJdk)
@@ -114,10 +114,11 @@ final class BuildLogicTest {
         Map characterization = CatalogTools.loadJson(
                 new File(repository, 'gradle/server-plugin-characterization.json'))
         assertEquals(1, characterization.schemaVersion)
-        assertEquals(catalog.targets.collect { it.id } as Set,
-                (characterization.productionJarSha256 as Map).keySet() as Set)
-        assertEquals(catalog.targets.collect { it.id } as Set,
+        Set<String> characterizedTargets =
+                (characterization.productionJarSha256 as Map).keySet() as Set
+        assertEquals(characterizedTargets,
                 (characterization.sortedEntryNamesSha256 as Map).keySet() as Set)
+        assertTrue((catalog.targets.collect { it.id } as Set).containsAll(characterizedTargets))
         assertTrue((characterization.invariants as List)
                 .contains('actor-receives-no-respawn-or-self-refresh'))
         Map finalTarget = catalog.targets.find { it.id == 'fabric-26.3' } as Map
@@ -133,9 +134,25 @@ final class BuildLogicTest {
         assertEquals('21.0.0-beta.1', finalTarget.loader.modMenuVersion)
         assertEquals('3.9.6+26.3-fabric',
                 catalog.optionalDependencies.yet_another_config_lib_v3.versions['fabric-26.3'])
+        assertTrue(CatalogTools.optionalDependencyDevelopmentRuntimeEnabled(
+                catalog, finalTarget, 'yet_another_config_lib_v3'))
         assertEquals('maven.modrinth:bTTf2DEw:EEE7nXWy',
                 catalog.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].coordinate)
         assertEquals([97, 1], finalTarget.metadata.packFormat)
+        Map neoForgeTarget = catalog.targets.find { it.id == 'neoforge-26.3' } as Map
+        assertTrue(neoForgeTarget.releaseEligible as boolean)
+        assertEquals([
+                version: '26.3', predicate: '[26.3,)', epoch: '26.3'
+        ], neoForgeTarget.minecraft)
+        assertEquals('26.3.0.0-beta', neoForgeTarget.loader.version)
+        assertEquals('[26.3.0.0-beta,)', neoForgeTarget.loader.predicate)
+        assertEquals(25, neoForgeTarget.java.release)
+        assertEquals(25580, neoForgeTarget.development.serverPort)
+        assertEquals('3.9.6+26.3-fabric',
+                catalog.optionalDependencies.yet_another_config_lib_v3.versions['neoforge-26.3'])
+        assertFalse(CatalogTools.optionalDependencyDevelopmentRuntimeEnabled(
+                catalog, neoForgeTarget, 'yet_another_config_lib_v3'))
+        assertEquals([97, 1], neoForgeTarget.metadata.packFormat)
         CatalogTools.validate(repository, catalog)
     }
 
@@ -952,7 +969,8 @@ final class BuildLogicTest {
                 'neoforge-26.1'   : 'avatar-pip-extraction-player-model-neoforge',
                 'fabric-26.2'     : 'avatar-pip-extraction-simple-model-attack-time-fabric',
                 'neoforge-26.2'   : 'avatar-pip-extraction-simple-model-attack-time-neoforge',
-                'fabric-26.3'     : 'avatar-pip-extraction-simple-model-no-attack-time-fabric'
+                'fabric-26.3'     : 'avatar-pip-extraction-simple-model-no-attack-time-fabric',
+                'neoforge-26.3'   : 'avatar-pip-extraction-simple-model-no-attack-time-neoforge'
         ]
         Set<String> registrationBundles = expected.values() as Set
 
@@ -1344,7 +1362,7 @@ final class BuildLogicTest {
                 assertEquals(2, metadata.readLines().count { it == 'issueTrackerURL="https://github.com/NaoCraftLab/nclskins/issues"' })
                 assertTrue(metadata.contains('[modproperties.nclskins]\ncatalogueImageIcon="icon.png"'))
                 if (target.metadata.modListBranding == 'icon-only') {
-                    assertEquals('neoforge-26.2', target.id)
+                    assertTrue(target.id in ['neoforge-26.2', 'neoforge-26.3'])
                     assertFalse(metadata.contains('logoFile='))
                     assertFalse(metadata.contains('logoBlur='))
                     assertTrue(metadata.contains('iconFile="icon.png"'))
@@ -1461,7 +1479,7 @@ final class BuildLogicTest {
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
                 IdeaRunConfigurations.RUN_KINDS.size() +
                 catalog.serverPluginTopologies.size(), taskNames.size())
-        assertEquals(75, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
+        assertEquals(78, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
         assertFalse(IdeaRunConfigurations.orderedConfigurationNames(catalog)
                 .contains('26.3:paper:runServer'))
         assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
@@ -1774,7 +1792,7 @@ final class BuildLogicTest {
                            'Velocity Paper', 'BungeeCord Paper'],
                 '26.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
                          'Velocity Paper', 'BungeeCord Paper'],
-                '26.3': ['LAN', 'Fabric']
+                '26.3': ['LAN', 'Fabric', 'NeoForge']
         ]
         expectedNames.each { String version, List<String> names ->
             List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)
@@ -1867,6 +1885,8 @@ final class BuildLogicTest {
         assertTrue(convention.contains("tasks.register('patchYaclRuntimeMetadata'"))
         assertTrue(convention.contains('add(yaclRuntimeConfiguration, files(patchedYaclRuntime))'))
         assertTrue(convention.contains('yaclRuntimeGraph.transitive = false'))
+        assertTrue(convention.contains('transitive = yaclDevelopmentRuntimeEnabled'))
+        assertTrue(convention.contains('else if (yaclDevelopmentRuntimeEnabled)'))
     }
 
     @Test

@@ -15,7 +15,7 @@ final class PlannedReleaseIntegrationTest {
     private final File repository = new File('../..').canonicalFile
 
     @Test
-    void planRecoverAssembleAndRecheckFabricOnlyWithoutHistoricalBuilds() {
+    void planRecoverAssembleAndRecheckNeoForgeOnlyWithoutHistoricalBuilds() {
         File fixture = Files.createTempDirectory('planned-release-integration-').toFile()
         try {
             def project = ProjectBuilder.builder().withProjectDir(fixture).build()
@@ -35,12 +35,12 @@ final class PlannedReleaseIntegrationTest {
             planner.outputDirectory.set(planDirectory)
             planner.planRelease()
             Map plan = ReleasePlan.load(new File(planDirectory, 'release-plan.json'))
-            assertEquals(['fabric-26.3'], plan.buildTargetIds)
+            assertEquals(['neoforge-26.3'], plan.buildTargetIds)
             assertFalse(plan.buildPlugin)
-            assertEquals(11, plan.components.count { it.preserve })
-            assertEquals(11, plan.preservedGithub.size())
+            assertEquals(12, plan.components.count { it.preserve })
+            assertEquals(12, plan.preservedGithub.size())
             assertTrue(platform.requests.every { it.startsWith('GET ') })
-            Map component = (plan.components as List<Map>).find { it.id == 'fabric-26.3' }
+            Map component = (plan.components as List<Map>).find { it.id == 'neoforge-26.3' }
             List<Map> newAssets = []
             ['asset', 'sourcesAsset'].each { String key ->
                 Map expected = component[key] as Map
@@ -48,7 +48,7 @@ final class PlannedReleaseIntegrationTest {
                 FixturePlatforms.writeJar(destination, expected.file.toString(), platform.baseline)
                 newAssets.add(AssembleReleaseTask.assetMetadata(destination, expected.kind.toString(), expected.target.toString()))
             }
-            Files.writeString(new File(planDirectory, 'assets/fabric-26.3.receipt.json').toPath(), CatalogTools.json(
+            Files.writeString(new File(planDirectory, 'assets/neoforge-26.3.receipt.json').toPath(), CatalogTools.json(
                     [planDigest: plan.digest, sourceCommit: plan.sourceCommit, componentId: component.id, assets: newAssets]))
             AssemblePlannedReleaseTask assembly = project.tasks.create('assembleFixture', AssemblePlannedReleaseTask)
             assembly.repositoryDirectory.set(repository)
@@ -58,18 +58,18 @@ final class PlannedReleaseIntegrationTest {
             assembly.assemble()
             File bundle = new File(fixture, "release/${platform.version}")
             Map manifest = PublicationSupport.loadManifest(bundle)
-            assertEquals(11, manifest.preservedTargetIds.size())
-            assertEquals(11, manifest.targets.size())
+            assertEquals(12, manifest.preservedTargetIds.size())
+            assertEquals(12, manifest.targets.size())
             Map inventory = platform.fetchAll(manifest, PublishPlatformsTask.publicationTargets(manifest), 'fixture', 'fixture')
             Map states = platform.classifyPerTarget(PublishPlatformsTask.publicationTargets(manifest), inventory)
             PublishPlatformsTask.requirePreserved(manifest, states)
             ['modrinth', 'curseforge'].each { String name ->
-                assertEquals(['fabric-26.3'], states[name].findAll { id, state -> state.action == 'upload' }.keySet() as List)
+                assertEquals(['neoforge-26.3'], states[name].findAll { id, state -> state.action == 'upload' }.keySet() as List)
             }
             Map githubPlan = GithubReleaseSupport.plan(manifest, github.release().assets as List<Map>) { it.sha256 }
             assertTrue(githubPlan.conflicts.isEmpty())
-            assertEquals(11, githubPlan.actions.count { it.action == 'keep' })
-            assertEquals(["nclskins-${platform.version}+26.3-fabric.jar".toString()], githubPlan.actions.findAll { it.action == 'upload' }*.file)
+            assertEquals(12, githubPlan.actions.count { it.action == 'keep' })
+            assertEquals(["nclskins-${platform.version}+26.3-neoforge.jar".toString()], githubPlan.actions.findAll { it.action == 'upload' }*.file)
             assembly.assemble()
             assertEquals(manifest, PublicationSupport.loadManifest(bundle))
             File tamper = new File(bundle, 'assets/' + manifest.targets.first().asset.file)
@@ -102,7 +102,7 @@ final class PlannedReleaseIntegrationTest {
             Map result = [modrinth: [:], curseforge: [:]]
             targets.eachWithIndex { Map original, int index ->
                 Map target = CatalogTools.materialize(original) as Map
-                if (target.id == 'fabric-26.3') {
+                if (target.id == 'neoforge-26.3') {
                     result.modrinth[target.id] = []
                     result.curseforge[target.id] = []
                     return
@@ -163,7 +163,7 @@ final class PlannedReleaseIntegrationTest {
         @Override String requireRepository() { 'fixture/repository' }
         @Override Map findRelease(String api, String repo, String tag, String token) {
             Map catalog = CatalogTools.loadCatalog(new File('../..').canonicalFile)
-            CatalogTools.releaseTargets(catalog).findAll { it.id != 'fabric-26.3' }.each { Map target ->
+            CatalogTools.releaseTargets(catalog).findAll { it.id != 'neoforge-26.3' }.each { Map target ->
                 FixturePlatforms.writeJar(new File(platform.filesDirectory, AssembleReleaseTask.artifactName(target, platform.version)),
                         AssembleReleaseTask.artifactName(target, platform.version), platform.baseline)
             }

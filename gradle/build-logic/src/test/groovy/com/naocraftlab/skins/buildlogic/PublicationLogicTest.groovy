@@ -20,26 +20,29 @@ final class PublicationLogicTest {
     @Test
     void releasePlanBuildsOnlyMissingFabricThenOnlyMissingNeoForge() {
         List<Map> components = CatalogTools.releaseTargets(catalog).collect { desired(it.id.toString()) }
-        List<String> builds = []
+        List<String> fabricBuilds = []
         components.each { Map target ->
             boolean published = target.id != 'fabric-26.3'
             Map remote = published ? [modrinth: [exactModrinth(target)],
                     curseforge: [exactCurseForge(target), exactCurseForgeSources(target)]] :
                     [modrinth: [], curseforge: []]
             Map plan = ReleasePlan.classify(target, remote, published)
-            if (plan.build) builds.add(target.id.toString())
+            if (plan.build) fabricBuilds.add(target.id.toString())
             assertEquals(published, plan.preserve)
         }
-        assertEquals(['fabric-26.3'], builds)
-        Map sibling = desired('neoforge-26.2')
-        sibling.id = 'neoforge-26.3'
-        sibling.name = '1.2.3-beta.4+26.3-neoforge'
-        sibling.minecraftVersion = '26.3'
-        sibling.gameVersions = ['26.3']
-        Map fabric = desired('fabric-26.3')
-        assertFalse(ReleasePlan.classify(fabric, [modrinth: [exactModrinth(fabric)],
-                curseforge: [exactCurseForge(fabric), exactCurseForgeSources(fabric)]], true).build)
-        assertTrue(ReleasePlan.classify(sibling, [modrinth: [], curseforge: []], false).build)
+        assertEquals(['fabric-26.3'], fabricBuilds)
+
+        List<String> neoForgeBuilds = []
+        components.each { Map target ->
+            boolean published = target.id != 'neoforge-26.3'
+            Map remote = published ? [modrinth: [exactModrinth(target)],
+                    curseforge: [exactCurseForge(target), exactCurseForgeSources(target)]] :
+                    [modrinth: [], curseforge: []]
+            Map plan = ReleasePlan.classify(target, remote, published)
+            if (plan.build) neoForgeBuilds.add(target.id.toString())
+            assertEquals(published, plan.preserve)
+        }
+        assertEquals(['neoforge-26.3'], neoForgeBuilds)
     }
 
     @Test
@@ -308,9 +311,11 @@ final class PublicationLogicTest {
                 [projectId: 'bTTf2DEw', type: 'optional']
         ] as Set, fabric.dependencies.modrinth as Set)
 
-        Map neoForge = desired('neoforge-1.21.1')
-        assertEquals(['1.21.1'], neoForge.gameVersions)
-        assertEquals(21, neoForge.javaRelease)
+        Map neoForge = desired('neoforge-26.3')
+        assertEquals(['26.3'], neoForge.gameVersions)
+        assertEquals('neoforge', neoForge.loader)
+        assertEquals(25, neoForge.javaRelease)
+        assertEquals('1.2.3-beta.4+26.3-neoforge', neoForge.name)
         assertEquals([
                 [projectId: '1eAoo2KR', type: 'optional'],
                 [projectId: 'bTTf2DEw', type: 'optional']

@@ -3387,7 +3387,8 @@
       "epochs": [
         "1.21.11",
         "26.1",
-        "26.2"
+        "26.2",
+        "26.3"
       ],
       "classes": [
         {
@@ -5467,7 +5468,8 @@
         "1.21.1",
         "1.21.11",
         "26.1",
-        "26.2"
+        "26.2",
+        "26.3"
       ],
       "classes": [
         {
@@ -5742,7 +5744,8 @@
       "epochs": [
         "1.21.11",
         "26.1",
-        "26.2"
+        "26.2",
+        "26.3"
       ],
       "classes": [
         {
@@ -5861,7 +5864,8 @@
         "1.21.1",
         "1.21.11",
         "26.1",
-        "26.2"
+        "26.2",
+        "26.3"
       ],
       "classes": [
         {
@@ -5953,7 +5957,8 @@
         "1.21.1",
         "1.21.11",
         "26.1",
-        "26.2"
+        "26.2",
+        "26.3"
       ],
       "classes": [
         {
@@ -6675,9 +6680,35 @@
       "fabric-resource-stack-v1": {
         "net.fabricmc.loader.api.FabricLoader": "9e87c86bf06784ab61b2b94fda9b333e9c8a72a4592667e46a3e1769a3a6156d"
       },
+      "neoforge-resource-stack-v1": {
+        "net.neoforged.fml.ModList": "958ee9d4118401fe29353ec27f8e4507c37843a979d8ae9b6f2f38e6b83e263b"
+      },
       "fabric-extraction": {
         "net.fabricmc.fabric.api.client.screen.v1.ScreenEvents": "b7970fd4810dbe510878a34432caed4376b064e1db11ffebdd60b74ba3cfe09e",
         "net.fabricmc.fabric.api.client.screen.v1.Screens": "88da34172cd3f9f5c7451a373923d81bdc270418aecbf2591583112c2217eaa2"
+      },
+      "neoforge-extraction": {
+        "net.neoforged.fml.common.Mod": "1d9e2d9fb660822c33c30843868b99f05d68ec0e28c96aba58bbb633825f6efa",
+        "net.neoforged.neoforge.client.event.ScreenEvent": "8dfadeb0e06d573688eb5e5bde01cb14b7dc9393e1393ae695f6f1e29b533238",
+        "net.neoforged.neoforge.client.event.ScreenEvent$Init$Post": "83050f1d3168450b29b0156caa40ca31196d64f7f9d83e238d840cc8f164c750"
+      },
+      "neoforge-identifier-v1": {
+        "net.minecraft.client.Minecraft": "734f1ab344321ee51828a044863681a5c30e8e8cb6cdaada8bf369a0968bd31f",
+        "net.neoforged.neoforge.client.network.ClientPacketDistributor": "06ebb9ae03ceba34a1172d2cc737b3e956879d3de9dd041ad865648653831bab",
+        "net.neoforged.neoforge.network.registration.NetworkRegistry": "b4a169a0e634a8db28bc8f9c5c5aaea1cd1a225534f63110579beb9c3ff50e33"
+      },
+      "neoforge-typed-payload-receiver-v1": {
+        "net.minecraft.server.level.ServerPlayer": "2438d29100688103203e4c0c798f9c3b983f702c3ede317d9398096ddb0c5913",
+        "net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent": "1d17c5038857d694ba6e9d4e4dcd6371042a26d28c4e77b4a62a6f49ffd7a39f"
+      },
+      "neoforge-server-v1": {
+        "net.neoforged.bus.api.SubscribeEvent": "5173a8c68594dc5780415da1bb71f716c95830ffb6030ee1217ffe6bd4b281ad",
+        "net.neoforged.fml.common.EventBusSubscriber": "320b93a8254deebf80963cc2ded55f12248e38244f10b4f09b28d69c60f01794",
+        "net.neoforged.fml.common.Mod": "c396779189edcbad6137b316f00dac1bf8b428c67f5c738dd2ca6bff39e9f68c",
+        "net.neoforged.fml.loading.FMLPaths": "1ec5e5fbd4fc52759a438e7e50842d376c351e073c9002854e7644d8879bad94",
+        "net.neoforged.neoforge.event.server.ServerLifecycleEvent": "f07239043b0170306eb8744e2f3c5636e1fdcbe50024671e696b211240a60f9b",
+        "net.neoforged.neoforge.event.server.ServerStartingEvent": "9678e71707912f49c4d66ad24a5e64c0c0bb81032c84f8b69156456f1d21fa5e",
+        "net.neoforged.neoforge.event.server.ServerStoppedEvent": "28117886e2344b29fe3749ec5485c6be217d4bab5a6d151662f0ed3f446d3fa6"
       },
       "tracking-chunkmap-level-v2": {
         "net.minecraft.server.MinecraftServer": "620cc4e82eab41ee3f6755024eb04323fc2601533346d8455af1eedfbea6d19d",

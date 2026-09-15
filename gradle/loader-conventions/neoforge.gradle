@@ -15,6 +15,8 @@ repositories {
 
 def yaclVersion = nclskinsCatalogTools.optionalDependencyVersion(
         targetCatalog, targetSpec, 'yet_another_config_lib_v3')
+def yaclDevelopmentRuntimeEnabled = nclskinsCatalogTools.optionalDependencyDevelopmentRuntimeEnabled(
+        targetCatalog, targetSpec, 'yet_another_config_lib_v3')
 def parchmentVersion = nclskinsCatalogTools.parchmentVersion(targetCatalog, targetSpec)
 def parchmentArtifactVersion =
         nclskinsCatalogTools.parchmentArtifactVersion(targetCatalog, targetSpec)
@@ -22,12 +24,15 @@ def yaclRuntimeConfiguration = configurations.findByName('localRuntime') != null
         ? 'localRuntime'
         : 'runtimeOnly'
 def yaclCoordinate = "dev.isxander:yet-another-config-lib:${yaclVersion}"
-def yaclRuntimeGraph = configurations.detachedConfiguration(
-        dependencies.create(yaclCoordinate))
-yaclRuntimeGraph.transitive = false
+def yaclRuntimeGraph = yaclDevelopmentRuntimeEnabled
+        ? configurations.detachedConfiguration(dependencies.create(yaclCoordinate))
+        : null
+if (yaclRuntimeGraph != null) {
+    yaclRuntimeGraph.transitive = false
+}
 def patchYaclRuntimeMetadataTaskType = nclskinsCatalogTools.getClassLoader().loadClass(
         'com.naocraftlab.skins.buildlogic.PatchNeoForgeRuntimeMetadataTask')
-def patchedYaclRuntime = targetSpec.minecraft.version == '26.2'
+def patchedYaclRuntime = yaclDevelopmentRuntimeEnabled && targetSpec.minecraft.version == '26.2'
         ? tasks.register('patchYaclRuntimeMetadata',
         patchYaclRuntimeMetadataTaskType) {
             inputArtifact.set(layout.file(providers.provider {
@@ -48,10 +53,12 @@ def neoForgeLicensedClientRun = nclskinsRunLayout.modDirectory(
 def neoForgeServerRun = nclskinsRunLayout.modDirectory(neoForgeRepositoryRoot, targetSpec, 'Server')
 
 dependencies {
-    compileOnly yaclCoordinate
+    compileOnly(yaclCoordinate) {
+        transitive = yaclDevelopmentRuntimeEnabled
+    }
     if (patchedYaclRuntime != null) {
         add(yaclRuntimeConfiguration, files(patchedYaclRuntime))
-    } else {
+    } else if (yaclDevelopmentRuntimeEnabled) {
         add(yaclRuntimeConfiguration, yaclCoordinate)
     }
 }

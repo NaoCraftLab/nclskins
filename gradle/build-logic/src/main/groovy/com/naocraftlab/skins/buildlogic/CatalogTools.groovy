@@ -386,6 +386,14 @@ final class CatalogTools {
         raw == null ? null : raw.toString()
     }
 
+    static boolean optionalDependencyDevelopmentRuntimeEnabled(
+            Map catalog, Map target, String dependencyId) {
+        Map declaration = (catalog.optionalDependencies as Map)[dependencyId] as Map
+        List runtimeTargets = declaration.runtimeTargets instanceof List
+                ? declaration.runtimeTargets as List : []
+        runtimeTargets.collect { it.toString() }.contains(target.id.toString())
+    }
+
     static Map optionalDevelopmentArtifact(Map catalog, Map target, String dependencyId) {
         Map dependencies = catalog.optionalDependencies instanceof Map
                 ? catalog.optionalDependencies as Map : [:]
@@ -575,13 +583,18 @@ final class CatalogTools {
             Map yacl = optionalDependencies.yet_another_config_lib_v3 instanceof Map
                     ? optionalDependencies.yet_another_config_lib_v3 as Map : [:]
             Map versions = yacl.versions instanceof Map ? yacl.versions as Map : [:]
-            if ((yacl.keySet() as Set) != ['side', 'versions'] as Set
+            List yaclRuntimeTargets = yacl.runtimeTargets instanceof List
+                    ? yacl.runtimeTargets as List : []
+            if ((yacl.keySet() as Set) != ['side', 'versions', 'runtimeTargets'] as Set
                     || yacl.side != 'client'
                     || (versions.keySet() as Set) != targetIds
+                    || yaclRuntimeTargets.any { !(it instanceof String) }
+                    || yaclRuntimeTargets.size() != (yaclRuntimeTargets as Set).size()
+                    || !targetIds.containsAll(yaclRuntimeTargets as Set)
                     || versions.values().any { Object version ->
                 !(version instanceof String) || !(version ==~ /3\.[0-9]+\.[0-9]+\+[^\s]+/)
             }) {
-                errors.add('yet_another_config_lib_v3 must define one exact client version per target')
+                errors.add('yet_another_config_lib_v3 must define one exact compile version per target and known development runtime targets')
             }
         }
         validatePublicationDependencies(catalog, errors)
@@ -844,7 +857,8 @@ final class CatalogTools {
                 errors.add("${target.id}: metadata keys differ from loader schema")
             }
             if (loader != 'fabric') {
-                String expectedBranding = loader == 'neoforge' && minecraftDeclaration.epoch == '26.2'
+                String expectedBranding = loader == 'neoforge' &&
+                        minecraftDeclaration.epoch in ['26.2', '26.3']
                         ? 'icon-only' : 'legacy-logo'
                 if (metadata.modListBranding != expectedBranding) {
                     errors.add("${target.id}: modListBranding must be ${expectedBranding}")
