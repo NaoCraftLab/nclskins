@@ -319,10 +319,6 @@ final class LocalizationVerifier {
                 validateCollectionSemantics(locale, language, collections.en_us, errors)
             }
         }
-        validateFinderMetadata(new File(repositoryRoot,
-                'compat/resources/canonical/src/main/resources'), errors)
-        validateFinderMetadata(new File(repositoryRoot,
-                'compat/resources/mojang-collections/src/main/resources'), errors)
     }
 
     static void validateLanguage(
@@ -616,15 +612,4 @@ final class LocalizationVerifier {
         PRODUCTION_EXTENSIONS.any { normalized.endsWith(it) }
     }
 
-    private static void validateFinderMetadata(File root, List<String> errors) {
-        if (!root.isDirectory()) return
-        Files.walk(root.toPath()).withCloseable { stream ->
-            stream.filter { Path path ->
-                Files.isRegularFile(path) && (path.fileName.toString() == '.DS_Store' ||
-                        path.toString().replace(File.separatorChar, '/' as char).contains('/__MACOSX/'))
-            }.forEach { Path path ->
-                errors.add("production resource root contains Finder metadata: ${root.toPath().relativize(path)}")
-            }
-        }
-    }
 }

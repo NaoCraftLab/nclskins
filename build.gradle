@@ -140,6 +140,9 @@ subprojects {
             exceptionFormat = 'full'
         }
     }
+    tasks.withType(org.gradle.api.tasks.AbstractCopyTask).configureEach {
+        exclude '**/.DS_Store', '**/__MACOSX/**'
+    }
     tasks.withType(Jar).configureEach {
         from(rootProject.file('LICENSE')) {
             into 'META-INF'

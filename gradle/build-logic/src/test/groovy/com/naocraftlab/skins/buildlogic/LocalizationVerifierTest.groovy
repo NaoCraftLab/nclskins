@@ -128,7 +128,8 @@ final class LocalizationVerifierTest {
     }
 
     @Test
-    void collectionSourcesHaveExactManifestAndFinderMetadataFailsClosed(@TempDir Path temp) {
+    void collectionSourcesHaveExactManifestAndLocalFinderMetadataDoesNotAffectValidation(
+            @TempDir Path temp) {
         File directory = new File(repository,
                 'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
                         'mojang_collections/assets/nclskins/lang')
@@ -156,6 +157,19 @@ final class LocalizationVerifierTest {
         LocalizationVerifier.validateRepository(temp.toFile(), catalog, errors)
         assertTrue(errors.any { it.startsWith('canonical source locale files') })
         assertTrue(errors.any { it.startsWith('mojang-collections source locale files') })
+        List<String> beforeFinderMetadata = new ArrayList<>(errors)
+        Path finderFile = canonical.parent.resolve('.DS_Store')
+        Path finderArchive = canonical.parent.resolve('__MACOSX/assets/icon.png')
+        Files.write(finderFile, [1, 2, 3] as byte[])
+        Files.createDirectories(finderArchive.parent)
+        Files.write(finderArchive, [4, 5, 6] as byte[])
+
+        errors.clear()
+        LocalizationVerifier.validateRepository(temp.toFile(), catalog, errors)
+
+        assertEquals(beforeFinderMetadata, errors)
+        assertTrue(Files.exists(finderFile))
+        assertTrue(Files.exists(finderArchive))
     }
 
     @Test

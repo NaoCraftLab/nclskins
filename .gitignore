@@ -1,5 +1,6 @@
 ### Apple macOS ###
 .DS_Store
+__MACOSX/
 .AppleDouble
 .LSOverride
 ._*

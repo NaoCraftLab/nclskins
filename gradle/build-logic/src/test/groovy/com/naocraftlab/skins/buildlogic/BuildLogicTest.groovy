@@ -24,6 +24,20 @@ final class BuildLogicTest {
     private final Map modMenuAbi = CatalogTools.loadJson(new File(repository, 'gradle/modmenu-abi.json'))
 
     @Test
+    void finderMetadataIsIgnoredLocallyAndExcludedFromCopyOutputs() {
+        List<String> ignored = new File(repository, '.gitignore').readLines('UTF-8')
+        assertTrue(ignored.contains('.DS_Store'))
+        assertTrue(ignored.contains('__MACOSX/'))
+
+        String exclusion = "exclude '**/.DS_Store', '**/__MACOSX/**'"
+        assertTrue(new File(repository, 'build.gradle').getText('UTF-8').contains(exclusion))
+        assertTrue(new File(repository, 'gradle/target-conventions.gradle')
+                .getText('UTF-8').contains(exclusion))
+        assertTrue(ArtifactVerifier.containsFinderMetadata('assets/nclskins/.DS_Store'))
+        assertTrue(ArtifactVerifier.containsFinderMetadata('__MACOSX/assets/icon.png'))
+    }
+
+    @Test
     void currentCatalogIsValid() {
         assertEquals(22, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)

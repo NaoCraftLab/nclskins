@@ -260,6 +260,10 @@ tasks.withType(Jar).configureEach {
     dependsOn generateTargetBindings
 }
 
+tasks.withType(org.gradle.api.tasks.AbstractCopyTask).configureEach {
+    exclude '**/.DS_Store', '**/__MACOSX/**'
+}
+
 tasks.named('processResources', ProcessResources).configure {
     dependsOn generateTargetMetadata
     inputs.file(catalogFile)
