@@ -1887,6 +1887,8 @@ final class BuildLogicTest {
         assertTrue(convention.contains('yaclRuntimeGraph.transitive = false'))
         assertTrue(convention.contains('transitive = yaclDevelopmentRuntimeEnabled'))
         assertTrue(convention.contains('else if (yaclDevelopmentRuntimeEnabled)'))
+        assertTrue(convention.contains("url = 'https://maven.fabricmc.net/'"))
+        assertTrue(convention.contains("content { includeGroup 'net.fabricmc.fabric-api' }"))
     }
 
     @Test
