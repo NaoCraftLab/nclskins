@@ -406,9 +406,12 @@ final class CatalogTools {
             throw new IllegalArgumentException("unknown target for optional dependency: ${targetId}")
         }
         Map declaration = dependencies[dependencyId] as Map
+        Map versions = declaration.developmentVersions instanceof Map
+                ? declaration.developmentVersions as Map : [:]
         Map artifacts = declaration.developmentArtifacts instanceof Map
                 ? declaration.developmentArtifacts as Map : [:]
-        Object raw = artifacts[targetId]
+        Object versionId = versions[targetId]
+        Object raw = versionId == null ? null : artifacts[versionId.toString()]
         raw == null ? null : raw as Map
     }
 
@@ -536,10 +539,13 @@ final class CatalogTools {
             Map sqlite = optionalDependencies.sqlite_jdbc instanceof Map
                     ? optionalDependencies.sqlite_jdbc as Map : [:]
             Map sqlitePredicates = sqlite.predicates instanceof Map ? sqlite.predicates as Map : [:]
+            Map sqliteVersions = sqlite.developmentVersions instanceof Map
+                    ? sqlite.developmentVersions as Map : [:]
             Map sqliteDevelopment = sqlite.developmentArtifacts instanceof Map
                     ? sqlite.developmentArtifacts as Map : [:]
             Set targetIds = (catalog.targets as List).collect { it.id.toString() } as Set
-            if ((sqlite.keySet() as Set) != ['side', 'predicates', 'developmentArtifacts'] as Set
+            if ((sqlite.keySet() as Set) != [
+                    'side', 'predicates', 'developmentVersions', 'developmentArtifacts'] as Set
                     || sqlite.side != 'client'
                     || (sqlitePredicates.keySet() as Set) != LoaderBackend.ids() as Set
                     || !(sqlitePredicates.fabric ==~ />=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)
@@ -547,15 +553,13 @@ final class CatalogTools {
                     || !(sqlitePredicates.neoforge ==~ /\[[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+,\)/)) {
                 errors.add('sqlite_jdbc must define explicit Fabric, Forge and NeoForge ranges')
             }
-            if (sqliteDevelopment.isEmpty() ||
-                    !(targetIds.containsAll(sqliteDevelopment.keySet() as Set))) {
-                errors.add('sqlite_jdbc development artifacts must target known catalog targets')
+            if ((sqliteVersions.keySet() as Set) != targetIds ||
+                    sqliteVersions.values().any { !(it instanceof String) } ||
+                    (sqliteVersions.values() as Set) != (sqliteDevelopment.keySet() as Set)) {
+                errors.add('sqlite_jdbc must map every target to one known development artifact')
             } else {
-                sqliteDevelopment.each { Object targetId, Object rawArtifact ->
+                sqliteDevelopment.each { Object versionId, Object rawArtifact ->
                     Map artifact = rawArtifact instanceof Map ? rawArtifact as Map : [:]
-                    Map target = (catalog.targets as List).find {
-                        it.id.toString() == targetId.toString()
-                    } as Map
                     Set artifactKeys = [
                             'coordinate', 'projectId', 'versionId', 'version', 'fabricModId',
                             'file', 'size',
@@ -565,7 +569,7 @@ final class CatalogTools {
                             artifact.versionId instanceof String
                             ? "maven.modrinth:${artifact.projectId}:${artifact.versionId}" : null
                     if ((artifact.keySet() as Set) != artifactKeys ||
-                            target?.loader?.id != 'fabric' ||
+                            artifact.versionId != versionId ||
                             artifact.coordinate != expectedCoordinate ||
                             !(artifact.projectId ==~ /[A-Za-z0-9]{8}/) ||
                             !(artifact.versionId ==~ /[A-Za-z0-9]{8}/) ||
@@ -576,7 +580,7 @@ final class CatalogTools {
                             !(artifact.sha1 ==~ /[0-9a-f]{40}/) ||
                             !(artifact.sha512 ==~ /[0-9a-f]{128}/) ||
                             !(artifact.declaredMinecraftMaximum ==~ /[0-9]+\.[0-9]+(?:\.[0-9]+)?/)) {
-                        errors.add("${targetId}: invalid sqlite_jdbc development artifact")
+                        errors.add("${versionId}: invalid sqlite_jdbc development artifact")
                     }
                 }
             }

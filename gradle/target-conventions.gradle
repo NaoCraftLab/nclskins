@@ -67,6 +67,93 @@ base {
 
 repositories {
     mavenCentral()
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
+}
+
+def sqliteDevelopmentArtifact = nclskinsCatalogTools.optionalDevelopmentArtifact(
+        catalog, spec, 'sqlite_jdbc')
+if (sqliteDevelopmentArtifact == null) {
+    throw new GradleException("Missing SQLite development artifact for ${targetId}")
+}
+def sqliteArtifactRuntime = configurations.create('nclskinsSqliteArtifactRuntime') {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
+    visible = false
+}
+dependencies.add(
+        sqliteArtifactRuntime.name,
+        sqliteDevelopmentArtifact.coordinate.toString())
+def sqliteClientRuntime = configurations.create('nclskinsSqliteClientRuntime') {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
+    visible = false
+}
+def sqliteClientDependency = spec.loader.id == 'forge'
+        ? fg.deobf(sqliteDevelopmentArtifact.coordinate.toString())
+        : sqliteDevelopmentArtifact.coordinate.toString()
+dependencies.add(sqliteClientRuntime.name, sqliteClientDependency)
+def verifySqliteClientRuntime = tasks.register('verifySqliteClientRuntime') {
+    doLast {
+        Set<File> sourceArtifacts = sqliteArtifactRuntime.resolve()
+        if (sourceArtifacts.size() != 1) {
+            throw new GradleException(
+                    "Expected one SQLite source artifact, resolved ${sourceArtifacts.size()}")
+        }
+        nclskinsExternalArtifactIntegrity.verify(
+                sourceArtifacts.first(), sqliteDevelopmentArtifact)
+        Set<File> clientArtifacts = sqliteClientRuntime.resolve()
+        if (clientArtifacts.size() != 1 || !clientArtifacts.first().isFile()) {
+            throw new GradleException(
+                    "Expected one adapted SQLite client artifact, resolved ${clientArtifacts.size()}")
+        }
+    }
+}
+def sqliteClientClasspath = sqliteClientRuntime
+def clientRuntimeWorkspace = providers.gradleProperty('nclskinsBuildLogicWorkspace')
+        .getOrElse(targetId)
+if (!(clientRuntimeWorkspace ==~ /[a-z0-9][a-z0-9.-]*/)) {
+    throw new GradleException(
+            "nclskinsBuildLogicWorkspace must be a safe target ID, got '${clientRuntimeWorkspace}'")
+}
+def stableClientRuntimeDirectory = repositoryRoot.dir(
+        ".gradle/nclskins-runtime/${targetId}/${clientRuntimeWorkspace}")
+extensions.extraProperties.set(
+        'nclskinsClientRuntimeDirectory', stableClientRuntimeDirectory)
+if (spec.loader.id == 'forge') {
+    def patchForgeRuntimeMetadataTaskType = nclskinsCatalogTools.getClassLoader().loadClass(
+            'com.naocraftlab.skins.buildlogic.PatchForgeRuntimeMetadataTask')
+    def patchedSqliteRuntime = tasks.register(
+            'patchSqliteRuntimeMetadata', patchForgeRuntimeMetadataTaskType) {
+        dependsOn verifySqliteClientRuntime
+        inputArtifact.set(layout.file(providers.provider {
+            sqliteClientRuntime.singleFile
+        }))
+        outputArtifact.set(stableClientRuntimeDirectory.file(
+                "sqlite-${sqliteDevelopmentArtifact.version}-forge-manifest.jar"))
+    }
+    sqliteClientClasspath = files(patchedSqliteRuntime)
+} else if (spec.loader.id == 'neoforge' && spec.minecraft.version in ['26.2', '26.3']) {
+    def patchRuntimeMetadataTaskType = nclskinsCatalogTools.getClassLoader().loadClass(
+            'com.naocraftlab.skins.buildlogic.PatchNeoForgeRuntimeMetadataTask')
+    def patchedSqliteRuntime = tasks.register(
+            'patchSqliteRuntimeMetadata', patchRuntimeMetadataTaskType) {
+        dependsOn verifySqliteClientRuntime
+        artifactKind.set('sqlite')
+        inputArtifact.set(layout.file(providers.provider {
+            sqliteArtifactRuntime.singleFile
+        }))
+        outputArtifact.set(stableClientRuntimeDirectory.file(
+                "sqlite-${sqliteDevelopmentArtifact.version}-banner-metadata.jar"))
+    }
+    sqliteClientClasspath = files(patchedSqliteRuntime)
 }
 
 def rootBundleIds = catalog.baseBundles.collect { it.toString() }
@@ -192,6 +279,13 @@ tasks.matching { it.name in ['runClient', 'runClientLicensed', 'runServer'] }.co
         doFirst {
             sourceSets.client.output.resourcesDir.mkdirs()
         }
+    }
+    if (it.name in ['runClient', 'runClientLicensed']) {
+        if (!(it instanceof JavaExec)) {
+            throw new GradleException("Unexpected client run task type: ${it.class.name}")
+        }
+        dependsOn verifySqliteClientRuntime
+        classpath(sqliteClientClasspath)
     }
 }
 

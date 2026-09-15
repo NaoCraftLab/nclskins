@@ -28,6 +28,10 @@ final class IdeaRunConfigurations {
         configurationName(target, target.minecraft.version.toString(), runKind)
     }
 
+    static String buildLogicWorkspace(Map target, String minecraftVersion, String runKind) {
+        taskName(target, minecraftVersion, runKind).toLowerCase(Locale.ROOT)
+    }
+
     static String configurationName(Map target, String minecraftVersion, String runKind) {
         String suffix = runKind == 'LicensedClient' ? 'runClientLicensed' : "run${runKind}"
         "${minecraftVersion}:${target.loader.id}:${suffix}"
@@ -69,7 +73,8 @@ final class IdeaRunConfigurations {
                     option(name: 'executionName')
                     option(name: 'externalProjectPath', value: '$PROJECT_DIR$')
                     option(name: 'externalSystemIdString', value: 'GRADLE')
-                    option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true')
+                    option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true ' +
+                            "-PnclskinsBuildLogicWorkspace=${buildLogicWorkspace(target, minecraftVersion, runKind)}")
                     option(name: 'taskDescriptions') { list() }
                     option(name: 'taskNames') { list { option(value: taskName(target, minecraftVersion, runKind)) } }
                     option(name: 'vmOptions', value: '')
@@ -96,7 +101,8 @@ final class IdeaRunConfigurations {
                     option(name: 'executionName')
                     option(name: 'externalProjectPath', value: '$PROJECT_DIR$')
                     option(name: 'externalSystemIdString', value: 'GRADLE')
-                    option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true')
+                    option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true ' +
+                            "-PnclskinsBuildLogicWorkspace=${ServerPluginRuntimeSupport.taskName(topology).toLowerCase(Locale.ROOT)}")
                     option(name: 'taskDescriptions') { list() }
                     option(name: 'taskNames') {
                         list { option(value: ServerPluginRuntimeSupport.taskName(topology)) }

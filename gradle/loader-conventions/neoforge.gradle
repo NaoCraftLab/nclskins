@@ -39,11 +39,12 @@ def patchYaclRuntimeMetadataTaskType = nclskinsCatalogTools.getClassLoader().loa
 def patchedYaclRuntime = yaclDevelopmentRuntimeEnabled && targetSpec.minecraft.version == '26.2'
         ? tasks.register('patchYaclRuntimeMetadata',
         patchYaclRuntimeMetadataTaskType) {
+            artifactKind.set('yacl')
             inputArtifact.set(layout.file(providers.provider {
                 yaclRuntimeGraph.singleFile
             }))
-            outputArtifact.set(layout.buildDirectory.file(
-                    "nclskins-runtime/yacl-${yaclVersion}-icon-metadata.jar"))
+            outputArtifact.set(nclskinsClientRuntimeDirectory.file(
+                    "yacl-${yaclVersion}-icon-metadata.jar"))
         }
         : null
 def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(

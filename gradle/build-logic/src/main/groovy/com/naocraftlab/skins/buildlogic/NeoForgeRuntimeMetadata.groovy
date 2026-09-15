@@ -15,10 +15,21 @@ final class NeoForgeRuntimeMetadata {
     static final String METADATA = 'META-INF/neoforge.mods.toml'
     static final String LEGACY_ICON = 'logoFile = "yacl-128x.png"'
     static final String SQUARE_ICON = 'iconFile = "yacl-128x.png"'
+    static final String SQLITE_LEGACY_LOGO = 'logoFile="sqlite-jdbc.png"'
+    static final String SQLITE_NO_BANNER = 'bannerFile=false'
 
     static void patchYacl(Path input, Path output) {
+        patch(input, output, 'YACL', LEGACY_ICON, SQUARE_ICON)
+    }
+
+    static void patchSqlite(Path input, Path output) {
+        patch(input, output, 'SQLite JDBC', SQLITE_LEGACY_LOGO, SQLITE_NO_BANNER)
+    }
+
+    private static void patch(
+            Path input, Path output, String artifactName, String legacy, String replacement) {
         if (!Files.isRegularFile(input)) {
-            throw new GradleException("Missing YACL runtime artifact: ${input}")
+            throw new GradleException("Missing ${artifactName} runtime artifact: ${input}")
         }
         Map entries = new TreeMap()
         ZipFile inputArchive = new ZipFile(input.toFile())
@@ -27,11 +38,11 @@ final class NeoForgeRuntimeMetadata {
             while (archiveEntries.hasMoreElements()) {
                 ZipEntry entry = archiveEntries.nextElement()
                 if (entries.containsKey(entry.name)) {
-                    throw new GradleException("Duplicate YACL JAR entry: ${entry.name}")
+                    throw new GradleException("Duplicate ${artifactName} JAR entry: ${entry.name}")
                 }
                 if (entry.name.matches('META-INF/[^/]+\\.(SF|RSA|DSA)')) {
                     throw new GradleException(
-                            "Refusing to rewrite signed YACL runtime artifact: ${entry.name}")
+                            "Refusing to rewrite signed ${artifactName} runtime artifact: ${entry.name}")
                 }
                 byte[] contents = new byte[0]
                 if (!entry.directory) {
@@ -49,13 +60,14 @@ final class NeoForgeRuntimeMetadata {
         }
         byte[] metadataBytes = entries[METADATA]
         if (metadataBytes == null) {
-            throw new GradleException("YACL runtime artifact lacks ${METADATA}")
+            throw new GradleException("${artifactName} runtime artifact lacks ${METADATA}")
         }
         String metadata = new String(metadataBytes, StandardCharsets.UTF_8)
-        if (metadata.count(LEGACY_ICON) != 1 || metadata.contains(SQUARE_ICON)) {
-            throw new GradleException('YACL NeoForge icon metadata no longer matches the expected upstream baseline')
+        if (metadata.count(legacy) != 1 || metadata.contains(replacement)) {
+            throw new GradleException(
+                    "${artifactName} NeoForge metadata no longer matches the expected upstream baseline")
         }
-        entries[METADATA] = metadata.replace(LEGACY_ICON, SQUARE_ICON)
+        entries[METADATA] = metadata.replace(legacy, replacement)
                 .getBytes(StandardCharsets.UTF_8)
 
         Files.createDirectories(output.parent)
@@ -93,8 +105,9 @@ final class NeoForgeRuntimeMetadata {
             } finally {
                 metadataInput.close()
             }
-            if (!actual.contains(SQUARE_ICON) || actual.contains(LEGACY_ICON)) {
-                throw new GradleException("Patched YACL metadata verification failed: ${output}")
+            if (!actual.contains(replacement) || actual.contains(legacy)) {
+                throw new GradleException(
+                        "Patched ${artifactName} metadata verification failed: ${output}")
             }
         } finally {
             outputArchive.close()

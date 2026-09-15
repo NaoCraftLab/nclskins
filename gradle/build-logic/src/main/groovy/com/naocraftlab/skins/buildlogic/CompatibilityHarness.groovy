@@ -13,7 +13,7 @@ final class CompatibilityHarness {
 
     static void verify(File root, Map catalog, Map target, String modVersion) {
         List<Map> results = (target.compatibility.minecraftVersions as List).collect { Object version ->
-            prepareAndResolve(root, catalog, target, modVersion, version.toString())
+            prepareAndResolve(root, catalog, target, modVersion, version.toString(), 'Verification')
         }
         String expected = results.first().sha256
         if (results.any { it.sha256 != expected }) {
@@ -34,7 +34,7 @@ final class CompatibilityHarness {
             File root, Map catalog, Map target, String modVersion,
             String minecraftVersion, String kind, boolean dryRun,
             boolean developmentLogging, ExecOperations execOperations) {
-        Map result = prepareAndResolve(root, catalog, target, modVersion, minecraftVersion)
+        Map result = prepareAndResolve(root, catalog, target, modVersion, minecraftVersion, kind)
         File harness = result.directory as File
         File gameDirectory = RunLayout.modDirectory(root, target, minecraftVersion, kind)
         if (!dryRun && kind == 'Server') {
@@ -49,6 +49,7 @@ final class CompatibilityHarness {
                 '-p',
                 harness.absolutePath,
                 '--no-daemon',
+                "-PnclskinsBuildLogicWorkspace=${workspace(target, minecraftVersion, kind)}".toString(),
                 kind == 'LicensedClient' ? 'runClientLicensed' : "run${kind}".toString()]
         if (developmentLogging) command.add('-PnclskinsDevLogging=true')
         if (kind == 'Server' && target.loader.id == 'fabric') {
@@ -60,7 +61,8 @@ final class CompatibilityHarness {
     }
 
     private static Map prepareAndResolve(
-            File root, Map catalog, Map target, String modVersion, String minecraftVersion) {
+            File root, Map catalog, Map target, String modVersion, String minecraftVersion,
+            String kind) {
         Map runtime = CatalogTools.compatibilityRuntime(target, minecraftVersion)
         File production = artifact(root, target, modVersion)
         if (!production.isFile()) {
@@ -78,13 +80,37 @@ final class CompatibilityHarness {
                 StandardCharsets.UTF_8.name())
         File wrapper = TargetRuntime.wrapper(root, catalog, target)
         execute(
-                [wrapper.absolutePath, '-p', harness.absolutePath, '--no-daemon', 'resolveCompatibilityRuntime'],
+                [wrapper.absolutePath, '-p', harness.absolutePath, '--no-daemon',
+                 "-PnclskinsBuildLogicWorkspace=${workspace(target, minecraftVersion, kind)}".toString(),
+                 'resolveCompatibilityRuntime'],
                 root,
                 target,
                 "compatibility ${minecraftVersion} resolution")
         File classpathFile = new File(harness, 'runtime-classpath.txt')
         if (!classpathFile.isFile() || classpathFile.text.isBlank()) {
             throw new IllegalStateException("${target.id}: compatibility ${minecraftVersion} produced no runtime classpath")
+        }
+        File clientClasspathFile = new File(harness, 'client-runtime-classpath.txt')
+        if (!clientClasspathFile.isFile() || clientClasspathFile.text.isBlank()) {
+            throw new IllegalStateException(
+                    "${target.id}: compatibility ${minecraftVersion} produced no client optional runtime classpath")
+        }
+        List<File> clientArtifacts = clientClasspathFile.text.trim()
+                .split(java.util.regex.Pattern.quote(File.pathSeparator))
+                .collect { new File(it) }
+        Map sqlite = CatalogTools.optionalDevelopmentArtifact(catalog, target, 'sqlite_jdbc')
+        List<File> sqliteArtifacts = clientArtifacts.findAll { it.length() == (sqlite.size as long) }
+        if (sqliteArtifacts.size() != 1) {
+            throw new IllegalStateException(
+                    "${target.id}: compatibility ${minecraftVersion} did not resolve exactly one SQLite artifact")
+        }
+        ExternalArtifactIntegrity.verify(sqliteArtifacts.first(), sqlite)
+        String yaclVersion = CatalogTools.optionalDependencyVersion(
+                catalog, target, 'yet_another_config_lib_v3')
+        if (!clientArtifacts.any { it.name.contains('yet-another-config-lib') &&
+                it.name.contains(yaclVersion) }) {
+            throw new IllegalStateException(
+                    "${target.id}: compatibility ${minecraftVersion} did not resolve YACL ${yaclVersion}")
         }
         Map abi = CatalogTools.loadJson(new File(root, 'gradle/abi-fingerprints.json'))
         File javap = new File(TargetRuntime.resolveJavaHome(target.java.buildJdk as int), 'bin/javap')
@@ -115,6 +141,9 @@ rootProject.name = 'nclskins-${target.id}-compatibility'
 
     static String buildFile(File root, Map catalog, Map target, Map runtime, File production) {
         String escapedJar = production.canonicalPath.replace('\\', '\\\\').replace("'", "\\'")
+        String yaclVersion = CatalogTools.optionalDependencyVersion(
+                catalog, target, 'yet_another_config_lib_v3')
+        Map sqlite = CatalogTools.optionalDevelopmentArtifact(catalog, target, 'sqlite_jdbc')
         Map<String, String> runDirectories = [
                 client: RunLayout.modDirectory(root, target, runtime.minecraftVersion.toString(), 'Client')
                         .canonicalPath,
@@ -169,8 +198,14 @@ tasks.matching { it.name in ['runClient', 'runClientLicensed'] }.configureEach {
 repositories {
     maven { url = 'https://maven.covers1624.net/' }
     maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.isxander.dev/releases' }
     maven { url = 'https://api.modrinth.com/maven' }
     mavenCentral()
+}
+def nclskinsClientOptionalRuntime = configurations.create('nclskinsClientOptionalRuntime') {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
 }
 dependencies {
     minecraft 'com.mojang:minecraft:${runtime.minecraftVersion}'
@@ -178,12 +213,18 @@ dependencies {
     implementation 'net.fabricmc.fabric-api:fabric-api:${target.loader.apiVersion}'
     localRuntime 'maven.modrinth:modmenu:${target.loader.modMenuVersion}'
     localRuntime 'net.covers1624:DevLogin:${catalog.plugins.devLogin}'
+    add(nclskinsClientOptionalRuntime.name, 'dev.isxander:yet-another-config-lib:${yaclVersion}')
+    add(nclskinsClientOptionalRuntime.name, '${sqlite.coordinate}')
     runtimeOnly files('${escapedJar}')
+}
+tasks.matching { it.name in ['runClient', 'runClientLicensed'] }.configureEach {
+    classpath(nclskinsClientOptionalRuntime)
 }
 tasks.register('resolveCompatibilityRuntime') {
     doLast {
         configurations.runtimeClasspath.resolve()
         file('runtime-classpath.txt').text = configurations.runtimeClasspath.asPath
+        file('client-runtime-classpath.txt').text = nclskinsClientOptionalRuntime.asPath
         if (!file('${escapedJar}').isFile()) throw new GradleException('Missing production JAR')
     }
 }
@@ -195,7 +236,14 @@ tasks.register('resolveCompatibilityRuntime') {
 }
 repositories {
     maven { url = 'https://maven.neoforged.net/releases' }
+    maven { url = 'https://maven.isxander.dev/releases' }
+    maven { url = 'https://api.modrinth.com/maven' }
     mavenCentral()
+}
+def nclskinsClientOptionalRuntime = configurations.create('nclskinsClientOptionalRuntime') {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
 }
 neoForge {
     accessTransformers.from('src/main/resources/${target.metadata.accessTransformer}')
@@ -238,12 +286,18 @@ tasks.named('runServer', JavaExec) {
 }
 dependencies {
     runtimeOnly files('${escapedJar}')
+    add(nclskinsClientOptionalRuntime.name, 'dev.isxander:yet-another-config-lib:${yaclVersion}')
+    add(nclskinsClientOptionalRuntime.name, '${sqlite.coordinate}')
+}
+tasks.matching { it.name in ['runClient', 'runClientLicensed'] }.configureEach {
+    classpath(nclskinsClientOptionalRuntime)
 }
 tasks.register('resolveCompatibilityRuntime') {
     dependsOn tasks.named('createMinecraftArtifacts')
     doLast {
         configurations.runtimeClasspath.resolve()
         file('runtime-classpath.txt').text = configurations.runtimeClasspath.asPath
+        file('client-runtime-classpath.txt').text = nclskinsClientOptionalRuntime.asPath
         if (!file('${escapedJar}').isFile()) throw new GradleException('Missing production JAR')
     }
 }
@@ -269,6 +323,12 @@ tasks.register('resolveCompatibilityRuntime') {
 
     private static String groovyStringList(List<String> values) {
         values.collect { "'${it}'" }.join(', ')
+    }
+
+    private static String workspace(Map target, String minecraftVersion, String kind) {
+        IdeaRunConfigurations.buildLogicWorkspace(target, minecraftVersion,
+                kind == 'Verification' ? 'Client' : kind) +
+                (kind == 'Verification' ? '-verification' : '')
     }
 
     private static File artifact(File root, Map target, String modVersion) {

@@ -374,8 +374,22 @@
         "forge": "[3.36.0.3,)",
         "neoforge": "[3.53.0.0,)"
       },
+      "developmentVersions": {
+        "fabric-1.20.1": "EEE7nXWy",
+        "forge-1.20.1": "EEE7nXWy",
+        "fabric-1.21.1": "EEE7nXWy",
+        "neoforge-1.21.1": "EEE7nXWy",
+        "fabric-1.21.11": "EEE7nXWy",
+        "neoforge-1.21.11": "EEE7nXWy",
+        "fabric-26.1": "EEE7nXWy",
+        "neoforge-26.1": "EEE7nXWy",
+        "fabric-26.2": "EEE7nXWy",
+        "neoforge-26.2": "EEE7nXWy",
+        "fabric-26.3": "EEE7nXWy",
+        "neoforge-26.3": "EEE7nXWy"
+      },
       "developmentArtifacts": {
-        "fabric-26.3": {
+        "EEE7nXWy": {
           "coordinate": "maven.modrinth:bTTf2DEw:EEE7nXWy",
           "projectId": "bTTf2DEw",
           "versionId": "EEE7nXWy",

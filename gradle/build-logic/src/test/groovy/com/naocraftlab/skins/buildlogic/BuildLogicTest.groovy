@@ -137,7 +137,7 @@ final class BuildLogicTest {
         assertTrue(CatalogTools.optionalDependencyDevelopmentRuntimeEnabled(
                 catalog, finalTarget, 'yet_another_config_lib_v3'))
         assertEquals('maven.modrinth:bTTf2DEw:EEE7nXWy',
-                catalog.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].coordinate)
+                catalog.optionalDependencies.sqlite_jdbc.developmentArtifacts.EEE7nXWy.coordinate)
         assertEquals([97, 1], finalTarget.metadata.packFormat)
         Map neoForgeTarget = catalog.targets.find { it.id == 'neoforge-26.3' } as Map
         assertTrue(neoForgeTarget.releaseEligible as boolean)
@@ -173,10 +173,9 @@ final class BuildLogicTest {
     }
 
     @Test
-    void sqliteDevelopmentRuntimeIsExactAndClientOnly() {
-        Map experimental = CatalogTools.selectTarget(catalog, 'fabric-26.3')
+    void sqliteDevelopmentRuntimeIsExactAndAvailableToEveryClientTarget() {
         Map artifact = CatalogTools.optionalDevelopmentArtifact(
-                catalog, experimental, 'sqlite_jdbc')
+                catalog, CatalogTools.selectTarget(catalog, 'fabric-26.3'), 'sqlite_jdbc')
         assertEquals([
                 coordinate              : 'maven.modrinth:bTTf2DEw:EEE7nXWy',
                 projectId               : 'bTTf2DEw',
@@ -189,38 +188,62 @@ final class BuildLogicTest {
                 sha512                  : 'a25c390539aa7063d764b32efcfa1a03c3037e8b15e589374b7f523bec13712110adbd445f6d8909093149a0313dbbcba836569517c332397d2b16ea8917dd3d',
                 declaredMinecraftMaximum: '26.1.2'
         ], artifact)
-        assertNull(CatalogTools.optionalDevelopmentArtifact(
-                catalog, CatalogTools.selectTarget(catalog, 'fabric-26.2'), 'sqlite_jdbc'))
+        assertEquals(catalog.targets.collect { it.id } as Set,
+                catalog.optionalDependencies.sqlite_jdbc.developmentVersions.keySet() as Set)
+        catalog.targets.each { Map target ->
+            assertEquals(artifact, CatalogTools.optionalDevelopmentArtifact(
+                    catalog, target, 'sqlite_jdbc'))
+        }
         assertThrows(IllegalArgumentException) {
-            CatalogTools.optionalDevelopmentArtifact(catalog, experimental, 'unknown')
+            CatalogTools.optionalDevelopmentArtifact(
+                    catalog, CatalogTools.selectTarget(catalog, 'fabric-26.3'), 'unknown')
         }
         assertThrows(IllegalArgumentException) {
             CatalogTools.optionalDevelopmentArtifact(catalog, [id: 'fabric-unknown'], 'sqlite_jdbc')
         }
 
         Map dynamic = cloneMap(catalog)
-        dynamic.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].coordinate =
+        dynamic.optionalDependencies.sqlite_jdbc.developmentArtifacts.EEE7nXWy.coordinate =
                 'maven.modrinth:bTTf2DEw:latest'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, dynamic) }
 
         Map wrongHash = cloneMap(catalog)
-        wrongHash.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].sha1 =
+        wrongHash.optionalDependencies.sqlite_jdbc.developmentArtifacts.EEE7nXWy.sha1 =
                 '0' * 39
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, wrongHash) }
 
-        Map releasedTarget = cloneMap(catalog)
-        releasedTarget.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.2'] =
-                cloneMap(artifact)
-        CatalogTools.validate(repository, releasedTarget)
+        Map missingTarget = cloneMap(catalog)
+        missingTarget.optionalDependencies.sqlite_jdbc.developmentVersions.remove('fabric-1.20.1')
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, missingTarget) }
+
+        Map unknownArtifact = cloneMap(catalog)
+        unknownArtifact.optionalDependencies.sqlite_jdbc
+                .developmentVersions['fabric-1.20.1'] = 'unknown'
+        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, unknownArtifact) }
+
+        String shared = new File(repository, 'gradle/target-conventions.gradle').text
+        assertTrue(shared.contains("configurations.create('nclskinsSqliteArtifactRuntime')"))
+        assertTrue(shared.contains("configurations.create('nclskinsSqliteClientRuntime')"))
+        assertTrue(shared.contains("tasks.register('verifySqliteClientRuntime')"))
+        assertTrue(shared.contains("spec.loader.id == 'forge'"))
+        assertTrue(shared.contains('fg.deobf(sqliteDevelopmentArtifact.coordinate.toString())'))
+        assertTrue(shared.contains("'com.naocraftlab.skins.buildlogic.PatchForgeRuntimeMetadataTask'"))
+        assertTrue(shared.contains("providers.gradleProperty('nclskinsBuildLogicWorkspace')"))
+        assertTrue(shared.contains('".gradle/nclskins-runtime/${targetId}/${clientRuntimeWorkspace}"'))
+        assertTrue(shared.contains("'nclskinsClientRuntimeDirectory', stableClientRuntimeDirectory"))
+        assertFalse(shared.contains('outputArtifact.set(layout.buildDirectory.file(\n                "nclskins-runtime/sqlite-'))
+        assertTrue(shared.contains("it.name in ['runClient', 'runClientLicensed']"))
+        assertTrue(shared.contains('classpath(sqliteClientClasspath)'))
+        assertFalse(shared.contains("tasks.named('runServer').classpath(sqliteClientRuntime)"))
+        assertFalse(shared.contains('org.xerial:sqlite-jdbc'))
+        assertFalse(shared.contains('maven.modrinth:sqlite-jdbc'))
 
         String fabric = new File(repository, 'gradle/loader-conventions/fabric.gradle').text
-        assertTrue(fabric.contains("configurations.create('nclskinsSqliteClientRuntime')"))
-        assertTrue(fabric.contains("tasks.register('verifySqliteClientRuntime')"))
-        assertTrue(fabric.contains("it.name in ['runClient', 'runClientLicensed']"))
-        assertTrue(fabric.contains('candidate.classpath(sqliteClientRuntime)'))
-        assertFalse(fabric.contains("tasks.named('runServer').classpath(sqliteClientRuntime)"))
-        assertFalse(fabric.contains('org.xerial:sqlite-jdbc'))
-        assertFalse(fabric.contains('maven.modrinth:sqlite-jdbc'))
+        String forge = new File(repository, 'gradle/loader-conventions/forge.gradle').text
+        String neoForge = new File(repository, 'gradle/loader-conventions/neoforge.gradle').text
+        assertTrue(fabric.contains('add(modMenuConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")'))
+        assertTrue(forge.contains('runtimeOnly fg.deobf("dev.isxander:yet-another-config-lib:${yaclVersion}")'))
+        assertTrue(neoForge.contains('add(yaclRuntimeConfiguration, yaclCoordinate)'))
     }
 
     @Test
@@ -648,6 +671,19 @@ final class BuildLogicTest {
                 assertTrue(script.contains("file('build/classes/java/main').mkdirs()"),
                         target.id.toString())
             }
+            String yaclVersion = CatalogTools.optionalDependencyVersion(
+                    catalog, target, 'yet_another_config_lib_v3')
+            Map sqlite = CatalogTools.optionalDevelopmentArtifact(
+                    catalog, target, 'sqlite_jdbc')
+            assertTrue(script.contains(
+                    "add(nclskinsClientOptionalRuntime.name, 'dev.isxander:yet-another-config-lib:${yaclVersion}')"),
+                    target.id.toString())
+            assertTrue(script.contains(
+                    "add(nclskinsClientOptionalRuntime.name, '${sqlite.coordinate}')"), target.id.toString())
+            assertTrue(script.contains('classpath(nclskinsClientOptionalRuntime)'),
+                    target.id.toString())
+            assertTrue(script.contains("file('client-runtime-classpath.txt').text = " +
+                    'nclskinsClientOptionalRuntime.asPath'), target.id.toString())
         }
         assertTrue(ArtifactVerifier.FORBIDDEN_DEV_RUNTIME_PREFIXES.contains(
                 'net/covers1624/devlogin/'))
@@ -1448,8 +1484,10 @@ final class BuildLogicTest {
                 assertEquals('GradleRunConfiguration', configuration.@type.toString())
                 assertEquals('$PROJECT_DIR$', configuration.ExternalSystemSettings.option.find { it.@name == 'externalProjectPath' }.@value.toString())
                 assertEquals(taskName, configuration.ExternalSystemSettings.option.find { it.@name == 'taskNames' }.list.option.@value.toString())
-                assertEquals('-PnclskinsDevLogging=true', configuration.ExternalSystemSettings.option
-                        .find { it.@name == 'scriptParameters' }.@value.toString())
+                assertEquals('-PnclskinsDevLogging=true ' +
+                        "-PnclskinsBuildLogicWorkspace=${IdeaRunConfigurations.buildLogicWorkspace(target, minecraftVersion, runKind)}",
+                        configuration.ExternalSystemSettings.option
+                                .find { it.@name == 'scriptParameters' }.@value.toString())
                 assertEquals('', configuration.ExternalSystemSettings.option
                         .find { it.@name == 'vmOptions' }.@value.toString())
                 assertEquals(IdeaRunConfigurations.displayFolder(minecraftVersion),
@@ -1470,8 +1508,10 @@ final class BuildLogicTest {
                     configuration.@folderName.toString())
             assertEquals(taskName, configuration.ExternalSystemSettings.option
                     .find { it.@name == 'taskNames' }.list.option.@value.toString())
-            assertEquals('-PnclskinsDevLogging=true', configuration.ExternalSystemSettings.option
-                    .find { it.@name == 'scriptParameters' }.@value.toString())
+            assertEquals('-PnclskinsDevLogging=true ' +
+                    "-PnclskinsBuildLogicWorkspace=${taskName.toLowerCase(Locale.ROOT)}",
+                    configuration.ExternalSystemSettings.option
+                            .find { it.@name == 'scriptParameters' }.@value.toString())
             assertEquals('', configuration.ExternalSystemSettings.option
                     .find { it.@name == 'vmOptions' }.@value.toString())
             assertTrue(rendered.contains(IdeaRunConfigurations.GENERATED_MARKER))
@@ -1678,6 +1718,8 @@ final class BuildLogicTest {
             assertEquals('runClient', client[-2])
             assertEquals('--dry-run', client[-1])
             assertEquals(TargetRuntime.wrapper(repository, catalog, target).absolutePath, client.first())
+            assertTrue(client.contains(
+                    "-PnclskinsBuildLogicWorkspace=${IdeaRunConfigurations.buildLogicWorkspace(target, target.minecraft.version.toString(), 'Client')}".toString()))
             assertTrue(TargetRunTask.command(
                     repository, catalog, target, 'Client', true, true)
                     .contains('-PnclskinsDevLogging=true'))
@@ -1889,6 +1931,71 @@ final class BuildLogicTest {
         assertTrue(convention.contains('else if (yaclDevelopmentRuntimeEnabled)'))
         assertTrue(convention.contains("url = 'https://maven.fabricmc.net/'"))
         assertTrue(convention.contains("content { includeGroup 'net.fabricmc.fabric-api' }"))
+    }
+
+    @Test
+    void neoForgeRuntimeSqliteMetadataPatchIsNarrowAndReproducible() {
+        Path directory = Files.createTempDirectory('nclskins-sqlite-metadata-')
+        Path input = directory.resolve('sqlite.jar')
+        new ZipOutputStream(Files.newOutputStream(input)).withCloseable { ZipOutputStream zip ->
+            zip.putNextEntry(new ZipEntry(NeoForgeRuntimeMetadata.METADATA))
+            zip.write(('''modLoader="javafml"\n[[mods]]\n''' +
+                    NeoForgeRuntimeMetadata.SQLITE_LEGACY_LOGO + '\n').getBytes('UTF-8'))
+            zip.closeEntry()
+            zip.putNextEntry(new ZipEntry('sqlite-jdbc.png'))
+            zip.write(new byte[]{4, 5, 6})
+            zip.closeEntry()
+        }
+        Path first = directory.resolve('first.jar')
+        Path second = directory.resolve('second.jar')
+        NeoForgeRuntimeMetadata.patchSqlite(input, first)
+        NeoForgeRuntimeMetadata.patchSqlite(input, second)
+        assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second))
+        new ZipFile(first.toFile()).withCloseable { ZipFile zip ->
+            String metadata = zip.getInputStream(zip.getEntry(NeoForgeRuntimeMetadata.METADATA))
+                    .withCloseable { new String(it.readAllBytes(), 'UTF-8') }
+            assertTrue(metadata.contains(NeoForgeRuntimeMetadata.SQLITE_NO_BANNER))
+            assertFalse(metadata.contains(NeoForgeRuntimeMetadata.SQLITE_LEGACY_LOGO))
+            assertArrayEquals(new byte[]{4, 5, 6},
+                    zip.getInputStream(zip.getEntry('sqlite-jdbc.png')).readAllBytes())
+        }
+
+        String convention = new File(repository, 'gradle/target-conventions.gradle').text
+        assertTrue(convention.contains("tasks.register(\n            'patchSqliteRuntimeMetadata'"))
+        assertTrue(convention.contains("artifactKind.set('sqlite')"))
+        assertTrue(convention.contains("spec.loader.id == 'neoforge' && spec.minecraft.version in ['26.2', '26.3']"))
+        assertTrue(convention.contains('classpath(sqliteClientClasspath)'))
+    }
+
+    @Test
+    void forgeRuntimeSqliteManifestPatchIsNarrowAndReproducible() {
+        Path directory = Files.createTempDirectory('nclskins-forge-sqlite-manifest-')
+        Path input = directory.resolve('sqlite.jar')
+        new ZipOutputStream(Files.newOutputStream(input)).withCloseable { ZipOutputStream zip ->
+            zip.putNextEntry(new ZipEntry(ForgeRuntimeMetadata.MANIFEST))
+            zip.write(('Manifest-Version: 1.0\r\n' +
+                    ForgeRuntimeMetadata.MULTI_RELEASE + '\r\n\r\n').getBytes('UTF-8'))
+            zip.closeEntry()
+            zip.putNextEntry(new ZipEntry('META-INF/mods.toml'))
+            zip.write('modLoader="javafml"\n'.getBytes('UTF-8'))
+            zip.closeEntry()
+            zip.putNextEntry(new ZipEntry('org/sqlite/JDBC.class'))
+            zip.write(new byte[]{7, 8, 9})
+            zip.closeEntry()
+        }
+        Path first = directory.resolve('first.jar')
+        Path second = directory.resolve('second.jar')
+        ForgeRuntimeMetadata.patchSqlite(input, first)
+        ForgeRuntimeMetadata.patchSqlite(input, second)
+        assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second))
+        new ZipFile(first.toFile()).withCloseable { ZipFile zip ->
+            String manifest = zip.getInputStream(zip.getEntry(ForgeRuntimeMetadata.MANIFEST))
+                    .withCloseable { new String(it.readAllBytes(), 'UTF-8') }
+            assertFalse(manifest.contains(ForgeRuntimeMetadata.MULTI_RELEASE))
+            assertTrue(manifest.contains('Manifest-Version: 1.0'))
+            assertArrayEquals(new byte[]{7, 8, 9},
+                    zip.getInputStream(zip.getEntry('org/sqlite/JDBC.class')).readAllBytes())
+        }
     }
 
     @Test
@@ -2509,6 +2616,10 @@ final class BuildLogicTest {
                 repository,
                 'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/TargetBuildTask.groovy').text
         String buildLogic = new File(repository, 'gradle/build-logic/build.gradle').text
+        String targetRun = new File(repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/TargetRunTask.groovy').text
+        String compatibility = new File(repository,
+                'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/CompatibilityHarness.groovy').text
 
         assertTrue(targetBuild.contains(
                 '"-PnclskinsBuildLogicWorkspace=${target.id}".toString()'))
@@ -2520,6 +2631,16 @@ final class BuildLogicTest {
         assertTrue(buildLogic.contains(
                 'layout.buildDirectory.set(layout.projectDirectory.dir("build/workspaces/${buildLogicWorkspace}"))'))
         assertTrue(buildLogic.contains('/[a-z0-9][a-z0-9.-]*/'))
+        assertTrue(targetRun.contains('"-PnclskinsBuildLogicWorkspace=${workspace}".toString()'))
+        assertTrue(compatibility.contains(
+                '"-PnclskinsBuildLogicWorkspace=${workspace(target, minecraftVersion, kind)}".toString()'))
+        Set<String> workspaces = [] as Set
+        IdeaRunConfigurations.orderedModRuntimes(catalog).each { Map runtime ->
+            IdeaRunConfigurations.RUN_KINDS.each { String kind ->
+                assertTrue(workspaces.add(IdeaRunConfigurations.buildLogicWorkspace(
+                        runtime.target as Map, runtime.minecraftVersion.toString(), kind)))
+            }
+        }
     }
 
     @Test

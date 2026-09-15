@@ -74,7 +74,11 @@ abstract class TargetRunTask extends DefaultTask {
         File targetDirectory = new File(root, target.path.toString())
         File wrapper = TargetRuntime.wrapper(root, catalog, target)
         String nativeTask = kind == 'LicensedClient' ? 'runClientLicensed' : "run${kind}".toString()
-        List<String> command = [wrapper.absolutePath, '-p', targetDirectory.absolutePath, '--no-daemon', nativeTask]
+        String workspace = IdeaRunConfigurations.buildLogicWorkspace(
+                target, target.minecraft.version.toString(), kind)
+        List<String> command = [wrapper.absolutePath, '-p', targetDirectory.absolutePath,
+                                '--no-daemon', "-PnclskinsBuildLogicWorkspace=${workspace}".toString(),
+                                nativeTask]
         if (developmentLogging) command.add('-PnclskinsDevLogging=true')
         if (kind == 'Server') {
             int port = target.development.serverPort as int
