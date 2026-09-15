@@ -39,6 +39,13 @@ final class PlannedReleaseIntegrationTest {
             assertFalse(plan.buildPlugin)
             assertEquals(12, plan.components.count { it.preserve })
             assertEquals(12, plan.preservedGithub.size())
+            Map plugin = (plan.components as List<Map>).find { it.id == 'server-plugin' }
+            assertEquals("${platform.version}.1".toString(), plugin.versionNumber)
+            assertEquals("${platform.version}.1+universal".toString(), plugin.name)
+            Map preservedPlugin = (plan.preservedGithub as List<Map>).find {
+                it.assetFile == "nclskins-plugin-${platform.version}.jar"
+            }
+            assertEquals("nclskins-plugin-${platform.version}.1.jar".toString(), preservedPlugin.file)
             assertTrue(platform.requests.every { it.startsWith('GET ') })
             Map component = (plan.components as List<Map>).find { it.id == 'neoforge-26.3' }
             List<Map> newAssets = []
@@ -113,6 +120,10 @@ final class PlannedReleaseIntegrationTest {
                     if (!file.exists()) writeJar(file, file.name, baseline)
                     target[field] = AssembleReleaseTask.assetMetadata(file, expected.kind.toString(), expected.target?.toString())
                 }
+                if (target.id == 'server-plugin' && target.versionNumber == version) {
+                    target.versionNumber = "${target.versionNumber}.1"
+                    target.name = "${target.versionNumber}+universal"
+                }
                 Map mr = PublicationSupport.modrinthMetadata(manifestForTarget(manifest, target), target)
                 mr.id = "mr-${index}"
                 mr.files = [[filename: target.asset.file, primary: true, file_type: null,
@@ -174,7 +185,9 @@ final class PlannedReleaseIntegrationTest {
         Map release() {
             [id: 1, body: 'Original release notes', name: 'Existing release', prerelease: false,
              assets: platform.filesDirectory.listFiles().findAll { !it.name.endsWith('-sources.jar') }.collect {
-                 [id: it.name, name: it.name, sha256: ReleaseBundle.sha256(it)]
+                 String name = it.name == "nclskins-plugin-${platform.version}.jar"
+                         ? "nclskins-plugin-${platform.version}.1.jar" : it.name
+                 [id: name, name: name, sha256: ReleaseBundle.sha256(it)]
              }]
         }
         @Override String remoteSha256(String api, String repo, Map asset, String token) { asset.sha256 }

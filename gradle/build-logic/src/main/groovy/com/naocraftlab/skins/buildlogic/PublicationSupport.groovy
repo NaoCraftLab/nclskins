@@ -170,9 +170,13 @@ final class PublicationSupport {
         Map publication = server.publication instanceof Map ? server.publication as Map : [:]
         Map artifact = server.artifact instanceof Map ? server.artifact as Map : [:]
         Map sources = server.sourcesArtifact instanceof Map ? server.sourcesArtifact as Map : [:]
+        boolean preserved = (manifest.preservedTargetIds as List)?.contains('server-plugin') == true
+        String publicationVersion = publication.versionNumber?.toString()
+        String manifestVersion = manifest.version.toString()
+        boolean validVersion = publicationVersion == manifestVersion ||
+                (preserved && publicationVersion ==~ /${java.util.regex.Pattern.quote(manifestVersion)}\.[1-9][0-9]*/)
         if (publication.id != 'server-plugin' || publication.kind != 'server-plugin' ||
-                publication.name != "${manifest.version}+universal" ||
-                publication.versionNumber != manifest.version ||
+                publication.name != "${publicationVersion}+universal" || !validVersion ||
                 publication.channel != manifest.channel ||
                 publication.environment != 'server' ||
                 !(publication.loaders instanceof List) || (publication.loaders as List).isEmpty() ||

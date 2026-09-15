@@ -73,16 +73,21 @@ abstract class PlanReleaseTask extends DefaultTask {
         Map manifest = [platforms: catalog.mod.platforms, releaseNotes: [text: release.notes]]
         Map inventories = platforms.fetchAll(manifest, components, modrinthToken, curseKey)
         List<Map> githubAssets = existing == null ? [] : existing.assets as List<Map>
-        Set<String> allowed = components.collect { it.asset.file } as Set<String>
-        if (githubAssets.any { !allowed.contains(it.name) } ||
+        Map<String, Map> githubByComponent = components.collectEntries { Map component ->
+            [(component.id.toString()): findGithubAsset(component, githubAssets)]
+        }
+        Set<String> matchedGithubNames = githubByComponent.values().findAll { it != null }
+                .collect { it.name.toString() } as Set<String>
+        if (matchedGithubNames.size() != githubAssets.size() ||
                 githubAssets.collect { it.name }.toSet().size() != githubAssets.size()) {
             throw new IllegalStateException('Unknown or duplicate existing GitHub asset')
         }
         List<Map> preservedGithub = []
         components.each { Map component ->
             Map remote = [modrinth: inventories.modrinth[component.id], curseforge: inventories.curseforge[component.id]]
+            Map githubAsset = githubByComponent[component.id]
+            if (githubAsset != null) adoptPreservedPluginCoordinate(component, remote)
             boolean recovered = recoverPair(component, remote, githubAssets, output, this.&download)
-            Map githubAsset = githubAssets.find { it.name == component.asset.file }
             Map classification = ReleasePlan.classify(component, remote, recovered, githubAsset != null)
             component.build = classification.build
             component.preserve = classification.preserve
@@ -93,7 +98,8 @@ abstract class PlanReleaseTask extends DefaultTask {
                 }
                 String digest = github.remoteSha256(github.apiBase(), repositoryName, githubAsset, githubToken)
                 if (digest != component.asset.sha256) throw new IllegalStateException("${component.id}: GitHub bytes differ")
-                preservedGithub.add([file: component.asset.file, sha256: digest, id: githubAsset.id])
+                preservedGithub.add([file: githubAsset.name, assetFile: component.asset.file,
+                                     sha256: digest, id: githubAsset.id])
             }
         }
         verifyAvailability(platforms, components.findAll { !it.preserve }, modrinthToken, curseUploadToken)
@@ -115,6 +121,59 @@ abstract class PlanReleaseTask extends DefaultTask {
 
     File download(String url, File destination, Map hashes) {
         ReleaseDownload.fetch(url, destination, hashes)
+    }
+
+    static Map findGithubAsset(Map component, List<Map> assets) {
+        String file = component.asset.file.toString()
+        String stem = file.endsWith('.jar') ? file.substring(0, file.length() - 4) : file
+        List<Map> matches = assets.findAll { Map asset ->
+            String name = asset.name?.toString()
+            name == file || (component.id == 'server-plugin' &&
+                    name ==~ /${java.util.regex.Pattern.quote(stem)}\.[1-9][0-9]*\.jar/)
+        }
+        if (matches.size() > 1) {
+            throw new IllegalStateException("${component.id}: multiple GitHub asset aliases")
+        }
+        matches ? matches.first() : null
+    }
+
+    static void adoptPreservedPluginCoordinate(Map component, Map remote) {
+        if (component.id != 'server-plugin') return
+        String asset = component.asset.file.toString()
+        Map<String, List<Map>> matches = [
+                modrinth : (remote.modrinth as List<Map>).findAll {
+                    PublicationSupport.normalizedChannel('modrinth', it) == component.channel &&
+                            PublicationSupport.normalizedFileName('modrinth', it) == asset
+                },
+                curseforge: (remote.curseforge as List<Map>).findAll {
+                    !PublicationSupport.curseForgeChild(it) &&
+                            PublicationSupport.normalizedChannel('curseforge', it) == component.channel &&
+                            PublicationSupport.normalizedFileName('curseforge', it) == asset
+                }
+        ]
+        if (matches.values().any { it.size() > 1 }) {
+            throw new IllegalStateException('server-plugin: duplicate preserved artifact coordinate')
+        }
+        List<Map> coordinates = matches.collectMany { String platform, List<Map> entries ->
+            entries.collect { Map entry ->
+                [name: PublicationSupport.normalizedName(platform, entry),
+                 version: PublicationSupport.normalizedVersion(platform, entry)]
+            }
+        }
+        if (coordinates.isEmpty()) return
+        Set<String> names = coordinates.collect { it.name?.toString() } as Set<String>
+        Set<String> versions = coordinates.collect { it.version?.toString() } as Set<String>
+        if (names.size() != 1 || versions.size() != 1) {
+            throw new IllegalStateException('server-plugin: preserved marketplace coordinates differ')
+        }
+        String version = versions.first()
+        String base = component.versionNumber.toString()
+        if (!(version == base || version ==~ /${java.util.regex.Pattern.quote(base)}\.[1-9][0-9]*/) ||
+                names.first() != "${version}+universal") {
+            throw new IllegalStateException('server-plugin: invalid preserved marketplace coordinate')
+        }
+        component.name = names.first()
+        component.versionNumber = version
     }
 
     static boolean recoverPair(Map component, Map remote, List<Map> githubAssets, File output,
