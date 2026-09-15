@@ -65,7 +65,8 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                 { Map asset -> remoteSha256(api, repository, asset, token) })
         requireNoConflicts(plan)
         if (manifest.existingRelease != null) {
-            if (release?.id != manifest.existingRelease.id || release.body != manifest.existingRelease.body) {
+            if (release?.id != manifest.existingRelease.id ||
+                    !(release.body in [manifest.existingRelease.body, releaseBody(manifest)])) {
                 throw new IllegalStateException('Existing GitHub release changed since planning')
             }
             (manifest.preservedGithub as List<Map>).each { Map preserved ->
@@ -92,8 +93,9 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                     'POST', "${api}/repos/${repository}/releases", headers(token),
                     JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8),
                     'application/json', [201] as Set<Integer>, token)) as Map
-        } else if (manifest.existingRelease == null) {
-            Map update = new LinkedHashMap(metadata)
+        } else if (manifest.existingRelease == null ||
+                (manifest.pluginReplacement != null && release.body != metadata.body)) {
+            Map update = manifest.existingRelease == null ? new LinkedHashMap(metadata) : [body: metadata.body]
             update.remove('tag_name')
             release = json(request(
                     'PATCH', "${api}/repos/${repository}/releases/${release.id}", headers(token),
@@ -110,6 +112,21 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                     headers(token), asset.bytes, 'application/java-archive',
                     [201] as Set<Integer>, token)) as Map
             required(uploaded.id, "uploaded GitHub asset ID for ${action.file}")
+        }
+
+        if (manifest.pluginReplacement != null) {
+            Map afterUpload = findRelease(api, repository, manifest.version.toString(), token)
+            Map cleanup = GithubReleaseSupport.plan(manifest, afterUpload.assets as List<Map>,
+                    { Map asset -> remoteSha256(api, repository, asset, token) })
+            requireNoConflicts(cleanup)
+            String pluginFile = manifest.serverPlugin.artifact.file.toString()
+            if (!(cleanup.actions as List<Map>).any { it.file == pluginFile && it.action == 'keep' }) {
+                throw new IllegalStateException('New plugin upload must be verified before deleting the previous build')
+            }
+            (cleanup.actions as List<Map>).findAll { it.action == 'delete-previous-plugin' }.each { Map action ->
+                request('DELETE', "${api}/repos/${repository}/releases/assets/${action.remoteId}",
+                        headers(token), null, null, [204] as Set<Integer>, token)
+            }
         }
 
         Map finalRelease = findRelease(api, repository, manifest.version.toString(), token)

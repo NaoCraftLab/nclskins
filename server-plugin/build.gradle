@@ -7,7 +7,7 @@ plugins {
 def catalog = rootProject.extensions.extraProperties.get('nclskinsTargetCatalog')
 def pluginSpec = catalog.serverPlugin
 def packaging = pluginSpec.packaging
-def pluginVersion = project.version.toString()
+def pluginVersion = com.naocraftlab.skins.buildlogic.ServerPluginVersion.load(rootProject.rootDir)
 def artifactName = pluginSpec.artifact.toString().replace('{pluginVersion}', pluginVersion)
 def sourcesName = pluginSpec.sourcesArtifact.toString().replace('{pluginVersion}', pluginVersion)
 def serverFingerprint = providers.provider {

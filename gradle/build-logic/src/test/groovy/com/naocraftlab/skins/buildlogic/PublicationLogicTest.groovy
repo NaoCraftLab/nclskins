@@ -485,7 +485,7 @@ final class PublicationLogicTest {
                 javaReleases: [17, 21, 25],
                 minecraftVersion: '1.20.1',
                 gameVersions: [
-                    '1.20.1', '1.21.1', '1.21.11', '26.1', '26.1.1', '26.1.2', '26.2'],
+                    '1.20.1', '1.21.1', '1.21.11', '26.1', '26.1.1', '26.1.2', '26.2', '26.3'],
                 loaders: ['bukkit', 'spigot', 'paper', 'purpur', 'folia',
                           'velocity', 'bungeecord'],
                 dependencies: [modrinth: [], curseforge: []],
@@ -586,7 +586,7 @@ final class PublicationLogicTest {
                 'velocity', 'bungeecord'
         ], AssembleReleaseTask.serverPluginLoaders(catalog.serverPlugin.compatibility as Map))
         assertEquals([
-                '1.20.1', '1.21.1', '1.21.11', '26.1', '26.1.1', '26.1.2', '26.2'
+                '1.20.1', '1.21.1', '1.21.11', '26.1', '26.1.1', '26.1.2', '26.2', '26.3'
         ], AssembleReleaseTask.serverPluginGameVersions(catalog))
         assertEquals([17, 21, 25], AssembleReleaseTask.serverPluginJavaReleases(catalog))
     }

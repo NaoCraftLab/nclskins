@@ -1,8 +1,6 @@
 # 🌐 NCL Skins Plugin
 
-<a href="https://www.curseforge.com/minecraft/mc-mods/nclskins">
-  <img src="https://img.shields.io/static/v1?label=CurseForge&amp;message=NCL%20Skins&amp;color=fb4e44&amp;logo=curseforge&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins on CurseForge" />
-</a>
+<a href="https://modrinth.com/mod/nclskins"><img src="https://img.shields.io/static/v1?label=Modrinth&amp;message=NCL%20Skins&amp;color=1bd96a&amp;logo=modrinth&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins on Modrinth" /></a> <a href="https://www.curseforge.com/minecraft/mc-mods/nclskins"> <img src="https://img.shields.io/static/v1?label=CurseForge&amp;message=NCL%20Skins&amp;color=fb4e44&amp;logo=curseforge&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins on CurseForge" /> </a>
 
 NCL Skins Plugin is the optional server companion for NCL Skins. After Minecraft confirms an official skin or cape change, the plugin updates that player's appearance for everyone else on the server without requiring the player to disconnect and rejoin.
 
@@ -33,8 +31,9 @@ One universal JAR contains separate entrypoints for Bukkit-family servers, Veloc
 | 26.1.1 | Paper | Paper | Paper |
 | 26.1.2 | Paper, Purpur, Folia | Paper, Purpur, Folia | Paper, Purpur, Folia |
 | 26.2 | Paper, Purpur, Folia | Paper, Purpur, Folia | Paper, Purpur, Folia |
+| 26.3 | Paper | Paper | Paper |
 
-When client-server interaction changes, an updated plugin is released with the same version as the NCL Skins mod that introduces the change. Compatibility with older mod versions is not guaranteed. That plugin release becomes the new compatibility baseline: later mod versions remain compatible with it until another client-server change requires a new same-version plugin release.
+The plugin version combines a base version and a build number. For example, in `1.0.0.2`, `1.0.0` is the base version and `2` is the build number. This plugin works with NCL Skins mod version `1.0.0` and later versions until the way the client and server communicate changes. When that happens, the new plugin's base version will match the mod version that introduces the change. Compatibility with older mod versions is not guaranteed. Additional plugin builds that add support for newer Minecraft versions do not change which mod versions are compatible.
 
 ## ⚙️ Configuration
 

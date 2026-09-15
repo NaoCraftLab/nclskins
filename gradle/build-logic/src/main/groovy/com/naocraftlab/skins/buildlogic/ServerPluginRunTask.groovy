@@ -140,7 +140,7 @@ abstract class ServerPluginRunTask extends DefaultTask {
         boolean buildToolsKernel = topology.kernel in ['craftbukkit', 'spigot']
         String backendRuntime = topology.backendRuntime?.toString()
         Map runtimeSpec = runtime(catalog, buildToolsKernel
-                ? 'buildtools-200'
+                ? ServerPluginRuntimeSupport.buildToolsRuntime(catalog, topology.minecraft.toString()).id.toString()
                 : backendRuntime ?: "${topology.kernel}-${topology.minecraft}")
         File serverJar = resolveRuntime(root, catalog, runtimeSpec, topology.kernel.toString())
         File directory = new File(stateRoot, name)
@@ -162,7 +162,7 @@ abstract class ServerPluginRunTask extends DefaultTask {
     }
 
     private Role proxyRole(File root, Map catalog, Map topology, File stateRoot, File plugin) {
-        String runtimeId = topology.mode == 'velocity' ? 'velocity-4.0.0-6' : 'bungeecord-2086'
+        String runtimeId = (catalog.serverPluginRuntimes as List<Map>).find { it.platform == topology.mode }.id.toString()
         Map runtimeSpec = runtime(catalog, runtimeId)
         File proxyJar = resolveRuntime(root, catalog, runtimeSpec, null)
         File directory = new File(stateRoot, 'proxy')
@@ -188,7 +188,7 @@ abstract class ServerPluginRunTask extends DefaultTask {
 
     private File resolveRuntime(File root, Map catalog, Map runtime, String buildToolsKernel) {
         if (buildToolsKernel in ['craftbukkit', 'spigot']) {
-            return resolveBuildToolsRuntime(root, catalog, buildToolsKernel)
+            return resolveBuildToolsRuntime(root, catalog, runtime, buildToolsKernel)
         }
         File directory = new File(root, ".gradle/nclskins/server-runtimes/${runtime.id}")
         Files.createDirectories(directory.toPath())
@@ -206,22 +206,22 @@ abstract class ServerPluginRunTask extends DefaultTask {
         destination
     }
 
-    private File resolveBuildToolsRuntime(File root, Map catalog, String kernel) {
-        File directory = new File(root, ".gradle/nclskins/server-runtimes/buildtools-1.20.1/${kernel}")
+    private File resolveBuildToolsRuntime(File root, Map catalog, Map buildTools, String kernel) {
+        String minecraft = buildTools.version.toString()
+        File directory = new File(root, ".gradle/nclskins/server-runtimes/buildtools-${minecraft}/${kernel}")
         File provenance = new File(directory, 'provenance.json')
-        File result = new File(directory, "${kernel}-1.20.1.jar")
-        Map buildTools = runtime(catalog, 'buildtools-200')
+        File result = new File(directory, "${kernel}-${minecraft}.jar")
         if (result.exists() || provenance.exists()) {
             if (!result.isFile() || !provenance.isFile()) {
                 throw new GradleException("Incomplete BuildTools provenance for ${kernel}; " +
-                        "run ./gradlew resetServerPluginBuildToolsRuntime -PserverPluginKernel=${kernel}")
+                        "run ./gradlew resetServerPluginBuildToolsRuntime -PserverPluginKernel=${kernel} -PmcVersion=${minecraft}")
             }
             Map recorded
             try {
                 recorded = new JsonSlurper().parse(provenance) as Map
             } catch (RuntimeException malformed) {
                 throw new GradleException("Malformed BuildTools provenance for ${kernel}; " +
-                        "run ./gradlew resetServerPluginBuildToolsRuntime -PserverPluginKernel=${kernel}",
+                        "run ./gradlew resetServerPluginBuildToolsRuntime -PserverPluginKernel=${kernel} -PmcVersion=${minecraft}",
                         malformed)
             }
             String actual = ServerPluginRuntimeSupport.sha256(result.toPath())
@@ -229,20 +229,20 @@ abstract class ServerPluginRunTask extends DefaultTask {
                     !recorded.upstreamCommits.isEmpty() &&
                     recorded.upstreamCommits.values().every { it ==~ /[0-9a-f]{40}/ }
             boolean matches = recorded.schemaVersion == 1 && recorded.kernel == kernel &&
-                    recorded.minecraft == '1.20.1' &&
+                    recorded.minecraft == minecraft &&
                     recorded.buildToolsSha256 == buildTools.sha256 &&
                     recorded.resultSha256 == actual && commitsValid
             if (!matches) {
                 throw new GradleException("BuildTools provenance mismatch for ${kernel}; " +
-                        "run ./gradlew resetServerPluginBuildToolsRuntime -PserverPluginKernel=${kernel}")
+                        "run ./gradlew resetServerPluginBuildToolsRuntime -PserverPluginKernel=${kernel} -PmcVersion=${minecraft}")
             }
             return result
         }
         Files.createDirectories(directory.toPath())
         File tool = resolveRuntime(root, catalog, buildTools, null)
-        String javaHome = TargetRuntime.resolveJavaHome(17)
+        String javaHome = TargetRuntime.resolveJavaHome(buildTools.javaRelease as int)
         List<String> command = [new File(javaHome, 'bin/java').absolutePath, '-jar', tool.absolutePath,
-                                '--rev', '1.20.1']
+                                '--rev', minecraft]
         if (kernel == 'craftbukkit') command.addAll(['--compile', 'craftbukkit'])
         Process process = new ProcessBuilder(command).directory(directory).inheritIO().start()
         if (process.waitFor() != 0) throw new GradleException("BuildTools failed for ${kernel}")
@@ -250,7 +250,7 @@ abstract class ServerPluginRunTask extends DefaultTask {
             file.isFile() && file.name.toLowerCase(Locale.ROOT).startsWith(kernel) &&
                     file.name.endsWith('.jar') && file != tool
         }?.sort { File a, File b -> b.lastModified() <=> a.lastModified() } ?: []
-        if (candidates.isEmpty()) throw new GradleException("BuildTools did not produce ${kernel} 1.20.1")
+        if (candidates.isEmpty()) throw new GradleException("BuildTools did not produce ${kernel} ${minecraft}")
         Files.move(candidates.first().toPath(), result.toPath(), StandardCopyOption.REPLACE_EXISTING)
         Map<String, String> upstreamCommits = [:]
         ['BuildData', 'Bukkit', 'CraftBukkit', 'Spigot'].each { String name ->
@@ -265,7 +265,7 @@ abstract class ServerPluginRunTask extends DefaultTask {
         ServerPluginRuntimeSupport.writeAtomic(provenance.toPath(), JsonOutput.prettyPrint(JsonOutput.toJson([
                 schemaVersion: 1, buildToolsSha256: buildTools.sha256,
                 resultSha256: ServerPluginRuntimeSupport.sha256(result.toPath()), kernel: kernel,
-                minecraft: '1.20.1', upstreamCommits: upstreamCommits
+                minecraft: minecraft, upstreamCommits: upstreamCommits
         ])) + '\n')
         result
     }

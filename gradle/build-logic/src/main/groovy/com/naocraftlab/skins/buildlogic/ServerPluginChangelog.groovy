@@ -10,9 +10,10 @@ final class ServerPluginChangelog {
         if (!changelog.isFile()) {
             throw new IllegalArgumentException('PLUGIN_CHANGELOG.md is missing')
         }
-        String version = state.currentVersion.toString()
+        String version = (state.pluginVersion ?: state.currentVersion).toString()
         List<String> lines = Files.readAllLines(changelog.toPath(), StandardCharsets.UTF_8)
-        Pattern headingPattern = headingPattern(version)
+        Pattern headingPattern = state.pluginVersion != null
+                ? Pattern.compile('^## ' + Pattern.quote(version) + '$') : headingPattern(version)
         requireVersionFirstFormat(lines, null)
         List<Integer> matches = []
         lines.eachWithIndex { String line, int index ->
@@ -52,7 +53,7 @@ final class ServerPluginChangelog {
             }
             return notes
         }
-        if (!matches.isEmpty()) {
+        if (state.pluginVersion == null && !matches.isEmpty()) {
             throw new IllegalArgumentException(
                     "PLUGIN_CHANGELOG.md must not contain a '${version}' section when server plugin is unchanged")
         }

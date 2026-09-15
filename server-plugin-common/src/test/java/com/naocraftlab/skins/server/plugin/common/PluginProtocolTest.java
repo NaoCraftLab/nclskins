@@ -18,6 +18,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PluginProtocolTest {
     @Test
+    void pluginBuildRetainsTheThreeSectionProtocolBaseline() {
+        assertEquals(SemanticVersion.parse("1.0.0"), SemanticVersion.pluginBaseline("1.0.0.2"));
+        assertEquals(SemanticVersion.parse("1.0.0-beta.3"),
+                SemanticVersion.pluginBaseline("1.0.0.2-beta.3"));
+        assertThrows(IllegalArgumentException.class, () -> SemanticVersion.pluginBaseline("1.0.0.0"));
+    }
+    @Test
     void bukkitRefreshChannelMatchesTheZeroByteCommonProtocol() {
         assertEquals(AppearanceRefreshSignalProtocol.CHANNEL,
                 PluginChannels.APPEARANCE_REFRESH);

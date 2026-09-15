@@ -29,7 +29,8 @@ final class ServerPluginReleaseState {
             if (fingerprint == null) return
             Map decision = decide(release.version.toString(), fingerprint, active)
             if (decision.publish) {
-                active = [version: release.version, fingerprint: fingerprint]
+                String pluginVersion = ServerPluginVersion.atRef(repository, release.version.toString(), release.version.toString())
+                active = [version: ServerPluginVersion.parts(pluginVersion).base, fingerprint: fingerprint]
             }
         }
         String currentFingerprint = currentRef == currentVersion
@@ -40,13 +41,18 @@ final class ServerPluginReleaseState {
         }
         Map decision = decide(currentVersion, currentFingerprint, active)
         String previousActive = active?.version
+        String pluginVersion = currentVersion == CatalogTools.loadVersion(repository) &&
+                new File(repository, 'gradle/plugin-version.properties').isFile()
+                ? ServerPluginVersion.load(repository)
+                : ServerPluginVersion.atRef(repository, currentRef, currentVersion)
         [
                 schemaVersion            : 1,
                 sealed                   : true,
                 currentVersion           : currentVersion,
+                pluginVersion            : pluginVersion,
                 publish                  : decision.publish,
                 reason                   : decision.reason,
-                activeVersion            : decision.publish ? currentVersion : previousActive,
+                activeVersion            : decision.publish ? ServerPluginVersion.parts(pluginVersion).base : previousActive,
                 previousActiveVersion    : previousActive,
                 currentFingerprint       : currentFingerprint,
                 activeFingerprint        : decision.publish

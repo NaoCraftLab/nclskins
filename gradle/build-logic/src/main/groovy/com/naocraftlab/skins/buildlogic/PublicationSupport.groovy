@@ -29,6 +29,9 @@ final class PublicationSupport {
             throw new IllegalStateException('unsupported release manifest')
         }
         Map manifest = CatalogTools.materialize(parsed) as Map
+        if (manifest.pluginReplacement != null && manifest.releasePlanDigest == null) {
+            throw new IllegalStateException('Plugin replacement requires a pinned release plan')
+        }
         if (manifest.prerelease != (manifest.channel != 'release') ||
                 manifest.targetCount != (manifest.targets as List).size() ||
                 manifest.targetCount != (manifest.selectedTargetIds as List)?.size()) {
@@ -108,7 +111,8 @@ final class PublicationSupport {
                     plan.components.collect { it.id }.toSet() !=
                     PublishPlatformsTask.publicationTargets(manifest).collect { it.id }.toSet() ||
                     manifest.preservedTargetIds != plan.components.findAll { it.preserve }.collect { it.id } ||
-                    manifest.existingRelease != plan.existingRelease || manifest.preservedGithub != plan.preservedGithub) {
+                    manifest.existingRelease != plan.existingRelease || manifest.preservedGithub != plan.preservedGithub ||
+                    manifest.pluginReplacement != plan.pluginReplacement) {
                 throw new IllegalStateException('Bundle differs from pinned release plan')
             }
             plan.components.findAll { !it.build }.each { Map component ->
@@ -173,10 +177,17 @@ final class PublicationSupport {
         boolean preserved = (manifest.preservedTargetIds as List)?.contains('server-plugin') == true
         String publicationVersion = publication.versionNumber?.toString()
         String manifestVersion = manifest.version.toString()
-        boolean validVersion = publicationVersion == manifestVersion ||
+        boolean validVersion = (server.pluginVersion != null && publicationVersion == server.pluginVersion) || publicationVersion == manifestVersion ||
                 (preserved && publicationVersion ==~ /${java.util.regex.Pattern.quote(manifestVersion)}\.[1-9][0-9]*/)
+        Map versionParts = ServerPluginVersion.parts(publicationVersion ?: '')
+        validVersion = validVersion && ServerPluginReleaseState.compareVersions(
+                versionParts.base.toString(), manifestVersion) <= 0
+        String expectedFile = "nclskins-plugin-${publicationVersion}.jar"
+        boolean validFile = artifact.file == expectedFile || (preserved && versionParts.build == 1 &&
+                artifact.file == "nclskins-plugin-${versionParts.base}.jar")
         if (publication.id != 'server-plugin' || publication.kind != 'server-plugin' ||
-                publication.name != "${publicationVersion}+universal" || !validVersion ||
+                publication.name != "${publicationVersion}+universal" || !validVersion || !validFile ||
+                sources.file != artifact.file?.toString()?.replaceFirst(/\.jar$/, '-sources.jar') ||
                 publication.channel != manifest.channel ||
                 publication.environment != 'server' ||
                 !(publication.loaders instanceof List) || (publication.loaders as List).isEmpty() ||

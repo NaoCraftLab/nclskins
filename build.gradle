@@ -315,6 +315,7 @@ tasks.register('resetServerPluginBuildToolsRuntime', ResetServerPluginBuildTools
     description = 'Moves one local BuildTools result to recoverable runtime trash.'
     repositoryDirectory.set(layout.projectDirectory)
     kernel.set(providers.gradleProperty('serverPluginKernel').orElse(''))
+    minecraftVersion.set(providers.gradleProperty('mcVersion').orElse('1.20.1'))
 }
 
 targetCatalog.serverPluginTopologies.each { Map topology ->
@@ -326,7 +327,7 @@ targetCatalog.serverPluginTopologies.each { Map topology ->
         repositoryDirectory.set(layout.projectDirectory)
         delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
         pluginArtifact.set(layout.projectDirectory.file(
-                "server-plugin/build/libs/nclskins-plugin-${modVersion}.jar"))
+                "server-plugin/build/libs/nclskins-plugin-${ServerPluginVersion.load(rootDir)}.jar"))
         topologyId.set(topology.id.toString())
         dryRun.set(serverRunDryRun)
         developmentLogging.set(devLogging)

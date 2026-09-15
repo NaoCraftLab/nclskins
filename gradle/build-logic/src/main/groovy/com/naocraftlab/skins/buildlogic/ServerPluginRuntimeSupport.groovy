@@ -11,6 +11,13 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 
 final class ServerPluginRuntimeSupport {
+    static Map buildToolsRuntime(Map catalog, String minecraft) {
+        List<Map> matches = (catalog.serverPluginRuntimes as List<Map>).findAll {
+            it.platform == 'buildtools' && it.version == minecraft
+        }
+        if (matches.size() != 1) throw new IllegalArgumentException("No exact BuildTools runtime for ${minecraft}")
+        matches.first()
+    }
     static final String EULA_MARKER = '.gradle/nclskins/server-runtimes/eula-accepted.json'
 
     static String taskName(Map topology) {

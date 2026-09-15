@@ -50,19 +50,20 @@ abstract class PlanReleaseTask extends DefaultTask {
         File output = outputDirectory.get().asFile
         if (output.exists() && !output.deleteDir()) throw new IllegalStateException('Cannot reset release plan output')
         Files.createDirectories(new File(output, 'assets').toPath())
-        Map state = ServerPluginReleaseState.compute(repository, catalog, version)
-        String pluginNotes = ServerPluginChangelog.validate(new File(repository, 'PLUGIN_CHANGELOG.md'), state)
+        Map state = pluginState(repository, catalog, version)
+        String pluginNotes = pluginReleaseNotes(repository, state)
         List<Map> components = CatalogTools.releaseTargets(catalog).collect { Map target ->
             AssembleReleaseTask.publicationTarget(catalog, target, release,
                     ReleasePlan.placeholder(AssembleReleaseTask.artifactName(target, version), 'mod', target.id.toString()),
                     ReleasePlan.placeholder(AssembleReleaseTask.sourceArtifactName(target, version), 'mod-sources', target.id.toString()))
         }
-        String pluginFile = "nclskins-plugin-${version}.jar"
+        String pluginVersion = state.pluginVersion ?: version
+        String pluginFile = "nclskins-plugin-${pluginVersion}.jar"
         boolean existingPlugin = existing?.assets?.any { it.name == pluginFile }
         if (state.publish || existingPlugin) {
             List<String> games = AssembleReleaseTask.serverPluginGameVersions(catalog)
-            components.add([id: 'server-plugin', kind: 'server-plugin', name: "${version}+universal".toString(),
-                    versionNumber: version, channel: release.channel, minecraftVersion: games.first(),
+            components.add([id: 'server-plugin', kind: 'server-plugin', name: "${pluginVersion}+universal".toString(),
+                    versionNumber: pluginVersion, channel: release.channel, minecraftVersion: games.first(),
                     gameVersions: games, loaders: AssembleReleaseTask.serverPluginLoaders(catalog.serverPlugin.compatibility as Map),
                     javaRelease: 17, javaReleases: AssembleReleaseTask.serverPluginJavaReleases(catalog),
                     environment: 'server', dependencies: [modrinth: [], curseforge: []],
@@ -73,11 +74,17 @@ abstract class PlanReleaseTask extends DefaultTask {
         Map manifest = [platforms: catalog.mod.platforms, releaseNotes: [text: release.notes]]
         Map inventories = platforms.fetchAll(manifest, components, modrinthToken, curseKey)
         List<Map> githubAssets = existing == null ? [] : existing.assets as List<Map>
+        Map replacement = previousPluginAsset(components.find { it.id == 'server-plugin' }, githubAssets)
+        if (replacement != null) {
+            replacement = [file: replacement.name, id: replacement.id,
+                           sha256: github.remoteSha256(github.apiBase(), repositoryName, replacement, githubToken)]
+        }
         Map<String, Map> githubByComponent = components.collectEntries { Map component ->
             [(component.id.toString()): findGithubAsset(component, githubAssets)]
         }
         Set<String> matchedGithubNames = githubByComponent.values().findAll { it != null }
                 .collect { it.name.toString() } as Set<String>
+        if (replacement != null) matchedGithubNames.add(replacement.file.toString())
         if (matchedGithubNames.size() != githubAssets.size() ||
                 githubAssets.collect { it.name }.toSet().size() != githubAssets.size()) {
             throw new IllegalStateException('Unknown or duplicate existing GitHub asset')
@@ -89,6 +96,9 @@ abstract class PlanReleaseTask extends DefaultTask {
             if (githubAsset != null) adoptPreservedPluginCoordinate(component, remote)
             boolean recovered = recoverPair(component, remote, githubAssets, output, this.&download)
             Map classification = ReleasePlan.classify(component, remote, recovered, githubAsset != null)
+            if (component.id == 'server-plugin' && classification.build) {
+                requirePluginBuildAdvance(component, remote)
+            }
             component.build = classification.build
             component.preserve = classification.preserve
             component.states = classification.states
@@ -108,7 +118,7 @@ abstract class PlanReleaseTask extends DefaultTask {
                 catalogCommit: commit, release: release, serverState: state, pluginNotes: pluginNotes,
                 platforms: catalog.mod.platforms, existingRelease: existing == null ? null :
                     [id: existing.id, body: existing.body, name: existing.name, prerelease: existing.prerelease],
-                preservedGithub: preservedGithub, components: components,
+                preservedGithub: preservedGithub, pluginReplacement: replacement, components: components,
                 buildTargetIds: components.findAll { it.build && it.id != 'server-plugin' }.collect { it.id },
                 buildPlugin: components.any { it.build && it.id == 'server-plugin' }])
         Files.writeString(new File(output, 'release-plan.json').toPath(), CatalogTools.json(plan))
@@ -123,18 +133,70 @@ abstract class PlanReleaseTask extends DefaultTask {
         ReleaseDownload.fetch(url, destination, hashes)
     }
 
+    Map pluginState(File repository, Map catalog, String version) {
+        ServerPluginReleaseState.compute(repository, catalog, version)
+    }
+
+    String pluginReleaseNotes(File repository, Map state) {
+        ServerPluginChangelog.validate(new File(repository, 'PLUGIN_CHANGELOG.md'), state)
+    }
+
+    static Map previousPluginAsset(Map component, List<Map> assets) {
+        if (component == null) return null
+        Map current = findGithubAsset(component, assets)
+        List<Map> previous = assets.findAll {
+            it.name?.toString()?.startsWith('nclskins-plugin-') && it != current
+        }
+        if (previous.size() > 1) throw new IllegalStateException('Multiple previous plugin assets')
+        if (previous.isEmpty()) return null
+        Map asset = previous.first()
+        def matcher = asset.name.toString() =~ /^nclskins-plugin-(.+)\.jar$/
+        if (!matcher.matches()) throw new IllegalStateException('Unknown plugin asset')
+        String oldVersion = matcher.group(1)
+        String newVersion = component.versionNumber.toString()
+        if (ServerPluginVersion.parts(oldVersion).base != ServerPluginVersion.parts(newVersion).base ||
+                ServerPluginVersion.compare(newVersion, oldVersion) <= 0) {
+            throw new IllegalStateException('Plugin replacement must advance the build within the same version')
+        }
+        asset
+    }
+
     static Map findGithubAsset(Map component, List<Map> assets) {
         String file = component.asset.file.toString()
         String stem = file.endsWith('.jar') ? file.substring(0, file.length() - 4) : file
         List<Map> matches = assets.findAll { Map asset ->
             String name = asset.name?.toString()
             name == file || (component.id == 'server-plugin' &&
+                    CatalogTools.VERSION_PATTERN.matcher(component.versionNumber.toString()).matches() &&
                     name ==~ /${java.util.regex.Pattern.quote(stem)}\.[1-9][0-9]*\.jar/)
         }
         if (matches.size() > 1) {
             throw new IllegalStateException("${component.id}: multiple GitHub asset aliases")
         }
         matches ? matches.first() : null
+    }
+
+    static void requirePluginBuildAdvance(Map component, Map remote) {
+        String desired = component.versionNumber.toString()
+        Map desiredParts = ServerPluginVersion.parts(desired)
+        Set<BigInteger> previousBuilds = [] as Set<BigInteger>
+        ['modrinth', 'curseforge'].each { String platform ->
+            (remote[platform] as List<Map>).findAll {
+                PublicationSupport.normalizedChannel(platform, it) == component.channel &&
+                        !(platform == 'curseforge' && PublicationSupport.curseForgeChild(it))
+            }.each { Map entry ->
+                String previous = PublicationSupport.normalizedVersion(platform, entry)
+                if (ServerPluginVersion.compare(desired, previous) <= 0) {
+                    throw new IllegalStateException('New plugin build must be newer than published marketplace versions')
+                }
+                Map previousParts = ServerPluginVersion.parts(previous)
+                if (previousParts.base == desiredParts.base) previousBuilds.add(previousParts.build as BigInteger)
+            }
+        }
+        BigInteger expected = previousBuilds.isEmpty() ? BigInteger.ONE : previousBuilds.max() + BigInteger.ONE
+        if (desiredParts.build != expected) {
+            throw new IllegalStateException("Next plugin build must be ${expected} in ${desiredParts.base}")
+        }
     }
 
     static void adoptPreservedPluginCoordinate(Map component, Map remote) {

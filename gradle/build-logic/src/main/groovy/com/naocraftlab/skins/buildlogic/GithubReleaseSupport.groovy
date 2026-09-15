@@ -22,10 +22,29 @@ final class GithubReleaseSupport {
             throw new IllegalStateException('Preserved GitHub asset aliases overlap')
         }
         Map<String, List<Map>> remoteByName = remoteAssets.groupBy { it.name?.toString() ?: '' }
+        Map replacement = manifest.pluginReplacement as Map
+        Map plugin = canonical.values().find { it.kind == 'server-plugin' }
+        if (replacement != null && (plugin == null || replacement.file == plugin.file ||
+                !(replacement.sha256 ==~ /[0-9a-f]{64}/) || replacement.id == null)) {
+            throw new IllegalStateException('Invalid plugin replacement record')
+        }
+        if (replacement != null) {
+            String version = plugin.file.toString().replaceFirst('^nclskins-plugin-', '').replaceFirst(/\.jar$/, '')
+            if (PlanReleaseTask.previousPluginAsset([asset: plugin, versionNumber: version],
+                    [[name: replacement.file]]) == null) {
+                throw new IllegalStateException('Replacement must identify an older plugin build')
+            }
+        }
         List<Map> actions = []
         remoteByName.each { String name, List<Map> entries ->
             if (entries.size() > 1) {
                 actions.add([action: 'conflict', file: name, reason: 'multiple GitHub assets use the same name'])
+            } else if (replacement != null && name == replacement.file) {
+                Map old = entries.first()
+                boolean exact = requiredId(old) == replacement.id.toString() &&
+                        remoteSha256.call(old) == replacement.sha256
+                actions.add([action: exact ? 'delete-previous-plugin' : 'conflict', file: name,
+                             remoteId: requiredId(old), reason: exact ? 'superseded plugin build' : 'previous plugin changed'])
             } else if (!desired.containsKey(name)) {
                 actions.add([action: 'conflict', file: name, remoteId: requiredId(entries.first()),
                              reason: 'unknown existing release asset'])
@@ -54,6 +73,10 @@ final class GithubReleaseSupport {
                 actions.add([action: 'conflict', file: name, kind: asset.kind,
                              remoteId: remoteId, reason: 'existing release asset differs'])
             }
+        }
+        if (replacement != null && !remoteByName.containsKey(replacement.file) &&
+                !actions.any { it.file == plugin.file && it.action == 'keep' }) {
+            actions.add([action: 'conflict', file: replacement.file, reason: 'previous plugin disappeared before replacement'])
         }
         [actions: actions, conflicts: actions.findAll { it.action == 'conflict' }]
     }

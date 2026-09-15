@@ -369,6 +369,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
             boolean allowBuild) {
         Map base = [
                 publish              : state.publish,
+                pluginVersion        : state.pluginVersion,
                 reason               : state.reason,
                 activeVersion        : state.activeVersion,
                 previousActiveVersion: state.previousActiveVersion,
@@ -388,7 +389,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
                         "NCL Skins Plugin ${platform} projectId is required for publication")
             }
         }
-        String version = release.version.toString()
+        String version = (state.pluginVersion ?: release.version).toString()
         String jarName = catalog.serverPlugin.artifact.toString()
                 .replace('{pluginVersion}', version)
         String sourcesName = catalog.serverPlugin.sourcesArtifact.toString()

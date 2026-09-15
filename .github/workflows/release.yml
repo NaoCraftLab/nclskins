@@ -223,7 +223,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Preflight and publish missing files
+    name: Preflight and publish components
     needs: [plan, bundle]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' &&
@@ -258,7 +258,7 @@ jobs:
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
           CURSEFORGE_UPLOAD_TOKEN: ${{ secrets.CURSEFORGE_UPLOAD_TOKEN }}
         run: ./gradlew publishReleasePlatforms -PreleaseBundle=release-bundle --no-daemon
-      - name: Add missing GitHub production JARs
+      - name: Publish GitHub production JARs
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./gradlew publishGithubRelease -PreleaseBundle=release-bundle --no-daemon

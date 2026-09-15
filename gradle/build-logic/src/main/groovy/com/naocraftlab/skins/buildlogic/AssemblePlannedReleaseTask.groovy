@@ -77,7 +77,8 @@ abstract class AssemblePlannedReleaseTask extends DefaultTask {
                 releaseNotes: [file: notesFile.name, sha256: ReleaseBundle.sha256(notesFile), text: notes],
                 targets: targets, serverPlugin: server, assets: assets,
                 releasePlanDigest: plan.digest, preservedTargetIds: components.findAll { it.preserve }.collect { it.id },
-                existingRelease: plan.existingRelease, preservedGithub: plan.preservedGithub]
+                existingRelease: plan.existingRelease, preservedGithub: plan.preservedGithub,
+                pluginReplacement: plan.pluginReplacement]
         Files.writeString(new File(output, 'release-manifest.json').toPath(), CatalogTools.json(manifest))
         Files.copy(planFile.get().asFile.toPath(), new File(output, 'release-plan.json').toPath(), StandardCopyOption.REPLACE_EXISTING)
         PublicationSupport.loadManifest(output)

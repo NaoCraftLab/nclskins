@@ -32,7 +32,7 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
     void verify() {
         File repository = repositoryDirectory.get().asFile
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile)
-        String version = CatalogTools.loadVersion(versionFile.get().asFile.toPath())
+        String version = ServerPluginVersion.load(repositoryDirectory.get().asFile)
         File artifact = artifactFile.get().asFile
         Map plugin = catalog.serverPlugin as Map
         String expectedName = plugin.artifact.toString().replace('{pluginVersion}', version)

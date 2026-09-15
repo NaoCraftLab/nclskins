@@ -46,14 +46,14 @@ final class ReleaseLogicTest {
         List<String> pluginLines = pluginChangelog.readLines()
         assertTrue(pluginChangelog.isFile())
         assertFalse(new File(repository, 'SERVER_CHANGELOG.md').exists())
-        assertEquals('## 1.0.0.1', pluginLines.find { !it.isBlank() })
+        assertEquals('## 1.0.0.2', pluginLines.find { !it.isBlank() })
         assertFalse(pluginLines.any { it.startsWith('# ') })
-        String pluginNotes = ServerPluginChangelog.validate(pluginChangelog, [
-                currentVersion: '1.0.0', publish: true, reason: 'stable-promotion'
-        ])
-        assertTrue(pluginNotes.startsWith(
-                '### Added\n\n- **Universal server plugin for NCL Skins**'))
-        assertFalse(pluginNotes.contains('## 1.0.0'))
+        assertThrows(IllegalArgumentException) {
+            ServerPluginChangelog.validate(pluginChangelog, [
+                    currentVersion: currentVersion, pluginVersion: ServerPluginVersion.load(repository),
+                    publish: true, reason: 'server-change'])
+        }
+
     }
 
     @Test
@@ -126,7 +126,7 @@ final class ReleaseLogicTest {
         assertTrue(workflow.indexOf('Final preflight without writes') <
                 workflow.indexOf('Publish missing marketplace files'))
         assertTrue(workflow.indexOf('Publish missing marketplace files') <
-                workflow.indexOf('Add missing GitHub production JARs'))
+                workflow.indexOf('Publish GitHub production JARs'))
     }
 
     @Test

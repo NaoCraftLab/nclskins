@@ -54,7 +54,7 @@ public final class NclSkinsVelocityPlugin {
         this.diagnostics = new Slf4jDiagnosticSink(logger);
         String implementation = getClass().getPackage()
                 .getImplementationVersion();
-        this.version = SemanticVersion.parse(implementation == null
+        this.version = SemanticVersion.pluginBaseline(implementation == null
                 ? "1.0.0-alpha.1" : implementation);
     }
 

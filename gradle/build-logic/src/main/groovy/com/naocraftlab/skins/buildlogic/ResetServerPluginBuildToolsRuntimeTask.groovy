@@ -13,11 +13,17 @@ import java.nio.file.StandardCopyOption
 import java.time.Instant
 
 abstract class ResetServerPluginBuildToolsRuntimeTask extends DefaultTask {
+    ResetServerPluginBuildToolsRuntimeTask() {
+        minecraftVersion.convention('1.20.1')
+    }
     @Internal
     abstract DirectoryProperty getRepositoryDirectory()
 
     @Input
     abstract Property<String> getKernel()
+
+    @Input
+    abstract Property<String> getMinecraftVersion()
 
     @TaskAction
     void reset() {
@@ -27,14 +33,16 @@ abstract class ResetServerPluginBuildToolsRuntimeTask extends DefaultTask {
                     'serverPluginKernel must be craftbukkit or spigot')
         }
         File root = repositoryDirectory.get().asFile
+        String minecraft = minecraftVersion.get()
+        ServerPluginRuntimeSupport.buildToolsRuntime(CatalogTools.loadCatalog(root), minecraft)
         File source = new File(root,
-                ".gradle/nclskins/server-runtimes/buildtools-1.20.1/${selected}")
+                ".gradle/nclskins/server-runtimes/buildtools-${minecraft}/${selected}")
         if (!source.exists()) {
             logger.lifecycle("No BuildTools runtime exists for ${selected}")
             return
         }
         File trash = new File(root, '.gradle/nclskins/server-runtimes/.trash/' +
-                "buildtools-1.20.1-${selected}-${Instant.now().toEpochMilli()}")
+                "buildtools-${minecraft}-${selected}-${Instant.now().toEpochMilli()}")
         Files.createDirectories(trash.parentFile.toPath())
         try {
             Files.move(source.toPath(), trash.toPath(), StandardCopyOption.ATOMIC_MOVE)

@@ -980,13 +980,14 @@ final class CatalogTools {
                 '1.21.11': ['paper', 'purpur', 'folia'],
                 '26.1.1' : ['paper'],
                 '26.1.2' : ['paper', 'purpur', 'folia'],
-                '26.2'   : ['paper', 'purpur', 'folia']
+                '26.2'   : ['paper', 'purpur', 'folia'],
+                '26.3'   : ['paper']
         ]
         if (plugin.compatibility != expectedCompatibility ||
-                plugin.excluded != ['waterfall', 'sponge', 'geyser', '26.3']) {
+                plugin.excluded != ['waterfall', 'sponge', 'geyser']) {
             errors.add('serverPlugin compatibility and exclusions differ from the approved matrix')
         }
-        Map expectedDevelopmentCompatibility = ['26.3': ['paper']]
+        Map expectedDevelopmentCompatibility = [:]
         if (plugin.developmentCompatibility != expectedDevelopmentCompatibility) {
             errors.add('serverPlugin development compatibility differs from the approved candidate matrix')
         }
@@ -1070,16 +1071,16 @@ final class CatalogTools {
             }
         }
         if (!runtimeIds.containsAll(expectedBackendRuntimeIds + [
-                'velocity-4.0.0-6', 'bungeecord-2086', 'bungeeguard-1.4.0',
+                'velocity-4.2.0-30', 'bungeecord-2096', 'bungeeguard-1.4.0',
                 'protocollib-5.4.0', 'buildtools-200'] as Set) ||
                 runtimes.find { it.id == 'paper-26.1.1' }?.channel != 'ALPHA' ||
-                runtimes.find { it.id == 'paper-26.3-rc-3' } != [
-                        id: 'paper-26.3-rc-3', platform: 'paper', version: '26.3-rc-3',
-                        build: '1', channel: 'ALPHA',
+                runtimes.find { it.id == 'paper-26.3' } != [
+                        id: 'paper-26.3', platform: 'paper', version: '26.3',
+                        build: '5', channel: 'ALPHA',
                         url: 'https://fill-data.papermc.io/v1/objects/' +
-                                '098602998d2676ad8ec36e53b0da3ccb9f5e9b901ddfac9ee5b6fe50a330f6f3/' +
-                                'paper-26.3-rc-3-1.jar',
-                        sha256: '098602998d2676ad8ec36e53b0da3ccb9f5e9b901ddfac9ee5b6fe50a330f6f3',
+                                '7f98951a70ed7b3f28906b1c534e599f70d0dbbab1ef58bb2272f7d348bc0e51/' +
+                                'paper-26.3-5.jar',
+                        sha256: '7f98951a70ed7b3f28906b1c534e599f70d0dbbab1ef58bb2272f7d348bc0e51',
                         javaRelease: 25] ||
                 runtimes.find { it.id == 'folia-1.20.1' }?.channel != 'ALPHA' ||
                 runtimes.find { it.id == 'folia-26.2' }?.channel != 'BETA') {
@@ -1113,7 +1114,7 @@ final class CatalogTools {
                 return
             }
             if (developmentOnly && (mode != 'standalone' ||
-                    topology.backendRuntime != 'paper-26.3-rc-3' ||
+                    topology.backendRuntime != 'paper-26.3' ||
                     !runtimeIds.contains(topology.backendRuntime))) {
                 errors.add("${topology.id}: invalid development-only runtime routing")
             }
@@ -1150,15 +1151,15 @@ final class CatalogTools {
                 errors.add("${topology.id}: Spigot is supported only on 1.20.1 outside Velocity")
             }
         }
-        if (topologies.size() != rawTopologies.size() || topologies.size() != 30 ||
-                counts != [standalone: 17, velocity: 6, bungeecord: 7]) {
-            errors.add('serverPluginTopologies must contain 17 standalone, 6 Velocity, and 7 BungeeCord runs')
+        if (topologies.size() != rawTopologies.size() || topologies.size() != 33 ||
+                counts != [standalone: 18, velocity: 7, bungeecord: 8]) {
+            errors.add('serverPluginTopologies must contain 18 standalone, 7 Velocity, and 8 BungeeCord runs')
         }
         Set<Integer> modPorts = (catalog.targets as List).collectMany { Map target ->
             targetRuntimeSpecs(target).collect { (it.serverPort as Number).intValue() }
         } as Set<Integer>
-        List<Integer> expectedPorts = (26000..26052).toList() + [26153, 26054, 26055]
-        if (ports != expectedPorts || ports.toSet().size() != 56 ||
+        List<Integer> expectedPorts = (26000..26052).toList() + [26153] + (26054..26062).toList()
+        if (ports != expectedPorts || ports.toSet().size() != 63 ||
                 !ports.toSet().intersect(modPorts).isEmpty()) {
             errors.add('server plugin ports must match the exact topology allocation, be unique, and be disjoint from mod runs')
         }

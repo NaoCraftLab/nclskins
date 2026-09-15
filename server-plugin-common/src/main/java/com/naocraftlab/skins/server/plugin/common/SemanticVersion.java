@@ -41,6 +41,12 @@ public record SemanticVersion(
                 matcher.group(5) == null ? 0 : Integer.parseInt(matcher.group(5)));
     }
 
+    public static SemanticVersion pluginBaseline(String value) {
+        Objects.requireNonNull(value, "value");
+        return parse(value.replaceFirst(
+                "^(\\d+\\.\\d+\\.\\d+)\\.[1-9][0-9]*((?:-(?:alpha|beta)\\.[1-9][0-9]*)?)$", "$1$2"));
+    }
+
     public boolean isStable() {
         return preRelease == PreRelease.STABLE;
     }

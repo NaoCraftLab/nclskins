@@ -1,3 +1,9 @@
+## 1.0.0.2
+
+### Added
+
+- Support for Minecraft 26.3 on Paper, Velocity, and BungeeCord
+
 ## 1.0.0.1
 
 ### Added

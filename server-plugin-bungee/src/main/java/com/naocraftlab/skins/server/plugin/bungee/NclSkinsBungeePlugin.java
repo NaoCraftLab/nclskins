@@ -55,7 +55,7 @@ public final class NclSkinsBungeePlugin extends Plugin implements Listener {
             return;
         }
         String implementation = getClass().getPackage().getImplementationVersion();
-        version = SemanticVersion.parse(implementation == null
+        version = SemanticVersion.pluginBaseline(implementation == null
                 ? getDescription().getVersion() : implementation);
         getProxy().registerChannel(PluginChannels.PROXY_REFRESH);
         getProxy().getPluginManager().registerListener(this, this);

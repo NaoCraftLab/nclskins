@@ -148,7 +148,7 @@ final class SemanticVerifier {
         Files.walk(root).withCloseable { stream ->
             stream.filter { Path source ->
                 String relative = root.relativize(source).toString().replace('\\', '/')
-                Files.isRegularFile(source) && relative.contains('/src/main/java/') &&
+                !relative.startsWith('.') && Files.isRegularFile(source) && relative.contains('/src/main/java/') &&
                         relative.endsWith('.java') && !relative.startsWith('build/') &&
                         !relative.contains('/build/') && !relative.startsWith('runs/')
             }.forEach { Path source ->
@@ -229,7 +229,7 @@ final class SemanticVerifier {
         Files.walk(root).withCloseable { stream ->
             stream.filter { Path resource ->
                 String relative = root.relativize(resource).toString().replace('\\', '/')
-                Files.isRegularFile(resource) && relative.contains('/src/main/resources/') &&
+                !relative.startsWith('.') && Files.isRegularFile(resource) && relative.contains('/src/main/resources/') &&
                         !relative.contains('/build/')
             }.forEach { Path resource ->
                 verifyCodeIdentifier(
@@ -290,7 +290,8 @@ final class SemanticVerifier {
         ] as Set
         Files.walk(root).withCloseable { stream ->
             stream.filter { Path source ->
-                Files.isRegularFile(source) && source.toString().endsWith('.java') &&
+                !root.relativize(source).toString().startsWith('.') &&
+                        Files.isRegularFile(source) && source.toString().endsWith('.java') &&
                         source.toString().contains('/src/main/') &&
                         !source.startsWith(root.resolve('gradle/build-logic'))
             }.forEach { Path source ->
