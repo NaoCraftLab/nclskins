@@ -1132,15 +1132,15 @@ final class CatalogTools {
                 errors.add("${topology.id}: Spigot is supported only on 1.20.1 outside Velocity")
             }
         }
-        if (topologies.size() != rawTopologies.size() || topologies.size() != 31 ||
-                counts != [standalone: 18, velocity: 6, bungeecord: 7]) {
-            errors.add('serverPluginTopologies must contain 18 standalone, 6 Velocity, and 7 BungeeCord runs')
+        if (topologies.size() != rawTopologies.size() || topologies.size() != 30 ||
+                counts != [standalone: 17, velocity: 6, bungeecord: 7]) {
+            errors.add('serverPluginTopologies must contain 17 standalone, 6 Velocity, and 7 BungeeCord runs')
         }
         Set<Integer> modPorts = (catalog.targets as List).collectMany { Map target ->
             targetRuntimeSpecs(target).collect { (it.serverPort as Number).intValue() }
         } as Set<Integer>
-        List<Integer> expectedPorts = (26000..26052).toList() + [26153, 26054, 26055, 26056]
-        if (ports != expectedPorts || ports.toSet().size() != 57 ||
+        List<Integer> expectedPorts = (26000..26052).toList() + [26153, 26054, 26055]
+        if (ports != expectedPorts || ports.toSet().size() != 56 ||
                 !ports.toSet().intersect(modPorts).isEmpty()) {
             errors.add('server plugin ports must match the exact topology allocation, be unique, and be disjoint from mod runs')
         }

@@ -551,8 +551,7 @@
     {"id":"1.21.11-paper-bungeecord","minecraft":"1.21.11","kernel":"paper","mode":"bungeecord","ports":{"proxy":26044,"lobby":26045,"target":26046},"dependencies":["bungeecord","bungeeguard"]},
     {"id":"26.1.1-paper-bungeecord","minecraft":"26.1.1","kernel":"paper","mode":"bungeecord","ports":{"proxy":26047,"lobby":26048,"target":26049},"dependencies":["bungeecord","bungeeguard"]},
     {"id":"26.1.2-paper-bungeecord","minecraft":"26.1.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26050,"lobby":26051,"target":26052},"dependencies":["bungeecord","bungeeguard"]},
-    {"id":"26.2-paper-bungeecord","minecraft":"26.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26153,"lobby":26054,"target":26055},"dependencies":["bungeecord","bungeeguard"]},
-    {"id":"26.3-paper-standalone","minecraft":"26.3","kernel":"paper","mode":"standalone","ports":{"server":26056},"dependencies":[],"developmentOnly":true,"backendRuntime":"paper-26.3-rc-3"}
+    {"id":"26.2-paper-bungeecord","minecraft":"26.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26153,"lobby":26054,"target":26055},"dependencies":["bungeecord","bungeeguard"]}
   ],
   "baseBundles": ["portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {
@@ -2091,10 +2090,7 @@
       "path": "targets/26.3/fabric",
       "minecraft": {
         "version": "26.3",
-        "compileVersion": "26.3-rc-3",
-        "runtimeVersion": "26.3-rc.3",
-        "minimumRuntimeVersion": "26.3-rc.3",
-        "predicate": ">=26.3-rc.3",
+        "predicate": ">=26.3",
         "epoch": "26.3"
       },
       "loader": {

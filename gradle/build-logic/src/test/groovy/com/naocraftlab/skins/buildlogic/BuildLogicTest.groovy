@@ -103,21 +103,14 @@ final class BuildLogicTest {
         assertEquals(
                 'https://github.com/lucko/BungeeGuard/releases/download/v1.4.0/BungeeGuard.jar',
                 catalog.serverPluginRuntimes.find { it.id == 'bungeeguard-1.4.0' }.url)
-        assertEquals(31, catalog.serverPluginTopologies.size())
-        assertEquals(57, catalog.serverPluginTopologies.collectMany {
+        assertEquals(30, catalog.serverPluginTopologies.size())
+        assertEquals(56, catalog.serverPluginTopologies.collectMany {
             (it.ports as Map).values()
         }.toSet().size())
-        Map paper263 = catalog.serverPluginTopologies.find {
-            it.id == '26.3-paper-standalone'
-        } as Map
-        assertEquals(true, paper263.developmentOnly)
-        assertEquals('paper-26.3-rc-3', paper263.backendRuntime)
         assertEquals(['paper'], catalog.serverPlugin.developmentCompatibility['26.3'])
         assertFalse(catalog.serverPlugin.compatibility.containsKey('26.3'))
         assertTrue(catalog.serverPlugin.excluded.contains('26.3'))
-        assertFalse(catalog.serverPluginTopologies.any {
-            it.minecraft == '26.3' && it.mode != 'standalone'
-        })
+        assertFalse(catalog.serverPluginTopologies.any { it.minecraft == '26.3' })
         Map characterization = CatalogTools.loadJson(
                 new File(repository, 'gradle/server-plugin-characterization.json'))
         assertEquals(1, characterization.schemaVersion)
@@ -127,22 +120,22 @@ final class BuildLogicTest {
                 (characterization.sortedEntryNamesSha256 as Map).keySet() as Set)
         assertTrue((characterization.invariants as List)
                 .contains('actor-receives-no-respawn-or-self-refresh'))
-        Map experimental = catalog.targets.find { it.id == 'fabric-26.3' } as Map
-        assertFalse(experimental.releaseEligible as boolean)
-        assertEquals('26.3-rc-3', CatalogTools.minecraftCompileVersion(experimental))
-        assertEquals('26.3-rc.3', experimental.minecraft.runtimeVersion)
-        assertEquals('26.3-rc.3', experimental.minecraft.minimumRuntimeVersion)
-        assertEquals('>=26.3-rc.3', experimental.minecraft.predicate)
-        assertEquals('0.19.5', experimental.loader.version)
-        assertEquals('>=0.19.5', experimental.loader.predicate)
-        assertEquals('0.160.5+26.3', experimental.loader.apiVersion)
-        assertEquals('>=0.160.5+26.3', experimental.loader.apiPredicate)
-        assertEquals('21.0.0-beta.1', experimental.loader.modMenuVersion)
+        Map finalTarget = catalog.targets.find { it.id == 'fabric-26.3' } as Map
+        assertFalse(finalTarget.releaseEligible as boolean)
+        assertEquals('26.3', CatalogTools.minecraftCompileVersion(finalTarget))
+        assertEquals([
+                version: '26.3', predicate: '>=26.3', epoch: '26.3'
+        ], finalTarget.minecraft)
+        assertEquals('0.19.5', finalTarget.loader.version)
+        assertEquals('>=0.19.5', finalTarget.loader.predicate)
+        assertEquals('0.160.5+26.3', finalTarget.loader.apiVersion)
+        assertEquals('>=0.160.5+26.3', finalTarget.loader.apiPredicate)
+        assertEquals('21.0.0-beta.1', finalTarget.loader.modMenuVersion)
         assertEquals('3.9.6+26.3-fabric',
                 catalog.optionalDependencies.yet_another_config_lib_v3.versions['fabric-26.3'])
         assertEquals('maven.modrinth:bTTf2DEw:EEE7nXWy',
                 catalog.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.3'].coordinate)
-        assertEquals([97, 1], experimental.metadata.packFormat)
+        assertEquals([97, 1], finalTarget.metadata.packFormat)
         CatalogTools.validate(repository, catalog)
     }
 
@@ -1451,13 +1444,9 @@ final class BuildLogicTest {
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
                 IdeaRunConfigurations.RUN_KINDS.size() +
                 catalog.serverPluginTopologies.size(), taskNames.size())
-        assertEquals(76, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
-        Map paper263 = catalog.serverPluginTopologies.find {
-            it.id == '26.3-paper-standalone'
-        } as Map
-        assertEquals('runServerPluginPaper263', ServerPluginRuntimeSupport.taskName(paper263))
-        assertEquals('26.3:paper:runServer',
-                ServerPluginRuntimeSupport.configurationName(paper263))
+        assertEquals(75, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
+        assertFalse(IdeaRunConfigurations.orderedConfigurationNames(catalog)
+                .contains('26.3:paper:runServer'))
         assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
         assertEquals('26.1.1', IdeaRunConfigurations.displayFolder('26.1.1'))
         assertEquals('26.1.2', IdeaRunConfigurations.displayFolder('26.1.2'))
@@ -1768,7 +1757,7 @@ final class BuildLogicTest {
                            'Velocity Paper', 'BungeeCord Paper'],
                 '26.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
                          'Velocity Paper', 'BungeeCord Paper'],
-                '26.3': ['LAN', 'Fabric', 'Paper']
+                '26.3': ['LAN', 'Fabric']
         ]
         expectedNames.each { String version, List<String> names ->
             List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)
@@ -1788,8 +1777,6 @@ final class BuildLogicTest {
                 .find { it.name == 'Paper' }.ip)
         assertEquals('127.0.0.1:25578', RunDirectorySupport.serverEntries(catalog, '26.1.2')
                 .find { it.name == 'Fabric' }.ip)
-        assertEquals('127.0.0.1:26056', RunDirectorySupport.serverEntries(catalog, '26.3')
-                .find { it.name == 'Paper' }.ip)
     }
 
     @Test
