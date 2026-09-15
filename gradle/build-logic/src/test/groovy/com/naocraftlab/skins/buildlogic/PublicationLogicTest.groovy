@@ -1148,6 +1148,39 @@ final class PublicationLogicTest {
     }
 
     @Test
+    void curseForgeDiscoversHiddenSourcesAndChecksTheirAuthenticatedHashes() {
+        Map target = desired('fabric-1.20.1')
+        Map parent = exactCurseForge(target)
+        Map child = exactCurseForgeSources(target) + [modId: 1637371]
+        Map listed = [id: child.id, projectId: 1637371, parentProjectFileId: parent.id, fileName: child.fileName]
+        HttpServer server = HttpServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
+        List<String> credentials = new CopyOnWriteArrayList<>()
+        server.createContext('/api/v1/mods/1637371/files/42/additional-files') { exchange ->
+            credentials.add(exchange.requestHeaders.getFirst('X-API-Key') ?: 'none')
+            respond(exchange, JsonOutput.toJson([data: [listed]]))
+        }
+        server.createContext('/v1/mods/1637371/files') { exchange ->
+            credentials.add(exchange.requestHeaders.getFirst('X-API-Key'))
+            respond(exchange, JsonOutput.toJson(exchange.requestURI.query != null ?
+                    [data: [parent], pagination: [resultCount: 1, totalCount: 1]] : [data: child]))
+        }
+        server.start()
+        try {
+            LocalApiPublishTask task = ProjectBuilder.builder().build().tasks.create('hiddenSources', LocalApiPublishTask)
+            task.base = "http://127.0.0.1:${server.address.port}"
+            Map manifest = [platforms: catalog.mod.platforms, curseForgeSourceParents: [target.asset.file]]
+            List<Map> files = task.fetchCurseForge(manifest, 'fixture-key')
+            assertEquals('skip', PublicationSupport.classify('curseforge', target, files).action)
+            assertEquals(['fixture-key', 'none', 'fixture-key'], credentials)
+            child.hashes = [[algo: 1, value: 'f' * 40]]
+            assertEquals('conflict', PublicationSupport.classify('curseforge', target,
+                    task.fetchCurseForge(manifest, 'fixture-key')).action)
+            child.parentProjectFileId = 999
+            assertThrows(IllegalStateException) { task.fetchCurseForge(manifest, 'fixture-key') }
+        } finally { server.stop(0) }
+    }
+
+    @Test
     void curseForgeUploadSendsProductionThenSourcesChild() {
         HttpServer server = HttpServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
         List<String> authentication = new CopyOnWriteArrayList<>()

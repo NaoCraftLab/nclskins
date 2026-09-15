@@ -159,6 +159,11 @@ abstract class PublishPlatformsTask extends DefaultTask {
             targets.each { Map target ->
                 Map view = manifestForTarget(manifest, target)
                 String projectId = view.platforms[platform].projectId.toString()
+                if (platform == 'curseforge') {
+                    view = new LinkedHashMap(view) + [curseForgeSourceParents: targets.findAll {
+                        manifestForTarget(manifest, it).platforms.curseforge.projectId.toString() == projectId
+                    }.collect { it.asset.file.toString() }]
+                }
                 if (!byProject.containsKey(projectId)) {
                     byProject[projectId] = platform == 'modrinth'
                             ? fetchModrinth(view, modrinthToken)
@@ -244,6 +249,37 @@ abstract class PublishPlatformsTask extends DefaultTask {
             if (resultCount == 0 || (totalCount != null && index >= totalCount) ||
                     (totalCount == null && page.size() < pageSize)) break
             if (index > 10_000) throw new IllegalStateException('CurseForge pagination exceeded 10000 files')
+        }
+        List<Map> parents = files.findAll { it.fileName in (manifest.curseForgeSourceParents ?: []) }
+        parents.each { Map parent ->
+            String website = apiBase('CURSEFORGE_WEBSITE_API_BASE', 'https://www.curseforge.com')
+            Object additional = json(request('GET', "${website}/api/v1/mods/${projectId}/files/${parent.id}/additional-files",
+                    [:], null, null, [200] as Set<Integer>, []))
+            if (!(additional instanceof Map) || !(additional.data instanceof List) || additional.data.size() > 1000) {
+                throw new IllegalStateException('Invalid CurseForge additional-file inventory')
+            }
+            Set<String> children = [] as Set
+            additional.data.each { Object entry ->
+                if (!(entry instanceof Map) || !(entry.id instanceof Number) ||
+                        entry.projectId?.toString() != projectId ||
+                        entry.parentProjectFileId?.toString() != parent.id.toString() ||
+                        !children.add(entry.id.toString())) {
+                    throw new IllegalStateException('Invalid or duplicate CurseForge child identity')
+                }
+                Object detail = json(request('GET', "${base}/v1/mods/${projectId}/files/${entry.id}",
+                        ['X-API-Key': apiKey], null, null, [200] as Set<Integer>, [apiKey]))
+                Map child = detail instanceof Map && detail.data instanceof Map ? detail.data as Map : [:]
+                if (child.id != entry.id || child.modId?.toString() != projectId ||
+                        child.parentProjectFileId?.toString() != parent.id.toString() ||
+                        child.fileName != entry.fileName || !(child.hashes instanceof List) || child.hashes.isEmpty()) {
+                    throw new IllegalStateException('CurseForge child detail differs from parent inventory')
+                }
+                List<Map> existing = files.findAll { it.id == child.id }
+                if (existing.size() > 1 || (!existing.isEmpty() && existing.first() != child)) {
+                    throw new IllegalStateException('Conflicting CurseForge child records')
+                }
+                if (existing.isEmpty()) files.add(child)
+            }
         }
         files
     }

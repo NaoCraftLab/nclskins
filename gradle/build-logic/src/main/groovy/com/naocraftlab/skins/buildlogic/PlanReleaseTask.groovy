@@ -88,6 +88,9 @@ abstract class PlanReleaseTask extends DefaultTask {
             component.states = classification.states
             Map githubAsset = githubAssets.find { it.name == component.asset.file }
             if (githubAsset != null) {
+                if (!classification.preserve) {
+                    throw new IllegalStateException("${component.id}: published component requires repair; refusing implicit marketplace writes")
+                }
                 String digest = github.remoteSha256(github.apiBase(), repositoryName, githubAsset, githubToken)
                 if (digest != component.asset.sha256) throw new IllegalStateException("${component.id}: GitHub bytes differ")
                 preservedGithub.add([file: component.asset.file, sha256: digest, id: githubAsset.id])

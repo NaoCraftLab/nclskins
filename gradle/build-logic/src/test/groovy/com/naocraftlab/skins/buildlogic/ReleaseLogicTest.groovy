@@ -110,6 +110,7 @@ final class ReleaseLogicTest {
         assertTrue(workflow.contains('retention-days: 90'))
         assertTrue(workflow.contains('resume_run:'))
         assertFalse(workflow.contains('fullCheck'))
+        assertTrue(workflow.contains('NCLSKINS_JAVA25: ${{ steps.checks-java.outputs.path }}'))
         assertFalse(workflow.contains('historical_ref'))
         assertTrue(workflow.indexOf('Final preflight without writes') <
                 workflow.indexOf('Publish missing marketplace files'))
