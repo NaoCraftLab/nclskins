@@ -1,4 +1,4 @@
-## 1.0.0
+## 1.0.0.1
 
 ### Added
 
@@ -12,7 +12,7 @@
     - Accept refreshes only from connections verified by trusted proxy forwarding
     - Use protected forwarding through Velocity modern forwarding or BungeeGuard
 
-## 1.0.0-beta.3
+## 1.0.0.1-beta.3
 
 ### Changed
 
@@ -23,7 +23,7 @@
 
 - Refresh commands, command help, and autocomplete entries from servers and proxies
 
-## 1.0.0-beta.2
+## 1.0.0.1-beta.2
 
 - Initial release of the universal server plugin for supported Bukkit-family servers, Velocity, and BungeeCord
 - Refreshes confirmed official skin changes for players in the world and player list without reconnecting
