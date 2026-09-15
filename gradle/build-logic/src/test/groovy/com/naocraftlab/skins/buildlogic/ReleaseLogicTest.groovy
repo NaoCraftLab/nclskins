@@ -48,11 +48,10 @@ final class ReleaseLogicTest {
         assertFalse(new File(repository, 'SERVER_CHANGELOG.md').exists())
         assertEquals('## 1.0.0.2', pluginLines.find { !it.isBlank() })
         assertFalse(pluginLines.any { it.startsWith('# ') })
-        assertThrows(IllegalArgumentException) {
-            ServerPluginChangelog.validate(pluginChangelog, [
-                    currentVersion: currentVersion, pluginVersion: ServerPluginVersion.load(repository),
-                    publish: true, reason: 'server-change'])
-        }
+        String pluginNotes = ServerPluginChangelog.validate(pluginChangelog, [
+                currentVersion: currentVersion, pluginVersion: ServerPluginVersion.load(repository),
+                publish: true, reason: 'server-change'])
+        assertFalse(pluginNotes.isBlank())
 
     }
 
