@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "tagCommit": "1a8c197f60d81f97e57527f3761d10cf8df5e0e2",
+  "platforms": {
+    "modrinthProjectId": "axxWLWkK",
+    "curseForgeProjectId": 1637371,
+    "pluginModrinthProjectId": "JO4kIWk2",
+    "pluginCurseForgeProjectId": 1649689,
+    "modrinthVersionIds": {
+      "fabric-1.20.1": "mCYr3kHq",
+      "forge-1.20.1": "GY6MVISE",
+      "fabric-1.21.1": "Uqs9GFqV",
+      "neoforge-1.21.1": "88IfZugl",
+      "fabric-1.21.11": "VfOxFBBU",
+      "neoforge-1.21.11": "tEcX7raE",
+      "fabric-26.1": "zRvuju30",
+      "neoforge-26.1": "8GelMHZj",
+      "fabric-26.2": "ULrNNELa",
+      "neoforge-26.2": "gtFkpXq9"
+    },
+    "pluginModrinthVersionId": "b4t6WgPV"
+  },
+  "assets": [
+    {"name":"nclskins-1.0.0+1.20.1-fabric.jar","sha256":"b7a95c6b6a8292a64c853322f734d13d89fc6fcdb554439df0a6100464383d1b"},
+    {"name":"nclskins-1.0.0+1.20.1-forge.jar","sha256":"827fd3177ccf5b5725b7cb4e2365364bf439aa92c2c723868b49dd09966c1c1a"},
+    {"name":"nclskins-1.0.0+1.21.1-fabric.jar","sha256":"54480c7fe49af431382944367e6e06de094f5bf323b5c2cf918c545027655279"},
+    {"name":"nclskins-1.0.0+1.21.1-neoforge.jar","sha256":"2ee40fd57ab9ebd7a44dbaa5fc82382eec9566a76524cba259cc2d3a53027df3"},
+    {"name":"nclskins-1.0.0+1.21.11-fabric.jar","sha256":"9b7712c37a246253d18c585fbfff87c1634c689cc58859bda38c80f619d7e627"},
+    {"name":"nclskins-1.0.0+1.21.11-neoforge.jar","sha256":"771c7486227d45dd60da20c7df16fe2d6a94421f273e584d7df87553e0db8307"},
+    {"name":"nclskins-1.0.0+26.1-fabric.jar","sha256":"c1425fcf1cb6f0ee8a75ac4a285fbab9402cb2bd1b131ee18c659288cd6c74f5"},
+    {"name":"nclskins-1.0.0+26.1-neoforge.jar","sha256":"fd63e968a0681f09554cc5ff1e8739a9199bcbbd9f1118b82d126ec5b67c5d9a"},
+    {"name":"nclskins-1.0.0+26.2-fabric.jar","sha256":"8ac073c076876023280fb4507f518c637eee96be4ffa6e5ae86e28aff4930a59"},
+    {"name":"nclskins-1.0.0+26.2-neoforge.jar","sha256":"0bd09a9767a8ab6b96442b75f5ac91b90e215af4d559f6ffe6ad948e4d8e1db7"},
+    {"name":"nclskins-plugin-1.0.0.jar","sha256":"4881fd76c186e20cc9a40935ad7f5a64d2804a3d3fc06ececb96757141d7185d"}
+  ]
+}

@@ -4,6 +4,8 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.TaskAction
 
@@ -21,10 +23,14 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
     @InputDirectory
     abstract DirectoryProperty getBundleDirectory()
 
+    @Input
+    abstract Property<Boolean> getPreflightOnly()
+
     private transient HttpClient client
 
     PublishGithubReleaseTask() {
         outputs.upToDateWhen { false }
+        preflightOnly.convention(false)
     }
 
     @TaskAction
@@ -34,12 +40,23 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         String token = requireEnvironment('GITHUB_TOKEN')
         String repository = requireRepository()
         String api = apiBase()
-        request(
+        Map tagReference = json(request(
                 'GET', "${api}/repos/${repository}/git/ref/tags/${encodePath(manifest.version.toString())}",
-                headers(token), null, null, [200] as Set<Integer>, token)
+                headers(token), null, null, [200] as Set<Integer>, token)) as Map
+        String remoteTagCommit = resolveTagCommit(tagReference) { String tagObject ->
+            json(request(
+                    'GET', "${api}/repos/${repository}/git/tags/${tagObject}",
+                    headers(token), null, null, [200] as Set<Integer>, token)) as Map
+        }
+        if (remoteTagCommit != manifest.tagCommit) {
+            throw new IllegalStateException(
+                    "Remote tag commit ${remoteTagCommit} differs from verified release tag " +
+                            manifest.tagCommit)
+        }
         Map release = findRelease(api, repository, manifest.version.toString(), token)
-        if (manifest.mode in ['backfill', 'reconcile-tag'] && release == null) {
-            throw new IllegalStateException('backfill/reconcile-tag requires an existing GitHub Release')
+        if (manifest.mode in ['moved-tag', 'backfill', 'reconcile-tag'] && release == null) {
+            throw new IllegalStateException(
+                    'moved-tag/backfill/reconcile-tag requires an existing GitHub Release')
         }
 
         Map plan = GithubReleaseSupport.plan(
@@ -47,6 +64,10 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                 release == null ? [] : release.assets as List<Map>,
                 { Map asset -> remoteSha256(api, repository, asset, token) })
         requireNoConflicts(plan)
+        if (preflightOnly.get()) {
+            appendSummary(manifest, plan)
+            return
+        }
 
         Map metadata = [
                 tag_name   : manifest.version,
@@ -115,6 +136,29 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
             throw new IllegalStateException('GitHub Release must contain a mod or plugin component')
         }
         sections.join('\n\n') + '\n'
+    }
+
+    static String resolveTagCommit(Map reference, Closure<Map> fetchAnnotatedTag) {
+        Object raw = reference.object
+        Set<String> seen = [] as Set<String>
+        for (int depth = 0; depth < 5; depth++) {
+            if (!(raw instanceof Map)) {
+                throw new IllegalStateException('GitHub tag reference object is malformed')
+            }
+            Map object = raw as Map
+            String type = object.type?.toString()
+            String sha = object.sha?.toString()
+            if (!(sha ==~ /[0-9a-f]{40}/) || !(type in ['commit', 'tag'])) {
+                throw new IllegalStateException('GitHub tag reference object is malformed')
+            }
+            if (type == 'commit') return sha
+            if (!seen.add(sha)) {
+                throw new IllegalStateException('GitHub annotated tag chain contains a cycle')
+            }
+            Map annotated = fetchAnnotatedTag.call(sha)
+            raw = annotated?.object
+        }
+        throw new IllegalStateException('GitHub annotated tag chain is too deep')
     }
 
     Map findRelease(String api, String repository, String tag, String token) {

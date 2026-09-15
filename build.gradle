@@ -26,6 +26,7 @@ def requestedCapabilityKey = providers.gradleProperty('capabilityKey').orNull
 def requestedReleaseTag = providers.gradleProperty('releaseTag').orNull
 def requestedReleaseMode = providers.gradleProperty('releaseMode').getOrElse('tag')
 def requestedExistingReleaseAssets = providers.gradleProperty('existingReleaseAssets').orNull
+def requestedHistoricalReleaseRef = providers.gradleProperty('historicalReleaseRef').orNull
 def requestedReleaseBundle = providers.gradleProperty('releaseBundle').orNull
 def requestedFromRef = providers.gradleProperty('fromRef').orNull
 def requestedToRef = providers.gradleProperty('toRef').orNull
@@ -540,11 +541,12 @@ def materializeHistoricalReleaseSources = tasks.register(
         'materializeHistoricalReleaseSources', MaterializeHistoricalReleaseSourcesTask) {
     group = 'release setup'
     description = 'Builds exact-tag source JARs for existing compatibility-backfill binaries.'
-    onlyIf { requestedReleaseMode == 'backfill' }
+    onlyIf { requestedReleaseMode in ['backfill', 'moved-tag'] }
     repositoryDirectory.set(layout.projectDirectory)
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
     releaseTag.set(requestedReleaseTag ?: '')
+    historicalRef.set(requestedHistoricalReleaseRef ?: "refs/tags/${requestedReleaseTag ?: ''}")
     if (requestedExistingReleaseAssets != null) {
         existingAssetsDirectory.set(layout.projectDirectory.dir(requestedExistingReleaseAssets))
     }
@@ -570,10 +572,12 @@ tasks.register('assembleRelease', AssembleReleaseTask) {
     if (requestedExistingReleaseAssets != null) {
         existingAssetsDirectory.set(layout.projectDirectory.dir(requestedExistingReleaseAssets))
     }
-    if (requestedReleaseMode == 'backfill') {
+    if (requestedReleaseMode in ['backfill', 'moved-tag']) {
         dependsOn materializeHistoricalReleaseSources
         historicalSourcesDirectory.set(
                 materializeHistoricalReleaseSources.flatMap { it.sourcesDirectory })
+        historicalReleaseRef.set(
+                requestedHistoricalReleaseRef ?: "refs/tags/${requestedReleaseTag ?: ''}")
     }
     releaseRoot.set(layout.buildDirectory.dir('release'))
     outputs.upToDateWhen { false }
@@ -594,9 +598,41 @@ tasks.register('publishReleasePlatforms', PublishPlatformsTask) {
     }
 }
 
+tasks.register('preflightReleasePlatforms', PublishPlatformsTask) {
+    group = 'release setup'
+    description = 'Checks all Modrinth and CurseForge release coordinates without writing.'
+    preflightOnly.set(true)
+    doFirst {
+        if (requestedReleaseBundle == null) {
+            throw new GradleException('Use -PreleaseBundle=<verified release bundle directory>')
+        }
+    }
+    if (requestedReleaseBundle != null) {
+        bundleDirectory.set(layout.projectDirectory.dir(requestedReleaseBundle))
+    } else {
+        bundleDirectory.set(layout.buildDirectory.dir('missing-release-bundle'))
+    }
+}
+
 tasks.register('publishGithubRelease', PublishGithubReleaseTask) {
     group = 'release'
     description = 'Creates or reconciles the GitHub Release from a verified release bundle.'
+    doFirst {
+        if (requestedReleaseBundle == null) {
+            throw new GradleException('Use -PreleaseBundle=<verified release bundle directory>')
+        }
+    }
+    if (requestedReleaseBundle != null) {
+        bundleDirectory.set(layout.projectDirectory.dir(requestedReleaseBundle))
+    } else {
+        bundleDirectory.set(layout.buildDirectory.dir('missing-release-bundle'))
+    }
+}
+
+tasks.register('preflightGithubRelease', PublishGithubReleaseTask) {
+    group = 'release setup'
+    description = 'Checks the GitHub Release and production assets without writing.'
+    preflightOnly.set(true)
     doFirst {
         if (requestedReleaseBundle == null) {
             throw new GradleException('Use -PreleaseBundle=<verified release bundle directory>')

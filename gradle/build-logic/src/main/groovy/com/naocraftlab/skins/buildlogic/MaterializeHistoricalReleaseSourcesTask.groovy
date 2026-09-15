@@ -23,6 +23,9 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
     @Input
     abstract Property<String> getReleaseTag()
 
+    @Input
+    abstract Property<String> getHistoricalRef()
+
     @InputDirectory
     abstract DirectoryProperty getExistingAssetsDirectory()
 
@@ -38,7 +41,8 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
                     "Historical source tag ${releaseTag.get()} differs from configured version ${version}")
         }
         Map currentCatalog = CatalogTools.loadCatalog(repository)
-        HistoricalReleaseSources.requireReachableTag(repository, version)
+        String ref = historicalRef.get()
+        HistoricalReleaseSources.requireReachableRef(repository, ref, version)
         File existing = existingAssetsDirectory.get().asFile
         AssembleReleaseTask.validateExistingAssetSet(existing, currentCatalog, version)
 
@@ -67,13 +71,22 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
         try {
             ReleaseSelection.git(repository, [
                     'worktree', 'add', '--detach', worktree.absolutePath,
-                    "refs/tags/${version}"
+                    ref
             ])
             worktreeAdded = true
-            String tagCommit = HistoricalReleaseSources.requireTaggedCheckout(
-                    repository, worktree, version)
+            String tagCommit = HistoricalReleaseSources.requireCheckout(
+                    repository, worktree, ref, version)
             Map taggedCatalog = CatalogTools.loadCatalog(worktree)
             CatalogTools.validate(worktree, taggedCatalog)
+
+            List<String> missingHistoricalProduction = CatalogTools.releaseTargets(taggedCatalog)
+                    .collect { Map target -> AssembleReleaseTask.artifactName(target, version) }
+                    .findAll { String name -> !new File(existing, name).isFile() }
+            if (!missingHistoricalProduction.isEmpty()) {
+                throw new IllegalStateException(
+                        'Existing release is missing historical production JARs: ' +
+                                missingHistoricalProduction.sort().join(', '))
+            }
 
             List<File> copied = []
             historicalTargets.each { Map currentTarget ->

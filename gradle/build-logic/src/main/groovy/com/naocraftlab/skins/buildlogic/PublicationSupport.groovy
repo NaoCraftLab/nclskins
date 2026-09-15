@@ -14,9 +14,13 @@ final class PublicationSupport {
         }
         Object parsed = new JsonSlurper().parse(manifestFile)
         if (!(parsed instanceof Map) || parsed.schemaVersion != 4 ||
-                !(parsed.mode in ['tag', 'backfill', 'reconcile-tag']) ||
+                !(parsed.mode in ['tag', 'moved-tag', 'backfill', 'reconcile-tag']) ||
                 !(parsed.version instanceof String) ||
                 !CatalogTools.VERSION_PATTERN.matcher(parsed.version as String).matches() ||
+                !(parsed.sourceCommit instanceof String) ||
+                !(parsed.sourceCommit ==~ /[0-9a-f]{40}/) ||
+                !(parsed.tagCommit instanceof String) ||
+                !(parsed.tagCommit ==~ /[0-9a-f]{40}/) ||
                 !(parsed.channel in ['release', 'beta', 'alpha']) ||
                 !(parsed.prerelease instanceof Boolean) ||
                 !(parsed.targets instanceof List) || !(parsed.assets instanceof List) ||

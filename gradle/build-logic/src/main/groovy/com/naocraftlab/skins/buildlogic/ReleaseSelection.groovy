@@ -3,6 +3,46 @@ package com.naocraftlab.skins.buildlogic
 import groovy.json.JsonSlurper
 
 final class ReleaseSelection {
+    static Map selectMovedTag(
+            File repository, Map catalog, String releaseTag, String oldRef, String mainRef) {
+        if (!CatalogTools.VERSION_PATTERN.matcher(releaseTag ?: '').matches()) {
+            throw new IllegalArgumentException("Invalid moved release tag ${releaseTag}")
+        }
+        if (!(oldRef ==~ /[0-9a-f]{40}/) || oldRef == '0' * 40) {
+            throw new IllegalArgumentException('Moved release tag requires an exact 40-character old commit')
+        }
+        String oldCommit = git(repository, ['rev-parse', "${oldRef}^{commit}"]).trim()
+        String newCommit = git(repository, ['rev-parse', "${releaseTag}^{commit}"]).trim()
+        String mainCommit = git(repository, ['rev-parse', "${mainRef}^{commit}"]).trim()
+        if (oldCommit == newCommit) {
+            throw new IllegalStateException('Moved release tag old and new commits are identical')
+        }
+        git(repository, ['merge-base', '--is-ancestor', oldCommit, newCommit])
+        git(repository, ['merge-base', '--is-ancestor', newCommit, mainCommit])
+        List<String> firstParent = git(repository, ['rev-list', '--first-parent', newCommit])
+                .readLines().findAll { !it.isBlank() }
+        if (!firstParent.contains(oldCommit)) {
+            throw new IllegalStateException('Moved release tag old commit is not on the new commit first-parent history')
+        }
+        String oldVersion = git(repository, [
+                'show', "${oldCommit}:gradle/version.properties"
+        ]).readLines().findResult { String line ->
+            line.startsWith('modVersion=') ? line.substring('modVersion='.length()).trim() : null
+        }
+        if (oldVersion != releaseTag) {
+            throw new IllegalStateException(
+                    "Moved release tag old commit version ${oldVersion} differs from ${releaseTag}")
+        }
+        [
+                sourceCommit: newCommit,
+                historicalCommit: oldCommit,
+                baseTag: null,
+                paths: [],
+                targetIds: CatalogTools.releaseTargets(catalog).collect { it.id.toString() },
+                reasons: [:]
+        ]
+    }
+
     static Map selectTag(File repository, Map catalog, String releaseTag) {
         String sourceCommit = git(repository, ['rev-parse', "${releaseTag}^{commit}"]).trim()
         String baseTag = nearestPreviousTag(repository, releaseTag)

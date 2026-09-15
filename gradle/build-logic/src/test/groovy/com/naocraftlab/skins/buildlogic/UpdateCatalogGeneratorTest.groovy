@@ -68,6 +68,25 @@ final class UpdateCatalogGeneratorTest {
     }
 
     @Test
+    void movedStableTagAssociatesTheNewTargetAfterCatalogActivation() {
+        Map activated = CatalogTools.materialize(catalog) as Map
+        CatalogTools.selectTarget(activated, 'fabric-26.3').releaseEligible = true
+        Map movedRelease = release('1.0.0',
+                CatalogTools.releaseTargets(activated)*.id as List<String>)
+        List<Map> inventory = GithubReleaseInventory.parse(
+                activated, JsonOutput.toJson([movedRelease]).getBytes(StandardCharsets.UTF_8))
+
+        Map<String, String> site = UpdateCatalogSite.files(activated, inventory)
+        Map common = new groovy.json.JsonSlurper().parseText(
+                site['updates/v1/catalog.json']) as Map
+
+        assertEquals(['1.0.0'], common.targets.'fabric-26.3'.versions)
+        assertEquals('fabric', common.targets.'fabric-26.3'.loader)
+        assertEquals('26.3', common.targets.'fabric-26.3'.minecraftVersion)
+        assertFalse(site.containsKey('updates/v1/native/fabric-26.3.json'))
+    }
+
+    @Test
     void duplicateVersionsAssetsAndConflictingUrlsFailClosed() {
         assertThrows(IllegalArgumentException) {
             parse([release('1.0.0-beta.3', ['fabric-26.2']),

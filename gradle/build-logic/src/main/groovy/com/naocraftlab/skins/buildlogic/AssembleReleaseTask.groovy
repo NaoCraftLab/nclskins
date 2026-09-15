@@ -47,6 +47,10 @@ abstract class AssembleReleaseTask extends DefaultTask {
     @InputDirectory
     abstract DirectoryProperty getHistoricalSourcesDirectory()
 
+    @Optional
+    @Input
+    abstract Property<String> getHistoricalReleaseRef()
+
     @OutputDirectory
     abstract DirectoryProperty getReleaseRoot()
 
@@ -54,9 +58,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
     void assembleRelease() {
         File repository = repositoryDirectory.get().asFile
         String mode = releaseMode.get()
-        if (!(mode in ['tag', 'backfill', 'reconcile-tag'])) {
+        if (!(mode in ['tag', 'backfill', 'reconcile-tag', 'moved-tag'])) {
             throw new IllegalArgumentException(
-                    "releaseMode must be tag, backfill, or reconcile-tag, got '${mode}'")
+                    "releaseMode must be tag, moved-tag, backfill, or reconcile-tag, got '${mode}'")
         }
         Map metadata = ReleaseMetadata.validate(
                 versionFile.get().asFile,
@@ -64,6 +68,9 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 releaseTag.get())
         Map catalog = CatalogTools.loadCatalog(repository)
         CatalogTools.validate(repository, catalog)
+        String tagCommit = ReleaseSelection.git(repository, [
+                'rev-parse', "refs/tags/${metadata.version}^{commit}"
+        ]).trim()
         Map sealedState = CatalogTools.materialize(
                 new JsonSlurper().parse(serverPluginStateFile.get().asFile)) as Map
         Map recomputedState = ServerPluginReleaseState.compute(
@@ -79,6 +86,14 @@ abstract class AssembleReleaseTask extends DefaultTask {
         Map selection
         if (mode == 'tag') {
             selection = ReleaseSelection.selectTag(repository, catalog, metadata.version.toString())
+        } else if (mode == 'moved-tag') {
+            if (!historicalReleaseRef.isPresent()) {
+                throw new IllegalArgumentException(
+                        'moved-tag requires -PhistoricalReleaseRef=<old-tag-commit>')
+            }
+            selection = ReleaseSelection.selectMovedTag(
+                    repository, catalog, metadata.version.toString(),
+                    historicalReleaseRef.get(), 'HEAD')
         } else {
             selection = [
                     sourceCommit: ReleaseSelection.git(repository, ['rev-parse', 'HEAD']).trim(),
@@ -91,7 +106,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
         File existingDirectory = mode == 'tag' ? null : requiredExistingAssetsDirectory()
         validateExistingAssetSet(existingDirectory, catalog, metadata.version.toString())
-        Map<String, File> historicalSources = mode == 'backfill'
+        Map<String, File> historicalSources = mode in ['backfill', 'moved-tag']
                 ? requiredHistoricalSources(
                         repository, existingDirectory, catalog, metadata.version.toString())
                 : null
@@ -131,9 +146,11 @@ abstract class AssembleReleaseTask extends DefaultTask {
 
         Map serverPublication = serverPluginPublication(
                 repository, serverPluginPublicationCatalog(
-                        repository, catalog, metadata.version.toString(), mode),
+                repository, catalog, metadata.version.toString(), mode,
+                historicalReleaseRef.isPresent() ? historicalReleaseRef.get() : null),
                 metadata, recomputedState, pluginNotes,
-                assetsDirectory, existingDirectory, historicalSources, mode != 'backfill')
+                assetsDirectory, existingDirectory, historicalSources,
+                !(mode in ['backfill', 'moved-tag']))
         if (serverPublication.publish == true) {
             assets.add(serverPublication.artifact)
             assets.add(serverPublication.sourcesArtifact)
@@ -147,6 +164,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 channel      : metadata.channel,
                 prerelease   : metadata.prerelease,
                 sourceCommit : selection.sourceCommit,
+                tagCommit    : tagCommit,
                 baseTag      : selection.baseTag,
                 targetCount  : publicationTargets.size(),
                 selectedTargetIds: publicationTargets.collect { it.id },
@@ -173,7 +191,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
     File requiredExistingAssetsDirectory() {
         if (!existingAssetsDirectory.isPresent()) {
             throw new IllegalArgumentException(
-                    'backfill/reconcile-tag requires -PexistingReleaseAssets=<directory>')
+                    'moved-tag/backfill/reconcile-tag requires -PexistingReleaseAssets=<directory>')
         }
         File directory = existingAssetsDirectory.get().asFile
         if (!directory.isDirectory() || Files.isSymbolicLink(directory.toPath())) {
@@ -205,8 +223,10 @@ abstract class AssembleReleaseTask extends DefaultTask {
                     'compatibility backfill requires exact-tag historical source artifacts')
         }
         Set<String> expected = expectedHistoricalSourceNames(existingDirectory, catalog, version)
+        String ref = historicalReleaseRef.isPresent()
+                ? historicalReleaseRef.get() : "refs/tags/${version}"
         String commit = ReleaseSelection.git(
-                repository, ['rev-parse', "refs/tags/${version}^{commit}"]).trim()
+                repository, ['rev-parse', "${ref}^{commit}"]).trim()
         HistoricalReleaseSources.verify(
                 historicalSourcesDirectory.get().asFile, version, commit, expected)
     }
@@ -405,10 +425,12 @@ abstract class AssembleReleaseTask extends DefaultTask {
     }
 
     static Map serverPluginPublicationCatalog(
-            File repository, Map currentCatalog, String version, String mode) {
-        if (mode != 'backfill') return currentCatalog
+            File repository, Map currentCatalog, String version, String mode,
+            String historicalRef = null) {
+        if (!(mode in ['backfill', 'moved-tag'])) return currentCatalog
+        String ref = historicalRef ?: version
         Object parsed = new JsonSlurper().parseText(ReleaseSelection.git(
-                repository, ['show', "${version}:gradle/targets.json"]))
+                repository, ['show', "${ref}:gradle/targets.json"]))
         if (!(parsed instanceof Map) || !((parsed as Map).serverPlugin instanceof Map)) {
             throw new IllegalStateException(
                     "Release tag ${version} has no server plugin compatibility declaration")

@@ -2,6 +2,7 @@ package com.naocraftlab.skins.buildlogic
 
 import com.sun.net.httpserver.HttpServer
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Test
 
@@ -15,6 +16,84 @@ final class PublicationLogicTest {
     private final File repository = new File('../..').canonicalFile
     private final Map catalog = CatalogTools.loadCatalog(repository)
     private final Map release = [version: '1.2.3-beta.4', channel: 'beta']
+
+    @Test
+    void publishedStableInventoryCharacterizesMovedTagBaseline() {
+        Map inventory = new JsonSlurper().parse(new File(repository,
+                'gradle/build-logic/src/test/resources/release/existing-1.0.0.json')) as Map
+
+        assertEquals('1.0.0', inventory.version)
+        assertEquals('1a8c197f60d81f97e57527f3761d10cf8df5e0e2', inventory.tagCommit)
+        assertEquals('axxWLWkK', inventory.platforms.modrinthProjectId)
+        assertEquals(1637371, inventory.platforms.curseForgeProjectId)
+        assertEquals('JO4kIWk2', inventory.platforms.pluginModrinthProjectId)
+        assertEquals(1649689, inventory.platforms.pluginCurseForgeProjectId)
+        assertEquals(10, inventory.platforms.modrinthVersionIds.size())
+        assertEquals(10, inventory.platforms.modrinthVersionIds.values().toSet().size())
+        assertEquals('b4t6WgPV', inventory.platforms.pluginModrinthVersionId)
+        assertEquals(10, (inventory.assets as List).count {
+            it.name.startsWith('nclskins-1.0.0+')
+        })
+        assertEquals(1, (inventory.assets as List).count {
+            it.name == 'nclskins-plugin-1.0.0.jar'
+        })
+        assertFalse((inventory.assets as List).any { it.name.endsWith('-sources.jar') })
+        assertTrue((inventory.assets as List).every { it.sha256 ==~ /[0-9a-f]{64}/ })
+    }
+
+    @Test
+    void movedTagSelectionRequiresExactLinearOldAndNewProvenance() {
+        File fixture = Files.createTempDirectory('nclskins-moved-tag-selection-').toFile()
+        try {
+            ReleaseSelection.git(fixture, ['init', '--quiet'])
+            ReleaseSelection.git(fixture, ['config', 'user.name', 'NCL Skins Test'])
+            ReleaseSelection.git(fixture, ['config', 'user.email', 'test@invalid.example'])
+            File catalogFile = new File(fixture, 'gradle/targets.json')
+            assertTrue(catalogFile.parentFile.mkdirs())
+            Files.writeString(catalogFile.toPath(), JsonOutput.toJson(catalog))
+            Files.writeString(new File(fixture, 'gradle/version.properties').toPath(),
+                    'modVersion=1.2.3\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'old release'])
+            String oldCommit = ReleaseSelection.git(fixture, ['rev-parse', 'HEAD']).trim()
+            ReleaseSelection.git(fixture, ['tag', '1.2.3'])
+            Files.writeString(new File(fixture, 'marker.txt').toPath(), 'new target\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'new target'])
+            String newCommit = ReleaseSelection.git(fixture, ['rev-parse', 'HEAD']).trim()
+            ReleaseSelection.git(fixture, ['tag', '--force', '1.2.3'])
+
+            Map selected = ReleaseSelection.selectMovedTag(
+                    fixture, catalog, '1.2.3', oldCommit, 'HEAD')
+            assertEquals(newCommit, selected.sourceCommit)
+            assertEquals(oldCommit, selected.historicalCommit)
+            assertEquals(CatalogTools.releaseTargets(catalog)*.id, selected.targetIds)
+            assertThrows(IllegalArgumentException) {
+                ReleaseSelection.selectMovedTag(fixture, catalog, '1.2.3', '0' * 40, 'HEAD')
+            }
+            assertThrows(IllegalStateException) {
+                ReleaseSelection.selectMovedTag(fixture, catalog, '1.2.3', 'c' * 40, 'HEAD')
+            }
+            assertThrows(IllegalStateException) {
+                ReleaseSelection.selectMovedTag(fixture, catalog, '1.2.3', newCommit, 'HEAD')
+            }
+            assertThrows(IllegalStateException) {
+                ReleaseSelection.selectMovedTag(fixture, catalog, '1.2.3', oldCommit, oldCommit)
+            }
+
+            ReleaseSelection.git(fixture, ['checkout', '--quiet', '--detach', oldCommit])
+            Files.writeString(new File(fixture, 'side.txt').toPath(), 'side history\n')
+            ReleaseSelection.git(fixture, ['add', '.'])
+            ReleaseSelection.git(fixture, ['commit', '--quiet', '-m', 'side history'])
+            String sideCommit = ReleaseSelection.git(fixture, ['rev-parse', 'HEAD']).trim()
+            ReleaseSelection.git(fixture, ['checkout', '--quiet', '--detach', newCommit])
+            assertThrows(IllegalStateException) {
+                ReleaseSelection.selectMovedTag(fixture, catalog, '1.2.3', sideCommit, 'HEAD')
+            }
+        } finally {
+            fixture.deleteDir()
+        }
+    }
 
     @Test
     void releaseSelectionUsesCatalogOwnershipAndIgnoresNonProductionPaths() {
@@ -594,6 +673,50 @@ final class PublicationLogicTest {
     }
 
     @Test
+    void movedTagBundleKeepsHistoricalPairsAndUsesCurrentPairsOnlyForMissingTargets() {
+        File existing = Files.createTempDirectory('nclskins-moved-existing-').toFile()
+        File builtOld = Files.createTempDirectory('nclskins-moved-built-old-').toFile()
+        File builtNew = Files.createTempDirectory('nclskins-moved-built-new-').toFile()
+        File historical = Files.createTempDirectory('nclskins-moved-historical-').toFile()
+        try {
+            String oldProductionName = 'nclskins-1.0.0+26.2-fabric.jar'
+            String oldSourcesName = 'nclskins-1.0.0+26.2-fabric-sources.jar'
+            File existingOld = new File(existing, oldProductionName)
+            File rebuiltOld = new File(builtOld, oldProductionName)
+            File rebuiltOldSources = new File(builtOld, oldSourcesName)
+            File historicalOldSources = new File(historical, oldSourcesName)
+            existingOld.bytes = 'published-old-production'.bytes
+            rebuiltOld.bytes = 'current-rebuild-must-not-win'.bytes
+            rebuiltOldSources.bytes = 'current-old-sources-must-not-win'.bytes
+            historicalOldSources.bytes = 'old-commit-sources'.bytes
+
+            Map oldPair = AssembleReleaseTask.targetArtifactPair(
+                    existing, builtOld, [(oldSourcesName): historicalOldSources],
+                    oldProductionName, oldSourcesName, 'fabric-26.2')
+            assertArrayEquals('published-old-production'.bytes, oldPair.production.bytes)
+            assertArrayEquals('old-commit-sources'.bytes, oldPair.sources.bytes)
+
+            String newProductionName = 'nclskins-1.0.0+26.3-fabric.jar'
+            String newSourcesName = 'nclskins-1.0.0+26.3-fabric-sources.jar'
+            File currentNew = new File(builtNew, newProductionName)
+            File currentNewSources = new File(builtNew, newSourcesName)
+            currentNew.bytes = 'new-target-production'.bytes
+            currentNewSources.bytes = 'new-target-sources'.bytes
+
+            Map newPair = AssembleReleaseTask.targetArtifactPair(
+                    existing, builtNew, [(oldSourcesName): historicalOldSources],
+                    newProductionName, newSourcesName, 'fabric-26.3')
+            assertEquals(currentNew, newPair.production)
+            assertEquals(currentNewSources, newPair.sources)
+        } finally {
+            existing.deleteDir()
+            builtOld.deleteDir()
+            builtNew.deleteDir()
+            historical.deleteDir()
+        }
+    }
+
+    @Test
     void duplicateTargetContentsAndUnexpectedBackfillAssetsFail() {
         Map first = desired('fabric-1.20.1')
         Map second = desired('forge-1.20.1')
@@ -659,7 +782,8 @@ final class PublicationLogicTest {
                     modAsset, sourcesAsset)
             Map manifest = [
                     schemaVersion: 4, mode: 'tag', version: release.version, channel: release.channel,
-                    prerelease: true, sourceCommit: 'abc', baseTag: '1.2.3-beta.3', targetCount: 1,
+                    prerelease: true, sourceCommit: 'a' * 40, tagCommit: 'b' * 40,
+                    baseTag: '1.2.3-beta.3', targetCount: 1,
                     selectedTargetIds: ['fabric-1.20.1'], platforms: catalog.mod.platforms,
                     releaseNotes: [file: notes.name, sha256: ReleaseBundle.sha256(notes), text: 'Changes\n'],
                     serverPlugin: [publish: false, reason: 'unchanged',
@@ -673,6 +797,10 @@ final class PublicationLogicTest {
             Files.writeString(new File(bundle, 'release-manifest.json').toPath(), JsonOutput.toJson(manifest))
 
             assertEquals(release.version, PublicationSupport.loadManifest(bundle).version)
+            manifest.mode = 'moved-tag'
+            Files.writeString(new File(bundle, 'release-manifest.json').toPath(),
+                    JsonOutput.toJson(manifest))
+            assertEquals('moved-tag', PublicationSupport.loadManifest(bundle).mode)
             Files.writeString(sources.toPath(), 'tampered')
             assertThrows(IllegalStateException) { PublicationSupport.loadManifest(bundle) }
         } finally {
@@ -723,6 +851,42 @@ final class PublicationLogicTest {
         ], hash)
         assertEquals('conflict', tagPlan.actions.find { it.file == mod.file }.action)
         assertEquals('conflict', tagPlan.actions.find { it.file == 'old-target.jar' }.action)
+
+        manifest.mode = 'moved-tag'
+        Map newTarget = [file: 'nclskins-1.2.3+26.3-fabric.jar', kind: 'mod', sha256: 'f' * 64]
+        manifest.assets = [mod, sources, plugin, pluginSources, newTarget]
+        Map movedPlan = GithubReleaseSupport.plan(manifest, [
+                [id: 1, name: mod.file, sha256: mod.sha256],
+                [id: 2, name: plugin.file, sha256: plugin.sha256]
+        ], hash)
+        assertTrue(movedPlan.conflicts.isEmpty())
+        assertEquals('keep', movedPlan.actions.find { it.file == mod.file }.action)
+        assertEquals('keep', movedPlan.actions.find { it.file == plugin.file }.action)
+        assertEquals('upload', movedPlan.actions.find { it.file == newTarget.file }.action)
+    }
+
+    @Test
+    void githubPublisherResolvesOnlyBoundedCommitTagChains() {
+        String commit = 'a' * 40
+        assertEquals(commit, PublishGithubReleaseTask.resolveTagCommit(
+                [object: [type: 'commit', sha: commit]], { throw new AssertionError() }))
+
+        String tagObject = 'b' * 40
+        assertEquals(commit, PublishGithubReleaseTask.resolveTagCommit(
+                [object: [type: 'tag', sha: tagObject]],
+                { String requested ->
+                    assertEquals(tagObject, requested)
+                    [object: [type: 'commit', sha: commit]]
+                }))
+        assertThrows(IllegalStateException) {
+            PublishGithubReleaseTask.resolveTagCommit(
+                    [object: [type: 'tree', sha: commit]], { [:] })
+        }
+        assertThrows(IllegalStateException) {
+            PublishGithubReleaseTask.resolveTagCommit(
+                    [object: [type: 'tag', sha: tagObject]],
+                    { [object: [type: 'tag', sha: tagObject]] })
+        }
     }
 
     @Test
@@ -773,6 +937,8 @@ final class PublicationLogicTest {
             String commit = ReleaseSelection.git(fixture, ['rev-parse', 'HEAD']).trim()
             assertEquals(commit, HistoricalReleaseSources.requireTaggedCheckout(
                     fixture, fixture, '1.2.3'))
+            assertEquals(commit, HistoricalReleaseSources.requireCheckout(
+                    fixture, fixture, commit, '1.2.3'))
 
             Files.writeString(new File(fixture, 'later.txt').toPath(), 'later\n')
             ReleaseSelection.git(fixture, ['add', '.'])
@@ -845,6 +1011,20 @@ final class PublicationLogicTest {
         assertThrows(IllegalStateException) {
             task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
         }
+        assertTrue(task.uploads.isEmpty())
+    }
+
+    @Test
+    void platformPreflightNeverWritesEvenWhenEveryPublicationIsMissing() {
+        RecordingPublishTask task = ProjectBuilder.builder().build().tasks.create(
+                'recordingPreflight', RecordingPublishTask)
+        Map target = desired('fabric-1.20.1')
+        Map manifest = [targets: [target], releaseNotes: [text: 'Changes\n'],
+                        platforms: catalog.mod.platforms]
+        task.preflightOnly.set(true)
+
+        task.publishManifest(manifest, repository, 'modrinth-token', 'curse-key', 'curse-token')
+
         assertTrue(task.uploads.isEmpty())
     }
 

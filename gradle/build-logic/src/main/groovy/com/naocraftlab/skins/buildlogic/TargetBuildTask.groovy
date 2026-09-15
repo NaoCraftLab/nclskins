@@ -49,6 +49,7 @@ abstract class TargetBuildTask extends DefaultTask {
     @TaskAction
     void buildTargets() {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
+        CatalogTools.validate(repositoryDirectory.get().asFile, catalog)
         List<Map> targets = selectedTargetIds(catalog).collect { CatalogTools.selectTarget(catalog, it) }
         int workers = Math.max(1, Math.min(maximumWorkers.get(), targets.size()))
         def executor = Executors.newFixedThreadPool(workers)
@@ -82,6 +83,8 @@ abstract class TargetBuildTask extends DefaultTask {
                 wrapper.absolutePath,
                 "-PnclskinsSourceGraph=${sourceGraphFingerprint(root)}".toString(),
                 "-PnclskinsBuildLogicWorkspace=${target.id}".toString(),
+                '-x',
+                'verifyTargetCatalog',
                 '-p',
                 targetDirectory.absolutePath
         ] + targetTasks.get()

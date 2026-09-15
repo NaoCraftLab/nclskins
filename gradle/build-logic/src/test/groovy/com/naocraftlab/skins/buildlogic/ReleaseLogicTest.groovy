@@ -104,11 +104,12 @@ final class ReleaseLogicTest {
 
         assertTrue(workflow.contains('''  platforms:
     name: Publish Modrinth and CurseForge
-    needs: build
+    needs: [build, preflight]
     if: >-
       always() &&
       !cancelled() &&
-      needs.build.result == 'success'
+      needs.build.result == 'success' &&
+      needs.preflight.result == 'success'
 '''))
         assertTrue(workflow.contains('''  github:
     name: Publish GitHub Release
@@ -131,7 +132,7 @@ final class ReleaseLogicTest {
         assertFalse(workflow.contains('./gradlew materializeHistoricalReleaseSources'))
         assertTrue(rootBuild.contains("'materializeHistoricalReleaseSources'"))
         assertTrue(rootBuild.contains('dependsOn materializeHistoricalReleaseSources'))
-        assertTrue(rootBuild.contains("requestedReleaseMode == 'backfill'"))
+        assertTrue(rootBuild.contains("requestedReleaseMode in ['backfill', 'moved-tag']"))
         assertTrue(workflow.contains('git checkout --detach "refs/tags/${version}"'))
         assertTrue(workflow.contains("mode='reconcile-tag'"))
         assertTrue(workflow.contains(
@@ -140,6 +141,16 @@ final class ReleaseLogicTest {
                 "Historical current-main build forbidden::Use reconcile-tag"))
         assertTrue(workflow.contains("mode='backfill'"))
         assertTrue(workflow.contains("mode='tag'"))
+        assertTrue(workflow.contains("mode='moved-tag'"))
+        assertTrue(workflow.contains('TAG_BEFORE: ${{ github.event.before }}'))
+        assertTrue(workflow.contains('Tag checkout mismatch'))
+        assertTrue(workflow.contains('git rev-list --first-parent'))
+        assertTrue(workflow.contains("-PhistoricalReleaseRef="))
+        assertTrue(workflow.contains('Preflight all release destinations'))
+        assertTrue(workflow.contains('preflightGithubRelease preflightReleasePlatforms'))
+        String preflightJob = workflow.substring(
+                workflow.indexOf('  preflight:'), workflow.indexOf('  github:'))
+        assertFalse(preflightJob.contains('CURSEFORGE_UPLOAD_TOKEN'))
         assertTrue(workflow.contains(
                 'catalog_source_commit="$(git rev-parse origin/main)"'))
         assertTrue(workflow.contains(

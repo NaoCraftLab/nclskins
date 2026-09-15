@@ -91,20 +91,25 @@ final class HistoricalReleaseSources {
     }
 
     static String requireTaggedCheckout(File repository, File checkout, String releaseTag) {
-        if (!CatalogTools.VERSION_PATTERN.matcher(releaseTag).matches()) {
-            throw new IllegalArgumentException("Invalid historical release tag: ${releaseTag}")
+        requireCheckout(repository, checkout, "refs/tags/${releaseTag}", releaseTag)
+    }
+
+    static String requireCheckout(
+            File repository, File checkout, String historicalRef, String releaseVersion) {
+        if (!CatalogTools.VERSION_PATTERN.matcher(releaseVersion).matches()) {
+            throw new IllegalArgumentException("Invalid historical release version: ${releaseVersion}")
         }
         String expected = ReleaseSelection.git(
-                repository, ['rev-parse', "refs/tags/${releaseTag}^{commit}"]).trim()
+                repository, ['rev-parse', "${historicalRef}^{commit}"]).trim()
         String actual = ReleaseSelection.git(checkout, ['rev-parse', 'HEAD^{commit}']).trim()
         if (expected != actual) {
             throw new IllegalStateException(
-                    "Historical source checkout ${actual} differs from exact tag commit ${expected}")
+                    "Historical source checkout ${actual} differs from exact historical commit ${expected}")
         }
         String configured = CatalogTools.loadVersion(checkout)
-        if (configured != releaseTag) {
+        if (configured != releaseVersion) {
             throw new IllegalStateException(
-                    "Historical source checkout version ${configured} differs from tag ${releaseTag}")
+                    "Historical source checkout version ${configured} differs from release ${releaseVersion}")
         }
         expected
     }
@@ -115,6 +120,19 @@ final class HistoricalReleaseSources {
         }
         String commit = ReleaseSelection.git(
                 repository, ['rev-parse', "refs/tags/${releaseTag}^{commit}"]).trim()
+        ReleaseSelection.git(repository, [
+                'merge-base', '--is-ancestor', commit, 'HEAD^{commit}'])
+        commit
+    }
+
+    static String requireReachableRef(
+            File repository, String historicalRef, String releaseVersion) {
+        if (!CatalogTools.VERSION_PATTERN.matcher(releaseVersion).matches() ||
+                !(historicalRef ==~ /[0-9a-f]{40}|refs\/tags\/[0-9A-Za-z.-]+/)) {
+            throw new IllegalArgumentException('Historical release ref or version is invalid')
+        }
+        String commit = ReleaseSelection.git(
+                repository, ['rev-parse', "${historicalRef}^{commit}"]).trim()
         ReleaseSelection.git(repository, [
                 'merge-base', '--is-ancestor', commit, 'HEAD^{commit}'])
         commit

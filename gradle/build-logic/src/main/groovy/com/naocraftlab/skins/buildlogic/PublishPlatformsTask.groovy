@@ -4,6 +4,8 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.TaskAction
 
@@ -20,10 +22,14 @@ abstract class PublishPlatformsTask extends DefaultTask {
     @InputDirectory
     abstract DirectoryProperty getBundleDirectory()
 
+    @Input
+    abstract Property<Boolean> getPreflightOnly()
+
     private transient HttpClient client
 
     PublishPlatformsTask() {
         outputs.upToDateWhen { false }
+        preflightOnly.convention(false)
     }
 
     @TaskAction
@@ -32,7 +38,8 @@ abstract class PublishPlatformsTask extends DefaultTask {
         Map manifest = PublicationSupport.loadManifest(bundle)
         String modrinthToken = requireSecret('MODRINTH_TOKEN')
         String curseForgeApiKey = requireSecret('CURSEFORGE_API_KEY')
-        String curseForgeUploadToken = requireSecret('CURSEFORGE_UPLOAD_TOKEN')
+        String curseForgeUploadToken = preflightOnly.get()
+                ? '' : requireSecret('CURSEFORGE_UPLOAD_TOKEN')
 
         publishManifest(manifest, bundle, modrinthToken, curseForgeApiKey, curseForgeUploadToken)
     }
@@ -50,6 +57,7 @@ abstract class PublishPlatformsTask extends DefaultTask {
         Map plan = classifyPerTarget(targets, remote)
         requireNoConflicts(plan)
         appendSummary('Publication preflight', plan)
+        if (preflightOnly.get()) return
 
         remote = fetchAll(manifest, targets, modrinthToken, curseForgeApiKey)
         Map recheck = classifyPerTarget(targets, remote)
