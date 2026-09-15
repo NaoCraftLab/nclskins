@@ -557,7 +557,7 @@ final class CatalogTools {
                             artifact.versionId instanceof String
                             ? "maven.modrinth:${artifact.projectId}:${artifact.versionId}" : null
                     if ((artifact.keySet() as Set) != artifactKeys ||
-                            target?.loader?.id != 'fabric' || target?.releaseEligible != false ||
+                            target?.loader?.id != 'fabric' ||
                             artifact.coordinate != expectedCoordinate ||
                             !(artifact.projectId ==~ /[A-Za-z0-9]{8}/) ||
                             !(artifact.versionId ==~ /[A-Za-z0-9]{8}/) ||

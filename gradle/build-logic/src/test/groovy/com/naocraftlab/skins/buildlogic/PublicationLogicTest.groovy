@@ -117,11 +117,9 @@ final class PublicationLogicTest {
                 repository, catalog, [], false).targetIds)
         assertEquals([], CatalogTools.affectedResult(
                 repository, catalog, ['SERVER_CHANGELOG.md']).targetIds)
-        assertThrows(IllegalStateException) {
-            ReleaseSelection.selectFromPaths(
-                    repository, catalog, ['targets/26.3/fabric/build.gradle'], true)
-        }
-        assertFalse(releaseTargetIds.contains('fabric-26.3'))
+        assertEquals(['fabric-26.3'], ReleaseSelection.selectFromPaths(
+                repository, catalog, ['targets/26.3/fabric/build.gradle'], true).targetIds)
+        assertTrue(releaseTargetIds.contains('fabric-26.3'))
         assertThrows(IllegalArgumentException) {
             ReleaseSelection.selectFromPaths(repository, catalog, ['unknown-runtime/Main.java'], true)
         }
@@ -382,7 +380,10 @@ final class PublicationLogicTest {
         assertFalse(curseForgeSources.containsKey('gameVersionNames'))
         assertFalse(curseForgeSources.containsKey('relations'))
 
-        assertThrows(IllegalArgumentException) { desired('fabric-26.3') }
+        Map fabric263 = desired('fabric-26.3')
+        assertEquals(['26.3'], fabric263.gameVersions)
+        assertEquals('fabric', fabric263.loader)
+        assertEquals(25, fabric263.javaRelease)
 
         assertEquals(['file', 'sources'], modrinth.file_parts)
         assertEquals([sources: 'sources-jar'], modrinth.file_types)
@@ -739,12 +740,12 @@ final class PublicationLogicTest {
             }
             assertTrue(sources.delete())
             new File(directory,
-                    "nclskins-${release.version}+26.3-fabric.jar".toString()).bytes = 'x'.bytes
+                    "nclskins-${release.version}+26.4-fabric.jar".toString()).bytes = 'x'.bytes
             assertThrows(IllegalStateException) {
                 AssembleReleaseTask.validateExistingAssetSet(directory, catalog, release.version)
             }
             assertTrue(new File(directory,
-                    "nclskins-${release.version}+26.3-fabric.jar".toString()).delete())
+                    "nclskins-${release.version}+26.4-fabric.jar".toString()).delete())
             Map secondTarget = CatalogTools.selectTarget(catalog, 'forge-1.20.1')
             File outside = File.createTempFile('nclskins-backfill-symlink-', '.jar')
             try {
@@ -918,6 +919,27 @@ final class PublicationLogicTest {
             }
         } finally {
             directory.deleteDir()
+        }
+    }
+
+    @Test
+    void historicalCatalogUsesItsOwnBuildLogicAcrossSchemaEvolution() {
+        File fixture = Files.createTempDirectory('nclskins-historical-schema-').toFile()
+        try {
+            File marker = new File(fixture, 'validation-arguments.txt')
+            File wrapper = new File(fixture, 'gradlew')
+            Files.writeString(wrapper.toPath(),
+                    "#!/bin/sh\nprintf '%s\\n' \"\$@\" > '${marker.absolutePath}'\n")
+            assertTrue(wrapper.setExecutable(true))
+
+            MaterializeHistoricalReleaseSourcesTask.validateTaggedCatalog(fixture, [
+                    schemaVersion: 22,
+                    serverPlugin: [packaging: [buildJdk: 25]]
+            ])
+
+            assertEquals('verifyTargetCatalog\n', marker.text)
+        } finally {
+            fixture.deleteDir()
         }
     }
 

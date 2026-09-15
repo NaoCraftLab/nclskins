@@ -2082,7 +2082,7 @@
     },
     {
       "id": "fabric-26.3",
-      "releaseEligible": false,
+      "releaseEligible": true,
       "epochProfile": "identifier-extraction-authlib10",
       "loaderProfile": "fabric-loader",
       "integrationProfile": "fabric-extraction",

@@ -77,7 +77,7 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
             String tagCommit = HistoricalReleaseSources.requireCheckout(
                     repository, worktree, ref, version)
             Map taggedCatalog = CatalogTools.loadCatalog(worktree)
-            CatalogTools.validate(worktree, taggedCatalog)
+            validateTaggedCatalog(worktree, taggedCatalog)
 
             List<String> missingHistoricalProduction = CatalogTools.releaseTargets(taggedCatalog)
                     .collect { Map target -> AssembleReleaseTask.artifactName(target, version) }
@@ -159,6 +159,15 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
                     "Historical target ${target.id} artifact verification failed:\n- " +
                     errors.join('\n- '))
         }
+    }
+
+    static void validateTaggedCatalog(File worktree, Map catalog) {
+        Object buildJdk = (catalog.serverPlugin as Map)?.packaging?.buildJdk
+        if (!(buildJdk instanceof Number)) {
+            throw new IllegalStateException(
+                    'Historical catalog has no server plugin build JDK')
+        }
+        runGradle(worktree, (buildJdk as Number).intValue(), ['verifyTargetCatalog'])
     }
 
     static void runGradle(File worktree, int javaVersion, List<String> arguments) {

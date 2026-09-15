@@ -38,7 +38,7 @@ final class UpdateCatalogGeneratorTest {
     }
 
     @Test
-    void draftsAreIgnoredAndExperimentalArtifactsNeverCreateAssociations() {
+    void draftsAreIgnoredAndEligibleArtifactsCreateExactAssociations() {
         Map visible = release('1.0.0-beta.3', ['fabric-1.21.1', 'fabric-26.3'])
         Map draft = release('1.0.0-beta.4', ['fabric-26.2'])
         draft.draft = true
@@ -47,13 +47,13 @@ final class UpdateCatalogGeneratorTest {
 
         assertEquals(1, inventory.size())
         assertEquals('1.0.0-beta.3', inventory.first().version)
-        assertEquals(['fabric-1.21.1'], inventory.first().targetIds)
+        assertEquals(['fabric-1.21.1', 'fabric-26.3'], inventory.first().targetIds)
         assertTrue(inventory.first().assets.contains(
                 artifact('fabric-26.3', '1.0.0-beta.3').name))
     }
 
     @Test
-    void currentExperimentalTargetCreatesNoUpdateCatalogOrEndpoint() {
+    void currentFabricTargetCreatesCommonCatalogButNoNativeEndpoint() {
         List<Map> inventory = parse([
                 release('1.0.0-beta.3', ['fabric-1.21.1', 'fabric-26.3'])
         ])
@@ -62,15 +62,15 @@ final class UpdateCatalogGeneratorTest {
         Map common = new groovy.json.JsonSlurper().parseText(
                 site['updates/v1/catalog.json']) as Map
 
-        assertFalse((common.targets as Map).containsKey('fabric-26.3'))
+        assertEquals(['1.0.0-beta.3'], common.targets.'fabric-26.3'.versions)
+        assertEquals('fabric', common.targets.'fabric-26.3'.loader)
+        assertEquals('26.3', common.targets.'fabric-26.3'.minecraftVersion)
         assertFalse(site.containsKey('updates/v1/native/fabric-26.3.json'))
-        assertFalse(site.keySet().any { String path -> path.contains('fabric-26.3') })
     }
 
     @Test
-    void movedStableTagAssociatesTheNewTargetAfterCatalogActivation() {
+    void movedStableTagAssociatesTheNewTarget() {
         Map activated = CatalogTools.materialize(catalog) as Map
-        CatalogTools.selectTarget(activated, 'fabric-26.3').releaseEligible = true
         Map movedRelease = release('1.0.0',
                 CatalogTools.releaseTargets(activated)*.id as List<String>)
         List<Map> inventory = GithubReleaseInventory.parse(

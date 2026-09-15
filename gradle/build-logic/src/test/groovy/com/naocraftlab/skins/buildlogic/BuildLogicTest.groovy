@@ -76,7 +76,7 @@ final class BuildLogicTest {
                 catalog.targets.collect { "targets/${it.minecraft.version}/${it.loader.id}".toString() },
                 catalog.targets.collect { it.path })
         assertEquals(11, catalog.targets.size())
-        assertEquals(10, CatalogTools.releaseTargets(catalog).size())
+        assertEquals(11, CatalogTools.releaseTargets(catalog).size())
         assertEquals('NCL Skins Plugin', catalog.serverPlugin.name)
         assertEquals('nclskins-plugin', catalog.serverPlugin.slug)
         assertEquals(25, catalog.serverPlugin.packaging.buildJdk)
@@ -121,7 +121,7 @@ final class BuildLogicTest {
         assertTrue((characterization.invariants as List)
                 .contains('actor-receives-no-respawn-or-self-refresh'))
         Map finalTarget = catalog.targets.find { it.id == 'fabric-26.3' } as Map
-        assertFalse(finalTarget.releaseEligible as boolean)
+        assertTrue(finalTarget.releaseEligible as boolean)
         assertEquals('26.3', CatalogTools.minecraftCompileVersion(finalTarget))
         assertEquals([
                 version: '26.3', predicate: '>=26.3', epoch: '26.3'
@@ -140,7 +140,7 @@ final class BuildLogicTest {
     }
 
     @Test
-    void sqliteDevelopmentRuntimeIsExactAndExperimentalClientOnly() {
+    void sqliteDevelopmentRuntimeIsExactAndClientOnly() {
         Map experimental = CatalogTools.selectTarget(catalog, 'fabric-26.3')
         Map artifact = CatalogTools.optionalDevelopmentArtifact(
                 catalog, experimental, 'sqlite_jdbc')
@@ -178,7 +178,7 @@ final class BuildLogicTest {
         Map releasedTarget = cloneMap(catalog)
         releasedTarget.optionalDependencies.sqlite_jdbc.developmentArtifacts['fabric-26.2'] =
                 cloneMap(artifact)
-        assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, releasedTarget) }
+        CatalogTools.validate(repository, releasedTarget)
 
         String fabric = new File(repository, 'gradle/loader-conventions/fabric.gradle').text
         assertTrue(fabric.contains("configurations.create('nclskinsSqliteClientRuntime')"))
@@ -840,6 +840,7 @@ final class BuildLogicTest {
             String compileSuffix, String runtimeSuffix ->
             Map valid = cloneMap(catalog)
             Map target = valid.targets.find { it.id == 'fabric-26.3' } as Map
+            target.releaseEligible = false
             target.minecraft.compileVersion = "26.3-${compileSuffix}".toString()
             target.minecraft.runtimeVersion = "26.3-${runtimeSuffix}".toString()
             target.minecraft.minimumRuntimeVersion = "26.3-${runtimeSuffix}".toString()
