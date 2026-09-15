@@ -101,6 +101,44 @@ final class PublicationSupport {
             throw new IllegalStateException('selected target IDs differ from publication targets')
         }
         validateServerPlugin(manifest, assets)
+        if (manifest.releasePlanDigest != null) {
+            Map plan = ReleasePlan.load(new File(bundleDirectory, 'release-plan.json'))
+            if (plan.digest != manifest.releasePlanDigest || plan.sourceCommit != manifest.sourceCommit ||
+                    plan.tagCommit != manifest.tagCommit || plan.version != manifest.version ||
+                    plan.components.collect { it.id }.toSet() !=
+                    PublishPlatformsTask.publicationTargets(manifest).collect { it.id }.toSet() ||
+                    manifest.preservedTargetIds != plan.components.findAll { it.preserve }.collect { it.id } ||
+                    manifest.existingRelease != plan.existingRelease || manifest.preservedGithub != plan.preservedGithub) {
+                throw new IllegalStateException('Bundle differs from pinned release plan')
+            }
+            plan.components.findAll { !it.build }.each { Map component ->
+                if (assets[component.asset.file] != component.asset || assets[component.sourcesAsset.file] != component.sourcesAsset) {
+                    throw new IllegalStateException('Preserved component hashes changed')
+                }
+            }
+            plan.components.each { Map component ->
+                Map published = PublishPlatformsTask.publicationTargets(manifest).find { it.id == component.id }
+                if (component.findAll { key, value -> !(key in ['asset', 'sourcesAsset']) } !=
+                        published.findAll { key, value -> !(key in ['asset', 'sourcesAsset']) }) {
+                    throw new IllegalStateException('Component metadata differs from pinned plan')
+                }
+                if (component.build) {
+                    File receiptFile = new File(bundleDirectory, "receipts/${component.id}.receipt.json")
+                    if (!receiptFile.isFile() || Files.isSymbolicLink(receiptFile.toPath())) {
+                        throw new IllegalStateException('Missing verified component receipt')
+                    }
+                    Map receipt = CatalogTools.materialize(new groovy.json.JsonSlurper().parse(receiptFile)) as Map
+                    if (receipt.planDigest != plan.digest || receipt.sourceCommit != plan.sourceCommit ||
+                            receipt.componentId != component.id || receipt.assets != [published.asset, published.sourcesAsset]) {
+                        throw new IllegalStateException('Bundle bytes differ from verified component receipt')
+                    }
+                }
+            }
+            if (manifest.releaseNotes.text != plan.release.notes || manifest.platforms != plan.platforms ||
+                    manifest.channel != plan.release.channel || manifest.prerelease != plan.release.prerelease) {
+                throw new IllegalStateException('Release metadata differs from pinned plan')
+            }
+        }
         Map notes = manifest.releaseNotes as Map
         File notesFile = new File(bundleDirectory, notes.file?.toString() ?: '')
         if (notes.file != 'release-notes.md' || !notesFile.isFile() ||

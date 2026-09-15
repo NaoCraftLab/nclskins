@@ -1,8 +1,11 @@
 package com.naocraftlab.skins.buildlogic
 
 import java.nio.charset.StandardCharsets
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.regex.Pattern
 
 final class PublicationTreeVerifier {
@@ -42,12 +45,21 @@ final class PublicationTreeVerifier {
         }
         Path buildLogic = root.resolve('gradle/build-logic')
         if (Files.isDirectory(buildLogic)) {
-            Files.walk(buildLogic).withCloseable { stream ->
-                stream.filter { Path path ->
-                    String relative = root.relativize(path).toString().replace(File.separatorChar, '/' as char)
-                    Files.isRegularFile(path) && !relative.startsWith('gradle/build-logic/build/') && !relative.contains('/.gradle/')
-                }.forEach { files.add(it) }
-            }
+            Files.walkFileTree(buildLogic, new SimpleFileVisitor<Path>() {
+                @Override
+                FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                    if (directory != buildLogic && directory.fileName.toString() in ['build', '.gradle']) {
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+                    FileVisitResult.CONTINUE
+                }
+
+                @Override
+                FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                    if (attributes.isRegularFile()) files.add(file)
+                    FileVisitResult.CONTINUE
+                }
+            })
         }
         files as List<Path>
     }

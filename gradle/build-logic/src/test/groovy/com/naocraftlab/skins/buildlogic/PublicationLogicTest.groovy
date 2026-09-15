@@ -18,6 +18,69 @@ final class PublicationLogicTest {
     private final Map release = [version: '1.2.3-beta.4', channel: 'beta']
 
     @Test
+    void releasePlanBuildsOnlyMissingFabricThenOnlyMissingNeoForge() {
+        List<Map> components = CatalogTools.releaseTargets(catalog).collect { desired(it.id.toString()) }
+        List<String> builds = []
+        components.each { Map target ->
+            boolean published = target.id != 'fabric-26.3'
+            Map remote = published ? [modrinth: [exactModrinth(target)],
+                    curseforge: [exactCurseForge(target), exactCurseForgeSources(target)]] :
+                    [modrinth: [], curseforge: []]
+            Map plan = ReleasePlan.classify(target, remote, published)
+            if (plan.build) builds.add(target.id.toString())
+            assertEquals(published, plan.preserve)
+        }
+        assertEquals(['fabric-26.3'], builds)
+        Map sibling = desired('neoforge-26.2')
+        sibling.id = 'neoforge-26.3'
+        sibling.name = '1.2.3-beta.4+26.3-neoforge'
+        sibling.minecraftVersion = '26.3'
+        sibling.gameVersions = ['26.3']
+        Map fabric = desired('fabric-26.3')
+        assertFalse(ReleasePlan.classify(fabric, [modrinth: [exactModrinth(fabric)],
+                curseforge: [exactCurseForge(fabric), exactCurseForgeSources(fabric)]], true).build)
+        assertTrue(ReleasePlan.classify(sibling, [modrinth: [], curseforge: []], false).build)
+    }
+
+    @Test
+    void newVersionBuildsEveryEligibleTargetAndPartialUploadsRecoverWithoutBuild() {
+        CatalogTools.releaseTargets(catalog).each { Map target ->
+            Map publication = desired(target.id.toString())
+            publication.versionNumber = '1.1.0'
+            publication.name = "1.1.0+${publication.minecraftVersion}-${publication.loader}".toString()
+            publication.channel = 'release'
+            assertTrue(ReleasePlan.classify(publication, [modrinth: [], curseforge: []], false).build)
+        }
+        Map target = desired('fabric-26.3')
+        Map partial = [modrinth: [exactModrinth(target)], curseforge: [exactCurseForge(target)]]
+        Map plan = ReleasePlan.classify(target, partial, true)
+        assertFalse(plan.build)
+        assertFalse(plan.preserve)
+        assertEquals('skip', plan.states.modrinth.action)
+        assertEquals('upload-source', plan.states.curseforge.action)
+        assertThrows(IllegalStateException) { ReleasePlan.classify(target, partial, false) }
+        Map wrong = exactModrinth(target)
+        wrong.files[0].hashes.sha512 = 'f' * 128
+        assertThrows(IllegalStateException) {
+            ReleasePlan.classify(target, [modrinth: [wrong], curseforge: []], true)
+        }
+    }
+
+    @Test
+    void preservedPublicationCannotBecomeAMetadataUpdateOrUpload() {
+        Map target = desired('fabric-26.3')
+        Map changed = exactModrinth(target)
+        changed.game_versions = ['26.2']
+        assertThrows(IllegalStateException) {
+            ReleasePlan.classify(target, [modrinth: [changed], curseforge: []], true)
+        }
+        assertThrows(IllegalStateException) {
+            PublishPlatformsTask.requirePreserved([preservedTargetIds: [target.id]],
+                    [modrinth: [(target.id): [action: 'skip']], curseforge: [(target.id): [action: 'upload']]])
+        }
+    }
+
+    @Test
     void publishedStableInventoryCharacterizesMovedTagBaseline() {
         Map inventory = new JsonSlurper().parse(new File(repository,
                 'gradle/build-logic/src/test/resources/release/existing-1.0.0.json')) as Map
@@ -1220,7 +1283,7 @@ final class PublicationLogicTest {
                     "gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/${name}").text
             assertTrue(source.contains('private transient HttpClient client'))
             assertTrue(source.contains('private HttpClient httpClient()'))
-            assertTrue(source.contains('response = httpClient().send('))
+            assertTrue(source.contains('response = ReleaseHttp.send(httpClient(),'))
             assertFalse(source.contains('private final HttpClient client'))
         }
     }

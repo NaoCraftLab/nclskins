@@ -64,6 +64,16 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                 release == null ? [] : release.assets as List<Map>,
                 { Map asset -> remoteSha256(api, repository, asset, token) })
         requireNoConflicts(plan)
+        if (manifest.existingRelease != null) {
+            if (release?.id != manifest.existingRelease.id || release.body != manifest.existingRelease.body) {
+                throw new IllegalStateException('Existing GitHub release changed since planning')
+            }
+            (manifest.preservedGithub as List<Map>).each { Map preserved ->
+                if (!(plan.actions as List<Map>).any { it.file == preserved.file && it.action == 'keep' }) {
+                    throw new IllegalStateException("Preserved GitHub asset disappeared: ${preserved.file}")
+                }
+            }
+        }
         if (preflightOnly.get()) {
             appendSummary(manifest, plan)
             return
@@ -82,7 +92,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                     'POST', "${api}/repos/${repository}/releases", headers(token),
                     JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8),
                     'application/json', [201] as Set<Integer>, token)) as Map
-        } else {
+        } else if (manifest.existingRelease == null) {
             Map update = new LinkedHashMap(metadata)
             update.remove('tag_name')
             release = json(request(
@@ -209,7 +219,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body)
         HttpResponse<byte[]> response
         try {
-            response = httpClient().send(
+            response = ReleaseHttp.send(httpClient(),
                     builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofByteArray())
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt()

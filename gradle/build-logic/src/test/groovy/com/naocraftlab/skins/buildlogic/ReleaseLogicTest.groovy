@@ -99,77 +99,22 @@ final class ReleaseLogicTest {
     }
 
     @Test
-    void tagPublicationJobsBypassTheExpectedSkippedBackfillDependency() {
+    void releaseWorkflowPinsBuildsAndResumesWithoutCompiling() {
         String workflow = new File(repository, '.github/workflows/release.yml').text
-
-        assertTrue(workflow.contains('''  platforms:
-    name: Publish Modrinth and CurseForge
-    needs: [build, preflight]
-    if: >-
-      always() &&
-      !cancelled() &&
-      needs.build.result == 'success' &&
-      needs.preflight.result == 'success'
-'''))
-        assertTrue(workflow.contains('''  github:
-    name: Publish GitHub Release
-    needs: [build, platforms]
-    if: >-
-      always() &&
-      !cancelled() &&
-      needs.build.result == 'success' &&
-      needs.platforms.result == 'success'
-'''))
-    }
-
-    @Test
-    void releaseWorkflowKeepsDistinctSourceContractsForEveryMode() {
-        String workflow = new File(repository, '.github/workflows/release.yml').text
-        String rootBuild = new File(repository, 'build.gradle').text
-
-        assertTrue(workflow.contains('Fetch existing GitHub production assets'))
-        assertTrue(workflow.contains('args=(assembleRelease'))
-        assertFalse(workflow.contains('./gradlew materializeHistoricalReleaseSources'))
-        assertTrue(rootBuild.contains("'materializeHistoricalReleaseSources'"))
-        assertTrue(rootBuild.contains('dependsOn materializeHistoricalReleaseSources'))
-        assertTrue(rootBuild.contains("requestedReleaseMode in ['backfill', 'moved-tag']"))
-        assertTrue(workflow.contains('git checkout --detach "refs/tags/${version}"'))
-        assertTrue(workflow.contains("mode='reconcile-tag'"))
-        assertTrue(workflow.contains(
-                "Compatibility backfill must run from current origin/main."))
-        assertTrue(workflow.contains(
-                "Historical current-main build forbidden::Use reconcile-tag"))
-        assertTrue(workflow.contains("mode='backfill'"))
-        assertTrue(workflow.contains("mode='tag'"))
-        assertTrue(workflow.contains("mode='moved-tag'"))
-        assertTrue(workflow.contains('historical_ref:'))
-        assertTrue(workflow.contains('BACKFILL_HISTORICAL_REF: ${{ inputs.historical_ref }}'))
-        assertTrue(workflow.contains('Invalid recovery provenance'))
-        assertTrue(workflow.contains('git merge-base --is-ancestor "$historical_commit" "$tagged_commit"'))
-        assertTrue(workflow.contains('git rev-list --first-parent "$tagged_commit"'))
-        assertTrue(workflow.contains('historical_version="$(git show'))
-        assertTrue(workflow.contains('HISTORICAL_SOURCE_REF: ${{ steps.source.outputs.historical_source_ref }}'))
-        assertTrue(workflow.contains('TAG_BEFORE: ${{ github.event.before }}'))
-        assertTrue(workflow.contains('Tag checkout mismatch'))
-        assertTrue(workflow.contains('git rev-list --first-parent'))
-        assertTrue(workflow.contains("-PhistoricalReleaseRef="))
-        assertTrue(workflow.contains('Preflight all release destinations'))
-        assertTrue(workflow.contains('preflightGithubRelease preflightReleasePlatforms'))
-        String preflightJob = workflow.substring(
-                workflow.indexOf('  preflight:'), workflow.indexOf('  github:'))
-        assertFalse(preflightJob.contains('CURSEFORGE_UPLOAD_TOKEN'))
-        assertTrue(workflow.contains(
-                'catalog_source_commit="$(git rev-parse origin/main)"'))
-        assertTrue(workflow.contains(
-                'printf \'release_source_commit=%s\\n\' "$(git rev-parse HEAD)"'))
-        assertTrue(workflow.contains(
-                'printf \'catalog_source_commit=%s\\n\' "$catalog_source_commit"'))
-        assertTrue(workflow.contains(
-                'ref: ${{ needs.build.outputs.release_source_commit }}'))
-        assertTrue(workflow.contains(
-                'catalog_source_commit: ${{ needs.build.outputs.catalog_source_commit }}'))
-        assertFalse(workflow.contains(
-                'catalog_source_commit: ${{ needs.build.outputs.release_source_commit }}'))
+        assertTrue(workflow.contains('ref: ${{ github.sha }}'))
+        assertTrue(workflow.contains('ref: ${{ needs.plan.outputs.source }}'))
+        assertTrue(workflow.contains('fail-fast: false'))
+        assertTrue(workflow.contains("needs.plan.outputs.build == 'true'"))
+        assertTrue(workflow.contains("needs.plan.outputs.resumed != 'true'"))
+        assertTrue(workflow.contains("needs.bundle.result == 'success' || needs.plan.outputs.resumed == 'true'"))
+        assertTrue(workflow.contains('retention-days: 90'))
+        assertTrue(workflow.contains('resume_run:'))
+        assertFalse(workflow.contains('fullCheck'))
+        assertFalse(workflow.contains('historical_ref'))
+        assertTrue(workflow.indexOf('Final preflight without writes') <
+                workflow.indexOf('Publish missing marketplace files'))
+        assertTrue(workflow.indexOf('Publish missing marketplace files') <
+                workflow.indexOf('Add missing GitHub production JARs'))
     }
 
     @Test
@@ -178,6 +123,8 @@ final class ReleaseLogicTest {
                 repository, '.github/workflows/publish-update-catalog.yml').text
 
         assertTrue(pages.contains('workflow_call:'))
+        assertTrue(pages.contains('ref: ${{ inputs.catalog_source_commit || github.sha }}'))
+        assertFalse(pages.contains("github.event_name == 'workflow_call'"))
         assertTrue(pages.contains('workflow_dispatch:'))
         assertTrue(pages.contains('group: github-pages-update-catalog'))
         assertTrue(pages.contains('cancel-in-progress: false'))
@@ -213,11 +160,11 @@ final class ReleaseLogicTest {
 
         assertTrue(releaseWorkflow.contains('''  update-catalog:
     name: Publish static update catalog
-    needs: [build, github]
+    needs: [plan, publish]
 '''))
-        assertTrue(releaseWorkflow.contains("needs.github.result == 'success'"))
+        assertTrue(releaseWorkflow.contains("needs.publish.result == 'success'"))
         assertTrue(releaseWorkflow.contains(
-                'catalog_source_commit: ${{ needs.build.outputs.catalog_source_commit }}'))
+                'catalog_source_commit: ${{ needs.plan.outputs.catalog }}'))
         assertFalse(releaseWorkflow.contains('secrets: inherit'))
 
         assertTrue(pagesWorkflow.contains('workflow_dispatch:'))

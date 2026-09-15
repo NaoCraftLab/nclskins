@@ -7,19 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Existing exact SemVer release
+        description: Exact release version to create or extend
         required: true
         type: string
-      mode:
-        description: Exact-tag reconcile or current-main mod-only compatibility backfill
-        required: true
-        default: reconcile-tag
-        type: choice
-        options:
-          - reconcile-tag
-          - compatibility-backfill
-      historical_ref:
-        description: Exact previous tag commit for compatibility-backfill recovery
+      resume_run:
+        description: Resume verified bundle from this Release workflow run (90 days)
         required: false
         type: string
 
@@ -31,444 +23,251 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  backfill-assets:
-    name: Fetch existing GitHub production assets
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.before != '0000000000000000000000000000000000000000'
+  plan:
+    name: Plan and preflight before builds
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      source: ${{ steps.plan.outputs.source }}
+      catalog: ${{ steps.plan.outputs.catalog }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      build: ${{ steps.plan.outputs.build }}
+      resumed: ${{ steps.plan.outputs.resumed }}
+      baseline: ${{ steps.plan.outputs.baseline }}
+      digest: ${{ steps.plan.outputs.digest }}
     steps:
-      - name: Download existing production-only release assets
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Resolve pinned plan or verified resume bundle
+        id: plan
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-        run: |
-          set -euo pipefail
-          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]
-          gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null
-          asset_count="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_VERSION}" --jq '.assets | length')"
-          [[ "$asset_count" -gt 0 ]] || {
-            echo '::error title=Backfill release has no assets::An existing release with production JARs is required.'
-            exit 1
-          }
-          mkdir existing-release-assets
-          gh release download "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --dir existing-release-assets
-
-      - name: Upload existing assets for the build job
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: nclskins-existing-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-          path: existing-release-assets
-          if-no-files-found: error
-          retention-days: 1
-          include-hidden-files: false
-
-  build:
-    name: Validate, test, and assemble
-    needs: backfill-assets
-    if: >-
-      always() &&
-      (
-        (github.event_name == 'push' &&
-          (
-            (github.event.before == '0000000000000000000000000000000000000000' &&
-              needs.backfill-assets.result == 'skipped') ||
-            (github.event.before != '0000000000000000000000000000000000000000' &&
-              needs.backfill-assets.result == 'success')
-          )) ||
-        (github.event_name == 'workflow_dispatch' && needs.backfill-assets.result == 'success')
-      )
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    outputs:
-      version: ${{ steps.release.outputs.version }}
-      mode: ${{ steps.release.outputs.mode }}
-      prerelease: ${{ steps.release.outputs.prerelease }}
-      release_source_commit: ${{ steps.release.outputs.release_source_commit }}
-      catalog_source_commit: ${{ steps.release.outputs.catalog_source_commit }}
-    steps:
-      - name: Check out release source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && 'refs/heads/main' || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Resolve and validate release source
-        id: source
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_REF: ${{ github.ref }}
-          TAG_VERSION: ${{ github.ref_name }}
-          TAG_BEFORE: ${{ github.event.before }}
-          BACKFILL_VERSION: ${{ inputs.version }}
-          REQUESTED_MODE: ${{ inputs.mode }}
-          BACKFILL_HISTORICAL_REF: ${{ inputs.historical_ref }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          catalog_source_commit="$(git rev-parse origin/main)"
-
-          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
-            [[ "$EVENT_REF" == 'refs/heads/main' ]] || {
-              echo '::error title=Invalid backfill source::Manual release backfill must be dispatched from main.'
-              exit 1
-            }
-            version="$BACKFILL_VERSION"
-            if [[ "$REQUESTED_MODE" == 'reconcile-tag' ]]; then
-              git rev-parse --verify "refs/tags/${version}^{commit}" >/dev/null
-              git checkout --detach "refs/tags/${version}"
-              tagged_commit="$(git rev-parse HEAD)"
-              git merge-base --is-ancestor "$tagged_commit" origin/main || {
-                echo '::error title=Release tag is not on main::The reconciled tag must be reachable from origin/main.'
-                exit 1
-              }
-              mode='reconcile-tag'
-            elif [[ "$REQUESTED_MODE" == 'compatibility-backfill' ]]; then
-              [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || {
-                echo '::error title=Stale backfill source::Compatibility backfill must run from current origin/main.'
-                exit 1
-              }
-              configured="$(sed -n 's/^modVersion=//p' gradle/version.properties)"
-              [[ "$configured" == "$version" ]] || {
-                echo '::error title=Historical current-main build forbidden::Use reconcile-tag for a version other than current modVersion.'
-                exit 1
-              }
-              if [[ -n "$BACKFILL_HISTORICAL_REF" ]]; then
-                [[ "$BACKFILL_HISTORICAL_REF" =~ ^[0-9a-f]{40}$ ]] || {
-                  echo '::error title=Invalid recovery provenance::historical_ref must be an exact lowercase commit identifier.'
-                  exit 1
-                }
-                git rev-parse --verify "${BACKFILL_HISTORICAL_REF}^{commit}" >/dev/null
-                historical_commit="$(git rev-parse "${BACKFILL_HISTORICAL_REF}^{commit}")"
-                tagged_commit="$(git rev-parse "refs/tags/${version}^{commit}")"
-                [[ "$historical_commit" != "$tagged_commit" ]] || {
-                  echo '::error title=Invalid recovery provenance::Historical and current tag commits must differ.'
-                  exit 1
-                }
-                git merge-base --is-ancestor "$historical_commit" "$tagged_commit" || {
-                  echo '::error title=Invalid recovery history::The historical commit must be an ancestor of the current tag commit.'
-                  exit 1
-                }
-                [[ "$(git rev-list --first-parent "$tagged_commit" | sed -n "\\|^${historical_commit}$|p")" == "$historical_commit" ]] || {
-                  echo '::error title=Invalid recovery mainline::The historical commit must be on the current tag first-parent history.'
-                  exit 1
-                }
-                historical_version="$(git show "${historical_commit}:gradle/version.properties" | sed -n 's/^modVersion=//p')"
-                [[ "$historical_version" == "$version" ]] || {
-                  echo '::error title=Recovery version mismatch::The historical commit must declare the same release version.'
-                  exit 1
-                }
-                historical_source_ref="$historical_commit"
-              fi
-              mode='backfill'
-            else
-              echo '::error title=Invalid manual release mode::Choose reconcile-tag or compatibility-backfill.'
-              exit 1
-            fi
-          else
-            version="$TAG_VERSION"
-            tagged_commit="$(git rev-parse "${version}^{commit}")"
-            [[ "$(git rev-parse HEAD)" == "$tagged_commit" ]] || {
-              echo '::error title=Tag checkout mismatch::The checked out release source must equal the pushed tag commit.'
-              exit 1
-            }
-            git merge-base --is-ancestor "$tagged_commit" origin/main || {
-              echo '::error title=Release tag is not on main::The tagged commit must be reachable from origin/main.'
-              exit 1
-            }
-            if [[ "$TAG_BEFORE" == '0000000000000000000000000000000000000000' ]]; then
-              mode='tag'
-              historical_source_ref=''
-            else
-              [[ "$TAG_BEFORE" =~ ^[0-9a-f]{40}$ ]] || {
-                echo '::error title=Invalid moved tag provenance::The previous tag object must be an exact commit identifier.'
-                exit 1
-              }
-              git rev-parse --verify "${TAG_BEFORE}^{commit}" >/dev/null
-              old_commit="$(git rev-parse "${TAG_BEFORE}^{commit}")"
-              [[ "$old_commit" != "$tagged_commit" ]] || {
-                echo '::error title=Tag did not move::The previous and current tag commits are identical.'
-                exit 1
-              }
-              git merge-base --is-ancestor "$old_commit" "$tagged_commit" || {
-                echo '::error title=Invalid moved tag history::The previous tag commit must be an ancestor of the new tag commit.'
-                exit 1
-              }
-              [[ "$(git rev-list --first-parent "$tagged_commit" | sed -n "\\|^${old_commit}$|p")" == "$old_commit" ]] || {
-                echo '::error title=Invalid moved tag mainline::The previous tag commit must be on the new tag first-parent history.'
-                exit 1
-              }
-              mode='moved-tag'
-              historical_source_ref="$old_commit"
-            fi
-          fi
-
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]] || {
-            echo '::error title=Invalid release version::Expected X.Y.Z, X.Y.Z-beta.N, or X.Y.Z-alpha.N.'
-            exit 1
-          }
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-          printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"
-          printf 'release_source_commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          printf 'catalog_source_commit=%s\n' "$catalog_source_commit" >> "$GITHUB_OUTPUT"
-          printf 'historical_source_ref=%s\n' "${historical_source_ref:-}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up JDK 25
-        id: java25
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Set up JDK 21
-        id: java21
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up JDK 17
-        id: java17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-        with:
-          cache-read-only: true
-          validate-wrappers: true
-
-      - name: Validate release contract
-        id: release
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ steps.source.outputs.version }}
-          RELEASE_MODE: ${{ steps.source.outputs.mode }}
-          RELEASE_SOURCE_COMMIT: ${{ steps.source.outputs.release_source_commit }}
-          CATALOG_SOURCE_COMMIT: ${{ steps.source.outputs.catalog_source_commit }}
-        run: |
-          set -euo pipefail
-          ./gradlew validateRelease -PreleaseTag="$RELEASE_VERSION"
-          metadata="build/release/${RELEASE_VERSION}/release-metadata.json"
-          server_state="build/release/${RELEASE_VERSION}/server-plugin-release-state.json"
-          printf 'NCLSKINS_SERVER_PLUGIN_BASELINE=%s\n' \
-            "$(jq -er '.activeVersion' "$server_state")" >> "$GITHUB_ENV"
-          printf 'version=%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-          printf 'mode=%s\n' "$RELEASE_MODE" >> "$GITHUB_OUTPUT"
-          printf 'release_source_commit=%s\n' "$RELEASE_SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
-          printf 'catalog_source_commit=%s\n' "$CATALOG_SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
-          printf 'prerelease=%s\n' "$(jq -er '.prerelease' "$metadata")" >> "$GITHUB_OUTPUT"
-
-      - name: Download existing GitHub production assets for backfill
-        if: >-
-          steps.release.outputs.mode == 'moved-tag' ||
-          steps.release.outputs.mode == 'backfill' ||
-          steps.release.outputs.mode == 'reconcile-tag'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nclskins-existing-${{ steps.release.outputs.version }}
-          path: existing-release-assets
-
-      - name: Require the immutable backfill tag
-        if: steps.release.outputs.mode == 'backfill' || steps.release.outputs.mode == 'reconcile-tag'
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          git rev-parse --verify "refs/tags/${RELEASE_VERSION}^{commit}" >/dev/null
-
-      - name: Run full release gate and assemble bundle
-        shell: bash
-        env:
-          NCLSKINS_BUILD_JOBS: '3'
-          NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}
-          NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
-          NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          RELEASE_MODE: ${{ steps.release.outputs.mode }}
-          HISTORICAL_SOURCE_REF: ${{ steps.source.outputs.historical_source_ref }}
-        run: |
-          set -euo pipefail
-          args=(assembleRelease -PreleaseTag="$RELEASE_VERSION" -PreleaseMode="$RELEASE_MODE")
-          if [[ "$RELEASE_MODE" == 'moved-tag' || "$RELEASE_MODE" == 'backfill' || "$RELEASE_MODE" == 'reconcile-tag' ]]; then
-            args+=(-PexistingReleaseAssets=existing-release-assets)
-          fi
-          if [[ -n "$HISTORICAL_SOURCE_REF" ]]; then
-            args+=(-PhistoricalReleaseRef="$HISTORICAL_SOURCE_REF")
-          fi
-          ./gradlew "${args[@]}"
-
-      - name: Upload verified release bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: nclskins-release-${{ steps.release.outputs.version }}
-          path: build/release/${{ steps.release.outputs.version }}
-          if-no-files-found: error
-          retention-days: 1
-          include-hidden-files: false
-
-  platforms:
-    name: Publish Modrinth and CurseForge
-    needs: [build, preflight]
-    if: >-
-      always() &&
-      !cancelled() &&
-      needs.build.result == 'success' &&
-      needs.preflight.result == 'success'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Check out publisher build logic
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.build.outputs.release_source_commit }}
-          persist-credentials: false
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-        with:
-          cache-read-only: true
-          validate-wrappers: true
-
-      - name: Download verified release bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nclskins-release-${{ needs.build.outputs.version }}
-          path: release-bundle
-
-      - name: Preflight and publish missing platform versions
-        shell: bash
-        env:
-          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
-          CURSEFORGE_UPLOAD_TOKEN: ${{ secrets.CURSEFORGE_UPLOAD_TOKEN }}
-        run: |
-          set -euo pipefail
-          ./gradlew publishReleasePlatforms -PreleaseBundle=release-bundle --no-daemon
-
-  preflight:
-    name: Preflight all release destinations
-    needs: build
-    if: >-
-      always() &&
-      !cancelled() &&
-      needs.build.result == 'success'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Check out publisher build logic
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.build.outputs.release_source_commit }}
-          persist-credentials: false
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-        with:
-          cache-read-only: true
-          validate-wrappers: true
-
-      - name: Download verified release bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nclskins-release-${{ needs.build.outputs.version }}
-          path: release-bundle
-
-      - name: Preflight GitHub, Modrinth, and CurseForge without writes
-        shell: bash
-        env:
           GITHUB_TOKEN: ${{ github.token }}
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+          CURSEFORGE_UPLOAD_TOKEN: ${{ secrets.CURSEFORGE_UPLOAD_TOKEN }}
+          VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          RESUME_RUN: ${{ inputs.resume_run }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          ./gradlew preflightGithubRelease preflightReleasePlatforms \
-            -PreleaseBundle=release-bundle --no-daemon
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$EVENT_REF" == refs/heads/main ]]
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD origin/main
+          printf 'catalog=%s\n' "$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          if [[ -n "$RESUME_RUN" ]]; then
+            [[ "$RESUME_RUN" =~ ^[0-9]+$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RESUME_RUN" > source-run.json
+            [[ "$(jq -r '.path' source-run.json)" == '.github/workflows/release.yml' ]]
+            [[ "$(jq -r '.repository.full_name' source-run.json)" == "$GITHUB_REPOSITORY" ]]
+            [[ "$(jq -r '.event' source-run.json)" =~ ^(push|workflow_dispatch)$ ]]
+            gh run download "$RESUME_RUN" --repo "$GITHUB_REPOSITORY" -n "release-bundle-$VERSION" -D release-bundle
+            [[ "$(jq -r '.version' release-bundle/release-manifest.json)" == "$VERSION" ]]
+            [[ "$(jq -r '.releasePlanDigest' release-bundle/release-manifest.json)" =~ ^[0-9a-f]{64}$ ]]
+            [[ -f release-bundle/release-plan.json ]]
+            source="$(jq -r '.sourceCommit' release-bundle/release-manifest.json)"
+            [[ "$source" =~ ^[0-9a-f]{40}$ ]]
+            git merge-base --is-ancestor "$source" origin/main
+            printf 'source=%s\nresumed=true\nbuild=false\nmatrix={"include":[]}\n' "$source" >> "$GITHUB_OUTPUT"
+          else
+            ./gradlew planRelease -PreleaseTag="$VERSION" --no-daemon --console=plain
+            plan=build/release-plan/release-plan.json
+            printf 'digest=%s\n' "$(jq -r '.digest' "$plan")" >> "$GITHUB_OUTPUT"
+            source="$(jq -r '.sourceCommit' "$plan")"
+            matrix="$(jq -c '{include: [.components[] | select(.build) | {id: .id}]}' "$plan")"
+            printf 'source=%s\nresumed=false\nmatrix=%s\nbuild=%s\nbaseline=%s\n' \
+              "$source" "$matrix" "$(jq '.include | length > 0' <<< "$matrix")" \
+              "$(jq -r '.serverState.activeVersion' "$plan")" >> "$GITHUB_OUTPUT"
+          fi
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.plan.outputs.resumed != 'true'
+        with:
+          name: release-plan-${{ steps.plan.outputs.version }}
+          overwrite: true
+          path: build/release-plan
+          retention-days: 90
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.plan.outputs.resumed == 'true'
+        with:
+          name: release-bundle-${{ steps.plan.outputs.version }}
+          overwrite: true
+          path: release-bundle
+          retention-days: 90
+          if-no-files-found: error
 
-  github:
-    name: Publish GitHub Release
-    needs: [build, platforms]
+  checks:
+    name: Shared release checks
+    needs: plan
+    if: needs.plan.outputs.resumed != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - run: ./gradlew checkRelease --no-daemon --console=plain
+
+  components:
+    name: Build ${{ matrix.id }}
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        id: java17
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        id: java21
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        id: java25
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-plan-${{ needs.plan.outputs.version }}
+          path: build/release-plan
+      - name: Build and verify selected component
+        env:
+          COMPONENT_ID: ${{ matrix.id }}
+          NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}
+          NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
+          NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
+          NCLSKINS_SERVER_PLUGIN_BASELINE: ${{ needs.plan.outputs.baseline }}
+        run: ./gradlew exportReleaseComponent -PtargetId="$COMPONENT_ID" --no-daemon --console=plain
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: component-${{ needs.plan.outputs.digest }}-${{ matrix.id }}
+          overwrite: true
+          path: build/release-component
+          retention-days: 90
+          if-no-files-found: error
+
+  bundle:
+    name: Verify and assemble bundle
+    needs: [plan, checks, components]
     if: >-
-      always() &&
-      !cancelled() &&
-      needs.build.result == 'success' &&
-      needs.platforms.result == 'success'
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      needs.plan.outputs.resumed != 'true' && needs.checks.result == 'success' &&
+      (needs.components.result == 'success' || needs.components.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-plan-${{ needs.plan.outputs.version }}
+          path: build/release-plan
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.plan.outputs.build == 'true'
+        with:
+          pattern: component-${{ needs.plan.outputs.digest }}-*
+          merge-multiple: true
+          path: build/release-plan/assets
+      - run: ./gradlew assembleRelease --no-daemon --console=plain
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle-${{ needs.plan.outputs.version }}
+          path: build/release/${{ needs.plan.outputs.version }}
+          overwrite: true
+          retention-days: 90
+          if-no-files-found: error
+
+  publish:
+    name: Preflight and publish missing files
+    needs: [plan, bundle]
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' &&
+      (needs.bundle.result == 'success' || needs.plan.outputs.resumed == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
     steps:
-      - name: Check out publisher build logic
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.build.outputs.release_source_commit }}
+          ref: ${{ needs.plan.outputs.source }}
+          fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '25'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          cache-read-only: true
-          validate-wrappers: true
-
-      - name: Download verified release bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nclskins-release-${{ needs.build.outputs.version }}
+          name: release-bundle-${{ needs.plan.outputs.version }}
           path: release-bundle
-
-      - name: Reconcile GitHub Release
-        shell: bash
+      - name: Final preflight without writes
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          ./gradlew publishGithubRelease -PreleaseBundle=release-bundle --no-daemon
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+        run: ./gradlew preflightGithubRelease preflightReleasePlatforms -PreleaseBundle=release-bundle --no-daemon
+      - name: Publish missing marketplace files
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+          CURSEFORGE_UPLOAD_TOKEN: ${{ secrets.CURSEFORGE_UPLOAD_TOKEN }}
+        run: ./gradlew publishReleasePlatforms -PreleaseBundle=release-bundle --no-daemon
+      - name: Add missing GitHub production JARs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./gradlew publishGithubRelease -PreleaseBundle=release-bundle --no-daemon
 
   update-catalog:
     name: Publish static update catalog
-    needs: [build, github]
-    if: >-
-      always() &&
-      !cancelled() &&
-      needs.build.result == 'success' &&
-      needs.github.result == 'success'
+    needs: [plan, publish]
+    if: needs.publish.result == 'success'
     permissions:
       contents: read
       pages: write
       id-token: write
     uses: ./.github/workflows/publish-update-catalog.yml
     with:
-      catalog_source_commit: ${{ needs.build.outputs.catalog_source_commit }}
+      catalog_source_commit: ${{ needs.plan.outputs.catalog }}

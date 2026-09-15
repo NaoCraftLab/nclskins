@@ -46,11 +46,19 @@ abstract class TargetBuildTask extends DefaultTask {
     @Internal
     abstract Property<Integer> getMaximumWorkers()
 
+    @Input
+    abstract Property<Integer> getTimeoutSeconds()
+
+    TargetBuildTask() {
+        timeoutSeconds.convention(1200)
+    }
+
     @TaskAction
     void buildTargets() {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
         CatalogTools.validate(repositoryDirectory.get().asFile, catalog)
         List<Map> targets = selectedTargetIds(catalog).collect { CatalogTools.selectTarget(catalog, it) }
+        if (targets.isEmpty()) return
         int workers = Math.max(1, Math.min(maximumWorkers.get(), targets.size()))
         def executor = Executors.newFixedThreadPool(workers)
         try {
@@ -86,16 +94,15 @@ abstract class TargetBuildTask extends DefaultTask {
                 '-x',
                 'verifyTargetCatalog',
                 '-p',
-                targetDirectory.absolutePath
+                targetDirectory.absolutePath,
+                '--no-daemon',
+                '--console=plain'
         ] + targetTasks.get()
         ProcessBuilder builder = new ProcessBuilder(command).directory(root)
         builder.redirectErrorStream(true)
         TargetRuntime.configureEnvironment(builder, javaHome)
-        Process process = builder.start()
-        String output = process.inputStream.getText('UTF-8')
-        int exit = process.waitFor()
-        if (exit != 0) {
-            throw new IllegalStateException("${target.id} failed (${exit})\n${output}")
+        ReleaseProcess.run(builder, target.id.toString(), timeoutSeconds.get()) {
+            logger.lifecycle(it.toString())
         }
         if (verifyArtifacts.get()) {
             List<String> errors = []

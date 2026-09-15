@@ -56,12 +56,14 @@ abstract class PublishPlatformsTask extends DefaultTask {
                 manifest, targets, modrinthToken, curseForgeApiKey)
         Map plan = classifyPerTarget(targets, remote)
         requireNoConflicts(plan)
+        requirePreserved(manifest, plan)
         appendSummary('Publication preflight', plan)
         if (preflightOnly.get()) return
 
         remote = fetchAll(manifest, targets, modrinthToken, curseForgeApiKey)
         Map recheck = classifyPerTarget(targets, remote)
         requireNoConflicts(recheck)
+        requirePreserved(manifest, recheck)
         List<String> disappeared = []
         ['modrinth', 'curseforge'].each { String platform ->
             targets.each { Map target ->
@@ -132,6 +134,21 @@ abstract class PublishPlatformsTask extends DefaultTask {
             targets.add(manifest.serverPlugin.publication as Map)
         }
         targets
+    }
+
+    static void requirePreserved(Map manifest, Map plan) {
+        if (manifest.releasePlanDigest != null && ['modrinth', 'curseforge'].any { String platform ->
+            plan[platform].values().any { it.action.toString().startsWith('update-metadata') }
+        }) {
+            throw new IllegalStateException('Remote metadata changed since release planning')
+        }
+        (manifest.preservedTargetIds ?: []).each { Object id ->
+            ['modrinth', 'curseforge'].each { String platform ->
+                if (plan[platform][id]?.action != 'skip') {
+                    throw new IllegalStateException("Preserved ${platform} ${id} changed since planning")
+                }
+            }
+        }
     }
 
     Map<String, Map<String, List<Map>>> fetchAll(
@@ -346,7 +363,7 @@ abstract class PublishPlatformsTask extends DefaultTask {
                 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body)
         HttpResponse<byte[]> response
         try {
-            response = httpClient().send(
+            response = ReleaseHttp.send(httpClient(),
                     builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofByteArray())
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt()

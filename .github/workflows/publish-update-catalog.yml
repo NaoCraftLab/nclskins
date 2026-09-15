@@ -32,21 +32,22 @@ jobs:
       - name: Check out pinned catalog source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'workflow_call' && inputs.catalog_source_commit || github.sha }}
+          ref: ${{ inputs.catalog_source_commit || github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Validate pinned catalog source
         shell: bash
         env:
-          SOURCE_COMMIT: ${{ github.event_name == 'workflow_call' && inputs.catalog_source_commit || github.sha }}
+          SOURCE_COMMIT: ${{ inputs.catalog_source_commit || github.sha }}
+          CALLER_CATALOG_COMMIT: ${{ inputs.catalog_source_commit }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$(git rev-parse HEAD)" == "$SOURCE_COMMIT" ]]
-          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+          if [[ -z "$CALLER_CATALOG_COMMIT" && "$EVENT_NAME" == 'workflow_dispatch' ]]; then
             [[ "$EVENT_REF" == 'refs/heads/main' ]] || {
               echo '::error title=Invalid catalog source::Manual catalog publication must be dispatched from main.'
               exit 1

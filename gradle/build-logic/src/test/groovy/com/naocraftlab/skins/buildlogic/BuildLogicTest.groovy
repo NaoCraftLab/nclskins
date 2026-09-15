@@ -140,9 +140,19 @@ final class BuildLogicTest {
     }
 
     @Test
-    void historicalReleaseSourcesRunAfterCurrentFullCheck() {
+    void releaseAssemblyDoesNotCompileTargets() {
         String rootBuild = new File(repository, 'build.gradle').text
-        assertTrue(rootBuild.contains('mustRunAfter fullCheck'))
+        String assembly = rootBuild.substring(rootBuild.indexOf("tasks.register('assembleRelease'"),
+                rootBuild.indexOf("tasks.register('publishReleasePlatforms'"))
+        assertFalse(assembly.contains('dependsOn'))
+        assertFalse(rootBuild.contains("'materializeHistoricalReleaseSources',"))
+        String component = rootBuild.substring(rootBuild.indexOf("tasks.register('exportReleaseComponent'"),
+                rootBuild.indexOf("tasks.register('assembleRelease'"))
+        assertTrue(component.contains("if (requestedTargetId == 'server-plugin')"))
+        assertTrue(component.contains("':server-plugin-bukkit:check'"))
+        assertTrue(component.contains("':server-plugin-velocity:check'"))
+        assertTrue(component.contains("':server-plugin-bungee:check'"))
+        assertFalse(component.contains('fullCheck'))
     }
 
     @Test

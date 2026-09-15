@@ -24,9 +24,6 @@ def requestedTargetId = providers.gradleProperty('targetId').orNull
 def requestedMinecraftVersion = providers.gradleProperty('mcVersion').orNull
 def requestedCapabilityKey = providers.gradleProperty('capabilityKey').orNull
 def requestedReleaseTag = providers.gradleProperty('releaseTag').orNull
-def requestedReleaseMode = providers.gradleProperty('releaseMode').getOrElse('tag')
-def requestedExistingReleaseAssets = providers.gradleProperty('existingReleaseAssets').orNull
-def requestedHistoricalReleaseRef = providers.gradleProperty('historicalReleaseRef').orNull
 def requestedReleaseBundle = providers.gradleProperty('releaseBundle').orNull
 def requestedFromRef = providers.gradleProperty('fromRef').orNull
 def requestedToRef = providers.gradleProperty('toRef').orNull
@@ -540,49 +537,47 @@ def validateRelease = tasks.register('validateRelease', ValidateReleaseTask) {
     outputs.upToDateWhen { false }
 }
 
-def materializeHistoricalReleaseSources = tasks.register(
-        'materializeHistoricalReleaseSources', MaterializeHistoricalReleaseSourcesTask) {
+tasks.register('planRelease', PlanReleaseTask) {
     group = 'release setup'
-    description = 'Builds exact-tag source JARs for existing compatibility-backfill binaries.'
-    mustRunAfter fullCheck
-    onlyIf { requestedReleaseMode in ['backfill', 'moved-tag'] }
+    description = 'Checks remote inventory and freezes the exact release build and publication plan.'
     repositoryDirectory.set(layout.projectDirectory)
-    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
-    releaseTag.set(requestedReleaseTag ?: '')
-    historicalRef.set(requestedHistoricalReleaseRef ?: "refs/tags/${requestedReleaseTag ?: ''}")
-    if (requestedExistingReleaseAssets != null) {
-        existingAssetsDirectory.set(layout.projectDirectory.dir(requestedExistingReleaseAssets))
-    }
-    sourcesDirectory.set(layout.buildDirectory.dir(
-            "historical-release-sources/${requestedReleaseTag ?: 'unspecified'}"))
-    outputs.upToDateWhen { false }
+    releaseTag.set(requestedReleaseTag ?: modVersion)
+    outputDirectory.set(layout.buildDirectory.dir('release-plan'))
 }
 
-tasks.register('assembleRelease', AssembleReleaseTask) {
+tasks.register('checkRelease') {
+    group = 'verification'
+    description = 'Runs shared release checks without building unrelated Minecraft targets or the plugin.'
+    dependsOn(':core:check', ':client-contract:check', ':client-runtime:check',
+               ':server-contract:check', ':server-runtime:check', ':server-vanilla-publication:check')
+    dependsOn verifyTargetCatalog, verifyCapabilitySemantics, verifyPublicationTree
+    dependsOn tasks.named('verifyLoggingConventions'), tasks.named('verifyLoggingSecurityBaseline')
+    dependsOn gradle.includedBuild('build-logic').task(':test')
+}
+
+tasks.register('exportReleaseComponent', ExportReleaseComponentTask) {
     group = 'release'
-    description = 'Runs the full gate and assembles a tag or backfill publication bundle.'
-    dependsOn validateRelease
-    dependsOn fullCheck
-    dependsOn tasks.named('buildServerPlugin')
     repositoryDirectory.set(layout.projectDirectory)
-    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
-    changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
-    pluginChangelogFile.set(layout.projectDirectory.file('PLUGIN_CHANGELOG.md'))
-    serverPluginStateFile.set(computeServerPluginReleaseState.flatMap { it.stateFile })
-    releaseTag.set(requestedReleaseTag ?: '')
-    releaseMode.set(requestedReleaseMode)
-    if (requestedExistingReleaseAssets != null) {
-        existingAssetsDirectory.set(layout.projectDirectory.dir(requestedExistingReleaseAssets))
+    planFile.set(layout.projectDirectory.file(providers.gradleProperty('releasePlan')
+            .getOrElse('build/release-plan/release-plan.json')))
+    componentId.set(requestedTargetId ?: '')
+    outputDirectory.set(layout.buildDirectory.dir('release-component'))
+    outputs.upToDateWhen { false }
+    dependsOn tasks.named(requestedTargetId == 'server-plugin' ? 'buildServerPlugin' : 'buildTarget')
+    if (requestedTargetId == 'server-plugin') {
+        dependsOn(':server-plugin-common:check', ':server-plugin-bukkit:check',
+                ':server-plugin-velocity:check', ':server-plugin-bungee:check', ':server-plugin:check')
     }
-    if (requestedReleaseMode in ['backfill', 'moved-tag']) {
-        dependsOn materializeHistoricalReleaseSources
-        historicalSourcesDirectory.set(
-                materializeHistoricalReleaseSources.flatMap { it.sourcesDirectory })
-        historicalReleaseRef.set(
-                requestedHistoricalReleaseRef ?: "refs/tags/${requestedReleaseTag ?: ''}")
-    }
+}
+
+tasks.register('assembleRelease', AssemblePlannedReleaseTask) {
+    group = 'release'
+    description = 'Verifies and assembles a pinned release plan from already built or recovered components.'
+    repositoryDirectory.set(layout.projectDirectory)
+    planFile.set(layout.projectDirectory.file(providers.gradleProperty('releasePlan')
+            .getOrElse('build/release-plan/release-plan.json')))
+    componentDirectory.set(layout.projectDirectory.dir(providers.gradleProperty('releaseComponents')
+            .getOrElse('build/release-plan/assets')))
     releaseRoot.set(layout.buildDirectory.dir('release'))
     outputs.upToDateWhen { false }
 }
