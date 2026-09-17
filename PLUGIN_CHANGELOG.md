@@ -1,3 +1,9 @@
+## 1.0.0.3
+
+### Added
+
+- Support for Minecraft 26.3 on Purpur
+
 ## 1.0.0.2
 
 ### Added
