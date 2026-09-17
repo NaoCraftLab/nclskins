@@ -31,7 +31,7 @@ One universal JAR contains separate entrypoints for Bukkit-family servers, Veloc
 | 26.1.1 | Paper | Paper | Paper |
 | 26.1.2 | Paper, Purpur, Folia | Paper, Purpur, Folia | Paper, Purpur, Folia |
 | 26.2 | Paper, Purpur, Folia | Paper, Purpur, Folia | Paper, Purpur, Folia |
-| 26.3 | Paper | Paper | Paper |
+| 26.3 | Paper, Purpur | Paper, Purpur | Paper, Purpur |
 
 The plugin version combines a base version and a build number. For example, in `1.0.0.2`, `1.0.0` is the base version and `2` is the build number. This plugin works with NCL Skins mod version `1.0.0` and later versions until the way the client and server communicate changes. When that happens, the new plugin's base version will match the mod version that introduces the change. Compatibility with older mod versions is not guaranteed. Additional plugin builds that add support for newer Minecraft versions do not change which mod versions are compatible.
 
