@@ -981,7 +981,7 @@ final class CatalogTools {
                 '26.1.1' : ['paper'],
                 '26.1.2' : ['paper', 'purpur', 'folia'],
                 '26.2'   : ['paper', 'purpur', 'folia'],
-                '26.3'   : ['paper']
+                '26.3'   : ['paper', 'purpur']
         ]
         if (plugin.compatibility != expectedCompatibility ||
                 plugin.excluded != ['waterfall', 'sponge', 'geyser']) {
@@ -1041,8 +1041,8 @@ final class CatalogTools {
                 'id', 'platform', 'version', 'build', 'channel', 'url', 'sha256', 'javaRelease'
         ] as Set
         Set runtimeIds = [] as Set
-        if (runtimes.size() != 21 || runtimes.size() != rawRuntimes.size()) {
-            errors.add('serverPluginRuntimes must define exactly 21 immutable artifacts')
+        if (runtimes.size() != 22 || runtimes.size() != rawRuntimes.size()) {
+            errors.add('serverPluginRuntimes must contain exactly 22 entries')
         }
         runtimes.each { Map runtime ->
             if ((runtime.keySet() as Set) != runtimeKeys ||
@@ -1105,16 +1105,16 @@ final class CatalogTools {
             boolean developmentOnly = topology.developmentOnly == true
             Set<String> expectedKeys = developmentOnly ? developmentTopologyKeys : topologyKeys
             Map compatibility = developmentOnly ? expectedDevelopmentCompatibility : expectedCompatibility
+            boolean promoted = !developmentOnly
             if ((topology.keySet() as Set) != expectedKeys || !(mode in counts.keySet()) ||
                     topology.id != "${minecraft}-${kernel}-${mode}" ||
-                    !topologyIds.add(topology.id) || !compatibility.containsKey(minecraft) ||
-                    !(kernel in compatibility[minecraft]) ||
+                    !topologyIds.add(topology.id) || (promoted && (!compatibility.containsKey(minecraft) ||
+                    !(kernel in compatibility[minecraft]))) ||
                     dependencies.size() != dependencies.toSet().size()) {
                 errors.add("${topology.id}: invalid server plugin topology identity")
                 return
             }
             if (developmentOnly && (mode != 'standalone' ||
-                    topology.backendRuntime != 'paper-26.3' ||
                     !runtimeIds.contains(topology.backendRuntime))) {
                 errors.add("${topology.id}: invalid development-only runtime routing")
             }
@@ -1151,15 +1151,15 @@ final class CatalogTools {
                 errors.add("${topology.id}: Spigot is supported only on 1.20.1 outside Velocity")
             }
         }
-        if (topologies.size() != rawTopologies.size() || topologies.size() != 33 ||
-                counts != [standalone: 18, velocity: 7, bungeecord: 8]) {
-            errors.add('serverPluginTopologies must contain 18 standalone, 7 Velocity, and 8 BungeeCord runs')
+        if (topologies.size() != rawTopologies.size() || topologies.size() != 34 ||
+                counts != [standalone: 19, velocity: 7, bungeecord: 8]) {
+            errors.add('serverPluginTopologies must contain 19 standalone, 7 Velocity, and 8 BungeeCord runs')
         }
         Set<Integer> modPorts = (catalog.targets as List).collectMany { Map target ->
             targetRuntimeSpecs(target).collect { (it.serverPort as Number).intValue() }
         } as Set<Integer>
-        List<Integer> expectedPorts = (26000..26052).toList() + [26153] + (26054..26062).toList()
-        if (ports != expectedPorts || ports.toSet().size() != 63 ||
+        List<Integer> expectedPorts = (26000..26052).toList() + [26153] + (26054..26062).toList() + [26063]
+        if (ports != expectedPorts || ports.toSet().size() != 64 ||
                 !ports.toSet().intersect(modPorts).isEmpty()) {
             errors.add('server plugin ports must match the exact topology allocation, be unique, and be disjoint from mod runs')
         }

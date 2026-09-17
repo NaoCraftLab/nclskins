@@ -47,6 +47,22 @@ final class BukkitRuntimeDetectorTest {
         assertFalse(selector.select(paper("26.3.1")).supported());
     }
 
+    @Test
+    void supportsPurpur263WithAuthlib10Adapter() {
+        ExactAdapterSelector<BukkitNativeAdapter> selector = BukkitAdapterCatalog.selector();
+
+        assertTrue(selector.select(purpur("26.3")).supported());
+        assertEquals("paper-authlib10", selector.select(purpur("26.3")).load().id());
+        assertFalse(selector.select(purpur("26.4")).supported());
+    }
+
+    private static ServerRuntimeIdentity purpur(String version) {
+        return new ServerRuntimeIdentity(
+                version,
+                ServerRuntimeIdentity.Family.PURPUR,
+                ServerRuntimeIdentity.ThreadingModel.CLASSIC);
+    }
+
     private static ServerRuntimeIdentity paper(String version) {
         return new ServerRuntimeIdentity(
                 version,

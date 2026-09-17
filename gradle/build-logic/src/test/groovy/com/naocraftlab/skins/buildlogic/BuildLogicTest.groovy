@@ -85,7 +85,7 @@ final class BuildLogicTest {
                 catalog.serverPlugin.platforms.modrinth.projectId)
         assertNotEquals(catalog.mod.platforms.curseforge.projectId,
                 catalog.serverPlugin.platforms.curseforge.projectId)
-        assertEquals(21, catalog.serverPluginRuntimes.size())
+        assertEquals(22, catalog.serverPluginRuntimes.size())
         assertEquals([
                 id: 'paper-26.3', platform: 'paper', version: '26.3',
                 build: '5', channel: 'ALPHA',
@@ -95,6 +95,13 @@ final class BuildLogicTest {
                 sha256: '7f98951a70ed7b3f28906b1c534e599f70d0dbbab1ef58bb2272f7d348bc0e51',
                 javaRelease: 25
         ], catalog.serverPluginRuntimes.find { it.id == 'paper-26.3' })
+        assertEquals([
+                id: 'purpur-26.3', platform: 'purpur', version: '26.3',
+                build: '2635', channel: 'ALPHA',
+                url: 'https://api.purpurmc.org/v2/purpur/26.3/2635/download',
+                sha256: 'b11c22ce0476b8bbc04649060bb43fde71826d8d6d34ff4ed6181e30306b1d33',
+                javaRelease: 25
+        ], catalog.serverPluginRuntimes.find { it.id == 'purpur-26.3' })
         assertEquals(
                 'https://fill-data.papermc.io/v1/objects/' +
                         '35a5596a5468a035d8a32c8de5ebb0dc6b8d8f0cc3ff5169d514aca762af8aa8/' +
@@ -103,14 +110,14 @@ final class BuildLogicTest {
         assertEquals(
                 'https://github.com/lucko/BungeeGuard/releases/download/v1.4.0/BungeeGuard.jar',
                 catalog.serverPluginRuntimes.find { it.id == 'bungeeguard-1.4.0' }.url)
-        assertEquals(33, catalog.serverPluginTopologies.size())
-        assertEquals(63, catalog.serverPluginTopologies.collectMany {
+        assertEquals(34, catalog.serverPluginTopologies.size())
+        assertEquals(64, catalog.serverPluginTopologies.collectMany {
             (it.ports as Map).values()
         }.toSet().size())
         assertTrue(catalog.serverPlugin.developmentCompatibility.isEmpty())
-        assertEquals(['paper'], catalog.serverPlugin.compatibility['26.3'])
+        assertEquals(['paper', 'purpur'], catalog.serverPlugin.compatibility['26.3'])
         assertFalse(catalog.serverPlugin.excluded.contains('26.3'))
-        assertEquals(3, catalog.serverPluginTopologies.count { it.minecraft == '26.3' })
+        assertEquals(4, catalog.serverPluginTopologies.count { it.minecraft == '26.3' })
         Map characterization = CatalogTools.loadJson(
                 new File(repository, 'gradle/server-plugin-characterization.json'))
         assertEquals(1, characterization.schemaVersion)
@@ -1519,7 +1526,7 @@ final class BuildLogicTest {
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
                 IdeaRunConfigurations.RUN_KINDS.size() +
                 catalog.serverPluginTopologies.size(), taskNames.size())
-        assertEquals(81, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
+        assertEquals(82, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
         assertTrue(IdeaRunConfigurations.orderedConfigurationNames(catalog)
                 .contains('26.3:paper:runServer'))
         assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
@@ -1834,7 +1841,7 @@ final class BuildLogicTest {
                            'Velocity Paper', 'BungeeCord Paper'],
                 '26.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
                          'Velocity Paper', 'BungeeCord Paper'],
-                '26.3': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Velocity Paper', 'BungeeCord Paper']
+                 '26.3': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Velocity Paper', 'BungeeCord Paper']
         ]
         expectedNames.each { String version, List<String> names ->
             List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)

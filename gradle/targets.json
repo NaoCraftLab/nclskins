@@ -487,7 +487,7 @@
       "26.1.1": ["paper"],
       "26.1.2": ["paper", "purpur", "folia"],
       "26.2": ["paper", "purpur", "folia"],
-      "26.3": ["paper"]
+      "26.3": ["paper", "purpur"]
     },
     "developmentCompatibility": {},
     "excluded": ["waterfall", "sponge", "geyser"],
@@ -541,7 +541,8 @@
     {"id":"purpur-1.21.1","platform":"purpur","version":"1.21.1","build":"2329","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/1.21.1/2329/download","sha256":"30403cf54f981f16e1403f172645e82d3e4a59ad6c9f1d8e98df99edb1f8ae4c","javaRelease":21},
     {"id":"purpur-1.21.11","platform":"purpur","version":"1.21.11","build":"2568","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/1.21.11/2568/download","sha256":"ee199511bf0a970ee8459fe3a351703fec37293f00bc2de1c5cb746c7e4acc34","javaRelease":21},
     {"id":"purpur-26.1.2","platform":"purpur","version":"26.1.2","build":"2592","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/26.1.2/2592/download","sha256":"d88e3826a7f3ad3cb4b07be02fc732ba732bf1a1b113d96b605e9f8d1d119608","javaRelease":25},
-    {"id":"purpur-26.2","platform":"purpur","version":"26.2","build":"2620","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/26.2/2620/download","sha256":"21003a8bf180855bf8b3cdd7212d6b6ff76f06de5dcba84740c3ed433ba6c34d","javaRelease":25},
+     {"id":"purpur-26.2","platform":"purpur","version":"26.2","build":"2620","channel":"STABLE","url":"https://api.purpurmc.org/v2/purpur/26.2/2620/download","sha256":"21003a8bf180855bf8b3cdd7212d6b6ff76f06de5dcba84740c3ed433ba6c34d","javaRelease":25},
+     {"id":"purpur-26.3","platform":"purpur","version":"26.3","build":"2635","channel":"ALPHA","url":"https://api.purpurmc.org/v2/purpur/26.3/2635/download","sha256":"b11c22ce0476b8bbc04649060bb43fde71826d8d6d34ff4ed6181e30306b1d33","javaRelease":25},
     {"id":"folia-1.20.1","platform":"folia","version":"1.20.1","build":"17","channel":"ALPHA","url":"https://fill-data.papermc.io/v1/objects/c533d8886c60e1db17ebcf841b862731ab0a18d72377f37189930c3324eb7759/folia-1.20.1-17.jar","sha256":"c533d8886c60e1db17ebcf841b862731ab0a18d72377f37189930c3324eb7759","javaRelease":21},
     {"id":"folia-1.21.11","platform":"folia","version":"1.21.11","build":"14","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39/folia-1.21.11-14.jar","sha256":"f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39","javaRelease":21},
     {"id":"folia-26.1.2","platform":"folia","version":"26.1.2","build":"8","channel":"STABLE","url":"https://fill-data.papermc.io/v1/objects/607afd1c3320008e1ffd2eaee6780ace4419d5f8c527b75e79f259be79ebf57b/folia-26.1.2-8.jar","sha256":"607afd1c3320008e1ffd2eaee6780ace4419d5f8c527b75e79f259be79ebf57b","javaRelease":25},
@@ -585,8 +586,9 @@
     {"id":"26.2-paper-bungeecord","minecraft":"26.2","kernel":"paper","mode":"bungeecord","ports":{"proxy":26153,"lobby":26054,"target":26055},"dependencies":["bungeecord","bungeeguard"]},
     {"id":"26.3-paper-standalone","minecraft":"26.3","kernel":"paper","mode":"standalone","ports":{"server":26056},"dependencies":[]},
     {"id":"26.3-paper-velocity","minecraft":"26.3","kernel":"paper","mode":"velocity","ports":{"proxy":26057,"lobby":26058,"target":26059},"dependencies":["velocity"]},
-    {"id":"26.3-paper-bungeecord","minecraft":"26.3","kernel":"paper","mode":"bungeecord","ports":{"proxy":26060,"lobby":26061,"target":26062},"dependencies":["bungeecord","bungeeguard"]}
-  ],
+     {"id":"26.3-paper-bungeecord","minecraft":"26.3","kernel":"paper","mode":"bungeecord","ports":{"proxy":26060,"lobby":26061,"target":26062},"dependencies":["bungeecord","bungeeguard"]},
+      {"id":"26.3-purpur-standalone","minecraft":"26.3","kernel":"purpur","mode":"standalone","ports":{"server":26063},"dependencies":[]}
+   ],
   "baseBundles": ["portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {
     "portable-common": {
