@@ -46,7 +46,7 @@ final class ReleaseLogicTest {
         List<String> pluginLines = pluginChangelog.readLines()
         assertTrue(pluginChangelog.isFile())
         assertFalse(new File(repository, 'SERVER_CHANGELOG.md').exists())
-        assertEquals('## 1.0.0.2', pluginLines.find { !it.isBlank() })
+        assertEquals("## ${ServerPluginVersion.load(repository)}".toString(), pluginLines.find { !it.isBlank() })
         assertFalse(pluginLines.any { it.startsWith('# ') })
         String pluginNotes = ServerPluginChangelog.validate(pluginChangelog, [
                 currentVersion: currentVersion, pluginVersion: ServerPluginVersion.load(repository),
