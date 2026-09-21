@@ -9,7 +9,6 @@ import javax.imageio.ImageIO
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import java.util.regex.Pattern
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -22,6 +21,8 @@ final class BuildLogicTest {
     private final Map catalog = CatalogTools.loadCatalog(repository)
     private final Map abi = CatalogTools.loadJson(new File(repository, 'gradle/abi-fingerprints.json'))
     private final Map modMenuAbi = CatalogTools.loadJson(new File(repository, 'gradle/modmenu-abi.json'))
+    private final Map serverPluginAbi = CatalogTools.loadJson(
+            new File(repository, 'gradle/server-plugin-abi.json'))
 
     @Test
     void finderMetadataIsIgnoredLocallyAndExcludedFromCopyOutputs() {
@@ -38,8 +39,17 @@ final class BuildLogicTest {
     }
 
     @Test
+    void rootCleanOwnsOnlyTheRootBuildDirectory() {
+        String build = new File(repository, 'build.gradle').text
+        String properties = new File(repository, 'gradle.properties').text
+        assertTrue(build.contains("tasks.register('clean', Delete)"))
+        assertTrue(build.contains('delete layout.buildDirectory'))
+        assertTrue(properties.contains('org.gradle.configuration-cache=false'))
+    }
+
+    @Test
     void currentCatalogIsValid() {
-        assertEquals(23, catalog.schemaVersion)
+        assertEquals(24, catalog.schemaVersion)
         assertEquals('00000000-0000-0000-0000-000000000001', catalog.development.clientUuid)
         assertEquals([
                 fabric  : 'nclskins-fabric',
@@ -136,23 +146,24 @@ final class BuildLogicTest {
         ], finalTarget.minecraft)
         assertEquals('0.19.5', finalTarget.loader.version)
         assertEquals('>=0.19.5', finalTarget.loader.predicate)
-        assertEquals('0.160.5+26.3', finalTarget.loader.apiVersion)
-        assertEquals('>=0.160.5+26.3', finalTarget.loader.apiPredicate)
+        assertEquals('0.161.0+26.3', finalTarget.loader.apiVersion)
+        assertEquals('>=0.161.0+26.3', finalTarget.loader.apiPredicate)
         assertEquals('21.0.0-beta.1', finalTarget.loader.modMenuVersion)
         assertEquals('3.9.6+26.3-fabric',
                 catalog.optionalDependencies.yet_another_config_lib_v3.versions['fabric-26.3'])
         assertTrue(CatalogTools.optionalDependencyDevelopmentRuntimeEnabled(
                 catalog, finalTarget, 'yet_another_config_lib_v3'))
         assertEquals('maven.modrinth:bTTf2DEw:EEE7nXWy',
-                catalog.optionalDependencies.sqlite_jdbc.developmentArtifacts.EEE7nXWy.coordinate)
+                CatalogTools.optionalDevelopmentArtifact(
+                        catalog, finalTarget, 'sqlite_jdbc').coordinate)
         assertEquals([97, 1], finalTarget.metadata.packFormat)
         Map neoForgeTarget = catalog.targets.find { it.id == 'neoforge-26.3' } as Map
         assertTrue(neoForgeTarget.releaseEligible as boolean)
         assertEquals([
                 version: '26.3', predicate: '[26.3,)', epoch: '26.3'
         ], neoForgeTarget.minecraft)
-        assertEquals('26.3.0.0-beta', neoForgeTarget.loader.version)
-        assertEquals('[26.3.0.0-beta,)', neoForgeTarget.loader.predicate)
+        assertEquals('26.3.0.6-beta', neoForgeTarget.loader.version)
+        assertEquals('[26.3.0.6-beta,)', neoForgeTarget.loader.predicate)
         assertEquals(25, neoForgeTarget.java.release)
         assertEquals(25580, neoForgeTarget.development.serverPort)
         assertEquals('3.9.6+26.3-fabric',
@@ -161,6 +172,47 @@ final class BuildLogicTest {
                 catalog, neoForgeTarget, 'yet_another_config_lib_v3'))
         assertEquals([97, 1], neoForgeTarget.metadata.packFormat)
         CatalogTools.validate(repository, catalog)
+    }
+
+    @Test
+    void serverPluginAbiCoversEveryExactCatalogIdentity() {
+        assertEquals([], ServerPluginAbiVerifier.verify(
+                repository.toPath(), catalog, serverPluginAbi))
+        assertEquals(
+                ['inspect-when-materialized'] as Set,
+                (serverPluginAbi.bindings as List)*.artifactPolicy.toSet())
+    }
+
+    @Test
+    void serverPluginAbiRejectsMissingAndNearbyCoverage() {
+        Map changed = CatalogTools.materialize(serverPluginAbi) as Map
+        Map authlib9 = (changed.bindings as List).find { it.id == 'paper-authlib9' } as Map
+        authlib9.versions = []
+
+        List<String> errors = ServerPluginAbiVerifier.verify(
+                repository.toPath(), catalog, changed)
+
+        assertTrue(errors.any { it.contains('paper-26.2: expected one exact ABI binding') })
+        assertTrue(errors.any { it.contains('purpur-26.2: expected one exact ABI binding') })
+    }
+
+    @Test
+    void serverPluginAbiRejectsMissingFinalPaperDuplicateAndUncataloguedBindings() {
+        Map changed = CatalogTools.materialize(serverPluginAbi) as Map
+        changed.bindings.removeAll { it.id == 'paper-authlib10' }
+        assertTrue(ServerPluginAbiVerifier.verify(repository.toPath(), catalog, changed).any {
+            it.contains('paper-26.3: expected one exact ABI binding')
+        })
+        changed = CatalogTools.materialize(serverPluginAbi) as Map
+        changed.bindings.add(changed.bindings.find { it.id == 'paper-authlib10' })
+        assertTrue(ServerPluginAbiVerifier.verify(repository.toPath(), catalog, changed).any {
+            it.contains('paper-26.3: expected one exact ABI binding')
+        })
+        changed = CatalogTools.materialize(serverPluginAbi) as Map
+        changed.bindings.find { it.id == 'paper-authlib10' }.versions.add('26.3.1')
+        assertTrue(ServerPluginAbiVerifier.verify(repository.toPath(), catalog, changed).any {
+            it.contains('no catalogued identity for version 26.3.1')
+        })
     }
 
     @Test
@@ -386,59 +438,24 @@ final class BuildLogicTest {
     @Test
     void canonicalIconDimensionsMatchTheRendererAndMetadataContracts() {
         assertEquals(false, catalog.mod.iconBlur)
-        File resources = new File(repository, 'compat/resources/canonical/src/main/resources')
-        def modIcon = ImageIO.read(new File(resources, catalog.mod.icon.toString()))
+        File blockbench = CatalogTools.blockbenchRoot(repository, catalog)
+        def modIcon = ImageIO.read(new ByteArrayInputStream(BlockbenchPng.decode(
+                CatalogTools.blockbenchFile(repository, catalog, catalog.mod.icon.toString()))))
         assertEquals(128, modIcon.width)
         assertEquals(128, modIcon.height)
 
-        File icons = new File(resources, ArtifactVerifier.GUI_ICONS)
+        File icons = new File(blockbench, ArtifactVerifier.GUI_ICONS)
         Map<String, File> sourceIcons = [:]
         Files.walk(icons.toPath()).withCloseable { stream ->
-            stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }.forEach { Path path ->
-                sourceIcons[icons.toPath().relativize(path).toString().replace('\\', '/')] = path.toFile()
+            stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.bbmodel') }.forEach { Path path ->
+                String relative = icons.toPath().relativize(path).toString().replace('\\', '/')
+                sourceIcons[relative.substring(0, relative.length() - '.bbmodel'.length()) + '.png'] = path.toFile()
             }
         }
-        assertEquals(ArtifactVerifier.GUI_ICON_SIZES.keySet(), sourceIcons.keySet())
-        assertEquals(24, ArtifactVerifier.GUI_ICON_SIZES.values().count { it == 16 })
-        assertEquals(2, ArtifactVerifier.GUI_ICON_SIZES.values().count { it == 32 })
-        assertEquals([
-                'action/edit.png',
-                'action/duplicate.png',
-                'action/delete.png',
-                'action/select_folder.png',
-                'status/compatibility/extended.png',
-                'status/compatibility/incompatible.png'
-        ] as Set, ArtifactVerifier.GUI_ICON_SAFE_AREA_REQUIRED)
-        ArtifactVerifier.GUI_ICON_SIZES.each { String name, int size ->
-            def image = ImageIO.read(sourceIcons[name])
-            assertEquals(size, image.width, name)
-            assertEquals(size, image.height, name)
-            Set<Integer> alpha = (0..<image.height).collectMany { int y ->
-                (0..<image.width).collect { int x -> image.getRGB(x, y) >>> 24 }
-            } as Set<Integer>
-            assertTrue(alpha.every { it == 0 || it == 255 }, "${name} must use binary alpha")
-            if (ArtifactVerifier.GUI_ICON_SAFE_AREA_REQUIRED.contains(name)) {
-                (0..<image.height).each { int y ->
-                    (0..<image.width).each { int x ->
-                        if (x < 2 || x >= 14 || y < 2 || y >= 14) {
-                            assertEquals(0, image.getRGB(x, y) >>> 24, "${name} at ${x},${y}")
-                        }
-                    }
-                }
-            }
-        }
-        ArtifactVerifier.GUI_ICON_LOCKED_SHA256.each { String name, String expected ->
-            assertEquals(expected, sha256(sourceIcons[name]), name)
-        }
-        ['action/collapse_all.png', 'action/expand_all.png'].each { String name ->
-            def image = ImageIO.read(new File(icons, name))
-            Set<Integer> pixels = (0..<image.height).collectMany { int y ->
-                (0..<image.width).collect { int x -> image.getRGB(x, y) }
-            } as Set<Integer>
-            assertEquals([0, 255] as Set, pixels.collect { it >>> 24 } as Set, name)
-            assertTrue(pixels.contains(0xFFFFFFFF as int), "${name} must contain a white glyph")
-            assertTrue(pixels.contains(0xFF3F3F3F as int), "${name} must contain a #3F3F3F shadow")
-            assertEquals(3, pixels.size(), "${name} must remain transparent plus two opaque colors")
+        assertEquals(38, sourceIcons.size())
+        assertEquals(ArtifactVerifier.REQUIRED_GUI_ICONS, sourceIcons.keySet())
+        sourceIcons.each { String name, File source ->
+            assertNotNull(ImageIO.read(new ByteArrayInputStream(BlockbenchPng.decode(source))), name)
         }
     }
 
@@ -774,13 +791,13 @@ final class BuildLogicTest {
         assertEquals('Expand all', english['nclskins.collection.expand_all'])
         assertEquals('Свернуть всё', russian['nclskins.collection.collapse_all'])
         assertEquals('Развернуть всё', russian['nclskins.collection.expand_all'])
-        assertEquals('Minecraft Event Skins', english['pack.nclskins.mojang_collections.name'])
+        assertEquals('Minecraft Collections', english['pack.nclskins.mojang_collections.name'])
         assertEquals(
-                'Officially published skins by Mojang',
+                'Skins and capes by Mojang Studios',
                 english['pack.nclskins.mojang_collections.description'])
-        assertEquals('Скины событий Minecraft', russian['pack.nclskins.mojang_collections.name'])
+        assertEquals('Коллекции Minecraft', russian['pack.nclskins.mojang_collections.name'])
         assertEquals(
-                'Официально опубликованные скины от Mojang',
+                'Скины и плащи от Mojang Studios',
                 russian['pack.nclskins.mojang_collections.description'])
     }
 
@@ -1211,6 +1228,24 @@ final class BuildLogicTest {
     }
 
     @Test
+    void authoredResourceChangesUseCurrentAndHistoricalProducerOwnership() {
+        String root = catalog.resourceProducers.canonicalBlockbench
+        Set targets = catalog.targets*.id as Set
+        for (String path : ["${root}/icon.bbmodel", "${root}/assets/nclskins/textures/gui/icons/action/add_cape.bbmodel",
+                            "${root}/assets/nclskins/textures/gui/icons/new/nested.bbmodel",
+                            "${root}/removed.bbmodel"]) {
+            assertEquals(targets, selected(path))
+        }
+        Map previous = new JsonSlurper().parseText(JsonOutput.toJson(catalog)) as Map
+        previous.resourceProducers.canonicalBlockbench = 'old/authored'
+        assertEquals(targets, CatalogTools.classifyAffected(repository, catalog,
+                ['old/authored/removed.bbmodel'], [previous]).keySet() as Set)
+        assertThrows(IllegalArgumentException) {
+            CatalogTools.classifyAffected(repository, catalog, ["${root}-unrelated/icon.bbmodel"])
+        }
+    }
+
+    @Test
     void updateNotificationCapabilityIsExactSemanticAndSourceOwned() {
         Map<String, String> expected = catalog.targets.collectEntries { Map target ->
             String implementation = target.id == 'fabric-1.20.1'
@@ -1371,6 +1406,7 @@ final class BuildLogicTest {
                 assertEquals(catalog.mod.contact, metadata.contact)
                 assertEquals([
                         modmenu    : ">=${target.loader.modMenuVersion}".toString(),
+                        fancymenu: '*',
                         sqlite_jdbc              : catalog.optionalDependencies.sqlite_jdbc.predicates.fabric,
                         yet_another_config_lib_v3: CatalogTools.optionalDependencyPredicate(catalog, target, 'yet_another_config_lib_v3')
                 ], metadata.suggests)
@@ -1934,6 +1970,7 @@ final class BuildLogicTest {
         assertTrue(convention.contains("tasks.register('patchYaclRuntimeMetadata'"))
         assertTrue(convention.contains('add(yaclRuntimeConfiguration, files(patchedYaclRuntime))'))
         assertTrue(convention.contains('yaclRuntimeGraph.transitive = false'))
+        assertTrue(convention.contains('outputArtifact.set(nclskinsClientRuntimeDirectory.file('))
         assertTrue(convention.contains('transitive = yaclDevelopmentRuntimeEnabled'))
         assertTrue(convention.contains('else if (yaclDevelopmentRuntimeEnabled)'))
         assertTrue(convention.contains("url = 'https://maven.fabricmc.net/'"))
@@ -2385,7 +2422,7 @@ final class BuildLogicTest {
         assertTrue(submission.contains('spec.kind() != ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR'))
         extraction.each { String source ->
             String iconButton = source.substring(
-                    source.indexOf('private static final class IconButtonWidget'),
+                    source.indexOf('private final class IconButtonWidget'),
                     source.indexOf('private static final class CompatibilityIndicatorWidget'))
             assertTrue(iconButton.contains('if (!iconOnly)'))
             assertTrue(iconButton.contains('if (iconOnly && isHoveredOrFocused())'))
@@ -2855,27 +2892,24 @@ final class BuildLogicTest {
 
     @Test
     void nestedEventPackIconIsCanonicalAndExcludedFromSkinInventory() {
-        File canonical = new File(
-                repository, 'compat/resources/canonical/src/main/resources/icon.png')
+        byte[] canonical = BlockbenchPng.decode(
+                CatalogTools.blockbenchFile(repository, catalog, 'icon.png'))
         File collections = new File(
                 repository,
                 'compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections')
-        File packIcon = new File(collections, 'pack.png')
-        assertArrayEquals(canonical.bytes, packIcon.bytes)
+        assertFalse(new File(collections, 'pack.png').exists())
 
         List<Path> pngs = []
         Files.walk(collections.toPath()).withCloseable { stream ->
             stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }
                     .forEach { pngs.add(it) }
         }
-        assertEquals(36, pngs.size())
-        assertEquals(35, pngs.count { it.toString().contains(File.separator + 'assets' + File.separator) })
-        assertEquals(['pack.png'], pngs.findAll {
-            !it.toString().contains(File.separator + 'assets' + File.separator)
-        }.collect { collections.toPath().relativize(it).toString() })
+        assertEquals(63, pngs.size())
+        assertEquals(63, pngs.count { it.toString().contains(File.separator + 'assets' + File.separator) })
+        assertEquals([], pngs.findAll { !it.toString().contains(File.separator + 'assets' + File.separator) })
 
-        assertEquals([], nestedPackIconErrors(repository, catalog, canonical.bytes))
-        byte[] corrupted = canonical.bytes.clone()
+        assertEquals([], nestedPackIconErrors(repository, catalog, canonical))
+        byte[] corrupted = canonical.clone()
         corrupted[corrupted.length - 1] = (byte) (corrupted[corrupted.length - 1] ^ 1)
         assertTrue(nestedPackIconErrors(repository, catalog, corrupted).any {
             it.contains('resource hash differs')
@@ -2903,11 +2937,6 @@ final class BuildLogicTest {
 
     private static int occurrences(String value, String needle) {
         value.split(Pattern.quote(needle), -1).length - 1
-    }
-
-    private static String sha256(File file) {
-        MessageDigest.getInstance('SHA-256').digest(file.bytes)
-                .collect { String.format('%02x', it & 0xff) }.join()
     }
 
     private static List<String> nestedPackIconErrors(

@@ -1,3 +1,36 @@
+## 1.1.0-beta.1
+
+### Added
+
+- **Custom capes**
+  - Import capes from 64×32 PNG files, rename them, and save them in your looks
+  - Find capes in your catalog by name and filter those with or without elytra textures
+  - Custom capes are visible only to you and do not replace official capes in your Minecraft profile
+- **Resource pack cape collections**
+  - Choose capes from your active resource packs
+  - A cape saved in a look remains available after its resource pack is disabled
+- **Appearance sources**
+  - Configure `Offline` and Minecraft sources separately for skins and capes, change their priority, and enable the ones you need
+  - Combine your local appearance with your Minecraft profile appearance and open the editor directly from the source list
+  - Disabling both Minecraft sources hides your Minecraft skin and cape, as well as those of other players, from your view
+- **Keybindings and FancyMenu**
+  - Assign keys to open `My looks`, the active look editor, `Providers`, the skin catalog, and skin import
+  - Add shortcuts to these five screens in your custom FancyMenu menus
+
+### Changed
+
+- **Editor and catalogs**
+  - Appearance and cape settings now have separate vertical tabs, with visual cards for choosing the skin model
+  - Skin and cape catalogs adjust their column count to the window width
+- **Preview and appearance**
+  - Position the player preview on the left or right, or turn it off independently in the title screen and pause menu
+- **Skin imports**
+  - File imports accept 64×32 and 64×64 PNGs and show a clear error for unsupported formats
+
+### Fixed
+
+- Fixed skin outer-layer rendering in previews and the model shifting when tilted
+
 ## 1.0.0
 
 ### Added

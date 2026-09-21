@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.core.model.SkinVariant;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -13,8 +14,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Objects;
@@ -30,8 +31,6 @@ public final class PublicPlayerSkinClient {
     private static final Pattern COMPACT_UUID = Pattern.compile("[0-9a-fA-F]{32}");
     private static final Pattern TEXTURE_PATH = Pattern.compile("/texture/[0-9a-fA-F]{64}");
     private static final int MAX_JSON_BYTES = 64 * 1024;
-    private static final java.util.List<String> DEFAULT_SKINS = java.util.List.of(
-            "alex", "ari", "efe", "kai", "makena", "noor", "steve", "sunny", "zuri");
     private static final Duration TIMEOUT = Duration.ofSeconds(20);
 
     private final HttpClient http;
@@ -232,14 +231,13 @@ public final class PublicPlayerSkinClient {
     }
 
     private static Result defaultResult(UUID profileId, String canonicalName) {
-        int index = Math.floorMod(profileId.hashCode(), 18);
-        SkinVariant variant = index < 9 ? SkinVariant.SLIM : SkinVariant.CLASSIC;
+        var selected = com.naocraftlab.skins.core.model.AccountDefaultSkin.forProfile(profileId);
         return new Result(
                 profileId,
                 canonicalName,
                 Optional.empty(),
-                variant,
-                Optional.of(DEFAULT_SKINS.get(index % 9)));
+                selected.variant(),
+                Optional.of(selected.skinId()));
     }
 
     private static PublicSkinImportException failure(PublicSkinImportException.Code code, String message) {

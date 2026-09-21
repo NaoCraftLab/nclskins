@@ -14,6 +14,11 @@ final class PlayerInfoScreen extends NclSkinsImmediateScreen {
         super(parent, client);
     }
 
+    PlayerInfoScreen(Screen parent, ImmediateClientRuntime client,
+            com.naocraftlab.skins.client.ScreenDestination destination) {
+        super(parent, client, destination);
+    }
+
     @Override
     protected void renderEpochBackground(
             GuiGraphics graphics,
@@ -27,6 +32,10 @@ final class PlayerInfoScreen extends NclSkinsImmediateScreen {
         }
         if ("add_source".equals(view.screenId())) {
             renderCreateWorldBackground(graphics);
+            return;
+        }
+        if ("preset_editor".equals(view.screenId())) {
+            renderPresetEditorBackground(graphics, view);
             return;
         }
         renderDirtBackground(graphics);
@@ -98,6 +107,20 @@ final class PlayerInfoScreen extends NclSkinsImmediateScreen {
                 32,
                 2);
         RenderSystem.disableBlend();
+    }
+
+    private void renderPresetEditorBackground(GuiGraphics graphics, ViewSpec view) {
+        renderDirtBackground(graphics);
+        view.panels().stream()
+                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_TAB_CONTENT)
+                .map(ViewSpec.Panel::bounds)
+                .findFirst()
+                .ifPresent(bounds -> graphics.fill(
+                        0,
+                        bounds.y(),
+                        bounds.x(),
+                        bounds.bottom(),
+                        0x40000000));
     }
 
     @Override

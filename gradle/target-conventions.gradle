@@ -229,6 +229,8 @@ def minecraftResources = resolvedBundles.collectMany { it.resources }.collect {
     repositoryFile(it)
 }.unique()
 def generatedMetadataDirectory = layout.buildDirectory.dir('generated/nclskins/metadata')
+def generatedBlockbenchResourcesDirectory = layout.buildDirectory.dir('generated/nclskins/blockbench-resources')
+def generatedBlockbenchAliasesDirectory = layout.buildDirectory.dir('generated/nclskins/blockbench-aliases')
 def generatedClientBindingsDirectory = layout.buildDirectory.dir('generated/nclskins/client-bindings')
 def generatedServerBindingsDirectory = layout.buildDirectory.dir('generated/nclskins/server-bindings')
 
@@ -247,8 +249,12 @@ if (spec.sourceLayout == 'fabricSplit') {
     abiSourceSet = sourceSets.main
 }
 
+nclskinsNativeModelTests.configure(project, repositoryRoot.asFile, minecraftJava, abiSourceSet)
+
 sourceSets.main.resources.srcDirs += minecraftResources
 sourceSets.main.resources.srcDir generatedMetadataDirectory
+sourceSets.main.resources.srcDir generatedBlockbenchResourcesDirectory
+sourceSets.main.resources.srcDir generatedBlockbenchAliasesDirectory
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(spec.java.release as int)
@@ -337,6 +343,23 @@ def generateTargetMetadata = tasks.register('generateTargetMetadata', nclskinsGe
     delegate.outputDirectory.set(generatedMetadataDirectory)
 }
 
+def generateBlockbenchResources = tasks.register('generateBlockbenchResources', nclskinsGenerateBlockbenchPngTaskType) {
+    group = 'build setup'
+    description = 'Extracts saved composite PNG resources from authored Blockbench image projects.'
+    sourceDirectory.set(repositoryRoot.dir('compat/resources/canonical/src/main/blockbench'))
+    outputDirectory.set(generatedBlockbenchResourcesDirectory)
+}
+
+def generateBlockbenchAliases = tasks.register('generateBlockbenchResourceAliases', Sync) {
+    group = 'build setup'
+    description = 'Creates generated resource aliases required by embedded resource packs.'
+    dependsOn generateBlockbenchResources
+    from(generatedBlockbenchResourcesDirectory.map { it.file(catalog.mod.icon.toString()) })
+    into(generatedBlockbenchAliasesDirectory.map { it.dir('resourcepacks/mojang_collections') })
+    rename { 'pack.png' }
+    includeEmptyDirs = false
+}
+
 def generateTargetBindings = tasks.register('generateTargetBindings', nclskinsGenerateTargetBindingsTaskType) {
     group = 'build setup'
     description = 'Generates side-specific resolved capability bindings from gradle/targets.json.'
@@ -360,6 +383,8 @@ tasks.withType(org.gradle.api.tasks.AbstractCopyTask).configureEach {
 
 tasks.named('processResources', ProcessResources).configure {
     dependsOn generateTargetMetadata
+    dependsOn generateBlockbenchResources
+    dependsOn generateBlockbenchAliases
     inputs.file(catalogFile)
     sourceLocales.each { String locale ->
         inputs.property("nclskinsDescription.${locale}", catalog.mod.descriptions[locale].toString())
@@ -377,10 +402,17 @@ tasks.named('processResources', ProcessResources).configure {
     }
     duplicatesStrategy = DuplicatesStrategy.FAIL
     exclude '**/*.pixel.json'
+    exclude '**/*.bbmodel'
 }
 
 tasks.named('sourcesJar', Jar).configure {
     dependsOn generateTargetMetadata
+    dependsOn generateBlockbenchResources
+    dependsOn generateBlockbenchAliases
+    from(repositoryRoot.dir('compat/resources/canonical/src/main/blockbench')) {
+        into 'blockbench'
+        include '**/*.bbmodel'
+    }
 }
 
 tasks.register('verifyTargetCatalog', nclskinsVerifyCatalogTaskType) {
@@ -412,6 +444,7 @@ def capabilityAbiTask = tasks.register('verifyCapabilityAbi', nclskinsCapability
     delegate.mode.set('verify')
     delegate.capabilityProbe.set(capabilityProbe ?: '')
     delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
+    delegate.resourceClasspath.from(configurations.named(abiSourceSet.runtimeClasspathConfigurationName))
 }
 
 def modMenuAbiTask = spec.loader.id == 'fabric'
@@ -424,6 +457,14 @@ def modMenuAbiTask = spec.loader.id == 'fabric'
             delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
         }
         : null
+
+def fancyMenuAbiTask = tasks.register('verifyFancyMenuAbi',
+        nclskinsCatalogTools.getClassLoader().loadClass('com.naocraftlab.skins.buildlogic.VerifyFancyMenuAbiTask')) {
+    group = 'verification'
+    delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
+    delegate.targetId.set(currentTargetId)
+    delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
+}
 
 def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
     group = 'verification'
@@ -531,6 +572,7 @@ tasks.named('check').configure {
     dependsOn tasks.named('verifyTargetCatalog')
     dependsOn capabilityAbiTask
     if (modMenuAbiTask != null) dependsOn modMenuAbiTask
+    dependsOn fancyMenuAbiTask
     dependsOn isolationTask
 }
 

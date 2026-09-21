@@ -79,6 +79,45 @@ public final class PngValidator {
     }
 
 
+    public CapePng projectCape(byte[] bytes) throws PngValidationException {
+        Inspection inspection = inspect(bytes, false, false);
+        if (inspection.info().width() != 64 || inspection.info().height() != 32) {
+            throw failure(PngValidationException.Reason.UNSUPPORTED_DIMENSIONS, "Cape must be 64 by 32");
+        }
+        ByteBuffer chunks = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
+        chunks.position(8);
+        while (chunks.remaining() >= 12) {
+            int length = chunks.getInt();
+            int type = chunks.getInt();
+            if (type == 0x6163544c || type == 0x6663544c || type == 0x66644154) {
+                throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "Animated cape is unsupported");
+            }
+            chunks.position(chunks.position() + length + 4);
+        }
+        BufferedImage image = inspection.image();
+        boolean elytra = false;
+        ByteBuffer pixels = ByteBuffer.allocate(64 * 32 * 4).order(ByteOrder.BIG_ENDIAN);
+        for (int y = 0; y < 32; y++) {
+            for (int x = 0; x < 64; x++) {
+                int pixel = visibleArgb(image.getRGB(x, y));
+                pixels.putInt(pixel);
+                boolean wing = y < 2 ? x >= 24 && x < 44 : y < 22 && x >= 22 && x < 46;
+                elytra |= wing && (pixel >>> 24) != 0;
+            }
+        }
+        try {
+            return new CapePng(encode(image),
+                    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(pixels.array())), elytra);
+        } catch (IOException | NoSuchAlgorithmException exception) {
+            throw failure(PngValidationException.Reason.DECODE_FAILED, "Cape could not be encoded");
+        }
+    }
+
+    public record CapePng(byte[] bytes, String renderSha256, boolean hasElytra) {
+        public CapePng { bytes = bytes.clone(); }
+        @Override public byte[] bytes() { return bytes.clone(); }
+    }
+
     public byte[] normalizeSkin(byte[] bytes) throws PngValidationException {
         return projectImport(bytes).pngBytes();
     }
@@ -106,7 +145,12 @@ public final class PngValidator {
 
     private SkinProjection project(byte[] bytes, boolean cleanLegacyImport)
             throws PngValidationException {
-        Inspection inspection = inspect(bytes, true, true);
+        return project(bytes, cleanLegacyImport, true);
+    }
+
+    private SkinProjection project(byte[] bytes, boolean cleanLegacyImport, boolean allowScaledLayout)
+            throws PngValidationException {
+        Inspection inspection = inspect(bytes, allowScaledLayout, true);
         int sourceWidth = inspection.info().width();
         int sourceHeight = inspection.info().height();
         if (sourceWidth == 64 && sourceHeight == 64) {
@@ -331,6 +375,14 @@ public final class PngValidator {
     public NormalizedSkin normalizeSkinWithVariant(Path path)
             throws IOException, PngValidationException {
         return projectImport(path);
+    }
+
+    public NormalizedSkin projectStandardImport(Path path) throws IOException, PngValidationException {
+        Objects.requireNonNull(path, "path");
+        try (InputStream input = Files.newInputStream(path)) {
+            SkinProjection projection = project(readBounded(input), true, false);
+            return new NormalizedSkin(projection.pngBytes(), projection.detectedVariant(), featureAnalyzer.analyze(projection.image()));
+        }
     }
 
     public NormalizedSkin projectImport(Path path)

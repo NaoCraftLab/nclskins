@@ -9,6 +9,38 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PreviewRendererTest {
     @Test
+    void staticPreviewPreservesEachOuterLayerWithoutChangingSkinModelOrCape() {
+        var skin = new TextureRegistry.TextureHandle("nclskins:test", 64, 64);
+        var cape = new TextureRegistry.TextureHandle("nclskins:cape", 64, 32);
+        for (SkinModel model : SkinModel.values()) {
+            for (boolean withCape : new boolean[]{false, true}) {
+                for (int bits = 0; bits < 64; bits++) {
+                    var parts = java.util.EnumSet.noneOf(OuterLayerPart.class);
+                    for (OuterLayerPart part : OuterLayerPart.values()) {
+                        if ((bits & (1 << part.ordinal())) != 0) parts.add(part);
+                    }
+                    OuterLayerVisibility visibility = OuterLayerVisibility.of(parts);
+                    parts.clear();
+                    var appearance = new PreviewRenderer.PreviewAppearance(
+                            skin, model, withCape ? Optional.of(cape) : Optional.empty(),
+                            withCape ? PreviewRenderer.CapeMode.CAPE : PreviewRenderer.CapeMode.OFF,
+                            visibility);
+                    var request = new PreviewRenderer.PreviewRequest(
+                            appearance, 0, 0, 64, 96, 0, 0, 1,
+                            PreviewRenderer.PreviewIntent.CURRENT_APPEARANCE);
+                    assertEquals(skin, request.appearance().skin());
+                    assertEquals(model, request.appearance().model());
+                    assertEquals(withCape ? Optional.of(cape) : Optional.empty(), request.appearance().cape());
+                    for (OuterLayerPart part : OuterLayerPart.values()) {
+                        assertEquals((bits & (1 << part.ordinal())) != 0,
+                                request.appearance().outerLayerVisibility().visible(part));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     void backEquipmentRequiresCape() {
         TextureRegistry.TextureHandle skin = new TextureRegistry.TextureHandle("nclskins:test", 64, 64);
 

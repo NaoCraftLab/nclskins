@@ -1,7 +1,7 @@
 # Mojang artwork notice
 
-The PNG files in this optional resource pack are Mojang Studios artwork published with the
-Minecraft collections identified by their namespaces. Minecraft, the Minecraft name, the
+The skin and cape PNG files in this optional resource pack are Mojang Studios artwork published
+with the Minecraft collections identified by their namespaces. Minecraft, the Minecraft name, the
 Minecraft brand, and the included artwork belong to Mojang Studios and/or Microsoft. These PNG
 files are not licensed under the GNU GPL by NaoCraftLab.
 

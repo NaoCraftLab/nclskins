@@ -4,11 +4,14 @@ import java.nio.file.Path;
 import java.util.function.Consumer;
 
 
-public interface MinecraftClientHooks<C, S, W, F> extends AutoCloseable {
+public interface MinecraftClientHooks<C, S, W> extends AutoCloseable {
     default void initialize(Path configurationDirectory) {
     }
 
     default void tick(C client) {
+    }
+
+    default void resourcesReloaded() {
     }
 
     default void afterScreenInit(
@@ -17,9 +20,6 @@ public interface MinecraftClientHooks<C, S, W, F> extends AutoCloseable {
             int scaledWidth,
             int scaledHeight,
             Consumer<W> widgets) {
-    }
-
-    default void afterScreenFrame(S screen, F frame) {
     }
 
     default void screenRemoved(S screen) {

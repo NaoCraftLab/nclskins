@@ -14,6 +14,7 @@ import static com.naocraftlab.skins.diagnostics.SuppressionPolicy.WINDOW;
 
 
 public enum DiagnosticEvent {
+    CLIENT_FANCYMENU_INCOMPATIBLE(WARN, "FancyMenu screen actions disabled: incompatible public API or action identifier conflict", ONCE),
     CLIENT_SESSION_WARMUP_FAILED(DEBUG, "Session warmup deferred after a local failure", WINDOW),
     CLIENT_RECONNECT_FAILED(DEBUG, "Reconnect recovery deferred after a local failure", WINDOW),
     CLIENT_CURRENT_APPEARANCE_FAILED(DEBUG, "Current appearance could not be inspected", WINDOW),

@@ -1,9 +1,5 @@
 package com.naocraftlab.skins.core.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.ProfileApi;
@@ -20,6 +16,9 @@ import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.TextureCache;
 import com.naocraftlab.skins.core.test.TestPng;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,8 +31,10 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AppearanceMutationServiceTest {
     private static final UUID PROFILE_ID = UUID.fromString("12345678-1234-5678-9abc-def012345678");
@@ -41,6 +42,84 @@ class AppearanceMutationServiceTest {
 
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    void disabledCapeDoesNotValidateOwnershipOrMutateCape() throws Exception {
+        ScriptedApi api = new ScriptedApi(profile(
+                PROFILE_ID, "old", SkinVariant.CLASSIC, null, "cape-a"));
+        Services services = services(api, new RemoteSessionGate());
+        ResolvedSkinAsset skin = resolvedSkin();
+        PresetApplicationRequest original = request(skin, "no-longer-owned");
+
+        PresetApplicationOutcome outcome = services.mutations().applyPreset(
+                new FakeTokenSource(), new PresetApplicationRequest(original.preset(), skin, true, false));
+
+        assertEquals(MutationResult.APPLIED, outcome.result());
+        assertEquals(List.of("GET_PROFILE", "UPLOAD_SKIN"), api.operations);
+    }
+
+    @Test
+    void disabledSkinIsPreservedWhenCapeChanges() throws Exception {
+        ScriptedApi api = new ScriptedApi(profile(
+                PROFILE_ID, "old", SkinVariant.CLASSIC, null, "cape-a"));
+        Services services = services(api, new RemoteSessionGate());
+        ResolvedSkinAsset skin = resolvedSkin();
+        PresetApplicationRequest original = request(skin, "cape-a");
+
+        PresetApplicationOutcome outcome = services.mutations().applyPreset(
+                new FakeTokenSource(), new PresetApplicationRequest(original.preset(), skin, false, true));
+
+        assertEquals(MutationResult.APPLIED, outcome.result());
+        assertEquals(List.of("GET_PROFILE", "ACTIVATE_CAPE"), api.operations);
+        assertEquals(outcome.beforeProfile().skins(), outcome.afterProfile().skins());
+    }
+
+    @Test
+    void noEnabledComponentsNeverAcquiresCredentialsOrUsesNetwork() throws Exception {
+        ScriptedApi api = new ScriptedApi(profile(
+                PROFILE_ID, "old", SkinVariant.CLASSIC, null, "cape-a"));
+        Services services = services(api, new RemoteSessionGate());
+        FakeTokenSource tokens = new FakeTokenSource();
+        ResolvedSkinAsset skin = resolvedSkin();
+        PresetApplicationRequest original = request(skin, "cape-a");
+
+        services.mutations().applyPreset(
+                tokens, new PresetApplicationRequest(original.preset(), skin, false, false));
+
+        assertEquals(0, tokens.tokenRequests);
+        assertTrue(api.operations.isEmpty());
+    }
+
+    @Test
+    void supersededDuringValidationNeverMutates() throws Exception {
+        ScriptedApi api = new ScriptedApi(profile(
+                PROFILE_ID, "old", SkinVariant.CLASSIC, null, "cape-a"));
+        Services services = services(api, new RemoteSessionGate());
+
+        PresetApplicationOutcome outcome = services.mutations().applyPreset(
+                new FakeTokenSource(), request(resolvedSkin(), "cape-a"),
+                () -> !api.operations.contains("GET_PROFILE"));
+
+        assertEquals(MutationResult.FAILED, outcome.result());
+        assertEquals(RemoteAppearanceImpact.NONE, outcome.remoteAppearanceImpact());
+        assertEquals(List.of("GET_PROFILE"), api.operations);
+    }
+
+    @Test
+    void supersededAfterSkinAcknowledgementSkipsCapeButReportsActualChange() throws Exception {
+        ScriptedApi api = new ScriptedApi(profile(
+                PROFILE_ID, "old", SkinVariant.CLASSIC, null, "cape-a"));
+        Services services = services(api, new RemoteSessionGate());
+
+        PresetApplicationOutcome outcome = services.mutations().applyPreset(
+                new FakeTokenSource(), request(resolvedSkin(), "cape-a"),
+                () -> !api.operations.contains("UPLOAD_SKIN"));
+
+        assertEquals(MutationResult.PARTIAL, outcome.result());
+        assertEquals(RemoteAppearanceImpact.CONFIRMED_CHANGED, outcome.remoteAppearanceImpact());
+        assertEquals(List.of("GET_PROFILE", "UPLOAD_SKIN"), api.operations);
+        assertTrue(outcome.recoveryActions().isEmpty());
+    }
 
     @Test
     void initialFullChangeUsesOneProfileGetAndOnlyTheTwoMutations() throws Exception {
@@ -367,6 +446,37 @@ class AppearanceMutationServiceTest {
         AppearanceMutationService mutations =
                 new AppearanceMutationService(api, storage, gate, sessions);
         return new Services(storage, sessions, mutations);
+    }
+
+    @Test
+    void incompleteSkinInventoryDoesNotSkipRequestedReset() throws Exception {
+        ScriptedApi api = new ScriptedApi(new RemoteProfile(
+                PROFILE_ID, "Player", List.of(), List.of(), Set.of(), false));
+        Services services = services(api, new RemoteSessionGate());
+
+        PresetApplicationOutcome result = services.mutations().applySkinOnly(new FakeTokenSource(), null);
+
+        assertEquals(MutationResult.APPLIED, result.result());
+        assertEquals(List.of("GET_PROFILE", "RESET_SKIN"), api.operations);
+        assertTrue(result.appliedAppearance().usesAccountDefaultSkin());
+    }
+
+    @Test
+    void capeOnlyMutationPreservesIncompleteSkinProjection() throws Exception {
+        RemoteProfile complete = profile(PROFILE_ID, null, SkinVariant.CLASSIC, null, "cape-a");
+        ScriptedApi api = new ScriptedApi(new RemoteProfile(PROFILE_ID, "Player",
+                List.of(), complete.capes(), Set.of(), false));
+        Services services = services(api, new RemoteSessionGate());
+        ResolvedSkinAsset skin = resolvedSkin();
+        PresetApplicationRequest original = request(skin, "cape-a");
+
+        PresetApplicationOutcome result = services.mutations().applyPreset(new FakeTokenSource(),
+                new PresetApplicationRequest(original.preset(), skin, false, true));
+
+        assertEquals(MutationResult.APPLIED, result.result());
+        assertEquals(List.of("GET_PROFILE", "ACTIVATE_CAPE"), api.operations);
+        assertFalse(result.afterProfile().skinProjectionComplete());
+        assertFalse(services.sessions().hasKnownSkin(result.afterProfile()));
     }
 
     private NclSkinsStorage storage() {

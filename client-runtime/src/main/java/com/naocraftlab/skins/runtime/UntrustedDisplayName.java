@@ -28,6 +28,27 @@ final class UntrustedDisplayName {
         return sanitized.isEmpty() ? fallback : sanitized;
     }
 
+    static String fromFileName(String value, String fallback) {
+        String candidate = value == null ? "" : value;
+        int extension = candidate.lastIndexOf('.');
+        if (extension >= 0) candidate = candidate.substring(0, extension);
+        candidate = sanitize(candidate, "");
+        StringBuilder result = new StringBuilder();
+        boolean wordStart = true;
+        for (int offset = 0; offset < candidate.length();) {
+            int point = candidate.codePointAt(offset);
+            offset += Character.charCount(point);
+            if (!Character.isLetterOrDigit(point) && Character.getType(point) != Character.NON_SPACING_MARK) {
+                wordStart = true;
+            } else {
+                if (wordStart && result.length() > 0) result.append(' ');
+                result.appendCodePoint(wordStart ? Character.toTitleCase(point) : point);
+                wordStart = false;
+            }
+        }
+        return sanitize(result.toString(), fallback);
+    }
+
     static String sanitizePngFileName(String value) {
         String candidate = value == null ? "" : value.trim();
         if (candidate.toLowerCase(java.util.Locale.ROOT).endsWith(".png")) {

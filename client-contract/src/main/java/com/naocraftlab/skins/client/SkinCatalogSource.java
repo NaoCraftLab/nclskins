@@ -9,7 +9,7 @@ import java.util.Set;
 
 
 @FunctionalInterface
-public interface SkinCatalogSource {
+public interface SkinCatalogSource extends CapeCatalogSource {
 
     byte[] load(String collectionId, String skinId, SkinModel model) throws IOException;
 
@@ -32,6 +32,22 @@ public interface SkinCatalogSource {
 
     default long generation() {
         return Long.MIN_VALUE;
+    }
+
+    @Override
+    default byte[] loadCape(String collectionId, String capeId) throws IOException {
+        String namespace = requireStableId(collectionId, "collectionId");
+        return loadResource(namespace + ":" + CapeCatalogSource.texturePath(capeId));
+    }
+
+    @Override
+    default List<CapeCatalogSource.CollectionDescriptor> capeCollections() {
+        return List.of();
+    }
+
+    @Override
+    default long capeGeneration() {
+        return generation();
     }
 
 
@@ -80,6 +96,11 @@ public interface SkinCatalogSource {
                     return Long.MIN_VALUE;
                 }
                 return 31L * resourceGeneration + vanillaGeneration;
+            }
+
+            @Override
+            public List<CapeCatalogSource.CollectionDescriptor> capeCollections() {
+                return resourcePacks.capeCollections();
             }
         };
     }

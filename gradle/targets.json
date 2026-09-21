@@ -1,5 +1,8 @@
 {
-  "schemaVersion": 23,
+  "schemaVersion": 24,
+  "resourceProducers": {
+    "canonicalBlockbench": "compat/resources/canonical/src/main/blockbench"
+  },
   "development": {
     "clientUuid": "00000000-0000-0000-0000-000000000001",
     "licensedProfiles": {
@@ -367,6 +370,86 @@
     "maximum": "2.14.0"
   },
   "optionalDependencies": {
+    "fancymenu": {
+      "side": "client",
+      "versions": {
+        "fabric-1.20.1": "woFSEBEk",
+        "forge-1.20.1": "ucAaUjAE",
+        "fabric-1.21.1": "KBUnFb12",
+        "neoforge-1.21.1": "Jjr0fpDH",
+        "fabric-1.21.11": "3g5Zg7dL",
+        "neoforge-1.21.11": "JoOt3XtX",
+        "fabric-26.1": "gx4NH9Tx",
+        "neoforge-26.1": "CcXZnQVp",
+        "fabric-26.2": "CTbxOFtA",
+        "neoforge-26.2": "DwyGvs34",
+        "fabric-26.3": "vfSqvnY7",
+        "neoforge-26.3": "SeCaKR0J"
+      },
+      "runtimeArtifacts": {
+        "fabric-1.20.1": [
+          "maven.modrinth:Wq5SjeWM:woFSEBEk",
+          "maven.modrinth:J81TRJWm:RlBGFlWp",
+          "maven.modrinth:CVT4pFB2:2o0oW8Yv"
+        ],
+        "forge-1.20.1": [
+          "maven.modrinth:Wq5SjeWM:ucAaUjAE",
+          "maven.modrinth:J81TRJWm:skYziQQL",
+          "maven.modrinth:CVT4pFB2:lJlW5r8R"
+        ],
+        "fabric-1.21.1": [
+          "maven.modrinth:Wq5SjeWM:KBUnFb12",
+          "maven.modrinth:CVT4pFB2:OqxSeb4n",
+          "maven.modrinth:J81TRJWm:Qvrc7DuG"
+        ],
+        "neoforge-1.21.1": [
+          "maven.modrinth:Wq5SjeWM:Jjr0fpDH",
+          "maven.modrinth:CVT4pFB2:efcdRVZP",
+          "maven.modrinth:J81TRJWm:stJDU839"
+        ],
+        "fabric-1.21.11": [
+          "maven.modrinth:Wq5SjeWM:3g5Zg7dL",
+          "maven.modrinth:CVT4pFB2:Xo1GAiPu",
+          "maven.modrinth:J81TRJWm:6ypTGwlP"
+        ],
+        "neoforge-1.21.11": [
+          "maven.modrinth:Wq5SjeWM:JoOt3XtX",
+          "maven.modrinth:CVT4pFB2:9Jdm9sDl",
+          "maven.modrinth:J81TRJWm:BwyWmTTW"
+        ],
+        "fabric-26.1": [],
+        "neoforge-26.1": [],
+        "fabric-26.2": [
+          "maven.modrinth:Wq5SjeWM:CTbxOFtA",
+          "maven.modrinth:CVT4pFB2:ItVQn1cW",
+          "maven.modrinth:J81TRJWm:Ra1AWDOa"
+        ],
+        "neoforge-26.2": [
+          "maven.modrinth:Wq5SjeWM:DwyGvs34",
+          "maven.modrinth:CVT4pFB2:LMoAqWbb",
+          "maven.modrinth:J81TRJWm:fCKk8Tai"
+        ],
+        "fabric-26.3": [
+          "maven.modrinth:Wq5SjeWM:vfSqvnY7",
+          "maven.modrinth:CVT4pFB2:gjl2Yw81",
+          "maven.modrinth:J81TRJWm:pQLA2B54"
+        ],
+        "neoforge-26.3": [
+          "maven.modrinth:Wq5SjeWM:SeCaKR0J",
+          "maven.modrinth:CVT4pFB2:2saEF7mZ",
+          "maven.modrinth:J81TRJWm:LHlMMPu1"
+        ]
+      },
+      "runtimeUnavailableTargets": [
+        "fabric-26.1",
+        "neoforge-26.1"
+      ],
+      "predicates": {
+        "fabric": "*",
+        "forge": "[0,)",
+        "neoforge": "[0,)"
+      }
+    },
     "sqlite_jdbc": {
       "side": "client",
       "predicates": {
@@ -435,6 +518,15 @@
     }
   },
   "publicationDependencies": {
+    "fancymenu": {
+      "modId": "fancymenu",
+      "loaders": ["fabric", "forge", "neoforge"],
+      "type": "optional",
+      "platforms": {
+        "modrinth": {"projectId": "Wq5SjeWM"},
+        "curseforge": {"projectId": 367706, "slug": "fancymenu"}
+      }
+    },
     "fabric_api": {
       "modId": "fabric-api",
       "loaders": ["fabric"],
@@ -520,6 +612,7 @@
       ],
       "test-run": [
         "gradle/server-plugin-characterization.json",
+        "gradle/server-plugin-abi.json",
         "server-plugin-runtime",
         ".idea/runConfigurations"
       ]
@@ -589,8 +682,20 @@
      {"id":"26.3-paper-bungeecord","minecraft":"26.3","kernel":"paper","mode":"bungeecord","ports":{"proxy":26060,"lobby":26061,"target":26062},"dependencies":["bungeecord","bungeeguard"]},
       {"id":"26.3-purpur-standalone","minecraft":"26.3","kernel":"purpur","mode":"standalone","ports":{"server":26063},"dependencies":[]}
    ],
-  "baseBundles": ["portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
+  "baseBundles": [
+    "fancymenu-actions","portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {
+    "screen-keybindings-shared": {"java": ["compat/keybindings/shared/src/main/java"], "resources": ["compat/keybindings/shared/src/main/resources"], "side": "client", "requires": []},
+    "screen-keybindings-primitive-input": {"java": ["compat/capabilities/keybindings/primitive-input/src/main/java"], "resources": [], "side": "client", "requires": ["screen-keybindings-shared"]},
+    "screen-keybindings-event-input": {"java": ["compat/capabilities/keybindings/event-input/src/main/java"], "resources": [], "side": "client", "requires": ["screen-keybindings-shared"]},
+    "fancymenu-actions": {
+      "java": [
+        "compat/fancymenu/src/main/java"
+      ],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
     "portable-common": {
       "java": [
         "diagnostics/src/main/java",
@@ -718,19 +823,19 @@
       "java": ["compat/capabilities/gui/immediate-resource-location-player-info/src/main/java"],
       "resources": ["compat/capabilities/gui/immediate-resource-location-player-info/src/main/resources"],
       "side": "client",
-      "requires": ["gui-immediate-common"]
+      "requires": ["screen-keybindings-primitive-input", "gui-immediate-common"]
     },
     "immediate-resource-location-skin-lookup": {
       "java": ["compat/capabilities/gui/immediate-resource-location-skin-lookup/src/main/java"],
       "resources": ["compat/capabilities/gui/immediate-resource-location-skin-lookup/src/main/resources"],
       "side": "client",
-      "requires": ["gui-immediate-common"]
+      "requires": ["screen-keybindings-primitive-input", "gui-immediate-common"]
     },
     "identifier-submission": {
       "java": ["compat/capabilities/gui/identifier-submission/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["configuration-link-string-package-util"]
+      "requires": ["screen-keybindings-event-input", "configuration-link-string-package-util"]
     },
     "extraction-shared": {
       "java": ["compat/capabilities/gui/extraction-shared/src/main/java"],
@@ -754,7 +859,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["extraction-shared", "extraction-api-tab-navigation", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
+      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-tab-navigation", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
     },
     "extraction-screen-glfw-input": {
       "java": ["compat/capabilities/gui/extraction-screen-glfw/src/main/java"],
@@ -766,7 +871,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["extraction-shared", "extraction-api-menu-tab", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
+      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-menu-tab", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
     },
     "extraction-screen-input-constants": {
       "java": ["compat/capabilities/gui/extraction-screen-input-constants/src/main/java"],
@@ -778,7 +883,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["extraction-shared", "extraction-api-menu-tab", "extraction-screen-input-constants", "configuration-link-uri-blaze3d"]
+      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-menu-tab", "extraction-screen-input-constants", "configuration-link-uri-blaze3d"]
     },
     "resource-location-legacy": {
       "java": ["compat/capabilities/textures/resource-location-legacy/src/main/java"],
@@ -942,21 +1047,27 @@
       "side": "client",
       "requires": ["avatar-pip-extraction-simple-model-attack-time-core"]
     },
-    "player-info-cache": {
-      "java": ["compat/capabilities/appearance/player-info-cache/src/main/java"],
-      "resources": [],
+    "cape-layer-translucent": {
+      "java": ["compat/capabilities/appearance/cape-layer-translucent/src/main/java"],
+      "resources": ["compat/capabilities/appearance/cape-layer-translucent/src/main/resources"],
       "side": "client",
       "requires": []
+    },
+    "player-info-cache": {
+      "java": ["compat/capabilities/appearance/player-info-cache/src/main/java"],
+      "resources": ["compat/capabilities/appearance/player-info-cache/src/main/resources"],
+      "side": "client",
+      "requires": ["cape-layer-translucent"]
     },
     "skin-lookup": {
       "java": ["compat/capabilities/appearance/skin-lookup/src/main/java"],
-      "resources": [],
+      "resources": ["compat/capabilities/appearance/skin-lookup/src/main/resources"],
       "side": "client",
-      "requires": []
+      "requires": ["cape-layer-translucent"]
     },
     "avatar-state-local-player-skin": {
       "java": ["compat/capabilities/appearance/local-player-skin/src/main/java"],
-      "resources": [],
+      "resources": ["compat/capabilities/appearance/local-player-skin/src/main/resources"],
       "side": "client",
       "requires": []
     },
@@ -1428,7 +1539,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 15,
-        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1499,7 +1610,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/forge/client/NclSkinsForgeClientEvents$ForgeBus.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": 15,
-        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1568,7 +1679,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 34,
-        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1639,7 +1750,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": 34,
-        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1708,7 +1819,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.identifier-submission.mixins.json", "nclskins.identifier-submission-fabric.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.identifier-submission-fabric.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -1779,7 +1890,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.identifier-submission.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -1855,7 +1966,8 @@
           0
         ],
         "mixins": [
-          "nclskins.identifier-extraction.mixins.json"
+          "nclskins.player-skin-providers.mixins.json",
+          "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"
         ],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
@@ -1953,7 +2065,8 @@
           0
         ],
         "mixins": [
-          "nclskins.identifier-extraction.mixins.json"
+          "nclskins.player-skin-providers.mixins.json",
+          "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"
         ],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
@@ -2042,7 +2155,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.identifier-extraction.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2113,7 +2226,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.identifier-extraction.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2140,8 +2253,8 @@
         "id": "fabric",
         "version": "0.19.5",
         "predicate": ">=0.19.5",
-        "apiVersion": "0.160.5+26.3",
-        "apiPredicate": ">=0.160.5+26.3",
+        "apiVersion": "0.161.0+26.3",
+        "apiPredicate": ">=0.161.0+26.3",
         "modMenuVersion": "21.0.0-beta.1"
       },
       "java": {
@@ -2182,7 +2295,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.identifier-extraction.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2207,8 +2320,8 @@
       },
       "loader": {
         "id": "neoforge",
-        "version": "26.3.0.0-beta",
-        "predicate": "[26.3.0.0-beta,)",
+        "version": "26.3.0.6-beta",
+        "predicate": "[26.3.0.6-beta,)",
         "apiVersion": null,
         "apiPredicate": null,
         "modMenuVersion": null
@@ -2253,7 +2366,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.identifier-extraction.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {

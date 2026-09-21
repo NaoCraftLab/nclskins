@@ -12,7 +12,11 @@ import net.minecraft.world.entity.EntityTypes;
 public final class ExtractionGuiApi {
     private ExtractionGuiApi() {}
 
-    static Screen currentScreen(Minecraft minecraft) {
+    public static boolean keybindingOverlayAbsent(Minecraft minecraft) {
+        return minecraft.gui.overlay() == null;
+    }
+
+    public static Screen currentScreen(Minecraft minecraft) {
         return minecraft.gui.screen();
     }
 

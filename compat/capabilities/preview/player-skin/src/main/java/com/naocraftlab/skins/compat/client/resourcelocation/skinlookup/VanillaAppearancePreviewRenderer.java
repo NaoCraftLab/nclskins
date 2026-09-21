@@ -13,7 +13,6 @@ import com.naocraftlab.skins.client.LegacyPreviewDepth;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
-import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
 import com.naocraftlab.skins.client.VanillaPlayerModelTransform;
@@ -58,7 +57,6 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
-    private static final float ENTITY_Y_OFFSET = 0.0625F;
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
     private static final EquipmentSlot[] PREVIEW_EQUIPMENT = {
         EquipmentSlot.MAINHAND,
@@ -171,32 +169,32 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             PoseStack pose = graphics.pose();
             pose.pushPose();
             try {
-            float fittedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
+                float fittedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
 
+                pose.translate(0.0F, 0.0F, LegacyPreviewDepth.additional(fittedScale, 50.0F));
+                float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
+                Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
+                Quaternionf modelRotation = new Quaternionf()
+                        .rotateZ((float) Math.PI)
+                        .mul(cameraPitch);
+                CenteredPlayerPreviewGeometry.EntityTranslation centeredTranslation =
+                        CenteredPlayerPreviewGeometry.centeredEntityTranslation(
+                                player.getBbHeight(), pitchRadians);
+                Vector3f translation = new Vector3f(
+                        0.0F, centeredTranslation.y(), centeredTranslation.z());
 
-            pose.translate(0.0F, 0.0F, LegacyPreviewDepth.additional(fittedScale, 50.0F));
-            float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
-            Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
-            Quaternionf modelRotation = new Quaternionf()
-                    .rotateZ((float) Math.PI)
-                    .mul(cameraPitch);
-            Vector3f translation = new Vector3f(
-                    0.0F,
-                    player.getBbHeight() / 2.0F + ENTITY_Y_OFFSET,
-                    0.0F);
-
-            try (EditorPreviewLayerGuard ignoredLayers =
-                    EditorPreviewLayerGuard.open(this::onLiveLayerFailure)) {
-                InventoryScreen.renderEntityInInventory(
-                        graphics,
-                        request.left() + request.width() / 2.0F,
-                        request.top() + request.height() / 2.0F,
-                        fittedScale / player.getScale(),
-                        translation,
-                        modelRotation,
-                        cameraPitch,
-                        player);
-            }
+                try (EditorPreviewLayerGuard ignoredLayers =
+                        EditorPreviewLayerGuard.open(this::onLiveLayerFailure)) {
+                    InventoryScreen.renderEntityInInventory(
+                            graphics,
+                            request.left() + request.width() / 2.0F,
+                            request.top() + request.height() / 2.0F,
+                            fittedScale / player.getScale(),
+                            translation,
+                            modelRotation,
+                            cameraPitch,
+                            player);
+                }
             } finally {
                 pose.popPose();
             }
@@ -306,8 +304,8 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         ResourceLocation selectedCape = appearance.cape()
                 .map(handle -> parseTexture(handle.location()))
                 .orElse(null);
-        ResourceLocation cape = appearance.capeMode() == CapeMode.OFF ? null : selectedCape;
-        ResourceLocation elytra = appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null;
+        ResourceLocation cape = appearance.capeMode() == CapeMode.CAPE ? selectedCape : null;
+        ResourceLocation elytra = appearance.capeMode() == CapeMode.ELYTRA && appearance.capeHasElytra() ? selectedCape : null;
         PlayerSkin.Model model = appearance.model() == SkinModel.SLIM
                 ? PlayerSkin.Model.SLIM
                 : PlayerSkin.Model.WIDE;
@@ -328,13 +326,14 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     private void renderFallback(GuiGraphics graphics, PreviewRequest request) {
         ResourceLocation skin = parseTexture(request.appearance().skin().location());
         ResourceLocation cape = request.appearance().cape()
-                .map(handle -> parseTexture(handle.location()))
+                .map(handle -> request.appearance().capeMode() == CapeMode.ELYTRA && !request.appearance().capeHasElytra()
+                        ? ResourceLocation.withDefaultNamespace("textures/entity/elytra.png") : parseTexture(handle.location()))
                 .orElse(null);
         boolean slimModel = request.appearance().model() == SkinModel.SLIM;
         PlayerModel<?> player = slimModel ? slim : classic;
         ModelPart cloak = slimModel ? slimCloak : classicCloak;
 
-        configurePlayerModel(player, request.appearance().outerLayerVisibility());
+        BakedPlayerPose.configure(player, request.appearance().outerLayerVisibility());
         classicCloak.resetPose();
         classicCloak.visible = false;
         slimCloak.resetPose();
@@ -400,7 +399,7 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
                 try {
                     cloak.render(
                             pose,
-                            buffers.getBuffer(RenderType.entitySolid(texture)),
+                            buffers.getBuffer(RenderType.entityTranslucent(texture)),
                             LightTexture.FULL_BRIGHT,
                             OverlayTexture.NO_OVERLAY);
                 } finally {
@@ -428,37 +427,6 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
                 pose.popPose();
             }
         }
-    }
-
-    private static void configurePlayerModel(PlayerModel<?> player, OuterLayerVisibility outerLayer) {
-        player.head.resetPose();
-        player.body.resetPose();
-        player.rightArm.resetPose();
-        player.leftArm.resetPose();
-        player.rightLeg.resetPose();
-        player.leftLeg.resetPose();
-        player.hat.resetPose();
-        player.jacket.resetPose();
-        player.rightSleeve.resetPose();
-        player.leftSleeve.resetPose();
-        player.rightPants.resetPose();
-        player.leftPants.resetPose();
-        player.setAllVisible(true);
-        player.attackTime = 0.0F;
-        player.crouching = false;
-        player.riding = false;
-        player.young = false;
-
-        player.rightArm.zRot = 0.06F;
-        player.leftArm.zRot = -0.06F;
-        player.rightLeg.zRot = 0.01F;
-        player.leftLeg.zRot = -0.01F;
-        player.hat.visible = outerLayer.visible(OuterLayerPart.HEAD);
-        player.jacket.visible = outerLayer.visible(OuterLayerPart.BODY);
-        player.rightSleeve.visible = outerLayer.visible(OuterLayerPart.RIGHT_ARM);
-        player.leftSleeve.visible = outerLayer.visible(OuterLayerPart.LEFT_ARM);
-        player.rightPants.visible = outerLayer.visible(OuterLayerPart.RIGHT_LEG);
-        player.leftPants.visible = outerLayer.visible(OuterLayerPart.LEFT_LEG);
     }
 
     private static ResourceLocation parseTexture(String value) {

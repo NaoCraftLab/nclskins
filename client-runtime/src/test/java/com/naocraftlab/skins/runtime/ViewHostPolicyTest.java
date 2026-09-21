@@ -66,6 +66,33 @@ final class ViewHostPolicyTest {
         assertFalse(ViewHostPolicy.compositeCardHovered(view, "card.action", 25, 25));
     }
 
+    @Test
+    void topmostInlineCapeActionIsDispatchedDirectlyOverItsCard() {
+        ViewSpec.Widget card = new ViewSpec.Widget(
+                "editor.cape_item.OFFLINE.cape", ViewSpec.WidgetKind.CAPE_CARD,
+                new Bounds(0, 0, 80, 100),
+                UiMessage.literal("cape", UiMessage.Severity.INFO), Optional.empty(),
+                Optional.empty(), true, true, 0);
+        ViewSpec.Widget save = widget(
+                "editor.cape_action.save.cape", new Bounds(2, 78, 37, 20));
+        ViewSpec.Widget cancel = widget(
+                "editor.cape_action.cancel.cape", new Bounds(41, 78, 37, 20));
+        ViewSpec.Widget field = new ViewSpec.Widget(
+                "editor.cape_action.name", ViewSpec.WidgetKind.TEXT_FIELD,
+                new Bounds(2, 2, 76, 20),
+                UiMessage.literal("name", UiMessage.Severity.INFO), Optional.of("Renamed"),
+                Optional.empty(), true, true, 32, true, Optional.of(save.id()));
+        ViewSpec view = view(List.of(card, field, save, cancel), List.of());
+
+        assertEquals(Optional.of(save.id()),
+                ViewHostPolicy.inlineCapePointerActionAt(view, 20, 88));
+        assertEquals(Optional.of(cancel.id()),
+                ViewHostPolicy.inlineCapePointerActionAt(view, 60, 88));
+        assertTrue(ViewHostPolicy.inlineCapePointerActionAt(view, 20, 40).isEmpty());
+        assertEquals(Optional.of(save.id()),
+                ViewHostPolicy.submitAction(view, field.id(), true, "Renamed"));
+    }
+
     private static ViewSpec.Widget widget(String id, Bounds bounds) {
         return new ViewSpec.Widget(
                 id, ViewSpec.WidgetKind.BUTTON, bounds,

@@ -58,6 +58,28 @@ public record CatalogText(Optional<String> translationKey, String fallback) {
                 "nclskins." + collection + ".skin." + skin + ".authors", "");
     }
 
+    public static CatalogText capeName(String collectionId, String capeId) {
+        String collection = requireStableId(collectionId, "collectionId");
+        String cape = requireStableId(capeId, "capeId");
+        return translated(
+                "nclskins." + collection + ".cape." + cape + ".name",
+                humanizeId(cape));
+    }
+
+    public static CatalogText capeDescription(String collectionId, String capeId) {
+        String collection = requireStableId(collectionId, "collectionId");
+        String cape = requireStableId(capeId, "capeId");
+        return translated(
+                "nclskins." + collection + ".cape." + cape + ".description", "");
+    }
+
+    public static CatalogText capeAuthors(String collectionId, String capeId) {
+        String collection = requireStableId(collectionId, "collectionId");
+        String cape = requireStableId(capeId, "capeId");
+        return translated(
+                "nclskins." + collection + ".cape." + cape + ".authors", "");
+    }
+
 
     public static String humanizeId(String id) {
         String stableId = requireStableId(id, "id");

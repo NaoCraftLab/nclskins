@@ -12,7 +12,13 @@ public record RemoteProfile(
         String name,
         List<RemoteSkin> skins,
         List<RemoteCape> capes,
-        Set<String> profileActions) {
+        Set<String> profileActions,
+        boolean skinProjectionComplete) {
+
+    public RemoteProfile(UUID id, String name, List<RemoteSkin> skins,
+            List<RemoteCape> capes, Set<String> profileActions) {
+        this(id, name, skins, capes, profileActions, true);
+    }
 
     public RemoteProfile {
         Objects.requireNonNull(id, "id");
@@ -24,6 +30,8 @@ public record RemoteProfile(
         skins = List.copyOf(Objects.requireNonNull(skins, "skins"));
         capes = List.copyOf(Objects.requireNonNull(capes, "capes"));
         profileActions = Set.copyOf(Objects.requireNonNull(profileActions, "profileActions"));
+        skinProjectionComplete = skinProjectionComplete
+                && skins.stream().filter(skin -> skin.state() == RemoteAssetState.ACTIVE).count() <= 1;
     }
 
     public Optional<RemoteSkin> activeSkin() {

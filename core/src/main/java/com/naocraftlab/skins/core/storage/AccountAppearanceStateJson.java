@@ -6,17 +6,18 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
-import com.naocraftlab.skins.core.model.AccountAppearanceState;
-import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.core.model.AccountAppearanceState;
+import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.SkinVariant;
+
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
 final class AccountAppearanceStateJson {
-    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder().serializeNulls().disableHtmlEscaping().setPrettyPrinting().create();
 
     byte[] encode(AccountAppearanceState state) {
         JsonObject root = new JsonObject();
@@ -39,6 +40,7 @@ final class AccountAppearanceStateJson {
         root.addProperty("syncStatus", state.syncStatus().name());
         root.addProperty("settledRevision", state.settledRevision());
         root.addProperty("updatedAt", state.updatedAt().toString());
+        root.add("providers", AppearanceProvidersJson.encode(state.providers()));
         return (GSON.toJson(root) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
     }
 
@@ -47,7 +49,7 @@ final class AccountAppearanceStateJson {
             JsonObject root = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8))
                     .getAsJsonObject();
             int schema = required(root, "schemaVersion").getAsInt();
-            if (schema != 1 && schema != AccountAppearanceState.CURRENT_SCHEMA_VERSION) {
+            if (schema != 1 && schema != 2 && schema != AccountAppearanceState.CURRENT_SCHEMA_VERSION) {
                 throw new StorageException(
                         StorageException.Code.UNSUPPORTED_SCHEMA,
                         "Unsupported appearance state schema: " + schema);
@@ -71,10 +73,17 @@ final class AccountAppearanceStateJson {
                     AppearanceSyncStatus.valueOf(required(root, "syncStatus").getAsString()),
                     required(root, "settledRevision").getAsLong(),
                     Instant.parse(required(root, "updatedAt").getAsString()));
+            if (schema == AccountAppearanceState.CURRENT_SCHEMA_VERSION) {
+                JsonElement providers = root.get("providers");
+                if (providers == null || !providers.isJsonObject()) {
+                    throw new JsonParseException("Missing provider state");
+                }
+                state = state.withProviders(AppearanceProvidersJson.decode(providers.getAsJsonObject()));
+            }
             return new Decoded(state, schema != AccountAppearanceState.CURRENT_SCHEMA_VERSION);
         } catch (StorageException exception) {
             throw exception;
-        } catch (JsonParseException | IllegalArgumentException | IllegalStateException exception) {
+        } catch (JsonParseException | IllegalArgumentException | IllegalStateException | ArithmeticException exception) {
             throw new StorageException(
                     StorageException.Code.INVALID_STATE,
                     "Appearance state is malformed",

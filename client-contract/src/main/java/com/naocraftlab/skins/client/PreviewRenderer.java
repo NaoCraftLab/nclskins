@@ -24,7 +24,11 @@ public interface PreviewRenderer<C> {
             SkinModel model,
             Optional<TextureRegistry.TextureHandle> cape,
             CapeMode capeMode,
-            OuterLayerVisibility outerLayerVisibility) {
+            OuterLayerVisibility outerLayerVisibility, boolean capeHasElytra) {
+        public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
+                Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode, OuterLayerVisibility visibility) {
+            this(skin, model, cape, capeMode, visibility, true);
+        }
         public PreviewAppearance {
             Objects.requireNonNull(skin, "skin");
             Objects.requireNonNull(model, "model");

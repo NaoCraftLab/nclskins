@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.loader;
 
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.naocraftlab.skins.client.MinecraftClientHooks;
 import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.compat.config.ConfigurationLinkApi;
@@ -9,20 +10,35 @@ import java.util.Objects;
 import java.nio.file.Path;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.screens.Screen;
 
 
 public final class MinecraftClientHookAdapter
-        implements MinecraftClientHooks<
-                Minecraft, Screen, AbstractWidget, MinecraftClientHookAdapter.Frame> {
+        implements MinecraftClientHooks<Minecraft, Screen, AbstractWidget> {
     private static final MinecraftClientHookAdapter INSTANCE = new MinecraftClientHookAdapter();
 
     private MinecraftClientHookAdapter() {}
 
     public static MinecraftClientHookAdapter instance() {
         return INSTANCE;
+    }
+
+    public com.naocraftlab.skins.diagnostics.DiagnosticSink diagnostics() {
+        return ImmediateClientRuntime.instance().runtime().diagnostics();
+    }
+
+    public boolean keybindingContextActive() {
+        Minecraft client = Minecraft.getInstance();
+        return client.level != null && client.player != null && client.isWindowActive()
+                && client.screen == null && client.getOverlay() == null;
+    }
+
+    public void openDestination(com.naocraftlab.skins.client.ScreenDestination destination) {
+        Minecraft client = Minecraft.getInstance();
+        Screen parent = client.screen;
+        if (parent instanceof com.naocraftlab.skins.compat.gui.immediate.NclSkinsImmediateScreen || (parent == null && client.level == null)) return;
+        client.setScreen(ImmediateClientRuntime.instance().createScreen(parent, destination));
     }
 
     @Override
@@ -33,11 +49,18 @@ public final class MinecraftClientHookAdapter
                 client.nativeFileDialog(),
                 screen -> Minecraft.getInstance().setScreen(screen),
                 ConfigurationLinkApi::open).activeDataRoot());
+        client.warmSession();
     }
 
     @Override
     public void tick(Minecraft client) {
         ImmediateClientRuntime.instance().tick(client);
+        com.naocraftlab.skins.compat.keybindings.ScreenKeybindings.tick(client);
+    }
+
+    @Override
+    public void resourcesReloaded() {
+        ImmediateClientRuntime.instance().resourcesReloaded();
     }
 
     @Override
@@ -52,7 +75,8 @@ public final class MinecraftClientHookAdapter
         if (!NclSkinsMenuPreview.supports(screen)) {
             return;
         }
-        if (!MinecraftConfigurationBridge.previewEnabled(screen)) {
+        MenuPreviewPlacement placement = MinecraftConfigurationBridge.previewPlacement(screen);
+        if (placement == MenuPreviewPlacement.OFF) {
             NclSkinsMenuPreview.removed(screen);
             return;
         }
@@ -60,7 +84,7 @@ public final class MinecraftClientHookAdapter
         NclSkinsMenuPreview.install(
                 screen,
                 () -> ImmediateClientRuntime.instance().openOrToggle(client, screen),
-                widgets);
+                widgets, placement);
     }
 
     @Override
@@ -72,11 +96,5 @@ public final class MinecraftClientHookAdapter
     public void close() {
         NclSkinsMenuPreview.clear();
         ImmediateClientRuntime.instance().close();
-    }
-
-    public record Frame(GuiGraphics graphics, int mouseX, int mouseY) {
-        public Frame {
-            Objects.requireNonNull(graphics, "graphics");
-        }
     }
 }

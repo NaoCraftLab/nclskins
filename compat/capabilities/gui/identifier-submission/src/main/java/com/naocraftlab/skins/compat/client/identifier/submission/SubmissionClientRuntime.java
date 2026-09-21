@@ -44,7 +44,8 @@ final class SubmissionClientRuntime {
             application = new ClientApplicationHost<>(
                     provision.capabilities(),
                     TextResolver.withCatalogTranslations(
-                            SubmissionComponents::resolveString,
+                            TextResolver.withLayout(SubmissionComponents::resolveString,
+                                    (message, width) -> Minecraft.getInstance().font.wordWrapHeight(SubmissionComponents.resolve(message), Math.max(1, width))),
                             (key, fallback) -> Language.getInstance().getOrDefault(key, fallback)),
                     dataRoot,
                     MinecraftConfigurationBridge.service()::client,
@@ -78,12 +79,21 @@ final class SubmissionClientRuntime {
             current = application;
             currentProvision = provision;
         }
-        currentProvision.maintain();
         Object connection = minecraft.getConnection();
         boolean playerReady = connection != null
                 && minecraft.player != null
                 && minecraft.getConnection().getPlayerInfo(minecraft.player.getUUID()) != null;
+        currentProvision.maintain(playerReady);
         current.tick(connection, playerReady);
+    }
+
+    static synchronized void resourcesReloaded() {
+        if (terminallyClosed) {
+            return;
+        }
+        runtime();
+        provision.markNativeResourcesDirty();
+        application.runtime().resourcesReloaded();
     }
 
     static synchronized boolean closed() {

@@ -8,6 +8,7 @@ import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,28 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class ViewSpecGoldenTest {
+    @Test
+    void providersSmallViewWithMixedStatesMatchesGolden() {
+        var providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial().select(1,
+                new com.naocraftlab.skins.core.provider.ProviderSkin("a".repeat(64), SkinVariant.SLIM),
+                new com.naocraftlab.skins.core.provider.ProviderCape("fixture-cape", "b".repeat(64)));
+        var view = new ProvidersPresenter().present(providers,
+                com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN,
+                false, false, PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.ELYTRA),
+                SkinVariant.CLASSIC, 320, 240);
+        assertEquals(golden("providers-view-spec-320.txt"), describe(view).stripTrailing());
+    }
+
+    @Test
+    void providerChooserAtSmallHeightMatchesGolden() {
+        var providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial()
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE);
+        var view = new ProvidersPresenter().presentChooser(providers,
+                com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE, false, 320, 100, 999);
+        assertEquals(golden("provider-chooser-view-spec-320.txt"), describe(view).stripTrailing());
+    }
+
     @Test
     void serializerSchemaCoversEveryViewSpecRecordComponent() {
         String schema = Stream.concat(
@@ -361,6 +384,10 @@ final class ViewSpecGoldenTest {
     }
 
     private static ViewSpec editor(int width, int height) {
+        return editor(width, height, EditorTab.APPEARANCE);
+    }
+
+    private static ViewSpec editor(int width, int height, EditorTab tab) {
         AccountState account = TestFixtures.account(2);
         AppearancePreset original = account.presets().get(1);
         PresetEditorModel model = PresetEditorModel.open(
@@ -381,11 +408,12 @@ final class ViewSpecGoldenTest {
                         OuterLayerVisibility.noneVisible(),
                         PreviewRenderer.CapeMode.ELYTRA,
                         false));
-        return model.present(width, height);
+        return model.withSelectedEditorTab(tab).present(width, height);
     }
 
     private static String describePair(ViewSpec gallery, ViewSpec editor) {
-        return "[gallery]\n" + describe(gallery) + "[editor]\n" + describe(editor);
+        return "[gallery]\n" + describe(gallery) + "[editor]\n" + describe(editor)
+                + "[editor-cape]\n" + describe(editor(editor.width(), editor.height(), EditorTab.CAPE));
     }
 
     private static String describe(ViewSpec view) {
@@ -438,6 +466,7 @@ final class ViewSpecGoldenTest {
                     .append("variant=").append(preview.variant()).append('|')
                     .append("cape=").append(preview.capeId().orElse("-")).append('|')
                     .append("mode=").append(preview.capeMode()).append('|')
+                    .append("capeHasElytra=").append(preview.capeHasElytra()).append('|')
                     .append("outer=").append(outerLayer(preview.outerLayerVisibility())).append('|')
                     .append("yaw=").append(preview.yawDegrees()).append('|')
                     .append("pitch=").append(preview.pitchDegrees()).append('|')
@@ -449,7 +478,8 @@ final class ViewSpecGoldenTest {
             ViewSpec.BackEquipmentPreview preview = view.backEquipmentPreviews().get(index);
             result.append(index).append('|').append(preview.id()).append('|')
                     .append(bounds(preview.bounds())).append("|cape=").append(preview.capeId()).append('|')
-                    .append("mode=").append(preview.mode()).append('\n');
+                    .append("mode=").append(preview.mode()).append('|')
+                    .append("capeHasElytra=").append(preview.capeHasElytra()).append('\n');
         }
         result.append("icon_decorations\n");
         for (int index = 0; index < view.iconDecorations().size(); index++) {
@@ -459,7 +489,10 @@ final class ViewSpecGoldenTest {
                     .append(decoration.icon().semanticPath()).append('|')
                     .append("owner=").append(decoration.ownerWidgetId()).append('|')
                     .append("idle=").append(decoration.idleOpacity()).append('|')
-                    .append("active=").append(decoration.activeOpacity()).append('\n');
+                    .append("active=").append(decoration.activeOpacity());
+            decoration.providerTexture().ifPresent(texture -> result.append("|provider=")
+                    .append(texture.requestKey()).append("|overlay=").append(texture.overlay()));
+            result.append('\n');
         }
         result.append("clip_regions\n");
         for (int index = 0; index < view.clipRegions().size(); index++) {

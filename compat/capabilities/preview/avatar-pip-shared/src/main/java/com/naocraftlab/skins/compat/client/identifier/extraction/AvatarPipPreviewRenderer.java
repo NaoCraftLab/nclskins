@@ -6,6 +6,7 @@ import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewDepthEnvelope;
 import com.naocraftlab.skins.client.PreviewStageGeometry;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.model.Model;
 import net.minecraft.client.model.player.PlayerModel;
@@ -17,9 +18,6 @@ final class AvatarPipPreviewRenderer
                 BackEquipmentPreviewRenderer<GuiGraphicsExtractor>, AutoCloseable {
     private static final float MODEL_HEIGHT = 2.125F;
     private static final float FIT_PADDING = 0.97F;
-    private static final float EQUIPMENT_MODEL_WIDTH = 1.5F;
-    private static final float EQUIPMENT_MODEL_HEIGHT = 1.25F;
-    private static final float EQUIPMENT_FIT_PADDING = 0.88F;
     private static final BakedSkinSubmitter SKIN_SUBMITTER =
             new NativeBakedSkinSubmitter();
     private static final boolean PLAYER_MODEL_SKIN = SKIN_SUBMITTER.usesPlayerModel();
@@ -42,7 +40,8 @@ final class AvatarPipPreviewRenderer
         float scale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
         Identifier attachmentTexture = appearance.cape()
                 .filter(ignored -> appearance.capeMode() != CapeMode.OFF)
-                .map(cape -> Identifier.parse(cape.location()))
+                .map(cape -> Identifier.parse(appearance.capeMode() == CapeMode.ELYTRA && !appearance.capeHasElytra()
+                        ? "minecraft:textures/entity/equipment/wings/elytra.png" : cape.location()))
                 .orElse(null);
         VanillaPreviewModels.AttachmentModels attachment = attachmentTexture == null
                 ? null
@@ -98,9 +97,8 @@ final class AvatarPipPreviewRenderer
             BackEquipmentPreviewRenderer.Request request) {
         VanillaPreviewModels.AttachmentModels attachment = attachment(request.mode());
         Object submittedModel = PLAYER_MODEL_SKIN ? attachment.player() : attachment.simple();
-        float scale = EQUIPMENT_FIT_PADDING * Math.min(
-                request.width() / EQUIPMENT_MODEL_WIDTH,
-                request.height() / EQUIPMENT_MODEL_HEIGHT);
+        float scale = VanillaBackEquipmentTransform.fitScale(
+                request.width(), request.height());
         PreviewRenderer.CapeMode mode = request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA
                 ? PreviewRenderer.CapeMode.ELYTRA
                 : PreviewRenderer.CapeMode.CAPE;
@@ -113,7 +111,8 @@ final class AvatarPipPreviewRenderer
                 PLAYER_MODEL_SKIN ? attachment.playerCapePose() : attachment.simpleCapePose(),
                 PLAYER_MODEL_SKIN ? attachment.playerElytraPose() : attachment.simpleElytraPose(),
                 null,
-                Identifier.parse(request.texture().location()),
+                Identifier.parse(request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA && !request.capeHasElytra()
+                        ? "minecraft:textures/entity/equipment/wings/elytra.png" : request.texture().location()),
                 mode,
                 OuterLayerVisibility.allVisible(),
                 0.0F,

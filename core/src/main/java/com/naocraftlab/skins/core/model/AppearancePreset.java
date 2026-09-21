@@ -14,7 +14,17 @@ public record AppearancePreset(
         String capeId,
         OuterLayerVisibility outerLayerVisibility,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        LocalCapeReference offlineCape) {
+
+    public AppearancePreset(UUID id, String name, SkinReference skin, String capeId,
+            OuterLayerVisibility outerLayerVisibility, Instant createdAt, Instant updatedAt) {
+        this(id, name, skin, capeId, outerLayerVisibility, createdAt, updatedAt, null);
+    }
+
+    public AppearancePreset withOfflineCape(LocalCapeReference value) {
+        return new AppearancePreset(id, name, skin, capeId, outerLayerVisibility, createdAt, updatedAt, value);
+    }
 
     public AppearancePreset {
         Objects.requireNonNull(id, "id");

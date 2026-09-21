@@ -5,6 +5,7 @@ import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngInfo;
@@ -388,6 +389,12 @@ public final class NclSkinsStorage {
     public AccountAppearanceMutationResult mutateAccountAndAppearance(
             UUID accountId,
             AccountAppearanceMutation mutation) throws IOException {
+        return mutateAccountAndAppearance(accountId, mutation, false);
+    }
+
+    @SuppressWarnings("try")
+    private AccountAppearanceMutationResult mutateAccountAndAppearance(
+            UUID accountId, AccountAppearanceMutation mutation, boolean recoverable) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(mutation, "mutation");
         ensureInitialized();
@@ -407,6 +414,14 @@ public final class NclSkinsStorage {
             validateAccountAppearanceMutation(
                     accountId, currentAccount, currentAppearance, nextRevision, plan);
 
+            if (recoverable && plan.accountUpdated()) {
+                com.google.gson.JsonObject transaction = new com.google.gson.JsonObject();
+                transaction.add("account", com.google.gson.JsonParser.parseString(new String(stateJson.encode(plan.account()), java.nio.charset.StandardCharsets.UTF_8)));
+                transaction.add("appearance", com.google.gson.JsonParser.parseString(new String(appearanceStateJson.encode(plan.appearance()), java.nio.charset.StandardCharsets.UTF_8)));
+                AtomicFileWriter.replace(transactionPath(accountId), transaction.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                recoverAccountTransaction(accountId);
+                return new AccountAppearanceMutationResult(plan.account(), plan.appearance(), true, true);
+            }
             if (plan.appearanceUpdated()) {
                 AtomicFileWriter.replace(
                         layout.accountAppearance(accountId),
@@ -625,6 +640,36 @@ public final class NclSkinsStorage {
 
 
     @SuppressWarnings("try")
+    public AccountUiPreferencesResult setSelectedProvidersTab(
+            UUID accountId, com.naocraftlab.skins.core.provider.AppearanceProviders.Component selectedTab) throws IOException {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(selectedTab, "selectedTab");
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            AccountUiPreferencesResult loaded = loadUiPreferencesLocked(accountId);
+            AccountUiPreferences replacement = loaded.preferences().withSelectedProvidersTab(selectedTab);
+            saveUiPreferencesLocked(replacement);
+            return new AccountUiPreferencesResult(replacement, loaded.warnings());
+        }
+    }
+
+
+    @SuppressWarnings("try")
+    public AccountUiPreferencesResult setSelectedEditorTab(
+            UUID accountId, EditorTab selectedTab) throws IOException {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(selectedTab, "selectedTab");
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            AccountUiPreferencesResult loaded = loadUiPreferencesLocked(accountId);
+            AccountUiPreferences replacement = loaded.preferences().withSelectedEditorTab(selectedTab);
+            saveUiPreferencesLocked(replacement);
+            return new AccountUiPreferencesResult(replacement, loaded.warnings());
+        }
+    }
+
+
+    @SuppressWarnings("try")
     public AccountUiPreferencesResult setCollectionCollapsed(
             UUID accountId, String collectionId, boolean collapsed) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
@@ -684,6 +729,14 @@ public final class NclSkinsStorage {
     }
 
 
+    @SuppressWarnings("try")
+    public void setCollapsedCapeCollections(UUID accountId, java.util.Set<String> values) throws IOException {
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            saveUiPreferencesLocked(loadUiPreferencesLocked(accountId).preferences().withCollapsedCapeCollections(values));
+        }
+    }
+
     public void completeVerifiedIdentity(VerifiedIdentityPlan plan, String displayName) throws IOException {
         Objects.requireNonNull(plan, "plan");
     }
@@ -706,6 +759,52 @@ public final class NclSkinsStorage {
             }
         }
         return new StoredAsset(sha256, path, info, !created);
+    }
+
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
+            UUID accountId, String name, byte[] bytes) throws IOException, PngValidationException {
+        PngValidator.CapePng png = pngValidator.projectCape(bytes);
+        String hash = sha256(png.bytes());
+        Path asset = capeAssetPath(accountId, hash);
+        ensureInitialized();
+        com.naocraftlab.skins.core.model.PersonalCapeEntry[] selected = new com.naocraftlab.skins.core.model.PersonalCapeEntry[1];
+        updateAccount(accountId, current -> {
+            selected[0] = current.personalCapes().stream().filter(entry -> entry.renderSha256().equals(png.renderSha256()))
+                    .findFirst().orElse(null);
+            if (selected[0] != null) return current;
+            selected[0] = new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                    new com.naocraftlab.skins.core.model.LocalCapeReference(UUID.randomUUID(), hash, png.hasElytra()),
+                    png.renderSha256(), name, clock.instant());
+            try {
+                AtomicFileWriter.createImmutable(asset, png.bytes());
+            } catch (IOException exception) {
+                throw new java.io.UncheckedIOException(exception);
+            }
+            java.util.List<com.naocraftlab.skins.core.model.PersonalCapeEntry> entries = new java.util.ArrayList<>(current.personalCapes());
+            entries.add(selected[0]);
+            return current.withPersonalCapes(entries);
+        });
+        AtomicFileWriter.createImmutable(layout.textureCache().resolve(selected[0].texture().sha256() + ".png"),
+                readCapeAsset(accountId, selected[0].texture().sha256()));
+        return selected[0];
+    }
+
+    public Path capeAssetPath(UUID accountId, String hash) {
+        if (!hash.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid cape hash");
+        return layout.accountState(accountId).getParent().resolve("cape-assets").resolve(hash + ".png");
+    }
+
+    public byte[] readCapeAsset(UUID accountId, String hash) throws IOException {
+        byte[] bytes = readBoundedAsset(capeAssetPath(accountId, hash));
+        if (!hash.equals(sha256(bytes))) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE, "Cape asset integrity failure");
+        }
+        return bytes;
+    }
+
+    public AccountState renameCape(UUID accountId, UUID entryId, String name) throws IOException {
+        return updateAccount(accountId, current -> current.withPersonalCapes(current.personalCapes().stream()
+                .map(entry -> entry.texture().entryId().equals(entryId) ? entry.renamed(name) : entry).toList()));
     }
 
     public byte[] readAsset(String sha256) throws IOException, PngValidationException {
@@ -742,7 +841,136 @@ public final class NclSkinsStorage {
         return layout.assetsSha256().resolve(sha256 + ".png");
     }
 
+    private Path transactionPath(UUID accountId) {
+        return layout.accountState(accountId).getParent().resolve("cape-transaction.json");
+    }
+
+    private void recoverAccountTransaction(UUID accountId) throws IOException {
+        Path path = transactionPath(accountId);
+        if (!Files.exists(path)) return;
+        try {
+            com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(
+                    new String(readBoundedState(path, (int) MAX_STATE_BYTES * 2 + 1024), java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+            byte[] accountBytes = json.getAsJsonObject("account").toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            byte[] appearanceBytes = json.getAsJsonObject("appearance").toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            AccountState account = stateJson.decode(accountBytes).state();
+            AccountAppearanceState appearance = appearanceStateJson.decode(appearanceBytes).state();
+            validateAccountId(accountId, account);
+            if (!accountId.equals(appearance.accountId())) throw new IllegalArgumentException("Transaction account mismatch");
+            AtomicFileWriter.replace(layout.accountAppearance(accountId), appearanceStateJson.encode(appearance));
+            AtomicFileWriter.replace(layout.accountState(accountId), stateJson.encode(account));
+            AtomicFileWriter.replace(layout.accountBackup(accountId), stateJson.encode(account));
+            Files.delete(path);
+        } catch (com.google.gson.JsonParseException | IllegalArgumentException | IllegalStateException | NullPointerException exception) {
+            throw new StorageException(StorageException.Code.INVALID_STATE, "Invalid account transaction", exception);
+        }
+    }
+
+    public AccountState selectOfflineCape(UUID accountId, UUID presetId,
+            com.naocraftlab.skins.core.model.LocalCapeReference selection) throws IOException {
+        return updateAccount(accountId, current -> {
+            var valid = selection == null || selection.entryId() == null || current.personalCapes().stream()
+                    .anyMatch(entry -> entry.texture().equals(selection)) ? selection : null;
+            return new AccountState(current.schemaVersion(), current.accountId(), current.skinAssets(), current.personalSkins(),
+                    current.presets().stream().map(preset -> preset.id().equals(presetId) ? preset.withOfflineCape(valid) : preset).toList(),
+                    current.updatedAt().plusNanos(1), current.personalCapes());
+        });
+    }
+
+    public AccountAppearanceMutationResult deleteCape(UUID accountId, UUID entryId) throws IOException {
+        return mutateAccountAndAppearance(accountId, (account, appearance, revision) -> {
+            var entry = account.personalCapes().stream().filter(value -> value.texture().entryId().equals(entryId)).findFirst();
+            if (entry.isEmpty()) return AccountAppearanceMutationPlan.accountOnly(account, appearance);
+            var reference = entry.orElseThrow().texture();
+            AccountState updated = new AccountState(account.schemaVersion(), account.accountId(), account.skinAssets(), account.personalSkins(),
+                    account.presets().stream().map(preset -> reference.equals(preset.offlineCape()) ? preset.withOfflineCape(null) : preset).toList(),
+                    account.updatedAt().plusNanos(1), account.personalCapes().stream().filter(value -> !value.texture().equals(reference)).toList());
+            var channel = appearance.providers().cape();
+            java.util.function.Predicate<com.naocraftlab.skins.core.provider.ProviderCape> matches = cape ->
+                    cape != null && cape.id().equals(entryId.toString());
+            if (!matches.test(channel.offline().value()) && !matches.test(channel.offlineDesired())) {
+                return AccountAppearanceMutationPlan.accountOnly(updated, appearance);
+            }
+            var replacement = new com.naocraftlab.skins.core.provider.ProviderChannel<>(channel.order(),
+                    matches.test(channel.offline().value()) ? com.naocraftlab.skins.core.provider.ProviderObservation.<com.naocraftlab.skins.core.provider.ProviderCape>observed(null) : channel.offline(),
+                    channel.minecraft(), channel.configurationRevision(), channel.intentRevision(), channel.desired(), channel.minecraftDelivery(),
+                    matches.test(channel.offlineDesired()) ? null : channel.offlineDesired());
+            var providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(appearance.providers().skin(), replacement);
+            var changed = new AccountAppearanceState(appearance.schemaVersion(), accountId, revision, appearance.activePresetId(),
+                    appearance.skinSha256(), appearance.skinVariant(), appearance.capeId(), appearance.outerLayerVisibility(),
+                    appearance.syncStatus(), appearance.syncStatus() == com.naocraftlab.skins.core.model.AppearanceSyncStatus.OFFICIAL ? revision : appearance.settledRevision(),
+                    clock.instant(), providers);
+            return new AccountAppearanceMutationPlan(updated, changed, true, true);
+        }, true);
+    }
+
+    public AccountState discardCapeIfUnreferenced(UUID accountId, UUID entryId) throws IOException {
+        return mutateAccountAndAppearance(accountId, (account, appearance, revision) -> {
+            var entry = account.personalCapes().stream()
+                    .filter(value -> value.texture().entryId().equals(entryId))
+                    .findFirst();
+            if (entry.isEmpty()) {
+                return new AccountAppearanceMutationPlan(account, appearance, false, false);
+            }
+            var reference = entry.orElseThrow().texture();
+            var channel = appearance.providers().cape();
+            java.util.function.Predicate<com.naocraftlab.skins.core.provider.ProviderCape> matches = cape ->
+                    cape != null && entryId.toString().equals(cape.id());
+            boolean referenced = account.presets().stream()
+                    .anyMatch(preset -> reference.equals(preset.offlineCape()))
+                    || matches.test(channel.offline().value())
+                    || matches.test(channel.offlineDesired());
+            if (referenced) {
+                return new AccountAppearanceMutationPlan(account, appearance, false, false);
+            }
+            return AccountAppearanceMutationPlan.accountOnly(
+                    account.withPersonalCapes(account.personalCapes().stream()
+                            .filter(value -> !value.texture().equals(reference)).toList()),
+                    appearance);
+        }).account();
+    }
+
+    private AccountState materializePublishedCapes(AccountState account) throws IOException {
+        Path inventoryPath = layout.accountOwnedCapes(account.accountId());
+        if (!Files.isRegularFile(inventoryPath)) return account;
+        OwnedCapeInventory inventory = ownedCapeInventoryJson.decode(readBoundedState(inventoryPath));
+        if (!account.accountId().equals(inventory.accountId())) throw new StorageException(StorageException.Code.INVALID_STATE, "Cape account mismatch");
+        java.util.List<com.naocraftlab.skins.core.model.AppearancePreset> presets = new java.util.ArrayList<>();
+        for (var preset : account.presets()) {
+            String key = inventory.find(preset.capeId() == null ? "" : preset.capeId())
+                    .flatMap(com.naocraftlab.skins.core.model.OwnedCapeEntry::optionalTextureCacheKey).orElse(null);
+            if (key != null && preset.offlineCape() == null) {
+                Path source = layout.textureCache().resolve(key + ".png");
+                if (Files.isRegularFile(source)) {
+                    try {
+                        var png = pngValidator.projectCape(readBoundedAsset(source));
+                        String hash = sha256(png.bytes());
+                        AtomicFileWriter.createImmutable(capeAssetPath(account.accountId(), hash), png.bytes());
+                        preset = preset.withOfflineCape(new com.naocraftlab.skins.core.model.LocalCapeReference(null, hash, png.hasElytra()));
+                    } catch (PngValidationException unavailable) { }
+                }
+            }
+            presets.add(preset);
+        }
+        return new AccountState(account.schemaVersion(), account.accountId(), account.skinAssets(), account.personalSkins(),
+                presets, account.updatedAt(), account.personalCapes());
+    }
+
+    private void restoreCapeCache(AccountState account) throws IOException {
+        java.util.Set<String> hashes = new java.util.HashSet<>();
+        account.personalCapes().forEach(entry -> hashes.add(entry.texture().sha256()));
+        account.presets().stream().map(com.naocraftlab.skins.core.model.AppearancePreset::offlineCape)
+                .filter(Objects::nonNull).forEach(cape -> hashes.add(cape.sha256()));
+        for (String hash : hashes) {
+            Path target = layout.textureCache().resolve(hash + ".png");
+            if (!Files.exists(target) && Files.isRegularFile(capeAssetPath(account.accountId(), hash))) {
+                AtomicFileWriter.createImmutable(target, readCapeAsset(account.accountId(), hash));
+            }
+        }
+    }
+
     private AccountState loadAccountLocked(UUID accountId) throws IOException {
+        recoverAccountTransaction(accountId);
         Path statePath = layout.accountState(accountId);
         Path backupPath = layout.accountBackup(accountId);
         StorageException primaryFailure = null;
@@ -750,10 +978,10 @@ public final class NclSkinsStorage {
             try {
                 AccountStateJson.Decoded decoded = stateJson.decode(readBoundedState(statePath));
                 validateAccountId(accountId, decoded.state());
-                if (decoded.migrated()) {
-                    AtomicFileWriter.replace(statePath, stateJson.encode(decoded.state()));
-                }
-                return decoded.state();
+                AccountState loaded = decoded.legacyCapes() ? materializePublishedCapes(decoded.state()) : decoded.state();
+                if (decoded.migrated() || decoded.legacyCapes()) AtomicFileWriter.replace(statePath, stateJson.encode(loaded));
+                restoreCapeCache(loaded);
+                return loaded;
             } catch (StorageException exception) {
                 primaryFailure = exception;
             }
@@ -761,8 +989,10 @@ public final class NclSkinsStorage {
         if (Files.exists(backupPath)) {
             AccountStateJson.Decoded decoded = stateJson.decode(readBoundedState(backupPath));
             validateAccountId(accountId, decoded.state());
-            AtomicFileWriter.replace(statePath, stateJson.encode(decoded.state()));
-            return decoded.state();
+            AccountState loaded = decoded.legacyCapes() ? materializePublishedCapes(decoded.state()) : decoded.state();
+            AtomicFileWriter.replace(statePath, stateJson.encode(loaded));
+            restoreCapeCache(loaded);
+            return loaded;
         }
         if (primaryFailure != null) {
             throw primaryFailure;
@@ -771,6 +1001,7 @@ public final class NclSkinsStorage {
     }
 
     private AccountAppearanceState loadAppearanceLocked(UUID accountId) throws IOException {
+        recoverAccountTransaction(accountId);
         Path path = layout.accountAppearance(accountId);
         if (!Files.exists(path)) {
             return AccountAppearanceState.empty(accountId, clock.instant());
@@ -865,9 +1096,13 @@ public final class NclSkinsStorage {
     }
 
     private static byte[] readBoundedState(Path path) throws IOException {
+        return readBoundedState(path, (int) MAX_STATE_BYTES);
+    }
+
+    private static byte[] readBoundedState(Path path, int maximum) throws IOException {
         try (java.io.InputStream input = Files.newInputStream(path)) {
-            byte[] bytes = input.readNBytes((int) MAX_STATE_BYTES + 1);
-            if (bytes.length <= MAX_STATE_BYTES) {
+            byte[] bytes = input.readNBytes(maximum + 1);
+            if (bytes.length <= maximum) {
                 return bytes;
             }
             throw new StorageException(StorageException.Code.INVALID_STATE, "Account state exceeds the size limit");

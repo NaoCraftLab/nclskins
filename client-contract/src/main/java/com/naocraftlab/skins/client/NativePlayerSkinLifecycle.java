@@ -12,7 +12,13 @@ public final class NativePlayerSkinLifecycle {
     }
 
     public static Registration pending(String location) {
-        Registration registration = new Registration(requireLocation(location));
+        return pending(location, () -> { });
+    }
+
+    public static Registration pending(String location, Runnable transitionListener) {
+        Registration registration = new Registration(
+                requireLocation(location),
+                Objects.requireNonNull(transitionListener, "transitionListener"));
         CURRENT.put(registration.location, registration);
         return registration;
     }
@@ -37,10 +43,12 @@ public final class NativePlayerSkinLifecycle {
 
     public static final class Registration {
         private final String location;
+        private final Runnable transitionListener;
         private volatile State state = State.PENDING;
 
-        private Registration(String location) {
+        private Registration(String location, Runnable transitionListener) {
             this.location = location;
+            this.transitionListener = transitionListener;
         }
 
         public String location() {
@@ -64,13 +72,18 @@ public final class NativePlayerSkinLifecycle {
         }
 
         private void transition(State next, boolean remove) {
+            boolean[] transitioned = {false};
             CURRENT.compute(location, (ignored, current) -> {
                 if (current != this) {
                     return current;
                 }
                 state = next;
+                transitioned[0] = true;
                 return remove ? null : this;
             });
+            if (transitioned[0]) {
+                transitionListener.run();
+            }
         }
     }
 

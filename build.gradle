@@ -53,6 +53,12 @@ def targetRunLock = gradle.sharedServices.registerIfAbsent('nclskinsTargetRunLoc
     maxParallelUsages.set(1)
 }
 
+tasks.register('clean', Delete) {
+    group = 'build'
+    description = 'Deletes root build outputs without touching target, run, or authored inputs.'
+    delete layout.buildDirectory
+}
+
 allprojects {
     group = targetCatalog.mod.group
     version = modVersion
@@ -173,6 +179,14 @@ def verifyCapabilitySemantics = tasks.register('verifyCapabilitySemantics', Veri
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
     delegate.coverageFile.set(layout.projectDirectory.file('gradle/capability-semantic-coverage.json'))
+}
+
+def verifyServerPluginAbi = tasks.register('verifyServerPluginAbi', VerifyServerPluginAbiTask) {
+    group = 'verification'
+    description = 'Verifies exact server plugin ABI declarations and catalog runtime coverage.'
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    declarationFile.set(layout.projectDirectory.file('gradle/server-plugin-abi.json'))
 }
 
 def verifyPublicationTree = tasks.register('verifyPublicationTree', VerifyPublicationTreeTask) {
@@ -411,6 +425,12 @@ tasks.register('buildTarget', TargetBuildTask) {
     configureTargetBuild(delegate, requestedTargetId == null ? [] : [requestedTargetId], ['clean', 'build'], true, true)
 }
 
+tasks.register('verifyNativeModels', TargetBuildTask) {
+    group = 'verification'
+    description = 'Runs native model tests with each selected catalog toolchain, without launching Minecraft.'
+    configureTargetBuild(delegate, requestedTargetId == null ? targetIds : [requestedTargetId], ['test'], false, false)
+}
+
 tasks.register('buildAllTargets', TargetBuildTask) {
     group = 'build'
     description = 'Clean-builds and collects every catalog target.'
@@ -497,6 +517,7 @@ def checkAll = tasks.register('checkAll') {
     dependsOn subprojects.collect { it.tasks.named('check') }
     dependsOn verifyTargetCatalog
     dependsOn verifyCapabilitySemantics
+    dependsOn verifyServerPluginAbi
     dependsOn verifyPublicationTree
     dependsOn tasks.named('verifyLoggingConventions')
     dependsOn tasks.named('verifyLoggingSecurityBaseline')
@@ -549,9 +570,10 @@ tasks.register('planRelease', PlanReleaseTask) {
 tasks.register('checkRelease') {
     group = 'verification'
     description = 'Runs shared release checks without building unrelated Minecraft targets or the plugin.'
-    dependsOn(':core:check', ':client-contract:check', ':client-runtime:check',
+    dependsOn(':core:check', ':diagnostics:check', ':server-configuration:check',
+               ':client-contract:check', ':client-runtime:check',
                ':server-contract:check', ':server-runtime:check', ':server-vanilla-publication:check')
-    dependsOn verifyTargetCatalog, verifyCapabilitySemantics, verifyPublicationTree
+    dependsOn verifyTargetCatalog, verifyCapabilitySemantics, verifyServerPluginAbi, verifyPublicationTree
     dependsOn tasks.named('verifyLoggingConventions'), tasks.named('verifyLoggingSecurityBaseline')
     dependsOn gradle.includedBuild('build-logic').task(':test')
 }

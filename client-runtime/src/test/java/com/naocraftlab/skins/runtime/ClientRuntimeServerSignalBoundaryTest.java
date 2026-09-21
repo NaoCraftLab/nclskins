@@ -50,6 +50,22 @@ final class ClientRuntimeServerSignalBoundaryTest {
     private static final TextResolver TEXT = message -> message.key();
 
     @Test
+    void offlineOnlyObserverDoesNotSendEvenALateConfirmedMinecraftOutcome() {
+        SignalScenario scenario = SignalScenario.confirmedPartial();
+        scenario.providers = scenario.providers
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT)
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT);
+        TestNotifier notifier = new TestNotifier(OptionalLong.of(1L));
+        ClientRuntime runtime = runtime(scenario, notifier);
+        runtime.initialize();
+        runtime.dispatchWidget(applyWidget(scenario.presetId));
+        assertEquals(1, scenario.reconciliationCalls);
+        assertEquals(0, notifier.notifications);
+    }
+
+    @Test
     void confirmedPartialReconciliationSignalsExactlyOnce() {
         SignalScenario scenario = SignalScenario.confirmedPartial();
         TestNotifier notifier = new TestNotifier(OptionalLong.of(1L));
@@ -163,6 +179,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                 Optional.empty(),
                 Optional.empty());
         private int reconciliationCalls;
+        private com.naocraftlab.skins.core.provider.AppearanceProviders providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial();
 
         private SignalScenario(Optional<PresetApplicationOutcome> settlement) {
             this.settlement = settlement;
@@ -194,7 +211,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
         @Override
         public Object invoke(Object proxy, Method method, Object[] arguments) {
             return switch (method.getName()) {
-                case "initialize", "initializeForGallery" -> initialData();
+                case "initialize" -> initialData();
                 case "warmedInitialData", "rateLimitRemaining" -> Optional.empty();
                 case "reconciliationRecommended", "rateLimited" -> false;
                 case "usePreset" -> selectPreset((UUID) arguments[0]);
@@ -222,7 +239,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     Optional.empty(),
                     OwnedCapeInventory.empty(account.accountId(), Instant.EPOCH),
                     durable.intentRevision(),
-                    durable.syncStatus());
+                    durable.syncStatus(), providers);
         }
 
         private ClientOperations.PresetUse selectPreset(UUID selectedPresetId) {
@@ -233,7 +250,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     AppearanceSyncStatus.PENDING,
                     Optional.of(presetId),
                     Optional.empty(),
-                    Optional.empty());
+                    Optional.empty(), providers);
             return new ClientOperations.PresetUse(
                     account,
                     session,
@@ -244,7 +261,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     true,
                     Optional.empty(),
                     durable.intentRevision(),
-                    durable.syncStatus());
+                    durable.syncStatus(), providers);
         }
 
         private Optional<ClientOperations.ReconciliationResult> reconcile() {
@@ -258,7 +275,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     settledStatus,
                     durable.activePresetId(),
                     settlement.flatMap(PresetApplicationOutcome::optionalAppliedAppearance),
-                    Optional.empty());
+                    Optional.empty(), providers);
             ClientOperations.ReconciliationResult result = new ClientOperations.ReconciliationResult(
                     account,
                     session,

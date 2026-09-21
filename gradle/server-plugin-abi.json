@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "bindings": [
+    {
+      "id": "legacy-authlib4",
+      "adapterSource": "server-plugin-adapters/legacy-authlib4/src/main/java/com/naocraftlab/skins/server/plugin/adapter/legacy/authlib4/LegacyAuthlib4NativeAdapter.java",
+      "versions": ["1.20.1"],
+      "families": ["craftbukkit", "spigot"],
+      "authlibFamily": "authlib-v4",
+      "profileModel": "legacy-replacement",
+      "artifactPolicy": "inspect-when-materialized",
+      "exactMembers": [
+        "Property::<init>(String,String,String)",
+        "Property#hasSignature():boolean",
+        "MinecraftSessionService#getSecurePropertyValue(Property):String",
+        "MinecraftServer#am():MinecraftSessionService",
+        "CraftPlayer#getHandle():EntityPlayer",
+        "CraftPlayer#getProfile():GameProfile",
+        "EntityHuman#cp:GameProfile",
+        "EntityPlayer#x():WorldServer",
+        "WorldServer#k():ChunkProviderServer",
+        "ChunkProviderServer#a:PlayerChunkMap",
+        "PlayerChunkMap#K:Int2ObjectMap",
+        "EntityTracker#f:Set"
+      ]
+    },
+    {
+      "id": "paper-authlib4",
+      "adapterSource": "server-plugin-adapters/paper-authlib4/src/main/java/com/naocraftlab/skins/server/plugin/adapter/paper/authlib4/PaperAuthlib4NativeAdapter.java",
+      "versions": ["1.20.1"],
+      "families": ["paper", "purpur", "folia"],
+      "authlibFamily": "authlib-v4",
+      "profileModel": "mutable-properties",
+      "artifactPolicy": "inspect-when-materialized",
+      "exactMembers": [
+        "Property::<init>(String,String,String)",
+        "Property#hasSignature():boolean",
+        "MinecraftSessionService#getSecurePropertyValue(Property):String",
+        "MinecraftServer#am():MinecraftSessionService",
+        "GameProfile#getProperties():PropertyMap",
+        "PropertyMap#removeAll(Object)",
+        "PropertyMap#put(Object,Object):boolean",
+        "CraftPlayer#getHandle():EntityPlayer",
+        "CraftPlayer#getProfile():GameProfile",
+        "CraftPlayer#unregisterEntity(Entity):void",
+        "CraftPlayer#trackAndShowEntity(Entity,UUID):void",
+        "GlobalConfiguration#get():GlobalConfiguration[static]"
+      ]
+    },
+    {
+      "id": "paper-authlib6",
+      "adapterSource": "server-plugin-adapters/paper-authlib6/src/main/java/com/naocraftlab/skins/server/plugin/adapter/paper/authlib6/PaperAuthlib6NativeAdapter.java",
+      "versions": ["1.21.1"],
+      "families": ["paper", "purpur"],
+      "authlibFamily": "authlib-v6",
+      "profileModel": "mutable-properties",
+      "artifactPolicy": "inspect-when-materialized",
+      "exactMembers": [
+        "Property::<init>(String,String,String)",
+        "Property#hasSignature():boolean",
+        "MinecraftSessionService#getSecurePropertyValue(Property):String",
+        "MinecraftServer#getSessionService():MinecraftSessionService",
+        "GameProfile#getProperties():PropertyMap",
+        "PropertyMap#removeAll(Object)",
+        "PropertyMap#put(Object,Object):boolean",
+        "CraftPlayer#getHandle():ServerPlayer",
+        "CraftPlayer#getProfile():GameProfile",
+        "CraftPlayer#unregisterEntity(Entity):void",
+        "CraftPlayer#trackAndShowEntity(Entity,UUID):void",
+        "GlobalConfiguration#get():GlobalConfiguration[static]"
+      ]
+    },
+    {
+      "id": "paper-authlib7",
+      "adapterSource": "server-plugin-adapters/paper-authlib7/src/main/java/com/naocraftlab/skins/server/plugin/adapter/paper/authlib7/PaperAuthlib7NativeAdapter.java",
+      "versions": ["1.21.11", "26.1.1", "26.1.2"],
+      "families": ["paper", "purpur", "folia"],
+      "authlibFamily": "authlib-v7",
+      "profileModel": "immutable-replacement",
+      "artifactPolicy": "inspect-when-materialized",
+      "exactMembers": [
+        "Property::<init>(String,String,String)",
+        "Property#hasSignature():boolean",
+        "MinecraftSessionService#getSecurePropertyValue(Property):String",
+        "MinecraftServer#services():Services",
+        "Services#sessionService():MinecraftSessionService",
+        "GameProfile#id():UUID",
+        "GameProfile#name():String",
+        "GameProfile::<init>(UUID,String,PropertyMap)",
+        "Player#gameProfile:GameProfile[public,mutable]",
+        "CraftPlayer#getHandle():ServerPlayer",
+        "CraftPlayer#getProfile():GameProfile",
+        "CraftPlayer#unregisterEntity(Entity):void",
+        "CraftPlayer#trackAndShowEntity(Entity,UUID):void",
+        "GlobalConfiguration#get():GlobalConfiguration[static]"
+      ]
+    },
+    {
+      "id": "paper-authlib9",
+      "adapterSource": "server-plugin-adapters/paper-authlib9/src/main/java/com/naocraftlab/skins/server/plugin/adapter/paper/authlib9/PaperAuthlib9NativeAdapter.java",
+      "versions": ["26.2"],
+      "families": ["paper", "purpur", "folia"],
+      "authlibFamily": "authlib-v9",
+      "profileModel": "immutable-replacement",
+      "artifactPolicy": "inspect-when-materialized",
+      "exactMembers": [
+        "Property::<init>(String,String,String)",
+        "Property#hasSignature():boolean",
+        "MinecraftSessionService#getSecurePropertyValue(Property):String",
+        "MinecraftServer#services():Services",
+        "Services#sessionService():MinecraftSessionService",
+        "GameProfile#id():UUID",
+        "GameProfile#name():String",
+        "GameProfile::<init>(UUID,String,PropertyMap)",
+        "Player#gameProfile:GameProfile[public,mutable]",
+        "CraftPlayer#getHandle():ServerPlayer",
+        "CraftPlayer#getProfile():GameProfile",
+        "CraftPlayer#unregisterEntity(Entity):void",
+        "CraftPlayer#trackAndShowEntity(Entity,UUID):void",
+        "GlobalConfiguration#get():GlobalConfiguration[static]"
+      ]
+    },
+    {
+      "id": "paper-authlib10",
+      "adapterSource": "server-plugin-adapters/paper-authlib10/src/main/java/com/naocraftlab/skins/server/plugin/adapter/paper/authlib10/PaperAuthlib10NativeAdapter.java",
+      "versions": [
+        "26.3"
+      ],
+      "families": [
+        "paper",
+        "purpur"
+      ],
+      "authlibFamily": "authlib-v10",
+      "profileModel": "immutable-replacement",
+      "artifactPolicy": "inspect-when-materialized",
+      "exactMembers": [
+        "Property::<init>(String,String,String)",
+        "Property#hasSignature():boolean",
+        "SessionService#getSecurePropertyValue(Property):String",
+        "MinecraftServer#services():Services",
+        "Services#sessionService():SessionService",
+        "GameProfile#id():UUID",
+        "GameProfile#name():String",
+        "GameProfile::<init>(UUID,String,PropertyMap)",
+        "Player#gameProfile:GameProfile[public,mutable]",
+        "CraftPlayer#getHandle():ServerPlayer",
+        "CraftPlayer#getProfile():GameProfile",
+        "CraftPlayer#unregisterEntity(Entity):void",
+        "CraftPlayer#trackAndShowEntity(Entity,UUID):void",
+        "GlobalConfiguration#get():GlobalConfiguration[static]"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.core.service;
 
 public enum SessionStatus {
+    UNCHECKED,
     VALID,
     EXPIRED,
     OFFLINE_OR_INVALID,

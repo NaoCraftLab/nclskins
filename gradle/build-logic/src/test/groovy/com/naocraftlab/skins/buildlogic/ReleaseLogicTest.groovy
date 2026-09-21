@@ -22,7 +22,7 @@ final class ReleaseLogicTest {
         List<String> lines = changelog.readLines()
         String currentHeading = "## ${currentVersion}"
 
-        assertEquals('1.0.0', currentVersion)
+        assertEquals('1.1.0-beta.1', currentVersion)
         assertEquals(currentHeading, lines.find { !it.isBlank() })
         assertEquals(1, lines.count { it == currentHeading })
         int nextVersion = lines.findIndexOf(1) { it.startsWith('## ') }
@@ -38,20 +38,20 @@ final class ReleaseLogicTest {
         } else {
             Map metadata = ReleaseMetadata.validate(versionFile, changelog, currentVersion)
             assertEquals(currentVersion, metadata.version)
-            assertEquals('release', metadata.channel)
-            assertFalse(metadata.prerelease)
+            assertEquals('beta', metadata.channel)
+            assertTrue(metadata.prerelease)
         }
 
         File pluginChangelog = new File(repository, 'PLUGIN_CHANGELOG.md')
         List<String> pluginLines = pluginChangelog.readLines()
         assertTrue(pluginChangelog.isFile())
         assertFalse(new File(repository, 'SERVER_CHANGELOG.md').exists())
-        assertEquals("## ${ServerPluginVersion.load(repository)}".toString(), pluginLines.find { !it.isBlank() })
+        String pluginVersion = ServerPluginVersion.load(repository)
+        assertEquals("## ${pluginVersion}".toString(), pluginLines.find { !it.isBlank() })
         assertFalse(pluginLines.any { it.startsWith('# ') })
-        String pluginNotes = ServerPluginChangelog.validate(pluginChangelog, [
-                currentVersion: currentVersion, pluginVersion: ServerPluginVersion.load(repository),
-                publish: true, reason: 'server-change'])
-        assertFalse(pluginNotes.isBlank())
+        Map state = [currentVersion: currentVersion, pluginVersion: pluginVersion,
+                     publish: false, reason: 'unchanged']
+        assertNull(ServerPluginChangelog.validate(pluginChangelog, state))
 
     }
 

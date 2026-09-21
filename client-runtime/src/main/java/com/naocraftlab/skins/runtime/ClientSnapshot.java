@@ -9,6 +9,7 @@ import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinAsset;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.SessionStatus;
@@ -50,7 +51,67 @@ public record ClientSnapshot(
         Map<UUID, SkinFeatureEvidence> assetEvidence,
         Map<String, SkinFeatureEvidence> catalogEvidence,
         boolean hideIncompatibleCatalogSkins,
-        boolean hideIncompatibleGalleryLooks) {
+        boolean hideIncompatibleGalleryLooks,
+        AppearanceProviders providers) {
+    public ClientSnapshot(
+            Lifecycle lifecycle,
+            Optional<AccountState> account,
+            Optional<SessionValidation> session,
+            Optional<RemoteProfile> remoteProfile,
+            Optional<PresetApplicationOutcome> lastMutation,
+            Optional<UUID> selectedSkinId,
+            Optional<UUID> selectedPresetId,
+            Optional<String> selectedCapeId,
+            Optional<UUID> currentOfficialSkinId,
+            Optional<UUID> activePresetId,
+            Optional<PresetEditorModel> editor,
+            Optional<AddSourceModel> addSource,
+            UiMessage status,
+            boolean busy,
+            boolean rateLimited,
+            Optional<RateLimitProgress> rateLimitProgress,
+            int galleryOffset,
+            long generation,
+            long intentRevision,
+            AppearanceSyncStatus syncStatus,
+            boolean syncInProgress,
+            SessionActivity sessionActivity,
+            SkinExtensionEnvironment skinExtensionEnvironment,
+            Map<UUID, SkinFeatureEvidence> assetEvidence,
+            Map<String, SkinFeatureEvidence> catalogEvidence,
+            boolean hideIncompatibleCatalogSkins,
+            boolean hideIncompatibleGalleryLooks) {
+        this(
+                lifecycle,
+                account,
+                session,
+                remoteProfile,
+                lastMutation,
+                selectedSkinId,
+                selectedPresetId,
+                selectedCapeId,
+                currentOfficialSkinId,
+                activePresetId,
+                editor,
+                addSource,
+                status,
+                busy,
+                rateLimited,
+                rateLimitProgress,
+                galleryOffset,
+                generation,
+                intentRevision,
+                syncStatus,
+                syncInProgress,
+                sessionActivity,
+                skinExtensionEnvironment,
+                assetEvidence,
+                catalogEvidence,
+                hideIncompatibleCatalogSkins,
+                hideIncompatibleGalleryLooks,
+                AppearanceProviders.initial());
+    }
+
     public ClientSnapshot(
             Lifecycle lifecycle,
             Optional<AccountState> account,
@@ -288,6 +349,7 @@ public record ClientSnapshot(
     }
 
     public ClientSnapshot {
+        Objects.requireNonNull(providers, "providers");
         Objects.requireNonNull(lifecycle, "lifecycle");
         account = Objects.requireNonNull(account, "account");
         session = Objects.requireNonNull(session, "session");
@@ -402,17 +464,11 @@ public record ClientSnapshot(
                 || rateLimitProgress.isPresent()) {
             return GallerySessionPresentation.HIDDEN;
         }
-        if (sessionActivity == SessionActivity.CLASSIFYING) {
-            SessionValidation validation = session.orElse(null);
-            return validation != null && validation.tokenUnavailable()
-                    ? GallerySessionPresentation.OFFLINE_NO_RETRY
-                    : GallerySessionPresentation.CONNECTING;
-        }
         if (sessionActivity == SessionActivity.RECONNECTING) {
             return GallerySessionPresentation.CONNECTING;
         }
         SessionValidation validation = session.orElse(null);
-        if (validation == null || validation.valid()) {
+        if (validation == null || validation.valid() || validation.status() == SessionStatus.UNCHECKED) {
             return GallerySessionPresentation.HIDDEN;
         }
         if (validation.status() != SessionStatus.OFFLINE_OR_INVALID
@@ -430,7 +486,6 @@ public record ClientSnapshot(
 
     public enum SessionActivity {
         NONE,
-        CLASSIFYING,
         RECONNECTING
     }
 

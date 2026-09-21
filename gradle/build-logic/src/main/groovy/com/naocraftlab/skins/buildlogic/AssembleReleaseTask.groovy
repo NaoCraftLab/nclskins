@@ -57,6 +57,7 @@ abstract class AssembleReleaseTask extends DefaultTask {
     @TaskAction
     void assembleRelease() {
         File repository = repositoryDirectory.get().asFile
+        MojangCapeReleaseApproval.requireApproved(repository)
         String mode = releaseMode.get()
         if (!(mode in ['tag', 'backfill', 'reconcile-tag', 'moved-tag'])) {
             throw new IllegalArgumentException(

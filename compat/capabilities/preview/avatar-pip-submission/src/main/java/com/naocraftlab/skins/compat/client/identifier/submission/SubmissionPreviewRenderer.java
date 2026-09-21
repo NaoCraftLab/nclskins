@@ -277,7 +277,7 @@ public final class SubmissionPreviewRenderer
         return PlayerSkin.insecure(
                 body,
                 appearance.capeMode() == CapeMode.CAPE ? selectedCape : null,
-                appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null,
+                appearance.capeMode() == CapeMode.ELYTRA && appearance.capeHasElytra() ? selectedCape : null,
                 appearance.model() == SkinModel.SLIM ? PlayerModelType.SLIM : PlayerModelType.WIDE);
     }
 

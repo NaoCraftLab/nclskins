@@ -1,5 +1,8 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.skinlookup;
 
+import java.util.Optional;
+import com.naocraftlab.skins.runtime.VerticalTabStyle;
+import com.mojang.math.Axis;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -13,6 +16,10 @@ import com.naocraftlab.skins.runtime.ViewSpec;
 final class NclSkinsVanillaScreenStyle {
     static final int SCROLLBAR_SIZE = 6;
 
+    private static final ResourceLocation INWORLD_MENU_BACKGROUND =
+            ResourceLocation.withDefaultNamespace("textures/gui/inworld_menu_background.png");
+    private static final ResourceLocation MENU_BACKGROUND =
+            ResourceLocation.withDefaultNamespace("textures/gui/menu_background.png");
     private static final ResourceLocation MENU_LIST_BACKGROUND =
             ResourceLocation.withDefaultNamespace("textures/gui/menu_list_background.png");
     private static final ResourceLocation INWORLD_MENU_LIST_BACKGROUND =
@@ -104,4 +111,69 @@ final class NclSkinsVanillaScreenStyle {
         graphics.blitSprite(SCROLLER, thumbLeft, top, thumbWidth, SCROLLBAR_SIZE);
         RenderSystem.disableBlend();
     }
+    static void renderTabContentPanel(
+            GuiGraphics graphics,
+            Bounds bounds,
+            Optional<Bounds> verticalTabGroupBounds) {
+        if (bounds.width() <= 0 || bounds.height() <= 0) {
+            return;
+        }
+        boolean inWorld = Minecraft.getInstance().level != null;
+        RenderSystem.enableBlend();
+        VerticalTabStyle.backgroundSegments(bounds)
+                .forEach(segment -> renderMenuBackground(
+                        graphics,
+                        segment.x(),
+                        segment.y(),
+                        segment.width(),
+                        segment.height(),
+                        inWorld));
+        verticalTabGroupBounds
+                .map(group -> VerticalTabStyle.separatorSegments(bounds, group))
+                .orElseGet(() -> java.util.List.of(new Bounds(
+                        bounds.x(), bounds.y(), Math.min(2, bounds.width()), bounds.height())))
+                .forEach(segment -> renderVerticalSeparator(graphics, segment, inWorld));
+        RenderSystem.disableBlend();
+    }
+
+    static void renderSelectedTabUnderlay(
+            GuiGraphics graphics, int x, int y, int width, int height) {
+        if (width <= 4 || height <= 4) {
+            return;
+        }
+        Bounds underlay = VerticalTabStyle.selectedUnderlay(new Bounds(x, y, width, height));
+        RenderSystem.enableBlend();
+        renderMenuBackground(
+                graphics,
+                underlay.x(),
+                underlay.y(),
+                underlay.width(),
+                underlay.height(),
+                Minecraft.getInstance().level != null);
+        RenderSystem.disableBlend();
+    }
+
+    private static void renderVerticalSeparator(
+            GuiGraphics graphics, Bounds segment, boolean inWorld) {
+        graphics.pose().pushPose();
+        graphics.pose().translate(segment.x(), segment.bottom(), 0.0F);
+        graphics.pose().mulPose(Axis.ZP.rotationDegrees(-90.0F));
+        graphics.blit(
+                inWorld ? Screen.INWORLD_HEADER_SEPARATOR : Screen.HEADER_SEPARATOR,
+                0, 0, 0.0F, 0.0F, segment.height(), segment.width(), 32, 2);
+        graphics.pose().popPose();
+    }
+
+    private static void renderMenuBackground(
+            GuiGraphics graphics,
+            int left,
+            int top,
+            int width,
+            int height,
+            boolean inWorld) {
+        graphics.blit(
+                inWorld ? INWORLD_MENU_BACKGROUND : MENU_BACKGROUND,
+                left, top, left, top, width, height, 32, 32);
+    }
+
 }

@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinCatalogSource;
@@ -12,10 +13,13 @@ import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.SessionValidation;
@@ -31,6 +35,150 @@ import java.util.UUID;
 
 
 public interface ClientOperations extends AutoCloseable {
+
+    default Optional<byte[]> loadProviderTexture(ViewSpec.ProviderTexture texture) throws Exception {
+        return Optional.empty();
+    }
+
+    default Optional<AccountState> reloadEditorAccount(UUID accountId) throws Exception {
+        return Optional.empty();
+    }
+
+    default CapeEditorData loadCapeEditorData(UUID accountId) throws Exception {
+        Optional<AccountState> account = reloadEditorAccount(accountId);
+        return new CapeEditorData(
+                account.orElseThrow(() -> new IllegalStateException("Cape editor account is unavailable")),
+                List.of(),
+                Map.of(),
+                Long.MIN_VALUE);
+    }
+
+    default long capeCatalogGeneration() {
+        return Long.MIN_VALUE;
+    }
+
+    default void warmResourceCapeCatalog(long generation) throws Exception {
+    }
+
+    default void warmCapeCatalog(UUID accountId, long generation) throws Exception {
+        Objects.requireNonNull(accountId, "accountId");
+    }
+
+    default Optional<CapeEditorData> warmedCapeEditorData(UUID accountId) {
+        Objects.requireNonNull(accountId, "accountId");
+        return Optional.empty();
+    }
+
+    default Map<String, byte[]> warmedCapePreviews(UUID accountId) {
+        Objects.requireNonNull(accountId, "accountId");
+        return Map.of();
+    }
+
+    default Optional<byte[]> loadResourceCapePreview(
+            UUID accountId, ResourceCapeSelection selection) throws Exception {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(selection, "selection");
+        return Optional.empty();
+    }
+
+    default com.naocraftlab.skins.core.model.PersonalCapeEntry materializeResourceCape(
+            UUID accountId, ResourceCapeSelection selection) throws Exception {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(selection, "selection");
+        throw new UnsupportedOperationException("Resource-pack cape materialization is unavailable");
+    }
+
+    default Optional<AccountState> discardCapeIfUnreferenced(UUID accountId, UUID entryId)
+            throws Exception {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(entryId, "entryId");
+        return Optional.empty();
+    }
+
+    record ResourceCapeKey(String collectionId, String capeId) {
+        public ResourceCapeKey {
+            Objects.requireNonNull(collectionId, "collectionId");
+            Objects.requireNonNull(capeId, "capeId");
+        }
+    }
+
+    record ResourceCapeSelection(
+            String collectionId,
+            String capeId,
+            String displayName,
+            String contentIdentity,
+            String sourceSha256,
+            long generation,
+            boolean hasElytra) {
+        public ResourceCapeSelection {
+            Objects.requireNonNull(collectionId, "collectionId");
+            Objects.requireNonNull(capeId, "capeId");
+            Objects.requireNonNull(displayName, "displayName");
+            Objects.requireNonNull(contentIdentity, "contentIdentity");
+            Objects.requireNonNull(sourceSha256, "sourceSha256");
+            if (collectionId.isBlank() || capeId.isBlank() || displayName.isBlank()
+                    || !contentIdentity.matches("[0-9a-f]{64}")
+                    || !sourceSha256.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("Invalid resource-pack cape selection");
+            }
+        }
+
+        public ResourceCapeKey key() {
+            return new ResourceCapeKey(collectionId, capeId);
+        }
+    }
+
+    record CapeEditorData(
+            AccountState account,
+            List<CapeCatalogSource.CollectionDescriptor> resourceCollections,
+            Map<ResourceCapeKey, String> sourceHashes,
+            long resourceGeneration) {
+        public CapeEditorData {
+            account = Objects.requireNonNull(account, "account");
+            resourceCollections = List.copyOf(Objects.requireNonNull(
+                    resourceCollections, "resourceCollections"));
+            sourceHashes = Map.copyOf(Objects.requireNonNull(sourceHashes, "sourceHashes"));
+        }
+    }
+
+    default AppearanceProviders loadProviders() throws Exception {
+        return AppearanceProviders.initial();
+    }
+
+    default DurableAppearance reloadProviders() throws Exception {
+        return durableAppearance().orElseThrow();
+    }
+
+    default DurableAppearance refreshProviders(AppearanceProviders.Component component) throws Exception {
+        throw new UnsupportedOperationException("Provider refresh is unavailable");
+    }
+
+    default DurableAppearance enableProvider(AppearanceProviders.Component component, BuiltinProvider provider)
+            throws Exception {
+        throw new UnsupportedOperationException("Provider configuration is unavailable");
+    }
+
+    default DurableAppearance disableProvider(AppearanceProviders.Component component, BuiltinProvider provider)
+            throws Exception {
+        throw new UnsupportedOperationException("Provider configuration is unavailable");
+    }
+
+    default DurableAppearance moveProvider(
+            AppearanceProviders.Component component, BuiltinProvider provider, int direction) throws Exception {
+        throw new UnsupportedOperationException("Provider configuration is unavailable");
+    }
+
+    default DurableAppearance enableProvider(UUID accountId, AppearanceProviders.Component component, BuiltinProvider provider) throws Exception {
+        return enableProvider(component, provider);
+    }
+
+    default DurableAppearance disableProvider(UUID accountId, AppearanceProviders.Component component, BuiltinProvider provider) throws Exception {
+        return disableProvider(component, provider);
+    }
+
+    default DurableAppearance moveProvider(UUID accountId, AppearanceProviders.Component component, BuiltinProvider provider, int direction) throws Exception {
+        return moveProvider(component, provider, direction);
+    }
 
     default void verifyStorageAccess() throws Exception {}
 
@@ -71,9 +219,6 @@ public interface ClientOperations extends AutoCloseable {
 
     InitialData initialize() throws Exception;
 
-    default InitialData initializeForGallery() throws Exception {
-        return initialize();
-    }
 
 
     default List<SkinCatalogSource.CollectionDescriptor> catalogCollections() throws Exception {
@@ -125,7 +270,22 @@ public interface ClientOperations extends AutoCloseable {
     }
 
 
+    default void setSelectedProvidersTab(UUID accountId, AppearanceProviders.Component tab) throws Exception {
+    }
+
+    default void setSelectedAddSourceTab(UUID accountId, AddSourceTab tab) throws Exception {
+        setSelectedAddSourceTab(tab);
+    }
+
     default void setSelectedAddSourceTab(AddSourceTab tab) throws Exception {
+        Objects.requireNonNull(tab, "tab");
+    }
+
+
+    default void setCollapsedCapeCollections(UUID accountId, Set<String> values) throws Exception {}
+
+    default void setSelectedEditorTab(UUID accountId, EditorTab tab) throws Exception {
+        Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(tab, "tab");
     }
 
@@ -313,6 +473,19 @@ public interface ClientOperations extends AutoCloseable {
 
     InitialData resetLibrary() throws Exception;
 
+    default com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(UUID accountId, java.nio.file.Path path, String fallbackName) throws Exception {
+        return importCape(path);
+    }
+    default AccountState renameCape(UUID accountId, UUID entryId, String name) throws Exception { return renameCape(entryId, name); }
+    default CapeDeletion deleteCape(UUID accountId, UUID entryId) throws Exception { return deleteCape(entryId); }
+    default com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(java.nio.file.Path path) throws Exception {
+        throw new UnsupportedOperationException();
+    }
+    default AccountState renameCape(UUID entryId, String name) throws Exception { throw new UnsupportedOperationException(); }
+    default CapeDeletion deleteCape(UUID entryId) throws Exception { throw new UnsupportedOperationException(); }
+
+    record CapeDeletion(AccountState account, DurableAppearance appearance) {}
+
     EditorSave saveEditor(EditorSaveRequest request) throws Exception;
 
     PresetDelete deletePreset(UUID presetId) throws Exception;
@@ -410,7 +583,37 @@ public interface ClientOperations extends AutoCloseable {
             Optional<OuterLayerVisibility> outerLayerVisibility,
             OwnedCapeInventory ownedCapes,
             long intentRevision,
-            AppearanceSyncStatus syncStatus) {
+            AppearanceSyncStatus syncStatus,
+            AppearanceProviders providers) {
+        public InitialData(
+                AccountState account,
+                SessionValidation session,
+                Optional<UUID> currentOfficialSkinId,
+                Optional<UUID> activePresetId,
+                Optional<AppliedAppearance> localAppearance,
+                boolean pendingOfficialSync,
+                List<String> storageWarnings,
+                AccountUiPreferences uiPreferences,
+                Optional<OuterLayerVisibility> outerLayerVisibility,
+                OwnedCapeInventory ownedCapes,
+                long intentRevision,
+                AppearanceSyncStatus syncStatus) {
+            this(
+                    account,
+                    session,
+                    currentOfficialSkinId,
+                    activePresetId,
+                    localAppearance,
+                    pendingOfficialSync,
+                    storageWarnings,
+                    uiPreferences,
+                    outerLayerVisibility,
+                    ownedCapes,
+                    intentRevision,
+                    syncStatus,
+                    AppearanceProviders.initial());
+        }
+
         public InitialData(
                 AccountState account,
                 SessionValidation session,
@@ -494,6 +697,7 @@ public interface ClientOperations extends AutoCloseable {
         }
 
         public InitialData {
+            Objects.requireNonNull(providers, "providers");
             Objects.requireNonNull(account, "account");
             Objects.requireNonNull(session, "session");
             currentOfficialSkinId = Objects.requireNonNull(currentOfficialSkinId, "currentOfficialSkinId");
@@ -526,7 +730,33 @@ public interface ClientOperations extends AutoCloseable {
             boolean durableSelection,
             Optional<OuterLayerVisibility> outerLayerVisibility,
             long intentRevision,
-            AppearanceSyncStatus syncStatus) {
+            AppearanceSyncStatus syncStatus,
+            AppearanceProviders providers) {
+        public PresetUse(
+                AccountState account,
+                SessionValidation session,
+                UUID activePresetId,
+                Optional<AppliedAppearance> localAppearance,
+                Optional<RemoteResult> remoteResult,
+                boolean pendingOfficialSync,
+                boolean durableSelection,
+                Optional<OuterLayerVisibility> outerLayerVisibility,
+                long intentRevision,
+                AppearanceSyncStatus syncStatus) {
+            this(
+                    account,
+                    session,
+                    activePresetId,
+                    localAppearance,
+                    remoteResult,
+                    pendingOfficialSync,
+                    durableSelection,
+                    outerLayerVisibility,
+                    intentRevision,
+                    syncStatus,
+                    AppearanceProviders.initial());
+        }
+
         public PresetUse(
                 AccountState account,
                 SessionValidation session,
@@ -555,6 +785,7 @@ public interface ClientOperations extends AutoCloseable {
         }
 
         public PresetUse {
+            Objects.requireNonNull(providers, "providers");
             Objects.requireNonNull(account, "account");
             Objects.requireNonNull(session, "session");
             Objects.requireNonNull(activePresetId, "activePresetId");
@@ -571,14 +802,17 @@ public interface ClientOperations extends AutoCloseable {
     enum ReconciliationTrigger {
         LOCAL_INTENT,
         PROCESS_START,
-        GALLERY_OPEN,
         RECONNECT,
         RATE_LIMIT_EXPIRED,
         EXPLICIT_RETRY,
         SESSION_REFRESHED
     }
 
-    record ReconciliationKey(UUID accountId, long intentRevision) {
+    record ReconciliationKey(UUID accountId, long intentRevision, long skinActivation, long capeActivation) {
+        public ReconciliationKey(UUID accountId, long intentRevision) {
+            this(accountId, intentRevision, 0, 0);
+        }
+
         public ReconciliationKey {
             Objects.requireNonNull(accountId, "accountId");
             if (intentRevision < 0) {
@@ -593,8 +827,27 @@ public interface ClientOperations extends AutoCloseable {
             AppearanceSyncStatus syncStatus,
             Optional<UUID> activePresetId,
             Optional<AppliedAppearance> localAppearance,
-            Optional<OuterLayerVisibility> outerLayerVisibility) {
+            Optional<OuterLayerVisibility> outerLayerVisibility,
+            AppearanceProviders providers) {
+        public DurableAppearance(
+                UUID accountId,
+                long intentRevision,
+                AppearanceSyncStatus syncStatus,
+                Optional<UUID> activePresetId,
+                Optional<AppliedAppearance> localAppearance,
+                Optional<OuterLayerVisibility> outerLayerVisibility) {
+            this(
+                    accountId,
+                    intentRevision,
+                    syncStatus,
+                    activePresetId,
+                    localAppearance,
+                    outerLayerVisibility,
+                    AppearanceProviders.initial());
+        }
+
         public DurableAppearance {
+            Objects.requireNonNull(providers, "providers");
             Objects.requireNonNull(accountId, "accountId");
             if (intentRevision < 0) {
                 throw new IllegalArgumentException("intentRevision must not be negative");
@@ -606,7 +859,9 @@ public interface ClientOperations extends AutoCloseable {
         }
 
         public ReconciliationKey reconciliationKey() {
-            return new ReconciliationKey(accountId, intentRevision);
+            return new ReconciliationKey(accountId, intentRevision,
+                    providers.skin().minecraftDelivery().activation(),
+                    providers.cape().minecraftDelivery().activation());
         }
     }
 
@@ -639,7 +894,22 @@ public interface ClientOperations extends AutoCloseable {
             Optional<byte[]> pngBytes,
             Optional<CatalogOrigin> catalogOrigin,
             Optional<String> personalSkinName,
-            PersonalSkinSource personalSkinSource) {
+            PersonalSkinSource personalSkinSource,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape) {
+        public EditorSaveRequest(Optional<UUID> originalPresetId, String name, SkinReference skin,
+                SkinVariant initialVariant, SkinVariant variant, Optional<String> capeId,
+                OuterLayerVisibility outerLayerVisibility, Optional<byte[]> pngBytes,
+                Optional<CatalogOrigin> catalogOrigin, Optional<String> personalSkinName,
+                PersonalSkinSource personalSkinSource) {
+            this(originalPresetId, name, skin, initialVariant, variant, capeId, outerLayerVisibility,
+                    pngBytes, catalogOrigin, personalSkinName, personalSkinSource, null);
+        }
+
+        public EditorSaveRequest withOfflineCape(com.naocraftlab.skins.core.model.LocalCapeReference value) {
+            return new EditorSaveRequest(originalPresetId, name, skin, initialVariant, variant, capeId,
+                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, value);
+        }
+
         public EditorSaveRequest(
                 Optional<UUID> originalPresetId,
                 String name,

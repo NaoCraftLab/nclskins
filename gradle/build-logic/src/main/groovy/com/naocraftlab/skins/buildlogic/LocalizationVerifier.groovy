@@ -31,12 +31,12 @@ final class LocalizationVerifier {
             'Ears', 'Fresh Moves', 'Just Expressions', 'YouTube', 'Telegram'
     ].asImmutable()
     static final Map<String, List<String>> EXPECTED_MODEL_LABELS = [
-            en_us: ['Model: Classic', 'Model: Slim'],
-            ru_ru: ['Модель: Классическая', 'Модель: Стройная'],
-            de_de: ['Modell: Klassisch', 'Modell: Schmal'],
-            pt_br: ['Modelo: Clássica', 'Modelo: Slim'],
-            es_mx: ['Modelo: Clásico', 'Modelo: Delgado'],
-            es_es: ['Modelo: Clásico', 'Modelo: Delgado']
+            en_us: ['Classic', 'Slim'],
+            ru_ru: ['Классическая', 'Стройная'],
+            de_de: ['Klassisch', 'Schmal'],
+            pt_br: ['Clássica', 'Slim'],
+            es_mx: ['Clásico', 'Delgado'],
+            es_es: ['Clásico', 'Delgado']
     ].asImmutable()
     static final Map<String, List<String>> EXPECTED_FILTER_MODEL_LABELS = [
             en_us: ['Classic', 'Slim'],
@@ -57,26 +57,34 @@ final class LocalizationVerifier {
     static final Map<String, List<String>> EXPECTED_COLLECTION_NAMES = [
             en_us: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market', 'Striding Hero',
                     'The Garden Awakens', 'Chase the Skies', 'The Copper Age', 'Mounts of Mayhem',
-                    'Tiny Takeover', 'Chaos Cubed'],
+                    'Tiny Takeover', 'Chaos Cubed', 'Common Minecraft Capes',
+                    'Minecraft Events and Promotions', 'Temporary Minecraft Capes'],
             ru_ru: ['MINECON Earth 2017', 'Строители и Биомы: Фермерский рынок', 'Шагающий герой',
                     'Пробуждение сада', 'В погоне за небесами', 'Медный век', 'Скакуны хаоса',
-                    'Нашествие крошек', 'Хаос в кубе'],
+                    'Нашествие крошек', 'Хаос в кубе', 'Обычные плащи Minecraft',
+                    'События и акции Minecraft', 'Временные плащи Minecraft'],
             de_de: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Striding Hero', 'Der Garten erwacht', 'Jagd auf den Himmel',
                     'Das Kupferzeitalter', 'Reittiere des Chaos', 'Tiny Takeover',
-                    'Chaos Cubed'],
+                    'Chaos Cubed', 'Gewöhnliche Minecraft-Umhänge',
+                    'Minecraft-Events und -Aktionen', 'Temporäre Minecraft-Umhänge'],
             pt_br: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Striding Hero', 'O Despertar do Jardim', 'Persiga os Céus',
                     'A Era do Cobre', 'Montarias do Caos', 'Tiny Takeover',
-                    'Caos ao Cubo'],
+                    'Caos ao Cubo', 'Capas comuns do Minecraft',
+                    'Eventos e promoções do Minecraft', 'Capas temporárias do Minecraft'],
             es_mx: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Héroe caminante', 'El jardín despierta', 'Persigue los Cielos',
                     'La Edad del Cobre',
-                    'Monturas del Caos', 'Bebés al poder', 'Caos al cubo'],
+                    'Monturas del Caos', 'Bebés al poder', 'Caos al cubo',
+                    'Capas comunes de Minecraft', 'Eventos y promociones de Minecraft',
+                    'Capas temporales de Minecraft'],
             es_es: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Héroe caminante', 'El jardín despierta', 'Persigue los Cielos',
                     'La Era del Cobre',
-                    'Monturas del Caos', 'Bebés al poder', 'Caos al cubo']
+                    'Monturas del Caos', 'Bebés al poder', 'Caos al cubo',
+                    'Capas comunes de Minecraft', 'Eventos y promociones de Minecraft',
+                    'Capas temporales de Minecraft']
     ].asImmutable()
     private static final Map<String, Map<String, String>> EXPECTED_COLLECTION_DESCRIPTIONS = [
             ru_ru: [
@@ -112,7 +120,8 @@ final class LocalizationVerifier {
     private static final List<String> COLLECTION_IDS = [
             'minecon_earth_2017', 'builders_and_biomes', 'striding_hero',
             'the_garden_awakens', 'chase_the_skies', 'the_copper_age',
-            'mounts_of_mayhem', 'tiny_takeover', 'chaos_cubed'
+            'mounts_of_mayhem', 'tiny_takeover', 'chaos_cubed',
+            'account_ownership', 'account_events', 'global_events'
     ].asImmutable()
     private static final Map<String, Map<String, String>> EXPECTED_ENTITY_SKIN_NAMES = [
             ru_ru: [stray: 'Зимогор', strider: 'Лавомерка', villager_1: 'Крестьянин 1',
@@ -199,7 +208,7 @@ final class LocalizationVerifier {
     ].asImmutable()
     private static final Pattern LOCALE_ID = Pattern.compile('^[a-z]{2}_[a-z]{2}$')
     private static final Pattern TRANSLATION_LITERAL = Pattern.compile(
-            '"((?:nclskins|modmenu|fml|neoforge|pack)\\.[a-z0-9_.-]+)"')
+            '"((?:key[.]nclskins|key[.]category[.]nclskins|nclskins|modmenu|fml|neoforge|pack)\\.[a-z0-9_.-]+)"')
     private static final Pattern FORMAT_ARGUMENT = Pattern.compile('%(?:[1-9][0-9]*\\$)?[a-zA-Z%]')
     private static final Set<String> PRODUCTION_EXTENSIONS = [
             '.java', '.kt', '.json', '.toml', '.gradle'
@@ -431,6 +440,24 @@ final class LocalizationVerifier {
                 errors.add("mojang-collections ${locale}: ${skinId} must use its reviewed natural name")
             }
         }
+        ['account_ownership', 'account_events', 'global_events'].each {
+            String key = "nclskins.mojang_${it}.authors"
+            if (language[key] != 'Mojang Studios') {
+                errors.add("mojang-collections ${locale}: ${key} must credit Mojang Studios")
+            }
+        }
+        language.findAll { Object key, Object ignored ->
+            key.toString().contains('.cape.') && key.toString().endsWith('.authors')
+        }.each { Object key, Object ignored ->
+            errors.add("mojang-collections ${locale}: ${key} duplicates collection authorship")
+        }
+        language.findAll { Object key, Object ignored ->
+            key.toString().contains('.cape.') && key.toString().endsWith('.description')
+        }.each { Object key, Object value ->
+            if (value == null || value.toString().isBlank()) {
+                errors.add("mojang-collections ${locale}: ${key} must have historical context")
+            }
+        }
     }
 
     static List<String> argumentSignature(String value) {
@@ -535,6 +562,19 @@ final class LocalizationVerifier {
                     }.forEach { Path path ->
                         String name = path.fileName.toString()
                         keys.add("${prefix}.skin.${name.substring(0, name.length() - 4)}.name")
+                    }
+                }
+            }
+            File capes = new File(collection, 'textures/entity/cape')
+            if (capes.isDirectory()) {
+                Files.walk(capes.toPath()).withCloseable { stream ->
+                    stream.filter { Path path ->
+                        Files.isRegularFile(path) && path.fileName.toString().endsWith('.png')
+                    }.forEach { Path path ->
+                        String name = path.fileName.toString()
+                        String capeId = name.substring(0, name.length() - 4)
+                        keys.add("${prefix}.cape.${capeId}.name")
+                        keys.add("${prefix}.cape.${capeId}.description")
                     }
                 }
             }

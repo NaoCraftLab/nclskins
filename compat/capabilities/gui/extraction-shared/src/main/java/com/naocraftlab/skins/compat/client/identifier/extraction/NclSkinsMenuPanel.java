@@ -1,7 +1,7 @@
 package com.naocraftlab.skins.compat.client.identifier.extraction;
 
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.naocraftlab.skins.client.PreviewRenderer;
-import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
 import com.naocraftlab.skins.compat.client.identifier.extraction.mixin.ScreenRenderablesAccessor;
 import com.naocraftlab.skins.runtime.Bounds;
 import com.naocraftlab.skins.runtime.MenuPanelPresenter;
@@ -42,7 +42,8 @@ public final class NclSkinsMenuPanel {
 
     public static void install(
             Screen screen,
-            Consumer<AbstractWidget> widgetConsumer) {
+            Consumer<AbstractWidget> widgetConsumer,
+            MenuPreviewPlacement placement) {
         if (!supports(screen) || NclSkinsExtractionClientRuntime.closed()) {
             return;
         }
@@ -56,7 +57,8 @@ public final class NclSkinsMenuPanel {
 
         PlayerPreviewUnderlay preview = new PlayerPreviewUnderlay(
                 screen,
-                () -> ExtractionGuiApi.setScreen(Minecraft.getInstance(), new NclSkinsScreen(screen)));
+                () -> ExtractionGuiApi.setScreen(Minecraft.getInstance(), new NclSkinsScreen(screen)),
+                placement);
         widgetConsumer.accept(preview.action());
         preview.updateLayout(0, 0);
         var renderables = ((ScreenRenderablesAccessor) screen).nclskins$renderables();
@@ -99,11 +101,13 @@ public final class NclSkinsMenuPanel {
 
     private static final class PlayerPreviewUnderlay implements Renderable, AutoCloseable {
         private final Screen screen;
+        private final MenuPreviewPlacement placement;
         private final AvatarPipPreviewRenderer renderer =
                 new AvatarPipPreviewRenderer();
         private final NoChromeAction action;
 
-        private PlayerPreviewUnderlay(Screen screen, Runnable openGallery) {
+        private PlayerPreviewUnderlay(Screen screen, Runnable openGallery, MenuPreviewPlacement placement) {
+            this.placement = placement;
             this.screen = Objects.requireNonNull(screen, "screen");
             action = new NoChromeAction(screen, openGallery);
         }
@@ -123,17 +127,10 @@ public final class NclSkinsMenuPanel {
             if (layout == null) {
                 return;
             }
-            var current = NclSkinsExtractionClientRuntime.runtime().currentPlayerAppearance().orElse(null);
-            if (current == null) {
+            var appearance = NclSkinsExtractionClientRuntime.runtime().menuPreviewAppearance().orElse(null);
+            if (appearance == null) {
                 return;
             }
-            Optional<TextureHandle> cape = current.cape();
-            PreviewRenderer.PreviewAppearance appearance = new PreviewRenderer.PreviewAppearance(
-                    current.skin(),
-                    current.model(),
-                    cape,
-                    cape.isPresent() ? PreviewRenderer.CapeMode.CAPE : PreviewRenderer.CapeMode.OFF,
-                    true);
             var preview = layout.previewBounds();
             if (layout.panelBounds().contains(mouseX, mouseY) || action.isFocused()) {
                 graphics.fill(
@@ -163,7 +160,7 @@ public final class NclSkinsMenuPanel {
         private Optional<MenuPanelPresenter.Layout> updateLayout(int mouseX, int mouseY) {
             Optional<Bounds> anchor = topMainAction(screen, action);
             Optional<MenuPanelPresenter.Layout> layout = anchor.flatMap(value -> PRESENTER.present(
-                    screen.width, screen.height, mouseX, mouseY, value));
+                    screen.width, screen.height, mouseX, mouseY, value, placement));
             action.applyBounds(layout.map(MenuPanelPresenter.Layout::buttonBounds));
             return layout;
         }

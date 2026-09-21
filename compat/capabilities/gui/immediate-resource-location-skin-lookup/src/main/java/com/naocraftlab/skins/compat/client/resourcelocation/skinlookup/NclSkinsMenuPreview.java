@@ -1,9 +1,8 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.skinlookup;
 
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.PreviewRenderer;
-import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.compat.gui.immediate.MenuScreenSupport;
 import com.naocraftlab.skins.compat.gui.immediate.MenuScreenSupport.NoChromeAction;
 import com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.mixin.ScreenRenderablesAccessor;
@@ -28,15 +27,15 @@ public final class NclSkinsMenuPreview implements Renderable {
     private static final Map<Screen, NclSkinsMenuPreview> STATES = new WeakHashMap<>();
 
     private final Screen screen;
+    private final MenuPreviewPlacement placement;
     private final SimplePreviewRenderer renderer;
-    private final CurrentPlayerAppearanceSource appearanceSource;
     private final NoChromeAction action;
 
-    private NclSkinsMenuPreview(Screen screen, Runnable openGallery) {
+    private NclSkinsMenuPreview(Screen screen, Runnable openGallery, MenuPreviewPlacement placement) {
+        this.placement = placement;
         this.screen = screen;
         Minecraft minecraft = Minecraft.getInstance();
         renderer = new SimplePreviewRenderer(minecraft);
-        appearanceSource = ImmediateClientRuntime.instance().currentAppearanceSource();
         action = new NoChromeAction(screen, openGallery);
     }
 
@@ -45,11 +44,12 @@ public final class NclSkinsMenuPreview implements Renderable {
     }
 
     public static void install(
-            Screen screen, Runnable openGallery, Consumer<AbstractWidget> widgetConsumer) {
+            Screen screen, Runnable openGallery, Consumer<AbstractWidget> widgetConsumer,
+            MenuPreviewPlacement placement) {
         if (!supports(screen)) {
             return;
         }
-        NclSkinsMenuPreview preview = new NclSkinsMenuPreview(screen, openGallery);
+        NclSkinsMenuPreview preview = new NclSkinsMenuPreview(screen, openGallery, placement);
         NclSkinsMenuPreview previous = STATES.put(screen, preview);
         var renderables = ((ScreenRenderablesAccessor) screen).nclskins$renderables();
         if (previous != null) {
@@ -67,17 +67,10 @@ public final class NclSkinsMenuPreview implements Renderable {
         if (layout == null) {
             return;
         }
-        var current = appearanceSource.currentPlayerAppearance();
-        TextureRegistry.TextureHandle skinTexture = current.skin();
-        Optional<TextureRegistry.TextureHandle> capeTexture = current.cape();
-        PreviewRenderer.PreviewAppearance appearance = new PreviewRenderer.PreviewAppearance(
-                skinTexture,
-                current.model(),
-                capeTexture,
-                capeTexture.isPresent()
-                        ? PreviewRenderer.CapeMode.CAPE
-                        : PreviewRenderer.CapeMode.OFF,
-                true);
+        var appearance = ImmediateClientRuntime.instance().runtime().menuPreviewAppearance().orElse(null);
+        if (appearance == null) {
+            return;
+        }
         var preview = layout.previewBounds();
         if (layout.panelBounds().contains(mouseX, mouseY) || action.isFocused()) {
             graphics.fill(
@@ -120,7 +113,7 @@ public final class NclSkinsMenuPreview implements Renderable {
     private Optional<MenuPanelPresenter.Layout> updateLayout(int mouseX, int mouseY) {
         Optional<Bounds> anchor = MenuScreenSupport.topMainAction(screen, action);
         Optional<MenuPanelPresenter.Layout> layout = anchor.flatMap(value -> PRESENTER.present(
-                screen.width, screen.height, mouseX, mouseY, value));
+                screen.width, screen.height, mouseX, mouseY, value, placement));
         action.applyBounds(layout.map(MenuPanelPresenter.Layout::buttonBounds));
         return layout;
     }

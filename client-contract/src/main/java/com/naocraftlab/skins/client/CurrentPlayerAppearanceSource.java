@@ -8,6 +8,10 @@ import java.util.Optional;
 public interface CurrentPlayerAppearanceSource {
     PlayerAppearance currentPlayerAppearance();
 
+    default PlayerAppearance defaultPlayerAppearance() {
+        return currentPlayerAppearance();
+    }
+
     record PlayerAppearance(
             TextureRegistry.TextureHandle skin,
             SkinModel model,

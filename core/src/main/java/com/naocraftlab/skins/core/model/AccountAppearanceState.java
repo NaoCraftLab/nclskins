@@ -1,6 +1,8 @@
 package com.naocraftlab.skins.core.model;
 
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -18,15 +20,19 @@ public record AccountAppearanceState(
         OuterLayerVisibility outerLayerVisibility,
         AppearanceSyncStatus syncStatus,
         long settledRevision,
-        Instant updatedAt) {
-    public static final int CURRENT_SCHEMA_VERSION = 2;
+        Instant updatedAt,
+        AppearanceProviders providers) {
+    public static final int CURRENT_SCHEMA_VERSION = 3;
 
     public AccountAppearanceState {
         if (schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException("unsupported appearance state schema: " + schemaVersion);
         }
         Objects.requireNonNull(accountId, "accountId");
-        if (intentRevision < 0 || settledRevision < 0 || settledRevision > intentRevision) {
+        Objects.requireNonNull(providers, "providers");
+        if (intentRevision < 0 || settledRevision < 0 || settledRevision > intentRevision
+                || providers.skin().intentRevision() > intentRevision
+                || providers.cape().intentRevision() > intentRevision) {
             throw new IllegalArgumentException("appearance revisions are invalid");
         }
         if ((skinSha256 == null) != (skinVariant == null)) {
@@ -78,6 +84,22 @@ public record AccountAppearanceState(
                 syncStatus,
                 settledRevision,
                 updatedAt);
+    }
+
+    public AccountAppearanceState(
+            int schemaVersion, UUID accountId, long intentRevision, UUID activePresetId,
+            String skinSha256, SkinVariant skinVariant, String capeId,
+            OuterLayerVisibility outerLayerVisibility, AppearanceSyncStatus syncStatus,
+            long settledRevision, Instant updatedAt) {
+        this(schemaVersion, accountId, intentRevision, activePresetId, skinSha256, skinVariant,
+                capeId, outerLayerVisibility, syncStatus, settledRevision, updatedAt,
+                AppearanceProviders.fromIntent(intentRevision, skinSha256, skinVariant, capeId, syncStatus));
+    }
+
+    public AccountAppearanceState withProviders(AppearanceProviders replacement) {
+        return new AccountAppearanceState(schemaVersion, accountId, intentRevision, activePresetId,
+                skinSha256, skinVariant, capeId, outerLayerVisibility, syncStatus, settledRevision,
+                updatedAt, replacement);
     }
 
     public static AccountAppearanceState empty(UUID accountId, Instant now) {

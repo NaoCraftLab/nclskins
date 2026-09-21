@@ -125,6 +125,11 @@ jobs:
           ref: ${{ needs.plan.outputs.source }}
           fetch-depth: 0
           persist-credentials: false
+      - id: checks-java17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '17'
       - id: checks-java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -132,6 +137,7 @@ jobs:
           java-version: '25'
       - run: ./gradlew checkRelease --no-daemon --console=plain
         env:
+          NCLSKINS_JAVA17: ${{ steps.checks-java17.outputs.path }}
           NCLSKINS_JAVA25: ${{ steps.checks-java.outputs.path }}
 
   components:

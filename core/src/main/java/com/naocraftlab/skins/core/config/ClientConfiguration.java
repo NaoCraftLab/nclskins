@@ -21,7 +21,7 @@ public record ClientConfiguration(
 
     public static ClientConfiguration defaults() {
         return new ClientConfiguration(
-                new MenuPreview(true, true),
+                new MenuPreview(MenuPreviewPlacement.RIGHT, MenuPreviewPlacement.RIGHT),
                 new Compatibility(false, false),
                 new Storage(""));
     }
@@ -33,14 +33,14 @@ public record ClientConfiguration(
                 : Path.of(storage.dataDirectory());
     }
 
-    public ClientConfiguration withTitleScreenPreview(boolean enabled) {
+    public ClientConfiguration withTitleScreenPreview(MenuPreviewPlacement placement) {
         return new ClientConfiguration(
-                new MenuPreview(enabled, menuPreview.pauseMenu()), compatibility, storage);
+                new MenuPreview(placement, menuPreview.pauseMenu()), compatibility, storage);
     }
 
-    public ClientConfiguration withPauseMenuPreview(boolean enabled) {
+    public ClientConfiguration withPauseMenuPreview(MenuPreviewPlacement placement) {
         return new ClientConfiguration(
-                new MenuPreview(menuPreview.titleScreen(), enabled), compatibility, storage);
+                new MenuPreview(menuPreview.titleScreen(), placement), compatibility, storage);
     }
 
     public ClientConfiguration withHideIncompatibleCatalogSkins(boolean enabled) {
@@ -61,7 +61,11 @@ public record ClientConfiguration(
         return new ClientConfiguration(menuPreview, compatibility, new Storage(directory));
     }
 
-    public record MenuPreview(boolean titleScreen, boolean pauseMenu) {
+    public record MenuPreview(MenuPreviewPlacement titleScreen, MenuPreviewPlacement pauseMenu) {
+        public MenuPreview {
+            Objects.requireNonNull(titleScreen, "titleScreen");
+            Objects.requireNonNull(pauseMenu, "pauseMenu");
+        }
     }
 
     public record Compatibility(

@@ -1,9 +1,11 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.playerinfo;
 
 import com.naocraftlab.skins.client.MinecraftSkinCatalog;
+import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.CatalogGenerationTracker;
 import com.naocraftlab.skins.client.ResourcePackCatalogDiscovery;
 import com.naocraftlab.skins.client.ResourcePackSkinCatalog;
+import com.naocraftlab.skins.client.ResourcePackCapeCatalog;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.core.png.PngValidator;
@@ -20,6 +22,8 @@ import net.minecraft.server.packs.resources.ResourceManager;
 
 public final class ResourceStackBundledSkinSource implements SkinCatalogSource {
     private final CatalogGenerationTracker generations = new CatalogGenerationTracker();
+    private final ResourcePackCatalogDiscovery.SnapshotCache snapshots =
+            new ResourcePackCatalogDiscovery.SnapshotCache();
 
     @Override
     public byte[] load(String collectionId, String skinId, SkinModel model) throws IOException {
@@ -43,9 +47,14 @@ public final class ResourceStackBundledSkinSource implements SkinCatalogSource {
 
     @Override
     public List<CollectionDescriptor> collections() {
-        List<CollectionDescriptor> collections = new ArrayList<>(scanResourcePacks());
+        List<CollectionDescriptor> collections = new ArrayList<>(resourceSnapshot().skinCollections());
         collections.addAll(MinecraftSkinCatalog.collections());
         return List.copyOf(collections);
+    }
+
+    @Override
+    public List<CapeCatalogSource.CollectionDescriptor> capeCollections() {
+        return resourceSnapshot().capeCollections();
     }
 
     @Override
@@ -97,10 +106,14 @@ public final class ResourceStackBundledSkinSource implements SkinCatalogSource {
         }
     }
 
-    private static List<CollectionDescriptor> scanResourcePacks() {
+    private ResourcePackCatalogDiscovery.Snapshot resourceSnapshot() {
+        return snapshots.get(generation(), this::scanResourcePacks);
+    }
+
+    private ResourcePackCatalogDiscovery.Snapshot scanResourcePacks() {
         ResourceManager resources = Minecraft.getInstance().getResourceManager();
         Map<String, Integer> menuRanks = selectedPackMenuRanks();
-        List<ResourcePackSkinCatalog.Variant> variants = new ArrayList<>();
+        List<ResourcePackSkinCatalog.Variant> skinVariants = new ArrayList<>();
         resources.listResources(
                         ResourcePackCatalogDiscovery.PLAYER_TEXTURE_ROOT,
                         location -> ResourcePackCatalogDiscovery.isCandidatePath(location.getPath()))
@@ -111,9 +124,24 @@ public final class ResourceStackBundledSkinSource implements SkinCatalogSource {
                                     location.getPath(),
                                     sourcePackId,
                                     menuRanks.getOrDefault(sourcePackId, -1))
-                            .ifPresent(variants::add);
+                            .ifPresent(skinVariants::add);
                 });
-        return ResourcePackSkinCatalog.build(variants);
+        List<ResourcePackCapeCatalog.Variant> capeVariants = new ArrayList<>();
+        resources.listResources(
+                        ResourcePackCatalogDiscovery.CAPE_TEXTURE_ROOT,
+                        location -> ResourcePackCatalogDiscovery.isCapeCandidatePath(location.getPath()))
+                .forEach((location, resource) -> ResourcePackCatalogDiscovery.capeVariant(
+                                location.getNamespace(),
+                                location.getPath(),
+                                resource.sourcePackId(),
+                                menuRanks.getOrDefault(resource.sourcePackId(), -1),
+                                resources.getResource(ResourceLocation.tryBuild(
+                                        location.getNamespace(),
+                                        location.getPath() + ".mcmeta")).isPresent())
+                        .ifPresent(capeVariants::add));
+        return new ResourcePackCatalogDiscovery.Snapshot(
+                ResourcePackSkinCatalog.build(skinVariants),
+                ResourcePackCapeCatalog.build(capeVariants));
     }
 
     private static Map<String, Integer> selectedPackMenuRanks() {

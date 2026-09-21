@@ -357,6 +357,23 @@ final class CatalogTools {
         [bundles: order, commonJava: common, clientJava: client, java: (common + client).unique(), resources: resources]
     }
 
+    static File blockbenchRoot(File repositoryRoot, Map catalog) {
+        Map producers = catalog.resourceProducers instanceof Map ? catalog.resourceProducers as Map : [:]
+        Object raw = producers.canonicalBlockbench
+        if (!(raw instanceof String) || raw.isBlank()) {
+            throw new IllegalArgumentException('catalog has no canonical Blockbench resource producer')
+        }
+        new File(repositoryRoot, repositoryRelative(repositoryRoot, raw, 'resourceProducers.canonicalBlockbench'))
+    }
+
+    static File blockbenchFile(File repositoryRoot, Map catalog, String resourcePath) {
+        if (!(resourcePath ==~ '^[A-Za-z0-9._/-]+\\.png$') || resourcePath.contains('..')) {
+            throw new IllegalArgumentException("unsafe Blockbench resource path: ${resourcePath}")
+        }
+        File root = blockbenchRoot(repositoryRoot, catalog)
+        new File(root, resourcePath.substring(0, resourcePath.length() - '.png'.length()) + '.bbmodel')
+    }
+
     static String accessBundle(Map catalog, Map target) {
         Map epochs = ((catalog.profiles as Map).epochs as Map)
         Map epoch = epochs[target.epochProfile] as Map
@@ -459,16 +476,22 @@ final class CatalogTools {
         target.loader.id == 'fabric' ? ">=${baseVersion}" : "[${baseVersion},)"
     }
 
+    static void validateMixinDeclarations(List declarations, String source, List<String> errors) {
+        declarations.countBy { it.toString() }.each { String config, int count ->
+            if (count > 1) errors.add("${source}: duplicate Mixin config ${config}")
+        }
+    }
+
     static void validate(File repositoryRoot, Map catalog) {
         List<String> errors = []
         Set expectedTop = [
                 'schemaVersion', 'development', 'mod', 'plugins', 'mappings',
-                'gradleFamilies', 'gsonCompatibility',
+                'gradleFamilies', 'gsonCompatibility', 'resourceProducers',
                 'profiles', 'baseBundles', 'sourceBundles', 'capabilityImplementations',
                 'optionalDependencies', 'publicationDependencies',
                 'serverPlugin', 'serverPluginRuntimes', 'serverPluginTopologies', 'targets'
         ] as Set
-        if (catalog.schemaVersion != 23) {
+        if (catalog.schemaVersion != 24) {
             errors.add("unsupported schemaVersion: ${catalog.schemaVersion}")
         }
         if ((catalog.keySet() as Set) != expectedTop) {
@@ -531,9 +554,19 @@ final class CatalogTools {
         } else if (mod.iconBlur) {
             errors.add('mod.iconBlur must remain false for the crisp 128x128 pixel artwork')
         }
+        Map fancy = catalog.optionalDependencies?.fancymenu instanceof Map ? catalog.optionalDependencies.fancymenu as Map : [:]
+        Set fancyTargets = (catalog.targets as List).collect { it.id.toString() } as Set
+        if (fancy.side != 'client' || !(fancy.versions instanceof Map)
+                || (fancy.versions.keySet() as Set) != fancyTargets
+                || !(fancy.runtimeArtifacts instanceof Map)
+                || (fancy.runtimeArtifacts.keySet() as Set) != fancyTargets
+                || !(fancy.runtimeUnavailableTargets instanceof List)
+                || !fancyTargets.containsAll(fancy.runtimeUnavailableTargets as List)) {
+            errors.add('FancyMenu must define a compile API and explicit runtime coverage for every target')
+        }
         Map optionalDependencies = catalog.optionalDependencies instanceof Map
                 ? catalog.optionalDependencies as Map : [:]
-        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc', 'yet_another_config_lib_v3'] as Set) {
+        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc', 'yet_another_config_lib_v3', 'fancymenu'] as Set) {
             errors.add('optionalDependencies must declare sqlite_jdbc and yet_another_config_lib_v3')
         } else {
             Map sqlite = optionalDependencies.sqlite_jdbc instanceof Map
@@ -603,14 +636,26 @@ final class CatalogTools {
         }
         validatePublicationDependencies(catalog, errors)
         if (mod.icon instanceof String) {
-            File icon = new File(repositoryRoot, "compat/resources/canonical/src/main/resources/${mod.icon}")
+            File icon = blockbenchFile(repositoryRoot, catalog, mod.icon.toString())
             try {
-                def image = ImageIO.read(icon)
+                def image = ImageIO.read(new ByteArrayInputStream(BlockbenchPng.decode(icon)))
                 if (image == null || image.width != 128 || image.height != 128) {
                     errors.add('mod.icon must resolve to the canonical 128x128 PNG')
                 }
             } catch (Exception error) {
                 errors.add("cannot read mod.icon: ${error.message}")
+            }
+        }
+        Map resourceProducers = catalog.resourceProducers instanceof Map ? catalog.resourceProducers as Map : [:]
+        if ((resourceProducers.keySet() as Set) != ['canonicalBlockbench'] as Set) {
+            errors.add('resourceProducers must define canonicalBlockbench')
+        } else {
+            try {
+                if (!blockbenchRoot(repositoryRoot, catalog).isDirectory()) {
+                    errors.add('canonical Blockbench source root is missing')
+                }
+            } catch (IllegalArgumentException error) {
+                errors.add(error.message)
             }
         }
         LocalizationVerifier.validateRepository(repositoryRoot, catalog, errors)
@@ -871,6 +916,8 @@ final class CatalogTools {
             if (loader != 'fabric' && !(metadata.loaderVersion ==~ /\[[1-9][0-9]*,\)/)) {
                 errors.add("${target.id}: language loader range must contain only a major lower bound")
             }
+            validateMixinDeclarations((metadata.serverMixins ?: []) + (metadata.mixins ?: []),
+                    "${target.id}: catalog", errors)
             Map artifact = target.artifact instanceof Map ? target.artifact as Map : [:]
             if ((artifact.keySet() as Set) != ['file', 'remapJar', 'mavenArtifactId', 'automaticModuleName'] as Set) {
                 errors.add("${target.id}: invalid artifact declaration")
@@ -1438,7 +1485,7 @@ final class CatalogTools {
         Map dependencies = catalog.publicationDependencies instanceof Map
                 ? catalog.publicationDependencies as Map : [:]
         Set<String> expectedIds = [
-                'fabric_api', 'yet_another_config_lib_v3', 'sqlite_jdbc'
+                'fabric_api', 'yet_another_config_lib_v3', 'sqlite_jdbc', 'fancymenu'
         ] as Set
         if ((dependencies.keySet() as Set) != expectedIds) {
             errors.add('publicationDependencies must declare Fabric API, YACL, and SQLite JDBC')
@@ -1478,7 +1525,7 @@ final class CatalogTools {
         if (fabric.type != 'required' || (fabric.loaders as Set) != ['fabric'] as Set) {
             errors.add('Fabric API must be required only for Fabric')
         }
-        ['yet_another_config_lib_v3', 'sqlite_jdbc'].each { String id ->
+        ['yet_another_config_lib_v3', 'sqlite_jdbc', 'fancymenu'].each { String id ->
             Map declaration = dependencies[id] as Map
             if (declaration.type != 'optional' || (declaration.loaders as Set) != loaderIds) {
                 errors.add("${id} must be optional for every loader")
@@ -1511,6 +1558,13 @@ final class CatalogTools {
                 Map sources = resolveTargetSources(repositoryRoot, sourceCatalog, target)
                 (sources.java as List).each { String root -> owners[root].add(targetId) }
                 (sources.resources as List).each { String root -> owners[root].add(targetId) }
+                if (sourceCatalog.resourceProducers instanceof Map &&
+                        sourceCatalog.resourceProducers.canonicalBlockbench instanceof String) {
+                    String producer = repositoryRelative(repositoryRoot,
+                            sourceCatalog.resourceProducers.canonicalBlockbench,
+                            'resourceProducers.canonicalBlockbench')
+                    owners[producer].add(targetId)
+                }
             }
         }
         collectSourceOwners(catalog, sourceOwners)

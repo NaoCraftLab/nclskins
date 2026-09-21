@@ -151,7 +151,8 @@ public final class SimplePreviewRenderer
                     model,
                     model == slimModel ? slimCloak : classicCloak,
                     appearance.capeMode(),
-                    location(capeHandle)));
+                    appearance.capeMode() == CapeMode.ELYTRA && !appearance.capeHasElytra()
+                            ? new ResourceLocation("minecraft", "textures/entity/elytra.png") : location(capeHandle)));
             buffers.endBatch();
         } finally {
             pose.popPose();
@@ -177,7 +178,8 @@ public final class SimplePreviewRenderer
 
             setupLighting();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
-            ResourceLocation texture = location(request.texture());
+            ResourceLocation texture = request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA && !request.capeHasElytra()
+                    ? new ResourceLocation("minecraft", "textures/entity/elytra.png") : location(request.texture());
             renderBackEquipment(
                     pose,
                     buffers,
@@ -211,7 +213,7 @@ public final class SimplePreviewRenderer
                 try {
                     cloak.render(
                             pose,
-                            buffers.getBuffer(RenderType.entitySolid(capeTexture)),
+                            buffers.getBuffer(RenderType.entityTranslucent(capeTexture)),
                             FULL_BRIGHT,
                             OverlayTexture.NO_OVERLAY);
                 } finally {

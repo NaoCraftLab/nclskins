@@ -16,6 +16,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ConfigurationLocalizationTest {
     private static final List<String> VISUAL_KEYS = List.of(
+            "nclskins.config.client.menu_preview.title_screen.name",
+            "nclskins.config.client.menu_preview.title_screen.description",
+            "nclskins.config.client.menu_preview.pause_menu.name",
+            "nclskins.config.client.menu_preview.pause_menu.description",
+            "nclskins.config.client.menu_preview.placement.right",
+            "nclskins.config.client.menu_preview.placement.left",
             "nclskins.config.client.storage.data_directory.default",
             "nclskins.config.client.storage.data_directory.picker_title",
             "nclskins.config.server.realtime_refresh.enabled.name",

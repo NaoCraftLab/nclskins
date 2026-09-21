@@ -338,9 +338,11 @@ class MinecraftProfileApiTest {
         var malformedCollectionsProfile = api.getProfile(TOKEN);
 
         assertTrue(missingAndNullProfile.skins().isEmpty());
+        assertFalse(missingAndNullProfile.skinProjectionComplete());
         assertTrue(missingAndNullProfile.capes().isEmpty());
         assertTrue(missingAndNullProfile.profileActions().isEmpty());
         assertTrue(malformedCollectionsProfile.skins().isEmpty());
+        assertFalse(malformedCollectionsProfile.skinProjectionComplete());
         assertTrue(malformedCollectionsProfile.capes().isEmpty());
     }
 
@@ -372,6 +374,7 @@ class MinecraftProfileApiTest {
         var profile = api.getProfile(TOKEN);
 
         assertEquals(1, profile.skins().size());
+        assertFalse(profile.skinProjectionComplete());
         assertEquals("skin-ok", profile.skins().get(0).id());
         assertEquals(
                 URI.create("https://textures.minecraft.net/texture/skin-ok?source=profile"),
@@ -457,6 +460,25 @@ class MinecraftProfileApiTest {
             assertFalse(exception.toString().contains("provider-private"));
             assertFalse(exception.toString().contains(TOKEN));
         }
+    }
+
+    @Test
+    void distinguishesCompleteEmptyInactiveAndAmbiguousSkinInventories() throws Exception {
+        String skin = "{\"id\":\"skin\",\"state\":\"ACTIVE\",\"variant\":\"SLIM\","
+                + "\"url\":\"https://textures.minecraft.net/texture/" + "a".repeat(64) + "\"}";
+        List<String> projections = List.of("", ",\"skins\":[]",
+                ",\"skins\":[" + skin.replace("ACTIVE", "INACTIVE") + "]",
+                ",\"skins\":[" + skin + "]", ",\"skins\":[" + skin + "," + skin + "]");
+        AtomicInteger calls = new AtomicInteger();
+        server = server(exchange -> respond(exchange, 200,
+                "{\"id\":\"12345678123456789abcdef012345678\",\"name\":\"Player\""
+                        + projections.get(calls.getAndIncrement()) + "}"));
+        MinecraftProfileApi api = api(Duration.ofSeconds(2), duration -> {});
+        assertFalse(api.getProfile(TOKEN).skinProjectionComplete());
+        assertTrue(api.getProfile(TOKEN).skinProjectionComplete());
+        assertTrue(api.getProfile(TOKEN).skinProjectionComplete());
+        assertTrue(api.getProfile(TOKEN).skinProjectionComplete());
+        assertFalse(api.getProfile(TOKEN).skinProjectionComplete());
     }
 
     private MinecraftProfileApi api(Duration timeout, MinecraftProfileApi.Sleeper sleeper) {

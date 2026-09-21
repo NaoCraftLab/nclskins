@@ -1,27 +1,22 @@
 package com.naocraftlab.skins.core.storage;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-
-import com.naocraftlab.skins.core.model.AccountState;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.core.model.AccountAppearanceState;
+import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
-import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
-import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.LibraryService;
 import com.naocraftlab.skins.core.test.TestPng;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -37,13 +32,19 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NclSkinsStorageTest {
     private static final Instant NOW = Instant.parse("2026-07-29T00:00:00Z");
@@ -587,7 +588,7 @@ class NclSkinsStorageTest {
         assertEquals(AccountAppearanceState.CURRENT_SCHEMA_VERSION, migrated.schemaVersion());
         assertEquals(OuterLayerVisibility.allVisible(), migrated.outerLayerVisibility());
         String rewritten = Files.readString(path, StandardCharsets.UTF_8);
-        assertTrue(rewritten.contains("\"schemaVersion\": 2"));
+        assertTrue(rewritten.contains("\"schemaVersion\": " + AccountAppearanceState.CURRENT_SCHEMA_VERSION));
         assertTrue(rewritten.contains("\"outerLayer\""));
     }
 

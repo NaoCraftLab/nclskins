@@ -47,11 +47,11 @@ def patchedYaclRuntime = yaclDevelopmentRuntimeEnabled && targetSpec.minecraft.v
                     "yacl-${yaclVersion}-icon-metadata.jar"))
         }
         : null
+def neoForgeRepositoryRoot = project.layout.projectDirectory.dir('../../..').asFile
 def licensedClientProfile = nclskinsCatalogTools.licensedClientProfile(
         targetCatalog, targetSpec.loader.id)
 def licensedClientStorage = new File(
         System.getProperty('user.home'), ".devlogin/${licensedClientProfile}").absolutePath
-def neoForgeRepositoryRoot = project.layout.projectDirectory.dir('../../..').asFile
 def neoForgeClientRun = nclskinsRunLayout.modDirectory(neoForgeRepositoryRoot, targetSpec, 'Client')
 def neoForgeLicensedClientRun = nclskinsRunLayout.modDirectory(
         neoForgeRepositoryRoot, targetSpec, 'LicensedClient')
@@ -120,3 +120,6 @@ neoForge {
         }
     }
 }
+
+ext.nclskinsFancyCompileConfiguration = 'compileOnly'
+apply from: '../../../gradle/fancymenu-conventions.gradle'

@@ -9,7 +9,6 @@ import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.service.PresetGalleryOrder;
-import com.naocraftlab.skins.core.service.RecoveryAction;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -156,6 +155,8 @@ public final class GalleryPresenter {
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Preview> previews = new ArrayList<>();
         List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
+        widgets.add(ViewSpec.Widget.iconButton("gallery.providers", new Bounds(width - 28, 6, 20, 20),
+                UiMessage.info("nclskins.providers.title"), GuiIcon.ACTION_PROVIDERS, true));
         widgets.add(ViewSpec.Widget.textField(
                 "gallery.search",
                 new Bounds(Math.max(8, width / 2 - 90), 36, Math.min(180, width - 16), 20),
@@ -393,7 +394,9 @@ public final class GalleryPresenter {
                 .filter(widget -> widget.id().equals("gallery.done"))
                 .findFirst()
                 .orElseThrow();
-        nodes.add(ViewSpec.NavigationNode.control(done, documentOrder, tabOrder));
+        nodes.add(ViewSpec.NavigationNode.control(done, documentOrder++, tabOrder++));
+        ViewSpec.Widget providers = widgets.stream().filter(widget -> widget.id().equals("gallery.providers")).findFirst().orElseThrow();
+        nodes.add(ViewSpec.NavigationNode.control(providers, nodes.size(), tabOrder));
         return List.copyOf(nodes);
     }
 
@@ -517,7 +520,19 @@ public final class GalleryPresenter {
         float yaw = Math.max(-28.0F, Math.min(28.0F, (mouseX - centerX) * 0.22F));
         float pitch = Math.max(-16.0F, Math.min(16.0F, (centerY - mouseY) * 0.16F));
         SkinVariant variant = variantFor(snapshot.account().orElseThrow(), preset, currentPlayerVariant);
-        Optional<String> capeId = preset.optionalCapeId();
+        Optional<String> capeId = Optional.empty();
+        boolean hasElytra = true;
+        for (var provider : snapshot.providers().cape().order()) {
+            if (provider == com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE && preset.offlineCape() != null) {
+                capeId = Optional.of("provider:cape:" + preset.offlineCape().sha256());
+                hasElytra = preset.offlineCape().hasElytra();
+                break;
+            }
+            if (provider == com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT && preset.capeId() != null) {
+                capeId = preset.optionalCapeId();
+                break;
+            }
+        }
         previews.add(new ViewSpec.Preview(
                 prefix + ".preview",
                 new Bounds(x + 8, previewTop, Math.max(1, cardWidth - 16), Math.max(1, previewBottom - previewTop)),
@@ -532,7 +547,7 @@ public final class GalleryPresenter {
                 yaw,
                 pitch,
                 0.88F,
-                Optional.of(preset.id())));
+                Optional.of(preset.id())).withCapeElytra(hasElytra));
 
         if (hasCompatibility) {
             String indicatorId = prefix + ".compatibility";
@@ -595,7 +610,7 @@ public final class GalleryPresenter {
                 rateLimitHint(snapshot, active),
                 !snapshot.busy()
                         && !interactionLocked
-                        && (!active || rateLimitedPending(snapshot))), actionViewport);
+                        && (!active || rateLimitedPending(snapshot) || snapshot.syncStatus() == AppearanceSyncStatus.UNKNOWN || snapshot.syncStatus() == AppearanceSyncStatus.PARTIAL)), actionViewport);
         int editX = actionX + applyWidth + CARD_ACTION_GAP;
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
@@ -651,7 +666,7 @@ public final class GalleryPresenter {
                 rateLimitHint(snapshot, active),
                 !snapshot.busy()
                         && !interactionLocked
-                        && (!active || rateLimitedPending(snapshot))), actionViewport);
+                        && (!active || rateLimitedPending(snapshot) || snapshot.syncStatus() == AppearanceSyncStatus.UNKNOWN || snapshot.syncStatus() == AppearanceSyncStatus.PARTIAL)), actionViewport);
         addIntersectingAction(widgets, compactIconAction(
                 prefix + ".edit",
                 new Bounds(editX, secondaryRow, outerWidth, ACTION_HEIGHT),
@@ -713,24 +728,14 @@ public final class GalleryPresenter {
                             && snapshot.account().isPresent()));
             return Optional.of(new RecoveryWidget("gallery.retry_session", bounds));
         }
-        if (snapshot.recoveryActions().contains(RecoveryAction.RETRY_CAPE)) {
-            Bounds bounds = recoveryBounds(width);
-            widgets.add(ViewSpec.Widget.button(
-                    "gallery.retry_cape",
-                    bounds,
-                    UiMessage.info("nclskins.recovery.retry_cape"),
-                    rateLimitHint(snapshot, true),
-                    !snapshot.busy()
-                            && (!snapshot.remoteControlsBlocked() || snapshot.rateLimited())));
-            return Optional.of(new RecoveryWidget("gallery.retry_cape", bounds));
-        }
         return Optional.empty();
     }
 
     private static Optional<UiMessage> rateLimitHint(ClientSnapshot snapshot, boolean owner) {
         return owner && snapshot.rateLimitProgress().isPresent()
                 ? Optional.of(UiMessage.info("nclskins.rate_limit.delayed"))
-                : Optional.empty();
+                : owner && snapshot.syncStatus() == AppearanceSyncStatus.PARTIAL
+                        ? Optional.of(UiMessage.info("nclskins.recovery.retry_cape")) : Optional.empty();
     }
 
     private static boolean rateLimitWaiting(ClientSnapshot snapshot) {
@@ -776,7 +781,7 @@ public final class GalleryPresenter {
 
     private static Bounds recoveryBounds(int width) {
         int buttonWidth = Math.min(RECOVERY_BUTTON_WIDTH, Math.max(1, width - 16));
-        return new Bounds(Math.max(8, width - buttonWidth - 8), 6, buttonWidth, 20);
+        return new Bounds(Math.max(8, width - buttonWidth - 32), 6, buttonWidth, 20);
     }
 
     private static void addHeader(
@@ -793,7 +798,7 @@ public final class GalleryPresenter {
         int leftOccupied = showSessionState
                 ? Math.min(SESSION_STATE_TEXT_WIDTH + 12, Math.max(0, width - 1))
                 : 0;
-        int rightStart = recovery.map(value -> Math.max(0, value.bounds().x() - 4)).orElse(width);
+        int rightStart = recovery.map(value -> Math.max(0, value.bounds().x() - 4)).orElse(width - 32);
         int symmetricInset = Math.max(leftOccupied, width - rightStart);
         int titleLeft;
         int titleRight;

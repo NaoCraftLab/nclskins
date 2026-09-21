@@ -56,7 +56,7 @@ public final class SessionValidationService {
             return expired(identity);
         }
         SessionValidation cached = validationCache.get(identity.profileId());
-        return cached == null ? uncheckedOffline(identity) : cached;
+        return cached == null ? unchecked(identity) : cached;
     }
 
 
@@ -367,7 +367,7 @@ public final class SessionValidationService {
         return acknowledged != null && acknowledged.kind() == AcknowledgedSkinKind.UNKNOWN;
     }
 
-    synchronized boolean capeStateUnknown(UUID profileId) {
+    public synchronized boolean capeStateUnknown(UUID profileId) {
         return Boolean.TRUE.equals(unknownCapes.get(Objects.requireNonNull(profileId, "profileId")));
     }
 
@@ -431,6 +431,12 @@ public final class SessionValidationService {
         return currentAppliedAppearance(profile.id(), profile);
     }
 
+    public synchronized boolean hasKnownSkin(RemoteProfile profile) {
+        AcknowledgedSkin acknowledged = acknowledgedSkins.get(profile.id());
+        return acknowledged == null ? profile.skinProjectionComplete()
+                : acknowledged.kind() != AcknowledgedSkinKind.UNKNOWN;
+    }
+
 
     public synchronized Optional<AppliedAppearance> acknowledgedAppearance(
             GameSessionTokenSource.SessionIdentity identity) {
@@ -481,18 +487,10 @@ public final class SessionValidationService {
                 "Minecraft session expired. Restart the game through a licensed launcher.");
     }
 
-    private static SessionValidation uncheckedOffline(
-            GameSessionTokenSource.SessionIdentity identity) {
-        SessionFailureContext context = new SessionFailureContext(
-                SessionCheckPhase.TOKEN_SOURCE, ApiFailureKind.INVALID_SESSION, null);
+    private static SessionValidation unchecked(GameSessionTokenSource.SessionIdentity identity) {
         return new SessionValidation(
-                SessionStatus.OFFLINE_OR_INVALID,
-                identity,
-                null,
-                context,
-                withDiagnostic(
-                        context,
-                        "Minecraft credentials have not been checked in this process."));
+                SessionStatus.UNCHECKED, identity, null, null,
+                "Minecraft credentials have not been checked in this process.");
     }
 
     private static SessionValidation expired(

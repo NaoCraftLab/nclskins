@@ -7,17 +7,20 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
-import com.naocraftlab.skins.core.model.AccountState;
-import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.core.model.AccountState;
+import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
+import com.naocraftlab.skins.core.model.LocalCapeReference;
+import com.naocraftlab.skins.core.model.PersonalCapeEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
+
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -81,6 +84,15 @@ final class AccountStateJson {
         }
         root.add("personalSkins", personalSkins);
 
+        JsonArray capes = new JsonArray();
+        for (PersonalCapeEntry entry : state.personalCapes()) {
+            JsonObject json = encodeLocalCape(entry.texture());
+            json.addProperty("renderSha256", entry.renderSha256());
+            json.addProperty("name", entry.name());
+            json.addProperty("addedAt", entry.addedAt().toString());
+            capes.add(json);
+        }
+        root.add("personalCapes", capes);
         JsonArray presets = new JsonArray();
         for (AppearancePreset preset : state.presets()) {
             JsonObject json = new JsonObject();
@@ -90,6 +102,7 @@ final class AccountStateJson {
             skin.addProperty("kind", preset.skin().kind().name());
             preset.skin().optionalAssetId().ifPresent(assetId -> skin.addProperty("assetId", assetId.toString()));
             json.add("skin", skin);
+            if (preset.offlineCape() != null) json.add("offlineCape", encodeLocalCape(preset.offlineCape()));
             preset.optionalCapeId().ifPresent(capeId -> json.addProperty("capeId", capeId));
             JsonArray outerLayer = new JsonArray();
             for (OuterLayerPart part : OuterLayerPart.values()) {
@@ -148,8 +161,8 @@ final class AccountStateJson {
                             assets,
                             personalSkins,
                             presets,
-                            updatedAt),
-                    migrated);
+                            updatedAt, decodePersonalCapes(root)),
+                    migrated, !root.has("personalCapes"));
         } catch (StorageException exception) {
             throw exception;
         } catch (JsonParseException | IllegalArgumentException | IllegalStateException | DateTimeParseException exception) {
@@ -271,9 +284,35 @@ final class AccountStateJson {
                     capeId,
                     outerLayer,
                     instant(json, "createdAt"),
-                    instant(json, "updatedAt")));
+                    instant(json, "updatedAt"),
+                    json.has("offlineCape") ? decodeLocalCape(requiredObject(json, "offlineCape")) : null));
         }
         return List.copyOf(presets);
+    }
+
+    static JsonObject encodeLocalCape(LocalCapeReference value) {
+        JsonObject json = new JsonObject();
+        if (value.entryId() != null) json.addProperty("entryId", value.entryId().toString());
+        json.addProperty("sha256", value.sha256());
+        json.addProperty("hasElytra", value.hasElytra());
+        return json;
+    }
+
+    static LocalCapeReference decodeLocalCape(JsonObject json) {
+        return new LocalCapeReference(json.has("entryId") ? UUID.fromString(requiredString(json, "entryId")) : null,
+                requiredString(json, "sha256"), requiredBoolean(json, "hasElytra"));
+    }
+
+    private static List<PersonalCapeEntry> decodePersonalCapes(JsonObject root) {
+        List<PersonalCapeEntry> result = new ArrayList<>();
+        if (root.has("personalCapes")) {
+            for (JsonElement element : requiredArray(root, "personalCapes")) {
+                JsonObject json = element.getAsJsonObject();
+                result.add(new PersonalCapeEntry(decodeLocalCape(json), requiredString(json, "renderSha256"),
+                        requiredString(json, "name"), instant(json, "addedAt")));
+            }
+        }
+        return List.copyOf(result);
     }
 
     private static OuterLayerVisibility decodeOuterLayer(JsonArray array) {
@@ -352,5 +391,5 @@ final class AccountStateJson {
         return new StorageException(StorageException.Code.INVALID_STATE, message, cause);
     }
 
-    record Decoded(AccountState state, boolean migrated) {}
+    record Decoded(AccountState state, boolean migrated, boolean legacyCapes) {}
 }

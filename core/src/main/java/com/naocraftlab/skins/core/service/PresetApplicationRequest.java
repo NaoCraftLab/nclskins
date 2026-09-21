@@ -4,7 +4,15 @@ import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.SkinReference;
 import java.util.Objects;
 
-public record PresetApplicationRequest(AppearancePreset preset, ResolvedSkinAsset resolvedSkin) {
+public record PresetApplicationRequest(
+        AppearancePreset preset,
+        ResolvedSkinAsset resolvedSkin,
+        boolean writeSkin,
+        boolean writeCape) {
+    public PresetApplicationRequest(AppearancePreset preset, ResolvedSkinAsset resolvedSkin) {
+        this(preset, resolvedSkin, true, true);
+    }
+
     public PresetApplicationRequest {
         Objects.requireNonNull(preset, "preset");
         if (preset.skin().kind() == SkinReference.Kind.ASSET) {

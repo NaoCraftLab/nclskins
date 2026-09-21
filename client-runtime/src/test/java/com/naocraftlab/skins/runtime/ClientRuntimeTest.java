@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.ClientExecutor;
@@ -10,6 +11,8 @@ import com.naocraftlab.skins.client.MinecraftSkinCatalog;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
+import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.ScreenDestination;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedProfileResolver;
 import com.naocraftlab.skins.client.SkinCatalogSource;
@@ -23,9 +26,12 @@ import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import com.naocraftlab.skins.core.model.EditorTab;
+import com.naocraftlab.skins.core.model.LocalCapeReference;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
+import com.naocraftlab.skins.core.model.PersonalCapeEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
@@ -33,6 +39,9 @@ import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
+import com.naocraftlab.skins.core.provider.ProviderCape;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -85,6 +94,745 @@ final class ClientRuntimeTest {
         case "nclskins.gallery.copy_name" -> "Copy of " + message.arguments().get(0);
         default -> message.key();
     };
+
+    @Test
+    void externalCatalogEditorCancelReturnsToCatalogAndSaveExitsRoot() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.reopen(ScreenDestination.SKIN_CATALOG);
+        runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
+        assertTrue(runtime.snapshot().editor().isPresent());
+        runtime.dispatchWidget("editor.cancel");
+        assertEquals("add_source", runtime.view(854, 480, 0, 0).screenId());
+        runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
+        runtime.dispatchWidget("editor.save");
+        assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+    }
+
+    @Test
+    void allExternalEntriesGateBothProviderChannelsWithoutOverwritingAddPreference() {
+        for (ScreenDestination destination : ScreenDestination.values()) {
+            for (int mask = 0; mask < 4; mask++) {
+                FakeOperations operations = new FakeOperations();
+                operations.uiPreferences = operations.uiPreferences.withSelectedAddSourceTab(AddSourceTab.FILE);
+                for (AppearanceProviders.Component component : AppearanceProviders.Component.values()) {
+                    if ((mask & (1 << component.ordinal())) == 0) {
+                        operations.providers = operations.providers.disable(component, BuiltinProvider.OFFLINE)
+                                .disable(component, BuiltinProvider.MINECRAFT);
+                    }
+                }
+                ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+                runtime.reopen(destination);
+                if (mask != 3 || destination == ScreenDestination.PROVIDERS) {
+                    assertEquals("providers", runtime.view(854, 480, 0, 0).screenId());
+                    assertEquals(AddSourceTab.FILE, operations.uiPreferences.selectedAddSourceTab());
+                    runtime.escapePressed();
+                    assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+                } else {
+                    assertNotEquals("providers", runtime.view(854, 480, 0, 0).screenId());
+                }
+            }
+        }
+    }
+
+    @Test
+    void repeatedDestinationDoesNotReplaceActiveDraft() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        operations.activePresetId = Optional.of(operations.account.presets().get(0).id());
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.reopen(ScreenDestination.ACTIVE_EDITOR);
+        PresetEditorModel draft = runtime.snapshot().editor().orElseThrow();
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        assertSame(draft, runtime.snapshot().editor().orElseThrow());
+    }
+
+    @Test
+    void closingDuringExternalInitializationDiscardsDestination() {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        assertEquals("loading", runtime.view(854, 480, 0, 0).screenId());
+        runtime.escapePressed();
+        while (worker.size() > 0) worker.runFirst();
+        assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+        assertTrue(runtime.snapshot().addSource().isEmpty());
+    }
+
+    @Test
+    void externalDestinationsOpenTheirRootAndReturnWithoutGallery() {
+        for (ScreenDestination destination : ScreenDestination.values()) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(2);
+            operations.activePresetId = Optional.of(operations.account.presets().get(0).id());
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            runtime.reopen(destination);
+            String expected = switch (destination) {
+                case GALLERY -> "gallery";
+                case PROVIDERS -> "providers";
+                case ACTIVE_EDITOR -> "preset_editor";
+                case SKIN_CATALOG, SKIN_IMPORT -> "add_source";
+            };
+            assertEquals(expected, runtime.view(854, 480, 0, 0).screenId(), destination.name());
+            if (destination == ScreenDestination.SKIN_IMPORT) {
+                assertEquals(AddSourceTab.FILE, runtime.snapshot().addSource().orElseThrow().selectedTab());
+            }
+            runtime.escapePressed();
+            assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle(), destination.name());
+        }
+    }
+
+    @Test
+    void externalEditorWithoutActivePresetAlwaysUsesImport() {
+        for (AddSourceTab remembered : AddSourceTab.values()) {
+            for (Optional<UUID> active : List.of(Optional.<UUID>empty(), Optional.of(UUID.randomUUID()))) {
+                FakeOperations operations = new FakeOperations();
+                operations.activePresetId = active;
+                operations.uiPreferences = operations.uiPreferences.withSelectedAddSourceTab(remembered);
+                ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+                runtime.reopen(ScreenDestination.ACTIVE_EDITOR);
+                assertEquals(AddSourceTab.FILE, runtime.snapshot().addSource().orElseThrow().selectedTab());
+                assertEquals(AddSourceTab.FILE, operations.uiPreferences.selectedAddSourceTab());
+                assertTrue(runtime.snapshot().editor().isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void providersRememberOrdinaryTabAcrossRuntimeInstances() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime first = runtime(operations, Runnable::run, Optional.empty());
+        first.initialize();
+        first.dispatchWidget("gallery.providers");
+        first.dispatchWidget("providers.tab.CAPE");
+        assertEquals(AppearanceProviders.Component.CAPE, operations.uiPreferences.selectedProvidersTab());
+        ClientRuntime second = runtime(operations, Runnable::run, Optional.empty());
+        second.reopen(ScreenDestination.PROVIDERS);
+        assertEquals("providers.tab.CAPE", second.view(854, 480, 0, 0).tabGroups().get(0).tabs().stream().filter(ViewSpec.Tab::selected).findFirst().orElseThrow().id());
+    }
+
+    @Test
+    void resourceCapeWarmupRunsOnReloadSignalAndNeverPollsFromClientTicks() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+
+        for (int tick = 0; tick < 20; tick++) {
+            runtime.tick();
+        }
+        assertEquals(0, operations.capeCatalogGenerationCalls);
+        assertEquals(0, operations.capeCatalogWarmups);
+
+        runtime.resourcesReloaded();
+        assertEquals(1, operations.capeCatalogGenerationCalls);
+        assertEquals(1, operations.resourceCapeCatalogWarmups);
+        assertEquals(1, operations.capeCatalogWarmups);
+    }
+
+    @Test
+    void initialResourceReloadWarmsDiscoveryBeforeAccountInitialization() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+
+        runtime.resourcesReloaded();
+
+        assertEquals(1, operations.capeCatalogGenerationCalls);
+        assertEquals(1, operations.resourceCapeCatalogWarmups);
+        assertEquals(0, operations.capeCatalogWarmups);
+    }
+
+    @Test
+    void skinProviderGalleryDoneAndEscapeReturnToSkinProviders() {
+        for (BuiltinProvider provider : BuiltinProvider.values()) {
+            for (String exit : List.of("done", "escape")) {
+                FakeOperations operations = new FakeOperations();
+                operations.account = TestFixtures.account(1);
+                ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+                runtime.initialize();
+                runtime.dispatchWidget("gallery.providers");
+                runtime.dispatchWidget("providers.edit." + provider);
+                assertEquals("gallery", runtime.view(854, 480, 0, 0).screenId());
+
+                if (exit.equals("escape")) {
+                    runtime.escapePressed();
+                } else {
+                    runtime.dispatchWidget("gallery.done");
+                }
+
+                ViewSpec returned = runtime.view(854, 480, 0, 0);
+                assertEquals("providers", returned.screenId());
+                assertEquals(Optional.of("selected"),
+                        returned.widget("providers.tab.SKIN").orElseThrow().value());
+            }
+        }
+    }
+
+    @Test
+    void skinProviderGalleryCloseClearsGalleryFocusBeforeProviders() {
+        for (String exit : List.of("done", "escape")) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(1);
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.edit.OFFLINE");
+            assertTrue(runtime.dispatchNavigation(
+                    ViewSpec.NavigationCommand.TAB_FORWARD, "gallery.search"));
+
+            if (exit.equals("escape")) {
+                runtime.escapePressed();
+            } else {
+                runtime.dispatchWidget("gallery.done");
+            }
+
+            ViewSpec providers = runtime.view(854, 480, 0, 0);
+            assertEquals("providers", providers.screenId());
+            assertTrue(providers.widgets().stream()
+                    .noneMatch(widget -> widget.id().startsWith("gallery.")));
+            runtime.dispatchWidget("providers.back");
+            assertTrue(runtime.view(854, 480, 0, 0).focusRequest().isEmpty());
+        }
+    }
+
+    @Test
+    void offlineProviderEditRevealsObservedResourceCapeAndScrollsWithoutChangingDraft() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        UUID active = operations.account.presets().get(1).id();
+        operations.activePresetId = Optional.of(active);
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        operations.providers = AppearanceProviders.initial().select(
+                1,
+                null,
+                new ProviderCape("observed", "c".repeat(64), false),
+                new ProviderCape("pending", null));
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.edit.OFFLINE");
+
+        CapeCatalogModel catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        CapeCatalogModel.Card resource = catalog.resourceOwner("b".repeat(64)).orElseThrow();
+        assertEquals(resource, catalog.inspected());
+        assertFalse(catalog.collapsed().contains(resource.collectionId()));
+        assertTrue(catalog.offline() == null);
+        assertEquals(Optional.of("cape-1"), catalog.minecraft());
+        assertEquals(operations.providers, runtime.snapshot().providers());
+
+        ViewSpec view = runtime.view(320, 240, 0, 0);
+        assertTrue(view.scrollSurface("editor.capes").orElseThrow().offsetPixels() > 0.0);
+        assertTrue(view.widget(resource.widgetId()).isPresent());
+    }
+
+    @Test
+    void providerGalleryExitPublishesProvidersToSubscribedHost() {
+        for (BuiltinProvider provider : List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT)) {
+            for (String exit : List.of("pointer", "keyboard", "escape")) {
+                FakeOperations operations = new FakeOperations();
+                operations.account = TestFixtures.account(1);
+                ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+                runtime.initialize();
+                runtime.dispatchWidget("gallery.providers");
+                runtime.dispatchWidget("providers.edit." + provider.name());
+                List<ViewSpec> delivered = new ArrayList<>();
+                runtime.subscribe(snapshot -> delivered.add(runtime.view(854, 480, 0, 0)));
+                assertEquals("gallery", delivered.get(delivered.size() - 1).screenId());
+                delivered.clear();
+                if (exit.equals("escape")) runtime.escapePressed();
+                else runtime.dispatchWidget("gallery.done", false,
+                        exit.equals("pointer") ? InteractionOrigin.POINTER : InteractionOrigin.KEYBOARD);
+                assertEquals(1, delivered.size(), provider + " / " + exit);
+                assertEquals("providers", delivered.get(0).screenId());
+                assertTrue(delivered.get(0).widgets().stream()
+                        .noneMatch(widget -> widget.id().startsWith("gallery.")));
+                assertEquals(operations.account, runtime.snapshot().account().orElseThrow());
+            }
+        }
+    }
+
+    @Test
+    void queuedOfflineProviderEditRevealsResourceCapeAfterColdCatalogReload() {
+        FakeOperations operations = new FakeOperations();
+        operations.uiPreferences = operations.uiPreferences.withCollapsedCapeCollections(Set.of("resource:event"));
+        operations.account = TestFixtures.account(2);
+        operations.activePresetId = Optional.of(operations.account.presets().get(1).id());
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        operations.providers = AppearanceProviders.initial().select(
+                1, null, new ProviderCape("observed", "c".repeat(64), false),
+                new ProviderCape("pending", null));
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        initializeQueuedRuntime(runtime, worker);
+        openQueuedCapeProviderEditor(runtime, worker);
+
+        assertTrue(worker.size() > 0);
+        CapeCatalogModel cold = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        assertTrue(cold.cards().stream().noneMatch(card -> card.resource() != null));
+        assertTrue(cold.collapsed().contains("resource:event"));
+        AppearanceProviders assignments = runtime.snapshot().providers();
+
+        drainWorker(worker);
+
+        CapeCatalogModel catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        CapeCatalogModel.Card resource = catalog.resourceOwner("b".repeat(64)).orElseThrow();
+        assertEquals(resource, catalog.inspected());
+        assertFalse(catalog.collapsed().contains(resource.collectionId()));
+        assertEquals(assignments, runtime.snapshot().providers());
+        ViewSpec view = runtime.view(320, 240, 0, 0);
+        ViewSpec.ScrollSurface surface = view.scrollSurface("editor.capes").orElseThrow();
+        Bounds cardBounds = view.widget(resource.widgetId()).orElseThrow().bounds();
+        assertTrue(surface.offsetPixels() > 0.0);
+        assertTrue(cardBounds.bottom() > surface.viewport().y());
+        assertTrue(cardBounds.y() < surface.viewport().bottom());
+    }
+
+    @Test
+    void offlineProviderEditUsesPersonalRenderIdentityWithColdAndWarmedCatalog() {
+        for (boolean warmed : List.of(false, true)) {
+            LocalCapeReference local = new LocalCapeReference(new UUID(7, 1), "a".repeat(64), false);
+            PersonalCapeEntry personal = new PersonalCapeEntry(local, "b".repeat(64), "Saved copy", Instant.EPOCH);
+            FakeOperations operations = new FakeOperations();
+            operations.capeEditorDataWarmed = warmed;
+            operations.account = TestFixtures.account(2).withPersonalCapes(List.of(personal));
+            operations.activePresetId = Optional.of(operations.account.presets().get(1).id());
+            operations.resourceCapeCollections = List.of(resourceCapeCollection());
+            operations.resourceCapeHashes = Map.of(
+                    new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+            operations.providers = AppearanceProviders.initial().select(1, null,
+                    new ProviderCape(local.entryId().toString(), local.sha256(), false),
+                    new ProviderCape("pending", null));
+            QueuedExecutor worker = new QueuedExecutor();
+            ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+            initializeQueuedRuntime(runtime, worker);
+            openQueuedCapeProviderEditor(runtime, worker);
+            drainWorker(worker);
+            CapeCatalogModel catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+            assertEquals(catalog.resourceOwner("b".repeat(64)).orElseThrow(), catalog.inspected());
+            assertNull(catalog.offline());
+            assertEquals(Optional.of("cape-1"), catalog.minecraft());
+        }
+    }
+
+    @Test
+    void deferredProviderRevealIsCancelledByEditorInteraction() {
+        for (String action : List.of("tab", "choice", "close")) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(2);
+            operations.activePresetId = Optional.of(operations.account.presets().get(1).id());
+            operations.resourceCapeCollections = List.of(resourceCapeCollection());
+            operations.resourceCapeHashes = Map.of(
+                    new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+            operations.providers = AppearanceProviders.initial().select(
+                    1, null, new ProviderCape("observed", "c".repeat(64), false),
+                    new ProviderCape("pending", null));
+            QueuedExecutor worker = new QueuedExecutor();
+            ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+            initializeQueuedRuntime(runtime, worker);
+            openQueuedCapeProviderEditor(runtime, worker);
+
+            if (action.equals("tab")) {
+                runtime.dispatchWidget("editor.tab.appearance");
+            } else if (action.equals("choice")) {
+                runtime.dispatchWidget("editor.cape_item.OFFLINE.none");
+            } else {
+                runtime.dispatchWidget("editor.cancel");
+            }
+            drainWorker(worker);
+
+            if (action.equals("close")) {
+                assertTrue(runtime.snapshot().editor().isEmpty());
+            } else {
+                CapeCatalogModel catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+                if (action.equals("tab")) assertNull(catalog.inspected());
+                else assertEquals("none", catalog.inspected().key());
+                assertTrue(action.equals("tab")
+                        ? runtime.snapshot().editor().orElseThrow().selectedEditorTab() == EditorTab.APPEARANCE
+                        : catalog.cards().stream().filter(card -> card.key().equals("none"))
+                                .anyMatch(catalog::selected));
+            }
+        }
+    }
+
+    @Test
+    void deferredProviderRevealIsCancelledWhenOpeningAnotherEditor() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        operations.activePresetId = Optional.of(operations.account.presets().get(1).id());
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        operations.providers = AppearanceProviders.initial().select(
+                1, null, new ProviderCape("observed", "c".repeat(64), false),
+                new ProviderCape("pending", null));
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        initializeQueuedRuntime(runtime, worker);
+        openQueuedCapeProviderEditor(runtime, worker);
+        runtime.dispatchWidget("editor.cancel");
+        runtime.dispatchWidget("providers.back");
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        drainWorker(worker);
+
+        assertTrue(runtime.snapshot().editor().isPresent());
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+    }
+
+    private static void initializeQueuedRuntime(ClientRuntime runtime, QueuedExecutor worker) {
+        runtime.initialize();
+        drainWorker(worker);
+    }
+
+    private static void openQueuedCapeProviderEditor(ClientRuntime runtime, QueuedExecutor worker) {
+        runtime.dispatchWidget("gallery.providers");
+        drainWorker(worker);
+        runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.edit.OFFLINE");
+    }
+
+    private static void drainWorker(QueuedExecutor worker) {
+        int remaining = 100;
+        while (worker.size() > 0 && remaining-- > 0) worker.runFirst();
+        assertEquals(0, worker.size());
+    }
+
+    @Test
+    void capePreviewModeStaysSynchronizedBetweenEditorAndProviders() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        operations.activePresetId = Optional.of(operations.account.presets().get(1).id());
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+
+        runtime.dispatchWidget("gallery.preset."
+                + operations.activePresetId.orElseThrow() + ".edit");
+        PreviewRenderer.CapeMode initialMode =
+                runtime.snapshot().editor().orElseThrow().preview().capeMode();
+        runtime.dispatchWidget("editor.preview_mode");
+        assertNotEquals(initialMode,
+                runtime.snapshot().editor().orElseThrow().preview().capeMode());
+        runtime.dispatchWidget("editor.cancel");
+
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.preview_mode");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.edit.OFFLINE");
+        assertEquals(initialMode,
+                runtime.snapshot().editor().orElseThrow().preview().capeMode());
+    }
+
+    @Test
+    void capeProviderEditorReturnsToCapeProvidersWithoutChangingOrdinaryEditorReturn() {
+        for (String exit : List.of("save", "cancel", "escape")) for (var provider : BuiltinProvider.values()) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(2);
+            UUID active = operations.account.presets().get(1).id();
+            operations.activePresetId = Optional.of(active);
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.tab.CAPE");
+            runtime.dispatchWidget("providers.row." + provider);
+            runtime.dispatchWidget("providers.edit." + provider);
+            runtime.dispatchText("editor.name", "Changed");
+            if (exit.equals("escape")) runtime.escapePressed();
+            else runtime.dispatchWidget("editor." + exit);
+            var returned = runtime.view(854, 480, 0, 0);
+            assertEquals("providers", returned.screenId());
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            assertEquals(Optional.of("selected"), returned.widget("providers.tab.CAPE").orElseThrow().value());
+            assertTrue(returned.widget("providers.row." + provider).orElseThrow().value().isEmpty());
+            assertEquals(exit.equals("save") ? "Changed" : "Preset 2", findPreset(runtime.snapshot(), active).name());
+            runtime.dispatchWidget("providers.back");
+            for (String ordinaryExit : List.of("save", "cancel", "escape")) {
+                runtime.dispatchWidget("gallery.preset." + active + ".edit");
+                assertTrue(runtime.snapshot().editor().isPresent());
+                if (ordinaryExit.equals("escape")) runtime.escapePressed();
+                else runtime.dispatchWidget("editor." + ordinaryExit);
+                assertEquals("gallery", runtime.view(854, 480, 0, 0).screenId());
+            }
+        }
+    }
+
+    @Test
+    void capeProviderEditorRetainsReturnAfterSaveFailureButClearsItOnScreenClose() {
+        for (String exit : List.of("save", "cancel", "close")) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(1);
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.tab.CAPE");
+            runtime.dispatchWidget("providers.edit.OFFLINE");
+            operations.failEditorSave = true;
+            runtime.dispatchWidget("editor.save");
+            assertEquals("preset_editor", runtime.view(854, 480, 0, 0).screenId());
+            assertTrue(runtime.snapshot().editor().isPresent());
+            operations.failEditorSave = false;
+            if (exit.equals("close")) {
+                runtime.closeScreen();
+                runtime.reopen();
+                UUID preset = runtime.snapshot().account().orElseThrow().presets().get(0).id();
+                runtime.dispatchWidget("gallery.preset." + preset + ".edit");
+                runtime.dispatchWidget("editor.cancel");
+                assertEquals("gallery", runtime.view(854, 480, 0, 0).screenId());
+            } else {
+                runtime.dispatchWidget("editor." + exit);
+                assertEquals("providers", runtime.view(854, 480, 0, 0).screenId());
+            }
+        }
+    }
+
+    @Test
+    void providerEditOpensGalleryOrActiveCapeDraftWithoutApplying() {
+        for (var provider : BuiltinProvider.values()) for (int activeIndex = 0; activeIndex < 2; activeIndex++) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(2);
+            var active = operations.account.presets().get(activeIndex);
+            operations.activePresetId = Optional.of(active.id());
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.edit." + provider);
+            assertEquals("gallery", runtime.view(854, 480, 0, 0).screenId());
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.tab.CAPE");
+            runtime.dispatchWidget("providers.row." + provider);
+            runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.edit." + provider);
+            assertEquals("preset_editor", runtime.view(854, 480, 0, 0).screenId());
+            var editor = runtime.snapshot().editor().orElseThrow();
+            assertEquals(Optional.of(active.id()), editor.originalPresetId());
+            assertEquals(EditorTab.CAPE, editor.selectedEditorTab());
+            assertEquals(active.optionalCapeId(), editor.capeId());
+            assertEquals(operations.providers, runtime.snapshot().providers());
+            assertEquals(Optional.of(active.id()), runtime.snapshot().activePresetId());
+        }
+    }
+
+    @Test
+    void providerEditCannotBypassMissingWritersAndNoActivePresetUsesDefaultDraft() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.edit.OFFLINE");
+        assertEquals(EditorTab.CAPE, runtime.snapshot().editor().orElseThrow().selectedEditorTab());
+        assertTrue(runtime.snapshot().editor().orElseThrow().capeId().isEmpty());
+        for (var missing : AppearanceProviders.Component.values()) {
+            FakeOperations blocked = new FakeOperations();
+            blocked.providers = blocked.providers.disable(missing, BuiltinProvider.OFFLINE).disable(missing, BuiltinProvider.MINECRAFT);
+            ClientRuntime unavailable = runtime(blocked, Runnable::run, Optional.empty());
+            unavailable.initialize();
+            for (var component : AppearanceProviders.Component.values()) {
+                unavailable.dispatchWidget("providers.tab." + component);
+                unavailable.dispatchWidget("providers.edit.OFFLINE");
+                assertEquals("providers", unavailable.view(854, 480, 0, 0).screenId());
+                assertTrue(unavailable.snapshot().editor().isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void disablingMinecraftHidesCooldownWithoutClearingItsRetryAfter() {
+        FakeOperations operations = new FakeOperations();
+        operations.rateLimited = true;
+        operations.rateLimitRemaining = Duration.ofSeconds(60);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.tick();
+        assertTrue(runtime.snapshot().rateLimitProgress().isPresent());
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.remove.MINECRAFT");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.remove.MINECRAFT");
+        runtime.tick();
+        assertTrue(runtime.snapshot().rateLimitProgress().isEmpty());
+        assertTrue(operations.rateLimited);
+        runtime.dispatchWidget("providers.add");
+        runtime.dispatchWidget("providers.row.MINECRAFT");
+        runtime.tick();
+        assertEquals(Duration.ofSeconds(60), runtime.snapshot().rateLimitProgress().orElseThrow().remaining());
+    }
+
+    @Test
+    void providerRowsFollowTheExistingCooldownAcrossTabsAndExpiry() {
+        FakeOperations operations = new FakeOperations();
+        operations.rateLimited = true;
+        operations.rateLimitRemaining = Duration.ofSeconds(60);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.tick();
+        runtime.dispatchWidget("gallery.providers");
+        assertEquals(1.0, runtime.view(854, 480, 0, 0).progressDecorations().get(0).fraction());
+        operations.rateLimitRemaining = Duration.ofSeconds(30);
+        runtime.tick();
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertEquals(0.5, runtime.view(854, 480, 0, 0).progressDecorations().get(0).fraction());
+        runtime.dispatchWidget("providers.add");
+        assertTrue(runtime.view(854, 480, 0, 0).progressDecorations().isEmpty());
+        runtime.escapePressed();
+        operations.rateLimited = false;
+        operations.rateLimitRemaining = Duration.ZERO;
+        runtime.tick();
+        assertTrue(runtime.view(854, 480, 0, 0).progressDecorations().isEmpty());
+    }
+
+    @Test
+    void providerKeyboardMutationsRestoreASurvivingRowFocus() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.down.OFFLINE");
+        assertEquals(BuiltinProvider.OFFLINE, runtime.snapshot().providers().skin().order().get(1));
+        assertEquals("providers.row.OFFLINE", runtime.view(854, 480, 0, 0).focusRequest().orElseThrow().widgetId());
+        runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.remove.OFFLINE");
+        assertEquals("providers.row.MINECRAFT", runtime.view(854, 480, 0, 0).focusRequest().orElseThrow().widgetId());
+        runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.remove.MINECRAFT");
+        assertEquals("providers.add", runtime.view(854, 480, 0, 0).focusRequest().orElseThrow().widgetId());
+    }
+
+    @Test
+    void providerMovesAndRemovalStayInteractiveAndSerialize() {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("gallery.providers");
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("providers.down.OFFLINE");
+        assertFalse(runtime.snapshot().busy());
+        runtime.dispatchWidget("providers.up.OFFLINE");
+        assertFalse(runtime.snapshot().busy());
+        while (worker.size() > 0) worker.runFirst();
+        assertEquals(List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT), runtime.snapshot().providers().skin().order());
+        runtime.dispatchWidget("providers.remove.MINECRAFT");
+        assertFalse(runtime.snapshot().busy());
+        while (worker.size() > 0) worker.runFirst();
+        assertEquals(List.of(BuiltinProvider.OFFLINE), runtime.snapshot().providers().skin().order());
+    }
+
+    @Test
+    void providerChooserKeyboardScrollAndEscapeKeepConfiguration() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.SKIN, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("providers.add");
+        runtime.view(320, 100, 0, 0);
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.DOWN, "providers.row.OFFLINE"));
+        assertTrue(runtime.view(320, 100, 0, 0).scrollSurface("providers.chooser").orElseThrow().offsetPixels() > 0);
+        runtime.escapePressed();
+        assertEquals("providers", runtime.view(320, 100, 0, 0).screenId());
+        assertTrue(runtime.snapshot().providers().skin().order().isEmpty());
+        runtime.dispatchWidget("providers.add");
+        assertEquals(0, runtime.view(320, 100, 0, 0).scrollSurface("providers.chooser").orElseThrow().offsetPixels());
+    }
+
+    @Test
+    void persistedEmptyProvidersRouteDirectlyAndAddingWritersStaysOnProviders() {
+        FakeOperations operations = new FakeOperations();
+        for (var component : AppearanceProviders.Component.values()) for (var provider : BuiltinProvider.values()) {
+            operations.providers = operations.providers.disable(component, provider);
+        }
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.verifyStorageAccess();
+        assertEquals("providers", runtime.view(854, 480, 0, 0).screenId());
+        runtime.initialize();
+        runtime.dispatchWidget("providers.add");
+        assertEquals("provider_chooser", runtime.view(320, 100, 0, 0).screenId());
+        runtime.nativeScrollPositionChanged("providers.chooser", 20);
+        assertTrue(runtime.view(320, 100, 0, 0).scrollSurface("providers.chooser").orElseThrow().offsetPixels() > 0);
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.add");
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        assertTrue(runtime.snapshot().providers().galleryAvailable());
+        assertEquals("providers", runtime.view(854, 480, 0, 0).screenId());
+        runtime.dispatchWidget("providers.back");
+        assertEquals("gallery", runtime.view(854, 480, 0, 0).screenId());
+    }
+
+    @Test
+    void enteringProvidersReloadsSharedStateAndTabClicksResetRowInspection() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        operations.providers = operations.providers.move(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT, -1);
+        runtime.dispatchWidget("gallery.providers");
+        assertEquals(operations.providers, runtime.snapshot().providers());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.search").isEmpty());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.row.MINECRAFT").orElseThrow().value().isEmpty());
+        runtime.dispatchWidget("providers.row.MINECRAFT");
+        assertEquals(Optional.of("selected"), runtime.view(854, 480, 0, 0).widget("providers.row.MINECRAFT").orElseThrow().value());
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.row.MINECRAFT").orElseThrow().value().isEmpty());
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(AppearanceProviders.Component.CAPE, operations.providerRefresh);
+        runtime.dispatchWidget("providers.tab.SKIN");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.row.MINECRAFT").orElseThrow().value().isEmpty());
+    }
+
+    @Test
+    void explicitApplyRecoversUnknownThroughFreshCheckpoint() {
+        FakeOperations operations = new FakeOperations();
+        operations.localFirst = true;
+        operations.selectionStatus = AppearanceSyncStatus.UNKNOWN;
+        operations.account = TestFixtures.account(1);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".apply");
+        assertTrue(operations.reconciliationTriggers.contains(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY));
+    }
+
+    @Test
+    void settledActiveSavePublishesLatestLocalStateWithoutSchedulingCheckpoint() {
+        FakeOperations operations = new FakeOperations();
+        operations.localFirst = true;
+        operations.settledActiveSave = true;
+        operations.account = TestFixtures.account(1);
+        UUID activePreset = operations.account.presets().get(0).id();
+        operations.activePresetId = Optional.of(activePreset);
+        operations.appearanceRevision = 4;
+        operations.appearanceSyncStatus = AppearanceSyncStatus.OFFICIAL;
+        operations.durable = Optional.of(new ClientOperations.DurableAppearance(
+                TestFixtures.ACCOUNT_ID,
+                operations.appearanceRevision,
+                AppearanceSyncStatus.OFFICIAL,
+                operations.activePresetId,
+                Optional.of(AppliedAppearance.accountDefault(TestFixtures.ACCOUNT_ID, Optional.empty())),
+                Optional.of(com.naocraftlab.skins.client.OuterLayerVisibility.allVisible())));
+        AtomicInteger signalCalls = new AtomicInteger();
+        ClientRuntime runtime = runtime(
+                operations,
+                Runnable::run,
+                Optional.empty(),
+                Optional.of(signalCalls::incrementAndGet));
+
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.preset." + activePreset + ".edit");
+        runtime.dispatchText("editor.name", "Settled edit");
+        runtime.dispatchWidget("editor.save");
+
+        assertEquals(Optional.of(activePreset), runtime.snapshot().activePresetId());
+        assertEquals("Settled edit", findPreset(runtime.snapshot(), activePreset).name());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, runtime.snapshot().syncStatus());
+        assertEquals(0, operations.reconciliationCalls);
+        assertEquals(4L + 1L, runtime.snapshot().intentRevision());
+        assertEquals(com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                findPreset(runtime.snapshot(), activePreset).outerLayerVisibility());
+        assertEquals(0, signalCalls.get());
+    }
 
     @Test
     void storagePreflightIsSynchronousAndPropagatesFatalRuntimeFailures() {
@@ -256,7 +1004,7 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
         assertTrue(runtime.snapshot().editor().isPresent());
         runtime.dispatchText("editor.name", "Created");
-        runtime.dispatchWidget("editor.model");
+        runtime.dispatchWidget("editor.model_choice.slim");
         runtime.dispatchWidget("editor.save");
         UUID createdPreset = runtime.snapshot().selectedPresetId().orElseThrow();
         assertEquals("Created", findPreset(runtime.snapshot(), createdPreset).name());
@@ -352,6 +1100,266 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void duplicateDispatchRetainsTheSourceOfflineCapeInTheDraft() {
+        FakeOperations operations = new FakeOperations();
+        AccountState base = TestFixtures.account(2);
+        AppearancePreset basePreset = base.presets().get(1);
+        LocalCapeReference offline = new LocalCapeReference(
+                new UUID(7, 1), "a".repeat(64), false);
+        PersonalCapeEntry personal = new PersonalCapeEntry(
+                offline, "b".repeat(64), "Saved cape", Instant.EPOCH);
+        AppearancePreset source = new AppearancePreset(
+                basePreset.id(),
+                basePreset.name(),
+                basePreset.skin(),
+                "minecraft-cape",
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible()
+                        .with(OuterLayerPart.HEAD, false),
+                basePreset.createdAt(),
+                basePreset.updatedAt(),
+                offline);
+        operations.account = new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
+                base.accountId(),
+                base.skinAssets(),
+                base.personalSkins(),
+                List.of(base.presets().get(0), source),
+                base.updatedAt(),
+                List.of(personal));
+        operations.activePresetId = Optional.of(source.id());
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        long intentRevision = runtime.snapshot().intentRevision();
+
+        runtime.dispatchWidget("gallery.preset." + source.id() + ".duplicate");
+
+        PresetEditorModel draft = runtime.snapshot().editor().orElseThrow();
+        assertEquals(offline, draft.capeCatalog().offline());
+        assertEquals(source.capeId(), draft.capeCatalog().minecraft().orElseThrow());
+        assertEquals(source.skin(), draft.skin());
+        assertEquals(source.outerLayerVisibility(), draft.preview().outerLayerVisibility());
+        assertEquals(List.of(personal), runtime.snapshot().account().orElseThrow().personalCapes());
+        assertEquals(0, operations.applyCalls);
+        assertEquals(intentRevision, runtime.snapshot().intentRevision());
+        assertEquals(Optional.of(source.id()), runtime.snapshot().activePresetId());
+    }
+
+    @Test
+    void duplicateOfflineCapeSurvivesColdAndWarmedReloadWithoutProviderMutation() {
+        for (boolean warmed : List.of(false, true)) {
+            for (boolean disabled : List.of(false, true)) {
+                DuplicateFixture fixture = duplicateFixture(true, false);
+                FakeOperations operations = new FakeOperations();
+                operations.account = fixture.account();
+                operations.capeEditorDataWarmed = warmed;
+                if (disabled) {
+                    operations.providers = operations.providers.disable(
+                            AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE);
+                }
+                AppearanceProviders providers = operations.providers;
+                QueuedExecutor worker = new QueuedExecutor();
+                ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+                initializeQueuedRuntime(runtime, worker);
+
+                runtime.dispatchWidget(
+                        "gallery.preset." + fixture.source().id() + ".duplicate");
+
+                assertEquals(fixture.offline(), runtime.snapshot().editor().orElseThrow()
+                        .capeCatalog().offline());
+                assertEquals(providers, runtime.snapshot().providers());
+                assertEquals(fixture.personalCapes(),
+                        runtime.snapshot().account().orElseThrow().personalCapes());
+                assertEquals(0, operations.applyCalls);
+                drainWorker(worker);
+                assertEquals(fixture.offline(), runtime.snapshot().editor().orElseThrow()
+                        .capeCatalog().offline());
+                assertEquals(providers, runtime.snapshot().providers());
+                assertEquals(fixture.personalCapes(),
+                        runtime.snapshot().account().orElseThrow().personalCapes());
+            }
+        }
+    }
+
+    @Test
+    void duplicateWithoutCapeOrSessionKeepsNoCapeAcrossDelayedReload() {
+        for (boolean withCape : List.of(false, true)) {
+            DuplicateFixture fixture = duplicateFixture(withCape, false);
+            FakeOperations operations = new FakeOperations();
+            operations.account = fixture.account();
+            SessionValidation valid = TestFixtures.validSession();
+            operations.session = new SessionValidation(
+                    SessionStatus.OFFLINE_OR_INVALID,
+                    valid.sessionIdentity(),
+                    null,
+                    new SessionFailureContext(
+                            SessionCheckPhase.TOKEN_SOURCE,
+                            ApiFailureKind.TOKEN_UNAVAILABLE,
+                            null),
+                    "no token");
+            QueuedExecutor worker = new QueuedExecutor();
+            ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+            initializeQueuedRuntime(runtime, worker);
+
+            runtime.dispatchWidget(
+                    "gallery.preset." + fixture.source().id() + ".duplicate");
+            assertEquals(fixture.offline(), runtime.snapshot().editor().orElseThrow()
+                    .capeCatalog().offline());
+            drainWorker(worker);
+            assertEquals(fixture.offline(), runtime.snapshot().editor().orElseThrow()
+                    .capeCatalog().offline());
+            assertEquals(fixture.personalCapes(),
+                    runtime.snapshot().account().orElseThrow().personalCapes());
+            assertEquals(AppearanceProviders.initial(), runtime.snapshot().providers());
+            assertEquals(0, operations.applyCalls);
+        }
+    }
+
+    @Test
+    void delayedDuplicateReloadKeepsLatestSelectionAndRejectsStaleEditors() {
+        DuplicateFixture fixture = duplicateFixture(true, true);
+        FakeOperations operations = new FakeOperations();
+        operations.account = fixture.account();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        initializeQueuedRuntime(runtime, worker);
+
+        runtime.dispatchWidget("gallery.preset." + fixture.source().id() + ".duplicate");
+        UUID alternateId = fixture.alternate().orElseThrow().texture().entryId();
+        runtime.dispatchWidget("editor.cape_item.OFFLINE." + alternateId);
+        assertEquals(fixture.alternate().orElseThrow().texture(),
+                runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+        drainWorker(worker);
+        assertEquals(fixture.alternate().orElseThrow().texture(),
+                runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+        assertEquals(fixture.source().capeId(),
+                runtime.snapshot().editor().orElseThrow().capeCatalog().minecraft().orElseThrow());
+        assertEquals(fixture.source(), findPreset(runtime.snapshot(), fixture.source().id()));
+
+        runtime.dispatchWidget("editor.cape_item.OFFLINE.none");
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+        runtime.dispatchWidget("editor.cancel");
+
+        runtime.dispatchWidget(
+                "gallery.preset." + fixture.account().presets().get(0).id() + ".duplicate");
+        assertTrue(runtime.snapshot().editor().isPresent());
+        runtime.dispatchWidget("editor.cancel");
+        runtime.dispatchWidget(
+                "gallery.preset." + fixture.account().presets().get(0).id() + ".edit");
+        assertEquals(fixture.account().presets().get(0).id(),
+                runtime.snapshot().editor().orElseThrow().originalPresetId().orElseThrow());
+        drainWorker(worker);
+        assertEquals(fixture.account().presets().get(0).id(),
+                runtime.snapshot().editor().orElseThrow().originalPresetId().orElseThrow());
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+        assertEquals(fixture.source(), findPreset(runtime.snapshot(), fixture.source().id()));
+    }
+
+    @Test
+    void delayedDuplicateReloadKeepsExplicitNoCapeSelection() {
+        DuplicateFixture fixture = duplicateFixture(true, false);
+        FakeOperations operations = new FakeOperations();
+        operations.account = fixture.account();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        initializeQueuedRuntime(runtime, worker);
+
+        runtime.dispatchWidget("gallery.preset." + fixture.source().id() + ".duplicate");
+        runtime.dispatchWidget("editor.cape_item.OFFLINE.none");
+
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+        assertEquals(fixture.source().capeId(), runtime.snapshot().editor().orElseThrow()
+                .capeCatalog().minecraft().orElseThrow());
+        assertEquals(fixture.source(), findPreset(runtime.snapshot(), fixture.source().id()));
+
+        drainWorker(worker);
+
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+        assertEquals(fixture.source().capeId(), runtime.snapshot().editor().orElseThrow()
+                .capeCatalog().minecraft().orElseThrow());
+        assertEquals(fixture.source(), findPreset(runtime.snapshot(), fixture.source().id()));
+        assertEquals(fixture.personalCapes(),
+                runtime.snapshot().account().orElseThrow().personalCapes());
+        assertEquals(0, operations.applyCalls);
+    }
+
+    @Test
+    void duplicateResourceCapeRemapsWithoutMaterializingAndSaveReusesPersonalIdentity() {
+        DuplicateFixture fixture = duplicateFixture(true, false);
+        FakeOperations cancelOperations = new FakeOperations();
+        cancelOperations.account = fixture.account();
+        cancelOperations.capeEditorDataWarmed = true;
+        cancelOperations.resourceCapeCollections = List.of(resourceCapeCollection());
+        cancelOperations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        ClientRuntime cancelled = runtime(cancelOperations, Runnable::run, Optional.empty());
+        cancelled.initialize();
+        cancelled.dispatchWidget("gallery.preset." + fixture.source().id() + ".duplicate");
+        CapeCatalogModel remapped = cancelled.snapshot().editor().orElseThrow().capeCatalog();
+        assertTrue(remapped.selectedResource().isPresent());
+        assertNull(remapped.offline().entryId());
+        assertEquals(0, cancelOperations.resourceCapeMaterializations);
+        cancelled.dispatchWidget("editor.cancel");
+        assertEquals(0, cancelOperations.resourceCapeMaterializations);
+        assertEquals(fixture.personalCapes(),
+                cancelled.snapshot().account().orElseThrow().personalCapes());
+
+        FakeOperations saveOperations = new FakeOperations();
+        saveOperations.account = fixture.account();
+        saveOperations.capeEditorDataWarmed = true;
+        saveOperations.resourceCapeCollections = List.of(resourceCapeCollection());
+        saveOperations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        ClientRuntime saved = runtime(saveOperations, Runnable::run, Optional.empty());
+        saved.initialize();
+        saved.dispatchWidget("gallery.preset." + fixture.source().id() + ".duplicate");
+        saved.dispatchWidget("editor.save");
+
+        UUID duplicateId = saved.snapshot().selectedPresetId().orElseThrow();
+        assertNotEquals(fixture.source().id(), duplicateId);
+        assertEquals(fixture.offline(), findPreset(saved.snapshot(), duplicateId).offlineCape());
+        assertEquals(fixture.source(), findPreset(saved.snapshot(), fixture.source().id()));
+        assertEquals(fixture.personalCapes(),
+                saved.snapshot().account().orElseThrow().personalCapes());
+        assertEquals(1, saveOperations.resourceCapeMaterializations);
+    }
+
+    @Test
+    void duplicateMissingCapeReferenceIsClearedAndSaveFailureRetainsTheDraft() {
+        DuplicateFixture fixture = duplicateFixture(true, false);
+        AccountState accountWithoutCape = new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
+                fixture.account().accountId(),
+                fixture.account().skinAssets(),
+                fixture.account().personalSkins(),
+                fixture.account().presets(),
+                fixture.account().updatedAt());
+        FakeOperations missing = new FakeOperations();
+        missing.account = accountWithoutCape;
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(missing, worker, Optional.empty());
+        initializeQueuedRuntime(runtime, worker);
+        runtime.dispatchWidget("gallery.preset." + fixture.source().id() + ".duplicate");
+        assertEquals(fixture.offline(), runtime.snapshot().editor().orElseThrow()
+                .capeCatalog().offline());
+        drainWorker(worker);
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+        assertEquals(0, missing.applyCalls);
+
+        FakeOperations failed = new FakeOperations();
+        failed.account = fixture.account();
+        failed.failEditorSave = true;
+        ClientRuntime failedRuntime = runtime(failed, Runnable::run, Optional.empty());
+        failedRuntime.initialize();
+        failedRuntime.dispatchWidget("gallery.preset." + fixture.source().id() + ".duplicate");
+        failedRuntime.dispatchWidget("editor.save");
+        PresetEditorModel draft = failedRuntime.snapshot().editor().orElseThrow();
+        assertEquals(fixture.offline(), draft.capeCatalog().offline());
+        assertEquals(fixture.source(), findPreset(failedRuntime.snapshot(), fixture.source().id()));
+        assertEquals(fixture.account().presets().size(),
+                failedRuntime.snapshot().account().orElseThrow().presets().size());
+    }
+
+    @Test
     void explicitSessionRetryPublishesConnectingThenReturnsToOfflineOrClearsRecovery() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
@@ -431,106 +1439,36 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void longGallerySessionClassificationKeepsLocalControlsAndEscapeInteractive() {
+    void repeatedGalleryOpenKeepsLocalControlsWithoutSessionTasks() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
         operations.localFirst = true;
-        QueuedExecutor sessionWorker = new QueuedExecutor();
-        ClientRuntime runtime = new ClientRuntime(
-                operations,
-                CLIENT,
-                CANCELLED_PICKER,
-                Runnable::run,
-                Runnable::run,
-                sessionWorker,
-                TEXT,
-                Optional.empty(),
-                Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER,
-                DiagnosticSinks.discarding());
-
-        runtime.initialize();
-        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
-
-        assertFalse(runtime.snapshot().busy());
-        assertEquals(
-                ClientSnapshot.SessionActivity.CLASSIFYING,
-                runtime.snapshot().sessionActivity());
-        ViewSpec classifying = runtime.view(854, 480, 427, 180);
-        assertEquals(
-                UiMessage.info("nclskins.session.connecting"),
-                classifying.texts().stream()
-                        .filter(text -> text.id().equals("gallery.offline"))
-                        .findFirst()
-                        .orElseThrow()
-                        .message());
-        assertTrue(classifying.widget("gallery.retry_session").isEmpty());
-        assertTrue(classifying.widget("gallery.done").orElseThrow().enabled());
-        UUID presetId = operations.account.presets().get(0).id();
-        assertTrue(classifying.widget("gallery.preset." + presetId + ".apply")
-                .orElseThrow().enabled());
-        assertTrue(classifying.widget("gallery.preset." + presetId + ".edit")
-                .orElseThrow().enabled());
-        assertTrue(classifying.widget("gallery.preset." + presetId + ".duplicate")
-                .orElseThrow().enabled());
-        assertTrue(classifying.widget("gallery.preset." + presetId + ".delete")
-                .orElseThrow().enabled());
-
-        runtime.dispatchWidget("gallery.preset." + presetId + ".apply");
-        assertEquals(Optional.of(presetId), runtime.snapshot().activePresetId());
-        assertEquals(1, runtime.snapshot().intentRevision());
-        assertEquals(ClientSnapshot.SessionActivity.CLASSIFYING, runtime.snapshot().sessionActivity());
-
-        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
-        assertTrue(runtime.snapshot().editor().isPresent());
-        runtime.escapePressed();
-        assertTrue(runtime.snapshot().editor().isEmpty());
-        assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
-        runtime.escapePressed();
-        assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
-
-        sessionWorker.runFirst();
-        assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
-    }
-
-    @Test
-    void reopeningConfirmedOfflineGalleryShowsConnectingUntilFreshClassificationSettles() {
-        FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(1);
         operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
         QueuedExecutor sessionWorker = new QueuedExecutor();
-        ClientRuntime runtime = new ClientRuntime(
-                operations,
-                CLIENT,
-                CANCELLED_PICKER,
-                Runnable::run,
-                Runnable::run,
-                sessionWorker,
-                TEXT,
-                Optional.empty(),
-                Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER,
-                DiagnosticSinks.discarding());
-
-        runtime.initialize();
-        sessionWorker.runFirst();
-        assertTrue(runtime.view(854, 480, 427, 180)
-                .widget("gallery.retry_session").orElseThrow().enabled());
-
-        runtime.closeScreen();
-        runtime.reopen();
-
-        ViewSpec classifying = runtime.view(854, 480, 427, 180);
-        assertEquals(ClientSnapshot.SessionActivity.CLASSIFYING, runtime.snapshot().sessionActivity());
-        assertEquals(
-                UiMessage.info("nclskins.session.connecting"),
-                classifying.texts().stream()
-                        .filter(text -> text.id().equals("gallery.offline"))
-                        .findFirst()
-                        .orElseThrow()
-                        .message());
-        assertTrue(classifying.widget("gallery.retry_session").isEmpty());
-        assertTrue(classifying.widget("gallery.done").orElseThrow().enabled());
+        ClientRuntime runtime = new ClientRuntime(operations, CLIENT, CANCELLED_PICKER,
+                Runnable::run, Runnable::run, sessionWorker, TEXT, Optional.empty(), Optional.empty(),
+                IMMEDIATE_READINESS_SCHEDULER, DiagnosticSinks.discarding());
+        for (int attempt = 0; attempt < 5; attempt++) {
+            runtime.reopen();
+            assertFalse(runtime.snapshot().busy());
+            assertEquals(ClientSnapshot.SessionActivity.NONE, runtime.snapshot().sessionActivity());
+            ViewSpec view = runtime.view(854, 480, 427, 180);
+            assertEquals(UiMessage.info("nclskins.session.offline"), view.texts().stream()
+                    .filter(text -> text.id().equals("gallery.offline")).findFirst().orElseThrow().message());
+            assertTrue(view.widget("gallery.retry_session").orElseThrow().enabled());
+            UUID presetId = operations.account.presets().get(0).id();
+            for (String action : List.of("apply", "edit", "duplicate", "delete")) {
+                assertTrue(view.widget("gallery.preset." + presetId + "." + action).orElseThrow().enabled());
+            }
+            runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+            assertTrue(runtime.snapshot().editor().isPresent());
+            runtime.escapePressed();
+            runtime.escapePressed();
+            assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+            assertEquals(0, sessionWorker.size());
+        }
+        assertEquals(0, operations.reconciliationCalls);
+        assertEquals(0, operations.retrySessionCalls);
     }
 
     @Test
@@ -553,7 +1491,6 @@ final class ClientRuntimeTest {
                 IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
         runtime.initialize();
-        sessionWorker.runFirst();
 
         runtime.dispatchWidget("gallery.retry_session");
 
@@ -604,10 +1541,10 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void lateSessionClassificationCannotOverwriteAConcurrentLocalLibraryMutation() {
+    void lateExplicitSessionRefreshCannotOverwriteAConcurrentLocalLibraryMutation() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
-        operations.galleryInitialDataOverride = operations.initial();
+        operations.retryInitialDataOverride = operations.initial();
         QueuedExecutor sessionWorker = new QueuedExecutor();
         ClientRuntime runtime = new ClientRuntime(
                 operations,
@@ -621,7 +1558,10 @@ final class ClientRuntimeTest {
                 Optional.empty(),
                 IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
         runtime.initialize();
+        runtime.dispatchWidget("gallery.retry_session");
+        runtime.acknowledgeViewRendered(runtime.view(854, 480, 0, 0));
         UUID sourceId = operations.account.presets().get(0).id();
 
         runtime.dispatchWidget("gallery.preset." + sourceId + ".duplicate");
@@ -629,6 +1569,7 @@ final class ClientRuntimeTest {
         assertEquals(2, runtime.snapshot().account().orElseThrow().presets().size());
 
         sessionWorker.runFirst();
+        advanceTicks(runtime, 6);
 
         assertEquals(2, runtime.snapshot().account().orElseThrow().presets().size());
         assertEquals(2, operations.account.presets().size());
@@ -1092,6 +2033,34 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void personalSkinRenameKeepsActivationSeparateFromFocusedFieldSubmit() {
+        FakeOperations operations = new FakeOperations();
+        String hash = operations.seedPersonalSkin("Original name");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        runtime.dispatchWidget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ':' + hash);
+
+        runtime.dispatchText("add.catalog.rename.name", "Name with space");
+        ViewSpec rename = runtime.view(854, 480, 0, 0);
+        ViewSpec.Widget field = rename.widget("add.catalog.rename.name").orElseThrow();
+        assertEquals(Optional.of("add.catalog.rename.save"), field.submitActionId());
+        assertFalse(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.ACTIVATE, field.id()));
+        assertEquals("Original name", operations.account.personalSkins().get(0).displayName());
+        assertEquals(Optional.of("Name with space"), runtime.view(854, 480, 0, 0)
+                .widget(field.id()).orElseThrow().value());
+
+        String submit = ViewHostPolicy.submitAction(
+                rename, field.id(), true, "Name with space").orElseThrow();
+        runtime.dispatchWidget(submit, false, InteractionOrigin.KEYBOARD);
+        assertEquals("Name with space", operations.account.personalSkins().get(0).displayName());
+        assertTrue(runtime.view(854, 480, 0, 0).widget(field.id()).isEmpty());
+    }
+
+    @Test
     void personalCatalogModesResetAtWorkspaceBoundariesAndRemainMutuallyExclusive() {
         FakeOperations operations = new FakeOperations();
         String hash = operations.seedPersonalSkin("Workspace skin");
@@ -1440,6 +2409,7 @@ final class ClientRuntimeTest {
         runtime.view(320, 240, 0, 0);
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
         int maximum = runtime.snapshot().editor().orElseThrow().maximumCapeScroll(320, 240);
         assertTrue(maximum > 16);
 
@@ -1451,6 +2421,104 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("editor.cancel");
         runtime.nativeScrollPositionChanged("editor.capes", 0.0);
         assertTrue(runtime.snapshot().editor().isEmpty());
+    }
+
+    @Test
+    void runtimePropagatesTargetChromeIntoCapePaneSizing() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        operations.ownedCapes = capeInventory(5);
+        operations.session = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                (SessionFailureContext) null,
+                "offline");
+        ClientRuntime runtime = runtime(
+                operations,
+                () -> CompletableFuture.completedFuture(Optional.of(Path.of("cape.png"))));
+        ViewChromeMetrics targetChrome = new ViewChromeMetrics(38);
+        runtime.initialize();
+        runtime.view(427, 240, 0, 0, targetChrome);
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        ViewSpec skinCatalog = runtime.view(427, 240, 0, 0);
+        Bounds skinCard = skinCatalog.widget("add.catalog.skin:minecraft:steve").orElseThrow().bounds();
+        assertEquals(74, skinCard.width());
+        assertEquals(93, skinCard.height());
+
+        runtime.dispatchWidget("add.cancel");
+        UUID presetId = operations.account.presets().get(1).id();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+
+        ViewSpec initial = runtime.view(427, 240, 0, 0);
+        ViewSpec.ScrollSurface initialSurface = initial.scrollSurface("editor.capes").orElseThrow();
+        ViewSpec.NavigationNode selected = initial.navigationNode(
+                "editor.cape_item.MINECRAFT.cape-1").orElseThrow();
+        assertEquals(new Bounds(229, 68, 184, 139), initialSurface.viewport());
+        assertEquals(new Bounds(229, 91, 89, 93), selected.bounds());
+        assertEquals(336.0, initialSurface.maximumPixels(), 0.0);
+        assertEquals(246.0, initialSurface.offsetPixels(), 0.001);
+        assertTrue(initial.navigationNodes().stream()
+                .filter(node -> node.id().startsWith("editor.cape_item."))
+                .allMatch(node -> node.bounds().width() == 89 && node.bounds().height()
+                        == (node.id().startsWith("editor.cape_item.OFFLINE.") ? 116 : 93)));
+        assertTrue(selected.bounds().y() >= initialSurface.viewport().y());
+        assertTrue(selected.bounds().bottom() <= initialSurface.viewport().bottom());
+        assertEquals(initialSurface.viewport().y() + initialSurface.viewport().height() / 2.0,
+                selected.bounds().y() + selected.bounds().height() / 2.0, 1.0);
+        assertEquals(207, initial.panels().stream()
+                .filter(panel -> panel.id().equals("footer"))
+                .findFirst().orElseThrow().bounds().y());
+
+        runtime.nativeScrollPositionChanged("editor.capes", 0.0);
+        ViewSpec atTop = runtime.view(427, 240, 0, 0);
+        Bounds capeViewport = atTop.scrollSurface("editor.capes").orElseThrow().viewport();
+        runtime.pointerScrolled(
+                capeViewport.x() + capeViewport.width() / 2.0,
+                capeViewport.y() + capeViewport.height() / 2.0,
+                0.0,
+                -0.5);
+        ViewSpec afterWheel = runtime.view(427, 240, 0, 0);
+        assertEquals(16.0, afterWheel.scrollSurface("editor.capes").orElseThrow().offsetPixels(), 0.001);
+
+        runtime.nativeScrollPositionChanged(
+                "editor.capes", afterWheel.scrollSurface("editor.capes").orElseThrow().maximumPixels() + 100.0);
+        ViewSpec atEnd = runtime.view(427, 240, 0, 0);
+        assertEquals(atEnd.scrollSurface("editor.capes").orElseThrow().maximumPixels(),
+                atEnd.scrollSurface("editor.capes").orElseThrow().offsetPixels(), 0.0);
+
+        assertTrue(runtime.dispatchNavigation(
+                ViewSpec.NavigationCommand.DOWN, "editor.cape_item.MINECRAFT.cape-1"));
+        ViewSpec focused = runtime.view(427, 240, 0, 0);
+        assertEquals(Optional.of("editor.cape_item.MINECRAFT.cape-3"),
+                focused.focusRequest().map(ViewSpec.FocusRequest::widgetId));
+        assertTrue(focused.navigationNode("editor.cape_item.MINECRAFT.cape-3").orElseThrow()
+                .bounds().bottom() <= focused.scrollSurface("editor.capes").orElseThrow().viewport().bottom());
+
+        runtime.dispatchWidget("editor.cape_disclosure");
+        ViewSpec collapsed = runtime.view(427, 240, 0, 0);
+        assertEquals(0.0, collapsed.scrollSurface("editor.capes").orElseThrow().maximumPixels(), 0.0);
+        runtime.dispatchWidget("editor.cape_disclosure");
+        ViewSpec expanded = runtime.view(427, 240, 0, 0);
+        assertTrue(expanded.scrollSurface("editor.capes").orElseThrow().maximumPixels() > 0.0);
+
+        runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+        UUID importedId = operations.account.personalCapes().get(0).texture().entryId();
+        assertEquals(TestFixtures.ACCOUNT_ID, operations.capeImportAccount);
+        ViewSpec imported = runtime.view(427, 240, 0, 0);
+        assertEquals(89, imported.widget("editor.cape_item.OFFLINE." + importedId).orElseThrow()
+                .bounds().width());
+        assertEquals(116, imported.widget("editor.cape_item.OFFLINE." + importedId).orElseThrow()
+                .bounds().height());
+
+        runtime.dispatchWidget("editor.cape_action.delete." + importedId);
+        runtime.dispatchWidget("editor.cape_action.confirm." + importedId);
+        ViewSpec deleted = runtime.view(427, 240, 0, 0);
+        assertTrue(deleted.widget("editor.cape_item.OFFLINE." + importedId).isEmpty());
+        assertEquals(116, deleted.navigationNode("editor.cape_item.OFFLINE.none").orElseThrow()
+                .bounds().height());
     }
 
     @Test
@@ -1469,17 +2537,20 @@ final class ClientRuntimeTest {
         runtime.view(320, 240, 0, 0);
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
         ViewSpec start = runtime.view(320, 240, 0, 0);
         assertEquals(0.0, start.scrollSurface("editor.capes").orElseThrow().offsetPixels());
 
         assertTrue(runtime.dispatchNavigation(
-                ViewSpec.NavigationCommand.DOWN, "editor.cape_choice.3"));
+                ViewSpec.NavigationCommand.DOWN, "editor.cape_item.MINECRAFT.cape-2"));
 
         ViewSpec scrolled = runtime.view(320, 240, 0, 0);
         assertTrue(scrolled.scrollSurface("editor.capes").orElseThrow().offsetPixels() > 0.0);
-        assertEquals(Optional.of("editor.cape_choice.5"),
+        assertEquals(Optional.of("editor.cape_item.MINECRAFT.cape-4"),
                 scrolled.focusRequest().map(ViewSpec.FocusRequest::widgetId));
-        assertTrue(scrolled.widget("editor.cape_choice.5").isPresent());
+        assertTrue(scrolled.widget("editor.cape_item.MINECRAFT.cape-4").isPresent());
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "editor.cape_item.MINECRAFT.cape-4"));
+        assertEquals(Optional.of("cape-4"), runtime.snapshot().editor().orElseThrow().capeCatalog().previewCape());
     }
 
     @Test
@@ -1806,6 +2877,28 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void invalidFileImportShowsDismissibleFormatFeedbackAndKeepsEditorClosed(@TempDir Path directory) throws Exception {
+        Path selected = Files.write(directory.resolve("invalid.png"), new byte[]{1, 2, 3});
+        ClientRuntime runtime = runtime(new FakeOperations(),
+                () -> CompletableFuture.completedFuture(Optional.of(selected)));
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.file");
+        runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals("nclskins.error.png", runtime.snapshot().status().key());
+        runtime.view(854, 480, 0, 0);
+        assertEquals("nclskins.error.png", runtime.snapshot().status().key());
+        runtime.pointerPressed(850, 470, 0);
+        assertEquals(UiMessage.Severity.INFO, runtime.snapshot().status().severity());
+        Files.delete(selected);
+        runtime.dispatchWidget("add.file.choose");
+        assertEquals("nclskins.add_source.file_io_error", runtime.snapshot().status().key());
+        runtime.dispatchText("add.player.input", "Player");
+        assertEquals(UiMessage.Severity.INFO, runtime.snapshot().status().severity());
+    }
+
+    @Test
     void fileImportDetectsVariantAndManualOverrideRemainsAvailable(@TempDir Path directory)
             throws Exception {
         FakeOperations operations = new FakeOperations();
@@ -1822,11 +2915,11 @@ final class ClientRuntimeTest {
         assertEquals(SkinVariant.SLIM, editor.variant());
         assertEquals(SkinVariant.SLIM, editor.saveRequest().initialVariant());
         assertEquals(Optional.of(SkinVariant.SLIM), operations.uiPreferences.preferredSkinVariant());
-        assertTrue(runtime.view(854, 480, 0, 0).widget("editor.model").orElseThrow().enabled());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("editor.model_choice.classic").orElseThrow().enabled());
         assertTrue(runtime.view(854, 480, 0, 0).texts().stream()
                 .noneMatch(text -> text.id().equals("editor.status")));
 
-        runtime.dispatchWidget("editor.model");
+        runtime.dispatchWidget("editor.model_choice.classic");
 
         assertEquals(SkinVariant.CLASSIC, runtime.snapshot().editor().orElseThrow().variant());
         assertEquals(Optional.of(SkinVariant.CLASSIC), operations.uiPreferences.preferredSkinVariant());
@@ -2217,6 +3310,7 @@ final class ClientRuntimeTest {
 
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
         PresetEditorModel editorModel = runtime.snapshot().editor().orElseThrow();
         int narrowCapeMaximum = editorModel.maximumCapeScroll(320, 240);
         int expandedCapeMaximum = editorModel.maximumCapeScroll(854, 480);
@@ -2502,6 +3596,10 @@ final class ClientRuntimeTest {
         assertEquals(Optional.of(third), runtime.snapshot().activePresetId());
         assertEquals(3, runtime.snapshot().intentRevision());
         assertEquals(1.0, runtime.snapshot().rateLimitProgress().orElseThrow().fraction());
+        ViewSpec latestGallery = runtime.view(854, 480, 0, 0);
+        assertTrue(latestGallery.progressDecorations().stream().anyMatch(progress ->
+                progress.ownerWidgetId().equals("gallery.preset." + third + ".apply")));
+        assertTrue(latestGallery.widget("gallery.preset." + third + ".apply").orElseThrow().hint().isPresent());
 
         operations.rateLimitRemaining = Duration.ofSeconds(30);
         runtime.tick();
@@ -3150,6 +4248,415 @@ final class ClientRuntimeTest {
         assertFalse(runtime.snapshot().status().key().contains("sensitive"));
     }
 
+    @Test
+    void capeImportErrorIsTypedTransientAndCancelKeepsSuccessfulImport() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.capeImportFailure = new com.naocraftlab.skins.core.png.PngValidationException(
+                com.naocraftlab.skins.core.png.PngValidationException.Reason.UNSUPPORTED_DIMENSIONS, "fixture");
+        ClientRuntime runtime = runtime(operations, () -> CompletableFuture.completedFuture(Optional.of(Path.of("cape.png"))));
+        runtime.initialize(); runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+        assertTrue(runtime.snapshot().editor().orElseThrow().capeCatalog().formatError());
+        assertFalse(runtime.snapshot().editor().orElseThrow().busy());
+        assertTrue(runtime.view(320, 240, 0, 0).texts().stream().anyMatch(text -> text.id().equals("editor.cape_error") && text.layout() == ViewSpec.Text.Layout.WRAP));
+        runtime.view(320, 240, 20, 20);
+        assertTrue(runtime.snapshot().editor().orElseThrow().capeCatalog().formatError());
+        runtime.dispatchWidget("editor.cape_filter");
+        assertFalse(runtime.snapshot().editor().orElseThrow().capeCatalog().formatError());
+        operations.capeImportFailure = null;
+        runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+        assertEquals(TestFixtures.ACCOUNT_ID, operations.capeImportAccount);
+        var imported = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        assertEquals(0, imported.filter());
+        assertTrue(imported.inspected().local() != null);
+        runtime.dispatchWidget("editor.cancel");
+        assertEquals(1, operations.account.personalCapes().size());
+    }
+
+    @Test
+    void cancelledCapePickerPublishesUnlockedEditorImmediately() {
+        FakeOperations operations = new FakeOperations(); operations.account = TestFixtures.account(1);
+        CompletableFuture<Optional<Path>> picker = new CompletableFuture<>();
+        ClientRuntime runtime = runtime(operations, () -> picker);
+        runtime.initialize(); runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape"); runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+        assertTrue(runtime.snapshot().busy());
+        picker.complete(Optional.empty());
+        assertFalse(runtime.snapshot().busy());
+        assertFalse(runtime.snapshot().editor().orElseThrow().busy());
+        assertTrue(runtime.snapshot().editor().orElseThrow().status().isEmpty());
+    }
+
+    @Test
+    void capeRenameWithMouseFocusesInputAndTabVisitsToolbarBeforeList() {
+        FakeOperations operations = new FakeOperations(); operations.account = TestFixtures.account(1);
+        ClientRuntime runtime = runtime(operations, () -> CompletableFuture.completedFuture(Optional.of(Path.of("cape.png"))));
+        runtime.initialize(); runtime.view(854, 480, 0, 0);
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        String[] order = {"editor.tab.cape", "editor.cape_search", "editor.cape_filter", "editor.cape_disclosure", "editor.cape_header.OFFLINE"};
+        for (int index = 1; index < order.length; index++) {
+            assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, order[index - 1]));
+            assertEquals(order[index], runtime.view(854, 480, 0, 0).focusRequest().orElseThrow().widgetId());
+        }
+        runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+        String key = operations.account.personalCapes().get(0).texture().entryId().toString();
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, "editor.cape_item.OFFLINE." + key));
+        assertEquals("editor.cape_action.rename." + key, runtime.view(854, 480, 0, 0).focusRequest().orElseThrow().widgetId());
+        runtime.dispatchWidget("editor.cape_action.rename." + key);
+        assertEquals("editor.cape_action.name", runtime.view(854, 480, 0, 0).focusRequest().orElseThrow().widgetId());
+    }
+
+    @Test
+    void capeRenameSaveButtonAndFocusedFieldSubmitDispatchTheSameAction() throws Exception {
+        FakeOperations pointerOperations = new FakeOperations();
+        pointerOperations.account = TestFixtures.account(1);
+        pointerOperations.importCape(TestFixtures.ACCOUNT_ID, Path.of("cape.png"), "Cape");
+        ClientRuntime pointerRuntime = runtime(pointerOperations, CANCELLED_PICKER);
+        pointerRuntime.initialize();
+        pointerRuntime.view(854, 480, 0, 0);
+        UUID presetId = pointerOperations.account.presets().get(0).id();
+        UUID entryId = pointerOperations.account.personalCapes().get(0).texture().entryId();
+        pointerRuntime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        pointerRuntime.dispatchWidget("editor.tab.cape");
+        pointerRuntime.dispatchWidget("editor.cape_action.rename." + entryId);
+        pointerRuntime.dispatchText("editor.cape_action.name", "Pointer name");
+        ViewSpec pointerView = pointerRuntime.view(854, 480, 0, 0);
+        ViewSpec.Widget save = pointerView.widget("editor.cape_action.save." + entryId).orElseThrow();
+        assertEquals(Optional.of(save.id()), ViewHostPolicy.inlineCapePointerActionAt(
+                pointerView, save.bounds().x() + 1, save.bounds().y() + 1));
+        pointerRuntime.dispatchWidget(save.id(), false, InteractionOrigin.POINTER);
+        assertEquals("Pointer name", pointerOperations.account.personalCapes().get(0).name());
+        assertNull(pointerRuntime.snapshot().editor().orElseThrow().capeCatalog().editing());
+
+        FakeOperations keyboardOperations = new FakeOperations();
+        keyboardOperations.account = TestFixtures.account(1);
+        keyboardOperations.importCape(TestFixtures.ACCOUNT_ID, Path.of("cape.png"), "Cape");
+        ClientRuntime keyboardRuntime = runtime(keyboardOperations, CANCELLED_PICKER);
+        keyboardRuntime.initialize();
+        keyboardRuntime.view(854, 480, 0, 0);
+        UUID keyboardPresetId = keyboardOperations.account.presets().get(0).id();
+        UUID keyboardEntryId = keyboardOperations.account.personalCapes().get(0).texture().entryId();
+        String originalKeyboardName = keyboardOperations.account.personalCapes().get(0).name();
+        keyboardRuntime.dispatchWidget("gallery.preset." + keyboardPresetId + ".edit");
+        keyboardRuntime.dispatchWidget("editor.tab.cape");
+        keyboardRuntime.dispatchWidget("editor.cape_action.rename." + keyboardEntryId);
+        keyboardRuntime.dispatchText("editor.cape_action.name", "Keyboard name");
+        ViewSpec keyboardView = keyboardRuntime.view(854, 480, 0, 0);
+        ViewSpec.Widget field = keyboardView.widget("editor.cape_action.name").orElseThrow();
+        String submit = ViewHostPolicy.submitAction(
+                keyboardView, field.id(), true, "Keyboard name").orElseThrow();
+        assertEquals("editor.cape_action.save." + keyboardEntryId, submit);
+        assertFalse(keyboardRuntime.dispatchNavigation(
+                ViewSpec.NavigationCommand.ACTIVATE, field.id()));
+        assertEquals(originalKeyboardName, keyboardOperations.account.personalCapes().get(0).name());
+        assertEquals(keyboardEntryId,
+                keyboardRuntime.snapshot().editor().orElseThrow().capeCatalog().editing());
+
+        keyboardRuntime.dispatchText(field.id(), "Keyboard name with space");
+        assertEquals(Optional.of("Keyboard name with space"),
+                keyboardRuntime.view(854, 480, 0, 0).widget(field.id()).orElseThrow().value());
+        keyboardRuntime.dispatchWidget(submit, false, InteractionOrigin.KEYBOARD);
+        assertEquals("Keyboard name with space", keyboardOperations.account.personalCapes().get(0).name());
+        assertNull(keyboardRuntime.snapshot().editor().orElseThrow().capeCatalog().editing());
+    }
+
+    @Test
+    void capeTabTraversesCollectionContentsAndReturnsFromFooter() throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.importCape(TestFixtures.ACCOUNT_ID, Path.of("cape.png"), "Cape");
+        ClientRuntime runtime = runtime(operations, CANCELLED_PICKER);
+        runtime.initialize();
+        runtime.view(854, 480, 0, 0);
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        ViewSpec view = runtime.view(854, 480, 0, 0);
+        List<String> contents = view.widgets().stream()
+                .filter(widget -> widget.id().startsWith("editor.cape_header.")
+                        || widget.id().startsWith("editor.cape_item.")
+                        || widget.id().startsWith("editor.cape_action."))
+                .filter(ViewSpec.Widget::enabled)
+                .map(ViewSpec.Widget::id).toList();
+        assertTrue(contents.size() >= 6);
+        CapeCatalogModel selectedBefore = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        for (int index = 1; index < contents.size(); index++) {
+            assertEquals(contents.get(index), ViewNavigationPolicy.target(
+                    view, contents.get(index - 1), ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
+            assertEquals(contents.get(index - 1), ViewNavigationPolicy.target(
+                    view, contents.get(index), ViewSpec.NavigationCommand.TAB_BACKWARD).orElseThrow().id());
+        }
+        String last = contents.get(contents.size() - 1);
+        String outside = ViewNavigationPolicy.target(view, last,
+                ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id();
+        assertFalse(contents.contains(outside));
+        assertEquals(last, ViewNavigationPolicy.target(view, outside,
+                ViewSpec.NavigationCommand.TAB_BACKWARD).orElseThrow().id());
+        assertEquals(selectedBefore, runtime.snapshot().editor().orElseThrow().capeCatalog());
+    }
+
+    @Test
+    void capeTabMaterializesEveryOffscreenCardAndActionWithoutSelectingCape() {
+        FakeOperations operations = new FakeOperations();
+        List<PersonalCapeEntry> capes = java.util.stream.IntStream.range(1, 13)
+                .mapToObj(index -> new PersonalCapeEntry(
+                        new LocalCapeReference(new UUID(0, index), String.format("%064x", index), false),
+                        String.format("%064x", index), "Cape " + index, Instant.EPOCH)).toList();
+        operations.account = TestFixtures.account(1).withPersonalCapes(capes);
+        ClientRuntime runtime = runtime(operations, CANCELLED_PICKER);
+        runtime.initialize();
+        runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        ViewSpec initial = runtime.view(320, 240, 0, 0);
+        CapeCatalogModel before = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        List<String> order = initial.navigationNodes().stream().filter(ViewSpec.NavigationNode::enabled)
+                .filter(node -> node.surfaceId().filter("editor.capes"::equals).isPresent())
+                .sorted(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder))
+                .map(ViewSpec.NavigationNode::id).toList();
+        assertTrue(order.stream().anyMatch(id -> initial.widget(id).isEmpty()));
+        String focus = "editor.cape_disclosure";
+        for (String expected : order) {
+            assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, focus));
+            ViewSpec view = runtime.view(320, 240, 0, 0);
+            assertEquals(expected, view.focusRequest().orElseThrow().widgetId());
+            assertTrue(view.widget(expected).isPresent(), expected);
+            assertTrue(ViewNavigationPolicy.ensureVisibleOffset(view, view.navigationNode(expected).orElseThrow()).isEmpty());
+            focus = expected;
+        }
+        ViewSpec scrolled = runtime.view(320, 240, 0, 0);
+        Bounds viewport = scrolled.scrollSurface("editor.capes").orElseThrow().viewport();
+        String visibleEntry = scrolled.navigationNodes().stream().filter(ViewSpec.NavigationNode::enabled)
+                .filter(node -> node.surfaceId().filter("editor.capes"::equals).isPresent())
+                .filter(node -> node.pattern() == ViewSpec.NavigationPattern.GRID)
+                .filter(node -> node.bounds().bottom() > viewport.y() && node.bounds().y() < viewport.bottom())
+                .min(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder)).orElseThrow().id();
+        runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, "editor.cape_disclosure");
+        assertEquals(visibleEntry, runtime.view(320, 240, 0, 0).focusRequest().orElseThrow().widgetId());
+        for (int index = order.size() - 2; index >= 0; index--) {
+            assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_BACKWARD, focus));
+            ViewSpec view = runtime.view(320, 240, 0, 0);
+            assertEquals(order.get(index), view.focusRequest().orElseThrow().widgetId());
+            assertTrue(view.widget(order.get(index)).isPresent());
+            focus = order.get(index);
+        }
+        assertEquals(before, runtime.snapshot().editor().orElseThrow().capeCatalog());
+    }
+
+    @Test
+    void reopeningEditorReloadsAccountCapeCatalog() throws Exception {
+        FakeOperations operations = new FakeOperations(); operations.account = TestFixtures.account(1);
+        ClientRuntime runtime = runtime(operations, () -> CompletableFuture.completedFuture(Optional.empty()));
+        runtime.initialize(); runtime.view(854, 480, 0, 0);
+        operations.importCape(TestFixtures.ACCOUNT_ID, Path.of("cape.png"), "Cape");
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        assertEquals(1, runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream().filter(card -> card.local() != null).count());
+    }
+
+    @Test
+    void lateCapePickerCompletionAfterScreenCloseDoesNotImport() {
+        FakeOperations operations = new FakeOperations(); operations.account = TestFixtures.account(1);
+        CompletableFuture<Optional<Path>> picker = new CompletableFuture<>();
+        ClientRuntime runtime = runtime(operations, () -> picker);
+        runtime.initialize(); runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape"); runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+        runtime.closeScreen(); picker.complete(Optional.of(Path.of("cape.png")));
+        assertTrue(operations.account.personalCapes().isEmpty());
+        assertNull(operations.capeImportAccount);
+    }
+
+    @Test
+    void resourceCapeSelectionIsOfflineOnlyAndCancelDoesNotMaterializeIt() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        ClientRuntime runtime = runtime(operations, CANCELLED_PICKER);
+        runtime.initialize();
+        runtime.view(854, 480, 0, 0);
+        AppearancePreset original = operations.account.presets().get(0);
+
+        runtime.dispatchWidget("gallery.preset." + original.id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        runtime.dispatchWidget("editor.cape_item.RESOURCE.event.hero");
+
+        var draft = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        assertEquals("event", draft.selectedResource().orElseThrow().collectionId());
+        assertTrue(operations.account.personalCapes().isEmpty());
+        assertEquals(0, operations.resourceCapeMaterializations);
+        assertEquals(original.capeId(), operations.account.presets().get(0).capeId());
+
+        runtime.dispatchWidget("editor.cancel");
+        assertEquals(0, operations.resourceCapeMaterializations);
+        assertTrue(operations.account.personalCapes().isEmpty());
+        assertEquals(original.capeId(), operations.account.presets().get(0).capeId());
+    }
+
+    @Test
+    void matchingFileImportSelectsResourceOwnerAndHidesPersonalDuplicate() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        ClientRuntime runtime = runtime(operations,
+                () -> CompletableFuture.completedFuture(Optional.of(Path.of("hero.png"))));
+        runtime.initialize();
+        runtime.view(854, 480, 0, 0);
+
+        runtime.dispatchWidget(
+                "gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+
+        CapeCatalogModel catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        assertEquals("event", catalog.selectedResource().orElseThrow().collectionId());
+        assertTrue(operations.account.personalCapes().isEmpty());
+        assertTrue(catalog.cards().stream().noneMatch(card ->
+                card.local() != null && card.local().entryId() != null));
+        assertEquals(0, catalog.query().length());
+        assertFalse(catalog.collapsed().contains("resource:event"));
+    }
+
+    @Test
+    void deletingSelectedPersonalCapeImmediatelySelectsNoCapeAndUnlocksOtherCards() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        var selected = new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                new com.naocraftlab.skins.core.model.LocalCapeReference(
+                        new UUID(7, 1), "a".repeat(64), false),
+                "b".repeat(64), "Selected", Instant.EPOCH);
+        var other = new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                new com.naocraftlab.skins.core.model.LocalCapeReference(
+                        new UUID(7, 2), "c".repeat(64), false),
+                "d".repeat(64), "Other", Instant.EPOCH);
+        AppearancePreset preset = operations.account.presets().get(0)
+                .withOfflineCape(selected.texture());
+        operations.account = new AccountState(
+                AccountState.CURRENT_SCHEMA_VERSION,
+                operations.account.accountId(),
+                operations.account.skinAssets(),
+                operations.account.personalSkins(),
+                List.of(preset),
+                operations.account.updatedAt(),
+                List.of(selected, other));
+
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.preset." + preset.id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        runtime.dispatchWidget("editor.cape_action.delete." + selected.texture().entryId());
+        runtime.dispatchWidget("editor.cape_action.confirm." + selected.texture().entryId());
+
+        CapeCatalogModel catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+        assertNull(catalog.offline());
+        assertNull(catalog.editing());
+        assertFalse(catalog.deleting());
+        assertTrue(catalog.selected(catalog.cards().stream()
+                .filter(card -> card.collectionId().equals("OFFLINE"))
+                .filter(card -> card.key().equals("none"))
+                .findFirst().orElseThrow()));
+        assertTrue(runtime.view(854, 480, 0, 0)
+                .widget("editor.cape_action.delete." + other.texture().entryId())
+                .orElseThrow().enabled());
+    }
+
+    @Test
+    void resourceCapeSaveMaterializesBeforePresetAndRetryDeduplicatesAfterSaveFailure() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        operations.failEditorSave = true;
+        ClientRuntime runtime = runtime(operations, CANCELLED_PICKER);
+        runtime.initialize();
+        runtime.view(854, 480, 0, 0);
+        UUID presetId = operations.account.presets().get(0).id();
+
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        runtime.dispatchWidget("editor.cape_item.RESOURCE.event.hero");
+        runtime.dispatchWidget("editor.save");
+
+        assertEquals(1, operations.resourceCapeMaterializations);
+        assertEquals(1, operations.account.personalCapes().size());
+        assertTrue(runtime.snapshot().editor().isPresent());
+        operations.failEditorSave = false;
+        runtime.dispatchWidget("editor.save");
+
+        assertEquals(2, operations.resourceCapeMaterializations);
+        assertEquals(1, operations.account.personalCapes().size());
+        assertEquals(operations.account.personalCapes().get(0).texture(),
+                operations.lastEditorSaveRequest.offlineCape());
+        assertTrue(runtime.snapshot().editor().isEmpty());
+    }
+
+    private record DuplicateFixture(
+            AccountState account,
+            AppearancePreset source,
+            LocalCapeReference offline,
+            List<PersonalCapeEntry> personalCapes,
+            Optional<PersonalCapeEntry> alternate) {}
+
+    private static DuplicateFixture duplicateFixture(boolean withCape, boolean withAlternate) {
+        AccountState base = TestFixtures.account(2);
+        AppearancePreset basePreset = base.presets().get(1);
+        LocalCapeReference offline = withCape
+                ? new LocalCapeReference(new UUID(7, 1), "a".repeat(64), false)
+                : null;
+        AppearancePreset source = new AppearancePreset(
+                basePreset.id(),
+                basePreset.name(),
+                basePreset.skin(),
+                "minecraft-cape",
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible()
+                        .with(OuterLayerPart.HEAD, false),
+                basePreset.createdAt(),
+                basePreset.updatedAt(),
+                offline);
+        List<PersonalCapeEntry> personalCapes = withCape
+                ? new ArrayList<>(List.of(new PersonalCapeEntry(
+                        offline, "b".repeat(64), "Saved cape", Instant.EPOCH)))
+                : new ArrayList<>();
+        Optional<PersonalCapeEntry> alternate = Optional.empty();
+        if (withAlternate) {
+            PersonalCapeEntry other = new PersonalCapeEntry(
+                    new LocalCapeReference(new UUID(7, 2), "c".repeat(64), true),
+                    "d".repeat(64), "Other cape", Instant.EPOCH);
+            personalCapes.add(other);
+            alternate = Optional.of(other);
+        }
+        return new DuplicateFixture(
+                new AccountState(
+                        AccountState.CURRENT_SCHEMA_VERSION,
+                        base.accountId(),
+                        base.skinAssets(),
+                        base.personalSkins(),
+                        List.of(base.presets().get(0), source),
+                        base.updatedAt(),
+                        List.copyOf(personalCapes)),
+                source,
+                offline,
+                List.copyOf(personalCapes),
+                alternate);
+    }
+
+    private static CapeCatalogSource.CollectionDescriptor resourceCapeCollection() {
+        return new CapeCatalogSource.CollectionDescriptor(
+                "event", CatalogText.literal("Event"), Optional.empty(), Optional.empty(),
+                List.of(new CapeCatalogSource.CapeDescriptor(
+                        "hero", CatalogText.literal("Hero"), Optional.empty(), Optional.empty(),
+                        "b".repeat(64), CapeCatalogSource.RenderSupport.CAPE_ONLY)),
+                CatalogCollectionOrder.resourcePack("fixture", 0));
+    }
+
     private static OwnedCapeInventory capeInventory(int count) {
         List<OwnedCapeEntry> capes = java.util.stream.IntStream.range(0, count)
                 .mapToObj(index -> new OwnedCapeEntry(
@@ -3332,6 +4839,127 @@ final class ClientRuntimeTest {
     }
 
     private static final class FakeOperations implements ClientOperations {
+        private Exception capeImportFailure;
+        private UUID capeImportAccount;
+        private List<CapeCatalogSource.CollectionDescriptor> resourceCapeCollections = List.of();
+        private Map<ResourceCapeKey, String> resourceCapeHashes = Map.of();
+        private long resourceCapeGeneration = 1;
+        private int resourceCapeMaterializations;
+        private int capeCatalogGenerationCalls;
+        private int resourceCapeCatalogWarmups;
+        private int capeCatalogWarmups;
+        private boolean capeEditorDataWarmed;
+        private EditorSaveRequest lastEditorSaveRequest;
+
+        @Override
+        public CapeEditorData loadCapeEditorData(UUID accountId) {
+            return new CapeEditorData(
+                    account, resourceCapeCollections, resourceCapeHashes, resourceCapeGeneration);
+        }
+
+        @Override
+        public Optional<CapeEditorData> warmedCapeEditorData(UUID accountId) {
+            return capeEditorDataWarmed ? Optional.of(loadCapeEditorData(accountId)) : Optional.empty();
+        }
+
+        @Override
+        public long capeCatalogGeneration() {
+            capeCatalogGenerationCalls++;
+            return resourceCapeGeneration;
+        }
+
+        @Override
+        public void warmResourceCapeCatalog(long generation) {
+            resourceCapeCatalogWarmups++;
+        }
+
+        @Override
+        public void warmCapeCatalog(UUID accountId, long generation) {
+            capeCatalogWarmups++;
+        }
+
+        @Override
+        public Optional<byte[]> loadResourceCapePreview(
+                UUID accountId, ResourceCapeSelection selection) {
+            return Optional.of(skinPng());
+        }
+
+        @Override
+        public com.naocraftlab.skins.core.model.PersonalCapeEntry materializeResourceCape(
+                UUID accountId, ResourceCapeSelection selection) {
+            resourceCapeMaterializations++;
+            var existing = account.personalCapes().stream()
+                    .filter(entry -> entry.renderSha256().equals(selection.contentIdentity()))
+                    .findFirst();
+            if (existing.isPresent()) {
+                return existing.orElseThrow();
+            }
+            var entry = new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                    new com.naocraftlab.skins.core.model.LocalCapeReference(
+                            new UUID(9, 1), selection.sourceSha256(), selection.hasElytra()),
+                    selection.contentIdentity(), selection.displayName(), Instant.EPOCH);
+            account = account.withPersonalCapes(append(account.personalCapes(), entry));
+            return entry;
+        }
+
+        @Override
+        public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(UUID accountId, Path path, String fallback) throws Exception {
+            capeImportAccount = accountId;
+            if (capeImportFailure != null) throw capeImportFailure;
+            var entry = new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                    new com.naocraftlab.skins.core.model.LocalCapeReference(new UUID(3, 1), "a".repeat(64), false),
+                    "b".repeat(64), "Personal cape", Instant.EPOCH);
+            account = account.withPersonalCapes(List.of(entry));
+            return entry;
+        }
+
+        @Override
+        public AccountState renameCape(UUID accountId, UUID entryId, String name) {
+            account = account.withPersonalCapes(account.personalCapes().stream()
+                    .map(entry -> entry.texture().entryId().equals(entryId)
+                            ? entry.renamed(name)
+                            : entry)
+                    .toList());
+            return account;
+        }
+
+        @Override
+        public Optional<AccountState> discardCapeIfUnreferenced(UUID accountId, UUID entryId) {
+            boolean referenced = account.presets().stream()
+                    .map(AppearancePreset::offlineCape)
+                    .filter(java.util.Objects::nonNull)
+                    .anyMatch(reference -> entryId.equals(reference.entryId()));
+            if (!referenced) {
+                account = account.withPersonalCapes(account.personalCapes().stream()
+                        .filter(entry -> !entryId.equals(entry.texture().entryId()))
+                        .toList());
+            }
+            return Optional.of(account);
+        }
+
+        @Override
+        public CapeDeletion deleteCape(UUID accountId, UUID entryId) {
+            account = new AccountState(
+                    AccountState.CURRENT_SCHEMA_VERSION,
+                    account.accountId(),
+                    account.skinAssets(),
+                    account.personalSkins(),
+                    account.presets().stream()
+                            .map(preset -> preset.offlineCape() != null
+                                    && entryId.equals(preset.offlineCape().entryId())
+                                            ? preset.withOfflineCape(null)
+                                            : preset)
+                            .toList(),
+                    account.updatedAt().plusNanos(1),
+                    account.personalCapes().stream()
+                            .filter(entry -> !entryId.equals(entry.texture().entryId()))
+                            .toList());
+            return new CapeDeletion(account, providerState());
+        }
+
+        @Override
+        public Optional<AccountState> reloadEditorAccount(UUID accountId) { return Optional.of(account); }
+
         private AccountState account = TestFixtures.account(0);
         private OwnedCapeInventory ownedCapes = OwnedCapeInventory.empty(
                 TestFixtures.ACCOUNT_ID, Instant.EPOCH);
@@ -3383,7 +5011,7 @@ final class ClientRuntimeTest {
         private SkinVariant urlImportVariant = SkinVariant.CLASSIC;
         private int playerImportCalls;
         private Optional<InitialData> warmedInitialData = Optional.empty();
-        private InitialData galleryInitialDataOverride;
+        private InitialData retryInitialDataOverride;
         private Exception externalImportFailure;
         private ExternalImportResult externalImportResult;
         private boolean externalSourceAvailable = true;
@@ -3392,6 +5020,39 @@ final class ClientRuntimeTest {
         private int externalCommitCalls;
         private ExternalImportSource lastExternalSource;
         private Optional<Path> lastExternalRoot = Optional.empty();
+
+        private AppearanceSyncStatus selectionStatus = AppearanceSyncStatus.PENDING;
+        private boolean settledActiveSave;
+        private AppearanceProviders providers = AppearanceProviders.initial();
+        private AppearanceProviders.Component providerRefresh;
+
+        @Override public DurableAppearance reloadProviders() { return providerState(); }
+        @Override public AppearanceProviders loadProviders() { return providers; }
+
+        private DurableAppearance providerState() {
+            return new DurableAppearance(account.accountId(), appearanceRevision, appearanceSyncStatus,
+                    activePresetId, Optional.empty(), Optional.empty(), providers);
+        }
+
+        @Override public DurableAppearance enableProvider(AppearanceProviders.Component component, BuiltinProvider provider) {
+            providers = providers.enable(component, provider);
+            return providerState();
+        }
+
+        @Override public DurableAppearance disableProvider(AppearanceProviders.Component component, BuiltinProvider provider) {
+            providers = providers.disable(component, provider);
+            return providerState();
+        }
+
+        @Override public DurableAppearance moveProvider(AppearanceProviders.Component component, BuiltinProvider provider, int direction) {
+            providers = providers.move(component, provider, direction);
+            return providerState();
+        }
+
+        @Override public DurableAppearance refreshProviders(AppearanceProviders.Component component) {
+            providerRefresh = component;
+            return providerState();
+        }
 
         @Override
         public void verifyStorageAccess() {
@@ -3404,13 +5065,6 @@ final class ClientRuntimeTest {
         @Override
         public InitialData initialize() {
             return initial();
-        }
-
-        @Override
-        public InitialData initializeForGallery() {
-            return galleryInitialDataOverride == null
-                    ? initial()
-                    : galleryInitialDataOverride;
         }
 
         @Override
@@ -3474,6 +5128,12 @@ final class ClientRuntimeTest {
         @Override
         public Optional<AccountUiPreferences> loadUiPreferences() {
             return Optional.of(uiPreferences);
+        }
+
+        @Override
+        public void setSelectedProvidersTab(UUID accountId, AppearanceProviders.Component tab) {
+            assertEquals(uiPreferences.accountId(), accountId);
+            uiPreferences = uiPreferences.withSelectedProvidersTab(tab);
         }
 
         @Override
@@ -3665,6 +5325,7 @@ final class ClientRuntimeTest {
 
         @Override
         public EditorSave saveEditor(EditorSaveRequest request) throws IOException {
+            lastEditorSaveRequest = request;
             if (failEditorSave) {
                 throw new IOException("editor save failed");
             }
@@ -3708,7 +5369,8 @@ final class ClientRuntimeTest {
                     request.capeId().orElse(null),
                     request.outerLayerVisibility(),
                     existing == null ? now : existing.createdAt(),
-                    now);
+                    now,
+                    request.offlineCape());
             List<AppearancePreset> presets = new ArrayList<>(account.presets());
             presets.removeIf(preset -> preset.id().equals(presetId));
             presets.add(saved);
@@ -3717,7 +5379,8 @@ final class ClientRuntimeTest {
                 return new EditorSave(account, presetId);
             }
             appearanceRevision++;
-            appearanceSyncStatus = AppearanceSyncStatus.PENDING;
+            appearanceSyncStatus = settledActiveSave
+                    ? AppearanceSyncStatus.OFFICIAL : AppearanceSyncStatus.PENDING;
             AppliedAppearance local = AppliedAppearance.localSkin(
                     TestFixtures.ACCOUNT_ID,
                     "a".repeat(64),
@@ -3799,7 +5462,7 @@ final class ClientRuntimeTest {
                     .orElseThrow();
             activePresetId = Optional.of(presetId);
             appearanceRevision++;
-            appearanceSyncStatus = AppearanceSyncStatus.PENDING;
+            appearanceSyncStatus = selectionStatus;
             AppliedAppearance local = AppliedAppearance.localSkin(
                     TestFixtures.ACCOUNT_ID,
                     "a".repeat(64),
@@ -3902,7 +5565,7 @@ final class ClientRuntimeTest {
             if (retrySessionFailure != null) {
                 throw retrySessionFailure;
             }
-            return initial();
+            return retryInitialDataOverride == null ? initial() : retryInitialDataOverride;
         }
 
         @Override
@@ -3938,7 +5601,7 @@ final class ClientRuntimeTest {
                     durable.flatMap(DurableAppearance::outerLayerVisibility),
                     ownedCapes,
                     appearanceRevision,
-                    appearanceSyncStatus);
+                    appearanceSyncStatus, providers);
         }
 
         private RemoteResult remote() {
@@ -3965,7 +5628,8 @@ final class ClientRuntimeTest {
                     skins,
                     account.personalSkins(),
                     presets,
-                    nextTime());
+                    nextTime(),
+                    account.personalCapes());
         }
 
         private String seedPersonalSkin(String name) {

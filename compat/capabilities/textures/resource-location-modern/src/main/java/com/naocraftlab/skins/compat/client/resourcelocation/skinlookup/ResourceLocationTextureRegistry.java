@@ -25,13 +25,20 @@ public final class ResourceLocationTextureRegistry
     private static final UUID FALLBACK_PROFILE_ID = new UUID(0L, 0L);
 
     private final String pathRoot;
+    private final Runnable lifecycleTransition;
 
     public ResourceLocationTextureRegistry() {
-        this("preview");
+        this("preview", () -> { });
     }
 
     ResourceLocationTextureRegistry(String pathRoot) {
+        this(pathRoot, () -> { });
+    }
+
+    ResourceLocationTextureRegistry(String pathRoot, Runnable lifecycleTransition) {
         this.pathRoot = Objects.requireNonNull(pathRoot, "pathRoot");
+        this.lifecycleTransition = Objects.requireNonNull(
+                lifecycleTransition, "lifecycleTransition");
         if (!PATH_ROOT.matcher(pathRoot).matches()) {
             throw new IllegalArgumentException("Invalid dynamic texture path root");
         }
@@ -97,7 +104,7 @@ public final class ResourceLocationTextureRegistry
         ResourceLocation location = ResourceLocation.fromNamespaceAndPath(
                 "nclskins", pathRoot + "/feature_skin/" + sha256);
         NativePlayerSkinLifecycle.Registration registration =
-                NativePlayerSkinLifecycle.pending(location.toString());
+                NativePlayerSkinLifecycle.pending(location.toString(), lifecycleTransition);
         HttpTexture texture = new HttpTexture(
                 staged.path().toFile(),
                 LOCAL_SKIN_SENTINEL + sha256,

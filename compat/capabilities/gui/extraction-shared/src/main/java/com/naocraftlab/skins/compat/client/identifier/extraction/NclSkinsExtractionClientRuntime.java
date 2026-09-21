@@ -35,7 +35,8 @@ final class NclSkinsExtractionClientRuntime {
             application = new ClientApplicationHost<>(
                     provision.capabilities(),
                     TextResolver.withCatalogTranslations(
-                            MinecraftClientComponents::resolveString,
+                            TextResolver.withLayout(MinecraftClientComponents::resolveString,
+                                    (message, width) -> Minecraft.getInstance().font.wordWrapHeight(MinecraftClientComponents.resolve(message), Math.max(1, width))),
                             (key, fallback) ->
                                     Language.getInstance().getOrDefault(key, fallback)),
                     dataRoot,
@@ -89,13 +90,21 @@ final class NclSkinsExtractionClientRuntime {
             current = application;
             currentProvision = provision;
         }
-        currentProvision.maintain();
-
         Object connection = client.getConnection();
         boolean playerReady = connection != null
                 && client.player != null
                 && client.getConnection().getPlayerInfo(client.player.getUUID()) != null;
+        currentProvision.maintain(playerReady);
         current.tick(connection, playerReady);
+    }
+
+    static synchronized void resourcesReloaded() {
+        if (terminallyClosed) {
+            return;
+        }
+        runtime();
+        provision.markNativeResourcesDirty();
+        application.runtime().resourcesReloaded();
     }
 
     static synchronized void close() {

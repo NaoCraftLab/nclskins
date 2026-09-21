@@ -24,6 +24,7 @@
   "sharedSuites": {
     "view-host-contract": {
       "tests": [
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ScreenKeybindingDispatcherTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewSpecGoldenTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewSpecWidgetInteractionTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ViewHostCoordinatorTest.java",

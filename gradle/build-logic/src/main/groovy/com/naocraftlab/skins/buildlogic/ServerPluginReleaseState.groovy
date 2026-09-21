@@ -30,7 +30,8 @@ final class ServerPluginReleaseState {
             Map decision = decide(release.version.toString(), fingerprint, active)
             if (decision.publish) {
                 String pluginVersion = ServerPluginVersion.atRef(repository, release.version.toString(), release.version.toString())
-                active = [version: ServerPluginVersion.parts(pluginVersion).base, fingerprint: fingerprint]
+                active = [version: ServerPluginVersion.parts(pluginVersion).base, fingerprint: fingerprint,
+                          protocolIds: ReleaseSelection.catalogAtRef(repository, release.version.toString()).serverPlugin.protocols]
             }
         }
         String currentFingerprint = currentRef == currentVersion
@@ -45,6 +46,11 @@ final class ServerPluginReleaseState {
                 new File(repository, 'gradle/plugin-version.properties').isFile()
                 ? ServerPluginVersion.load(repository)
                 : ServerPluginVersion.atRef(repository, currentRef, currentVersion)
+        if (decision.publish && active == null &&
+                ServerPluginVersion.parts(pluginVersion).base != currentVersion) {
+            throw new IllegalStateException(
+                    "Plugin functional version must match release ${currentVersion} for a new protocol baseline")
+        }
         [
                 schemaVersion            : 1,
                 sealed                   : true,

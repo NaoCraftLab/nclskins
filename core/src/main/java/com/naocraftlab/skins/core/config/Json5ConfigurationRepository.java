@@ -100,13 +100,13 @@ public final class Json5ConfigurationRepository {
         ScalarScanner scanner = new ScalarScanner(document);
         JsonObject root = parseObject(document).orElse(null);
 
-        boolean titleScreen = booleanValue(
+        MenuPreviewPlacement titleScreen = placementValue(
                 root,
                 scanner,
                 defaults.menuPreview().titleScreen(),
                 "titleScreen",
                 "menuPreview");
-        boolean pauseMenu = booleanValue(
+        MenuPreviewPlacement pauseMenu = placementValue(
                 root,
                 scanner,
                 defaults.menuPreview().pauseMenu(),
@@ -148,6 +148,43 @@ public final class Json5ConfigurationRepository {
         } catch (RuntimeException malformed) {
             return Optional.empty();
         }
+    }
+
+    private static MenuPreviewPlacement placementValue(
+            JsonObject root,
+            ScalarScanner scanner,
+            MenuPreviewPlacement fallback,
+            String field,
+            String... parents) {
+        if (scanner.assignmentCount(field) != 1) {
+            return fallback;
+        }
+        JsonElement value = nested(root, field, parents);
+        if (root == null) {
+            String raw = scanner.single(field).orElse("");
+            if (raw.equals("true") || raw.equals("false")) {
+                return raw.equals("true") ? MenuPreviewPlacement.RIGHT : MenuPreviewPlacement.OFF;
+            }
+            return decodeString(raw).map(token -> placementToken(token, fallback)).orElse(fallback);
+        }
+        if (value == null || !value.isJsonPrimitive()) {
+            return fallback;
+        }
+        if (value.getAsJsonPrimitive().isBoolean()) {
+            return value.getAsBoolean() ? MenuPreviewPlacement.RIGHT : MenuPreviewPlacement.OFF;
+        }
+        return value.getAsJsonPrimitive().isString()
+                ? placementToken(value.getAsString(), fallback)
+                : fallback;
+    }
+
+    private static MenuPreviewPlacement placementToken(String token, MenuPreviewPlacement fallback) {
+        for (MenuPreviewPlacement placement : MenuPreviewPlacement.values()) {
+            if (placement.serializedValue().equals(token)) {
+                return placement;
+            }
+        }
+        return fallback;
     }
 
     private static boolean booleanValue(
@@ -220,10 +257,10 @@ public final class Json5ConfigurationRepository {
         out.append("{\n");
         out.append("  \"menuPreview\": {\n");
         appendComment(out, 4, ConfigurationDescriptions.CLIENT_TITLE_SCREEN);
-        out.append("    \"titleScreen\": ").append(configuration.menuPreview().titleScreen())
+        out.append("    \"titleScreen\": ").append(quote(configuration.menuPreview().titleScreen().serializedValue()))
                 .append(",\n\n");
         appendComment(out, 4, ConfigurationDescriptions.CLIENT_PAUSE_MENU);
-        out.append("    \"pauseMenu\": ").append(configuration.menuPreview().pauseMenu())
+        out.append("    \"pauseMenu\": ").append(quote(configuration.menuPreview().pauseMenu().serializedValue()))
                 .append("\n");
         out.append("  },\n\n");
         out.append("  \"compatibility\": {\n");
@@ -318,10 +355,27 @@ public final class Json5ConfigurationRepository {
     }
 
     private static final class ScalarScanner {
+        private static final Pattern TOKEN = Pattern.compile(
+                "(\"(?:\\\\.|[^\"\\\\])*\"|[A-Za-z][A-Za-z0-9]*)\\s*(:)?");
         private final List<Scalar> values;
+        private final String document;
 
         private ScalarScanner(String document) {
-            values = scan(stripComments(Objects.requireNonNull(document, "document")));
+            this.document = stripComments(Objects.requireNonNull(document, "document"));
+            values = scan(this.document);
+        }
+
+        int assignmentCount(String key) {
+            Matcher matcher = TOKEN.matcher(document);
+            int count = 0;
+            while (matcher.find()) {
+                if (matcher.group(2) != null
+                        && (matcher.group(1).equals(key)
+                                || decodeString(matcher.group(1)).filter(key::equals).isPresent())) {
+                    count++;
+                }
+            }
+            return count;
         }
 
         int count(String key) {

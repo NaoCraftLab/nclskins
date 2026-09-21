@@ -6,7 +6,8 @@ import net.fabricmc.api.ClientModInitializer;
 public final class NclSkinsFabricClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
-        FabricBuiltInPackRegistrar.registerMojangCollections();
+        FabricBuiltInPackRegistrar.registerMojangCollections(
+                FabricClientBridge::resourcesReloaded);
         FabricClientBridge.install();
     }
 }
