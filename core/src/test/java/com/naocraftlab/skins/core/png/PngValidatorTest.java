@@ -41,6 +41,20 @@ class PngValidatorTest {
     }
 
     @Test
+    void fileImportRequiresStandardDimensionsWhileOtherImportsKeepHdSupport(@TempDir Path directory) throws Exception {
+        for (int height : new int[]{32, 64}) {
+            Path path = Files.write(directory.resolve("valid.png"), TestPng.create(64, height));
+            assertEquals(64, validator.validate(validator.projectStandardImport(path).pngBytes()).height());
+        }
+        for (int[] size : new int[][]{{32, 32}, {128, 64}, {128, 128}}) {
+            Path path = Files.write(directory.resolve("invalid.png"), TestPng.create(size[0], size[1]));
+            assertEquals(PngValidationException.Reason.UNSUPPORTED_DIMENSIONS,
+                    assertThrows(PngValidationException.class, () -> validator.projectStandardImport(path)).reason());
+        }
+        assertEquals(64, validator.validate(validator.projectImport(TestPng.create(128, 128)).pngBytes()).width());
+    }
+
+    @Test
     void rejectsOtherDimensions() {
         PngValidationException exception = assertThrows(
                 PngValidationException.class,

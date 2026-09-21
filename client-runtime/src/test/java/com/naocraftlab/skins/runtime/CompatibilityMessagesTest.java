@@ -10,8 +10,19 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-
 final class CompatibilityMessagesTest {
+    @Test void statusesUseSharedFunctionalIcons() {
+        for (boolean incompatible : new boolean[]{false, true}) {
+            var compatibility = new SkinCompatibility(
+                    incompatible ? SkinCompatibilityStatus.INCOMPATIBLE : SkinCompatibilityStatus.EXTENDED,
+                    List.of(SkinFeature.EARS),
+                    incompatible ? List.of(SkinConflictReason.MALFORMED_EARS_DATA) : List.of());
+            var icon = CompatibilityMessages.icon(compatibility);
+            assertEquals("status/compatibility/" + (incompatible ? "incompatible" : "extended"), icon.semanticPath());
+            assertEquals(16, icon.baseCanvas());
+        }
+    }
+
     @Test
     void supportedFeaturesUseHeadingAndBulletsWithoutEmptyConflictSection() {
         UiMessage message = CompatibilityMessages.accessibleLabel(new SkinCompatibility(

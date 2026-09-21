@@ -17,7 +17,16 @@ public record AppliedAppearance(
         Optional<String> localSkinSha256,
         Optional<SkinVariant> skinVariant,
         Optional<URI> capeTexture,
-        Optional<String> localCapeCacheKey) {
+        Optional<String> localCapeCacheKey, boolean capeHasElytra) {
+    public AppliedAppearance(UUID profileId, Optional<URI> skinTexture, Optional<String> localSkinSha256,
+            Optional<SkinVariant> skinVariant, Optional<URI> capeTexture, Optional<String> localCapeCacheKey) {
+        this(profileId, skinTexture, localSkinSha256, skinVariant, capeTexture, localCapeCacheKey, true);
+    }
+
+    public AppliedAppearance withCapeElytra(boolean value) {
+        return new AppliedAppearance(profileId, skinTexture, localSkinSha256, skinVariant, capeTexture, localCapeCacheKey, value);
+    }
+
     public AppliedAppearance {
         Objects.requireNonNull(profileId, "profileId");
         skinTexture = normalizeTexture(Objects.requireNonNull(skinTexture, "skinTexture"));

@@ -189,3 +189,6 @@ tasks.named('jarJar', Jar).configure {
             .replace('{modVersion}', project.version.toString())
     finalizedBy tasks.named('reobfJarJar')
 }
+
+ext.nclskinsFancyCompileConfiguration = 'compileOnly'
+apply from: '../../../gradle/fancymenu-conventions.gradle'

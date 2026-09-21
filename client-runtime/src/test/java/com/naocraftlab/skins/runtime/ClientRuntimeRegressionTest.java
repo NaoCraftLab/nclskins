@@ -1,12 +1,17 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.ClientExecutor;
+import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.OuterLayerVisibilityController;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
+import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinExtensionEnvironmentSource;
+import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
@@ -39,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ClientRuntimeRegressionTest {
@@ -64,29 +70,72 @@ final class ClientRuntimeRegressionTest {
     };
 
     @Test
-    void tickPublishesAChangedSkinExtensionEnvironmentGeneration() {
+    void reloadPublishesAChangedSkinExtensionEnvironmentWithoutTickPolling() {
         StubOperations operations = new StubOperations();
+        AtomicInteger reads = new AtomicInteger();
         AtomicReference<SkinExtensionEnvironmentSource.Snapshot> environment =
                 new AtomicReference<>(new SkinExtensionEnvironmentSource.Snapshot(
                         1, java.util.Map.of(
                                 SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES,
                                 SkinExtensionEnvironmentSource.State.INACTIVE)));
-        ClientRuntime runtime = runtime(operations)
-                .useSkinExtensionEnvironmentSource(environment::get);
+        ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() -> {
+            reads.incrementAndGet();
+            return environment.get();
+        });
         runtime.initialize();
         assertEquals(1, runtime.snapshot().skinExtensionEnvironment().generation());
+        assertEquals(1, reads.get());
 
         environment.set(new SkinExtensionEnvironmentSource.Snapshot(
                 2, java.util.Map.of(
                         SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES,
                         SkinExtensionEnvironmentSource.State.ACTIVE)));
         runtime.tick();
+        runtime.tick();
+        runtime.closeScreen();
+        runtime.reopen();
+
+        assertEquals(1, runtime.snapshot().skinExtensionEnvironment().generation());
+        assertEquals(1, reads.get());
+
+        runtime.resourcesReloaded();
 
         assertEquals(2, runtime.snapshot().skinExtensionEnvironment().generation());
+        assertEquals(2, reads.get());
         assertEquals(
                 com.naocraftlab.skins.core.compatibility.SkinConsumerState.ACTIVE,
                 runtime.snapshot().skinExtensionEnvironment().state(
                         com.naocraftlab.skins.core.compatibility.SkinConsumer.FRESH_MOVES));
+    }
+
+    @Test
+    void unavailableEnvironmentRetriesOnlyOnReload() {
+        StubOperations operations = new StubOperations();
+        AtomicInteger reads = new AtomicInteger();
+        AtomicReference<SkinExtensionEnvironmentSource.Snapshot> environment =
+                new AtomicReference<>();
+        ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() -> {
+            reads.incrementAndGet();
+            SkinExtensionEnvironmentSource.Snapshot current = environment.get();
+            if (current == null) {
+                throw new IllegalStateException("unavailable");
+            }
+            return current;
+        });
+
+        runtime.initialize();
+        runtime.tick();
+        assertEquals(0, runtime.snapshot().skinExtensionEnvironment().generation());
+        assertEquals(1, reads.get());
+
+        environment.set(new SkinExtensionEnvironmentSource.Snapshot(
+                4, java.util.Map.of(
+                        SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES,
+                        SkinExtensionEnvironmentSource.State.INACTIVE)));
+        runtime.resourcesReloaded();
+
+        assertEquals(4, runtime.snapshot().skinExtensionEnvironment().generation());
+        assertEquals(2, reads.get());
     }
 
     @Test
@@ -145,7 +194,7 @@ final class ClientRuntimeRegressionTest {
         UUID presetId = runtime.snapshot().account().orElseThrow().presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
         runtime.dispatchText("editor.name", "Draft survives");
-        runtime.dispatchWidget("editor.model");
+        runtime.dispatchWidget("editor.model_choice.slim");
         PresetEditorModel beforeSave = runtime.snapshot().editor().orElseThrow();
 
         runtime.dispatchWidget("editor.save");
@@ -242,6 +291,7 @@ final class ClientRuntimeRegressionTest {
         operations.failNextSkinPreview = true;
         CompletableFuture<Optional<byte[]>> skin = runtime.loadSkinPreview(preview);
         worker.runFirst();
+        worker.runFirst();
 
         assertTrue(skin.join().isEmpty());
         assertEquals(
@@ -267,6 +317,7 @@ final class ClientRuntimeRegressionTest {
         worker.runFirst();
         UUID presetId = operations.account.presets().get(1).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        worker.runFirst();
         ViewSpec.Preview preview = runtime.view(854, 480, 0, 0).previews().get(0);
         worker.runFirst();
 
@@ -380,7 +431,7 @@ final class ClientRuntimeRegressionTest {
         assertEquals(1, worker.size());
         worker.runFirst();
 
-        assertEquals(2, operations.initializeCalls.get());
+        assertEquals(1, operations.initializeCalls.get());
         assertEquals(1, operations.warmSessionCalls.get());
         assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
     }
@@ -407,24 +458,145 @@ final class ClientRuntimeRegressionTest {
     }
 
     @Test
+    void menuPreviewReadsEveryEffectiveMaskWithoutApplyingItOrCachingTextures() {
+        var visibility = new TestVisibility();
+        var skin = new TextureRegistry.TextureHandle("nclskins:test", 64, 64);
+        var cape = new TextureRegistry.TextureHandle("nclskins:cape", 64, 32);
+        var current = new AtomicReference<CurrentPlayerAppearanceSource.PlayerAppearance>();
+        try (var runtime = menuRuntime(CLIENT, Optional.of(current::get), Optional.of(visibility))) {
+            for (SkinModel model : SkinModel.values()) {
+                for (boolean withCape : new boolean[]{false, true}) {
+                    current.set(new CurrentPlayerAppearanceSource.PlayerAppearance(
+                            skin, model, withCape ? Optional.of(cape) : Optional.empty()));
+                    for (int bits = 0; bits < 64; bits++) {
+                        var parts = java.util.EnumSet.noneOf(OuterLayerPart.class);
+                        for (OuterLayerPart part : OuterLayerPart.values()) {
+                            if ((bits & (1 << part.ordinal())) != 0) parts.add(part);
+                        }
+                        visibility.value = OuterLayerVisibility.of(parts);
+                        var preview = runtime.menuPreviewAppearance().orElseThrow();
+                        assertEquals(visibility.value, preview.outerLayerVisibility());
+                        assertEquals(skin, preview.skin());
+                        assertEquals(model, preview.model());
+                        assertEquals(current.get().cape(), preview.cape());
+                        assertEquals(withCape ? PreviewRenderer.CapeMode.CAPE : PreviewRenderer.CapeMode.OFF,
+                                preview.capeMode());
+                    }
+                }
+            }
+            visibility.value = OuterLayerVisibility.noneVisible();
+            var first = runtime.menuPreviewAppearance().orElseThrow();
+            visibility.value = OuterLayerVisibility.of(Set.of(OuterLayerPart.LEFT_ARM, OuterLayerPart.RIGHT_LEG));
+            assertEquals(visibility.value, runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
+            visibility.value = OuterLayerVisibility.allVisible();
+            assertEquals(visibility.value, runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
+            assertEquals(OuterLayerVisibility.noneVisible(), first.outerLayerVisibility());
+            assertTrue(visibility.applied.isEmpty());
+        }
+    }
+
+    @Test
+    void menuPreviewHidesUnavailableInputsAndRecoversOnTheNextRead() {
+        var visibility = new TestVisibility();
+        var sourceFailure = new AtomicReference<RuntimeException>();
+        CurrentPlayerAppearanceSource source = () -> {
+            if (sourceFailure.get() != null) throw sourceFailure.get();
+            return menuPlayerAppearance();
+        };
+        try (var runtime = menuRuntime(CLIENT, Optional.empty(), Optional.of(visibility))) {
+            assertTrue(runtime.menuPreviewAppearance().isEmpty());
+        }
+        try (var runtime = menuRuntime(CLIENT, Optional.of(source), Optional.empty())) {
+            assertTrue(runtime.menuPreviewAppearance().isEmpty());
+        }
+        try (var runtime = menuRuntime(CLIENT, Optional.of(source), Optional.of(visibility))) {
+            sourceFailure.set(new IllegalStateException());
+            assertTrue(runtime.menuPreviewAppearance().isEmpty());
+            sourceFailure.set(null);
+            visibility.failure = new IllegalStateException();
+            assertTrue(runtime.menuPreviewAppearance().isEmpty());
+            visibility.failure = null;
+            visibility.value = OuterLayerVisibility.noneVisible();
+            assertEquals(visibility.value, runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
+            assertTrue(visibility.applied.isEmpty());
+        }
+        try (var runtime = menuRuntime(CLIENT, Optional.of(() -> { throw new AssertionError(); }),
+                Optional.of(visibility))) {
+            assertThrows(AssertionError.class, runtime::menuPreviewAppearance);
+        }
+    }
+
+    @Test
+    void menuPreviewRequiresAClientThreadAndAnOpenRuntime() {
+        var onClient = new java.util.concurrent.atomic.AtomicBoolean(true);
+        ClientExecutor client = new ClientExecutor() {
+            @Override
+            public boolean isClientThread() { return onClient.get(); }
+            @Override
+            public void execute(Runnable action) { action.run(); }
+        };
+        var runtime = menuRuntime(client, Optional.of(ClientRuntimeRegressionTest::menuPlayerAppearance),
+                Optional.of(new TestVisibility()));
+        onClient.set(false);
+        assertThrows(IllegalStateException.class, runtime::menuPreviewAppearance);
+        onClient.set(true);
+        runtime.close();
+        assertThrows(IllegalStateException.class, runtime::menuPreviewAppearance);
+    }
+
+    private static ClientRuntime menuRuntime(ClientExecutor client,
+            Optional<CurrentPlayerAppearanceSource> source,
+            Optional<OuterLayerVisibilityController> visibility) {
+        return new ClientRuntime(new StubOperations(), client, CANCELLED_PICKER, Runnable::run,
+                TEXT, source, Optional.empty(), visibility, Optional.empty(),
+                ServerAppearanceReadinessCoordinator.DelayScheduler.system(), DiagnosticSinks.discarding());
+    }
+
+    private static CurrentPlayerAppearanceSource.PlayerAppearance menuPlayerAppearance() {
+        return new CurrentPlayerAppearanceSource.PlayerAppearance(
+                new TextureRegistry.TextureHandle("nclskins:test", 64, 64), SkinModel.CLASSIC, Optional.empty());
+    }
+
+    private static final class TestVisibility implements OuterLayerVisibilityController {
+        private OuterLayerVisibility value = OuterLayerVisibility.allVisible();
+        private final List<OuterLayerVisibility> applied = new ArrayList<>();
+        private RuntimeException failure;
+
+        @Override
+        public OuterLayerVisibility current() {
+            if (failure != null) throw failure;
+            return value;
+        }
+
+        @Override
+        public void applyDurable(OuterLayerVisibility visibility) {
+            value = visibility;
+            applied.add(visibility);
+        }
+    }
+
+    @Test
     void editorDraftIsSideEffectFreeAndOnlyActiveSaveAppliesItsMask() {
         StubOperations operations = new StubOperations();
         operations.visibilityInResults = true;
-        List<OuterLayerVisibility> applied = new ArrayList<>();
+        TestVisibility visibility = new TestVisibility();
+        List<OuterLayerVisibility> applied = visibility.applied;
         ClientRuntime runtime = new ClientRuntime(
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
                 Runnable::run,
                 TEXT,
+                Optional.of(ClientRuntimeRegressionTest::menuPlayerAppearance),
                 Optional.empty(),
-                Optional.of(applied::add),
+                Optional.of(visibility),
                 Optional.empty(),
                 ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
                 DiagnosticSinks.discarding());
 
         runtime.initialize();
         assertEquals(List.of(OuterLayerVisibility.allVisible()), applied);
+        var initialPreview = runtime.menuPreviewAppearance().orElseThrow();
         UUID active = operations.account.presets().get(0).id();
         UUID inactive = operations.account.presets().get(1).id();
 
@@ -434,6 +606,11 @@ final class ClientRuntimeRegressionTest {
         runtime.dispatchWidget("editor.save");
         assertEquals(1, applied.size());
 
+        assertEquals(initialPreview, runtime.menuPreviewAppearance().orElseThrow());
+        runtime.dispatchWidget("gallery.preset." + active + ".edit");
+        runtime.dispatchWidget("editor.outer_layer.head");
+        runtime.dispatchWidget("editor.cancel");
+        assertEquals(initialPreview, runtime.menuPreviewAppearance().orElseThrow());
         runtime.dispatchWidget("gallery.preset." + active + ".edit");
         runtime.dispatchWidget("editor.outer_layer.head");
         assertEquals(1, applied.size());
@@ -442,6 +619,12 @@ final class ClientRuntimeRegressionTest {
         assertEquals(2, applied.size());
         assertFalse(applied.get(1).visible(OuterLayerPart.HEAD));
         assertTrue(applied.get(1).visible(OuterLayerPart.BODY));
+        assertEquals(applied.get(1), runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
+        runtime.dispatchWidget("gallery.preset." + inactive + ".apply");
+        assertEquals(3, applied.size());
+        assertEquals(applied.get(2), runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
+        assertFalse(applied.get(2).visible(OuterLayerPart.BODY));
+        runtime.close();
     }
 
     private static ClientRuntime runtime(StubOperations operations) {

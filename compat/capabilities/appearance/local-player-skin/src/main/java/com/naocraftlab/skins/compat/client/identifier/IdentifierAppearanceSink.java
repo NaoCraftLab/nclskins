@@ -29,8 +29,9 @@ import net.minecraft.world.entity.player.PlayerSkin;
 
 final class IdentifierAppearanceSink
         implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>, AutoCloseable {
+    private Runnable maintenanceDirty = () -> { };
     private final IdentifierTextureRegistry textures =
-            new IdentifierTextureRegistry("live/appearance");
+            new IdentifierTextureRegistry("live/appearance", this::markMaintenanceDirty);
     private final AppearanceOverrideController<InstalledOverride, TextureHandle> overrides =
             new AppearanceOverrideController<>(new AppearanceOverrideController.Strategy<>() {
                 @Override
@@ -67,6 +68,11 @@ final class IdentifierAppearanceSink
             });
 
     @Override
+    public void providerVisibility(com.naocraftlab.skins.client.ProviderVisibility visibility) {
+        MinecraftProviderVisibility.set(visibility);
+    }
+
+    @Override
     public ApplyResult apply(ResolvedProfile<AcknowledgedAppearanceAssets> resolvedProfile) {
         Objects.requireNonNull(resolvedProfile, "resolvedProfile");
         Minecraft minecraft = Minecraft.getInstance();
@@ -80,7 +86,7 @@ final class IdentifierAppearanceSink
         }
         Optional<ApplyResult> reattached = overrides.reattachIfActive(expected);
         if (reattached.isPresent()) {
-            return reattached.orElseThrow();
+            return dirty(reattached.orElseThrow());
         }
 
         TextureHandle skinHandle = null;
@@ -109,7 +115,9 @@ final class IdentifierAppearanceSink
                         TextureKind.IMAGE, resolvedCape.sha256(), resolvedCape.path());
                 cape = resourceTexture(capeHandle);
             }
-            playerSkin = PlayerSkin.insecure(body, cape, cape, model);
+            playerSkin = PlayerSkin.insecure(body, cape, expected.capeHasElytra() || cape == null ? cape : new ClientAsset.ResourceTexture(
+                    Identifier.parse("minecraft:textures/entity/equipment/wings/elytra.png"),
+                    Identifier.parse("minecraft:textures/entity/equipment/wings/elytra.png")), model);
         } catch (IOException | RuntimeException invalidTextureOrClientState) {
             release(skinHandle);
             release(capeHandle);
@@ -120,7 +128,7 @@ final class IdentifierAppearanceSink
                 new InstalledOverride(
                         expected, playerSkin, () -> playerSkin, skinHandle, capeHandle);
         try {
-            return overrides.install(replacement);
+            return dirty(overrides.install(replacement));
         } catch (RuntimeException unavailablePlayerInfo) {
             release(skinHandle);
             release(capeHandle);
@@ -133,7 +141,7 @@ final class IdentifierAppearanceSink
         Objects.requireNonNull(expected, "expected");
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
-        return overrides.reattach(expected);
+        return dirty(overrides.reattach(expected));
     }
 
     @Override
@@ -145,8 +153,8 @@ final class IdentifierAppearanceSink
             return ApplyResult.DEFERRED;
         }
         PlayerSkin accountDefault = DefaultPlayerSkin.get(expected.profileId());
-        return overrides.install(new InstalledOverride(
-                expected, accountDefault, () -> accountDefault, null, null));
+        return dirty(overrides.install(new InstalledOverride(
+                expected, accountDefault, () -> accountDefault, null, null)));
     }
 
 
@@ -173,6 +181,15 @@ final class IdentifierAppearanceSink
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
         overrides.invalidate(expected);
+        markMaintenanceDirty();
+    }
+
+    void useMaintenanceDirty(Runnable listener) {
+        maintenanceDirty = Objects.requireNonNull(listener, "listener");
+    }
+
+    boolean hasActiveOverride() {
+        return overrides.active().isPresent();
     }
 
     Optional<PlayerSkin> installedSkin(UUID profileId) {
@@ -189,6 +206,7 @@ final class IdentifierAppearanceSink
 
     @Override
     public void close() {
+        MinecraftProviderVisibility.set(com.naocraftlab.skins.client.ProviderVisibility.ALL);
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
         overrides.close();
@@ -198,6 +216,15 @@ final class IdentifierAppearanceSink
     private static void install(PlayerInfo playerInfo, InstalledOverride installed) {
         playerInfo.skinLookup = installed.skinLookup();
         playerInfo.getSkin();
+    }
+
+    private ApplyResult dirty(ApplyResult result) {
+        markMaintenanceDirty();
+        return result;
+    }
+
+    private void markMaintenanceDirty() {
+        maintenanceDirty.run();
     }
 
     private static ApplyResult attachToCurrentPlayer(

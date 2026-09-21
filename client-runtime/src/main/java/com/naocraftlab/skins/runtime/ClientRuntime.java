@@ -5,11 +5,13 @@ import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.OuterLayerVisibilityController;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.PreviewPreferences;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.ScreenDestination;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
@@ -33,6 +35,8 @@ import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
+import com.naocraftlab.skins.core.model.EditorTab;
+import com.naocraftlab.skins.core.model.LocalCapeReference;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
@@ -43,6 +47,8 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.NormalizedSkin;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.LibraryOperationException;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -82,6 +88,13 @@ public final class ClientRuntime implements AutoCloseable {
 
     private final ClientOperations operations;
     private final DiagnosticSink diagnostics;
+    private CompletableFuture<Void> providerConfigurationWrite = CompletableFuture.completedFuture(null);
+    private long editorCatalogGeneration;
+    private BuiltinProvider pendingCapeProviderInspection;
+    private CompletableFuture<Void> capeDisclosureWrite = CompletableFuture.completedFuture(null);
+    private long capeDisclosureSequence;
+    private CompletableFuture<Void> editorTabPreferenceWrite = CompletableFuture.completedFuture(null);
+    private long editorTabPreferenceSequence;
     private final ClientExecutor clientExecutor;
     private final FilePicker filePicker;
     private final Executor worker;
@@ -112,6 +125,9 @@ public final class ClientRuntime implements AutoCloseable {
     private Supplier<ClientConfiguration> configurationSource = ClientConfiguration::defaults;
     private SkinExtensionEnvironmentSource skinExtensionEnvironmentSource =
             SkinExtensionEnvironmentSource.unknown();
+    private SkinExtensionEnvironment skinExtensionEnvironment =
+            SkinExtensionEnvironment.unknown(0);
+    private boolean skinExtensionEnvironmentInitialized;
     private long sessionRetryTicket = -1L;
     private long sessionActivitySequence;
     private long sessionActivityTicket = -1L;
@@ -133,8 +149,9 @@ public final class ClientRuntime implements AutoCloseable {
     private ViewChromeMetrics viewChromeMetrics = ViewChromeMetrics.STANDARD;
     private boolean draggingGalleryScrollbar;
     private double galleryScrollbarGrabOffset;
-    private boolean draggingEditorCapeScrollbar;
-    private double editorCapeScrollbarGrabOffset;
+    private boolean draggingEditorScrollbar;
+    private double editorScrollbarGrabOffset;
+    private double editorModelScrollPosition;
     private double editorCapeScrollPosition;
     private double editorCapeScrollTarget;
     private boolean draggingAddSourceScrollbar;
@@ -146,6 +163,8 @@ public final class ClientRuntime implements AutoCloseable {
     private String runtimeFocusWidgetId;
     private long catalogDisclosureRevision;
     private PreviewRenderer.CapeMode preferredCapeMode = PreviewPreferences.capeMode();
+    private boolean capeCatalogWarmupRunning;
+    private boolean capeCatalogReloadPending;
 
     public ClientRuntime(
             ClientOperations operations,
@@ -303,6 +322,23 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
             ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
+        this(operations, clientExecutor, filePicker, worker, textResolver, Optional.empty(),
+                appearanceRefresh, outerLayerVisibilityController, serverAppearanceRefreshNotifier,
+                readinessScheduler, diagnostics);
+    }
+
+    ClientRuntime(
+            ClientOperations operations,
+            ClientExecutor clientExecutor,
+            FilePicker filePicker,
+            Executor worker,
+            TextResolver textResolver,
+            Optional<CurrentPlayerAppearanceSource> currentAppearanceSource,
+            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
+            Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
+            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            DiagnosticSink diagnostics) {
         this(
                 operations,
                 clientExecutor,
@@ -314,7 +350,7 @@ public final class ClientRuntime implements AutoCloseable {
                 worker,
                 null,
                 textResolver,
-                Optional.empty(),
+                currentAppearanceSource,
                 appearanceRefresh,
                 outerLayerVisibilityController,
                 serverAppearanceRefreshNotifier,
@@ -456,6 +492,8 @@ public final class ClientRuntime implements AutoCloseable {
         ensureNotDisposed();
         try {
             operations.verifyStorageAccess();
+            state.providers = operations.loadProviders();
+            publish();
         } catch (RuntimeException failure) {
             throw failure;
         } catch (Exception failure) {
@@ -494,6 +532,7 @@ public final class ClientRuntime implements AutoCloseable {
                                     && warmed.isPresent()) {
                                 return;
                             }
+                            warmed.ifPresent(this::acceptProviderSnapshot);
                             visibility.ifPresent(this::applyDurableOuterLayerVisibility);
                             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
                                     refreshLocalAppearance(warmed
@@ -510,15 +549,68 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     public void reopen() {
+        reopen(ScreenDestination.GALLERY);
+    }
+
+    public void reopen(ScreenDestination destination) {
+        Objects.requireNonNull(destination, "destination");
         onClient(() -> {
             ensureNotDisposed();
             if (state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
                 state.resetForReopen();
-                if (state.readyData) {
-                    centerGalleryOnActive();
-                }
+                if (state.readyData) centerGalleryOnActive();
+            }
+            if (state.lifecycle == ClientSnapshot.Lifecycle.NEW) {
+                state.requestedDestination = destination;
             }
             initializeOnClient();
+        });
+    }
+
+    private void resolveRequestedDestination() {
+        ScreenDestination destination = state.requestedDestination;
+        state.requestedDestination = null;
+        if (destination == null || state.account == null) return;
+        state.rootDestination = !state.providers.galleryAvailable()
+                ? ScreenDestination.PROVIDERS : destination;
+        switch (state.rootDestination) {
+            case PROVIDERS -> state.providersOpen = true;
+            case GALLERY -> { }
+            case ACTIVE_EDITOR -> {
+                if (state.activePresetId != null && state.account.presets().stream()
+                        .anyMatch(preset -> preset.id().equals(state.activePresetId))) {
+                    openEditor(state.activePresetId);
+                } else {
+                    state.rootDestination = ScreenDestination.SKIN_IMPORT;
+                    openAddSource(AddSourceTab.FILE);
+                }
+            }
+            case SKIN_CATALOG -> openAddSource(AddSourceTab.CATALOG);
+            case SKIN_IMPORT -> openAddSource(AddSourceTab.FILE);
+        }
+    }
+
+    private boolean destinationLoading() {
+        return (state.requestedDestination != null && state.requestedDestination != ScreenDestination.GALLERY)
+                || (state.busy && !state.providersOpen && state.editor == null && state.addSource == null
+                        && (state.rootDestination == ScreenDestination.ACTIVE_EDITOR || addSourceRoot()));
+    }
+
+    private boolean addSourceRoot() {
+        return state.rootDestination == ScreenDestination.SKIN_CATALOG
+                || state.rootDestination == ScreenDestination.SKIN_IMPORT;
+    }
+
+    private void selectProvidersTab(AppearanceProviders.Component tab) {
+        state.providerComponent = tab;
+        if (state.account == null || state.uiPreferences == null
+                || state.uiPreferences.selectedProvidersTab() == tab) return;
+        UUID accountId = state.account.accountId();
+        state.uiPreferences = state.uiPreferences.withSelectedProvidersTab(tab);
+        sessionActivityBaselineGeneration = -1;
+        persistUiPreference(() -> {
+            operations.setSelectedProvidersTab(accountId, tab);
+            return null;
         });
     }
 
@@ -529,9 +621,21 @@ public final class ClientRuntime implements AutoCloseable {
 
     public void escapePressed() {
         onClient(() -> {
+            if (destinationLoading()) {
+                closeScreenOnClient();
+                return;
+            }
             if (disposed
                     || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
                     || state.busy && state.externalImport == null) {
+                return;
+            }
+            if (state.providersOpen || !state.providers.galleryAvailable()) {
+                dispatchProviderWidget("providers.back");
+                return;
+            }
+            if (state.galleryReturnsToProviders) {
+                closeToProviders();
                 return;
             }
             if (state.pendingPresetDeleteId != null) {
@@ -545,6 +649,13 @@ public final class ClientRuntime implements AutoCloseable {
             if (state.addSource != null
                     && state.addSource.personalSkinDeletion().isPresent()) {
                 cancelPersonalSkinDeletion(InteractionOrigin.PROGRAMMATIC);
+                return;
+            }
+            if (state.editor != null && state.editor.capeCatalog() != null && state.editor.capeCatalog().editing() != null) {
+                UUID entry = state.editor.capeCatalog().editing();
+                updateEditor(editor -> editor.withCapeCatalog(editor.capeCatalog().cancelEdit()));
+                requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
+                publish();
                 return;
             }
             if (state.editor != null) {
@@ -569,6 +680,11 @@ public final class ClientRuntime implements AutoCloseable {
         }
         state.generation++;
         state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
+        state.editorReturnsToProviders = false;
+        state.galleryReturnsToProviders = false;
+        state.providerPreviewSources.clear();
+        state.providersOpen = false;
+        state.providerAdding = false;
         state.busy = false;
         state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
         state.pendingPresetDeleteId = null;
@@ -582,7 +698,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.galleryScrollTarget = state.galleryScrollPosition;
         }
         draggingGalleryScrollbar = false;
-        draggingEditorCapeScrollbar = false;
+        draggingEditorScrollbar = false;
         draggingAddSourceScrollbar = false;
         addSourceScrollPosition = 0.0;
         addSourceScrollTarget = 0.0;
@@ -601,12 +717,10 @@ public final class ClientRuntime implements AutoCloseable {
                 }
                 return;
             }
-            boolean environmentChanged = !currentSkinExtensionEnvironment()
-                    .equals(snapshot.skinExtensionEnvironment());
             advanceSessionRetryFeedback();
             boolean scrollChanged = clampGalleryScroll();
             if (state.editor != null) {
-                scrollChanged |= clampEditorCapeScroll();
+                scrollChanged |= clampEditorScroll();
             }
             if (state.addSource != null
                     && state.addSource.selectedTab() == AddSourceTab.CATALOG
@@ -619,14 +733,75 @@ public final class ClientRuntime implements AutoCloseable {
                         || Math.abs(beforeTarget - addSourceScrollTarget) > 0.001
                         || beforeOffset != state.addSource.scrollOffset();
             }
-            if (rateLimitChanged || scrollChanged || environmentChanged) {
+            if (rateLimitChanged || scrollChanged) {
                 publish();
             }
         });
     }
 
+    public void resourcesReloaded() {
+        onClient(() -> {
+            if (disposed) {
+                return;
+            }
+            boolean environmentChanged = refreshSkinExtensionEnvironment();
+            capeCatalogReloadPending = true;
+            warmReloadedCapeCatalog();
+            if (environmentChanged) {
+                publish();
+            }
+        });
+    }
+
+    private void warmReloadedCapeCatalog() {
+        if (capeCatalogWarmupRunning || !capeCatalogReloadPending) {
+            return;
+        }
+        capeCatalogReloadPending = false;
+        UUID accountId = state.account == null ? null : state.account.accountId();
+        final long generation;
+        try {
+            generation = operations.capeCatalogGeneration();
+        } catch (RuntimeException failure) {
+            diagnose(DiagnosticEvent.CLIENT_CAPE_CACHE_FAILED, failure);
+            return;
+        }
+        if (generation == Long.MIN_VALUE) {
+            return;
+        }
+        capeCatalogWarmupRunning = true;
+        CompletableFuture.runAsync(() -> {
+            try {
+                operations.warmResourceCapeCatalog(generation);
+                if (accountId != null) {
+                    operations.warmCapeCatalog(accountId, generation);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new CompletionException(interrupted);
+            } catch (Exception failure) {
+                throw new CompletionException(failure);
+            }
+        }, worker).whenComplete((ignored, failure) -> onClient(() -> {
+            capeCatalogWarmupRunning = false;
+            if (disposed) {
+                return;
+            }
+            if (failure != null) {
+                diagnose(DiagnosticEvent.CLIENT_CAPE_CACHE_FAILED, failure);
+            } else if (accountId != null && state.account != null
+                    && accountId.equals(state.account.accountId())) {
+                installWarmedCapePreviews(accountId, true);
+                if (state.editor != null) {
+                    reloadEditorCatalog();
+                }
+            }
+            warmReloadedCapeCatalog();
+        }));
+    }
+
     private boolean observeRateLimit() {
-        Optional<Duration> remaining = operations.rateLimitRemaining();
+        Optional<Duration> remaining = state.providers.minecraftEnabled() ? operations.rateLimitRemaining() : Optional.empty();
         boolean limited = remaining.isPresent();
         boolean changed = state.rateLimited != limited;
         state.rateLimited = limited;
@@ -651,7 +826,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (!rateLimitRecoveryArmed) {
             return changed;
         }
-        UUID accountId = rateLimitRecoveryAccountId;
+        UUID accountId = state.providers.minecraftEnabled() ? rateLimitRecoveryAccountId : null;
         rateLimitRecoveryArmed = false;
         rateLimitRecoveryAccountId = null;
         if (accountId != null && accountId.equals(currentSessionAccountId())) {
@@ -714,6 +889,7 @@ public final class ClientRuntime implements AutoCloseable {
                             publication.complete(AppearanceRefreshCoordinator.Result.DEFERRED);
                             return;
                         }
+                        durable.ifPresent(this::acceptProviderSnapshot);
                         boolean checkpoint = durable
                                 .filter(appearance -> automaticCheckpointEligible(
                                         appearance.syncStatus()))
@@ -772,9 +948,35 @@ public final class ClientRuntime implements AutoCloseable {
         ensureNotDisposed();
         viewportWidth = width;
         viewportHeight = height;
+        if (destinationLoading()) {
+            return new ViewSpec("loading", UiMessage.info("nclskins.title"), width, height,
+                    List.of(), List.of(new ViewSpec.Text("destination.loading",
+                            new Bounds(8, Math.max(0, height / 2 - 5), Math.max(1, width - 16), 10),
+                            UiMessage.info("nclskins.status.loading"), ViewSpec.Text.Alignment.CENTER)),
+                    List.of(), List.of(), Optional.empty());
+        }
+        if (state.providersOpen || !state.providers.galleryAvailable()) {
+            if (state.providerAdding) return withRuntimeFocus(new ProvidersPresenter().presentChooser(
+                    state.providers, state.providerComponent, state.busy, width, height, state.providerChooserOffset));
+            ViewSpec providerView = new ProvidersPresenter().present(state.providers, state.providerComponent,
+                    state.providerAdding, state.busy, state.providerPreview.withOuterLayerVisibility(
+                    outerLayerVisibilityController.map(OuterLayerVisibilityController::current).orElse(OuterLayerVisibility.allVisible())),
+                    currentPlayerVariant(), width, height, state.providerPreviewSources.get(AppearanceProviders.Component.SKIN),
+                    state.providerPreviewSources.get(AppearanceProviders.Component.CAPE), snapshot.rateLimitProgress());
+            SkinFeatureEvidence evidence = Optional.of(providerView.previews().get(0).imageRevision()).filter(revision -> revision.startsWith("provider:skin:")).flatMap(revision -> snapshot.account().flatMap(account ->
+                    account.skinAssets().stream().filter(asset -> asset.sha256().equals(revision.substring(14))).findFirst()))
+                    .map(asset -> snapshot.assetEvidence().getOrDefault(asset.id(), SkinFeatureEvidence.ORDINARY)).orElse(SkinFeatureEvidence.ORDINARY);
+            SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(evidence, snapshot.skinExtensionEnvironment());
+            if (compatibility.status() != SkinCompatibilityStatus.ORDINARY) {
+                providerView = providerView.withCompatibilityIndicator("providers.compatibility", new Bounds(2, Math.max(35, height - 55), 20, 20),
+                        CompatibilityMessages.accessibleLabel(compatibility), CompatibilityMessages.icon(compatibility), Optional.empty());
+            }
+            return withRuntimeFocus(providerView);
+        }
         PresetEditorModel editor = state.editor;
         if (editor != null) {
-            ViewSpec editorView = editor.present(width, height, editorCapeScrollPosition);
+            ViewSpec editorView = editor.present(
+                    width, height, editorCapeScrollPosition, editorModelScrollPosition, viewChromeMetrics);
             SkinFeatureEvidence evidence = state.editorEvidence;
             if (evidence != null) {
                 SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(
@@ -857,6 +1059,13 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
 
+    public Optional<CurrentPlayerAppearanceSource.PlayerAppearance> previewPlayerAppearance(ViewSpec.Preview preview) {
+        if (preview.imageRevision().equals("provider:default")) {
+            return currentAppearanceSource.map(CurrentPlayerAppearanceSource::defaultPlayerAppearance);
+        }
+        return currentPlayerAppearance();
+    }
+
     public Optional<CurrentPlayerAppearanceSource.PlayerAppearance> currentPlayerAppearance() {
         ensureNotDisposed();
         if (!clientExecutor.isClientThread()) {
@@ -870,6 +1079,25 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
+
+    public Optional<PreviewRenderer.PreviewAppearance> menuPreviewAppearance() {
+        Optional<CurrentPlayerAppearanceSource.PlayerAppearance> current = currentPlayerAppearance();
+        if (current.isEmpty() || outerLayerVisibilityController.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            var appearance = current.orElseThrow();
+            return Optional.of(new PreviewRenderer.PreviewAppearance(
+                    appearance.skin(),
+                    appearance.model(),
+                    appearance.cape(),
+                    appearance.cape().isPresent() ? PreviewRenderer.CapeMode.CAPE : PreviewRenderer.CapeMode.OFF,
+                    outerLayerVisibilityController.orElseThrow().current()));
+        } catch (RuntimeException unavailableAppearance) {
+            diagnose(DiagnosticEvent.CLIENT_CURRENT_APPEARANCE_FAILED, unavailableAppearance);
+            return Optional.empty();
+        }
+    }
 
     public void dispatchWidget(String widgetId) {
         dispatchWidget(widgetId, false, InteractionOrigin.PROGRAMMATIC);
@@ -894,6 +1122,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (!clientExecutor.isClientThread()) {
             throw new IllegalStateException("UI navigation is client-thread-only");
         }
+        clearFileImportError();
         ViewSpec current = view(viewportWidth, viewportHeight, 0, 0);
         if (command == ViewSpec.NavigationCommand.ACTIVATE) {
             Optional<String> action = ViewNavigationPolicy.activationAction(
@@ -917,8 +1146,10 @@ public final class ClientRuntime implements AutoCloseable {
                 return true;
             }
         }
-        Optional<ViewSpec.NavigationNode> target = ViewNavigationPolicy.target(
-                current, focusedWidgetId, command);
+        Optional<ViewSpec.NavigationNode> target = command == ViewSpec.NavigationCommand.TAB_FORWARD
+                && "editor.cape_disclosure".equals(focusedWidgetId)
+                ? visibleCapeEntryTarget(current).or(() -> ViewNavigationPolicy.target(current, focusedWidgetId, command))
+                : ViewNavigationPolicy.target(current, focusedWidgetId, command);
         if (target.isEmpty()) {
             return false;
         }
@@ -960,6 +1191,16 @@ public final class ClientRuntime implements AutoCloseable {
                 : entries.stream().min(java.util.Comparator.comparingInt(node -> node.bounds().x()));
     }
 
+    private static Optional<ViewSpec.NavigationNode> visibleCapeEntryTarget(ViewSpec view) {
+        return view.scrollSurface("editor.capes").flatMap(surface -> view.navigationNodes().stream()
+                .filter(ViewSpec.NavigationNode::enabled)
+                .filter(node -> node.surfaceId().filter(surface.id()::equals).isPresent())
+                .filter(node -> node.pattern() == ViewSpec.NavigationPattern.GRID)
+                .filter(node -> node.bounds().bottom() > surface.viewport().y()
+                        && node.bounds().y() < surface.viewport().bottom())
+                .min(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder)));
+    }
+
     private void requestRuntimeFocus(String screenId, String widgetId) {
         runtimeFocusToken = Math.max(1, runtimeFocusToken + 1);
         runtimeFocusScreenId = Objects.requireNonNull(screenId, "screenId");
@@ -990,14 +1231,19 @@ public final class ClientRuntime implements AutoCloseable {
             state.addSource = state.addSource.withScrollOffset(bounded);
             addSourceScrollPosition = bounded;
             addSourceScrollTarget = bounded;
+        } else if ("providers.chooser".equals(surfaceId) && state.providerAdding) {
+            state.providerChooserOffset = Math.max(0, offsetPixels);
         } else if ("external.review".equals(surfaceId)
                 && state.externalImport != null
                 && state.externalImport.review().isPresent()) {
             state.externalImport = state.externalImport.withReviewScroll(
                     Math.max(0, (int) Math.round(offsetPixels)));
+        } else if ("editor.models".equals(surfaceId) && state.editor != null) {
+            editorModelScrollPosition = state.editor.normalizedModelScrollPosition(
+                    viewportWidth, viewportHeight, offsetPixels);
         } else if ("editor.capes".equals(surfaceId) && state.editor != null) {
             double bounded = state.editor.normalizedCapeScrollPosition(
-                    viewportWidth, viewportHeight, offsetPixels);
+                    viewportWidth, viewportHeight, offsetPixels, viewChromeMetrics);
             editorCapeScrollPosition = bounded;
             editorCapeScrollTarget = bounded;
         }
@@ -1007,6 +1253,7 @@ public final class ClientRuntime implements AutoCloseable {
         Objects.requireNonNull(widgetId, "widgetId");
         Objects.requireNonNull(value, "value");
         onClient(() -> {
+            clearFileImportError();
             if ("gallery.search".equals(widgetId)
                     && state.editor == null
                     && state.addSource == null) {
@@ -1019,6 +1266,12 @@ public final class ClientRuntime implements AutoCloseable {
                 resetGalleryScroll();
                 state.pendingPresetDeleteId = null;
                 publish();
+            } else if (("editor.cape_search".equals(widgetId) || "editor.cape_action.name".equals(widgetId))
+                    && state.editor != null && state.editor.capeCatalog() != null) {
+                updateEditor(editor -> editor.withCapeCatalog(widgetId.equals("editor.cape_search")
+                        ? editor.capeCatalog().withQuery(value) : editor.capeCatalog().rename(value)));
+                editorCapeScrollPosition = 0;
+                editorCapeScrollTarget = 0;
             } else if ("editor.name".equals(widgetId) && state.editor != null) {
                 if (state.editor.name().equals(value)) {
                     return;
@@ -1059,26 +1312,38 @@ public final class ClientRuntime implements AutoCloseable {
 
     public void pointerPressed(double mouseX, double mouseY, int button) {
         onClient(() -> {
+            clearFileImportError();
+            if (state.editor != null && state.editor.capeCatalog() != null && state.editor.capeCatalog().importError() != null) {
+                state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().error(false));
+                publish();
+            }
             if (button != 0 || state.busy) {
+                return;
+            }
+            if (state.providersOpen || !state.providers.galleryAvailable()) {
+                if (state.providerAdding) return;
+                state.providerPreview = state.providerPreview.beginRotate(new Bounds(0, 0, viewportWidth / 2, viewportHeight), mouseX, mouseY);
+                publish();
                 return;
             }
             if (state.editor != null) {
                 ViewSpec editorView = state.editor.present(
-                        viewportWidth, viewportHeight, editorCapeScrollPosition);
+                        viewportWidth, viewportHeight, editorCapeScrollPosition, editorModelScrollPosition,
+                        viewChromeMetrics);
                 Optional<ViewSpec.Scrollbar> capeScrollbar = editorView.scrollbar()
                         .filter(scrollbar -> scrollbar.orientation()
                                 == ViewSpec.Scrollbar.Orientation.VERTICAL)
                         .filter(scrollbar -> scrollbar.track().contains(mouseX, mouseY));
                 if (capeScrollbar.isPresent()) {
                     ViewSpec.Scrollbar scrollbar = capeScrollbar.orElseThrow();
-                    draggingEditorCapeScrollbar = true;
-                    editorCapeScrollbarGrabOffset = scrollbar.thumb().contains(mouseX, mouseY)
+                    draggingEditorScrollbar = true;
+                    editorScrollbarGrabOffset = scrollbar.thumb().contains(mouseX, mouseY)
                             ? mouseY - scrollbar.thumb().y()
                             : scrollbar.thumb().height() / 2.0;
-                    setEditorCapePosition(state.editor.capePositionFromScrollbar(
+                    setEditorContentPosition(editorPositionFromScrollbar(
                             viewportWidth,
                             viewportHeight,
-                            mouseY - editorCapeScrollbarGrabOffset));
+                            mouseY - editorScrollbarGrabOffset));
                     return;
                 }
                 Bounds previewBounds = editorView
@@ -1145,11 +1410,14 @@ public final class ClientRuntime implements AutoCloseable {
             if (button != 0) {
                 return;
             }
-            if (draggingEditorCapeScrollbar && state.editor != null) {
-                setEditorCapePosition(state.editor.capePositionFromScrollbar(
+            if (state.providerPreview.rotating()) {
+                state.providerPreview = state.providerPreview.drag(deltaX, deltaY);
+                publish();
+            } else if (draggingEditorScrollbar && state.editor != null) {
+                setEditorContentPosition(editorPositionFromScrollbar(
                         viewportWidth,
                         viewportHeight,
-                        mouseY - editorCapeScrollbarGrabOffset));
+                        mouseY - editorScrollbarGrabOffset));
             } else if (state.editor != null && state.editor.preview().rotating()) {
                 state.editor = state.editor.withPreview(state.editor.preview().drag(deltaX, deltaY));
                 publish();
@@ -1179,8 +1447,9 @@ public final class ClientRuntime implements AutoCloseable {
             if (button != 0) {
                 return;
             }
+            state.providerPreview = state.providerPreview.endRotate();
             draggingGalleryScrollbar = false;
-            draggingEditorCapeScrollbar = false;
+            draggingEditorScrollbar = false;
             draggingAddSourceScrollbar = false;
             if (state.editor != null && state.editor.preview().rotating()) {
                 state.editor = state.editor.withPreview(state.editor.preview().endRotate());
@@ -1192,16 +1461,23 @@ public final class ClientRuntime implements AutoCloseable {
     public void pointerScrolled(
             double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         onClient(() -> {
+            if (state.providersOpen || !state.providers.galleryAvailable()) {
+                if (state.providerAdding) return;
+                state.providerPreview = state.providerPreview.scroll(new Bounds(0, 0, viewportWidth / 2, viewportHeight), mouseX, mouseY, verticalAmount);
+                publish();
+                return;
+            }
             if (state.editor != null) {
                 ViewSpec editorView = state.editor.present(
-                        viewportWidth, viewportHeight, editorCapeScrollPosition);
-                boolean capeGallery = editorView.clipRegions().stream()
-                        .filter(region -> region.id().equals("editor.capes"))
+                        viewportWidth, viewportHeight, editorCapeScrollPosition, editorModelScrollPosition,
+                        viewChromeMetrics);
+                boolean editorGallery = editorView.clipRegions().stream()
+                        .filter(region -> region.id().equals("editor.capes") || region.id().equals("editor.models"))
                         .map(ViewSpec.ClipRegion::bounds)
                         .anyMatch(bounds -> bounds.contains(mouseX, mouseY));
                 double amount = dominantScrollAmount(horizontalAmount, verticalAmount);
-                if (capeGallery && amount != 0.0) {
-                    queueEditorCapeScroll(-amount * WHEEL_SCROLL_PIXELS);
+                if (editorGallery && amount != 0.0) {
+                    queueEditorContentScroll(-amount * WHEEL_SCROLL_PIXELS);
                     return;
                 }
                 Bounds previewBounds = editorView
@@ -1282,6 +1558,11 @@ public final class ClientRuntime implements AutoCloseable {
                     }
                     setAddSourceOffset((int) Math.round(offsetPixels));
                 }
+                case "providers.chooser" -> {
+                    if (!state.providerAdding) return;
+                    state.providerChooserOffset = offsetPixels;
+                    publish();
+                }
                 case "external.review" -> {
                     if (state.externalImport == null || state.externalImport.review().isEmpty()) {
                         return;
@@ -1290,11 +1571,17 @@ public final class ClientRuntime implements AutoCloseable {
                             Math.max(0, (int) Math.round(offsetPixels)));
                     publish();
                 }
-                case "editor.capes" -> {
-                    if (state.editor == null) {
+                case "editor.models" -> {
+                    if (state.editor == null || state.editor.selectedEditorTab() != EditorTab.APPEARANCE) {
                         return;
                     }
-                    setEditorCapePosition(offsetPixels);
+                    setEditorContentPosition(offsetPixels);
+                }
+                case "editor.capes" -> {
+                    if (state.editor == null || state.editor.selectedEditorTab() != EditorTab.CAPE) {
+                        return;
+                    }
+                    setEditorContentPosition(offsetPixels);
                 }
                 default -> {
 
@@ -1318,6 +1605,9 @@ public final class ClientRuntime implements AutoCloseable {
 
     public CompletableFuture<Optional<byte[]>> loadSkinPreview(ViewSpec.Preview preview) {
         Objects.requireNonNull(preview, "preview");
+        if (preview.imageRevision().startsWith("provider:skin:")) {
+            return loadProviderTexture(new ViewSpec.ProviderTexture(preview.imageRevision().substring(14), true, false));
+        }
         PresetEditorModel editor = state.editor;
         if ("editor.preview".equals(preview.id()) && editor != null && editor.png().isPresent()) {
             CompletableFuture<Optional<byte[]>> loaded =
@@ -1360,8 +1650,30 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
 
+    public CompletableFuture<Optional<byte[]>> loadProviderTexture(ViewSpec.ProviderTexture texture) {
+        return requestPreview(texture.requestKey(), () -> operations.loadProviderTexture(texture));
+    }
+
     public CompletableFuture<Optional<byte[]>> loadCapePreview(String capeId) {
         Objects.requireNonNull(capeId, "capeId");
+        if (capeId.startsWith("provider:cape:")) {
+            return loadProviderTexture(new ViewSpec.ProviderTexture(capeId.substring(14), false, false));
+        }
+        if (capeId.startsWith("resource:cape:") && state.editor != null
+                && state.editor.capeCatalog() != null && state.account != null) {
+            Optional<ClientOperations.ResourceCapeSelection> selection =
+                    state.editor.capeCatalog().cards().stream()
+                            .filter(card -> card.texture().filter(capeId::equals).isPresent())
+                            .map(CapeCatalogModel.Card::resource)
+                            .filter(Objects::nonNull)
+                            .findFirst();
+            if (selection.isPresent()) {
+                UUID accountId = state.account.accountId();
+                return requestPreview(capeId, () -> operations.loadResourceCapePreview(
+                        accountId, selection.orElseThrow()));
+            }
+            return publishPreview(Optional.empty());
+        }
         return requestPreview("cape:" + capeId, () -> operations.loadCapePreview(capeId));
     }
 
@@ -1553,6 +1865,7 @@ public final class ClientRuntime implements AutoCloseable {
             disposed = true;
             state.generation++;
             state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
+            state.editorReturnsToProviders = false;
             state.busy = false;
             clearSessionRetryFeedback();
             state.editor = null;
@@ -1600,6 +1913,9 @@ public final class ClientRuntime implements AutoCloseable {
                 || state.busy) {
             return;
         }
+        if (!skinExtensionEnvironmentInitialized) {
+            refreshSkinExtensionEnvironment();
+        }
         if (!state.readyData && state.account == null) {
             operations.warmedInitialData()
                     .filter(this::currentSessionOwns)
@@ -1613,58 +1929,13 @@ public final class ClientRuntime implements AutoCloseable {
                 UiMessage.info("nclskins.status.loading"),
                 operations::initialize,
                 data -> {
-                    acceptInitialData(data, true);
-                    classifySessionForGallery();
-                });
-    }
-
-    private void classifySessionForGallery() {
-        if (disposed
-                || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
-                || state.account == null) {
-            return;
-        }
-        long ticket = ++sessionActivitySequence;
-        sessionActivityTicket = ticket;
-        sessionActivityBaselineGeneration = state.generation;
-        sessionActivityAccountId = state.account.accountId();
-        state.sessionActivity = ClientSnapshot.SessionActivity.CLASSIFYING;
-        publish();
-        CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return operations.initializeForGallery();
-                    } catch (Exception failure) {
-                        throw new CompletionException(failure);
+                    if (!currentSessionOwns(data)) {
+                        closeScreenOnClient();
+                        return;
                     }
-                }, sessionWorker)
-                .whenComplete((result, failure) -> onClient(() ->
-                        acceptSessionClassification(ticket, result, failure)));
-    }
-
-    private void acceptSessionClassification(
-            long ticket, ClientOperations.InitialData result, Throwable failure) {
-        if (!currentSessionActivity(ticket)) {
-            return;
-        }
-        long baselineGeneration = sessionActivityBaselineGeneration;
-        state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
-        clearSessionActivity(ticket);
-        if (failure != null) {
-            state.rateLimited = operations.rateLimited();
-            state.status = operationFailure(failure);
-            publish();
-            return;
-        }
-        ClientOperations.InitialData data = Objects.requireNonNull(
-                result, "gallery session classification result");
-        CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
-                acceptSessionActivityData(data, baselineGeneration);
-        if (operations.reconciliationRecommended(data)) {
-            reconcileAfterLocalRebind(
-                    localRebind,
-                    ClientOperations.ReconciliationTrigger.GALLERY_OPEN);
-        }
-        publish();
+                    acceptInitialData(data, true);
+                    resolveRequestedDestination();
+                });
     }
 
     private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptSessionActivityData(
@@ -1674,7 +1945,7 @@ public final class ClientRuntime implements AutoCloseable {
         }
         state.session = data.session();
         state.remoteProfile = data.session().profile();
-        state.rateLimited = operations.rateLimited();
+        state.rateLimited = state.providers.minecraftEnabled() && operations.rateLimited();
         state.selectedCapeId = data.session().optionalProfile()
                 .flatMap(RemoteProfile::activeCape)
                 .map(cape -> cape.id())
@@ -1694,6 +1965,7 @@ public final class ClientRuntime implements AutoCloseable {
                 && Objects.equals(state.activePresetId, data.activePresetId().orElse(null))
                 && state.intentRevision == data.intentRevision()
                 && state.syncStatus == data.syncStatus()
+                && Objects.equals(state.providers, data.providers())
                 && Objects.equals(
                         state.localAppearance,
                         data.localAppearance().orElse(null))
@@ -1715,15 +1987,18 @@ public final class ClientRuntime implements AutoCloseable {
                 || (!initialized && !Objects.equals(previousActivePresetId, state.activePresetId))) {
             centerGalleryOnActive();
         }
+        state.providers = data.providers();
         state.intentRevision = data.intentRevision();
         state.syncStatus = data.syncStatus();
         state.uiPreferences = data.uiPreferences();
+        state.providerComponent = data.uiPreferences().selectedProvidersTab();
         state.ownedCapes = data.ownedCapes();
+        installWarmedCapePreviews(state.account.accountId(), false);
         state.readyData = true;
         if (operations.supportsAssetFeatureEvidence()) {
             refreshAssetFeatureEvidence(state.generation, state.account.accountId());
         }
-        state.rateLimited = operations.rateLimited();
+        state.rateLimited = state.providers.minecraftEnabled() && operations.rateLimited();
         state.selectedCapeId = data.session().optionalProfile()
                 .flatMap(RemoteProfile::activeCape)
                 .map(cape -> cape.id())
@@ -1740,7 +2015,7 @@ public final class ClientRuntime implements AutoCloseable {
         CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
                 refreshLocalAppearance(data.localAppearance());
         data.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
-        if (data.ownedCapes().capes().isEmpty()) {
+        if (initialized || data.ownedCapes().capes().isEmpty()) {
             return localRebind;
         }
         long capeWarmupGeneration = state.generation;
@@ -1759,7 +2034,12 @@ public final class ClientRuntime implements AutoCloseable {
                         Optional<OwnedCapeInventory> warmed = operations.ownedCapeInventory();
                         onClient(() -> {
                             if (!disposed && state.generation == capeWarmupGeneration) {
-                                warmed.ifPresent(value -> state.ownedCapes = value);
+                                warmed.ifPresent(value -> {
+                                    state.ownedCapes = value;
+                                    if (state.editor != null && state.editor.capeCatalog() != null) state.editor = state.editor.withCapeCatalog(
+                                            state.editor.capeCatalog().withOwnedClassification(value.capes()));
+                                });
+                                installWarmedCapePreviews(state.account.accountId(), false);
                                 publish();
                             }
                         });
@@ -1809,9 +2089,11 @@ public final class ClientRuntime implements AutoCloseable {
         state.remoteProfile = data.session().profile();
         state.currentOfficialSkinId = data.currentOfficialSkinId().orElse(null);
         state.activePresetId = data.activePresetId().orElse(null);
+        state.providers = data.providers();
         state.intentRevision = data.intentRevision();
         state.syncStatus = data.syncStatus();
         state.uiPreferences = data.uiPreferences();
+        state.providerComponent = data.uiPreferences().selectedProvidersTab();
         state.ownedCapes = data.ownedCapes();
         state.selectedCapeId = data.session().optionalProfile()
                 .flatMap(RemoteProfile::activeCape)
@@ -1825,10 +2107,155 @@ public final class ClientRuntime implements AutoCloseable {
                 && Objects.equals(state.activePresetId, data.activePresetId().orElse(null));
     }
 
+    private void dispatchProviderWidget(String id) {
+        dispatchProviderWidget(id, InteractionOrigin.PROGRAMMATIC);
+    }
+
+    private void dispatchProviderWidget(String id, InteractionOrigin origin) {
+        if (id.startsWith("providers.") && !id.equals("providers.back")) state.providersOpen = true;
+        if (id.equals("gallery.providers")) {
+            state.providersOpen = true;
+            state.providerPreviewSources.clear();
+            submit(UiMessage.info("nclskins.providers.title"), operations::reloadProviders, this::acceptProviderChange);
+            state.providerPreview = PreviewInteractionModel.editor(viewportHeight, preferredCapeMode);
+        } else if (id.equals("providers.back")) {
+            if (state.providerAdding) state.providerAdding = false;
+            else if (state.rootDestination == ScreenDestination.PROVIDERS) closeScreenOnClient();
+            else if (state.providers.galleryAvailable()) state.providersOpen = false;
+            else closeScreenOnClient();
+        } else if (id.startsWith("providers.tab.")) {
+            selectProvidersTab(AppearanceProviders.Component.valueOf(id.substring(14)));
+            state.providerPreviewSources.clear();
+            state.providerAdding = false;
+        } else if (id.equals("providers.add")) {
+            state.providerAdding = true;
+            state.providerChooserOffset = 0;
+        } else if (id.equals("providers.preview_mode")) {
+            state.providerPreview = state.providerPreview.cycleCapeMode(true);
+            preferredCapeMode = state.providerPreview.capeMode();
+            PreviewPreferences.setCapeMode(preferredCapeMode);
+            if (state.editor != null) {
+                state.editor = state.editor.withPreview(
+                        state.editor.preview().withCapeMode(preferredCapeMode));
+            }
+        } else {
+            var component = state.providerComponent;
+            String[] action = id.split("\\.");
+            if (action.length < 2 || state.busy) return;
+            if (id.equals("providers.refresh")) {
+                submit(UiMessage.info("nclskins.providers.refresh"), () -> operations.refreshProviders(component), this::acceptProviderChange);
+            } else if (action.length == 3) {
+                BuiltinProvider provider = BuiltinProvider.valueOf(action[2]);
+                String verb = action[1];
+                if (verb.equals("edit")) {
+                    if (state.providerAdding || !state.providers.galleryAvailable()
+                            || !(component == AppearanceProviders.Component.SKIN ? state.providers.skin().order()
+                                    : state.providers.cape().order()).contains(provider)) return;
+                    state.providersOpen = false;
+                    clearRuntimeFocus("providers");
+                    if (component == AppearanceProviders.Component.CAPE) {
+                        openEditor(state.activePresetId);
+                        state.editorReturnsToProviders = state.editor != null;
+                        selectEditorTab(EditorTab.CAPE);
+                        if (state.editor != null && state.editor.capeCatalog() != null) {
+                            state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().inspect(provider, state.account));
+                            var inspected = state.editor.capeCatalog().inspected();
+                            pendingCapeProviderInspection = inspected != null && inspected.resource() == null
+                                    ? provider : null;
+                            editorCapeScrollPosition = state.editor.initialCapeScrollPosition(
+                                    viewportWidth, viewportHeight, viewChromeMetrics);
+                            editorCapeScrollTarget = editorCapeScrollPosition;
+                        }
+                    } else {
+                        state.galleryReturnsToProviders = true;
+                    }
+                    publish();
+                    return;
+                }
+                if (verb.equals("row") && state.providerAdding && (component == AppearanceProviders.Component.SKIN
+                        ? state.providers.skin().order() : state.providers.cape().order()).contains(provider)) return;
+                if (verb.equals("row") && !state.providerAdding) { state.providerPreviewSources.put(component, provider); publish(); return; }
+                int previousIndex = (component == AppearanceProviders.Component.SKIN ? state.providers.skin().order() : state.providers.cape().order()).indexOf(provider);
+                UUID accountId = state.account.accountId();
+                submitProviderConfiguration(() -> switch (verb) {
+                    case "row" -> operations.enableProvider(accountId, component, provider);
+                    case "remove" -> operations.disableProvider(accountId, component, provider);
+                    case "up" -> operations.moveProvider(accountId, component, provider, -1);
+                    case "down" -> operations.moveProvider(accountId, component, provider, 1);
+                    default -> throw new IllegalArgumentException("Unknown provider action");
+                }, appearance -> {
+                    acceptProviderChange(appearance);
+                    state.providerAdding = false;
+                    if (origin == InteractionOrigin.KEYBOARD) {
+                        var remaining = component == AppearanceProviders.Component.SKIN ? state.providers.skin().order() : state.providers.cape().order();
+                        String target = "providers.row." + provider.name();
+                        if (verb.equals("remove")) target = remaining.isEmpty() ? "providers.add"
+                                : "providers.row." + remaining.get(Math.max(0, Math.min(previousIndex, remaining.size() - 1))).name();
+                        requestRuntimeFocus("providers", target);
+                    }
+                    if (verb.equals("remove") && state.providerPreviewSources.get(component) == provider) state.providerPreviewSources.remove(component);
+                    if (verb.equals("row")) reconcileAfterLocalRebind(
+                            refreshLocalAppearance(appearance.localAppearance()), ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                });
+            }
+        }
+        publish();
+    }
+
+    private void submitProviderConfiguration(ThrowingSupplier<ClientOperations.DurableAppearance> operation,
+            Consumer<ClientOperations.DurableAppearance> completion) {
+        UUID accountId = state.account.accountId();
+        providerConfigurationWrite = providerConfigurationWrite.handle((ignored, failure) -> null).thenRunAsync(() -> {
+            if (disposed || state.account == null || !accountId.equals(state.account.accountId())) return;
+            try {
+                var appearance = operation.get();
+                onClient(() -> {
+                    if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.account == null
+                            || !accountId.equals(state.account.accountId()) || !currentSessionOwns(appearance)
+                            || appearance.providers().skin().configurationRevision() < state.providers.skin().configurationRevision()
+                            || appearance.providers().cape().configurationRevision() < state.providers.cape().configurationRevision()
+                            || appearance.intentRevision() < state.intentRevision) return;
+                    completion.accept(appearance);
+                    publish();
+                });
+            } catch (Exception failure) {
+                if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+                diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure);
+                onClient(() -> {
+                    if (state.account != null && accountId.equals(state.account.accountId())) { state.status = operationFailure(failure); publish(); }
+                });
+            }
+        }, worker);
+    }
+
+    private void acceptProviderSnapshot(ClientOperations.DurableAppearance appearance) {
+        if (!currentSessionOwns(appearance)
+                || appearance.providers().skin().configurationRevision() < state.providers.skin().configurationRevision()
+                || appearance.providers().cape().configurationRevision() < state.providers.cape().configurationRevision()
+                || appearance.intentRevision() < state.intentRevision) return;
+        state.providers = appearance.providers();
+        publish();
+    }
+
+    private void acceptProviderChange(ClientOperations.DurableAppearance appearance) {
+        if (!currentSessionOwns(appearance)) return;
+        state.providers = appearance.providers();
+        state.intentRevision = appearance.intentRevision();
+        state.syncStatus = appearance.syncStatus();
+        appearance.localAppearance().ifPresent(this::refreshLocalAppearance);
+        observeRateLimit();
+        publish();
+    }
+
     private void dispatchWidgetOnClient(
             String widgetId, boolean reverse, InteractionOrigin origin) {
         ensureNotDisposed();
+        clearFileImportError();
         if (state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
+            return;
+        }
+        if (widgetId.equals("gallery.providers") || widgetId.startsWith("providers.")) {
+            dispatchProviderWidget(widgetId, origin);
             return;
         }
         if (widgetId.startsWith("gallery.preset.")) {
@@ -1880,6 +2307,10 @@ public final class ClientRuntime implements AutoCloseable {
                     widgetId.substring("editor.outer_layer.".length()), reverse);
             return;
         }
+        if (state.editor != null && state.editor.capeCatalog() != null) {
+            state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().error(false));
+            if (dispatchCapeCatalog(widgetId, reverse, origin)) return;
+        }
         if (widgetId.startsWith("editor.cape_choice.")) {
             try {
                 int index = Integer.parseInt(widgetId.substring("editor.cape_choice.".length()));
@@ -1893,7 +2324,13 @@ public final class ClientRuntime implements AutoCloseable {
             case "gallery.add" -> openAddSource();
             case "gallery.retry_session" -> retrySession();
             case "gallery.retry_cape" -> retrySelectedCape();
-            case "gallery.done" -> closeScreen();
+            case "gallery.done" -> {
+                if (state.galleryReturnsToProviders) {
+                    closeToProviders();
+                } else {
+                    closeScreen();
+                }
+            }
             case "add.tab.file" -> selectAddSourceTab(AddSourceTab.FILE);
             case "add.tab.catalog" -> selectAddSourceTab(AddSourceTab.CATALOG);
             case "add.file.choose" -> chooseAddSourcePng();
@@ -1917,7 +2354,12 @@ public final class ClientRuntime implements AutoCloseable {
             }
             case "external.review.commit" -> commitExternalImport();
             case "external.review.cancel" -> cancelExternalReview();
-            case "editor.model" -> toggleEditorVariant();
+            case "editor.tab.appearance", "editor.tab.cape" -> {
+                selectEditorTab(widgetId.endsWith("appearance") ? EditorTab.APPEARANCE : EditorTab.CAPE);
+                retainKeyboardFocus(origin, "preset_editor", widgetId);
+            }
+            case "editor.model_choice.classic" -> selectEditorVariant(SkinVariant.CLASSIC);
+            case "editor.model_choice.slim" -> selectEditorVariant(SkinVariant.SLIM);
             case "editor.cape" -> updateEditor(editor -> editor.cycleCape(reverse ? -1 : 1));
             case "editor.preview_mode" -> {
                 updateEditor(editor -> editor.cyclePreviewMode(reverse ? -1 : 1));
@@ -1925,6 +2367,7 @@ public final class ClientRuntime implements AutoCloseable {
                     preferredCapeMode = state.editor.preview().capeMode();
                     if (preferredCapeMode != PreviewRenderer.CapeMode.OFF) {
                         PreviewPreferences.setCapeMode(preferredCapeMode);
+                        state.providerPreview = state.providerPreview.withCapeMode(preferredCapeMode);
                     }
                 }
             }
@@ -2000,6 +2443,10 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void openAddSource() {
+        openAddSource(null);
+    }
+
+    private void openAddSource(AddSourceTab override) {
         if (state.busy || state.account == null) {
             return;
         }
@@ -2021,7 +2468,7 @@ public final class ClientRuntime implements AutoCloseable {
 
 
         SkinVariant fallbackVariant = currentPlayerVariant();
-        SkinExtensionEnvironment catalogEnvironment = currentSkinExtensionEnvironment();
+        SkinExtensionEnvironment catalogEnvironment = skinExtensionEnvironment;
         boolean hideIncompatibleCatalogSkins = snapshot.hideIncompatibleCatalogSkins();
         submit(
                 UiMessage.info("nclskins.status.loading"),
@@ -2043,6 +2490,10 @@ public final class ClientRuntime implements AutoCloseable {
                             latest, collections, operations.catalogFeatureEvidence());
                 },
                 data -> {
+                    if (!accountId.equals(operations.sessionIdentity().profileId())) {
+                        closeScreenOnClient();
+                        return;
+                    }
                     state.uiPreferences = data.preferences();
                     state.catalogEvidence.clear();
                     data.featureEvidence().forEach((variant, evidence) ->
@@ -2061,8 +2512,13 @@ public final class ClientRuntime implements AutoCloseable {
                     resetAddSourceScroll();
                     state.selectedPresetId = null;
                     state.status = UiMessage.info("nclskins.external_import.choose_source");
+                    if (override != null) selectAddSourceTab(override);
                 },
                 failure -> {
+                    if (!accountId.equals(operations.sessionIdentity().profileId())) {
+                        closeScreenOnClient();
+                        return;
+                    }
                     state.addSource = AddSourceModel.open(
                                     cachedPreferences, List.of(), fallbackVariant, textResolver)
                             .withCompatibilityContext(
@@ -2070,6 +2526,7 @@ public final class ClientRuntime implements AutoCloseable {
                     resetAddSourceScroll();
                     state.selectedPresetId = null;
                     state.status = UiMessage.info("nclskins.external_import.choose_source");
+                    if (override != null) selectAddSourceTab(override);
                 });
     }
 
@@ -2088,8 +2545,9 @@ public final class ClientRuntime implements AutoCloseable {
             state.uiPreferences = state.uiPreferences.withSelectedAddSourceTab(tab);
         }
         publish();
+        UUID accountId = state.account.accountId();
         persistUiPreference(() -> {
-            operations.setSelectedAddSourceTab(tab);
+            operations.setSelectedAddSourceTab(accountId, tab);
             return null;
         });
     }
@@ -2239,20 +2697,21 @@ public final class ClientRuntime implements AutoCloseable {
                                     selection.origin().orElseThrow(),
                                     selection.variants(),
                                     selection.initialVariant(),
-                                    Optional.ofNullable(state.remoteProfile),
-                                    state.ownedCapes.capes(),
+                                    editorProfile(),
+                                    editorOwnedCapes(),
                                     viewportHeight,
                                     preferredCapeMode)
                             : PresetEditorModel.openPersonalCatalog(
                                     name,
                                     selection.reusableVariants(),
                                     selection.initialVariant(),
-                                    Optional.ofNullable(state.remoteProfile),
-                                    state.ownedCapes.capes(),
+                                    editorProfile(),
+                                    editorOwnedCapes(),
                                     viewportHeight,
                                     preferredCapeMode);
                     prepareEditorEvidence(state.editor);
-                    resetEditorCapeScroll();
+                    initializeEditorCapeCatalog(null);
+                    resetEditorScroll();
                     state.selectedPresetId = null;
                 },
                 failure -> state.status = UiMessage.error("nclskins.add_source.load_failed"));
@@ -2363,17 +2822,18 @@ public final class ClientRuntime implements AutoCloseable {
                             state.busy = false;
                             if (pngFailure != null) {
                                 diagnose(DiagnosticEvent.CLIENT_IMPORT_FAILED, pngFailure);
-                                state.status = UiMessage.error("nclskins.error.png");
+                                state.status = fileImportFailure(pngFailure);
                             } else {
-                                String sourceName = path.getFileName().toString();
+                                String sourceName = UntrustedDisplayName.fromFileName(path.getFileName().toString(),
+                                        textResolver.resolve(UiMessage.info("nclskins.editor.add_title")));
                                 openImportedDraft(
                                         new ClientOperations.ImportDraft(
                                                 sourceName,
                                                 skin.detectedVariant(),
                                                 skin.pngBytes(),
                                                 PersonalSkinSource.FILE),
-                                        sourceName,
-                                        false);
+                                        sourceName + ".png",
+                                        true);
                             }
                             publish();
                         }));
@@ -2581,6 +3041,7 @@ public final class ClientRuntime implements AutoCloseable {
                 result.skipped(),
                 result.alreadyPresent(),
                 result.warnings());
+        if (addSourceRoot()) closeScreenOnClient();
     }
 
     private void failExternalPreparation(ExternalImportSource source, Throwable failure) {
@@ -2688,7 +3149,8 @@ public final class ClientRuntime implements AutoCloseable {
         }
         state.editor = applyPendingPresetName(editor);
         prepareEditorEvidence(state.editor);
-        resetEditorCapeScroll();
+        initializeEditorCapeCatalog(null);
+        resetEditorScroll();
         state.editorPersonalSource = draft.source();
         state.selectedPresetId = null;
         rememberPreferredSkinVariant(draft.variant());
@@ -2859,6 +3321,10 @@ public final class ClientRuntime implements AutoCloseable {
                 state.busy = false;
                 state.status = UiMessage.info("nclskins.status.cancelled");
             }
+            if (addSourceRoot()) {
+                closeScreenOnClient();
+                return;
+            }
             resetPersonalCatalogInteraction();
             state.addSource = null;
             clearRuntimeFocus("add_source");
@@ -2894,8 +3360,10 @@ public final class ClientRuntime implements AutoCloseable {
         state.personalRenameValue = "";
     }
 
+    private CompletableFuture<Void> uiPreferenceWrite = CompletableFuture.completedFuture(null);
+
     private void persistUiPreference(ThrowingSupplier<Void> operation) {
-        CompletableFuture.runAsync(() -> {
+        uiPreferenceWrite = uiPreferenceWrite.handle((ignored, failure) -> null).thenRunAsync(() -> {
             try {
                 operation.get();
             } catch (InterruptedException interrupted) {
@@ -2905,6 +3373,53 @@ public final class ClientRuntime implements AutoCloseable {
                 diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, failure);
             }
         }, worker);
+    }
+
+    private void selectEditorTab(EditorTab tab) {
+        if (state.editor == null || state.editor.busy()) {
+            return;
+        }
+        pendingCapeProviderInspection = null;
+        state.editor = state.editor.withSelectedEditorTab(tab);
+        draggingEditorScrollbar = false;
+        clearRuntimeFocus("preset_editor");
+        if (state.account != null) {
+            UUID accountId = state.account.accountId();
+            AccountUiPreferences preferences = state.uiPreferences == null
+                    ? AccountUiPreferences.defaults(accountId) : state.uiPreferences;
+            state.uiPreferences = preferences.withSelectedEditorTab(tab);
+            long ticket = state.generation;
+            long preferenceSequence = ++editorTabPreferenceSequence;
+            editorTabPreferenceWrite = editorTabPreferenceWrite.handle((ignored, failure) -> null).thenRunAsync(() -> {
+                try {
+                    operations.setSelectedEditorTab(accountId, tab);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new CompletionException(failure);
+                } catch (Exception failure) {
+                    throw new CompletionException(failure);
+                }
+            }, worker).whenComplete((ignored, failure) -> clientExecutor.execute(() -> {
+                if (failure != null && preferenceSequence == editorTabPreferenceSequence
+                        && current(ticket) && state.account != null
+                        && state.account.accountId().equals(accountId) && state.editor != null) {
+                    diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, failure);
+                    state.editor = state.editor.withPreviewFailure(UiMessage.error("nclskins.error.save"));
+                    publish();
+                }
+            }));
+        }
+        publish();
+    }
+
+    private Optional<com.naocraftlab.skins.core.model.RemoteProfile> editorProfile() {
+        return state.providers.cape().enabled(BuiltinProvider.MINECRAFT)
+                ? Optional.ofNullable(state.remoteProfile) : Optional.empty();
+    }
+
+    private List<com.naocraftlab.skins.core.model.OwnedCapeEntry> editorOwnedCapes() {
+        return state.providers.cape().enabled(BuiltinProvider.MINECRAFT) && state.ownedCapes != null
+                ? state.ownedCapes.capes() : List.of();
     }
 
     private void openEditor(UUID presetId) {
@@ -2920,9 +3435,16 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         state.addSource = null;
+        state.editorReturnsToProviders = false;
         state.editor = editor;
+        LocalCapeReference offlineSeed = state.account.presets().stream()
+                .filter(preset -> preset.id().equals(presetId))
+                .findFirst()
+                .map(AppearancePreset::offlineCape)
+                .orElse(null);
         prepareEditorEvidence(editor);
-        resetEditorCapeScroll();
+        initializeEditorCapeCatalog(offlineSeed);
+        resetEditorScroll();
         state.selectedPresetId = presetId;
         publish();
     }
@@ -2938,17 +3460,229 @@ public final class ClientRuntime implements AutoCloseable {
             return PresetEditorModel.open(
                     state.account,
                     preset,
-                    Optional.ofNullable(state.remoteProfile),
+                    editorProfile(),
                     Optional.ofNullable(state.activePresetId),
                     textResolver,
                     viewportHeight,
                     preferredCapeMode,
                     preferredSkinVariant(),
-                    state.ownedCapes == null ? List.of() : state.ownedCapes.capes());
+                    editorOwnedCapes());
         } catch (IllegalStateException missingBundledSkin) {
             diagnose(DiagnosticEvent.CLIENT_BUNDLED_SKIN_MISSING, missingBundledSkin);
             return null;
         }
+    }
+
+    private boolean dispatchCapeCatalog(String id, boolean reverse, InteractionOrigin origin) {
+        CapeCatalogModel catalog = state.editor.capeCatalog();
+        UUID capeAccountId = state.account.accountId();
+        if (id.startsWith("editor.cape_item.")) {
+            var card = catalog.cards().stream().filter(value -> value.widgetId().equals(id)).findFirst();
+            if (card.isPresent()) {
+                pendingCapeProviderInspection = null;
+                if (card.orElseThrow().importCard()) chooseCapePng();
+                else updateEditor(editor -> editor.withCapeCatalog(catalog.choose(card.orElseThrow())));
+            }
+        } else if (id.equals("editor.cape_filter")) {
+            updateEditor(editor -> editor.withCapeCatalog(catalog.cycleFilter(reverse)));
+        } else if (id.equals("editor.cape_disclosure")) {
+            updateEditor(editor -> editor.withCapeCatalog(catalog.toggleAll()));
+        } else if (id.startsWith("editor.cape_header.")) {
+            String collectionId = id.substring("editor.cape_header.".length());
+            updateEditor(editor -> editor.withCapeCatalog(catalog.toggle(collectionId)));
+        } else if (id.startsWith("editor.cape_action.")) {
+            String[] parts = id.split("\\.");
+            if (parts.length != 4) return true;
+            UUID entry = UUID.fromString(parts[3]);
+            switch (parts[2]) {
+                case "rename", "delete" -> {
+                    if (catalog.editing() != null) return true;
+                    updateEditor(editor -> editor.withCapeCatalog(catalog.edit(entry, parts[2].equals("delete"))));
+                    if (parts[2].equals("rename") || origin == InteractionOrigin.KEYBOARD) {
+                        String focusId = parts[2].equals("delete") ? "editor.cape_action.cancel." + entry : "editor.cape_action.name";
+                        ViewSpec view = view(viewportWidth, viewportHeight, 0, 0);
+                        view.navigationNode(focusId).ifPresent(node -> ViewNavigationPolicy.ensureVisibleOffset(view, node)
+                                .ifPresent(offset -> applyNavigationScroll(node, offset)));
+                        requestRuntimeFocus("preset_editor", focusId);
+                    }
+                }
+                case "cancel" -> {
+                    updateEditor(editor -> editor.withCapeCatalog(catalog.cancelEdit()));
+                    if (origin == InteractionOrigin.KEYBOARD) requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
+                }
+                case "save" -> submit(UiMessage.info("nclskins.status.saving"),
+                        () -> operations.renameCape(capeAccountId, entry, UntrustedDisplayName.sanitize(catalog.renameValue(), "")), account -> {
+                            state.account = account;
+                            refreshCapeCatalog(catalog.offline(), catalog.minecraft());
+                            state.editor = state.editor.withCapeCatalog(
+                                    state.editor.capeCatalog().cancelEdit());
+                            if (origin == InteractionOrigin.KEYBOARD) requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
+                        });
+                case "confirm" -> submit(UiMessage.info("nclskins.status.saving"), () -> operations.deleteCape(capeAccountId, entry), result -> {
+                    state.account = result.account();
+                    acceptProviderChange(result.appearance());
+                    refreshCapeCatalog(catalog.offline() != null && entry.equals(catalog.offline().entryId()) ? null : catalog.offline(), catalog.minecraft());
+                    editorCapeScrollPosition = state.editor.normalizedCapeScrollPosition(
+                            viewportWidth, viewportHeight, editorCapeScrollPosition, viewChromeMetrics);
+                    editorCapeScrollTarget = editorCapeScrollPosition;
+                    if (origin == InteractionOrigin.KEYBOARD) requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE.none");
+                });
+                default -> { }
+            }
+        } else return false;
+        if (id.equals("editor.cape_disclosure") || id.startsWith("editor.cape_header.")) {
+            persistCapeDisclosure(catalog.collapsed(), state.editor.capeCatalog().collapsed());
+        }
+        editorCapeScrollPosition = state.editor.normalizedCapeScrollPosition(
+                viewportWidth, viewportHeight, editorCapeScrollPosition, viewChromeMetrics);
+        editorCapeScrollTarget = editorCapeScrollPosition;
+        publish();
+        return true;
+    }
+
+    private void persistCapeDisclosure(Set<String> before, Set<String> after) {
+        if (before.equals(after)) return;
+        UUID accountId = state.account.accountId();
+        Set<String> values = Set.copyOf(after);
+        state.uiPreferences = state.uiPreferences.withCollapsedCapeCollections(values);
+        long ticket = state.generation;
+        long sequence = ++capeDisclosureSequence;
+        capeDisclosureWrite = capeDisclosureWrite.handle((ignored, failure) -> null).thenRunAsync(() -> {
+            try { operations.setCollapsedCapeCollections(accountId, values); }
+            catch (Exception failure) {
+                if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+                diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, failure);
+                onClient(() -> {
+                    if (!current(ticket) || capeDisclosureSequence != sequence || state.editor == null || state.editor.capeCatalog() == null) return;
+                    state.uiPreferences = state.uiPreferences.withCollapsedCapeCollections(before);
+                    state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withCollapsed(before));
+                    publish();
+                });
+            }
+        }, worker);
+    }
+
+    private void reloadEditorCatalog() {
+        if (state.editor == null || state.account == null) return;
+        UUID accountId = state.account.accountId();
+        long generation = ++editorCatalogGeneration;
+        long ticket = state.generation;
+        CompletableFuture.supplyAsync(() -> {
+            try { return operations.loadCapeEditorData(accountId); }
+            catch (Exception failure) { throw new CompletionException(failure); }
+        }, worker).whenComplete((data, failure) -> onClient(() -> {
+            if (!current(ticket) || generation != editorCatalogGeneration || state.editor == null
+                    || !accountId.equals(state.account.accountId())) return;
+            if (failure != null) { diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure); return; }
+            var previous = state.editor.capeCatalog();
+            state.account = data.account();
+            installWarmedCapePreviews(accountId, true);
+            var local = previous.offline();
+            if (local != null && local.entryId() != null) {
+                var reference = local;
+                if (state.account.personalCapes().stream().noneMatch(entry -> entry.texture().equals(reference))) local = null;
+            }
+            var fresh = CapeCatalogModel.open(state.account, state.providers, local,
+                    previous.minecraft(), state.editor.capeChoices(), data.resourceCollections(),
+                    data.sourceHashes(), data.resourceGeneration(), textResolver);
+            var inspection = previous.inspected() == null ? fresh.inspected() : fresh.cards().stream()
+                    .filter(card -> card.widgetId().equals(previous.inspected().widgetId())).findFirst().orElse(null);
+            state.editor = state.editor.withCapeCatalog(new CapeCatalogModel(fresh.cards(), fresh.providers(), fresh.offline(), previous.minecraft(),
+                    previous.query(), previous.filter(), previous.collapsed(), inspection, previous.editing(), previous.deleting(), previous.renameValue(), previous.importError(), textResolver));
+            if (pendingCapeProviderInspection != null) {
+                state.editor = state.editor.withCapeCatalog(
+                        state.editor.capeCatalog().inspect(pendingCapeProviderInspection, state.account));
+                pendingCapeProviderInspection = null;
+                editorCapeScrollPosition = state.editor.initialCapeScrollPosition(
+                        viewportWidth, viewportHeight, viewChromeMetrics);
+            } else {
+                editorCapeScrollPosition = state.editor.normalizedCapeScrollPosition(
+                        viewportWidth, viewportHeight, editorCapeScrollPosition, viewChromeMetrics);
+            }
+            editorCapeScrollTarget = editorCapeScrollPosition;
+            publish();
+        }));
+    }
+
+    private void refreshCapeCatalog(com.naocraftlab.skins.core.model.LocalCapeReference local, Optional<String> owned) {
+        if (state.editor == null) return;
+        var previous = state.editor.capeCatalog();
+        var fresh = previous.refreshed(
+                state.account, state.providers, local, owned, state.editor.capeChoices());
+        state.editor = state.editor.withCapeCatalog(fresh);
+    }
+
+    private void chooseCapePng() {
+        if (state.editor == null || state.editor.busy()) return;
+        UUID accountId = state.account.accountId();
+        String fallbackName = textResolver.resolve(UiMessage.info("options.modelPart.cape"));
+        long ticket = ++state.generation;
+        state.busy = true;
+        state.editor = state.editor.withBusyWithoutStatus();
+        publish();
+        CompletableFuture<Optional<Path>> picked;
+        try { picked = java.util.Objects.requireNonNull(filePicker.chooseCapePng()); }
+        catch (RuntimeException failure) {
+            state.busy = false;
+            state.editor = state.editor.withoutStatus().withCapeCatalog(state.editor.capeCatalog().withImportError(UiMessage.error("nclskins.error.picker")));
+            publish();
+            return;
+        }
+        picked.whenComplete((selection, failure) -> onClient(() -> {
+            if (!current(ticket) || state.editor == null) return;
+            state.busy = false;
+            state.editor = state.editor.withoutStatus();
+            if (failure != null) {
+                state.editor = state.editor.withoutStatus().withCapeCatalog(state.editor.capeCatalog().withImportError(UiMessage.error("nclskins.error.picker")));
+                publish();
+            } else if (selection != null && selection.isPresent()) {
+                state.editor = state.editor.withBusyWithoutStatus();
+                Set<String> resourceIdentities = state.editor.capeCatalog().cards().stream()
+                        .map(CapeCatalogModel.Card::resource)
+                        .filter(Objects::nonNull)
+                        .map(ClientOperations.ResourceCapeSelection::contentIdentity)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                submit(UiMessage.info("nclskins.status.saving"), () -> {
+                    var entry = operations.importCape(
+                            accountId, selection.orElseThrow(), fallbackName);
+                    Optional<AccountState> account = resourceIdentities.contains(entry.renderSha256())
+                            ? operations.discardCapeIfUnreferenced(
+                                    accountId, entry.texture().entryId())
+                            : Optional.empty();
+                    return new CapeImportResult(entry, account);
+                }, result -> {
+                    if (state.editor == null) return;
+                    state.editor = state.editor.withoutStatus();
+                    var entry = result.entry();
+                    result.account().ifPresent(value -> state.account = value);
+                    var entries = new java.util.ArrayList<>(state.account.personalCapes());
+                    if (result.account().isEmpty()
+                            && entries.stream().noneMatch(value -> value.texture().entryId()
+                                    .equals(entry.texture().entryId()))) {
+                        entries.add(entry);
+                        state.account = state.account.withPersonalCapes(entries);
+                    }
+                    refreshCapeCatalog(entry.texture(), state.editor.capeId());
+                    var catalog = state.editor.capeCatalog().withQuery("");
+                    var selected = catalog.resourceOwner(entry.renderSha256()).orElseGet(() ->
+                            catalog.cards().stream().filter(card -> entry.texture().equals(card.local()))
+                                    .findFirst().orElseThrow());
+                    state.editor = state.editor.withCapeCatalog(catalog.reveal(selected).choose(selected));
+                    persistCapeDisclosure(catalog.collapsed(), state.editor.capeCatalog().collapsed());
+                    editorCapeScrollPosition = state.editor.initialCapeScrollPosition(
+                            viewportWidth, viewportHeight, viewChromeMetrics);
+                    editorCapeScrollTarget = editorCapeScrollPosition;
+                }, invalid -> {
+                    if (state.editor != null) {
+                        state.editor = state.editor.withoutStatus();
+                        if (unwrap(invalid) instanceof com.naocraftlab.skins.core.png.PngValidationException) {
+                            state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().error(true));
+                        } else state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withImportError(UiMessage.error("nclskins.capes.io_error")));
+                    }
+                });
+            }
+            publish();
+        }));
     }
 
     private void chooseEditorPng() {
@@ -2986,7 +3720,7 @@ public final class ClientRuntime implements AutoCloseable {
                             state.busy = false;
                             if (pngFailure != null) {
                                 diagnose(DiagnosticEvent.CLIENT_IMPORT_FAILED, pngFailure);
-                                state.editor = state.editor.withStatus(UiMessage.error("nclskins.error.png"));
+                                state.editor = state.editor.withStatus(fileImportFailure(pngFailure));
                             } else {
                                 state.editor = state.editor.withImportedPng(
                                         path.getFileName().toString(),
@@ -3018,17 +3752,28 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         PresetEditorModel draft = state.editor;
+        UUID editorAccountId = state.account.accountId();
         PersonalSkinSource personalSource = state.editorPersonalSource;
         state.editor = draft.withBusy(UiMessage.info("nclskins.status.saving"));
         submit(
                 UiMessage.info("nclskins.status.saving"),
                 () -> {
                     ClientOperations.EditorSaveRequest request = draft.saveRequest();
+                    com.naocraftlab.skins.core.model.LocalCapeReference offlineCape =
+                            request.offlineCape();
+                    Optional<ClientOperations.ResourceCapeSelection> resourceCape =
+                            draft.capeCatalog() == null
+                                    ? Optional.empty()
+                                    : draft.capeCatalog().selectedResource();
+                    if (resourceCape.isPresent()) {
+                        offlineCape = operations.materializeResourceCape(
+                                editorAccountId, resourceCape.orElseThrow()).texture();
+                    }
                     return operations.saveEditor(new ClientOperations.EditorSaveRequest(
                             request.originalPresetId(), request.name(), request.skin(),
                             request.initialVariant(), request.variant(), request.capeId(),
                             request.outerLayerVisibility(), request.pngBytes(), request.catalogOrigin(), request.personalSkinName(),
-                            personalSource));
+                            personalSource).withOfflineCape(offlineCape));
                 },
                 saved -> {
                     UUID previousActivePresetId = state.activePresetId;
@@ -3042,9 +3787,12 @@ public final class ClientRuntime implements AutoCloseable {
                     state.editorPersonalSource = PersonalSkinSource.FILE;
                     state.addSource = null;
                     state.pendingPresetName = null;
-                    state.status = UiMessage.success("nclskins.status.saved");
+                    state.status = draft.capeCatalog() != null && draft.capeCatalog().offline() != null
+                            && preset != null && preset.offlineCape() == null
+                            ? UiMessage.info("nclskins.capes.deleted_reference") : UiMessage.success("nclskins.status.saved");
                     saved.reappliedAppearance().ifPresent(appearance -> {
                         state.activePresetId = appearance.activePresetId().orElse(null);
+                        state.providers = appearance.providers();
                         state.intentRevision = appearance.intentRevision();
                         state.syncStatus = appearance.syncStatus();
                         CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
@@ -3059,6 +3807,8 @@ public final class ClientRuntime implements AutoCloseable {
                         }
                     });
                     centerGalleryIfActiveChanged(previousActivePresetId);
+                    if (addSourceRoot()) closeScreenOnClient();
+                    else returnFromEditor();
                 },
                 failure -> {
                     if (state.editor != null) {
@@ -3073,9 +3823,37 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.editor != null && !state.editor.busy()) {
             state.editor = null;
             state.editorEvidence = null;
-            resetEditorCapeScroll();
+            returnFromEditor();
+            resetEditorScroll();
             publish();
         }
+    }
+
+    private void returnFromEditor() {
+        if (state.rootDestination == ScreenDestination.ACTIVE_EDITOR) {
+            closeScreenOnClient();
+            return;
+        }
+        if (state.editorReturnsToProviders) {
+            state.providersOpen = true;
+            state.providerAdding = false;
+            selectProvidersTab(AppearanceProviders.Component.CAPE);
+            state.providerPreviewSources.remove(AppearanceProviders.Component.CAPE);
+        }
+        state.editorReturnsToProviders = false;
+    }
+
+    private void closeToProviders() {
+        state.galleryReturnsToProviders = false;
+        state.pendingPresetDeleteId = null;
+        state.gallerySelectedCardId = null;
+        clearRuntimeFocus("gallery");
+        state.providersOpen = true;
+        state.providerAdding = false;
+        state.providerComponent = state.uiPreferences == null ? AppearanceProviders.Component.SKIN
+                : state.uiPreferences.selectedProvidersTab();
+        state.providerPreviewSources.remove(AppearanceProviders.Component.SKIN);
+        publish();
     }
 
     private PresetEditorModel applyPendingPresetName(PresetEditorModel editor) {
@@ -3122,15 +3900,16 @@ public final class ClientRuntime implements AutoCloseable {
                     state.account,
                     source,
                     copyName,
-                    Optional.ofNullable(state.remoteProfile),
+                    editorProfile(),
                     Optional.ofNullable(state.activePresetId),
                     textResolver,
                     viewportHeight,
                     preferredCapeMode,
                     preferredSkinVariant(),
-                    state.ownedCapes == null ? List.of() : state.ownedCapes.capes());
+                    editorOwnedCapes());
+            initializeEditorCapeCatalog(source.offlineCape());
             prepareEditorEvidence(state.editor);
-            resetEditorCapeScroll();
+            resetEditorScroll();
             state.selectedPresetId = presetId;
             publish();
         } catch (IllegalStateException missingBundledSkin) {
@@ -3167,6 +3946,7 @@ public final class ClientRuntime implements AutoCloseable {
                     }
                     deletion.appearance().ifPresent(appearance -> {
                         state.activePresetId = appearance.activePresetId().orElse(null);
+                        state.providers = appearance.providers();
                         state.intentRevision = appearance.intentRevision();
                         state.syncStatus = appearance.syncStatus();
                         CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
@@ -3226,6 +4006,7 @@ public final class ClientRuntime implements AutoCloseable {
         state.session = use.session();
         state.activePresetId = use.activePresetId();
         state.selectedPresetId = use.activePresetId();
+        state.providers = use.providers();
         state.intentRevision = use.intentRevision();
         state.syncStatus = use.syncStatus();
         CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
@@ -3237,12 +4018,13 @@ public final class ClientRuntime implements AutoCloseable {
                     use.activePresetId());
         } else {
             state.remoteProfile = use.session().profile();
-            state.rateLimited = operations.rateLimited();
+            state.rateLimited = state.providers.minecraftEnabled() && operations.rateLimited();
             state.status = UiMessage.info("nclskins.status.local_only");
-            if (automaticCheckpointEligible(use.syncStatus())) {
+            if (automaticCheckpointEligible(use.syncStatus()) || use.syncStatus() == AppearanceSyncStatus.UNKNOWN || use.syncStatus() == AppearanceSyncStatus.PARTIAL) {
                 reconcileAfterLocalRebind(
                         localRebind,
-                        ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                        use.syncStatus() == AppearanceSyncStatus.UNKNOWN || use.syncStatus() == AppearanceSyncStatus.PARTIAL
+                                ? ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY : ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
             }
         }
         if (!preserveGalleryOffset) {
@@ -3282,7 +4064,9 @@ public final class ClientRuntime implements AutoCloseable {
             return Optional.empty();
         }
         return Optional.of(new ClientOperations.ReconciliationKey(
-                state.account.accountId(), state.intentRevision));
+                state.account.accountId(), state.intentRevision,
+                state.providers.skin().minecraftDelivery().activation(),
+                state.providers.cape().minecraftDelivery().activation()));
     }
 
     private ClientOperations.ReconciliationKey reconciliationKey(
@@ -3300,7 +4084,7 @@ public final class ClientRuntime implements AutoCloseable {
             ClientOperations.ReconciliationTrigger trigger) {
         Objects.requireNonNull(localRebind, "localRebind").whenComplete(
                 (ignored, failure) -> onClient(() -> {
-                    if (operations.rateLimitRemaining().isPresent()) {
+                    if (state.providers.minecraftEnabled() && operations.rateLimitRemaining().isPresent()) {
                         armRateLimitRecovery();
                         publish();
                         return;
@@ -3442,6 +4226,7 @@ public final class ClientRuntime implements AutoCloseable {
                         .orElse(false)
                 : remoteAppearanceMayHaveChanged(failure);
         if (currentExactAccount
+                && state.providers.minecraftEnabled()
                 && confirmedRemoteChange
                 && (failure != null || exactAccountResult)) {
             serverAppearanceReadiness.ifPresent(coordinator -> {
@@ -3477,6 +4262,7 @@ public final class ClientRuntime implements AutoCloseable {
         state.remoteProfile = reconciled.session().profile();
         state.currentOfficialSkinId = reconciled.currentOfficialSkinId().orElse(null);
         state.activePresetId = appearance.activePresetId().orElse(null);
+        state.providers = appearance.providers();
         state.intentRevision = appearance.intentRevision();
         state.syncStatus = appearance.syncStatus();
         appearance.localAppearance().ifPresent(this::refreshLocalAppearance);
@@ -3510,6 +4296,7 @@ public final class ClientRuntime implements AutoCloseable {
         }
         UUID previousActivePresetId = state.activePresetId;
         state.activePresetId = appearance.activePresetId().orElse(null);
+        state.providers = appearance.providers();
         state.intentRevision = appearance.intentRevision();
         state.syncStatus = appearance.syncStatus();
         appearance.localAppearance().ifPresent(this::refreshLocalAppearance);
@@ -3647,7 +4434,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.lifecycle = state.lifecycle == ClientSnapshot.Lifecycle.INITIALIZING
                     ? ClientSnapshot.Lifecycle.READY
                     : state.lifecycle;
-            state.rateLimited = operations.rateLimited();
+            state.rateLimited = state.providers.minecraftEnabled() && operations.rateLimited();
             state.status = operationFailure(settlement.failure());
         } else {
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
@@ -3716,7 +4503,7 @@ public final class ClientRuntime implements AutoCloseable {
                 ? outcome.beforeProfile()
                 : outcome.afterProfile();
         state.currentOfficialSkinId = result.currentOfficialSkinId().orElse(null);
-        state.rateLimited = operations.rateLimited();
+        state.rateLimited = state.providers.minecraftEnabled() && operations.rateLimited();
         UiMessage outcomeStatus = mutationMessage(outcome, state.rateLimited);
         state.status = outcomeStatus;
         if (outcome.result() == MutationResult.APPLIED) {
@@ -3753,7 +4540,12 @@ public final class ClientRuntime implements AutoCloseable {
             if (disposed || state.editor == null || !"editor.preview".equals(failed.id())) {
                 return;
             }
-            ViewSpec.Preview current = state.editor.present(viewportWidth, viewportHeight)
+            ViewSpec.Preview current = state.editor.present(
+                            viewportWidth,
+                            viewportHeight,
+                            editorCapeScrollPosition,
+                            editorModelScrollPosition,
+                            viewChromeMetrics)
                     .previews()
                     .get(0);
             boolean stillRequested = capeFailure
@@ -3776,7 +4568,12 @@ public final class ClientRuntime implements AutoCloseable {
             if (disposed || state.editor == null || !"editor.preview".equals(loaded.id())) {
                 return;
             }
-            ViewSpec.Preview current = state.editor.present(viewportWidth, viewportHeight)
+            ViewSpec.Preview current = state.editor.present(
+                            viewportWidth,
+                            viewportHeight,
+                            editorCapeScrollPosition,
+                            editorModelScrollPosition,
+                            viewChromeMetrics)
                     .previews()
                     .get(0);
             boolean stillRequested = capeFailure
@@ -3897,19 +4694,34 @@ public final class ClientRuntime implements AutoCloseable {
                 snapshot, viewportWidth, viewportHeight, state.galleryQuery);
     }
 
-    private void queueEditorCapeScroll(double pixelDelta) {
+    private void queueEditorContentScroll(double pixelDelta) {
         if (state.editor == null || !Double.isFinite(pixelDelta) || pixelDelta == 0.0) {
             return;
         }
-        setEditorCapePosition(editorCapeScrollPosition + pixelDelta);
+        setEditorContentPosition((state.editor.selectedEditorTab() == EditorTab.APPEARANCE
+                ? editorModelScrollPosition : editorCapeScrollPosition) + pixelDelta);
     }
 
-    private void setEditorCapePosition(double position) {
+    private double editorPositionFromScrollbar(int width, int height, double top) {
+        return state.editor.selectedEditorTab() == EditorTab.APPEARANCE
+                ? state.editor.modelPositionFromScrollbar(width, height, top)
+                : state.editor.capePositionFromScrollbar(width, height, top, viewChromeMetrics);
+    }
+
+    private void setEditorContentPosition(double position) {
         if (state.editor == null) {
             return;
         }
+        if (state.editor.selectedEditorTab() == EditorTab.APPEARANCE) {
+            double bounded = state.editor.normalizedModelScrollPosition(viewportWidth, viewportHeight, position);
+            if (Math.abs(bounded - editorModelScrollPosition) > 0.001) {
+                editorModelScrollPosition = bounded;
+                publish();
+            }
+            return;
+        }
         double bounded = state.editor.normalizedCapeScrollPosition(
-                viewportWidth, viewportHeight, position);
+                viewportWidth, viewportHeight, position, viewChromeMetrics);
         if (Math.abs(bounded - editorCapeScrollPosition) > 0.001
                 || Math.abs(bounded - editorCapeScrollTarget) > 0.001) {
             editorCapeScrollPosition = bounded;
@@ -3918,12 +4730,56 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
-    private void resetEditorCapeScroll() {
-        draggingEditorCapeScrollbar = false;
+    private void resetEditorScroll() {
+        pendingCapeProviderInspection = null;
+        editorModelScrollPosition = 0.0;
+        editorTabPreferenceSequence++;
+        clearRuntimeFocus("preset_editor");
+        if (state.editor != null) {
+            if (state.editor.capeCatalog() != null && state.uiPreferences != null) {
+                state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog()
+                        .withCollapsed(state.uiPreferences.collapsedCapeCollections()));
+            }
+            boolean newPreset = state.editor.originalPresetId().isEmpty();
+            state.editor = state.editor.withSelectedEditorTab(newPreset || state.uiPreferences == null
+                    ? EditorTab.APPEARANCE : state.uiPreferences.selectedEditorTab());
+            if (newPreset) {
+                requestRuntimeFocus("preset_editor", "editor.name");
+            }
+        }
+        draggingEditorScrollbar = false;
         editorCapeScrollPosition = state.editor == null
                 ? 0.0
-                : state.editor.initialCapeScrollPosition(viewportWidth, viewportHeight);
+                : state.editor.initialCapeScrollPosition(
+                        viewportWidth, viewportHeight, viewChromeMetrics);
         editorCapeScrollTarget = editorCapeScrollPosition;
+        reloadEditorCatalog();
+    }
+
+    private void initializeEditorCapeCatalog(LocalCapeReference offlineSeed) {
+        if (state.editor == null || state.account == null) {
+            return;
+        }
+        UUID accountId = state.account.accountId();
+        Optional<ClientOperations.CapeEditorData> warmed =
+                operations.warmedCapeEditorData(accountId);
+        state.editor = state.editor.withCapeCatalog(warmed
+                .map(data -> CapeCatalogModel.open(
+                        state.account, state.providers, offlineSeed, state.editor.capeId(),
+                        state.editor.capeChoices(), data.resourceCollections(), data.sourceHashes(),
+                        data.resourceGeneration(), textResolver))
+                .orElseGet(() -> CapeCatalogModel.open(
+                        state.account, state.providers, offlineSeed, state.editor.capeId(),
+                        state.editor.capeChoices(), textResolver)));
+        installWarmedCapePreviews(accountId, true);
+    }
+
+    private void installWarmedCapePreviews(UUID accountId, boolean replaceResources) {
+        Map<String, byte[]> warmed = operations.warmedCapePreviews(accountId);
+        if (replaceResources) {
+            previewBytes.keySet().removeIf(key -> key.startsWith("resource:cape:"));
+        }
+        warmed.forEach((key, bytes) -> previewBytes.put(key, bytes.clone()));
     }
 
     private boolean clampGalleryScroll() {
@@ -3940,16 +4796,20 @@ public final class ClientRuntime implements AutoCloseable {
         return changed;
     }
 
-    private boolean clampEditorCapeScroll() {
+    private boolean clampEditorScroll() {
+        double modelPosition = state.editor.normalizedModelScrollPosition(
+                viewportWidth, viewportHeight, editorModelScrollPosition);
+        boolean modelChanged = Math.abs(modelPosition - editorModelScrollPosition) > 0.001;
+        editorModelScrollPosition = modelPosition;
         double position = state.editor.normalizedCapeScrollPosition(
-                viewportWidth, viewportHeight, editorCapeScrollPosition);
+                viewportWidth, viewportHeight, editorCapeScrollPosition, viewChromeMetrics);
         double target = state.editor.normalizedCapeScrollPosition(
-                viewportWidth, viewportHeight, editorCapeScrollTarget);
+                viewportWidth, viewportHeight, editorCapeScrollTarget, viewChromeMetrics);
         boolean changed = Math.abs(position - editorCapeScrollPosition) > 0.001
                 || Math.abs(target - editorCapeScrollTarget) > 0.001;
         editorCapeScrollPosition = position;
         editorCapeScrollTarget = target;
-        return changed;
+        return changed || modelChanged;
     }
 
     private static double dominantScrollAmount(double horizontalAmount, double verticalAmount) {
@@ -4025,12 +4885,12 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    private void toggleEditorVariant() {
-        if (state.editor == null) {
+    private void selectEditorVariant(SkinVariant variant) {
+        if (state.editor == null || state.editor.selectedEditorTab() != EditorTab.APPEARANCE) {
             return;
         }
         SkinVariant before = state.editor.variant();
-        state.editor = state.editor.toggleVariant();
+        state.editor = state.editor.selectVariant(variant);
         if (state.editor.variant() != before) {
             prepareEditorEvidence(state.editor);
             rememberPreferredSkinVariant(state.editor.variant());
@@ -4183,7 +5043,7 @@ public final class ClientRuntime implements AutoCloseable {
                             ? remoteAppearanceMayHaveChanged(Objects.requireNonNull(
                                     completedOutcome.apply(result), "completed remote outcome"))
                             : remoteAppearanceMayHaveChanged(failure);
-                    if (refreshServer) {
+                    if (refreshServer && state.providers.minecraftEnabled()) {
                         serverAppearanceReadiness.ifPresent(coordinator -> {
                             try {
                                 coordinator.start();
@@ -4237,6 +5097,10 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void publish() {
+        appearanceRefresh.ifPresent(coordinator -> coordinator.providerVisibility(
+                new com.naocraftlab.skins.client.ProviderVisibility(
+                        state.providers.skin().order().contains(BuiltinProvider.MINECRAFT),
+                        state.providers.cape().order().contains(BuiltinProvider.MINECRAFT))));
         ClientConfiguration configuration;
         try {
             configuration = Objects.requireNonNull(
@@ -4244,7 +5108,6 @@ public final class ClientRuntime implements AutoCloseable {
         } catch (RuntimeException unavailable) {
             configuration = ClientConfiguration.defaults();
         }
-        SkinExtensionEnvironment environment = currentSkinExtensionEnvironment();
         snapshot = new ClientSnapshot(
                 state.lifecycle,
                 Optional.ofNullable(state.account),
@@ -4268,16 +5131,18 @@ public final class ClientRuntime implements AutoCloseable {
                 state.syncStatus,
                 state.syncInProgress,
                 state.sessionActivity,
-                environment,
+                skinExtensionEnvironment,
                 state.assetEvidence,
                 state.catalogEvidence,
                 configuration.compatibility().hideIncompatibleCatalogSkins(),
-                configuration.compatibility().hideIncompatibleGalleryLooks());
+                configuration.compatibility().hideIncompatibleGalleryLooks(), state.providers);
         ClientSnapshot published = snapshot;
         listeners.forEach(listener -> listener.accept(published));
     }
 
-    private SkinExtensionEnvironment currentSkinExtensionEnvironment() {
+    private boolean refreshSkinExtensionEnvironment() {
+        skinExtensionEnvironmentInitialized = true;
+        SkinExtensionEnvironment refreshed;
         try {
             SkinExtensionEnvironmentSource.Snapshot source = Objects.requireNonNull(
                     skinExtensionEnvironmentSource.snapshot(), "environment snapshot");
@@ -4288,10 +5153,15 @@ public final class ClientRuntime implements AutoCloseable {
                         SkinConsumer.valueOf(consumer.name()),
                         SkinConsumerState.valueOf(source.consumers().get(consumer).name()));
             }
-            return new SkinExtensionEnvironment(source.generation(), states);
+            refreshed = new SkinExtensionEnvironment(source.generation(), states);
         } catch (RuntimeException unavailable) {
-            return SkinExtensionEnvironment.unknown(0);
+            refreshed = SkinExtensionEnvironment.unknown(0);
         }
+        if (refreshed.equals(skinExtensionEnvironment)) {
+            return false;
+        }
+        skinExtensionEnvironment = refreshed;
+        return true;
     }
 
     private static String catalogEvidenceKey(
@@ -4342,9 +5212,22 @@ public final class ClientRuntime implements AutoCloseable {
         return state.account.skinAssets().stream().filter(skin -> skin.id().equals(id)).findFirst().orElse(null);
     }
 
+    private static UiMessage fileImportFailure(Throwable failure) {
+        return UiMessage.error(unwrap(failure) instanceof PngValidationException
+                ? "nclskins.error.png" : "nclskins.add_source.file_io_error");
+    }
+
+    private void clearFileImportError() {
+        if (state.addSource != null && (state.status.key().equals("nclskins.error.png")
+                || state.status.key().equals("nclskins.add_source.file_io_error"))) {
+            state.status = UiMessage.info("nclskins.add_source.title");
+            publish();
+        }
+    }
+
     private static NormalizedSkin readPng(Path path) {
         try {
-            return new PngValidator().normalizeSkinWithVariant(path);
+            return new PngValidator().projectStandardImport(path);
         } catch (IOException | PngValidationException failure) {
             throw new CompletionException(failure);
         }
@@ -4422,6 +5305,7 @@ public final class ClientRuntime implements AutoCloseable {
 
     private static UiMessage sessionMessage(SessionValidation validation) {
         String key = switch (validation.status()) {
+            case UNCHECKED -> null;
             case VALID -> "nclskins.session.message.valid";
             case EXPIRED -> "nclskins.session.message.expired";
             case OFFLINE_OR_INVALID -> offlineMessageKey(validation.failureKind());
@@ -4429,7 +5313,7 @@ public final class ClientRuntime implements AutoCloseable {
             case NOT_ENTITLED -> "nclskins.session.message.not_entitled";
             case PROFILE_RESTRICTED -> "nclskins.session.message.restricted";
         };
-        return validation.valid() ? UiMessage.success(key) : UiMessage.error(key);
+        return key == null ? null : validation.valid() ? UiMessage.success(key) : UiMessage.error(key);
     }
 
     private static String offlineMessageKey(ApiFailureKind failureKind) {
@@ -4536,6 +5420,15 @@ public final class ClientRuntime implements AutoCloseable {
         T get() throws Exception;
     }
 
+    private record CapeImportResult(
+            com.naocraftlab.skins.core.model.PersonalCapeEntry entry,
+            Optional<AccountState> account) {
+        private CapeImportResult {
+            Objects.requireNonNull(entry, "entry");
+            account = Objects.requireNonNull(account, "account");
+        }
+    }
+
     @FunctionalInterface
     public interface Subscription extends AutoCloseable {
         @Override
@@ -4625,6 +5518,8 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private static final class State {
+        private AppearanceProviders providers =
+                AppearanceProviders.initial();
         private ClientSnapshot.Lifecycle lifecycle = ClientSnapshot.Lifecycle.NEW;
         private AccountState account;
         private SessionValidation session;
@@ -4654,6 +5549,14 @@ public final class ClientRuntime implements AutoCloseable {
         private int galleryOffset;
         private double galleryScrollPosition;
         private double galleryScrollTarget;
+        private final java.util.EnumMap<AppearanceProviders.Component, BuiltinProvider> providerPreviewSources = new java.util.EnumMap<>(AppearanceProviders.Component.class);
+        private boolean providersOpen;
+        private boolean editorReturnsToProviders;
+        private boolean galleryReturnsToProviders;
+        private boolean providerAdding;
+        private double providerChooserOffset;
+        private AppearanceProviders.Component providerComponent = AppearanceProviders.Component.SKIN;
+        private PreviewInteractionModel providerPreview = PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE);
         private String galleryQuery = "";
         private String gallerySelectedCardId;
         private String pendingPresetName;
@@ -4667,7 +5570,12 @@ public final class ClientRuntime implements AutoCloseable {
         private final Map<String, SkinFeatureEvidence> catalogEvidence = new LinkedHashMap<>();
         private SkinFeatureEvidence editorEvidence;
 
+        private ScreenDestination requestedDestination;
+        private ScreenDestination rootDestination = ScreenDestination.GALLERY;
+
         private void resetForReopen() {
+            requestedDestination = null;
+            rootDestination = ScreenDestination.GALLERY;
             boolean retainReadyData = readyData && account != null;
             readyData = retainReadyData;
             generation++;
@@ -4681,6 +5589,7 @@ public final class ClientRuntime implements AutoCloseable {
                 activePresetId = null;
                 uiPreferences = null;
                 ownedCapes = null;
+                providers = AppearanceProviders.initial();
                 intentRevision = 0;
                 syncStatus = AppearanceSyncStatus.LOCAL_ONLY;
                 localAppearance = null;
@@ -4701,6 +5610,11 @@ public final class ClientRuntime implements AutoCloseable {
             galleryOffset = 0;
             galleryScrollPosition = 0.0;
             galleryScrollTarget = 0.0;
+            providersOpen = false;
+            editorReturnsToProviders = false;
+            galleryReturnsToProviders = false;
+            providerAdding = false;
+            providerPreviewSources.clear();
             galleryQuery = "";
             gallerySelectedCardId = null;
             pendingPresetName = null;

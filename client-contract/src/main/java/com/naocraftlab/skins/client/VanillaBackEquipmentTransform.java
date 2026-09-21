@@ -5,9 +5,9 @@ import java.util.Objects;
 
 public final class VanillaBackEquipmentTransform {
     private static final float DEGREES_TO_RADIANS = (float) (Math.PI / 180.0);
-    private static final float MODEL_WIDTH = 1.5F;
-    private static final float MODEL_HEIGHT = 1.25F;
-    private static final float MODEL_PIVOT_Y = -MODEL_HEIGHT / 2.0F;
+    private static final float PROJECTED_UNION_WIDTH = 1.411F;
+    private static final float PROJECTED_UNION_HEIGHT = 1.587F;
+    private static final float MODEL_PIVOT_Y = -0.625F;
     private static final float FIT_PADDING = 0.88F;
 
     private VanillaBackEquipmentTransform() {
@@ -17,7 +17,9 @@ public final class VanillaBackEquipmentTransform {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("Back-equipment preview bounds must be positive");
         }
-        return FIT_PADDING * Math.min(width / MODEL_WIDTH, height / MODEL_HEIGHT);
+        return FIT_PADDING * Math.min(
+                width / PROJECTED_UNION_WIDTH,
+                height / PROJECTED_UNION_HEIGHT);
     }
 
     public static <C> void applyStandalone(

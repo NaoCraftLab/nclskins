@@ -29,6 +29,17 @@ public final class ViewHostPolicy {
         return Optional.ofNullable(owner);
     }
 
+    public static Optional<String> inlineCapePointerActionAt(
+            ViewSpec view, double pointerX, double pointerY) {
+        return pointerOwnerAt(view, pointerX, pointerY)
+                .filter(ViewSpec.Widget::enabled)
+                .filter(widget -> widget.id().startsWith("editor.cape_action."))
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.BUTTON
+                        || widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
+                        || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON)
+                .map(ViewSpec.Widget::id);
+    }
+
     public static boolean compositeCardHovered(
             ViewSpec view, String widgetId, double pointerX, double pointerY) {
         Objects.requireNonNull(view, "view");

@@ -7,6 +7,7 @@ import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.RemoteAssetState;
 import com.naocraftlab.skins.core.model.SkinReference;
@@ -118,9 +119,9 @@ final class PresetEditorModelTest {
                         PreviewRenderer.CapeMode.OFF)
                 .withPng("  My skin.PNG  ", new byte[] {1});
 
-        assertEquals(Optional.of("My skin"), model.saveRequest().personalSkinName());
+        assertEquals(Optional.of("My Skin"), model.saveRequest().personalSkinName());
         assertEquals(
-                Optional.of("Imported skin"),
+                Optional.of("Imported Skin"),
                 model.withPng(".png", new byte[] {2}).saveRequest().personalSkinName());
         assertEquals(
                 128,
@@ -188,7 +189,7 @@ final class PresetEditorModelTest {
                 .filter(text -> text.id().equals("editor.status"))
                 .findFirst()
                 .orElseThrow();
-        assertEquals(new Bounds(0, 212, 150, 10), status.bounds());
+        assertEquals(new Bounds(24, 192, 112, 10), status.bounds());
         assertEquals(
                 List.of("editor.title"),
                 busy.texts().stream()
@@ -249,13 +250,13 @@ final class PresetEditorModelTest {
         ViewSpec view = model.present(320, 240);
 
         ViewSpec.Widget name = view.widget("editor.name").orElseThrow();
-        assertEquals(new Bounds(150, 55, 154, 20), name.bounds());
+        assertEquals(new Bounds(176, 52, 128, 20), name.bounds());
         assertTrue(name.selectAllOnFocusAcquire());
         assertEquals(Optional.empty(), name.submitActionId());
-        assertEquals(new Bounds(150, 212, 75, 20), view.widget("editor.save").orElseThrow().bounds());
-        assertEquals(new Bounds(229, 212, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
+        assertEquals(new Bounds(83, 212, 75, 20), view.widget("editor.save").orElseThrow().bounds());
+        assertEquals(new Bounds(162, 212, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
         assertEquals(new Bounds(0, 0, 320, 240), view.previews().get(0).bounds());
-        assertEquals(new Bounds(0, 0, 150, 240), view.previews().get(0).anchorBounds());
+        assertEquals(new Bounds(0, 0, 160, 240), view.previews().get(0).anchorBounds());
         assertEquals(0.6958763F, view.previews().get(0).scale(), 0.000001F);
     }
 
@@ -270,10 +271,10 @@ final class PresetEditorModelTest {
                 480,
                 PreviewRenderer.CapeMode.ELYTRA);
         ViewSpec defaultView = medium.present(854, 480);
-        assertEquals(new Bounds(578, 55, 260, 20), defaultView.widget("editor.name").orElseThrow().bounds());
+        assertEquals(new Bounds(443, 52, 395, 20), defaultView.widget("editor.name").orElseThrow().bounds());
         assertEquals(new Bounds(0, 0, 854, 480), defaultView.previews().get(0).bounds());
-        assertEquals(new Bounds(0, 0, 578, 480), defaultView.previews().get(0).anchorBounds());
-        assertEquals(new Bounds(578, 452, 128, 20), defaultView.widget("editor.save").orElseThrow().bounds());
+        assertEquals(new Bounds(0, 0, 427, 480), defaultView.previews().get(0).anchorBounds());
+        assertEquals(new Bounds(297, 452, 128, 20), defaultView.widget("editor.save").orElseThrow().bounds());
 
         PresetEditorModel wide = PresetEditorModel.open(
                 TestFixtures.account(0),
@@ -284,9 +285,9 @@ final class PresetEditorModelTest {
                 720,
                 PreviewRenderer.CapeMode.CAPE);
         ViewSpec wideView = wide.present(1600, 720);
-        assertEquals(new Bounds(1324, 55, 260, 20), wideView.widget("editor.name").orElseThrow().bounds());
+        assertEquals(new Bounds(816, 52, 768, 20), wideView.widget("editor.name").orElseThrow().bounds());
         assertEquals(new Bounds(0, 0, 1600, 720), wideView.previews().get(0).bounds());
-        assertEquals(new Bounds(0, 0, 1324, 720), wideView.previews().get(0).anchorBounds());
+        assertEquals(new Bounds(0, 0, 800, 720), wideView.previews().get(0).anchorBounds());
     }
 
     @Test
@@ -359,7 +360,12 @@ final class PresetEditorModelTest {
                 List.of());
 
         assertEquals(Optional.of("stale-cape"), model.capeId());
-        assertEquals(2, model.capeChoices().size());
+        assertTrue(model.capeChoices().isEmpty());
+        assertEquals(model, model.cycleCape(1));
+        ViewSpec empty = model.withSelectedEditorTab(EditorTab.CAPE).present(854, 480);
+        assertTrue(empty.widgets().stream().noneMatch(widget -> widget.id().startsWith("editor.cape_choice.")));
+        assertTrue(empty.texts().stream().anyMatch(text -> text.id().equals("editor.no_capes")
+                && text.message().equals(UiMessage.info("nclskins.editor.no_capes"))));
         assertTrue(model.present(854, 480).widget("editor.preview_mode").isPresent());
         assertEquals(PreviewRenderer.CapeMode.ELYTRA, model.cyclePreviewMode().preview().capeMode());
     }
@@ -376,7 +382,7 @@ final class PresetEditorModelTest {
                 240,
                 PreviewRenderer.CapeMode.CAPE,
                 SkinVariant.CLASSIC,
-                capes);
+                capes).withSelectedEditorTab(EditorTab.CAPE);
 
         ViewSpec view = model.selectCape(1).present(320, 240, 0.0);
         assertEquals(new Bounds(2, 35, 20, 20),
@@ -397,7 +403,7 @@ final class PresetEditorModelTest {
         Bounds scrollbar = view.scrollbar().orElseThrow().track();
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL,
                 view.scrollbar().orElseThrow().orientation());
-        assertEquals(106, capeViewport.y());
+        assertEquals(40, capeViewport.y());
         assertEquals(view.panels().stream()
                 .filter(panel -> panel.id().equals("footer"))
                 .findFirst()
@@ -420,7 +426,7 @@ final class PresetEditorModelTest {
                 240,
                 PreviewRenderer.CapeMode.CAPE,
                 SkinVariant.CLASSIC,
-                capes);
+                capes).withSelectedEditorTab(EditorTab.CAPE);
 
         ViewSpec start = model.present(320, 240, 0.0);
         List<ViewSpec.NavigationNode> capeNodes = start.navigationNodes().stream()
@@ -446,8 +452,14 @@ final class PresetEditorModelTest {
                 start.widget("editor.cape_choice.0").orElseThrow().kind());
         assertEquals(UiMessage.info("nclskins.editor.no_cape"),
                 start.widget("editor.cape_choice.0").orElseThrow().label());
-        assertEquals(Optional.of(UiMessage.info("nclskins.editor.no_cape")),
+        assertEquals(Optional.empty(),
                 start.widget("editor.cape_choice.0").orElseThrow().hint());
+        assertEquals(UiMessage.info(
+                        "nclskins.editor.cape",
+                        UiMessage.info("options.modelPart.cape"),
+                        UiMessage.literal("Cape 0", UiMessage.Severity.INFO)),
+                start.widget("editor.cape_choice.1").orElseThrow().label());
+        assertEquals(Optional.empty(), start.widget("editor.cape_choice.1").orElseThrow().hint());
         assertTrue(start.panels().stream().anyMatch(panel ->
                 panel.id().startsWith("editor.cape_card.")
                         && panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
@@ -469,17 +481,23 @@ final class PresetEditorModelTest {
         assertTrue(noCapeElytraView.backEquipmentPreviews().stream()
                 .allMatch(preview -> preview.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA));
         ViewSpec.IconDecoration noCape = start.iconDecorations().stream()
-                .filter(decoration -> decoration.icon() == GuiIcon.APPEARANCE_BACK_NONE)
+                .filter(decoration -> decoration.icon() == GuiIcon.APPEARANCE_CAPE_NONE)
                 .findFirst()
                 .orElseThrow();
         assertEquals("editor.cape_choice.0", noCape.ownerWidgetId());
         Bounds noCapeCard = start.widget("editor.cape_choice.0").orElseThrow().bounds();
-        assertEquals(32, noCape.bounds().width());
-        assertEquals(32, noCape.bounds().height());
-        assertEquals(noCapeCard.x() + (noCapeCard.width() - noCape.bounds().width()) / 2,
-                noCape.bounds().x());
-        assertEquals(noCapeCard.y() + (noCapeCard.height() - noCape.bounds().height()) / 2,
-                noCape.bounds().y());
+         Bounds noCapePreview = new Bounds(
+                 noCapeCard.x() + 5,
+                 noCapeCard.y() + 20,
+                 noCapeCard.width() - 10,
+                 noCapeCard.height() - 25);
+         int noCapeIconSize = Math.min(32, Math.min(noCapePreview.width(), noCapePreview.height()));
+         assertEquals(noCapeIconSize, noCape.bounds().width());
+         assertEquals(noCapeIconSize, noCape.bounds().height());
+         assertEquals(noCapePreview.x() + (noCapePreview.width() - noCape.bounds().width()) / 2,
+                 noCape.bounds().x());
+         assertEquals(noCapePreview.y() + (noCapePreview.height() - noCape.bounds().height()) / 2,
+                 noCape.bounds().y());
         assertEquals(0.8F, noCape.idleOpacity());
         assertEquals(1.0F, noCape.activeOpacity());
         assertEquals(2, distinctCapeCardColumns(start));
@@ -500,8 +518,8 @@ final class PresetEditorModelTest {
                 480,
                 PreviewRenderer.CapeMode.CAPE,
                 SkinVariant.CLASSIC,
-                capes);
-        assertEquals(3, distinctCapeCardColumns(roomy.present(854, 480, 0.0)));
+                capes).withSelectedEditorTab(EditorTab.CAPE);
+        assertEquals(5, distinctCapeCardColumns(roomy.present(854, 480, 0.0)));
 
         ViewSpec end = model.present(320, 240, model.maximumCapeScroll(320, 240));
         assertEquals(
@@ -550,7 +568,8 @@ final class PresetEditorModelTest {
         assertEquals(14, info.bounds().height());
         assertTrue(info.icon().isEmpty());
         assertTrue(info.hint().isPresent());
-        assertFalse(view.widget("editor.model").orElseThrow().enabled());
+        assertFalse(view.widget("editor.model_choice.slim").orElseThrow().enabled());
+        assertTrue(view.widget("editor.model_choice.classic").orElseThrow().enabled());
         assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("editor.model.fixed")));
         assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("editor.preview_hint")));
     }
@@ -573,6 +592,92 @@ final class PresetEditorModelTest {
         assertEquals(
                 Optional.of(new ViewSpec.CatalogImage("heroes", "hero")),
                 preview.catalogImage());
+    }
+
+    @Test
+    void capeCardsUsePaneMetricsAcrossHeightAndGuiWidthChanges() {
+        PresetEditorModel editor = PresetEditorModel.open(
+                TestFixtures.account(0), Optional.empty(), Optional.empty(), Optional.empty(),
+                ENGLISH, 480, PreviewRenderer.CapeMode.CAPE, SkinVariant.CLASSIC, capes(20))
+                .withSelectedEditorTab(EditorTab.CAPE);
+        for (int width : new int[] {320, 427, 854, 1280, 1600}) {
+            for (int height : new int[] {900, 240, 186, 120}) {
+                ViewSpec view = editor.present(width, height, 0.0);
+                Bounds card = view.navigationNodes().stream()
+                        .filter(node -> node.id().equals("editor.cape_choice.0")).findFirst().orElseThrow().bounds();
+                Bounds viewport = view.scrollSurface("editor.capes").orElseThrow().viewport();
+                int expectedCardWidth = switch (width) {
+                    case 320 -> 62;
+                    case 427 -> 89;
+                    case 854 -> 74;
+                    case 1280, 1600 -> 71;
+                    default -> throw new AssertionError("unexpected test width");
+                };
+                int expectedCardHeight = switch (height) {
+                    case 900 -> 109;
+                    case 240 -> 98;
+                    case 186, 120 -> 49;
+                    default -> throw new AssertionError("unexpected test height");
+                };
+                assertEquals(expectedCardWidth, card.width());
+                assertEquals(expectedCardHeight, card.height());
+                assertEquals(viewport.x(), card.x());
+                double maximum = editor.maximumCapeScroll(width, height);
+                assertEquals(maximum > 0, view.scrollbar().isPresent());
+                ViewSpec end = editor.present(width, height, maximum);
+                Bounds last = end.navigationNodes().stream()
+                        .filter(node -> node.id().equals("editor.cape_choice.20")).findFirst().orElseThrow().bounds();
+                Bounds endViewport = end.scrollSurface("editor.capes").orElseThrow().viewport();
+                assertTrue(last.bottom() <= endViewport.bottom());
+                assertTrue(last.bottom() > endViewport.y());
+            }
+        }
+    }
+
+    @Test
+    void verticalTabsPreserveDraftAndUseCatalogCardMetricsAcrossViewports() {
+        for (int[] size : List.of(new int[] {320, 240}, new int[] {427, 240},
+                new int[] {854, 480}, new int[] {1280, 240})) {
+            PresetEditorModel editor = PresetEditorModel.open(
+                    TestFixtures.account(0), Optional.empty(), Optional.empty(), Optional.empty(),
+                    ENGLISH, size[1], PreviewRenderer.CapeMode.CAPE, SkinVariant.CLASSIC, capes(20));
+            assertEquals(EditorTab.APPEARANCE, editor.selectedEditorTab());
+            ViewSpec appearance = editor.present(size[0], size[1]);
+            assertTrue(appearance.scrollSurface("editor.models").isPresent());
+            assertTrue(appearance.widget("editor.name").isPresent());
+            PresetEditorModel cape = editor.withSelectedEditorTab(EditorTab.CAPE)
+                    .withName("Changed").withPng("new.png", new byte[] {1, 2, 3}).selectCape(2);
+            assertEquals(EditorTab.CAPE, cape.selectedEditorTab());
+            ViewSpec view = cape.present(size[0], size[1], 12.0);
+            assertTrue(view.widget("editor.name").isEmpty());
+            assertEquals(ViewSpec.TabOrientation.VERTICAL, view.tabGroups().get(0).orientation());
+            Bounds viewport = view.scrollSurface("editor.capes").orElseThrow().viewport();
+            Bounds card = view.navigationNodes().stream()
+                    .filter(node -> node.id().equals("editor.cape_choice.0"))
+                    .findFirst()
+                    .orElseThrow()
+                    .bounds();
+            assertEquals(size[0] == 320 ? 62
+                    : size[0] == 427 ? 89
+                    : size[0] == 854 ? 74 : 71, card.width());
+            assertEquals(size[1] == 480 ? 109 : 98, card.height());
+            assertEquals(viewport.x(), card.x());
+            assertEquals(size[0] / 2 + 16, viewport.x());
+            assertEquals(size[0] - 14, viewport.right());
+            assertEquals(40, viewport.y());
+            assertEquals(size[1] - 33, viewport.bottom());
+            PresetEditorModel restored = cape.withSelectedEditorTab(EditorTab.APPEARANCE)
+                    .withSelectedEditorTab(EditorTab.CAPE);
+            assertEquals(cape.name(), restored.name());
+            assertEquals(cape.skin(), restored.skin());
+            assertEquals(cape.capeId(), restored.capeId());
+            assertArrayEquals(cape.png().orElseThrow().bytes(), restored.png().orElseThrow().bytes());
+            assertEquals(cape.preview(), restored.preview());
+            assertEquals(view, restored.present(size[0], size[1], 12.0));
+            assertTrue(view.widgets().stream().filter(widget -> widget.id().startsWith("editor.tab."))
+                    .allMatch(widget -> !cape.withBusy(UiMessage.info("nclskins.status.saving"))
+                            .present(size[0], size[1]).widget(widget.id()).orElseThrow().enabled()));
+        }
     }
 
     private static void assertCycleButton(

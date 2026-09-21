@@ -44,4 +44,19 @@ final class ViewSpecWidgetInteractionTest {
                         true,
                         Optional.empty()));
     }
+
+    @Test
+    void verticalTabCarriesItsSelectedStateAndIcon() {
+        ViewSpec.Widget tab = ViewSpec.Widget.verticalTabButton(
+                "editor.tab.appearance",
+                new Bounds(406, 45, 24, 24),
+                UiMessage.info("nclskins.editor.tab.appearance"),
+                GuiIcon.EDITOR_TAB_APPEARANCE,
+                true,
+                true);
+
+        assertEquals(ViewSpec.WidgetKind.TAB_BUTTON, tab.kind());
+        assertEquals(Optional.of("selected"), tab.value());
+        assertEquals(Optional.of(GuiIcon.EDITOR_TAB_APPEARANCE), tab.icon());
+    }
 }

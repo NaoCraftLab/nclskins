@@ -62,7 +62,7 @@ class SessionValidationServiceTest {
         SessionValidation cached = service.cachedStatus(tokens.currentSession());
 
         assertFalse(cached.valid());
-        assertEquals(SessionStatus.OFFLINE_OR_INVALID, cached.status());
+        assertEquals(SessionStatus.UNCHECKED, cached.status());
         assertEquals(0, tokens.calls);
         assertEquals(0, api.profileCalls);
     }
@@ -438,6 +438,27 @@ class SessionValidationServiceTest {
 
     private static RemoteProfile profile(UUID id) {
         return new RemoteProfile(id, "Player", List.of(), List.of(), Set.of());
+    }
+
+    @Test
+    void resetAcknowledgementDoesNotSurviveFreshObservationOrNewService() {
+        RemoteProfile remote = new RemoteProfile(ID, "Player", List.of(
+                new com.naocraftlab.skins.core.model.RemoteSkin("skin", RemoteAssetState.ACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/" + "a".repeat(64)),
+                        SkinVariant.SLIM, null)), profileWithCape(ID, "cape").capes(), Set.of());
+        StubApi api = new StubApi(remote);
+        StubTokens tokens = new StubTokens(SECRET);
+        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        service.rememberAccountDefaultSkin(ID);
+        assertTrue(service.currentAppliedAppearance(remote).usesAccountDefaultSkin());
+        assertTrue(service.currentAppliedAppearance(remote).capeTexture().isPresent());
+
+        assertTrue(service.observeFreshAtCheckpoint(tokens).valid());
+
+        assertFalse(service.currentAppliedAppearance(remote).usesAccountDefaultSkin());
+        assertFalse(new SessionValidationService(api, new RemoteSessionGate())
+                .currentAppliedAppearance(remote).usesAccountDefaultSkin());
+        assertEquals(1, api.profileCalls);
     }
 
     private static RemoteProfile profileWithCape(UUID id, String capeId) {

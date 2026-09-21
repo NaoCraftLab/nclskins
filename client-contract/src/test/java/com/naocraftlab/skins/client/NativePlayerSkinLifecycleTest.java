@@ -5,12 +5,31 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NativePlayerSkinLifecycleTest {
+    @Test
+    void currentRegistrationTransitionsNotifyButStaleOnesDoNot() {
+        String location = "nclskins:test/transition-callback";
+        AtomicInteger firstTransitions = new AtomicInteger();
+        AtomicInteger currentTransitions = new AtomicInteger();
+        NativePlayerSkinLifecycle.Registration first =
+                NativePlayerSkinLifecycle.pending(location, firstTransitions::incrementAndGet);
+        NativePlayerSkinLifecycle.Registration current =
+                NativePlayerSkinLifecycle.pending(location, currentTransitions::incrementAndGet);
+
+        first.ready();
+        current.ready();
+        current.retire();
+
+        assertEquals(0, firstTransitions.get());
+        assertEquals(2, currentTransitions.get());
+    }
+
     @Test
     void unknownAndReadyTexturesCanRenderButPendingAndFailedTexturesCannot() {
         String location = "nclskins:test/lifecycle/basic";

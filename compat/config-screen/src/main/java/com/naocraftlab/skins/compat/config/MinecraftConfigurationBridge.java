@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.config;
 
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.runtime.ClientConfigurationService;
 import com.naocraftlab.skins.runtime.ServerConfigurationAccess;
@@ -67,7 +68,7 @@ public final class MinecraftConfigurationBridge {
         return service;
     }
 
-    public static boolean previewEnabled(Screen screen) {
+    public static MenuPreviewPlacement previewPlacement(Screen screen) {
         Objects.requireNonNull(screen, "screen");
         if (screen instanceof TitleScreen) {
             return service().client().menuPreview().titleScreen();
@@ -75,7 +76,7 @@ public final class MinecraftConfigurationBridge {
         if (screen instanceof PauseScreen) {
             return service().client().menuPreview().pauseMenu();
         }
-        return true;
+        return MenuPreviewPlacement.OFF;
     }
 
     public static Screen createScreen(Screen parent) {

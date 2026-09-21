@@ -8,19 +8,24 @@ public interface ClientCapabilityProvider {
 
     record Provision(
             ClientCapabilitySet capabilities,
-            Runnable maintainNativeResources,
+            NativeResourceMaintenance nativeResourceMaintenance,
             Runnable closeNativeResources) {
         public Provision {
             Objects.requireNonNull(capabilities, "capabilities");
-            Objects.requireNonNull(maintainNativeResources, "maintainNativeResources");
+            Objects.requireNonNull(nativeResourceMaintenance, "nativeResourceMaintenance");
             Objects.requireNonNull(closeNativeResources, "closeNativeResources");
         }
 
-        public void maintain() {
-            maintainNativeResources.run();
+        public void maintain(boolean playerReady) {
+            nativeResourceMaintenance.tick(playerReady);
+        }
+
+        public void markNativeResourcesDirty() {
+            nativeResourceMaintenance.markDirty();
         }
 
         public void closeNative() {
+            nativeResourceMaintenance.close();
             closeNativeResources.run();
         }
     }

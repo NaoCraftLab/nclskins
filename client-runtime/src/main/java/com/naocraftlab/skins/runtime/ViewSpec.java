@@ -313,12 +313,18 @@ public record ViewSpec(
             throw new IllegalArgumentException("navigation node ids must be unique");
         }
         List<ScrollSurface> checkedSurfaces = scrollSurfaces;
+        List<TabGroup> checkedTabGroups = tabGroups;
         if (navigationNodes.stream().anyMatch(node ->
                 node.pattern() != NavigationPattern.NONE && node.surfaceId().isEmpty())) {
             throw new IllegalArgumentException("directional navigation node must own a surface");
         }
-        if (navigationNodes.stream().flatMap(node -> node.surfaceId().stream()).anyMatch(id ->
-                checkedSurfaces.stream().noneMatch(surface -> surface.id().equals(id)))) {
+        if (navigationNodes.stream().anyMatch(node -> node.surfaceId().isPresent()
+                && checkedSurfaces.stream().noneMatch(surface -> surface.id().equals(
+                        node.surfaceId().orElseThrow()))
+                && !(node.pattern() == NavigationPattern.VERTICAL_LIST
+                        && checkedTabGroups.stream().anyMatch(group ->
+                                group.orientation() == TabOrientation.VERTICAL
+                                        && group.id().equals(node.surfaceId().orElseThrow()))))) {
             throw new IllegalArgumentException("navigation node surface must exist");
         }
         List<Integer> tabOrders = navigationNodes.stream()
@@ -335,7 +341,29 @@ public record ViewSpec(
             String ownerWidgetId,
             double fraction,
             int color,
-            int height) {
+            int height,
+            int leftInset,
+            int bottomInset) {
+        public ProgressDecoration(String id, String ownerWidgetId, double fraction, int color, int height) {
+            this(id, ownerWidgetId, fraction, color, height, 0);
+        }
+
+        public ProgressDecoration(String id, String ownerWidgetId, double fraction, int color, int height, int leftInset) {
+            this(id, ownerWidgetId, fraction, color, height, leftInset, 1);
+        }
+
+        public int bottomY(Bounds owner) {
+            return owner.bottom() - bottomInset;
+        }
+
+        public int startX(Bounds owner) {
+            return owner.x() + 1 + leftInset;
+        }
+
+        public int availableWidth(Bounds owner) {
+            return Math.max(0, owner.width() - 2 - leftInset);
+        }
+
         public ProgressDecoration {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(ownerWidgetId, "ownerWidgetId");
@@ -344,7 +372,7 @@ public record ViewSpec(
                     || !Double.isFinite(fraction)
                     || fraction < 0.0
                     || fraction > 1.0
-                    || height <= 0) {
+                    || height <= 0 || leftInset < 0 || bottomInset < 0) {
                 throw new IllegalArgumentException("progress decoration is invalid");
             }
         }
@@ -476,6 +504,19 @@ public record ViewSpec(
                 .map(index -> index + 1)
                 .orElse(nextWidgets.size());
         nextWidgets.add(insertion, indicator);
+        List<NavigationNode> nextNodes = navigationNodes;
+        if (!navigationNodes.isEmpty() && "preset_editor".equals(screenId)) {
+            int afterOrder = afterWidgetId.flatMap(this::navigationNode)
+                    .map(NavigationNode::tabOrder).orElse(-1);
+            nextNodes = new java.util.ArrayList<>();
+            for (NavigationNode node : navigationNodes) {
+                nextNodes.add(new NavigationNode(node.id(), node.bounds(), node.surfaceId(),
+                        node.documentOrder(), node.tabOrder() > afterOrder ? node.tabOrder() + 1 : node.tabOrder(),
+                        node.enabled(), node.pattern(), node.activationActionId()));
+            }
+            nextNodes.add(NavigationNode.control(indicator, nextNodes.size(), afterOrder + 1));
+        }
+
         return new ViewSpec(
                 screenId,
                 title,
@@ -494,13 +535,14 @@ public record ViewSpec(
                 scrollSurfaces,
                 tooltipRegions,
                 progressDecorations,
-                navigationNodes);
+                nextNodes);
     }
 
     public enum WidgetKind {
         BUTTON,
         ICON_BUTTON,
         ICON_ONLY_BUTTON,
+        TAB_BUTTON,
 
         INFO_BUTTON,
         COMPATIBILITY_INDICATOR,
@@ -513,19 +555,31 @@ public record ViewSpec(
 
         CAPE_CARD,
 
-        CATALOG_DELETE
+        CATALOG_DELETE,
+        PROVIDER_ACTION
     }
 
 
-    public record TabGroup(String id, Bounds bounds, List<Tab> tabs) {
+    public record TabGroup(String id, Bounds bounds, List<Tab> tabs, TabOrientation orientation) {
+        public TabGroup(String id, Bounds bounds, List<Tab> tabs) {
+            this(id, bounds, tabs, TabOrientation.HORIZONTAL);
+        }
+
         public TabGroup {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");
             tabs = List.copyOf(Objects.requireNonNull(tabs, "tabs"));
+            Objects.requireNonNull(orientation, "orientation");
             if (tabs.isEmpty() || tabs.stream().filter(Tab::selected).count() != 1) {
                 throw new IllegalArgumentException("a tab group must contain exactly one selected tab");
             }
         }
+
+    }
+
+    public enum TabOrientation {
+        HORIZONTAL,
+        VERTICAL
     }
 
     public record Tab(String id, UiMessage label, boolean selected, boolean enabled) {
@@ -558,6 +612,8 @@ public record ViewSpec(
     public enum NavigationPattern {
         NONE,
         HORIZONTAL_LIST,
+        VERTICAL_LIST,
+        COMPOSITE_LIST,
         GRID
     }
 
@@ -634,6 +690,7 @@ public record ViewSpec(
 
         public enum Style {
             VANILLA_LIST,
+            VANILLA_TAB_CONTENT,
             VANILLA_HEADER,
             VANILLA_FOOTER
         }
@@ -703,14 +760,34 @@ public record ViewSpec(
     }
 
 
+    public record ProviderTexture(String cacheKey, boolean skin, boolean overlay) {
+        public ProviderTexture {
+            Objects.requireNonNull(cacheKey, "cacheKey");
+            if (!cacheKey.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("Invalid provider texture key");
+            }
+        }
+
+        public String requestKey() {
+            return "provider:" + (skin ? "skin:" : "cape:") + cacheKey;
+        }
+    }
+
     public record IconDecoration(
             String id,
             Bounds bounds,
             GuiIcon icon,
             String ownerWidgetId,
             float idleOpacity,
-            float activeOpacity) {
+            float activeOpacity,
+            Optional<ProviderTexture> providerTexture) {
+        public IconDecoration(String id, Bounds bounds, GuiIcon icon, String ownerWidgetId,
+                float idleOpacity, float activeOpacity) {
+            this(id, bounds, icon, ownerWidgetId, idleOpacity, activeOpacity, Optional.empty());
+        }
+
         public IconDecoration {
+            Objects.requireNonNull(providerTexture, "providerTexture");
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");
             Objects.requireNonNull(icon, "icon");
@@ -877,6 +954,28 @@ public record ViewSpec(
                     Optional.of(Objects.requireNonNull(icon, "icon")));
         }
 
+        public static Widget verticalTabButton(
+                String id,
+                Bounds bounds,
+                UiMessage accessibleLabel,
+                GuiIcon icon,
+                boolean selected,
+                boolean enabled) {
+            return new Widget(
+                    id,
+                    WidgetKind.TAB_BUTTON,
+                    bounds,
+                    selected ? UiMessage.info("nclskins.editor.tab.selected", accessibleLabel) : accessibleLabel,
+                    selected ? Optional.of("selected") : Optional.empty(),
+                    Optional.of(accessibleLabel),
+                    enabled,
+                    true,
+                    0,
+                    false,
+                    Optional.empty(),
+                    Optional.of(Objects.requireNonNull(icon, "icon")));
+        }
+
         public static Widget infoButton(
                 String id, Bounds bounds, UiMessage accessibleInfo, boolean enabled) {
             Objects.requireNonNull(accessibleInfo, "accessibleInfo");
@@ -1027,7 +1126,19 @@ public record ViewSpec(
             Optional<UUID> presetId,
             Optional<CatalogImage> catalogImage,
             Optional<ExternalImage> externalImage,
-            PreviewRenderer.PreviewIntent intent) {
+            PreviewRenderer.PreviewIntent intent, boolean capeHasElytra) {
+        public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
+                SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
+                Optional<UUID> presetId, Optional<CatalogImage> catalogImage, Optional<ExternalImage> externalImage,
+                PreviewRenderer.PreviewIntent intent) {
+            this(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode, visibility,
+                    yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, true);
+        }
+        public Preview withCapeElytra(boolean value) {
+            return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value);
+        }
         public Preview(
                 String id,
                 Bounds bounds,
@@ -1301,7 +1412,10 @@ public record ViewSpec(
             String id,
             Bounds bounds,
             String capeId,
-            BackEquipmentPreviewRenderer.Mode mode) {
+            BackEquipmentPreviewRenderer.Mode mode, boolean capeHasElytra) {
+        public BackEquipmentPreview(String id, Bounds bounds, String capeId, BackEquipmentPreviewRenderer.Mode mode) {
+            this(id, bounds, capeId, mode, true);
+        }
         public BackEquipmentPreview {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");

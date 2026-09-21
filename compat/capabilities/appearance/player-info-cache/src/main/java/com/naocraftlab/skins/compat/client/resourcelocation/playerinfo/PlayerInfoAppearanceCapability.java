@@ -27,8 +27,9 @@ import com.mojang.authlib.minecraft.MinecraftProfileTexture;
 
 final class PlayerInfoAppearanceCapability
         implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>, AutoCloseable {
+    private Runnable maintenanceDirty = () -> { };
     private final ResourceLocationTextureRegistry textures =
-            new ResourceLocationTextureRegistry("live/appearance");
+            new ResourceLocationTextureRegistry("live/appearance", this::markMaintenanceDirty);
     private final AppearanceOverrideController<InstalledOverride, TextureHandle> overrides =
             new AppearanceOverrideController<>(new AppearanceOverrideController.Strategy<>() {
                 @Override
@@ -65,6 +66,11 @@ final class PlayerInfoAppearanceCapability
             });
 
     @Override
+    public void providerVisibility(com.naocraftlab.skins.client.ProviderVisibility visibility) {
+        MinecraftProviderVisibility.set(visibility);
+    }
+
+    @Override
     public ApplyResult apply(ResolvedProfile<AcknowledgedAppearanceAssets> resolvedProfile) {
         Objects.requireNonNull(resolvedProfile, "resolvedProfile");
         Minecraft minecraft = Minecraft.getInstance();
@@ -77,7 +83,7 @@ final class PlayerInfoAppearanceCapability
         ExpectedAppearance expected = resolvedProfile.expectedAppearance();
         Optional<ApplyResult> reattached = overrides.reattachIfActive(expected);
         if (reattached.isPresent()) {
-            return reattached.orElseThrow();
+            return dirty(reattached.orElseThrow());
         }
 
         AcknowledgedAppearanceAssets payload = resolvedProfile.platformProfile();
@@ -108,7 +114,7 @@ final class PlayerInfoAppearanceCapability
 
             InstalledOverride replacement =
                     new InstalledOverride(expected, body, cape, model, skinHandle, capeHandle);
-            return overrides.install(replacement);
+            return dirty(overrides.install(replacement));
         } catch (IOException | RuntimeException invalidTextureOrClientState) {
             release(skinHandle);
             release(capeHandle);
@@ -141,7 +147,7 @@ final class PlayerInfoAppearanceCapability
         Objects.requireNonNull(expected, "expected");
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
-        return overrides.reattach(expected);
+        return dirty(overrides.reattach(expected));
     }
 
     @Override
@@ -160,7 +166,7 @@ final class PlayerInfoAppearanceCapability
                 DefaultPlayerSkin.getSkinModelName(profileId),
                 null,
                 null);
-        return overrides.install(accountDefault);
+        return dirty(overrides.install(accountDefault));
     }
 
 
@@ -187,10 +193,20 @@ final class PlayerInfoAppearanceCapability
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
         overrides.invalidate(expected);
+        markMaintenanceDirty();
+    }
+
+    void useMaintenanceDirty(Runnable listener) {
+        maintenanceDirty = Objects.requireNonNull(listener, "listener");
+    }
+
+    boolean hasActiveOverride() {
+        return overrides.active().isPresent();
     }
 
     @Override
     public void close() {
+        MinecraftProviderVisibility.set(com.naocraftlab.skins.client.ProviderVisibility.ALL);
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
         overrides.close();
@@ -203,11 +219,21 @@ final class PlayerInfoAppearanceCapability
             playerInfo.textureLocations.put(MinecraftProfileTexture.Type.SKIN, installed.body());
             if (installed.cape() != null) {
                 playerInfo.textureLocations.put(MinecraftProfileTexture.Type.CAPE, installed.cape());
-                playerInfo.textureLocations.put(MinecraftProfileTexture.Type.ELYTRA, installed.cape());
+                playerInfo.textureLocations.put(MinecraftProfileTexture.Type.ELYTRA, installed.expected().capeHasElytra()
+                        ? installed.cape() : new ResourceLocation("minecraft", "textures/entity/elytra.png"));
             }
             playerInfo.skinModel = installed.model();
             playerInfo.pendingTextures = true;
         }
+    }
+
+    private ApplyResult dirty(ApplyResult result) {
+        markMaintenanceDirty();
+        return result;
+    }
+
+    private void markMaintenanceDirty() {
+        maintenanceDirty.run();
     }
 
     private static boolean matches(PlayerInfo playerInfo, InstalledOverride installed) {
@@ -221,7 +247,7 @@ final class PlayerInfoAppearanceCapability
                             installed.cape())
                     && Objects.equals(
                             playerInfo.textureLocations.get(MinecraftProfileTexture.Type.ELYTRA),
-                            installed.cape())
+                            installed.expected().capeHasElytra() || installed.cape() == null ? installed.cape() : new ResourceLocation("minecraft", "textures/entity/elytra.png"))
                     && Objects.equals(playerInfo.skinModel, installed.model());
         }
     }

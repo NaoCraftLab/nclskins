@@ -11,6 +11,19 @@ import net.minecraft.world.entity.player.PlayerModelPart;
 public final class SkinLookupOuterLayerVisibilityController
         implements OuterLayerVisibilityController {
     @Override
+    public OuterLayerVisibility current() {
+        Minecraft minecraft = Minecraft.getInstance();
+        java.util.EnumSet<OuterLayerPart> visible = java.util.EnumSet.noneOf(OuterLayerPart.class);
+        if (minecraft.options.isModelPartEnabled(PlayerModelPart.HAT)) visible.add(OuterLayerPart.HEAD);
+        if (minecraft.options.isModelPartEnabled(PlayerModelPart.JACKET)) visible.add(OuterLayerPart.BODY);
+        if (minecraft.options.isModelPartEnabled(PlayerModelPart.LEFT_SLEEVE)) visible.add(OuterLayerPart.LEFT_ARM);
+        if (minecraft.options.isModelPartEnabled(PlayerModelPart.RIGHT_SLEEVE)) visible.add(OuterLayerPart.RIGHT_ARM);
+        if (minecraft.options.isModelPartEnabled(PlayerModelPart.LEFT_PANTS_LEG)) visible.add(OuterLayerPart.LEFT_LEG);
+        if (minecraft.options.isModelPartEnabled(PlayerModelPart.RIGHT_PANTS_LEG)) visible.add(OuterLayerPart.RIGHT_LEG);
+        return OuterLayerVisibility.of(visible);
+    }
+
+    @Override
     public void applyDurable(OuterLayerVisibility visibility) {
         Objects.requireNonNull(visibility, "visibility");
         Minecraft minecraft = Minecraft.getInstance();

@@ -8,6 +8,7 @@ import com.naocraftlab.skins.client.MinecraftSkinCatalog;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
+import com.naocraftlab.skins.client.ResourcePackCapeCatalog;
 import com.naocraftlab.skins.client.ResourcePackSkinCatalog;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
@@ -21,6 +22,7 @@ import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.CatalogOrigin;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.PersonalSkinEntry;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
@@ -33,6 +35,10 @@ import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
+import com.naocraftlab.skins.core.provider.ProviderDelivery;
+import com.naocraftlab.skins.core.provider.ProviderSkin;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.LibraryOperationException;
@@ -74,6 +80,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -81,6 +88,777 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class DefaultClientOperationsTest {
     @TempDir
     java.nio.file.Path temporaryDirectory;
+
+    @Test
+    void allScreenEntriesReadLocallyAfterOneStartupCheckAndKeepExplicitRefresh() throws Exception {
+        AtomicInteger tokenRequests = new AtomicInteger();
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                countingTokens(tokenRequests), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+        ClientExecutor client = new ClientExecutor() {
+            @Override public boolean isClientThread() { return true; }
+            @Override public void execute(Runnable action) { action.run(); }
+        };
+        ClientRuntime runtime = new ClientRuntime(operations, client,
+                () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
+                Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
+        runtime.warmSession();
+        runtime.warmSession();
+        assertEquals(1, api.profileGets.get());
+        assertEquals(1, tokenRequests.get());
+        var initial = operations.initialize();
+        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Local", SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
+        for (boolean pending : List.of(false, true)) {
+            if (pending) operations.usePreset(saved.presetId());
+            for (int repeat = 0; repeat < 3; repeat++) {
+                for (var destination : com.naocraftlab.skins.client.ScreenDestination.values()) {
+                    runtime.reopen(destination);
+                    runtime.view(854, 480, 0, 0);
+                    runtime.closeScreen();
+                }
+                runtime.initialize();
+                runtime.closeScreen();
+            }
+            assertEquals(1, api.profileGets.get());
+            assertEquals(1, tokenRequests.get());
+            assertEquals(0, api.skinUploads.get());
+            assertEquals(0, api.skinResets.get());
+            assertEquals(0, api.capeActivations.get());
+            assertEquals(0, api.capeDeactivations.get());
+        }
+        operations.refreshProviders(AppearanceProviders.Component.SKIN);
+        assertEquals(2, api.profileGets.get());
+        assertEquals(2, tokenRequests.get());
+        runtime.close();
+    }
+
+    private static byte[] customCapePng() throws Exception {
+        var image = new java.awt.image.BufferedImage(64, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(3, 5, 0xff123456);
+        var out = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(image, "PNG", out); return out.toByteArray();
+    }
+
+    @Test
+    void failedStartupIsNotRetriedByLocalScreenInitialization() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        StubProfileApi api = new StubProfileApi();
+        api.profileFailure = new ProfileApiException(ApiFailureKind.NETWORK, "offline", null, null, false);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                countingTokens(requests), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+        operations.warmSession();
+        assertFalse(operations.warmedReconciliationRecommended());
+        for (int repeat = 0; repeat < 8; repeat++) {
+            assertEquals(ApiFailureKind.NETWORK, operations.initialize().session().failureKind());
+        }
+        assertEquals(1, requests.get());
+        assertEquals(1, api.profileGets.get());
+        api.profileFailure = null;
+        assertTrue(operations.retrySession().session().valid());
+        assertEquals(2, api.profileGets.get());
+    }
+
+    @Test
+    void startupPendingDeliveryReusesItsSingleFreshProfileCheck() throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+        var initial = operations.initialize();
+        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Pending", SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
+        operations.usePreset(saved.presetId());
+        operations.warmSession();
+        assertTrue(operations.warmedReconciliationRecommended());
+        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START).orElseThrow();
+        assertEquals(1, api.profileGets.get());
+        assertEquals(1, api.skinUploads.get());
+    }
+
+    @Test
+    void startupWithMinecraftDisabledDoesNotAcquireCredentials() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                countingTokens(requests), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+        operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        operations.warmSession();
+        operations.initialize();
+        assertEquals(0, requests.get());
+        assertEquals(0, api.profileGets.get());
+    }
+
+    @Test
+    void enablingSkinDoesNotRewriteAnAlreadyConfirmedCapeDestination() throws Exception {
+        byte[] skin = skinPng(0xFF41677A);
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Offline skin", SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
+        operations.usePreset(saved.presetId());
+        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
+                List.of(new RemoteCape("observed-cape", RemoteAssetState.ACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/provider-observed-cape"), "Observed")), Set.of());
+        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        ClientOperations.DurableAppearance activated = operations.enableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
+        operations.reconcileAppearance(activated.reconciliationKey(), ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+        assertEquals(1, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+        assertEquals(0, api.capeDeactivations.get());
+        assertEquals("observed-cape", operations.loadProviders().cape().minecraft().value().id());
+    }
+
+    @Test
+    void ownedCapeLossPreservesOfflineTextureAcrossRestart() throws Exception {
+        byte[] png = skinPng(0xFF315B72);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        URI capeUri = URI.create("https://textures.minecraft.net/texture/provider-cape-fixture");
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
+                List.of(new RemoteCape("cape-owned", RemoteAssetState.INACTIVE, capeUri, "Cape")), Set.of());
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> png.clone(), fixedClock());
+        operations.initialize();
+        com.naocraftlab.skins.core.storage.TextureCache cache =
+                new com.naocraftlab.skins.core.storage.TextureCache(shared);
+        Files.write(cache.cachePath(capeUri), png);
+        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        var custom = shared.importCape(TestFixtures.ACCOUNT_ID, "Personal", customCapePng());
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Cape choice", SkinReference.accountDefault(), SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC, Optional.of("cape-owned"), Optional.empty()).withOfflineCape(custom.texture()));
+        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        String key = custom.texture().sha256();
+        assertEquals(Optional.of(key), selected.localAppearance().orElseThrow().localCapeCacheKey());
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(), List.of(), Set.of());
+        ClientOperations.DurableAppearance refreshed = operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        assertTrue(shared.loadOwnedCapes(TestFixtures.ACCOUNT_ID).capes().isEmpty());
+        assertNull(refreshed.providers().cape().minecraft().value());
+        assertEquals(key, refreshed.providers().cape().offline().value().textureCacheKey());
+        assertEquals(Optional.of(key), refreshed.localAppearance().orElseThrow().localCapeCacheKey());
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        DefaultClientOperations reopened = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> png.clone(), fixedClock());
+        assertEquals(Optional.of(key), reopened.initialize().localAppearance().orElseThrow().localCapeCacheKey());
+        assertTrue(cache.readIfCached(key).isPresent());
+        ClientOperations.PresetUse selectedAgain = operations.usePreset(saved.presetId());
+        assertEquals(Optional.of(key), selectedAgain.localAppearance().orElseThrow().localCapeCacheKey());
+        assertNull(shared.loadAppearance(TestFixtures.ACCOUNT_ID).capeId());
+        assertEquals(key, shared.loadAppearance(TestFixtures.ACCOUNT_ID).providers().cape().offline().value().textureCacheKey());
+    }
+
+    @Test
+    void providerRefreshReadsOnlyRequestedListWithoutCreatingIntentOrMutation() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        operations.initialize();
+        ClientOperations.DurableAppearance refreshed = operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        assertEquals(1, api.profileGets.get());
+        assertEquals(0, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+        assertEquals(0, api.capeDeactivations.get());
+        assertEquals(0, refreshed.intentRevision());
+        assertEquals(AppearanceSyncStatus.LOCAL_ONLY, refreshed.syncStatus());
+        assertTrue(refreshed.providers().cape().minecraft().known());
+        assertFalse(refreshed.providers().skin().minecraft().known());
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        assertEquals(1, api.profileGets.get());
+    }
+
+    @Test
+    void settledActiveSavePreservesMinecraftDeliveriesAndSkipsCheckpoint() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
+                List.of(new RemoteCape(
+                        "cape-owned",
+                        RemoteAssetState.ACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/active-cape"),
+                        "Owned cape")), Set.of());
+        AtomicInteger tokenRequests = new AtomicInteger();
+        GameSessionTokenSource countingTokens = new GameSessionTokenSource() {
+            @Override
+            public SessionIdentity currentSession() {
+                return new SessionIdentity(TestFixtures.ACCOUNT_ID, "Player");
+            }
+
+            @Override
+            public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) throws E {
+                tokenRequests.incrementAndGet();
+                return request.execute("scoped-token");
+            }
+        };
+        NclSkinsStorage storage = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                countingTokens, api, storage, ignored -> skin.clone(), fixedClock());
+        operations.initialize();
+        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Settled",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        ClientOperations.DurableAppearance settled = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow()
+                .appearance();
+        var deliveries = operations.loadProviders();
+        int tokenRequestsBeforeSave = tokenRequests.get();
+        int profileGetsBeforeSave = api.profileGets.get();
+        int skinUploadsBeforeSave = api.skinUploads.get();
+        int capeActivationsBeforeSave = api.capeActivations.get();
+        var localCape = storage.importCape(TestFixtures.ACCOUNT_ID, "Offline", customCapePng()).texture();
+
+        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Settled renamed",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                OuterLayerVisibility.noneVisible(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                PersonalSkinSource.FILE).withOfflineCape(localCape));
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL, edited.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(deliveries.skin().minecraftDelivery(),
+                operations.loadProviders().skin().minecraftDelivery());
+        assertEquals(deliveries.cape().minecraftDelivery(),
+                operations.loadProviders().cape().minecraftDelivery());
+        ClientOperations.ReconciliationResult checkpoint = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, checkpoint.appearance().syncStatus());
+        assertEquals(tokenRequestsBeforeSave, tokenRequests.get());
+        assertEquals(profileGetsBeforeSave, api.profileGets.get());
+        assertEquals(skinUploadsBeforeSave, api.skinUploads.get());
+        assertEquals(capeActivationsBeforeSave, api.capeActivations.get());
+        assertEquals(settled.intentRevision() + 1, checkpoint.appearance().intentRevision());
+    }
+
+    @Test
+    void settledActiveNoOpSavePreservesDeliveriesAndSkipsCheckpoint() throws Exception {
+        SettledActiveFixture fixture = settledActiveFixture();
+
+        assertSettledLocalOnlySave(fixture, new ClientOperations.EditorSaveRequest(
+                Optional.of(fixture.presetId()),
+                "Settled",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                Optional.empty()));
+    }
+
+    @Test
+    void settledActiveNameOnlySavePreservesDeliveriesAndSkipsCheckpoint() throws Exception {
+        SettledActiveFixture fixture = settledActiveFixture();
+
+        assertSettledLocalOnlySave(fixture, new ClientOperations.EditorSaveRequest(
+                Optional.of(fixture.presetId()),
+                "Settled renamed",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                Optional.empty()));
+    }
+
+    @Test
+    void settledActiveLayersOnlySavePreservesDeliveriesAndSkipsCheckpoint() throws Exception {
+        SettledActiveFixture fixture = settledActiveFixture();
+
+        assertSettledLocalOnlySave(fixture, new ClientOperations.EditorSaveRequest(
+                Optional.of(fixture.presetId()),
+                "Settled",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                OuterLayerVisibility.noneVisible(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty()));
+    }
+
+    @Test
+    void settledActiveOfflineCapeOnlySavePreservesDeliveriesAndSkipsCheckpoint() throws Exception {
+        SettledActiveFixture fixture = settledActiveFixture();
+        var offlineCape = fixture.storage().importCape(
+                TestFixtures.ACCOUNT_ID, "Offline", customCapePng()).texture();
+
+        ClientOperations.EditorSave edited = fixture.operations().saveEditor(
+                new ClientOperations.EditorSaveRequest(
+                        Optional.of(fixture.presetId()),
+                        "Settled",
+                        SkinReference.accountDefault(),
+                        SkinVariant.CLASSIC,
+                        SkinVariant.CLASSIC,
+                        Optional.of("cape-owned"),
+                        OuterLayerVisibility.allVisible(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty()).withOfflineCape(offlineCape));
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL,
+                edited.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(fixture.skinDelivery(),
+                edited.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery());
+        assertEquals(fixture.capeDelivery(),
+                edited.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+        assertEquals(offlineCape.sha256(),
+                edited.reappliedAppearance().orElseThrow().providers().cape().offline().value().textureCacheKey());
+        assertNoRemoteCheckpoint(fixture, edited);
+    }
+
+    @Test
+    void activeSaveWithSkinChangeAssignsOnlySkinDelivery() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Account default",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        ClientOperations.DurableAppearance settled = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow()
+                .appearance();
+        var capeDelivery = settled.providers().cape().minecraftDelivery();
+
+        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Skin changed",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+
+        ClientOperations.DurableAppearance pending = edited.reappliedAppearance().orElseThrow();
+        assertEquals(AppearanceSyncStatus.PENDING, pending.syncStatus());
+        assertEquals(capeDelivery, pending.providers().cape().minecraftDelivery());
+        assertEquals(ProviderDelivery.Status.CONFIRMED,
+                pending.providers().cape().minecraftDelivery().status());
+        ClientOperations.ReconciliationResult reconciled = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
+        assertEquals(1, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+        assertEquals(0, api.capeDeactivations.get());
+    }
+
+    @Test
+    void activeSaveSkinToAccountDefaultResetsOnlySkin() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Skin preset",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        ProviderDelivery capeDelivery = operations.loadProviders().cape().minecraftDelivery();
+        int uploadsBeforeReset = api.skinUploads.get();
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(new RemoteSkin(
+                        "remote-skin",
+                        RemoteAssetState.ACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/remote-skin"),
+                        SkinVariant.CLASSIC,
+                        "Remote skin")),
+                List.of(),
+                Set.of());
+
+        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Skin preset reset",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.ReconciliationResult reset = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+
+        assertEquals(ProviderDelivery.Status.PENDING,
+                edited.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery().status());
+        assertEquals(capeDelivery,
+                edited.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, reset.appearance().syncStatus());
+        assertEquals(uploadsBeforeReset, api.skinUploads.get());
+        assertEquals(1, api.skinResets.get());
+        assertEquals(0, api.capeActivations.get());
+        assertEquals(0, api.capeDeactivations.get());
+    }
+
+    @Test
+    void activeSaveKeepsLocalOnlyStatusWhenOnlyDisabledMinecraftDestinationChanges() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        operations.initialize();
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Disabled cape",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        shared.updateAppearance(TestFixtures.ACCOUNT_ID, current -> new com.naocraftlab.skins.core.model.AccountAppearanceState(
+                current.schemaVersion(),
+                current.accountId(),
+                current.intentRevision(),
+                current.activePresetId(),
+                current.skinSha256(),
+                current.skinVariant(),
+                current.capeId(),
+                current.outerLayerVisibility(),
+                AppearanceSyncStatus.LOCAL_ONLY,
+                current.settledRevision(),
+                current.updatedAt(),
+                current.providers()));
+        var delivery = shared.loadAppearance(TestFixtures.ACCOUNT_ID)
+                .providers().cape().minecraftDelivery();
+        int profileGets = api.profileGets.get();
+        int skinUploads = api.skinUploads.get();
+
+        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Disabled cape changed",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("future-cape"),
+                Optional.empty()));
+
+        assertEquals(AppearanceSyncStatus.LOCAL_ONLY,
+                edited.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(delivery,
+                edited.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+        assertEquals("future-cape",
+                edited.reappliedAppearance().orElseThrow().providers().cape().desired().id());
+        assertEquals(profileGets, api.profileGets.get());
+        assertEquals(skinUploads, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+    }
+
+    @Test
+    void activeSaveCapeToNoCapeDeactivatesOnlyCape() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(),
+                List.of(new RemoteCape(
+                        "cape-a",
+                        RemoteAssetState.ACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/cape-a"),
+                        "Cape A")),
+                Set.of());
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Cape preset",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-a"),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        int skinUploadsBeforeReset = api.skinUploads.get();
+
+        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Cape preset cleared",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.ReconciliationResult reset = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+
+        assertEquals(ProviderDelivery.Status.CONFIRMED,
+                edited.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery().status());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, reset.appearance().syncStatus());
+        assertEquals(skinUploadsBeforeReset, api.skinUploads.get());
+        assertEquals(0, api.skinResets.get());
+        assertEquals(0, api.capeActivations.get());
+        assertEquals(1, api.capeDeactivations.get());
+    }
+
+    @Test
+    void activeSaveWithBothChangedComponentsWritesBothDeliveries() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(),
+                List.of(
+                        new RemoteCape("cape-a", RemoteAssetState.ACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-a"), "Cape A"),
+                        new RemoteCape("cape-b", RemoteAssetState.INACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-b"), "Cape B")),
+                Set.of());
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Both A",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-a"),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        int uploadsBeforeEdit = api.skinUploads.get();
+        int activationsBeforeEdit = api.capeActivations.get();
+
+        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Both B",
+                SkinReference.asset(initial.account().skinAssets().get(1).id()),
+                SkinVariant.SLIM,
+                SkinVariant.SLIM,
+                Optional.of("cape-b"),
+                Optional.empty()));
+        ClientOperations.ReconciliationResult changed = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+
+        assertEquals(AppearanceSyncStatus.PENDING, edited.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, changed.appearance().syncStatus());
+        assertEquals(uploadsBeforeEdit + 1, api.skinUploads.get());
+        assertEquals(activationsBeforeEdit + 1, api.capeActivations.get());
+    }
+
+    @Test
+    void activeSkinSaveDoesNotRewriteExternallyChangedConfirmedCape() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(),
+                List.of(
+                        new RemoteCape("cape-a", RemoteAssetState.ACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-a"), "Cape A"),
+                        new RemoteCape("cape-b", RemoteAssetState.INACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-b"), "Cape B")),
+                Set.of());
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Confirmed cape",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-a"),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(),
+                List.of(
+                        new RemoteCape("cape-b", RemoteAssetState.ACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-b"), "Cape B"),
+                        new RemoteCape("cape-a", RemoteAssetState.INACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-a"), "Cape A")),
+                Set.of());
+        int capeActivationsBeforeEdit = api.capeActivations.get();
+        int capeDeactivationsBeforeEdit = api.capeDeactivations.get();
+
+        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Skin changed",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-a"),
+                Optional.empty()));
+        ClientOperations.ReconciliationResult changed = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+
+        assertEquals(AppearanceSyncStatus.PENDING, edited.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, changed.appearance().syncStatus());
+        assertEquals(1, api.skinUploads.get());
+        assertEquals(capeActivationsBeforeEdit, api.capeActivations.get());
+        assertEquals(capeDeactivationsBeforeEdit, api.capeDeactivations.get());
+    }
+
+    @Test
+    void capeOnlyDeliveryDoesNotReadAnUnrelatedMissingSkinAsset() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations first = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = first.initialize();
+        SkinAsset selectedSkin = initial.account().skinAssets().get(0);
+        ClientOperations.EditorSave saved = first.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Missing skin asset later",
+                SkinReference.asset(selectedSkin.id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        first.usePreset(saved.presetId());
+        first.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START).orElseThrow();
+        assertEquals(1, api.skinUploads.get());
+        Files.delete(shared.assetPath(selectedSkin.sha256()));
+
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(new RemoteSkin(
+                        "uncached-skin",
+                        RemoteAssetState.ACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/uncached-skin"),
+                        SkinVariant.CLASSIC,
+                        "Uncached skin")),
+                List.of(new RemoteCape(
+                        "cape-owned",
+                        RemoteAssetState.INACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/cape-owned"),
+                        "Owned cape")),
+                Set.of());
+        DefaultClientOperations second = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        second.initialize();
+        second.refreshProviders(AppearanceProviders.Component.CAPE);
+        ClientOperations.EditorSave edited = second.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Cape only",
+                SkinReference.asset(selectedSkin.id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                Optional.empty()));
+
+        assertEquals(ProviderDelivery.Status.CONFIRMED,
+                edited.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery().status());
+        ClientOperations.ReconciliationResult reconciled = second
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
+        assertEquals(1, api.skinUploads.get());
+        assertEquals(1, api.capeActivations.get());
+    }
+
+    @Test
+    void enablingMinecraftAfterOfflineSettlementDeliversSameIntentWithNewActivation() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Offline choice", SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
+        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        ClientOperations.DurableAppearance offline = operations.reconcileAppearance(
+                ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow().appearance();
+        assertEquals(0, api.profileGets.get());
+        assertEquals(0, api.skinUploads.get());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, offline.syncStatus());
+        ClientOperations.DurableAppearance activated = operations.enableProvider(
+                AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
+        assertEquals(selected.intentRevision(), activated.intentRevision());
+        assertNotEquals(offline.reconciliationKey(), activated.reconciliationKey());
+        assertEquals(AppearanceSyncStatus.PENDING, activated.syncStatus());
+        assertEquals(0, api.profileGets.get());
+        assertTrue(operations.reconcileAppearance(offline.reconciliationKey(),
+                ClientOperations.ReconciliationTrigger.LOCAL_INTENT).isEmpty());
+        ClientOperations.ReconciliationResult result = operations.reconcileAppearance(activated.reconciliationKey(),
+                ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, result.appearance().syncStatus());
+        assertEquals(1, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+    }
+
+    @Test
+    void providerConfigurationIsLocalAndSurvivesRestartWithoutLosingObservations() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        operations.initialize();
+        operations.moveProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT, -1);
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE);
+        AppearanceProviders expected = operations.loadProviders();
+        DefaultClientOperations reopened = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        assertEquals(expected, reopened.loadProviders());
+        assertEquals(expected, reopened.reloadProviders().providers());
+        assertFalse(expected.galleryAvailable());
+        assertEquals(List.of(BuiltinProvider.MINECRAFT, BuiltinProvider.OFFLINE), expected.skin().order());
+        assertEquals(0, api.profileGets.get());
+    }
 
     @Test
     void offlineSelectionReopensInAnotherInstanceAndSynchronizesOnceOnline() throws Exception {
@@ -130,7 +908,7 @@ final class DefaultClientOperationsTest {
         assertEquals(0, onlineApi.skinUploads.get());
 
         ClientOperations.ReconciliationResult synchronizedOnline = online
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(Optional.of(saved.presetId()), synchronizedOnline.appearance().activePresetId());
@@ -272,7 +1050,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -452,8 +1230,10 @@ final class DefaultClientOperationsTest {
 
         ClientOperations.InitialData initial = first.initialize();
         assertEquals(AddSourceTab.CATALOG, initial.uiPreferences().selectedAddSourceTab());
+        assertEquals(EditorTab.APPEARANCE, initial.uiPreferences().selectedEditorTab());
         assertTrue(initial.uiPreferences().preferredSkinVariant().isEmpty());
         first.setSelectedAddSourceTab(AddSourceTab.CATALOG);
+        first.setSelectedEditorTab(initial.account().accountId(), EditorTab.CAPE);
         first.setCollectionCollapsed(MinecraftSkinCatalog.COLLECTION_ID, true);
         first.replaceCollapsedCollectionIds(Set.of(
                 MinecraftSkinCatalog.COLLECTION_ID,
@@ -495,6 +1275,7 @@ final class DefaultClientOperationsTest {
                 tokens(), new StubProfileApi(), shared, catalog, fixedClock());
         ClientOperations.InitialData reopened = second.initialize();
         assertEquals(AddSourceTab.CATALOG, reopened.uiPreferences().selectedAddSourceTab());
+        assertEquals(EditorTab.CAPE, reopened.uiPreferences().selectedEditorTab());
         assertEquals(Optional.of(SkinVariant.SLIM), reopened.uiPreferences().preferredSkinVariant());
         assertTrue(reopened.uiPreferences()
                 .collapsedCollectionIds()
@@ -593,6 +1374,65 @@ final class DefaultClientOperationsTest {
         assertEquals(4, restored.account().presets().size());
         assertEquals(PersonalSkinCatalog.COLLECTION_ID, operations.catalogCollections().get(0).id());
         assertNotEquals(classic.presetId(), slim.presetId());
+    }
+
+    @Test
+    void duplicateSaveRoundTripsOfflineCapeWithoutChangingActiveAppearance() throws Exception {
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skinPng(0xFF315B72), fixedClock());
+        operations.initialize();
+        var localCape = shared.importCape(
+                TestFixtures.ACCOUNT_ID, "Saved cape", customCapePng()).texture();
+        ClientOperations.EditorSave source = operations.saveEditor(
+                new ClientOperations.EditorSaveRequest(
+                        Optional.empty(),
+                        "Source",
+                        SkinReference.accountDefault(),
+                        SkinVariant.CLASSIC,
+                        SkinVariant.CLASSIC,
+                        Optional.empty(),
+                        Optional.empty()).withOfflineCape(localCape));
+        operations.usePreset(source.presetId());
+        var before = shared.loadAppearance(TestFixtures.ACCOUNT_ID);
+        int profileGets = api.profileGets.get();
+        int skinUploads = api.skinUploads.get();
+        int capeActivations = api.capeActivations.get();
+
+        ClientOperations.EditorSave duplicate = operations.saveEditor(
+                new ClientOperations.EditorSaveRequest(
+                        Optional.empty(),
+                        "Copy of Source",
+                        SkinReference.accountDefault(),
+                        SkinVariant.CLASSIC,
+                        SkinVariant.CLASSIC,
+                        Optional.empty(),
+                        Optional.empty()).withOfflineCape(localCape));
+
+        NclSkinsStorage reopenedStorage = new NclSkinsStorage(
+                temporaryDirectory, new PngValidator(), fixedClock());
+        var reloaded = reopenedStorage.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
+        var sourcePreset = reloaded.presets().stream()
+                .filter(preset -> preset.id().equals(source.presetId()))
+                .findFirst()
+                .orElseThrow();
+        var duplicatePreset = reloaded.presets().stream()
+                .filter(preset -> preset.id().equals(duplicate.presetId()))
+                .findFirst()
+                .orElseThrow();
+        var after = reopenedStorage.loadAppearance(TestFixtures.ACCOUNT_ID);
+
+        assertNotEquals(source.presetId(), duplicate.presetId());
+        assertEquals(localCape, sourcePreset.offlineCape());
+        assertEquals(localCape, duplicatePreset.offlineCape());
+        assertEquals(1, reloaded.personalCapes().size());
+        assertEquals(before.activePresetId(), after.activePresetId());
+        assertEquals(before.providers(), after.providers());
+        assertEquals(before.intentRevision(), after.intentRevision());
+        assertEquals(profileGets, api.profileGets.get());
+        assertEquals(skinUploads, api.skinUploads.get());
+        assertEquals(capeActivations, api.capeActivations.get());
     }
 
     @Test
@@ -789,6 +1629,190 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
+    void resourceCapeDiscoveryValidatesCachesPreviewsAndMaterializesByFrozenIdentity()
+            throws Exception {
+        byte[] valid = customCapePng();
+        byte[] invalidHd = skinPng(128, 64, 0xFF557799);
+        AtomicInteger generation = new AtomicInteger(4);
+        AtomicInteger capeLoads = new AtomicInteger();
+        AtomicReference<byte[]> active = new AtomicReference<>(valid);
+        List<com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor> capes =
+                ResourcePackCapeCatalog.build(List.of(
+                        new ResourcePackCapeCatalog.Variant(
+                                "event", "hero", "file/event.zip", 0, "1".repeat(64)),
+                        new ResourcePackCapeCatalog.Variant(
+                                "broken", "hd", "file/event.zip", 0, "2".repeat(64))));
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override
+            public byte[] load(String collectionId, String skinId, SkinModel model) {
+                return valid.clone();
+            }
+
+            @Override
+            public List<com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor>
+                    capeCollections() {
+                return capes;
+            }
+
+            @Override
+            public byte[] loadCape(String collectionId, String capeId) {
+                capeLoads.incrementAndGet();
+                return "hero".equals(capeId) ? active.get().clone() : invalidHd.clone();
+            }
+
+            @Override
+            public long capeGeneration() {
+                return generation.get();
+            }
+        };
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), shared, source, fixedClock());
+        operations.warmResourceCapeCatalog(generation.get());
+        assertEquals(2, capeLoads.get());
+        operations.initialize();
+        assertTrue(operations.warmedCapeEditorData(TestFixtures.ACCOUNT_ID).isPresent());
+
+        ClientOperations.CapeEditorData first =
+                operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        assertEquals(List.of("event"), first.resourceCollections().stream()
+                .map(com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor::id)
+                .toList());
+        assertEquals(2, capeLoads.get());
+        ClientOperations.CapeEditorData cached =
+                operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        assertEquals(first.resourceCollections(), cached.resourceCollections());
+        assertEquals(2, capeLoads.get());
+
+        var descriptor = first.resourceCollections().get(0).capes().get(0);
+        var key = new ClientOperations.ResourceCapeKey("event", "hero");
+        var selection = new ClientOperations.ResourceCapeSelection(
+                "event", "hero", "Hero cape", descriptor.contentIdentity(),
+                first.sourceHashes().get(key), first.resourceGeneration(),
+                descriptor.renderSupport()
+                        == com.naocraftlab.skins.client.CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA);
+        assertArrayEquals(valid,
+                operations.loadResourceCapePreview(TestFixtures.ACCOUNT_ID, selection)
+                        .orElseThrow());
+        var materialized = operations.materializeResourceCape(
+                TestFixtures.ACCOUNT_ID, selection);
+        var reused = operations.materializeResourceCape(TestFixtures.ACCOUNT_ID, selection);
+        assertEquals(materialized.texture().entryId(), reused.texture().entryId());
+        assertEquals(descriptor.contentIdentity(), materialized.renderSha256());
+        assertEquals(1, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID).personalCapes().size());
+
+        active.set(skinPng(64, 32, 0xFF7799BB));
+        assertArrayEquals(valid,
+                operations.loadResourceCapePreview(TestFixtures.ACCOUNT_ID, selection)
+                        .orElseThrow());
+        assertEquals(materialized.texture().entryId(), operations.materializeResourceCape(
+                TestFixtures.ACCOUNT_ID, selection).texture().entryId());
+
+        generation.incrementAndGet();
+        assertTrue(operations.loadResourceCapePreview(TestFixtures.ACCOUNT_ID, selection).isEmpty());
+        int loadsBeforeReload = capeLoads.get();
+        ClientOperations.CapeEditorData reloaded =
+                operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        assertEquals(5, reloaded.resourceGeneration());
+        assertEquals(loadsBeforeReload + 2, capeLoads.get());
+    }
+
+    @Test
+    void personalCapeMutationsDoNotReindexKnownResourceGeneration() throws Exception {
+        byte[] valid = customCapePng();
+        AtomicInteger generation = new AtomicInteger(8);
+        AtomicInteger collectionReads = new AtomicInteger();
+        AtomicInteger resourceLoads = new AtomicInteger();
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override
+            public byte[] load(String collectionId, String skinId, SkinModel model) {
+                return valid.clone();
+            }
+
+            @Override
+            public List<com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor>
+                    capeCollections() {
+                collectionReads.incrementAndGet();
+                return ResourcePackCapeCatalog.build(List.of(
+                        new ResourcePackCapeCatalog.Variant(
+                                "event", "hero", "fixture", 0, "1".repeat(64))));
+            }
+
+            @Override
+            public byte[] loadCape(String collectionId, String capeId) {
+                resourceLoads.incrementAndGet();
+                return valid.clone();
+            }
+
+            @Override
+            public long capeGeneration() {
+                return generation.get();
+            }
+        };
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), storage(), source, fixedClock());
+        operations.initialize();
+        operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+
+        Path importPath = temporaryDirectory.resolve("same-cape.png");
+        Files.write(importPath, valid);
+        var imported = operations.importCape(
+                TestFixtures.ACCOUNT_ID, importPath, "Cape");
+        operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        operations.renameCape(
+                TestFixtures.ACCOUNT_ID, imported.texture().entryId(), "Renamed");
+        operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        operations.deleteCape(TestFixtures.ACCOUNT_ID, imported.texture().entryId());
+        operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        assertEquals(1, collectionReads.get());
+        assertEquals(1, resourceLoads.get());
+
+        generation.incrementAndGet();
+        operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        assertEquals(2, collectionReads.get());
+        assertEquals(2, resourceLoads.get());
+    }
+
+    @Test
+    void unknownResourceCapeGenerationNeverCachesDiscovery() throws Exception {
+        byte[] valid = customCapePng();
+        AtomicInteger collectionReads = new AtomicInteger();
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override
+            public byte[] load(String collectionId, String skinId, SkinModel model) {
+                return valid.clone();
+            }
+
+            @Override
+            public List<com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor>
+                    capeCollections() {
+                collectionReads.incrementAndGet();
+                return ResourcePackCapeCatalog.build(List.of(
+                        new ResourcePackCapeCatalog.Variant(
+                                "event", "hero", "fixture", 0, "1".repeat(64))));
+            }
+
+            @Override
+            public byte[] loadCape(String collectionId, String capeId) {
+                return valid.clone();
+            }
+
+            @Override
+            public long capeGeneration() {
+                return Long.MIN_VALUE;
+            }
+        };
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), storage(), source, fixedClock());
+        operations.initialize();
+
+        operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+
+        assertEquals(2, collectionReads.get());
+    }
+
+    @Test
     void catalogDiscoveryDropsOnlyAResourceCollectionWhoseEveryVariantIsInvalid()
             throws Exception {
         byte[] valid = skinPng(0xFF779955);
@@ -920,23 +1944,23 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void galleryInitializationFreshlyClassifiesOnlineSessionAfterUncheckedWarmup()
+    void galleryInitializationReusesStartupSessionWithoutFreshProfileRequest()
             throws Exception {
         StubProfileApi api = new StubProfileApi();
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
 
         operations.warmSession();
-        assertFalse(operations.warmedInitialData().orElseThrow().session().valid());
+        assertTrue(operations.warmedInitialData().orElseThrow().session().valid());
 
-        ClientOperations.InitialData initialized = operations.initializeForGallery();
+        ClientOperations.InitialData initialized = operations.initialize();
 
         assertTrue(initialized.session().valid());
         assertEquals(1, api.profileGets.get());
     }
 
     @Test
-    void galleryInitializationClassifiesOfflineAccountWithoutProfileRequest()
+    void explicitSessionRetryClassifiesOfflineAccountWithoutProfileRequest()
             throws Exception {
         StubProfileApi api = new StubProfileApi();
         GameSessionTokenSource offlineTokens = new GameSessionTokenSource() {
@@ -953,7 +1977,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 offlineTokens, api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
 
-        ClientOperations.InitialData initialized = operations.initializeForGallery();
+        ClientOperations.InitialData initialized = operations.retrySession();
 
         assertFalse(initialized.session().valid());
         assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, initialized.session().failureKind());
@@ -961,7 +1985,7 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void galleryInitializationPublishesConfirmedRecoverableSessionLoss()
+    void explicitSessionRetryPublishesConfirmedRecoverableSessionLoss()
             throws Exception {
         StubProfileApi api = new StubProfileApi();
         api.profileFailure = new ProfileApiException(
@@ -969,7 +1993,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
 
-        ClientOperations.InitialData initialized = operations.initializeForGallery();
+        ClientOperations.InitialData initialized = operations.retrySession();
 
         assertFalse(initialized.session().valid());
         assertEquals(ApiFailureKind.NETWORK, initialized.session().failureKind());
@@ -998,19 +2022,7 @@ final class DefaultClientOperationsTest {
                 fixedClock());
 
         operations.warmSession();
-        assertEquals(
-                new ClientOperations.ReconciliationKey(TestFixtures.ACCOUNT_ID, 0),
-                operations.warmedDurableAppearance().orElseThrow().reconciliationKey());
-        assertEquals(
-                new ClientOperations.ReconciliationKey(TestFixtures.ACCOUNT_ID, 0),
-                operations.reconciliationKey().orElseThrow());
-        ClientOperations.InitialData cached = operations.initialize();
-        assertEquals(0, api.profileGets.get());
-        assertTrue(cached.account().presets().isEmpty());
-
-        ClientOperations.ReconciliationResult initial = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
-                .orElseThrow();
+        ClientOperations.InitialData initial = operations.initialize();
 
         assertEquals(1, api.profileGets.get());
         assertEquals(3, initial.account().skinAssets().size());
@@ -1024,7 +2036,7 @@ final class DefaultClientOperationsTest {
                 .findFirst()
                 .orElseThrow()
                 .source());
-        assertEquals(Optional.of(preset.id()), initial.appearance().activePresetId());
+        assertEquals(Optional.of(preset.id()), initial.activePresetId());
 
         ClientOperations.InitialData reopened = operations.initialize();
         assertEquals(1, reopened.account().presets().size());
@@ -1036,7 +2048,10 @@ final class DefaultClientOperationsTest {
         assertTrue(reset.activePresetId().isEmpty());
         assertTrue(reset.pendingOfficialSync());
         assertEquals(AppearanceSyncStatus.PENDING, reset.syncStatus());
-        assertTrue(reset.localAppearance().orElseThrow().usesAccountDefaultSkin());
+        assertEquals(initial.localAppearance().orElseThrow().localSkinSha256(),
+                reset.localAppearance().orElseThrow().localSkinSha256());
+        assertFalse(storage.loadAppearance(TestFixtures.ACCOUNT_ID).providers().skin()
+                .offline().optionalValue().isPresent());
         assertEquals(1, api.profileGets.get());
         assertEquals(0, api.skinResets.get());
     }
@@ -1073,7 +2088,7 @@ final class DefaultClientOperationsTest {
 
         assertEquals(changed.presets(), initialized.account().presets());
         assertEquals("Created elsewhere", initialized.account().presets().get(0).name());
-        assertEquals(0, api.profileGets.get());
+        assertEquals(1, api.profileGets.get());
         assertTrue(operations.warmedInitialData().isEmpty(),
                 "the startup seed must not replace a fresh gallery reload");
     }
@@ -1115,7 +2130,7 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void activeDeleteIsImmediateAccountDefaultPendingAndReopensWithoutRemoteTraffic()
+    void activeDeleteFallsThroughToObservedMinecraftUntilResetAcknowledgement()
             throws Exception {
         byte[] skin = skinPng(0xFF42688A);
         URI skinUri = URI.create("https://textures.minecraft.net/texture/stale-warm-profile");
@@ -1142,7 +2157,8 @@ final class DefaultClientOperationsTest {
         ClientOperations.DurableAppearance localDefault = deletion.appearance().orElseThrow();
         assertEquals(AppearanceSyncStatus.PENDING, localDefault.syncStatus());
         assertTrue(localDefault.activePresetId().isEmpty());
-        assertTrue(localDefault.localAppearance().orElseThrow().usesAccountDefaultSkin());
+        assertEquals(firstOpen.appearance().localAppearance().orElseThrow().localSkinSha256(),
+                localDefault.localAppearance().orElseThrow().localSkinSha256());
         assertEquals(0, api.skinResets.get());
 
         DefaultClientOperations reopenedClient = new DefaultClientOperations(
@@ -1152,7 +2168,8 @@ final class DefaultClientOperationsTest {
         assertTrue(reopened.activePresetId().isEmpty());
         assertTrue(reopened.pendingOfficialSync());
         assertEquals(AppearanceSyncStatus.PENDING, reopened.syncStatus());
-        assertTrue(reopened.localAppearance().orElseThrow().usesAccountDefaultSkin());
+        assertEquals(localDefault.localAppearance().orElseThrow().localSkinSha256(),
+                reopened.localAppearance().orElseThrow().localSkinSha256());
         assertEquals(0, api.skinResets.get());
     }
 
@@ -1486,12 +2503,11 @@ final class DefaultClientOperationsTest {
         assertEquals(0, api.skinResets.get());
         assertTrue(deleted.account().presets().isEmpty());
         assertTrue(deleted.remoteReset().isEmpty());
-        assertTrue(deleted.appearance().orElseThrow().localAppearance()
-                .orElseThrow()
-                .usesAccountDefaultSkin());
+        assertEquals(initial.appearance().localAppearance().orElseThrow().localSkinSha256(),
+                deleted.appearance().orElseThrow().localAppearance().orElseThrow().localSkinSha256());
 
         ClientOperations.ReconciliationResult reset = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(MutationResult.APPLIED, reset.outcome().orElseThrow().result());
@@ -1547,7 +2563,7 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData reset = operations.resetLibrary();
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.PENDING, reset.syncStatus());
@@ -1588,7 +2604,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         PresetApplicationOutcome outcome = reconciled.outcome().orElseThrow();
 
@@ -1688,7 +2704,7 @@ final class DefaultClientOperationsTest {
 
         ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult checkpoint = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult automatic = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
@@ -1747,7 +2763,7 @@ final class DefaultClientOperationsTest {
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult reopen = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(0, first.appearance().intentRevision());
@@ -1887,7 +2903,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -1965,7 +2981,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult first = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult second = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
@@ -2009,13 +3025,13 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult failed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PENDING, failed.appearance().syncStatus());
         api.profileFailure = null;
 
         ClientOperations.ReconciliationResult reopen = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, reopen.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
@@ -2050,7 +3066,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult first = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult automatic = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
@@ -2092,7 +3108,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult failed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult automatic = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
@@ -2112,6 +3128,168 @@ final class DefaultClientOperationsTest {
         assertEquals(AppearanceSyncStatus.OFFICIAL, explicit.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
         assertEquals(2, api.skinUploads.get());
+    }
+
+    @Test
+    void activeSavePreservesUnknownForLocalAndChangedSiblingEdits() throws Exception {
+        byte[] skin = skinPng(0xFF71543C);
+        StubProfileApi api = new StubProfileApi();
+        api.skinFailure = new ProfileApiException(
+                ApiFailureKind.FORBIDDEN, "denied", 403, null, false);
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Unknown",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        ClientOperations.ReconciliationResult failed = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.UNKNOWN, failed.appearance().syncStatus());
+        ProviderDelivery unknownSkin = failed.appearance().providers().skin().minecraftDelivery();
+        ProviderDelivery unknownCape = failed.appearance().providers().cape().minecraftDelivery();
+        int profileGetsAfterFailure = api.profileGets.get();
+        int skinUploadsAfterFailure = api.skinUploads.get();
+
+        ClientOperations.EditorSave localEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Unknown local edit",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        assertEquals(AppearanceSyncStatus.UNKNOWN,
+                localEdit.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(unknownSkin,
+                localEdit.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery());
+        assertEquals(unknownCape,
+                localEdit.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+
+        ClientOperations.EditorSave changedSibling = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Unknown cape edit",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("unavailable-cape"),
+                Optional.empty()));
+        assertEquals(AppearanceSyncStatus.UNKNOWN,
+                changedSibling.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(unknownSkin,
+                changedSibling.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery());
+        assertEquals(ProviderDelivery.Status.UNKNOWN,
+                changedSibling.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery().status());
+
+        ClientOperations.ReconciliationResult automatic = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.UNKNOWN, automatic.appearance().syncStatus());
+        assertEquals(profileGetsAfterFailure, api.profileGets.get());
+        assertEquals(skinUploadsAfterFailure, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+    }
+
+    @Test
+    void explicitApplyRecoversUnknownWithTheSamePresetValues() throws Exception {
+        byte[] skin = skinPng(0xFF71543C);
+        StubProfileApi api = new StubProfileApi();
+        api.skinFailure = new ProfileApiException(
+                ApiFailureKind.FORBIDDEN, "denied", 403, null, false);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Explicit recovery",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        ClientOperations.ReconciliationResult failed = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.UNKNOWN, failed.appearance().syncStatus());
+        api.skinFailure = null;
+        int profileGetsBeforeApply = api.profileGets.get();
+        int uploadsBeforeApply = api.skinUploads.get();
+
+        ClientOperations.RemoteResult applied = operations.applyPreset(saved.presetId());
+
+        assertEquals(MutationResult.APPLIED, applied.outcome().result());
+        assertEquals(AppearanceSyncStatus.OFFICIAL,
+                operations.durableAppearance().orElseThrow().syncStatus());
+        assertEquals(profileGetsBeforeApply + 1, api.profileGets.get());
+        assertEquals(uploadsBeforeApply + 1, api.skinUploads.get());
+    }
+
+    @Test
+    void activeSavePreservesPendingDesiredWhenObservedValueIsOlder() throws Exception {
+        ObservedSkinFixture fixture = observedSkinFixture();
+        ProviderDelivery pendingDelivery = fixture.operations().loadProviders()
+                .skin().minecraftDelivery();
+        long settledRevision = fixture.storage().loadAppearance(TestFixtures.ACCOUNT_ID).settledRevision();
+        int profileGetsBeforeSave = fixture.api().profileGets.get();
+        int uploadsBeforeSave = fixture.api().skinUploads.get();
+
+        ClientOperations.EditorSave edited = fixture.operations().saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(fixture.presetId()),
+                "Pending B local edit",
+                SkinReference.asset(fixture.skinB()),
+                fixture.skinBVariant(),
+                fixture.skinBVariant(),
+                Optional.empty(),
+                Optional.empty()));
+
+        assertEquals(AppearanceSyncStatus.PENDING,
+                edited.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(pendingDelivery,
+                edited.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery());
+        assertEquals(settledRevision,
+                fixture.storage().loadAppearance(TestFixtures.ACCOUNT_ID).settledRevision());
+
+        ClientOperations.ReconciliationResult reconciled = fixture.operations()
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
+        assertEquals(profileGetsBeforeSave + 1, fixture.api().profileGets.get());
+        assertEquals(uploadsBeforeSave + 1, fixture.api().skinUploads.get());
+    }
+
+    @Test
+    void activeSaveReturningPendingDesiredToObservedValueSettlesWithoutMutation() throws Exception {
+        ObservedSkinFixture fixture = observedSkinFixture();
+        int profileGetsBeforeSave = fixture.api().profileGets.get();
+        int uploadsBeforeSave = fixture.api().skinUploads.get();
+
+        ClientOperations.EditorSave edited = fixture.operations().saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(fixture.presetId()),
+                "Pending A local edit",
+                SkinReference.asset(fixture.skinA()),
+                fixture.skinAVariant(),
+                fixture.skinAVariant(),
+                Optional.empty(),
+                Optional.empty()));
+
+        assertEquals(AppearanceSyncStatus.PENDING,
+                edited.reappliedAppearance().orElseThrow().syncStatus());
+        ClientOperations.ReconciliationResult reconciled = fixture.operations()
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
+        assertEquals(profileGetsBeforeSave + 1, fixture.api().profileGets.get());
+        assertEquals(uploadsBeforeSave, fixture.api().skinUploads.get());
     }
 
     @Test
@@ -2139,7 +3317,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult limited = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PENDING, limited.appearance().syncStatus());
         assertEquals(ApiFailureKind.RATE_LIMITED, limited.outcome().orElseThrow().failureKind());
@@ -2162,6 +3340,84 @@ final class DefaultClientOperationsTest {
         assertEquals(AppearanceSyncStatus.OFFICIAL, afterCooldown.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
         assertEquals(2, api.skinUploads.get());
+    }
+
+    @Test
+    void activeSavesAfterRateLimitKeepOneCooldownAndOnlyLatestIntent() throws Exception {
+        byte[] skin = skinPng(0xFF3E647A);
+        StubProfileApi api = new StubProfileApi();
+        api.skinFailure = new ProfileApiException(
+                ApiFailureKind.RATE_LIMITED,
+                "rate limited",
+                429,
+                Duration.ofSeconds(60),
+                false);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Rate limited active",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        ClientOperations.ReconciliationResult limited = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.PENDING, limited.appearance().syncStatus());
+        int profileGetsAfterLimit = api.profileGets.get();
+        int uploadsAfterLimit = api.skinUploads.get();
+
+        api.rateLimitRemaining = Optional.of(Duration.ofSeconds(60));
+        ClientOperations.EditorSave localEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Rate limited local edit",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.EditorSave changed = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Rate limited changed",
+                SkinReference.asset(initial.account().skinAssets().get(1).id()),
+                SkinVariant.SLIM,
+                SkinVariant.SLIM,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.EditorSave latest = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Rate limited latest",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+
+        assertEquals(AppearanceSyncStatus.PENDING, localEdit.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(AppearanceSyncStatus.PENDING, changed.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(AppearanceSyncStatus.PENDING, latest.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(latest.reappliedAppearance().orElseThrow().intentRevision(),
+                latest.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery().intentRevision());
+
+        ClientOperations.ReconciliationResult duringCooldown = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.PENDING, duringCooldown.appearance().syncStatus());
+        assertEquals(profileGetsAfterLimit, api.profileGets.get());
+        assertEquals(uploadsAfterLimit, api.skinUploads.get());
+
+        api.skinFailure = null;
+        api.rateLimitRemaining = Optional.empty();
+        ClientOperations.ReconciliationResult recovered = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
+        assertEquals(profileGetsAfterLimit + 1, api.profileGets.get());
+        assertEquals(uploadsAfterLimit + 1, api.skinUploads.get());
     }
 
     @Test
@@ -2212,16 +3468,40 @@ final class DefaultClientOperationsTest {
         assertEquals(1, api.skinUploads.get());
         assertEquals(1, api.capeActivations.get());
 
+        ProviderDelivery partialSkinDelivery = partial.appearance().providers().skin().minecraftDelivery();
+        ProviderDelivery partialCapeDelivery = partial.appearance().providers().cape().minecraftDelivery();
+        long partialSettledRevision = storage.loadAppearance(TestFixtures.ACCOUNT_ID).settledRevision();
+        int profileGetsAfterPartial = api.profileGets.get();
+        int skinUploadsAfterPartial = api.skinUploads.get();
+        int capeActivationsAfterPartial = api.capeActivations.get();
+        ClientOperations.EditorSave localEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Partial local edit",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                Optional.empty()));
+        assertEquals(AppearanceSyncStatus.PARTIAL,
+                localEdit.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(partialSkinDelivery,
+                localEdit.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery());
+        assertEquals(partialCapeDelivery,
+                localEdit.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+        assertEquals(partialSettledRevision,
+                storage.loadAppearance(TestFixtures.ACCOUNT_ID).settledRevision());
+
         api.rateLimitRemaining = Optional.of(Duration.ofSeconds(60));
         ClientOperations.ReconciliationResult automatic = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PARTIAL, automatic.appearance().syncStatus());
-        assertEquals(selected.intentRevision(), automatic.appearance().intentRevision());
+        assertEquals(localEdit.reappliedAppearance().orElseThrow().intentRevision(),
+                automatic.appearance().intentRevision());
         assertTrue(automatic.outcome().isEmpty());
-        assertEquals(1, api.profileGets.get());
-        assertEquals(1, api.skinUploads.get());
-        assertEquals(1, api.capeActivations.get());
+        assertEquals(profileGetsAfterPartial, api.profileGets.get());
+        assertEquals(skinUploadsAfterPartial, api.skinUploads.get());
+        assertEquals(capeActivationsAfterPartial, api.capeActivations.get());
 
         api.capeFailure = null;
         api.rateLimitRemaining = Optional.empty();
@@ -2243,7 +3523,8 @@ final class DefaultClientOperationsTest {
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
-        assertEquals(selected.intentRevision(), recovered.appearance().intentRevision());
+        assertEquals(localEdit.reappliedAppearance().orElseThrow().intentRevision(),
+                recovered.appearance().intentRevision());
         assertEquals(MutationResult.APPLIED, recovered.outcome().orElseThrow().result());
         assertEquals(2, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
@@ -2258,6 +3539,8 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
+        var offlineCape = storage.importCape(
+                TestFixtures.ACCOUNT_ID, "Keep offline cape", customCapePng()).texture();
         ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
                 Optional.empty(),
                 "Keep stale cape in preset",
@@ -2265,7 +3548,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 SkinVariant.CLASSIC,
                 Optional.of("no-longer-owned"),
-                Optional.empty()));
+                Optional.empty()).withOfflineCape(offlineCape));
         ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
@@ -2282,10 +3565,112 @@ final class DefaultClientOperationsTest {
                         .findFirst()
                         .orElseThrow()
                         .capeId());
+        var normalized = storage.loadAppearance(TestFixtures.ACCOUNT_ID);
+        assertNull(normalized.providers().cape().desired());
+        assertEquals(offlineCape.sha256(), normalized.providers().cape().offlineDesired().textureCacheKey());
+        assertEquals(offlineCape.sha256(), normalized.providers().cape().offline().value().textureCacheKey());
+        var normalizedDelivery = normalized.providers().cape().minecraftDelivery();
+        ClientOperations.EditorSave repeated = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Keep stale cape in preset again",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("no-longer-owned"),
+                Optional.empty()).withOfflineCape(offlineCape));
+        assertEquals(reconciled.appearance().intentRevision() + 1,
+                repeated.reappliedAppearance().orElseThrow().intentRevision());
+        assertEquals(AppearanceSyncStatus.OFFICIAL,
+                repeated.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(normalizedDelivery,
+                repeated.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+        DefaultClientOperations restarted = new DefaultClientOperations(
+                tokens(), api, storage, ignored -> skin.clone(), fixedClock());
+        assertNull(restarted.loadProviders().cape().desired());
+        assertEquals(offlineCape.sha256(), restarted.loadProviders().cape().offlineDesired().textureCacheKey());
         assertEquals(1, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
         assertEquals(0, api.capeActivations.get());
         assertEquals(0, api.capeDeactivations.get());
+    }
+
+    @Test
+    void unknownOwnershipNormalizationPreservesOfflineCapeAndConfirmedSkin() throws Exception {
+        byte[] skin = skinPng(0xFF416785);
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        var offlineCape = shared.importCape(
+                TestFixtures.ACCOUNT_ID, "Offline while unknown", customCapePng()).texture();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Unknown stale cape",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("unowned-cape"),
+                Optional.empty()).withOfflineCape(offlineCape));
+        operations.usePreset(saved.presetId());
+        shared.updateAppearance(TestFixtures.ACCOUNT_ID, current -> {
+            AppearanceProviders providers = current.providers();
+            AppearanceProviders uncertain = new AppearanceProviders(
+                    providers.skin().settle(
+                            providers.skin().minecraftDelivery(),
+                            ProviderDelivery.Status.CONFIRMED,
+                            providers.skin().desired()),
+                    providers.cape().settle(
+                            providers.cape().minecraftDelivery(),
+                            ProviderDelivery.Status.UNKNOWN,
+                            null));
+            return new com.naocraftlab.skins.core.model.AccountAppearanceState(
+                    current.schemaVersion(), current.accountId(), current.intentRevision(),
+                    current.activePresetId(), current.skinSha256(), current.skinVariant(),
+                    current.capeId(), current.outerLayerVisibility(), AppearanceSyncStatus.UNKNOWN,
+                    current.settledRevision(), current.updatedAt(), uncertain);
+        });
+        int capeActivationsBeforeRecovery = api.capeActivations.get();
+        int capeDeactivationsBeforeRecovery = api.capeDeactivations.get();
+
+        ClientOperations.ReconciliationResult recovered = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .orElseThrow();
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
+        assertEquals(ProviderDelivery.Status.CONFIRMED,
+                recovered.appearance().providers().skin().minecraftDelivery().status());
+        assertEquals(ProviderDelivery.Status.CONFIRMED,
+                recovered.appearance().providers().cape().minecraftDelivery().status());
+        assertNull(recovered.appearance().providers().cape().desired());
+        assertEquals(offlineCape.sha256(),
+                recovered.appearance().providers().cape().offline().value().textureCacheKey());
+        assertNull(shared.loadAppearance(TestFixtures.ACCOUNT_ID).capeId());
+        assertEquals(offlineCape.sha256(),
+                shared.loadAppearance(TestFixtures.ACCOUNT_ID)
+                        .providers().cape().offlineDesired().textureCacheKey());
+        assertEquals(capeActivationsBeforeRecovery, api.capeActivations.get());
+        assertEquals(capeDeactivationsBeforeRecovery, api.capeDeactivations.get());
+
+        ProviderDelivery normalizedDelivery = recovered.appearance().providers().cape().minecraftDelivery();
+        ClientOperations.EditorSave repeated = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()),
+                "Unknown stale cape again",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("unowned-cape"),
+                Optional.empty()).withOfflineCape(offlineCape));
+        assertEquals(AppearanceSyncStatus.OFFICIAL,
+                repeated.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(normalizedDelivery,
+                repeated.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+
+        DefaultClientOperations restarted = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        assertNull(restarted.loadProviders().cape().desired());
+        assertEquals(offlineCape.sha256(),
+                restarted.loadProviders().cape().offlineDesired().textureCacheKey());
     }
 
     @Test
@@ -2428,10 +3813,10 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<ClientOperations.ReconciliationResult> first = pool.submit(() -> writer
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                     .orElseThrow());
             Future<ClientOperations.ReconciliationResult> second = pool.submit(() -> contender
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                     .orElseThrow());
 
             firstResult = first.get();
@@ -2493,6 +3878,349 @@ final class DefaultClientOperationsTest {
             pool.shutdownNow();
         }
         assertEquals(1, api.skinUploads.get());
+    }
+
+    @Test
+    void activeSaveDuringAttemptingUsesFreshObservationToSettleMatchingIntent() throws Exception {
+        byte[] skin = skinPng(0xFF4A6682);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+        api.beforeSkinUpload = () -> {
+            mutationStarted.countDown();
+            try {
+                assertTrue(releaseMutation.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(interrupted);
+            }
+        };
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        SkinAsset selectedSkin = initial.account().skinAssets().get(0);
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Attempting", SkinReference.asset(selectedSkin.id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
+        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> operations
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .orElseThrow());
+            assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
+            Future<ClientOperations.EditorSave> localSave = pool.submit(() -> operations.saveEditor(
+                    new ClientOperations.EditorSaveRequest(
+                            Optional.of(saved.presetId()), "Attempting local edit",
+                            SkinReference.asset(selectedSkin.id()), SkinVariant.CLASSIC,
+                            SkinVariant.CLASSIC, Optional.empty(), Optional.empty())));
+            ClientOperations.EditorSave edited = localSave.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.ATTEMPTING,
+                    edited.reappliedAppearance().orElseThrow().syncStatus());
+            assertEquals(selected.intentRevision() + 1,
+                    edited.reappliedAppearance().orElseThrow().intentRevision());
+
+            releaseMutation.countDown();
+            ClientOperations.ReconciliationResult stale = mutation.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.ATTEMPTING, stale.appearance().syncStatus());
+            assertEquals(1, api.skinUploads.get());
+
+            URI skinUri = URI.create("https://textures.minecraft.net/texture/matching-attempting");
+            Files.write(new com.naocraftlab.skins.core.storage.TextureCache(shared).cachePath(skinUri),
+                    Files.readAllBytes(shared.assetPath(selectedSkin.sha256())));
+            api.profile = new RemoteProfile(
+                    TestFixtures.ACCOUNT_ID,
+                    "Player",
+                    List.of(new RemoteSkin("matching", RemoteAssetState.ACTIVE, skinUri,
+                            SkinVariant.CLASSIC, "Matching")),
+                    List.of(),
+                    Set.of());
+
+            ClientOperations.ReconciliationResult observed = operations
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                    .orElseThrow();
+            assertEquals(AppearanceSyncStatus.OFFICIAL, observed.appearance().syncStatus());
+            assertTrue(observed.outcome().isEmpty());
+            assertEquals(1, api.skinUploads.get());
+        } finally {
+            releaseMutation.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void activeSaveDuringAttemptingUsesFreshObservationToPreserveUnknownMismatch() throws Exception {
+        byte[] skin = skinPng(0xFF4A6682);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+        api.beforeSkinUpload = () -> {
+            mutationStarted.countDown();
+            try {
+                assertTrue(releaseMutation.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(interrupted);
+            }
+        };
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        SkinAsset selectedSkin = initial.account().skinAssets().get(0);
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Attempting mismatch", SkinReference.asset(selectedSkin.id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
+        operations.usePreset(saved.presetId());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> operations
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .orElseThrow());
+            assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
+            ClientOperations.EditorSave edited = pool.submit(() -> operations.saveEditor(
+                    new ClientOperations.EditorSaveRequest(
+                            Optional.of(saved.presetId()), "Attempting mismatch local edit",
+                            SkinReference.asset(selectedSkin.id()), SkinVariant.CLASSIC,
+                            SkinVariant.CLASSIC, Optional.empty(), Optional.empty()))).get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.ATTEMPTING,
+                    edited.reappliedAppearance().orElseThrow().syncStatus());
+            releaseMutation.countDown();
+            ClientOperations.ReconciliationResult stale = mutation.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.ATTEMPTING, stale.appearance().syncStatus());
+
+            ClientOperations.ReconciliationResult observed = operations
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                    .orElseThrow();
+            assertEquals(AppearanceSyncStatus.UNKNOWN, observed.appearance().syncStatus());
+            assertTrue(observed.outcome().isEmpty());
+            assertEquals(1, api.skinUploads.get());
+        } finally {
+            releaseMutation.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void supersedingCapeSaveDoesNotReopenConfirmedSkinSibling() throws Exception {
+        byte[] skin = skinPng(0xFF4A6682);
+        NclSkinsStorage shared = storage();
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(),
+                List.of(
+                        new RemoteCape("cape-a", RemoteAssetState.ACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-a"), "A"),
+                        new RemoteCape("cape-b", RemoteAssetState.INACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-b"), "B"),
+                        new RemoteCape("cape-c", RemoteAssetState.INACTIVE,
+                                URI.create("https://textures.minecraft.net/texture/cape-c"), "C")),
+                Set.of());
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+        api.beforeCapeActivation = () -> {
+            mutationStarted.countDown();
+            try {
+                assertTrue(releaseMutation.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(interrupted);
+            }
+        };
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        operations.initialize();
+        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Cape A", SkinReference.accountDefault(), SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC, Optional.of("cape-a"), Optional.empty()));
+        operations.usePreset(saved.presetId());
+        ClientOperations.DurableAppearance settled = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow()
+                .appearance();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, settled.syncStatus());
+
+        ClientOperations.EditorSave firstEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.of(saved.presetId()), "Cape B", SkinReference.accountDefault(), SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC, Optional.of("cape-b"), Optional.empty()));
+        assertEquals(ProviderDelivery.Status.CONFIRMED,
+                firstEdit.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery().status());
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> operations
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .orElseThrow());
+            assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
+            ClientOperations.EditorSave secondEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                    Optional.of(saved.presetId()), "Cape C", SkinReference.accountDefault(), SkinVariant.CLASSIC,
+                    SkinVariant.CLASSIC, Optional.of("cape-c"), Optional.empty()));
+            assertEquals(AppearanceSyncStatus.UNKNOWN,
+                    secondEdit.reappliedAppearance().orElseThrow().syncStatus());
+            releaseMutation.countDown();
+
+            ClientOperations.ReconciliationResult completed = mutation.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.PENDING, completed.appearance().syncStatus());
+            assertEquals(ProviderDelivery.Status.CONFIRMED,
+                    completed.appearance().providers().skin().minecraftDelivery().status());
+            assertEquals(ProviderDelivery.Status.PENDING,
+                    completed.appearance().providers().cape().minecraftDelivery().status());
+            assertEquals("cape-c", completed.appearance().providers().cape().desired().id());
+        } finally {
+            releaseMutation.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleCompletionDoesNotResumeAnIndependentUnknownSibling() throws Exception {
+        InFlightSkinFixture fixture = inFlightSkinFixture();
+        fixture.storage().updateAppearance(TestFixtures.ACCOUNT_ID, current -> {
+            AppearanceProviders providers = current.providers();
+            AppearanceProviders uncertain = new AppearanceProviders(
+                    providers.skin(),
+                    providers.cape().settle(
+                            providers.cape().minecraftDelivery(),
+                            ProviderDelivery.Status.UNKNOWN,
+                            null));
+            return current.withProviders(uncertain);
+        });
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .orElseThrow());
+            assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
+            ClientOperations.EditorSave changed = fixture.saveNewSkin("Unknown sibling");
+            assertEquals(AppearanceSyncStatus.UNKNOWN,
+                    changed.reappliedAppearance().orElseThrow().syncStatus());
+            fixture.releaseMutation().countDown();
+
+            ClientOperations.ReconciliationResult completed = mutation.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.UNKNOWN, completed.appearance().syncStatus());
+            assertEquals(ProviderDelivery.Status.PENDING,
+                    completed.appearance().providers().skin().minecraftDelivery().status());
+            assertEquals(ProviderDelivery.Status.UNKNOWN,
+                    completed.appearance().providers().cape().minecraftDelivery().status());
+            assertEquals(1, fixture.api().skinUploads.get());
+            assertEquals(0, fixture.api().capeActivations.get());
+            assertEquals(0, fixture.api().capeDeactivations.get());
+        } finally {
+            fixture.releaseMutation().countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleCompletionDoesNotResumeAnUnchangedUnknownDelivery() throws Exception {
+        InFlightSkinFixture fixture = inFlightSkinFixture();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .orElseThrow());
+            assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
+            fixture.storage().updateAppearance(TestFixtures.ACCOUNT_ID, current -> {
+                AppearanceProviders providers = current.providers();
+                AppearanceProviders uncertain = new AppearanceProviders(
+                        providers.skin().settle(
+                                providers.skin().minecraftDelivery(),
+                                ProviderDelivery.Status.UNKNOWN,
+                                null),
+                        providers.cape());
+                return new com.naocraftlab.skins.core.model.AccountAppearanceState(
+                        current.schemaVersion(), current.accountId(),
+                        Math.incrementExact(current.intentRevision()),
+                        current.activePresetId(), current.skinSha256(), current.skinVariant(),
+                        current.capeId(), current.outerLayerVisibility(),
+                        AppearanceSyncStatus.UNKNOWN, current.settledRevision(),
+                        current.updatedAt(), uncertain);
+            });
+            fixture.releaseMutation().countDown();
+
+            ClientOperations.ReconciliationResult completed = mutation.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.UNKNOWN, completed.appearance().syncStatus());
+            assertEquals(ProviderDelivery.Status.UNKNOWN,
+                    completed.appearance().providers().skin().minecraftDelivery().status());
+            assertEquals(1, fixture.api().skinUploads.get());
+            assertEquals(0, fixture.api().capeActivations.get());
+        } finally {
+            fixture.releaseMutation().countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleCompletionDoesNotResumeADisabledDestination() throws Exception {
+        InFlightSkinFixture fixture = inFlightSkinFixture();
+        fixture.storage().updateAppearance(TestFixtures.ACCOUNT_ID,
+                current -> current.withProviders(current.providers().disable(
+                        AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT)));
+        ProviderDelivery disabledDelivery = fixture.storage().loadAppearance(TestFixtures.ACCOUNT_ID)
+                .providers().cape().minecraftDelivery();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .orElseThrow());
+            assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
+            ClientOperations.EditorSave changed = fixture.saveNewSkin("Disabled sibling");
+            assertEquals(AppearanceSyncStatus.UNKNOWN,
+                    changed.reappliedAppearance().orElseThrow().syncStatus());
+            fixture.releaseMutation().countDown();
+
+            ClientOperations.ReconciliationResult completed = mutation.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.PENDING, completed.appearance().syncStatus());
+            assertFalse(completed.appearance().providers().cape().enabled(BuiltinProvider.MINECRAFT));
+            assertEquals(disabledDelivery,
+                    completed.appearance().providers().cape().minecraftDelivery());
+            assertEquals(1, fixture.api().skinUploads.get());
+            assertEquals(0, fixture.api().capeActivations.get());
+            assertEquals(0, fixture.api().capeDeactivations.get());
+        } finally {
+            fixture.releaseMutation().countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleCompletionDoesNotResumeAReactivatedDestination() throws Exception {
+        InFlightSkinFixture fixture = inFlightSkinFixture();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
+                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .orElseThrow());
+            assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
+            fixture.operations().disableProvider(
+                    AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+            ClientOperations.DurableAppearance reenabled = fixture.operations().enableProvider(
+                    AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+            long reactivated = reenabled.providers().cape().minecraftDelivery().activation();
+            ClientOperations.EditorSave changed = fixture.saveNewSkin("Reactivated sibling");
+            assertEquals(AppearanceSyncStatus.UNKNOWN,
+                    changed.reappliedAppearance().orElseThrow().syncStatus());
+            fixture.releaseMutation().countDown();
+
+            ClientOperations.ReconciliationResult completed = mutation.get(5, TimeUnit.SECONDS);
+            assertEquals(AppearanceSyncStatus.UNKNOWN, completed.appearance().syncStatus());
+            assertTrue(completed.appearance().providers().cape().enabled(BuiltinProvider.MINECRAFT));
+            assertEquals(reactivated,
+                    completed.appearance().providers().cape().minecraftDelivery().activation());
+            assertEquals(ProviderDelivery.Status.UNKNOWN,
+                    completed.appearance().providers().cape().minecraftDelivery().status());
+            assertEquals(1, fixture.api().skinUploads.get());
+            assertEquals(0, fixture.api().capeActivations.get());
+            assertEquals(0, fixture.api().capeDeactivations.get());
+        } finally {
+            fixture.releaseMutation().countDown();
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -2690,7 +4418,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult blocked = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.GALLERY_OPEN)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(TestFixtures.ACCOUNT_ID, initial.account().accountId());
@@ -2756,11 +4484,11 @@ final class DefaultClientOperationsTest {
         Optional<ClientOperations.ReconciliationResult> crossed = accountBOperations.reconcileAppearance(
                 new ClientOperations.ReconciliationKey(
                         TestFixtures.ACCOUNT_ID, accountAIntent.intentRevision()),
-                ClientOperations.ReconciliationTrigger.GALLERY_OPEN);
+                ClientOperations.ReconciliationTrigger.PROCESS_START);
         Optional<ClientOperations.ReconciliationResult> stale = accountBOperations.reconcileAppearance(
                 new ClientOperations.ReconciliationKey(
                         accountB, accountBIntent.intentRevision() - 1),
-                ClientOperations.ReconciliationTrigger.GALLERY_OPEN);
+                ClientOperations.ReconciliationTrigger.PROCESS_START);
 
         assertTrue(crossed.isEmpty());
         assertTrue(stale.isEmpty());
@@ -2962,6 +4690,7 @@ final class DefaultClientOperationsTest {
         assertEquals(0, remoteCalls.get());
 
         Files.write(cache.cachePath(capeUri), cape);
+        var custom = storage.importCape(TestFixtures.ACCOUNT_ID, "Personal", customCapePng());
         ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Cached-profile cape edited",
@@ -2969,7 +4698,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 SkinVariant.CLASSIC,
                 Optional.of("cape-owned"),
-                Optional.empty()));
+                Optional.empty()).withOfflineCape(custom.texture()));
         AppliedAppearance cachedCape = edited.reappliedAppearance()
                 .orElseThrow()
                 .localAppearance()
@@ -2978,7 +4707,7 @@ final class DefaultClientOperationsTest {
 
         assertTrue(cachedCape.capeTexture().isEmpty());
         assertEquals(
-                Optional.of(com.naocraftlab.skins.core.storage.TextureCache.cacheKey(capeUri)),
+                Optional.of(custom.texture().sha256()),
                 cachedCape.localCapeCacheKey());
         assertTrue(resolvedCached.platformProfile().cape().isPresent());
         assertEquals(0, remoteCalls.get());
@@ -3066,6 +4795,169 @@ final class DefaultClientOperationsTest {
         assertEquals(0, remoteCalls.get());
     }
 
+    private SettledActiveFixture settledActiveFixture() throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(
+                TestFixtures.ACCOUNT_ID,
+                "Player",
+                List.of(),
+                List.of(new RemoteCape(
+                        "cape-owned",
+                        RemoteAssetState.ACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/settled-cape"),
+                        "Settled cape")),
+                Set.of());
+        AtomicInteger tokenRequests = new AtomicInteger();
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                countingTokens(tokenRequests), api, shared, ignored -> skinPng(0xFF315B72), fixedClock());
+        operations.initialize();
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Settled",
+                SkinReference.accountDefault(),
+                SkinVariant.CLASSIC,
+                SkinVariant.CLASSIC,
+                Optional.of("cape-owned"),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        ClientOperations.DurableAppearance settled = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow()
+                .appearance();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, settled.syncStatus());
+        return new SettledActiveFixture(
+                operations,
+                api,
+                shared,
+                tokenRequests,
+                tokenRequests.get(),
+                saved.presetId(),
+                settled.providers().skin().minecraftDelivery(),
+                settled.providers().cape().minecraftDelivery(),
+                api.profileGets.get(),
+                api.skinUploads.get(),
+                api.capeActivations.get(),
+                api.capeDeactivations.get());
+    }
+
+    private InFlightSkinFixture inFlightSkinFixture() throws Exception {
+        byte[] skin = skinPng(0xFF4A6682);
+        StubProfileApi api = new StubProfileApi();
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        CountDownLatch releaseMutation = new CountDownLatch(1);
+        api.beforeSkinUpload = () -> {
+            mutationStarted.countDown();
+            try {
+                assertTrue(releaseMutation.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(interrupted);
+            }
+        };
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        SkinAsset firstSkin = initial.account().skinAssets().get(0);
+        SkinAsset replacementSkin = initial.account().skinAssets().get(1);
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "In flight",
+                SkinReference.asset(firstSkin.id()),
+                firstSkin.variant(),
+                firstSkin.variant(),
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(saved.presetId());
+        return new InFlightSkinFixture(
+                operations,
+                api,
+                shared,
+                saved.presetId(),
+                replacementSkin.id(),
+                replacementSkin.variant(),
+                mutationStarted,
+                releaseMutation);
+    }
+
+    private ObservedSkinFixture observedSkinFixture() throws Exception {
+        byte[] skin = skinPng(0xFF315B72);
+        URI officialUri = URI.create("https://textures.minecraft.net/texture/observed-a");
+        StubProfileApi api = new StubProfileApi();
+        api.profile = profileWithActiveAppearance(officialUri, null);
+        NclSkinsStorage shared = storage();
+        shared.initialize();
+        Files.write(new com.naocraftlab.skins.core.storage.TextureCache(shared).cachePath(officialUri), skin);
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        operations.initialize();
+        ClientOperations.ReconciliationResult official = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        ProviderSkin observed = official.appearance().providers().skin().desired();
+        SkinAsset skinA = official.account().skinAssets().stream()
+                .filter(asset -> asset.sha256().equals(observed.sha256()))
+                .findFirst()
+                .orElseThrow();
+        SkinAsset skinB = official.account().skinAssets().stream()
+                .filter(asset -> !asset.id().equals(skinA.id()))
+                .filter(asset -> asset.variant() == SkinVariant.SLIM)
+                .findFirst()
+                .orElseGet(() -> official.account().skinAssets().stream()
+                        .filter(asset -> !asset.id().equals(skinA.id()))
+                        .findFirst()
+                        .orElseThrow());
+        ClientOperations.EditorSave pending = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Pending B",
+                SkinReference.asset(skinB.id()),
+                skinB.variant(),
+                skinB.variant(),
+                Optional.empty(),
+                Optional.empty()));
+        operations.usePreset(pending.presetId());
+        return new ObservedSkinFixture(
+                operations,
+                api,
+                shared,
+                pending.presetId(),
+                skinA.id(),
+                skinA.variant(),
+                skinB.id(),
+                skinB.variant());
+    }
+
+    private void assertSettledLocalOnlySave(
+            SettledActiveFixture fixture,
+            ClientOperations.EditorSaveRequest request) throws Exception {
+        ClientOperations.EditorSave edited = fixture.operations().saveEditor(request);
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL,
+                edited.reappliedAppearance().orElseThrow().syncStatus());
+        assertEquals(fixture.skinDelivery(),
+                edited.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery());
+        assertEquals(fixture.capeDelivery(),
+                edited.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
+        assertNoRemoteCheckpoint(fixture, edited);
+    }
+
+    private static void assertNoRemoteCheckpoint(
+            SettledActiveFixture fixture,
+            ClientOperations.EditorSave edited) throws Exception {
+        ClientOperations.ReconciliationResult checkpoint = fixture.operations()
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, checkpoint.appearance().syncStatus());
+        assertEquals(edited.reappliedAppearance().orElseThrow().intentRevision(),
+                checkpoint.appearance().intentRevision());
+        assertEquals(fixture.tokenRequests(), fixture.tokenCounter().get());
+        assertEquals(fixture.profileGets(), fixture.api().profileGets.get());
+        assertEquals(fixture.skinUploads(), fixture.api().skinUploads.get());
+        assertEquals(fixture.capeActivations(), fixture.api().capeActivations.get());
+        assertEquals(fixture.capeDeactivations(), fixture.api().capeDeactivations.get());
+    }
+
     private static void savePersonal(
             DefaultClientOperations operations,
             byte[] png,
@@ -3101,6 +4993,111 @@ final class DefaultClientOperationsTest {
                 return request.execute("scoped-token");
             }
         };
+    }
+
+    private static GameSessionTokenSource countingTokens(AtomicInteger requests) {
+        return new GameSessionTokenSource() {
+            @Override
+            public SessionIdentity currentSession() {
+                return new SessionIdentity(TestFixtures.ACCOUNT_ID, "Player");
+            }
+
+            @Override
+            public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) throws E {
+                requests.incrementAndGet();
+                return request.execute("scoped-token");
+            }
+        };
+    }
+
+    @Test
+    void assignedDefaultFallsThroughAfterRefreshAndRestartWithoutChangingOfflineOrCape() throws Exception {
+        byte[] custom = skinPng(0xff135724);
+        byte[] assigned = skinPng(0xff987654);
+        URI skinUri = URI.create("https://textures.minecraft.net/texture/" + "a".repeat(64));
+        URI capeUri = URI.create("https://textures.minecraft.net/texture/" + "b".repeat(64));
+        StubProfileApi api = new StubProfileApi();
+        api.profile = profileWithActiveAppearance(skinUri, capeUri);
+        NclSkinsStorage shared = storage();
+        SkinCatalogSource source = (collection, name, model) -> assigned.clone();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, source, fixedClock(), ignored -> custom.clone());
+        var initial = operations.retrySession();
+        assertEquals(1, initial.account().presets().size());
+        var offline = operations.loadProviders().skin().offline();
+        operations.moveProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT, -1);
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player",
+                List.of(new RemoteSkin("default", RemoteAssetState.ACTIVE, skinUri, SkinVariant.SLIM, null)),
+                api.profile.capes(), Set.of());
+        DefaultClientOperations restarted = new DefaultClientOperations(
+                tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone());
+        var refreshed = restarted.refreshProviders(AppearanceProviders.Component.SKIN);
+        assertTrue(refreshed.providers().skin().minecraft().known());
+        assertNull(refreshed.providers().skin().minecraft().value());
+        assertEquals(offline, refreshed.providers().skin().offline());
+        assertEquals(BuiltinProvider.OFFLINE, refreshed.providers().skin().resolve().orElseThrow().provider());
+        assertEquals(offline.value().sha256(), refreshed.localAppearance().orElseThrow().localSkinSha256().orElseThrow());
+        assertEquals("cape-active", refreshed.providers().cape().minecraft().value().id());
+        assertEquals(1, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID).presets().size());
+        var again = new DefaultClientOperations(tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone())
+                .retrySession();
+        assertEquals(offline.value().sha256(), again.localAppearance().orElseThrow().localSkinSha256().orElseThrow());
+        assertEquals(0, api.skinUploads.get());
+        assertEquals(0, api.skinResets.get());
+        assertEquals(0, api.capeActivations.get());
+    }
+
+    @Test
+    void assignedDefaultDoesNotBootstrapAndMalformedObservationPreservesKnownSkin() throws Exception {
+        byte[] assigned = skinPng(0xff987654);
+        URI skinUri = URI.create("https://textures.minecraft.net/texture/" + "a".repeat(64));
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player",
+                List.of(new RemoteSkin("default", RemoteAssetState.ACTIVE, skinUri, SkinVariant.SLIM, null)),
+                List.of(), Set.of());
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(tokens(), api, shared,
+                (collection, name, model) -> assigned.clone(), fixedClock(), ignored -> assigned.clone());
+        var initial = operations.retrySession();
+        assertTrue(initial.account().presets().isEmpty());
+        assertTrue(initial.currentOfficialSkinId().isEmpty());
+        assertTrue(operations.loadProviders().skin().minecraft().known());
+        assertNull(operations.loadProviders().skin().minecraft().value());
+        assertNull(operations.loadProviders().skin().offline().value());
+        api.profile = profileWithActiveAppearance(skinUri, null);
+        var custom = operations.refreshProviders(AppearanceProviders.Component.SKIN);
+        assertNotNull(custom.providers().skin().minecraft().value());
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(), List.of(), Set.of(), false);
+        var malformed = operations.refreshProviders(AppearanceProviders.Component.SKIN);
+        assertEquals(custom.providers().skin().minecraft(), malformed.providers().skin().minecraft());
+        assertEquals(0, api.skinUploads.get());
+        assertEquals(0, api.skinResets.get());
+    }
+
+    @Test
+    void uploadingAssignedDefaultConfirmsDeliveryWithoutARepeatedUpload() throws Exception {
+        byte[] assigned = skinPng(0xff987654);
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        SkinCatalogSource source = (collection, name, model) -> assigned.clone();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone());
+        operations.retrySession();
+        var imported = new LibraryService(shared, fixedClock()).importSkin(TestFixtures.ACCOUNT_ID,
+                "Manual", SkinVariant.SLIM, SkinSource.IMPORTED, assigned);
+        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Manual default", SkinReference.asset(imported.asset().id()),
+                SkinVariant.SLIM, SkinVariant.SLIM, Optional.empty(), Optional.empty()));
+        operations.usePreset(saved.presetId());
+        var applied = operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, applied.appearance().syncStatus());
+        assertEquals(1, api.skinUploads.get());
+        assertTrue(applied.appearance().providers().skin().minecraft().known());
+        assertNull(applied.appearance().providers().skin().minecraft().value());
+        assertNotNull(applied.appearance().providers().skin().offline().value());
+        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+        assertEquals(1, api.skinUploads.get());
+        assertEquals(0, api.skinResets.get());
     }
 
     private NclSkinsStorage storage() {
@@ -3164,6 +5161,7 @@ final class DefaultClientOperationsTest {
         private Runnable beforeProfileGet;
         private Runnable afterSkinUpload;
         private Runnable beforeSkinUpload;
+        private Runnable beforeCapeActivation;
         private ProfileApiException profileFailure;
         private ProfileApiException skinFailure;
         private ProfileApiException capeFailure;
@@ -3204,6 +5202,9 @@ final class DefaultClientOperationsTest {
         @Override
         public void activateCape(String accessToken, String capeId) throws ProfileApiException {
             capeActivations.incrementAndGet();
+            if (beforeCapeActivation != null) {
+                beforeCapeActivation.run();
+            }
             if (capeFailure != null) {
                 throw capeFailure;
             }
@@ -3220,6 +5221,53 @@ final class DefaultClientOperationsTest {
         @Override
         public Optional<Duration> rateLimitRemaining() {
             return rateLimitRemaining;
+        }
+    }
+
+    private record SettledActiveFixture(
+            DefaultClientOperations operations,
+            StubProfileApi api,
+            NclSkinsStorage storage,
+            AtomicInteger tokenCounter,
+            int tokenRequests,
+            UUID presetId,
+            ProviderDelivery skinDelivery,
+            ProviderDelivery capeDelivery,
+            int profileGets,
+            int skinUploads,
+            int capeActivations,
+            int capeDeactivations) {
+    }
+
+    private record ObservedSkinFixture(
+            DefaultClientOperations operations,
+            StubProfileApi api,
+            NclSkinsStorage storage,
+            UUID presetId,
+            UUID skinA,
+            SkinVariant skinAVariant,
+            UUID skinB,
+            SkinVariant skinBVariant) {
+    }
+
+    private record InFlightSkinFixture(
+            DefaultClientOperations operations,
+            StubProfileApi api,
+            NclSkinsStorage storage,
+            UUID presetId,
+            UUID replacementSkin,
+            SkinVariant replacementVariant,
+            CountDownLatch mutationStarted,
+            CountDownLatch releaseMutation) {
+        private ClientOperations.EditorSave saveNewSkin(String name) throws Exception {
+            return operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                    Optional.of(presetId),
+                    name,
+                    SkinReference.asset(replacementSkin),
+                    replacementVariant,
+                    replacementVariant,
+                    Optional.empty(),
+                    Optional.empty()));
         }
     }
 

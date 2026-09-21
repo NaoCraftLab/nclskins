@@ -115,13 +115,17 @@ public final class AppearanceMutationService {
         if (!stillCurrent.getAsBoolean()) {
             return localFailure("A newer local appearance superseded this request.");
         }
-        PresetApplicationOutcome unresolved = unresolvedSnapshot(identity);
+        if (!request.writeSkin() && !request.writeCape()) {
+            return localFailure("No Minecraft appearance components are enabled.");
+        }
+        PresetApplicationOutcome unresolved = unresolvedSnapshot(
+                identity, request.writeSkin(), request.writeCape());
         if (unresolved != null) {
             return unresolved;
         }
         try {
             return tokenSource.withAccessToken(accessToken -> applyScoped(
-                    accessToken, identity, request, sameTokenProfileValidated));
+                    accessToken, identity, request, sameTokenProfileValidated, stillCurrent));
         } catch (RuntimeException exception) {
             return credentialFailure("The running Minecraft session could not provide credentials.");
         }
@@ -196,7 +200,7 @@ public final class AppearanceMutationService {
         try {
             return tokenSource.withAccessToken(accessToken ->
                     retryCapeScoped(
-                            accessToken, identity, capeId, sameTokenProfileValidated));
+                            accessToken, identity, capeId, sameTokenProfileValidated, stillCurrent));
         } catch (RuntimeException exception) {
             return credentialFailure("The running Minecraft session could not provide credentials.");
         }
@@ -248,15 +252,19 @@ public final class AppearanceMutationService {
             String accessToken,
             GameSessionTokenSource.SessionIdentity identity,
             PresetApplicationRequest request) {
-        return applyScoped(accessToken, identity, request, false);
+        return applyScoped(accessToken, identity, request, false, () -> true);
     }
 
     private PresetApplicationOutcome applyScoped(
             String accessToken,
             GameSessionTokenSource.SessionIdentity identity,
             PresetApplicationRequest request,
-            boolean sameTokenProfileValidated) {
-        String requestedCape = request.preset().capeId();
+            boolean sameTokenProfileValidated,
+            BooleanSupplier stillCurrent) {
+        if (!stillCurrent.getAsBoolean()) {
+            return localFailure("A newer local appearance superseded this request.");
+        }
+        String requestedCape = request.writeCape() ? request.preset().capeId() : null;
 
 
         SessionValidation validation = sameTokenProfileValidated
@@ -266,17 +274,39 @@ public final class AppearanceMutationService {
             return fromValidation(validation);
         }
         RemoteProfile before = validation.profile();
-        if (validationService.skinStateUnknown(identity.profileId())
-                || validationService.capeStateUnknown(identity.profileId())) {
+        if ((request.writeSkin() && validationService.skinStateUnknown(identity.profileId()))
+                || (request.writeCape() && validationService.capeStateUnknown(identity.profileId()))) {
             return unknownSnapshot(before);
         }
+        if (!stillCurrent.getAsBoolean()) {
+            return localFailure("A newer local appearance superseded this request.");
+        }
 
-        SkinStep skinStep = mutateSkin(accessToken, identity, request, before);
+        SkinStep skinStep = request.writeSkin()
+                ? mutateSkin(accessToken, identity, request, before)
+                : SkinStep.applied(before, false);
         if (!skinStep.applied()) {
             return skinFailureOutcome(skinStep, before);
         }
 
-        CapeStep capeStep = mutateCape(accessToken, identity, requestedCape, skinStep.profile());
+        if (request.writeCape() && !stillCurrent.getAsBoolean()) {
+            AppliedAppearance applied = skinStep.changed()
+                    ? validationService.currentAppliedAppearance(identity.profileId(), skinStep.profile())
+                    : null;
+            return new PresetApplicationOutcome(
+                    skinStep.changed() ? MutationResult.PARTIAL : MutationResult.FAILED,
+                    ApplicationPhase.CAPE_MUTATION,
+                    before,
+                    skinStep.profile(),
+                    applied,
+                    null,
+                    Set.of(),
+                    skinStep.changed() ? RemoteAppearanceImpact.CONFIRMED_CHANGED : RemoteAppearanceImpact.NONE,
+                    "A newer local appearance superseded this request.");
+        }
+        CapeStep capeStep = request.writeCape()
+                ? mutateCape(accessToken, identity, requestedCape, skinStep.profile())
+                : CapeStep.applied(skinStep.profile(), false);
         if (!capeStep.applied()) {
             AppliedAppearance applied = skinStep.changed()
                     ? validationService.currentAppliedAppearance(identity.profileId(), skinStep.profile())
@@ -298,8 +328,13 @@ public final class AppearanceMutationService {
 
     private PresetApplicationOutcome unresolvedSnapshot(
             GameSessionTokenSource.SessionIdentity identity) {
-        if (!validationService.skinStateUnknown(identity.profileId())
-                && !validationService.capeStateUnknown(identity.profileId())) {
+        return unresolvedSnapshot(identity, true, true);
+    }
+
+    private PresetApplicationOutcome unresolvedSnapshot(
+            GameSessionTokenSource.SessionIdentity identity, boolean skin, boolean cape) {
+        if ((!skin || !validationService.skinStateUnknown(identity.profileId()))
+                && (!cape || !validationService.capeStateUnknown(identity.profileId()))) {
             return null;
         }
         SessionValidation cached = validationService.cachedScoped(identity, null);
@@ -310,14 +345,18 @@ public final class AppearanceMutationService {
             String accessToken,
             GameSessionTokenSource.SessionIdentity identity,
             String capeId) {
-        return retryCapeScoped(accessToken, identity, capeId, false);
+        return retryCapeScoped(accessToken, identity, capeId, false, () -> true);
     }
 
     private PresetApplicationOutcome retryCapeScoped(
             String accessToken,
             GameSessionTokenSource.SessionIdentity identity,
             String capeId,
-            boolean sameTokenProfileValidated) {
+            boolean sameTokenProfileValidated,
+            BooleanSupplier stillCurrent) {
+        if (!stillCurrent.getAsBoolean()) {
+            return localFailure("A newer local appearance superseded this request.");
+        }
         SessionValidation validation = sameTokenProfileValidated
                 ? validationService.cachedOrValidateScoped(accessToken, identity, capeId)
                 : validationService.validateScoped(accessToken, identity, capeId);
@@ -327,6 +366,9 @@ public final class AppearanceMutationService {
         RemoteProfile before = validation.profile();
         if (validationService.capeStateUnknown(identity.profileId())) {
             return unknownSnapshot(before);
+        }
+        if (!stillCurrent.getAsBoolean()) {
+            return localFailure("A newer local appearance superseded this request.");
         }
         CapeStep capeStep = mutateCape(accessToken, identity, capeId, before);
         if (!capeStep.applied()) {
@@ -468,7 +510,7 @@ public final class AppearanceMutationService {
             PresetApplicationRequest request,
             RemoteProfile profile) {
         if (request.preset().skin().kind() == SkinReference.Kind.ACCOUNT_DEFAULT) {
-            return profile.activeSkin().isEmpty()
+            return (profile.skinProjectionComplete() && profile.activeSkin().isEmpty())
                     || validationService.accountDefaultSkinAcknowledged(profileId);
         }
         ResolvedSkinAsset requested = request.resolvedSkin();
@@ -481,7 +523,7 @@ public final class AppearanceMutationService {
             return false;
         }
         RemoteSkin active = profile.activeSkin().orElse(null);
-        if (active == null || active.variant() != requested.variant()) {
+        if (!profile.skinProjectionComplete() || active == null || active.variant() != requested.variant()) {
             return false;
         }
         try {
@@ -504,7 +546,8 @@ public final class AppearanceMutationService {
                     : RemoteAssetState.INACTIVE;
             capes.add(new RemoteCape(cape.id(), state, cape.textureUri(), cape.alias()));
         }
-        return new RemoteProfile(profile.id(), profile.name(), profile.skins(), capes, profile.profileActions());
+        return new RemoteProfile(profile.id(), profile.name(), profile.skins(), capes,
+                profile.profileActions(), profile.skinProjectionComplete());
     }
 
     private static boolean capeMatches(RemoteProfile profile, String capeId) {

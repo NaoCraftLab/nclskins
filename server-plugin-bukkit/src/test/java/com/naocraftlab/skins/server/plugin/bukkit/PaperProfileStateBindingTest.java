@@ -15,6 +15,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 
 final class PaperProfileStateBindingTest {
@@ -82,6 +83,33 @@ final class PaperProfileStateBindingTest {
 
         assertEquals(Map.of(), actor.gameProfile.properties().entries);
         assertEquals(1, original.properties().entries.size());
+    }
+
+    @Test
+    void rejectsMutablePropertyMapWithWrongPutDescriptor() throws Exception {
+        Constructor<FakeProperty> propertyConstructor = FakeProperty.class.getConstructor(
+                String.class, String.class, String.class);
+
+        assertThrows(NoSuchMethodException.class, () -> PaperProfileStateBinding.resolveMutable(
+                FakeInvalidMutableGameProfile.class,
+                FakeInvalidMutablePropertyMap.class,
+                propertyConstructor,
+                "authlib-v6"));
+    }
+
+    @Test
+    void rejectsFinalImmutableLiveProfileField() throws Exception {
+        Constructor<FakeProperty> propertyConstructor = FakeProperty.class.getConstructor(
+                String.class, String.class, String.class);
+
+        assertThrows(NoSuchFieldException.class, () -> PaperProfileStateBinding.resolveImmutable(
+                FakeGameProfile.class,
+                FakePropertyMap.class,
+                FakeMultimap.class,
+                FakeImmutableMultimap.class,
+                FakeFinalPlayer.class,
+                FakeFinalServerPlayer.class,
+                propertyConstructor));
     }
 
     private static PaperProfileStateBinding immutableBinding() throws Exception {
@@ -169,6 +197,21 @@ final class PaperProfileStateBindingTest {
         }
     }
 
+    public static final class FakeInvalidMutablePropertyMap {
+        public Object removeAll(Object key) {
+            return null;
+        }
+
+        public void put(Object key, Object value) {
+        }
+    }
+
+    public static final class FakeInvalidMutableGameProfile {
+        public FakeInvalidMutablePropertyMap getProperties() {
+            return new FakeInvalidMutablePropertyMap();
+        }
+    }
+
     public static final class FakeProperty {
         private final String name;
         private final String value;
@@ -215,6 +258,20 @@ final class PaperProfileStateBindingTest {
 
     public static final class FakeServerPlayer extends FakePlayer {
         FakeServerPlayer(FakeGameProfile gameProfile) {
+            super(gameProfile);
+        }
+    }
+
+    public static class FakeFinalPlayer {
+        public final FakeGameProfile gameProfile;
+
+        FakeFinalPlayer(FakeGameProfile gameProfile) {
+            this.gameProfile = gameProfile;
+        }
+    }
+
+    public static final class FakeFinalServerPlayer extends FakeFinalPlayer {
+        FakeFinalServerPlayer(FakeGameProfile gameProfile) {
             super(gameProfile);
         }
     }

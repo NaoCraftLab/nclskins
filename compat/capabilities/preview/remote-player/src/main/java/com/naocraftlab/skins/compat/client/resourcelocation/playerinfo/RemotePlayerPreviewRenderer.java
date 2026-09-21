@@ -360,7 +360,8 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                     model,
                     model == slimModel ? slimCloak : classicCloak,
                     appearance.capeMode(),
-                    location(capeHandle)));
+                    appearance.capeMode() == CapeMode.ELYTRA && !appearance.capeHasElytra()
+                            ? new ResourceLocation("minecraft", "textures/entity/elytra.png") : location(capeHandle)));
             buffers.endBatch();
         } finally {
             pose.popPose();
@@ -387,7 +388,7 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                 try {
                     cloak.render(
                             pose,
-                            buffers.getBuffer(RenderType.entitySolid(capeTexture)),
+                            buffers.getBuffer(RenderType.entityTranslucent(capeTexture)),
                             FULL_BRIGHT,
                             OverlayTexture.NO_OVERLAY);
                 } finally {
@@ -544,7 +545,8 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                     .map(RemotePlayerPreviewRenderer::location)
                     .orElse(null);
             previewCape = appearance.capeMode() == CapeMode.CAPE ? selectedCape : null;
-            previewElytra = appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null;
+            previewElytra = appearance.capeMode() == CapeMode.ELYTRA && selectedCape != null
+                    ? appearance.capeHasElytra() ? selectedCape : new ResourceLocation("minecraft", "textures/entity/elytra.png") : null;
             previewModel = appearance.model() == SkinModel.SLIM ? "slim" : "default";
         }
 

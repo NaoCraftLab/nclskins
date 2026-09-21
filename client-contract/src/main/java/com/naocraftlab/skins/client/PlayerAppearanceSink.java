@@ -7,6 +7,8 @@ import java.util.Objects;
 
 @FunctionalInterface
 public interface PlayerAppearanceSink<P> {
+    default void providerVisibility(ProviderVisibility visibility) {}
+
     ApplyResult apply(ResolvedProfile<P> resolvedProfile);
 
 

@@ -9,6 +9,9 @@ import java.util.UUID;
 public final class ExpectedAppearance {
     private static final String TEXTURE_HOST = "textures.minecraft.net";
 
+    private final boolean capeHasElytra;
+    public boolean capeHasElytra() { return capeHasElytra; }
+
     private final UUID profileId;
     private final Optional<URI> skinTexture;
     private final Optional<String> localSkinSha256;
@@ -32,6 +35,17 @@ public final class ExpectedAppearance {
             Optional<SkinModel> skinModel,
             Optional<URI> capeTexture,
             Optional<String> localCapeCacheKey) {
+        this(profileId, skinTexture, localSkinSha256, skinModel, capeTexture, localCapeCacheKey, true);
+    }
+
+    public ExpectedAppearance(
+            UUID profileId,
+            Optional<URI> skinTexture,
+            Optional<String> localSkinSha256,
+            Optional<SkinModel> skinModel,
+            Optional<URI> capeTexture,
+            Optional<String> localCapeCacheKey, boolean capeHasElytra) {
+        this.capeHasElytra = capeHasElytra;
         this.profileId = Objects.requireNonNull(profileId, "profileId");
         this.skinTexture = normalize(Objects.requireNonNull(skinTexture, "skinTexture"));
         this.localSkinSha256 = Objects.requireNonNull(localSkinSha256, "localSkinSha256");
@@ -108,7 +122,7 @@ public final class ExpectedAppearance {
         if (!(other instanceof ExpectedAppearance that)) {
             return false;
         }
-        return profileId.equals(that.profileId)
+        return capeHasElytra == that.capeHasElytra && profileId.equals(that.profileId)
                 && skinTexture.equals(that.skinTexture)
                 && localSkinSha256.equals(that.localSkinSha256)
                 && skinModel.equals(that.skinModel)
@@ -118,7 +132,7 @@ public final class ExpectedAppearance {
 
     @Override
     public int hashCode() {
-        return Objects.hash(profileId, skinTexture, localSkinSha256, skinModel, capeTexture, localCapeCacheKey);
+        return Objects.hash(profileId, skinTexture, localSkinSha256, skinModel, capeTexture, localCapeCacheKey, capeHasElytra);
     }
 
     @Override

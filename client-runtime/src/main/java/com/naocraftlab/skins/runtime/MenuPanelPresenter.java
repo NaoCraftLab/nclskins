@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -11,16 +12,20 @@ public final class MenuPanelPresenter {
     public static final int GAP = 4;
     public static final int MAX_PANEL_HEIGHT = 5 * BUTTON_HEIGHT + 4 * GAP;
     private static final int MIN_PANEL_HEIGHT = 82;
-    private static final int RIGHT_MARGIN = 8;
+    private static final int EDGE_MARGIN = 8;
     private static final int BOTTOM_RESERVED = 36;
 
 
     public Optional<Layout> present(
-            int screenWidth, int screenHeight, int mouseX, int mouseY, Bounds anchor) {
+            int screenWidth, int screenHeight, int mouseX, int mouseY, Bounds anchor,
+            MenuPreviewPlacement placement) {
         if (screenWidth <= 0 || screenHeight <= 0) {
             throw new IllegalArgumentException("screen dimensions must be positive");
         }
         Objects.requireNonNull(anchor, "anchor");
+        if (Objects.requireNonNull(placement, "placement") == MenuPreviewPlacement.OFF) {
+            return Optional.empty();
+        }
         if (anchor.x() < 0
                 || anchor.y() < 0
                 || anchor.right() > screenWidth
@@ -28,8 +33,9 @@ public final class MenuPanelPresenter {
             return Optional.empty();
         }
 
-        int x = anchor.right() + GAP;
-        int availableWidth = screenWidth - x - RIGHT_MARGIN;
+        int availableWidth = placement == MenuPreviewPlacement.LEFT
+                ? anchor.x() - GAP - EDGE_MARGIN
+                : screenWidth - anchor.right() - GAP - EDGE_MARGIN;
         int availableHeight = screenHeight - anchor.y() - BOTTOM_RESERVED;
         if (availableWidth < MIN_PANEL_WIDTH || availableHeight < MIN_PANEL_HEIGHT) {
             return Optional.empty();
@@ -37,6 +43,9 @@ public final class MenuPanelPresenter {
 
         int panelWidth = Math.min(PANEL_WIDTH, availableWidth);
         int modelHeight = Math.min(MAX_PANEL_HEIGHT, availableHeight);
+        int x = placement == MenuPreviewPlacement.LEFT
+                ? anchor.x() - GAP - panelWidth
+                : anchor.right() + GAP;
         int y = anchor.y();
         Bounds panel = new Bounds(x, y, panelWidth, modelHeight);
         Bounds preview = new Bounds(x + 4, y + 3, panelWidth - 8, modelHeight - 6);

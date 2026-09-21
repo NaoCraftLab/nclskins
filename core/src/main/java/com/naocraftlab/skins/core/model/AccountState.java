@@ -16,8 +16,18 @@ public record AccountState(
         List<SkinAsset> skinAssets,
         List<PersonalSkinEntry> personalSkins,
         List<AppearancePreset> presets,
-        Instant updatedAt) {
+        Instant updatedAt,
+        List<PersonalCapeEntry> personalCapes) {
     public static final int CURRENT_SCHEMA_VERSION = 4;
+
+    public AccountState(int schemaVersion, UUID accountId, List<SkinAsset> skinAssets,
+            List<PersonalSkinEntry> personalSkins, List<AppearancePreset> presets, Instant updatedAt) {
+        this(schemaVersion, accountId, skinAssets, personalSkins, presets, updatedAt, List.of());
+    }
+
+    public AccountState withPersonalCapes(List<PersonalCapeEntry> entries) {
+        return new AccountState(schemaVersion, accountId, skinAssets, personalSkins, presets, personalCapes.equals(entries) ? updatedAt : updatedAt.plusNanos(1), entries);
+    }
 
     public AccountState {
         if (schemaVersion != CURRENT_SCHEMA_VERSION) {
@@ -26,6 +36,11 @@ public record AccountState(
         Objects.requireNonNull(accountId, "accountId");
         skinAssets = List.copyOf(Objects.requireNonNull(skinAssets, "skinAssets"));
         personalSkins = List.copyOf(Objects.requireNonNull(personalSkins, "personalSkins"));
+        personalCapes = List.copyOf(Objects.requireNonNull(personalCapes, "personalCapes"));
+        if (personalCapes.stream().map(entry -> entry.texture().entryId()).distinct().count() != personalCapes.size()
+                || personalCapes.stream().map(PersonalCapeEntry::renderSha256).distinct().count() != personalCapes.size()) {
+            throw new IllegalArgumentException("Duplicate personal cape");
+        }
         presets = List.copyOf(Objects.requireNonNull(presets, "presets"));
         Objects.requireNonNull(updatedAt, "updatedAt");
         ensureUniqueIds(skinAssets, presets);

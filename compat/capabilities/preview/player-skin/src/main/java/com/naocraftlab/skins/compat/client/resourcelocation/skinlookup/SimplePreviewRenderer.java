@@ -5,8 +5,6 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
-import com.naocraftlab.skins.client.OuterLayerPart;
-import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.VanillaBackEquipmentTransform;
@@ -104,13 +102,14 @@ public final class SimplePreviewRenderer
         Objects.requireNonNull(request, "request");
         ResourceLocation skin = parseTexture(request.appearance().skin().location());
         ResourceLocation cape = request.appearance().cape()
-                .map(handle -> parseTexture(handle.location()))
+                .map(handle -> request.appearance().capeMode() == CapeMode.ELYTRA && !request.appearance().capeHasElytra()
+                        ? ResourceLocation.withDefaultNamespace("textures/entity/elytra.png") : parseTexture(handle.location()))
                 .orElse(null);
         boolean slimModel = request.appearance().model() == SkinModel.SLIM;
         PlayerModel<?> player = slimModel ? slim : classic;
         ModelPart cloak = slimModel ? slimCloak : classicCloak;
 
-        configurePlayerModel(player, request.appearance().outerLayerVisibility());
+        BakedPlayerPose.configure(player, request.appearance().outerLayerVisibility());
         resetCloaks();
         PoseStack pose = graphics.pose();
         pose.pushPose();
@@ -177,7 +176,8 @@ public final class SimplePreviewRenderer
 
             Lighting.setupForEntityInInventory();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
-            ResourceLocation texture = parseTexture(request.texture().location());
+            ResourceLocation texture = parseTexture(request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA && !request.capeHasElytra()
+                        ? "minecraft:textures/entity/elytra.png" : request.texture().location());
             renderBackEquipment(
                     pose,
                     buffers,
@@ -216,7 +216,7 @@ public final class SimplePreviewRenderer
                 try {
                     cloak.render(
                             pose,
-                            buffers.getBuffer(RenderType.entitySolid(texture)),
+                            buffers.getBuffer(RenderType.entityTranslucent(texture)),
                             LightTexture.FULL_BRIGHT,
                             OverlayTexture.NO_OVERLAY);
                 } finally {
@@ -248,38 +248,6 @@ public final class SimplePreviewRenderer
         elytra.young = false;
         elytra.riding = false;
         elytra.attackTime = 0.0F;
-    }
-
-    private static void configurePlayerModel(
-            PlayerModel<?> player, OuterLayerVisibility outerLayer) {
-        player.head.resetPose();
-        player.body.resetPose();
-        player.rightArm.resetPose();
-        player.leftArm.resetPose();
-        player.rightLeg.resetPose();
-        player.leftLeg.resetPose();
-        player.hat.resetPose();
-        player.jacket.resetPose();
-        player.rightSleeve.resetPose();
-        player.leftSleeve.resetPose();
-        player.rightPants.resetPose();
-        player.leftPants.resetPose();
-        player.setAllVisible(true);
-        player.attackTime = 0.0F;
-        player.crouching = false;
-        player.riding = false;
-        player.young = false;
-
-        player.rightArm.zRot = 0.06F;
-        player.leftArm.zRot = -0.06F;
-        player.rightLeg.zRot = 0.01F;
-        player.leftLeg.zRot = -0.01F;
-        player.hat.visible = outerLayer.visible(OuterLayerPart.HEAD);
-        player.jacket.visible = outerLayer.visible(OuterLayerPart.BODY);
-        player.rightSleeve.visible = outerLayer.visible(OuterLayerPart.RIGHT_ARM);
-        player.leftSleeve.visible = outerLayer.visible(OuterLayerPart.LEFT_ARM);
-        player.rightPants.visible = outerLayer.visible(OuterLayerPart.RIGHT_LEG);
-        player.leftPants.visible = outerLayer.visible(OuterLayerPart.LEFT_LEG);
     }
 
     private void resetCloaks() {

@@ -2,6 +2,9 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.core.config.ClientConfiguration;
+import com.naocraftlab.skins.core.config.ConfigurationDescriptions;
+import com.naocraftlab.skins.core.config.Json5ConfigurationRepository;
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -18,6 +21,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 final class ClientConfigurationDraftTest {
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    void previewDraftSaveCancelAndResetKeepContextsIndependent() {
+        var service = configurationService();
+        var original = service.client();
+        var draft = new ClientConfigurationDraft(original, new QueueDirectoryPicker());
+        draft.setTitleScreenPreview(MenuPreviewPlacement.LEFT);
+        assertEquals(MenuPreviewPlacement.RIGHT, draft.value().menuPreview().pauseMenu());
+        draft.setPauseMenuPreview(MenuPreviewPlacement.OFF);
+        assertEquals(original, service.client());
+        assertEquals(original, configurationService().client());
+        service.saveClient(draft.value());
+        assertEquals(MenuPreviewPlacement.LEFT, service.client().menuPreview().titleScreen());
+        assertEquals(MenuPreviewPlacement.OFF, configurationService().client().menuPreview().pauseMenu());
+        var cancelled = new ClientConfigurationDraft(service.client(), new QueueDirectoryPicker());
+        cancelled.setTitleScreenPreview(MenuPreviewPlacement.OFF);
+        assertEquals(MenuPreviewPlacement.LEFT, service.client().menuPreview().titleScreen());
+        draft.setTitleScreenPreview(ClientConfiguration.defaults().menuPreview().titleScreen());
+        assertEquals(MenuPreviewPlacement.OFF, draft.value().menuPreview().pauseMenu());
+        assertEquals(MenuPreviewPlacement.LEFT, service.client().menuPreview().titleScreen());
+        service.saveClient(draft.value());
+        assertEquals(MenuPreviewPlacement.RIGHT, service.client().menuPreview().titleScreen());
+    }
 
     @Test
     void selectionStaysInYaclUntilAppliedAndResetRestoresSystemDefault() throws Exception {
@@ -72,6 +98,22 @@ final class ClientConfigurationDraftTest {
         draft.setHideIncompatibleCatalogSkins(false);
         assertEquals(false, draft.value().compatibility().hideIncompatibleCatalogSkins());
         assertEquals(true, draft.value().compatibility().hideIncompatibleGalleryLooks());
+    }
+
+    private ClientConfigurationService configurationService() {
+        var descriptions = new ConfigurationDescriptions(java.util.Map.ofEntries(
+                java.util.Map.entry(ConfigurationDescriptions.CLIENT_TITLE_SCREEN, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.CLIENT_PAUSE_MENU, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.CLIENT_DATA_DIRECTORY, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.CLIENT_HIDE_INCOMPATIBLE_CATALOG, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.CLIENT_HIDE_INCOMPATIBLE_GALLERY, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.SERVER_ENABLED, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.SERVER_TRUSTED_PROXY, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.SERVER_MAX_CONCURRENT, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.SERVER_LOOKUP_RATE, "Test description"),
+                java.util.Map.entry(ConfigurationDescriptions.SERVER_LOOKUP_BURST, "Test description")));
+        return new ClientConfigurationService(temporaryDirectory,
+                new Json5ConfigurationRepository(temporaryDirectory, descriptions));
     }
 
     private static final class QueueDirectoryPicker implements FilePicker {

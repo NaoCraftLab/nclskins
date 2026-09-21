@@ -78,6 +78,26 @@ final class ViewNavigationPolicyTest {
     }
 
     @Test
+    void verticalGroupOnlyMovesUpAndDown() {
+        ViewSpec view = verticalView(List.of(
+                new ViewSpec.NavigationNode(
+                        "appearance", new Bounds(0, 0, 24, 24), Optional.of("editor.tabs"),
+                        0, 0, true, ViewSpec.NavigationPattern.VERTICAL_LIST,
+                        Optional.of("appearance")),
+                new ViewSpec.NavigationNode(
+                        "cape", new Bounds(0, 24, 24, 24), Optional.of("editor.tabs"),
+                        1, 1, true, ViewSpec.NavigationPattern.VERTICAL_LIST,
+                        Optional.of("cape"))));
+
+        assertEquals("cape", target(view, "appearance", ViewSpec.NavigationCommand.DOWN));
+        assertEquals("appearance", target(view, "cape", ViewSpec.NavigationCommand.UP));
+        assertTrue(ViewNavigationPolicy.target(
+                view, "appearance", ViewSpec.NavigationCommand.RIGHT).isEmpty());
+        assertTrue(ViewNavigationPolicy.target(
+                view, "cape", ViewSpec.NavigationCommand.DOWN).isEmpty());
+    }
+
+    @Test
     void directionalTraversalSkipsDisabledNodesAndReturnsEmptyWithoutCandidate() {
         ViewSpec.NavigationNode first = card(
                 "first", new Bounds(0, 0, 20, 20), "gallery", 0,
@@ -263,5 +283,16 @@ final class ViewNavigationPolicyTest {
                 List.of(),
                 List.of(),
                 nodes);
+    }
+
+    private static ViewSpec verticalView(List<ViewSpec.NavigationNode> nodes) {
+        return new ViewSpec(
+                "navigation", UiMessage.literal("Navigation", UiMessage.Severity.INFO), 100, 100,
+                List.of(), List.of(), List.of(), List.of(), Optional.empty(),
+                List.of(new ViewSpec.TabGroup("editor.tabs", new Bounds(0, 0, 24, 48), List.of(
+                        new ViewSpec.Tab("appearance", UiMessage.info("appearance"), true, true),
+                        new ViewSpec.Tab("cape", UiMessage.info("cape"), false, true)),
+                        ViewSpec.TabOrientation.VERTICAL)),
+                Optional.empty(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), nodes);
     }
 }

@@ -5,10 +5,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 
 public final class ResourcePackCatalogDiscovery {
     public static final String PLAYER_TEXTURE_ROOT = "textures/entity/player";
+    public static final String CAPE_TEXTURE_ROOT = CapeCatalogSource.CAPE_TEXTURE_ROOT;
     private static final String WIDE_DIRECTORY = PLAYER_TEXTURE_ROOT + "/wide/";
     private static final String SLIM_DIRECTORY = PLAYER_TEXTURE_ROOT + "/slim/";
 
@@ -63,6 +65,45 @@ public final class ResourcePackCatalogDiscovery {
         }
     }
 
+    public static boolean isCapeCandidatePath(String path) {
+        Objects.requireNonNull(path, "path");
+        return path.startsWith(CAPE_TEXTURE_ROOT + "/") && path.endsWith(".png");
+    }
+
+    public static Optional<ResourcePackCapeCatalog.Variant> capeVariant(
+            String namespace, String path, String sourcePackId, int menuRank) {
+        return capeVariant(namespace, path, sourcePackId, menuRank, false);
+    }
+
+    public static Optional<ResourcePackCapeCatalog.Variant> capeVariant(
+            String namespace,
+            String path,
+            String sourcePackId,
+            int menuRank,
+            boolean hasAnimationMetadata) {
+        Objects.requireNonNull(namespace, "namespace");
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(sourcePackId, "sourcePackId");
+        if (hasAnimationMetadata || !isCapeCandidatePath(path)) {
+            return Optional.empty();
+        }
+        String capeId = path.substring(
+                CAPE_TEXTURE_ROOT.length() + 1, path.length() - ".png".length());
+        if (capeId.isEmpty() || capeId.indexOf('/') >= 0) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new ResourcePackCapeCatalog.Variant(
+                    namespace,
+                    capeId,
+                    sourcePackId,
+                    menuRank,
+                    namespace + ":" + path));
+        } catch (IllegalArgumentException invalidCatalogId) {
+            return Optional.empty();
+        }
+    }
+
 
     public static Map<String, Integer> selectedPackMenuRanks(List<String> lowToHighPackIds) {
         Objects.requireNonNull(lowToHighPackIds, "lowToHighPackIds");
@@ -79,5 +120,33 @@ public final class ResourcePackCatalogDiscovery {
             }
         }
         return Map.copyOf(ranks);
+    }
+
+    public record Snapshot(
+            List<SkinCatalogSource.CollectionDescriptor> skinCollections,
+            List<CapeCatalogSource.CollectionDescriptor> capeCollections) {
+        public Snapshot {
+            skinCollections = List.copyOf(Objects.requireNonNull(
+                    skinCollections, "skinCollections"));
+            capeCollections = List.copyOf(Objects.requireNonNull(
+                    capeCollections, "capeCollections"));
+        }
+    }
+
+    public static final class SnapshotCache {
+        private long generation = Long.MIN_VALUE;
+        private Snapshot snapshot;
+
+        public synchronized Snapshot get(long currentGeneration, Supplier<Snapshot> indexer) {
+            Objects.requireNonNull(indexer, "indexer");
+            if (currentGeneration == Long.MIN_VALUE) {
+                return Objects.requireNonNull(indexer.get(), "indexer returned null");
+            }
+            if (snapshot == null || generation != currentGeneration) {
+                snapshot = Objects.requireNonNull(indexer.get(), "indexer returned null");
+                generation = currentGeneration;
+            }
+            return snapshot;
+        }
     }
 }

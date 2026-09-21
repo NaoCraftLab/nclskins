@@ -22,14 +22,21 @@ public final class IdentifierTextureRegistry
     private static final String LOCAL_SKIN_SENTINEL = "nclskins-local://feature-skin/";
 
     private final String pathRoot;
+    private final Runnable lifecycleTransition;
 
     public IdentifierTextureRegistry() {
-        this("dynamic");
+        this("dynamic", () -> { });
     }
 
 
     IdentifierTextureRegistry(String pathRoot) {
+        this(pathRoot, () -> { });
+    }
+
+    IdentifierTextureRegistry(String pathRoot, Runnable lifecycleTransition) {
         this.pathRoot = Objects.requireNonNull(pathRoot, "pathRoot");
+        this.lifecycleTransition = Objects.requireNonNull(
+                lifecycleTransition, "lifecycleTransition");
         if (!PATH_ROOT.matcher(pathRoot).matches()) {
             throw new IllegalArgumentException("Invalid dynamic texture path root");
         }
@@ -92,7 +99,7 @@ public final class IdentifierTextureRegistry
                 "nclskins", pathRoot + "/feature_skin/" + sha256);
         OwnedSkinFile staged = OwnedSkinFile.stage(sha256, pngBytes);
         NativePlayerSkinLifecycle.Registration lifecycle =
-                NativePlayerSkinLifecycle.pending(location.toString());
+                NativePlayerSkinLifecycle.pending(location.toString(), lifecycleTransition);
         NativeTexture resource = NativeTexture.pending(location, staged, lifecycle);
         try {
             CompletableFuture<?> registration = new SkinTextureDownloader(

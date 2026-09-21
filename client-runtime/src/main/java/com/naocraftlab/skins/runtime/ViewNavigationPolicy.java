@@ -109,6 +109,19 @@ public final class ViewNavigationPolicy {
                 .filter(node -> node.surfaceId().equals(current.surfaceId()))
                 .filter(node -> !node.id().equals(current.id()))
                 .toList();
+        if (current.pattern() == ViewSpec.NavigationPattern.COMPOSITE_LIST) {
+            Comparator<ViewSpec.NavigationNode> order = Comparator.comparingInt(ViewSpec.NavigationNode::documentOrder);
+            if (command == ViewSpec.NavigationCommand.LEFT || command == ViewSpec.NavigationCommand.RIGHT) {
+                var siblings = peers.stream().filter(node -> node.bounds().y() == current.bounds().y());
+                return command == ViewSpec.NavigationCommand.LEFT
+                        ? siblings.filter(node -> node.documentOrder() < current.documentOrder()).max(order)
+                        : siblings.filter(node -> node.documentOrder() > current.documentOrder()).min(order);
+            }
+            var rows = peers.stream().filter(node -> command == ViewSpec.NavigationCommand.UP
+                    ? node.bounds().y() < current.bounds().y() : node.bounds().y() > current.bounds().y());
+            return rows.min(Comparator.comparingInt((ViewSpec.NavigationNode node) ->
+                    Math.abs(node.bounds().y() - current.bounds().y())).thenComparing(order));
+        }
         if (current.pattern() == ViewSpec.NavigationPattern.HORIZONTAL_LIST) {
             if (command != ViewSpec.NavigationCommand.LEFT
                     && command != ViewSpec.NavigationCommand.RIGHT) {
@@ -117,6 +130,21 @@ public final class ViewNavigationPolicy {
             Comparator<ViewSpec.NavigationNode> order = Comparator
                     .comparingInt(ViewSpec.NavigationNode::documentOrder);
             return command == ViewSpec.NavigationCommand.LEFT
+                    ? peers.stream()
+                            .filter(node -> node.documentOrder() < current.documentOrder())
+                            .max(order)
+                    : peers.stream()
+                            .filter(node -> node.documentOrder() > current.documentOrder())
+                            .min(order);
+        }
+        if (current.pattern() == ViewSpec.NavigationPattern.VERTICAL_LIST) {
+            if (command != ViewSpec.NavigationCommand.UP
+                    && command != ViewSpec.NavigationCommand.DOWN) {
+                return Optional.empty();
+            }
+            Comparator<ViewSpec.NavigationNode> order = Comparator
+                    .comparingInt(ViewSpec.NavigationNode::documentOrder);
+            return command == ViewSpec.NavigationCommand.UP
                     ? peers.stream()
                             .filter(node -> node.documentOrder() < current.documentOrder())
                             .max(order)

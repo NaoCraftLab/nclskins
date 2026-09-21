@@ -547,9 +547,9 @@ final class GalleryPresenterTest {
         assertTrue(healthy.texts().stream().noneMatch(text -> text.id().equals("gallery.status")));
         assertTrue(healthy.widget("gallery.retry_session").isEmpty());
         assertTrue(healthy.widget("gallery.retry_cape").isEmpty());
-        assertEquals(new Bounds(0, 12, 854, 10), text(healthy, "gallery.title").bounds());
+        assertEquals(new Bounds(32, 12, 790, 10), text(healthy, "gallery.title").bounds());
         assertEquals(
-                List.of("gallery.search", "gallery.add", "gallery.done"),
+                List.of("gallery.search", "gallery.add", "gallery.done", "gallery.providers"),
                 tabIds(healthy));
 
         ViewSpec missing = presenter.present(
@@ -557,9 +557,9 @@ final class GalleryPresenterTest {
                 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
         assertTrue(missing.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
         assertTrue(missing.widget("gallery.retry_session").isEmpty());
-        assertEquals(new Bounds(0, 12, 854, 10), text(missing, "gallery.title").bounds());
+        assertEquals(new Bounds(32, 12, 790, 10), text(missing, "gallery.title").bounds());
         assertEquals(
-                List.of("gallery.search", "gallery.add", "gallery.done"),
+                List.of("gallery.search", "gallery.add", "gallery.done", "gallery.providers"),
                 tabIds(missing));
 
         SessionValidation invalidSession = new SessionValidation(
@@ -592,13 +592,13 @@ final class GalleryPresenterTest {
                 text(connecting, "gallery.offline").message());
         assertFalse(connecting.widget("gallery.retry_session").orElseThrow().enabled());
 
-        ViewSpec classifying = presenter.present(
-                withSessionActivity(valid, ClientSnapshot.SessionActivity.CLASSIFYING),
+        SessionValidation unchecked = new SessionValidation(SessionStatus.UNCHECKED,
+                invalidSession.sessionIdentity(), null, null, "Unchecked");
+        ViewSpec uncheckedView = presenter.present(
+                withState(valid, Optional.of(unchecked), false, false, AppearanceSyncStatus.LOCAL_ONLY),
                 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
-        assertEquals(
-                UiMessage.info("nclskins.session.connecting"),
-                text(classifying, "gallery.offline").message());
-        assertTrue(classifying.widget("gallery.retry_session").isEmpty());
+        assertTrue(uncheckedView.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
+        assertTrue(uncheckedView.widget("gallery.retry_session").isEmpty());
 
         ViewSpec rateLimited = presenter.present(
                 withState(valid, valid.session(), true, false, AppearanceSyncStatus.LOCAL_ONLY),
@@ -635,21 +635,6 @@ final class GalleryPresenterTest {
                 text(noToken, "gallery.offline").message());
         assertTrue(noToken.widget("gallery.retry_session").isEmpty());
         assertTrue(noToken.widget("gallery.retry_cape").isEmpty());
-
-        ViewSpec classifyingNoToken = presenter.present(
-                withSessionActivity(
-                        withState(
-                                valid,
-                                Optional.of(tokenUnavailable),
-                                false,
-                                false,
-                                AppearanceSyncStatus.LOCAL_ONLY),
-                        ClientSnapshot.SessionActivity.CLASSIFYING),
-                854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
-        assertEquals(
-                UiMessage.info("nclskins.session.offline"),
-                text(classifyingNoToken, "gallery.offline").message());
-        assertTrue(classifyingNoToken.widget("gallery.retry_session").isEmpty());
 
         SessionValidation expired = new SessionValidation(
                 SessionStatus.EXPIRED,
@@ -763,7 +748,7 @@ final class GalleryPresenterTest {
     }
 
     @Test
-    void durablePartialExposesCapeRecoveryButValidUnknownDoesNotExposeSessionRecovery() {
+    void durableRecoveryUsesApplyWithoutASeparateCapeButton() {
         AccountState account = TestFixtures.account(1);
         UUID active = account.presets().get(0).id();
         ClientSnapshot base = TestFixtures.ready(account, active, 0);
@@ -780,10 +765,8 @@ final class GalleryPresenterTest {
         assertTrue(partial.selectedPreset().isEmpty());
         assertTrue(partial.recoveryActions().contains(
                 com.naocraftlab.skins.core.service.RecoveryAction.RETRY_CAPE));
-        assertTrue(partialView.widget("gallery.retry_cape").orElseThrow().enabled());
-        assertEquals(
-                new Bounds(734, 6, 112, 20),
-                partialView.widget("gallery.retry_cape").orElseThrow().bounds());
+        assertTrue(partialView.widget("gallery.retry_cape").isEmpty());
+        assertTrue(partialView.widget("gallery.preset." + active + ".apply").orElseThrow().enabled());
         assertTrue(partialView.widget("gallery.retry_session").isEmpty());
 
         ClientSnapshot unknown = withDurableStatus(base, AppearanceSyncStatus.UNKNOWN);
@@ -1113,7 +1096,7 @@ final class GalleryPresenterTest {
                         "gallery.preset." + active + ".edit",
                         "gallery.preset." + active + ".duplicate",
                         "gallery.preset." + active + ".delete",
-                        "gallery.done"),
+                        "gallery.done", "gallery.providers"),
                 tabIds(view));
         assertTrue(view.navigationNodes().stream().anyMatch(node ->
                 node.id().equals("gallery.add") && node.tabOrder() < 0));
@@ -1228,7 +1211,7 @@ final class GalleryPresenterTest {
 
         ViewSpec.Widget apply = view.widget("gallery.preset." + active + ".apply").orElseThrow();
         assertEquals(UiMessage.info("nclskins.gallery.active"), apply.label());
-        assertFalse(apply.enabled());
+        assertEquals(status == AppearanceSyncStatus.UNKNOWN || status == AppearanceSyncStatus.PARTIAL, apply.enabled());
     }
 
     private static ClientSnapshot withState(

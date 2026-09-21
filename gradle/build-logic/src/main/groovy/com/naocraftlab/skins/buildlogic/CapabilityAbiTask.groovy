@@ -28,6 +28,9 @@ abstract class CapabilityAbiTask extends DefaultTask {
     @Classpath
     abstract ConfigurableFileCollection getResolutionClasspath()
 
+    @Classpath
+    abstract ConfigurableFileCollection getResourceClasspath()
+
     @TaskAction
     void executeVerification() {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
@@ -43,6 +46,8 @@ abstract class CapabilityAbiTask extends DefaultTask {
             return
         }
         AbiVerifier.verify(catalog, abi, targetId.get(), resolved)
+        DefaultSkinParityVerifier.verify(javap, resolutionClasspath.asPath,
+                resolutionClasspath.files + resourceClasspath.files)
         logger.lifecycle("Capability ABI verification passed for ${targetId.get()}")
     }
 }

@@ -43,6 +43,18 @@ public final class MinecraftFilePicker implements FilePicker {
     }
 
     @Override
+    public CompletableFuture<Optional<Path>> chooseCapePng() {
+        final String title;
+        try {
+            title = Component.translatable("nclskins.capes.import").getString();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("The system PNG picker could not be prepared", failure));
+        }
+        return COORDINATOR.choose(() -> selectLocalPng(title));
+    }
+
+    @Override
     public CompletableFuture<Optional<Path>> chooseDirectory() {
         return chooseDirectoryFrom(
                 null,

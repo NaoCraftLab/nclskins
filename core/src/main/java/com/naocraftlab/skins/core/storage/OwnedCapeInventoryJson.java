@@ -31,6 +31,7 @@ final class OwnedCapeInventoryJson {
             cape.optionalAlias().ifPresent(alias -> json.addProperty("alias", alias));
             json.addProperty("state", cape.state().name());
             cape.optionalTextureCacheKey().ifPresent(key -> json.addProperty("textureCacheKey", key));
+            if (cape.hasElytra() != null) json.addProperty("hasElytra", cape.hasElytra());
             capes.add(json);
         }
         root.add("capes", capes);
@@ -55,7 +56,8 @@ final class OwnedCapeInventoryJson {
                         json.get("id").getAsString(),
                         json.has("alias") ? json.get("alias").getAsString() : null,
                         RemoteAssetState.valueOf(json.get("state").getAsString()),
-                        json.has("textureCacheKey") ? json.get("textureCacheKey").getAsString() : null));
+                        json.has("textureCacheKey") ? json.get("textureCacheKey").getAsString() : null,
+                        json.has("hasElytra") ? json.get("hasElytra").getAsBoolean() : null));
             }
             return new OwnedCapeInventory(schema, accountId, capes, verifiedAt);
         } catch (StorageException exception) {

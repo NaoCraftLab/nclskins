@@ -24,6 +24,13 @@ public final class IdentifierCurrentPlayerAppearanceSource
     }
 
     @Override
+    public PlayerAppearance defaultPlayerAppearance() {
+        PlayerSkin skin = DefaultPlayerSkin.get(Minecraft.getInstance().getUser().getProfileId());
+        return new PlayerAppearance(new TextureHandle(skin.body().texturePath().toString(), 64, 64),
+                skin.model() == PlayerModelType.SLIM ? SkinModel.SLIM : SkinModel.CLASSIC, Optional.empty());
+    }
+
+    @Override
     public PlayerAppearance currentPlayerAppearance() {
         Minecraft minecraft = Minecraft.getInstance();
         PlayerSkin skin = installedSkin.apply(minecraft.getUser().getProfileId())

@@ -32,8 +32,21 @@ tasks.withType(Test).configureEach {
     jvmArgs '--add-modules', 'jdk.httpserver'
 }
 
-sourceSets.test.resources.srcDir(
-        rootProject.file('compat/resources/canonical/src/main/resources'))
+def generateBlockbenchTestResources = tasks.register(
+        'generateBlockbenchTestResources',
+        rootProject.extensions.extraProperties.get('nclskinsGenerateBlockbenchPngTaskType')) {
+    sourceDirectory.set(rootProject.layout.projectDirectory.dir(
+            'compat/resources/canonical/src/main/blockbench'))
+    outputDirectory.set(layout.buildDirectory.dir('generated/nclskins/blockbench-resources'))
+}
+
+sourceSets.test.resources.srcDir(rootProject.file('compat/resources/canonical/src/main/resources'))
+sourceSets.test.resources.srcDir(layout.buildDirectory.dir('generated/nclskins/blockbench-resources'))
+
+tasks.withType(ProcessResources).configureEach {
+    dependsOn generateBlockbenchTestResources
+    exclude '**/*.bbmodel'
+}
 
 tasks.register('testGsonMaximum', Test) {
     group = 'verification'

@@ -2,6 +2,7 @@ package com.naocraftlab.skins.core.storage;
 
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
@@ -34,6 +35,33 @@ class AccountUiPreferencesStorageTest {
     Path temporaryDirectory;
 
     @Test
+    void providersTabSurvivesRestartAndOtherPreferenceUpdates() throws Exception {
+        var cape = com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE;
+        UUID account = UUID.randomUUID();
+        storage().setSelectedProvidersTab(account, cape);
+        storage().setSelectedAddSourceTab(account, AddSourceTab.FILE);
+        storage().setSelectedEditorTab(account, EditorTab.APPEARANCE);
+        storage().setCollectionCollapsed(account, "future", true);
+        assertEquals(cape, storage().loadUiPreferences(account).preferences().selectedProvidersTab());
+        assertEquals(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN,
+                storage().loadUiPreferences(UUID.randomUUID()).preferences().selectedProvidersTab());
+    }
+
+    @Test
+    void missingOrUnknownProvidersTabKeepsOtherPublishedPreferences() throws Exception {
+        AccountUiPreferencesJson codec = new AccountUiPreferencesJson();
+        String json = new String(codec.encode(AccountUiPreferences.defaults(UUID.randomUUID())
+                .withSelectedAddSourceTab(AddSourceTab.FILE)), StandardCharsets.UTF_8);
+        for (String replacement : new String[] {"\"selectedProvidersTab\": \"FUTURE\",", ""}) {
+            String changed = json.replace("\"selectedProvidersTab\": \"SKIN\",", replacement);
+            AccountUiPreferences decoded = codec.decode(changed.getBytes(StandardCharsets.UTF_8));
+            assertEquals(AddSourceTab.FILE, decoded.selectedAddSourceTab());
+            assertEquals(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN,
+                    decoded.selectedProvidersTab());
+        }
+    }
+
+    @Test
     void defaultsToCatalogWithNoCollapsedCollectionsWithoutCreatingState() throws Exception {
         NclSkinsStorage storage = storage();
         UUID accountId = UUID.randomUUID();
@@ -41,6 +69,7 @@ class AccountUiPreferencesStorageTest {
         AccountUiPreferencesResult result = storage.loadUiPreferences(accountId);
 
         assertEquals(AddSourceTab.CATALOG, result.preferences().selectedAddSourceTab());
+        assertEquals(EditorTab.APPEARANCE, result.preferences().selectedEditorTab());
         assertTrue(result.preferences().preferredSkinVariant().isEmpty());
         assertTrue(result.preferences().collapsedCollectionIds().isEmpty());
         assertTrue(result.warnings().isEmpty());
@@ -60,6 +89,42 @@ class AccountUiPreferencesStorageTest {
         assertEquals(AddSourceTab.CATALOG, reopened.selectedAddSourceTab());
         assertEquals(Set.of("future-pack:unknown-collection"), reopened.collapsedCollectionIds());
         assertTrue(Files.isRegularFile(first.layout().accountUiPreferences(accountId)));
+    }
+
+    @Test
+    void persistsResourceCapeCollectionIdsAcrossInstances() throws Exception {
+        NclSkinsStorage first = storage();
+        NclSkinsStorage second = storage();
+        UUID accountId = UUID.randomUUID();
+
+        first.setCollapsedCapeCollections(
+                accountId, Set.of("OFFLINE", "resource:mojang_account_events"));
+
+        assertEquals(
+                Set.of("OFFLINE", "resource:mojang_account_events"),
+                second.loadUiPreferences(accountId).preferences().collapsedCapeCollections());
+    }
+
+    @Test
+    void persistsEditorTabPerAccountWithoutReplacingOtherPreferences() throws Exception {
+        NclSkinsStorage first = storage();
+        NclSkinsStorage second = storage();
+        UUID accountId = UUID.randomUUID();
+        UUID otherAccountId = UUID.randomUUID();
+
+        first.setSelectedAddSourceTab(accountId, AddSourceTab.CATALOG);
+        first.setPreferredSkinVariant(accountId, SkinVariant.SLIM);
+        first.setCollectionCollapsed(accountId, "minecraft:defaults", true);
+        first.setSelectedEditorTab(accountId, EditorTab.CAPE);
+        second.setSelectedEditorTab(otherAccountId, EditorTab.APPEARANCE);
+
+        AccountUiPreferences reopened = second.loadUiPreferences(accountId).preferences();
+        assertEquals(EditorTab.CAPE, reopened.selectedEditorTab());
+        assertEquals(AddSourceTab.CATALOG, reopened.selectedAddSourceTab());
+        assertEquals(Optional.of(SkinVariant.SLIM), reopened.preferredSkinVariant());
+        assertEquals(Set.of("minecraft:defaults"), reopened.collapsedCollectionIds());
+        assertEquals(EditorTab.APPEARANCE,
+                first.loadUiPreferences(otherAccountId).preferences().selectedEditorTab());
     }
 
     @Test
@@ -125,6 +190,7 @@ class AccountUiPreferencesStorageTest {
         AccountUiPreferences decoded = storage.loadUiPreferences(accountId).preferences();
 
         assertEquals(AddSourceTab.CATALOG, decoded.selectedAddSourceTab());
+        assertEquals(EditorTab.APPEARANCE, decoded.selectedEditorTab());
         assertTrue(decoded.preferredSkinVariant().isEmpty());
         storage.setPreferredSkinVariant(accountId, SkinVariant.CLASSIC);
         assertEquals(
@@ -132,6 +198,41 @@ class AccountUiPreferencesStorageTest {
                 storage.loadUiPreferences(accountId).preferences().preferredSkinVariant().orElseThrow());
         assertTrue(Files.readString(path, StandardCharsets.UTF_8)
                 .contains("\"preferredSkinVariant\": \"CLASSIC\""));
+    }
+
+    @Test
+    void unknownEditorTabDefaultsToAppearanceWhileOtherMalformedFieldsStillWarn() throws Exception {
+        NclSkinsStorage storage = storage();
+        UUID accountId = UUID.randomUUID();
+        storage.initialize();
+        Path path = storage.layout().accountUiPreferences(accountId);
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, """
+                {
+                  "schemaVersion": 1,
+                  "accountId": "%s",
+                  "selectedAddSourceTab": "CATALOG",
+                  "selectedEditorTab": "FUTURE_TAB",
+                  "collapsedCollectionIds": []
+                }
+                """.formatted(accountId), StandardCharsets.UTF_8);
+
+        assertEquals(EditorTab.APPEARANCE,
+                storage.loadUiPreferences(accountId).preferences().selectedEditorTab());
+
+        Files.writeString(path, """
+                {
+                  "schemaVersion": 1,
+                  "accountId": "%s",
+                  "selectedAddSourceTab": "CATALOG",
+                  "selectedEditorTab": false,
+                  "collapsedCollectionIds": []
+                }
+                """.formatted(accountId), StandardCharsets.UTF_8);
+
+        AccountUiPreferencesResult recovered = storage.loadUiPreferences(accountId);
+        assertEquals(EditorTab.APPEARANCE, recovered.preferences().selectedEditorTab());
+        assertEquals(1, recovered.warnings().size());
     }
 
     @Test

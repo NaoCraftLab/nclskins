@@ -2,7 +2,6 @@ package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonSlurper
 
-import javax.imageio.ImageIO
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,6 +19,9 @@ final class ArtifactVerifier {
             'META-INF/services/org.slf4j.', 'META-INF/services/org.apache.logging.']
     static final List<String> FORBIDDEN_DEV_RUNTIME_PREFIXES = [
             'com/terraformersmc/modmenu/',
+            'de/keksuccino/fancymenu/',
+            'de/keksuccino/konkrete/',
+            'de/keksuccino/melody/',
             'META-INF/jars/modmenu',
             'net/covers1624/devlogin/',
             'META-INF/jars/DevLogin'
@@ -29,50 +31,36 @@ final class ArtifactVerifier {
     static final Pattern TOKEN = Pattern.compile('Bearer\\s+[A-Za-z0-9._~+/=-]{20,}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}')
     static final String COLLECTIONS = 'resourcepacks/mojang_collections/'
     static final String GUI_ICONS = 'assets/nclskins/textures/gui/icons/'
-    static final Map<String, Integer> GUI_ICON_SIZES = [
-        'action/edit.png': 16,
-        'action/duplicate.png': 16,
-        'action/delete.png': 16,
-        'action/select_folder.png': 16,
-        'action/collapse_all.png': 16,
-        'action/expand_all.png': 16,
-        'action/add_look.png': 32,
-        'appearance/back/cape.png': 16,
-        'appearance/back/elytra.png': 16,
-        'appearance/back/none.png': 32,
-        'appearance/outer_layer/head/on.png': 16,
-        'appearance/outer_layer/head/off.png': 16,
-        'appearance/outer_layer/body/all_on.png': 16,
-        'appearance/outer_layer/body/all_off.png': 16,
-        'appearance/outer_layer/body/both_arms_off.png': 16,
-        'appearance/outer_layer/body/left_arm_off.png': 16,
-        'appearance/outer_layer/body/right_arm_off.png': 16,
-        'appearance/outer_layer/body/only_arms_on.png': 16,
-        'appearance/outer_layer/body/only_left_arm.png': 16,
-        'appearance/outer_layer/body/only_right_arm.png': 16,
-        'appearance/outer_layer/legs/all_on.png': 16,
-        'appearance/outer_layer/legs/all_off.png': 16,
-        'appearance/outer_layer/legs/left_off.png': 16,
-        'appearance/outer_layer/legs/right_off.png': 16,
-        'status/compatibility/extended.png': 16,
-        'status/compatibility/incompatible.png': 16
-    ].asImmutable()
-    static final Set<String> GUI_ICON_SAFE_AREA_REQUIRED = ([
-        'action/edit.png',
-        'action/duplicate.png',
-        'action/delete.png',
-        'action/select_folder.png',
-        'status/compatibility/extended.png',
+    static final Set<String> REQUIRED_GUI_ICONS = ([
+        'action/edit.png', 'action/duplicate.png', 'action/delete.png', 'action/select_folder.png',
+        'action/collapse_all.png', 'action/expand_all.png', 'action/add_provider.png', 'action/add_cape.png',
+        'action/rename.png', 'action/remove.png', 'provider/skin/no_value.png', 'provider/cape/no_value.png', 'action/refresh.png',
+        'action/providers.png', 'action/add_look.png', 'editor/tab/appearance.png', 'editor/tab/cape.png',
+        'appearance/model/classic.png', 'appearance/model/slim.png', 'appearance/back/cape.png',
+        'appearance/back/elytra.png', 'appearance/cape/none.png', 'appearance/outer_layer/head/on.png',
+        'appearance/outer_layer/head/off.png', 'appearance/outer_layer/body/all_on.png',
+        'appearance/outer_layer/body/all_off.png', 'appearance/outer_layer/body/both_arms_off.png',
+        'appearance/outer_layer/body/left_arm_off.png', 'appearance/outer_layer/body/right_arm_off.png',
+        'appearance/outer_layer/body/only_arms_on.png', 'appearance/outer_layer/body/only_left_arm.png',
+        'appearance/outer_layer/body/only_right_arm.png', 'appearance/outer_layer/legs/all_on.png',
+        'appearance/outer_layer/legs/all_off.png', 'appearance/outer_layer/legs/left_off.png',
+        'appearance/outer_layer/legs/right_off.png', 'status/compatibility/extended.png',
         'status/compatibility/incompatible.png'
     ] as Set).asImmutable()
-    static final Map<String, String> GUI_ICON_LOCKED_SHA256 = [
-        'action/add_look.png'       : 'a464363bc11e82b82b03b694445be850b679da9284a594da06d0137092752570',
-        'appearance/back/none.png' : 'c9aebc28c8111459ba09b9523ee0fcb014542651932f65eaacd61a0669f70f0c'
-    ].asImmutable()
     static final Map<String, Map> FORGE_REFMAPS = [
         'forge-1.20.1': [
             path: 'nclskins.resourcelocation-playerinfo.refmap.json',
             mappings: [
+                'com/naocraftlab/skins/compat/keybindings/mixin/KeyboardScreenKeybindingMixin': [
+                    'keyPress(JIIII)V': 'Lnet/minecraft/client/KeyboardHandler;m_90893_(JIIII)V'
+                ],
+                'com/naocraftlab/skins/compat/keybindings/mixin/MouseScreenKeybindingMixin': [
+                    'onPress(JIII)V': 'Lnet/minecraft/client/MouseHandler;m_91530_(JIII)V'
+                ],
+                'com/naocraftlab/skins/compat/client/cape/mixin/CapeLayerTransparencyMixin': [
+                    'render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V': 'Lnet/minecraft/client/renderer/entity/layers/CapeLayer;m_6494_(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V',
+                    'Lnet/minecraft/client/renderer/RenderType;entitySolid(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/client/renderer/RenderType;': 'Lnet/minecraft/client/renderer/RenderType;m_110446_(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/client/renderer/RenderType;'
+                ],
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/AccessibilityOptionsScreenMixin': [
                     options: 'Lnet/minecraft/client/gui/screens/AccessibilityOptionsScreen;m_232690_(Lnet/minecraft/client/Options;)[Lnet/minecraft/client/OptionInstance;'
                 ],
@@ -98,6 +86,19 @@ final class ArtifactVerifier {
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/OptionsScreenMixin': [
                     init: 'Lnet/minecraft/client/gui/screens/OptionsScreen;m_7856_()V',
                     'Lnet/minecraft/client/gui/screens/OptionsScreen;openScreenButton(Lnet/minecraft/network/chat/Component;Ljava/util/function/Supplier;)Lnet/minecraft/client/gui/components/Button;': 'Lnet/minecraft/client/gui/screens/OptionsScreen;m_260993_(Lnet/minecraft/network/chat/Component;Ljava/util/function/Supplier;)Lnet/minecraft/client/gui/components/Button;'
+                ],
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/SkinManagerProviderMixin': [
+                    'Lnet/minecraft/client/renderer/texture/TextureManager;register(Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/client/renderer/texture/AbstractTexture;)V': 'Lnet/minecraft/client/renderer/texture/TextureManager;m_118495_(Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/client/renderer/texture/AbstractTexture;)V',
+                    'registerTexture(Lcom/mojang/authlib/minecraft/MinecraftProfileTexture;Lcom/mojang/authlib/minecraft/MinecraftProfileTexture$Type;Lnet/minecraft/client/resources/SkinManager$SkinTextureCallback;)Lnet/minecraft/resources/ResourceLocation;': 'Lnet/minecraft/client/resources/SkinManager;m_118828_(Lcom/mojang/authlib/minecraft/MinecraftProfileTexture;Lcom/mojang/authlib/minecraft/MinecraftProfileTexture$Type;Lnet/minecraft/client/resources/SkinManager$SkinTextureCallback;)Lnet/minecraft/resources/ResourceLocation;'
+                ],
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/PlayerInfoProviderMixin': [
+                    'Lnet/minecraft/client/resources/SkinManager;registerSkins(Lcom/mojang/authlib/GameProfile;Lnet/minecraft/client/resources/SkinManager$SkinTextureCallback;Z)V': 'Lnet/minecraft/client/resources/SkinManager;m_118817_(Lcom/mojang/authlib/GameProfile;Lnet/minecraft/client/resources/SkinManager$SkinTextureCallback;Z)V',
+                    registerTextures: 'Lnet/minecraft/client/multiplayer/PlayerInfo;m_105341_()V',
+                    'Lnet/minecraft/client/multiplayer/PlayerInfo;registerTextures()V': 'Lnet/minecraft/client/multiplayer/PlayerInfo;m_105341_()V',
+                    getCapeLocation: 'Lnet/minecraft/client/multiplayer/PlayerInfo;m_105338_()Lnet/minecraft/resources/ResourceLocation;',
+                    getModelName: 'Lnet/minecraft/client/multiplayer/PlayerInfo;m_105336_()Ljava/lang/String;',
+                    getSkinLocation: 'Lnet/minecraft/client/multiplayer/PlayerInfo;m_105337_()Lnet/minecraft/resources/ResourceLocation;',
+                    getElytraLocation: 'Lnet/minecraft/client/multiplayer/PlayerInfo;m_105339_()Lnet/minecraft/resources/ResourceLocation;'
                 ],
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/PlayerPreviewMixin'              : [
                         isModelPartShown: 'Lnet/minecraft/world/entity/player/Player;m_36170_(Lnet/minecraft/world/entity/player/PlayerModelPart;)Z',
@@ -126,7 +127,27 @@ final class ArtifactVerifier {
             if (names.any { String name -> forbiddenLoggingPayload(name) }) {
                 errors.add("${target.id}: artifact embeds a logging implementation, provider, or configuration")
             }
-            if (names.any { String name -> FORBIDDEN_DEV_RUNTIME_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds the dev-only Mod Menu dependency")
+            ['FancyMenuIntegration', 'FancyMenuActions'].each { String type ->
+                if (!names.contains("com/naocraftlab/skins/compat/fancymenu/${type}.class".toString())) {
+                    errors.add("${target.id}: missing optional FancyMenu adapter ${type}")
+                }
+            }
+            ['com/naocraftlab/skins/client/ScreenKeybinding.class',
+             'com/naocraftlab/skins/runtime/ScreenKeybindingDispatcher.class',
+             'com/naocraftlab/skins/compat/keybindings/ScreenKeybindings.class',
+             'com/naocraftlab/skins/compat/keybindings/ScreenKeyMapping.class',
+             'com/naocraftlab/skins/compat/keybindings/mixin/KeyboardScreenKeybindingMixin.class',
+             'com/naocraftlab/skins/compat/keybindings/mixin/MouseScreenKeybindingMixin.class'].each { String entry ->
+                if (!names.contains(entry)) {
+                    errors.add("${target.id}: missing screen keybinding class ${entry}")
+                } else {
+                    String bytecode = new String(read(archive, entry), StandardCharsets.ISO_8859_1)
+                    if (bytecode.contains('fancymenu') || bytecode.contains('FancyMenu')) {
+                        errors.add("${target.id}: keybinding path depends on optional FancyMenu ${entry}")
+                    }
+                }
+            }
+            if (names.any { String name -> FORBIDDEN_DEV_RUNTIME_PREFIXES.any { name.startsWith(it) } }) errors.add("${target.id}: artifact embeds an optional integration dependency")
             if (names.any { FORBIDDEN_MIXIN.matcher(it).find() }) errors.add("${target.id}: artifact contains a forbidden session/auth mixin candidate")
             verifyContentClosure(root, archive, catalog, target, names, errors)
             verifyClassfiles(archive, target, names, errors)
@@ -284,6 +305,17 @@ final class ArtifactVerifier {
                     new File(root, rawRoot.toString()), errors, target, 'resource source'))
         }
         selectedResources.removeIf { it.endsWith('.pixel.json') }
+        Map producers = catalog.resourceProducers instanceof Map ? catalog.resourceProducers as Map : [:]
+        if (producers.canonicalBlockbench instanceof String) {
+            File blockbench = CatalogTools.blockbenchRoot(root, catalog)
+            Files.walk(blockbench.toPath()).withCloseable { stream ->
+                stream.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith('.bbmodel') }.forEach { Path source ->
+                    String relative = blockbench.toPath().relativize(source).toString().replace('\\', '/')
+                    selectedResources.add(relative.substring(0, relative.length() - '.bbmodel'.length()) + '.png')
+                }
+            }
+            selectedResources.add(COLLECTIONS + 'pack.png')
+        }
         selectedResources.addAll(target.metadata.files as List)
         selectedResources.add('nclskins-server-compatibility.json')
         LocalizationVerifier.aliases(catalog).keySet().each { String alias ->
@@ -399,14 +431,12 @@ final class ArtifactVerifier {
 
     private static String sha256(File file) {
         if (!file.isFile()) return ''
+        sha256(file.bytes)
+    }
+
+    private static String sha256(byte[] bytes) {
         MessageDigest digest = MessageDigest.getInstance('SHA-256')
-        file.withInputStream { input ->
-            byte[] buffer = new byte[8192]
-            int count
-            while ((count = input.read(buffer)) >= 0) {
-                if (count > 0) digest.update(buffer, 0, count)
-            }
-        }
+        digest.update(bytes)
         digest.digest().collect { String.format('%02x', it & 0xff) }.join()
     }
 
@@ -490,6 +520,9 @@ final class ArtifactVerifier {
             if (metadata.suggests != expectedSuggestions) errors.add("${target.id}: Fabric suggestions differ from catalog")
             if (metadata.custom != [modmenu: [links: MetadataRenderer.modMenuLinks(catalog.mod as Map), update_checker: true]]) errors.add("${target.id}: Fabric Mod Menu card metadata differs from catalog")
             if (metadata.accessWidener != target.metadata.accessWidener) errors.add("${target.id}: Fabric access widener differs from catalog")
+            CatalogTools.validateMixinDeclarations((metadata.mixins ?: []).collect {
+                it instanceof Map ? it.config : it
+            }, "${target.id}: fabric.mod.json", errors)
             List expectedMixins = (target.metadata.serverMixins ?: []).collect { [config: it] } + (target.metadata.mixins ?: []).collect { [config: it, environment: 'client'] }
             if ((metadata.mixins ?: []) != expectedMixins) errors.add("${target.id}: Fabric mixin list differs from catalog")
             verifyBytecodeMarker(archive, target.metadata.serverEntrypoint.toString().replace('.', '/') + '.class', target, ['net/fabricmc/api/ModInitializer'], ['net/minecraft/client'], errors)
@@ -501,6 +534,9 @@ final class ArtifactVerifier {
             String expectedText = MetadataRenderer.render(catalog, target, version)[path]
             if (text != expectedText) errors.add("${target.id}: ${path} differs from catalog-generated metadata")
             if (loader == 'neoforge') {
+                CatalogTools.validateMixinDeclarations(
+                        (text =~ /(?m)^config\s*=\s*"([^"]+)"\s*$/).collect { it[1] },
+                        "${target.id}: ${path}", errors)
                 ((target.metadata.serverMixins ?: []) + (target.metadata.mixins ?: [])).each { String mixin -> if (!text.contains("config=\"${mixin}\"")) errors.add("${target.id}: ${path} lacks Mixin config ${mixin}") }
             }
             if (loader == 'forge') {
@@ -610,6 +646,9 @@ final class ArtifactVerifier {
         if (actualCollectionLanguages != expectedCollectionLanguages) {
             errors.add("${target.id}: Mojang collection locale inventory differs")
         }
+        if (names.contains(COLLECTIONS + 'assets/nclskins/collections.json')) {
+            errors.add("${target.id}: Mojang collections must be derived from resource paths")
+        }
 
         Map english = json(archive, 'assets/nclskins/lang/en_us.json', target, errors)
         locales.each { String locale ->
@@ -657,64 +696,169 @@ final class ArtifactVerifier {
             }
         }
         List<String> archiveIcons = names.findAll { it.startsWith(GUI_ICONS) && it.endsWith('.png') }.sort()
-        File canonicalResources = new File(root, 'compat/resources/canonical/src/main/resources')
-        Path sourceIconRoot = new File(canonicalResources, GUI_ICONS).toPath()
+        File canonicalBlockbench = CatalogTools.blockbenchRoot(root, catalog)
+        Path sourceIconRoot = new File(canonicalBlockbench,
+                GUI_ICONS.substring(0, GUI_ICONS.length() - 1)).toPath()
         Map<String, File> sourceIcons = [:]
         Files.walk(sourceIconRoot).withCloseable { stream ->
-            stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }.forEach { Path source ->
-                sourceIcons[sourceIconRoot.relativize(source).toString().replace('\\', '/')] = source.toFile()
+            stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.bbmodel') }.forEach { Path source ->
+                String relative = sourceIconRoot.relativize(source).toString().replace('\\', '/')
+                sourceIcons[relative.substring(0, relative.length() - '.bbmodel'.length()) + '.png'] = source.toFile()
             }
         }
-        Set<String> expectedIcons = GUI_ICON_SIZES.keySet().collect { GUI_ICONS + it } as Set
-        if (sourceIcons.keySet() != GUI_ICON_SIZES.keySet()) errors.add("${target.id}: source GUI icon manifest differs from the size contract")
+        Set<String> expectedIcons = sourceIcons.keySet().collect { GUI_ICONS + it } as Set
+        if (!sourceIcons.keySet().containsAll(REQUIRED_GUI_ICONS)) errors.add("${target.id}: source GUI icon manifest misses required resources")
         if ((archiveIcons as Set) != expectedIcons) errors.add("${target.id}: GUI icon manifest differs")
         sourceIcons.each { String relative, File source ->
-            Integer size = GUI_ICON_SIZES[relative]
-            if (size != null) {
-                compareResource(archive, GUI_ICONS + relative, source, target, size, size, errors)
-                def image = ImageIO.read(source)
-                if (image == null) {
-                    errors.add("${target.id}: invalid source GUI icon ${relative}")
-                } else {
-                    boolean nonBinaryAlpha = (0..<image.height).any { int y ->
-                        (0..<image.width).any { int x ->
-                            int alpha = image.getRGB(x, y) >>> 24
-                            alpha != 0 && alpha != 255
-                        }
-                    }
-                    if (nonBinaryAlpha) errors.add("${target.id}: source GUI icon ${relative} has fractional alpha")
-                    if (GUI_ICON_SAFE_AREA_REQUIRED.contains(relative)) {
-                        boolean touchesSafeArea = (0..<image.height).any { int y ->
-                            (0..<image.width).any { int x ->
-                                (x < 2 || x >= 14 || y < 2 || y >= 14) && (image.getRGB(x, y) >>> 24) != 0
-                            }
-                        }
-                        if (touchesSafeArea) errors.add("${target.id}: source GUI icon ${relative} violates the 2 px safe area")
-                    }
-                }
-                String lockedHash = GUI_ICON_LOCKED_SHA256[relative]
-                if (lockedHash != null && sha256(source) != lockedHash) {
-                    errors.add("${target.id}: source GUI icon ${relative} differs from its accepted pixel baseline")
-                }
-            }
+            compareGeneratedResource(archive, GUI_ICONS + relative, BlockbenchPng.decode(source), target, errors)
         }
-        compareResource(archive, catalog.mod.icon.toString(), new File(canonicalResources, catalog.mod.icon.toString()), target, 128, 128, errors)
+        compareResource(archive, catalog.mod.icon.toString(), BlockbenchPng.decode(
+                CatalogTools.blockbenchFile(root, catalog, catalog.mod.icon.toString())), target, 128, 128, errors)
         verifyNestedPackIcon(root, archive, catalog, target, errors)
         File collections = new File(root, 'compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections')
         List<File> skins = []
+        List<File> capes = []
         Files.walk(collections.toPath()).withCloseable { stream ->
             stream.filter {
                 def relative = collections.toPath().relativize(it)
                 Files.isRegularFile(it) && it.toString().endsWith('.png') &&
                         relative.nameCount > 0 && relative.getName(0).toString() == 'assets'
-            }.forEach { skins.add(it.toFile()) }
+            }.forEach { Path path ->
+                String relative = collections.toPath().relativize(path).toString()
+                if (relative.contains('/textures/entity/cape/') ||
+                        relative.contains('\\textures\\entity\\cape\\')) {
+                    capes.add(path.toFile())
+                } else {
+                    skins.add(path.toFile())
+                }
+            }
         }
         Set<String> expectedSkins = skins.collect { COLLECTIONS + collections.toPath().relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char) } as Set
-        Set<String> actualSkins = names.findAll { it.startsWith(COLLECTIONS + 'assets/') && it.endsWith('.png') } as Set
+        Set<String> actualSkins = names.findAll {
+            it.startsWith(COLLECTIONS + 'assets/') &&
+                    it.contains('/textures/entity/player/') && it.endsWith('.png')
+        } as Set
         if (actualSkins != expectedSkins) errors.add("${target.id}: Mojang collection skin manifest differs")
         skins.each { File source -> compareResource(archive, COLLECTIONS + collections.toPath().relativize(source.toPath()).toString().replace(File.separatorChar, '/' as char), source, target, 64, 64, errors) }
-        Set<String> collectionsIds = skins.collect { File skin -> collections.toPath().relativize(skin.toPath()).getName(1).toString() } as Set
+        Set<String> expectedCapes = capes.collect { COLLECTIONS + collections.toPath().relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char) } as Set
+        Set<String> actualCapes = names.findAll {
+            it.startsWith(COLLECTIONS + 'assets/') &&
+                    it.contains('/textures/entity/cape/') && it.endsWith('.png')
+        } as Set
+        if (actualCapes != expectedCapes) errors.add("${target.id}: Mojang collection cape manifest differs")
+        if (names.any { String name ->
+            name.startsWith(COLLECTIONS + 'assets/') &&
+                    (name.contains('/textures/entity/cape/') && name.endsWith('.mcmeta') ||
+                            name.contains('/textures/entity/elytra/'))
+        }) {
+            errors.add("${target.id}: Mojang capes must not contain animation or separate elytra resources")
+        }
+        capes.each { File source -> compareResource(archive, COLLECTIONS + collections.toPath().relativize(source.toPath()).toString().replace(File.separatorChar, '/' as char), source, target, 64, 32, errors) }
+        Set<String> collectionsIds = (skins + capes).collect { File texture -> collections.toPath().relativize(texture.toPath()).getName(1).toString() } as Set
         collectionsIds.each { String id -> if (!names.contains(COLLECTIONS + "assets/${id}/notice-mojang.md")) errors.add("${target.id}: missing collection provenance notice for ${id}") }
+        if (names.any { it.endsWith('/cape-provenance.json') || it.endsWith('/mojang-capes.json') }) {
+            errors.add("${target.id}: build-only Mojang cape provenance leaked into production")
+        }
+        verifyMojangCollectionProvenance(root, collections, archive, target, names, errors)
+    }
+
+    static void verifyMojangCollectionProvenance(
+            File root, File collections, ZipFile archive, Map target, List<String> names, List<String> errors) {
+        File provenanceFile = new File(root, 'gradle/asset-provenance/mojang-capes.json')
+        if (!provenanceFile.isFile()) return
+        File legacyIndex = new File(collections, 'assets/nclskins/collections.json')
+        if (legacyIndex.exists()) {
+            errors.add("${target.id}: source Mojang collection index must be absent")
+        }
+        Set<String> collectionIds = []
+        Files.walk(new File(collections, 'assets').toPath()).withCloseable { stream ->
+            stream.filter { Path path ->
+                Files.isRegularFile(path) && path.toString().endsWith('.png') &&
+                        (path.toString().replace('\\', '/').contains('/textures/entity/player/') ||
+                                path.toString().replace('\\', '/').contains('/textures/entity/cape/'))
+            }.forEach { Path path -> collectionIds.add(
+                    collections.toPath().relativize(path).getName(1).toString()) }
+        }
+        Map provenance = new JsonSlurper().parse(provenanceFile) as Map
+        if (collectionIds.size() != 12) {
+            errors.add("${target.id}: Mojang resource paths must define 12 unique collections")
+        }
+        if (provenance.schemaVersion != 1 || provenance.releaseApproved != false ||
+                provenance.approvedAssetSetSha256 != null ||
+                !(provenance.entries instanceof List) || provenance.entries.isEmpty()) {
+            errors.add("${target.id}: Mojang cape provenance header differs")
+            return
+        }
+        Set<String> entryPaths = []
+        provenance.entries.each { Object raw ->
+            Map entry = raw as Map
+            String collectionId = entry.collectionId?.toString()
+            String capeId = entry.capeId?.toString()
+            String texturePath = entry.texturePath?.toString()
+            File texture = new File(collections, texturePath ?: '')
+            if (!collectionIds.contains(collectionId) ||
+                    texturePath != "assets/${collectionId}/textures/entity/cape/${capeId}.png" ||
+                    entry.width != 64 || entry.height != 32 ||
+                    entry.owner != 'Mojang Studios' || entry.releaseApproved != false ||
+                    !(entry.sourceKind in ['minecraft_texture_cdn', 'archival_exact_copy']) ||
+                    entry.provenanceStatus == null || entry.sourceUrl == null ||
+                    entry.rightsNote == null || !entryPaths.add(texturePath)) {
+                errors.add("${target.id}: invalid Mojang cape provenance entry ${collectionId}/${capeId}")
+                return
+            }
+            if (!texture.isFile() || sha256(texture) != entry.sha256) {
+                errors.add("${target.id}: Mojang cape hash differs for ${texturePath}")
+            }
+            if (entry.sourceKind == 'archival_exact_copy' && entry.officialUrlFound != false) {
+                errors.add("${target.id}: archival cape must record missing official URL for ${capeId}")
+            }
+            File notice = new File(collections, "assets/${collectionId}/notice-mojang.md")
+            String noticeText = notice.isFile() ? notice.getText('UTF-8') : ''
+            String relativePath = "textures/entity/cape/${capeId}.png"
+            if (!noticeText.contains(relativePath) || !noticeText.contains(entry.sha256.toString())) {
+                errors.add("${target.id}: Mojang notice differs from provenance for ${collectionId}/${capeId}")
+            }
+        }
+        Set<String> sourceCapePaths = []
+        Files.walk(new File(collections, 'assets').toPath()).withCloseable { stream ->
+            stream.filter { Path path ->
+                Files.isRegularFile(path) && path.toString().endsWith('.png') &&
+                        path.toString().replace('\\', '/').contains('/textures/entity/cape/')
+            }.forEach { Path path -> sourceCapePaths.add(
+                    collections.toPath().relativize(path).toString().replace('\\', '/')) }
+        }
+        verifyMojangCapeInventory(entryPaths, sourceCapePaths, target.id.toString(), errors)
+        Set<String> expectedNotices = collectionIds.collect {
+            COLLECTIONS + "assets/${it}/notice-mojang.md"
+        } as Set
+        Set<String> actualNotices = names.findAll {
+            it.startsWith(COLLECTIONS + 'assets/') && it.endsWith('/notice-mojang.md')
+        } as Set
+        if (actualNotices != expectedNotices) {
+            errors.add("${target.id}: Mojang collection notice inventory differs")
+        }
+        List<File> exactMetadata = [new File(collections, 'NOTICE-MOJANG.md')]
+        exactMetadata.addAll(collectionIds.collect {
+            new File(collections, "assets/${it}/notice-mojang.md")
+        })
+        exactMetadata.each { File source ->
+            String archivePath = COLLECTIONS + collections.toPath().relativize(source.toPath())
+                    .toString().replace('\\', '/')
+            if (archive.getEntry(archivePath) != null &&
+                    !MessageDigest.isEqual(source.bytes, read(archive, archivePath))) {
+                errors.add("${target.id}: resource hash differs for ${archivePath}")
+            }
+        }
+    }
+
+    static void verifyMojangCapeInventory(
+            Set<String> entryPaths,
+            Set<String> sourceCapePaths,
+            String targetId,
+            List<String> errors) {
+        if (entryPaths != sourceCapePaths) {
+            errors.add("${targetId}: Mojang cape provenance inventory differs")
+        }
     }
 
     static void verifyNestedPackIcon(
@@ -724,21 +868,31 @@ final class ArtifactVerifier {
             errors.add("${target.id}: missing required resource ${path}")
             return
         }
-        File canonical = new File(
-                root,
-                'compat/resources/canonical/src/main/resources/' + catalog.mod.icon.toString())
-        compareResource(archive, path, canonical, target, 128, 128, errors)
+        compareResource(archive, path, BlockbenchPng.decode(
+                CatalogTools.blockbenchFile(root, catalog, catalog.mod.icon.toString())), target, 128, 128, errors)
     }
 
     static void compareResource(ZipFile archive, String path, File source, Map target, int width, int height, List<String> errors) {
         if (!source.isFile() || archive.getEntry(path) == null) return
-        byte[] expected = source.bytes
+        compareResource(archive, path, source.bytes, target, width, height, errors)
+    }
+
+    static void compareResource(ZipFile archive, String path, byte[] expected, Map target, int width, int height, List<String> errors) {
+        if (archive.getEntry(path) == null) return
         byte[] actual = read(archive, path)
         if (!MessageDigest.isEqual(expected, actual)) errors.add("${target.id}: resource hash differs for ${path}")
         if (actual.length < 24 || !MessageDigest.isEqual(actual[0..7] as byte[], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as byte[]) || new String(actual, 12, 4, StandardCharsets.ISO_8859_1) != 'IHDR') { errors.add("${target.id}: invalid PNG ${path}"); return }
         int actualWidth = readInt(actual, 16)
         int actualHeight = readInt(actual, 20)
         if (actualWidth != width || actualHeight != height) errors.add("${target.id}: ${path} must be ${width}x${height}")
+    }
+
+    private static void compareGeneratedResource(ZipFile archive, String path, byte[] expected, Map target, List<String> errors) {
+        if (archive.getEntry(path) == null) {
+            errors.add("${target.id}: missing generated resource ${path}")
+        } else if (!MessageDigest.isEqual(expected, read(archive, path))) {
+            errors.add("${target.id}: generated resource differs from its Blockbench source ${path}")
+        }
     }
 
     static void verifyManifest(ZipFile archive, Map target, List<String> errors) {
@@ -749,6 +903,9 @@ final class ArtifactVerifier {
         text.readLines().each { String line -> int split = line.indexOf(':'); if (split > 0) attributes[line.substring(0, split).trim()] = line.substring(split + 1).trim() }
         if (attributes['Automatic-Module-Name'] != target.artifact.automaticModuleName) errors.add("${target.id}: Automatic-Module-Name differs from catalog")
         if (target.loader.id == 'forge') {
+            CatalogTools.validateMixinDeclarations(
+                    (attributes['MixinConfigs'] ?: '').split(',').collect { it.trim() },
+                    "${target.id}: manifest", errors)
             String mixins = ((target.metadata.serverMixins ?: []) + (target.metadata.mixins ?: [])).join(',')
             if ((attributes['MixinConfigs'] ?: '') != mixins) errors.add("${target.id}: MixinConfigs differs from catalog")
         }

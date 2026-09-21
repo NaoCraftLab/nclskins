@@ -1,10 +1,12 @@
 package com.naocraftlab.skins.buildlogic
 
+import groovy.json.JsonSlurper
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 
 import static org.junit.jupiter.api.Assertions.*
 
@@ -57,7 +59,12 @@ final class LocalizationVerifierTest {
         File directory = new File(repository,
                 'compat/resources/canonical/src/main/resources/assets/nclskins/lang')
         Map baseline = CatalogTools.loadJson(new File(directory, 'en_us.json'))
-        assertEquals(233, baseline.size())
+        assertEquals(284, baseline.size())
+        assertEquals('NCL Skins', baseline['key.category.nclskins.main'])
+        assertTrue(LocalizationVerifier.productionKeys(repository).containsAll([
+                'key.category.nclskins.main', 'key.nclskins.open_gallery',
+                'key.nclskins.edit_active_preset', 'key.nclskins.open_providers',
+                'key.nclskins.open_skin_catalog', 'key.nclskins.open_skin_import']))
         Set<String> expectedProduction = baseline.keySet() as Set
         Set<String> actualProduction = LocalizationVerifier.productionKeys(repository)
         assertTrue((expectedProduction - actualProduction).isEmpty() &&
@@ -134,7 +141,7 @@ final class LocalizationVerifierTest {
                 'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
                         'mojang_collections/assets/nclskins/lang')
         Set<String> expected = LocalizationVerifier.collectionKeys(repository)
-        assertEquals(62, expected.size())
+        assertEquals(127, expected.size())
         LocalizationVerifier.sourceLocales(catalog).each { String locale ->
             Set<String> actual = CatalogTools.loadJson(
                     new File(directory, "${locale}.json")).keySet() as Set
@@ -170,6 +177,109 @@ final class LocalizationVerifierTest {
         assertEquals(beforeFinderMetadata, errors)
         assertTrue(Files.exists(finderFile))
         assertTrue(Files.exists(finderArchive))
+    }
+
+    @Test
+    void capeProvenanceOwnsTheExactCurrentInventoryAndNoticeLinks() {
+        File pack = new File(repository,
+                'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
+                        'mojang_collections')
+        Set<String> collections = []
+        Files.walk(new File(pack, 'assets').toPath()).withCloseable { stream ->
+            stream.filter { Path path ->
+                Files.isRegularFile(path) && path.toString().endsWith('.png') &&
+                        (path.toString().replace('\\', '/').contains('/textures/entity/player/') ||
+                                path.toString().replace('\\', '/').contains('/textures/entity/cape/'))
+            }.forEach { Path path -> collections.add(
+                    pack.toPath().relativize(path).getName(1).toString()) }
+        }
+        Map provenance = new JsonSlurper().parse(
+                new File(repository, 'gradle/asset-provenance/mojang-capes.json')) as Map
+
+        assertEquals(12, collections.size())
+        assertEquals([
+                'mojang_minecon_earth_2017', 'mojang_builders_and_biomes',
+                'mojang_striding_hero', 'mojang_the_garden_awakens',
+                'mojang_chase_the_skies', 'mojang_the_copper_age',
+                'mojang_mounts_of_mayhem', 'mojang_tiny_takeover',
+                'mojang_chaos_cubed', 'mojang_account_ownership',
+                'mojang_account_events', 'mojang_global_events'
+        ] as Set, collections)
+        assertFalse(new File(pack, 'assets/nclskins/collections.json').exists())
+        assertEquals(false, provenance.releaseApproved)
+        assertNull(provenance.approvedAssetSetSha256)
+        assertEquals(28, provenance.entries.size())
+        assertEquals([
+                mojang_account_ownership: 4,
+                mojang_account_events: 21,
+                mojang_global_events: 3
+        ], provenance.entries.countBy { it.collectionId })
+        assertTrue(provenance.entries.every { it.owner == 'Mojang Studios' })
+        assertTrue(provenance.entries.every { it.releaseApproved == false })
+        assertEquals(2, provenance.entries.count {
+            it.sourceKind == 'archival_exact_copy' && it.officialUrlFound == false
+        })
+
+        Set<String> manifestPaths = provenance.entries.collect { it.texturePath } as Set
+        Set<String> diskPaths = []
+        Files.walk(new File(pack, 'assets').toPath()).withCloseable { stream ->
+            stream.filter { Path path ->
+                Files.isRegularFile(path) && path.toString().endsWith('.png') &&
+                        path.toString().replace('\\', '/').contains('/textures/entity/cape/')
+            }.forEach { Path path ->
+                diskPaths.add(pack.toPath().relativize(path).toString().replace('\\', '/'))
+            }
+        }
+        assertEquals(manifestPaths, diskPaths)
+        provenance.entries.each { Map entry ->
+            File texture = new File(pack, entry.texturePath.toString())
+            assertEquals(entry.sha256, HexFormat.of().formatHex(
+                    MessageDigest.getInstance('SHA-256').digest(texture.bytes)))
+            String notice = new File(pack,
+                    "assets/${entry.collectionId}/notice-mojang.md").getText('UTF-8')
+            assertTrue(notice.contains("textures/entity/cape/${entry.capeId}.png"))
+            assertTrue(notice.contains(entry.sha256.toString()))
+        }
+        assertEquals(12, Files.walk(pack.toPath()).withCloseable { stream ->
+            stream.filter { it.fileName.toString() == 'notice-mojang.md' }.count()
+        })
+        assertFalse(new File(pack, 'assets/nclskins/cape-provenance.json').exists())
+        assertTrue((manifestPaths*.toString()).every {
+            !it.contains('/bacon.png') && !it.contains('/birthday.png') &&
+                    !it.contains('/mojang.png') && !it.contains('/moderator.png')
+        })
+    }
+
+    @Test
+    void coherentCapeTakedownKeepsDerivedMetadataAndProvenanceConsistent(@TempDir Path temp) {
+        Path capes = temp.resolve(
+                'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
+                        'mojang_collections/assets/mojang_fixture/textures/entity/cape')
+        Files.createDirectories(capes)
+        Files.write(capes.resolve('retained.png'), [1] as byte[])
+        Files.write(capes.resolve('removed.png'), [2] as byte[])
+
+        assertTrue(LocalizationVerifier.collectionKeys(temp.toFile()).containsAll([
+                'nclskins.mojang_fixture.cape.retained.name',
+                'nclskins.mojang_fixture.cape.retained.description',
+                'nclskins.mojang_fixture.cape.removed.name',
+                'nclskins.mojang_fixture.cape.removed.description'
+        ]))
+
+        Files.delete(capes.resolve('removed.png'))
+        Set<String> remainingKeys = LocalizationVerifier.collectionKeys(temp.toFile())
+        assertTrue(remainingKeys.contains('nclskins.mojang_fixture.cape.retained.name'))
+        assertFalse(remainingKeys.any { it.contains('.cape.removed.') })
+
+        Set<String> manifest = ['assets/mojang_fixture/textures/entity/cape/retained.png']
+        Set<String> files = ['assets/mojang_fixture/textures/entity/cape/retained.png']
+        List<String> errors = []
+        ArtifactVerifier.verifyMojangCapeInventory(manifest, files, 'fixture', errors)
+        assertEquals([], errors)
+
+        files.add('assets/mojang_fixture/textures/entity/cape/orphan.png')
+        ArtifactVerifier.verifyMojangCapeInventory(manifest, files, 'fixture', errors)
+        assertEquals(['fixture: Mojang cape provenance inventory differs'], errors*.toString())
     }
 
     @Test

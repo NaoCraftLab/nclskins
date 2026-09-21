@@ -26,7 +26,7 @@ final class Json5ConfigurationRepositoryTest {
 
         String client = read(Json5ConfigurationRepository.CLIENT_FILE_NAME);
         String server = read(Json5ConfigurationRepository.SERVER_FILE_NAME);
-        assertTrue(client.contains("// Show the clickable NCL Skins player preview on the title screen."));
+        assertTrue(client.contains("// Choose where to show the clickable NCL Skins player preview on the title screen: right, left, or off."));
         assertTrue(client.contains("\"dataDirectory\": \"\""));
         assertTrue(client.contains("\"hideIncompatibleCatalogSkins\": false"));
         assertTrue(client.contains("\"hideIncompatibleGalleryLooks\": false"));
@@ -81,8 +81,8 @@ final class Json5ConfigurationRepositoryTest {
 
         ClientConfiguration loaded = bundledRepository().loadClient();
 
-        assertFalse(loaded.menuPreview().titleScreen());
-        assertTrue(loaded.menuPreview().pauseMenu());
+        assertEquals(MenuPreviewPlacement.OFF, loaded.menuPreview().titleScreen());
+        assertEquals(MenuPreviewPlacement.RIGHT, loaded.menuPreview().pauseMenu());
         assertEquals("", loaded.storage().dataDirectory());
         String rewritten = read(Json5ConfigurationRepository.CLIENT_FILE_NAME);
         assertFalse(rewritten.contains("removed"));
@@ -107,8 +107,8 @@ final class Json5ConfigurationRepositoryTest {
 
         ClientConfiguration loaded = bundledRepository().loadClient();
 
-        assertFalse(loaded.menuPreview().titleScreen());
-        assertTrue(loaded.menuPreview().pauseMenu());
+        assertEquals(MenuPreviewPlacement.OFF, loaded.menuPreview().titleScreen());
+        assertEquals(MenuPreviewPlacement.RIGHT, loaded.menuPreview().pauseMenu());
         assertEquals(absolute.normalize().toString(), loaded.storage().dataDirectory());
         assertEquals(
                 bundledRepository().canonicalClient(loaded),
@@ -199,11 +199,11 @@ final class Json5ConfigurationRepositoryTest {
 
         ClientConfiguration loaded = bundledRepository().loadClient();
 
-        assertFalse(loaded.menuPreview().titleScreen());
-        assertFalse(loaded.menuPreview().pauseMenu());
+        assertEquals(MenuPreviewPlacement.OFF, loaded.menuPreview().titleScreen());
+        assertEquals(MenuPreviewPlacement.OFF, loaded.menuPreview().pauseMenu());
         String rewritten = read(Json5ConfigurationRepository.CLIENT_FILE_NAME);
         assertFalse(rewritten.contains("Old description"));
-        assertTrue(rewritten.contains("Show the clickable NCL Skins player preview"));
+        assertTrue(rewritten.contains("Choose where to show the clickable NCL Skins player preview"));
     }
 
     @Test

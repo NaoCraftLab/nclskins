@@ -184,6 +184,23 @@ class SkinCatalogSourceTest {
             public List<CollectionDescriptor> collections() {
                 return List.of(event, MinecraftSkinCatalog.collections().get(0));
             }
+
+            @Override
+            public List<CapeCatalogSource.CollectionDescriptor> capeCollections() {
+                return List.of(new CapeCatalogSource.CollectionDescriptor(
+                        "earth",
+                        CatalogText.collectionName("earth"),
+                        Optional.empty(),
+                        Optional.empty(),
+                        List.of(new CapeCatalogSource.CapeDescriptor(
+                                "bee",
+                                CatalogText.capeName("earth", "bee"),
+                                Optional.empty(),
+                                Optional.empty(),
+                                "earth:textures/entity/cape/bee.png",
+                                CapeCatalogSource.RenderSupport.CAPE_ONLY)),
+                        CatalogCollectionOrder.resourcePack("file/mojang.zip", 0)));
+            }
         };
         SkinCatalogSource vanilla = (collectionId, skinId, model) -> new byte[]{2};
 
@@ -196,5 +213,7 @@ class SkinCatalogSourceTest {
         assertArrayEquals(new byte[]{2}, layered.load("minecraft", "steve", SkinModel.CLASSIC));
         assertTrue(layered.collections().get(1).order().kind()
                 == CatalogCollectionOrder.Kind.VANILLA);
+        assertEquals(List.of("earth"), layered.capeCollections().stream()
+                .map(CapeCatalogSource.CollectionDescriptor::id).toList());
     }
 }

@@ -34,6 +34,13 @@ public final class ResourceLocationCurrentPlayerAppearanceSource
     }
 
     @Override
+    public PlayerAppearance defaultPlayerAppearance() {
+        UUID profileId = Minecraft.getInstance().getUser().getProfileId();
+        return new PlayerAppearance(new TextureHandle(DefaultPlayerSkin.getDefaultSkin(profileId).toString(), 64, 64),
+                defaultModel(profileId), Optional.empty());
+    }
+
+    @Override
     public PlayerAppearance currentPlayerAppearance() {
         Minecraft minecraft = Minecraft.getInstance();
         GameProfile profile = minecraft.getUser().getGameProfile();

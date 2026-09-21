@@ -16,7 +16,10 @@ public interface BackEquipmentPreviewRenderer<C> {
             int left,
             int top,
             int width,
-            int height) {
+            int height, boolean capeHasElytra) {
+        public Request(TextureRegistry.TextureHandle texture, Mode mode, int left, int top, int width, int height) {
+            this(texture, mode, left, top, width, height, true);
+        }
         public Request {
             Objects.requireNonNull(texture, "texture");
             Objects.requireNonNull(mode, "mode");

@@ -55,6 +55,10 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
                 Objects.requireNonNull(publisher, "publisher"));
     }
 
+    public void providerVisibility(com.naocraftlab.skins.client.ProviderVisibility visibility) {
+        if (!closed) sink.providerVisibility(visibility);
+    }
+
     public long generation() {
         return generation.get();
     }
@@ -183,7 +187,7 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
                 appearance.localSkinSha256(),
                 appearance.skinVariant().map(AppearanceRefreshCoordinator::skinModel),
                 appearance.capeTexture(),
-                appearance.localCapeCacheKey());
+                appearance.localCapeCacheKey(), appearance.capeHasElytra());
     }
 
     private static SkinModel skinModel(SkinVariant variant) {

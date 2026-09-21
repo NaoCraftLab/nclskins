@@ -2,6 +2,7 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.core.config.ClientConfiguration;
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 
 import java.nio.file.Path;
 import java.util.Objects;
@@ -25,12 +26,12 @@ public final class ClientConfigurationDraft {
         return value.get();
     }
 
-    public void setTitleScreenPreview(boolean enabled) {
-        value.updateAndGet(current -> current.withTitleScreenPreview(enabled));
+    public void setTitleScreenPreview(MenuPreviewPlacement placement) {
+        value.updateAndGet(current -> current.withTitleScreenPreview(placement));
     }
 
-    public void setPauseMenuPreview(boolean enabled) {
-        value.updateAndGet(current -> current.withPauseMenuPreview(enabled));
+    public void setPauseMenuPreview(MenuPreviewPlacement placement) {
+        value.updateAndGet(current -> current.withPauseMenuPreview(placement));
     }
 
     public void setHideIncompatibleCatalogSkins(boolean enabled) {

@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.keybindings.mixin",
+  "client": [
+    "KeyboardScreenKeybindingMixin",
+    "MouseScreenKeybindingMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

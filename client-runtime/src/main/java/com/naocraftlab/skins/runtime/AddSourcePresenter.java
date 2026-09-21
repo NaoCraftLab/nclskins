@@ -17,17 +17,14 @@ import java.util.Optional;
 
 
 public final class AddSourcePresenter {
-    private static final int TAB_BAR_HEIGHT = 24;
-    private static final int CONTROLS_GAP = 7;
-    private static final int CONTROLS_HEIGHT = 20;
+    private static final int TAB_BAR_HEIGHT = ViewChromeMetrics.CATALOG_TAB_BAR_HEIGHT;
+    private static final int CONTROLS_GAP = ViewChromeMetrics.CATALOG_CONTROLS_GAP;
+    private static final int CONTROLS_HEIGHT = ViewChromeMetrics.CATALOG_CONTROLS_HEIGHT;
     private static final int CONTROLS_TOP = TAB_BAR_HEIGHT + CONTROLS_GAP;
-    private static final int CONTENT_TOP = CONTROLS_TOP + CONTROLS_HEIGHT + CONTROLS_GAP;
+    private static final int CONTENT_TOP = ViewChromeMetrics.CATALOG_CONTENT_TOP;
     private static final int DISCLOSURE_BUTTON_SIZE = 20;
     private static final int CONTROL_GAP = 6;
-    private static final int CARD_GAP = 6;
-    private static final int MAX_CARD_HEIGHT = 132;
-    private static final int MIN_CARD_HEIGHT = 72;
-    private static final int COLLECTION_HEADER_HEIGHT = 16;
+    private static final int COLLECTION_HEADER_HEIGHT = CollectionGridLayout.COLLECTION_HEADER_HEIGHT;
 
     public ViewSpec present(AddSourceModel model, boolean busy, int width, int height) {
         return present(model, busy, Optional.empty(), width, height);
@@ -163,9 +160,9 @@ public final class AddSourcePresenter {
             operationStatus.filter(status -> status.severity() == UiMessage.Severity.ERROR)
                     .ifPresent(status -> texts.add(new ViewSpec.Text(
                     "add.import.status",
-                            new Bounds(contentX, Math.min(height - 40, 196), contentWidth, 10),
+                            new Bounds(contentX, 187, contentWidth, model.messageHeight(status, contentWidth)),
                     status,
-                    ViewSpec.Text.Alignment.CENTER)));
+                    ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP)));
         } else {
             int filterWidth = Math.min(104, Math.max(72, width / 4));
             int disclosureX = width - 16 - DISCLOSURE_BUTTON_SIZE;
@@ -355,6 +352,7 @@ public final class AddSourcePresenter {
         int y = CONTENT_TOP - Math.min(model.scrollOffset(), layout.maximum());
         for (SkinCatalogSource.CollectionDescriptor collection : model.visibleCollections()) {
             List<SkinCatalogSource.SkinDescriptor> skins = model.visibleSkins(collection);
+            int cardHeight = collectionCardHeight(collection, layout.cardHeight());
             boolean collapsed = model.collectionCollapsed(collection.id());
             Bounds header = new Bounds(16, y, Math.max(1, layout.contentRight() - 16), COLLECTION_HEADER_HEIGHT);
             String headerId = "add.catalog.collection:" + collection.id();
@@ -388,7 +386,7 @@ public final class AddSourcePresenter {
                         ViewSpec.Text.Alignment.LEFT,
                         UiMessage.literal(info, UiMessage.Severity.INFO))));
             }
-            y += COLLECTION_HEADER_HEIGHT + 4;
+            y += COLLECTION_HEADER_HEIGHT + CollectionGridLayout.COLLECTION_HEADER_GAP;
             if (collapsed) {
                 continue;
             }
@@ -396,9 +394,9 @@ public final class AddSourcePresenter {
             for (int index = 0; index < skins.size(); index++) {
                 int column = index % layout.columns();
                 int row = index / layout.columns();
-                int cardX = layout.cardStartX() + column * (layout.cardWidth() + CARD_GAP);
-                int cardY = y + row * (layout.cardHeight() + CARD_GAP);
-                Bounds card = new Bounds(cardX, cardY, layout.cardWidth(), layout.cardHeight());
+                int cardX = layout.cardStartX() + column * (layout.cardWidth() + CatalogCardSizing.GAP);
+                int cardY = y + row * (cardHeight + CatalogCardSizing.GAP);
+                Bounds card = new Bounds(cardX, cardY, layout.cardWidth(), cardHeight);
                 SkinCatalogSource.SkinDescriptor skin = skins.get(index);
                 String prefix = "add.catalog.skin:" + collection.id() + ":" + skin.id();
                 navigationNodes.add(ViewSpec.NavigationNode.card(
@@ -434,13 +432,7 @@ public final class AddSourcePresenter {
                         .filter(rename -> rename.collectionId().equals(collection.id()))
                         .filter(rename -> rename.sha256().equals(skin.id()))
                         .isPresent();
-                int nameX = card.x() + 4;
-                int nameRight = card.right() - 4;
-                Bounds nameBounds = new Bounds(
-                        nameX,
-                        card.y() + 7,
-                        Math.max(1, nameRight - nameX),
-                        10);
+                Bounds nameBounds = CatalogCardGeometry.name(card);
                 if (!renamingThisCard && intersectsViewport(nameBounds, contentBottom)) {
                     texts.add(new ViewSpec.Text(
                         prefix + ".name",
@@ -458,11 +450,9 @@ public final class AddSourcePresenter {
                             UiMessage.literal(info, UiMessage.Severity.INFO))));
                 }
                 boolean personal = collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL;
-                Bounds previewBounds = new Bounds(
-                        card.x() + 5,
-                        card.y() + 20,
-                        Math.max(1, card.width() - 10),
-                        Math.max(1, layout.cardHeight() - (personal ? 48 : 25)));
+                Bounds previewBounds = personal
+                        ? CatalogCardGeometry.previewWithActions(card)
+                        : CatalogCardGeometry.preview(card);
                 if (intersectsViewport(previewBounds, contentBottom)) {
                     previews.add(new ViewSpec.Preview(
                         prefix + ".preview",
@@ -499,11 +489,12 @@ public final class AddSourcePresenter {
                 }
                 if (renamingThisCard) {
                     PersonalSkinRename rename = personalRename.orElseThrow();
+                    CatalogCardGeometry.ActionPair actions = CatalogCardGeometry.renameActions(card);
                     addIntersectingWidget(
                             widgets,
                             ViewSpec.Widget.textField(
                                     "add.catalog.rename.name",
-                                    new Bounds(card.x() + 3, card.y() + 3, card.width() - 6, 20),
+                                    CatalogCardGeometry.renameField(card),
                                     UiMessage.info("nclskins.your_skins.rename"),
                                     rename.value(),
                                     UiMessage.info("nclskins.your_skins.rename_hint"),
@@ -512,12 +503,11 @@ public final class AddSourcePresenter {
                                     true,
                                     Optional.of("add.catalog.rename.save")),
                             contentBottom);
-                    int half = Math.max(1, (card.width() - 8) / 2);
                     addIntersectingWidget(
                             widgets,
                             ViewSpec.Widget.button(
                                     "add.catalog.rename.save",
-                                    new Bounds(card.x() + 3, card.bottom() - 23, half, 20),
+                                    actions.left(),
                                     UiMessage.info("nclskins.your_skins.rename_save"),
                                     !busy && !rename.value().trim().isEmpty()),
                             contentBottom);
@@ -525,19 +515,12 @@ public final class AddSourcePresenter {
                             widgets,
                             ViewSpec.Widget.button(
                                     "add.catalog.rename.cancel",
-                                    new Bounds(card.x() + 5 + half, card.bottom() - 23, card.width() - half - 8, 20),
+                                    actions.right(),
                                     UiMessage.info("gui.cancel"),
                                     !busy),
                             contentBottom);
                 } else if (personal) {
-                    int half = Math.max(1, (card.width() - 6) / 2);
-                    Bounds leftAction = new Bounds(
-                            card.x() + 2, card.bottom() - 22, half, 20);
-                    Bounds rightAction = new Bounds(
-                            card.x() + 4 + half,
-                            card.bottom() - 22,
-                            Math.max(1, card.width() - half - 6),
-                            20);
+                    CatalogCardGeometry.ActionPair actions = CatalogCardGeometry.personalActions(card);
                     boolean pendingDelete = model.personalSkinDeletion()
                             .filter(deletion -> deletion.collectionId().equals(collection.id()))
                             .filter(deletion -> deletion.sha256().equals(skin.id()))
@@ -547,7 +530,7 @@ public final class AddSourcePresenter {
                                 widgets,
                                 ViewSpec.Widget.button(
                                         "add.catalog.delete.confirm",
-                                        leftAction,
+                                        actions.left(),
                                         UiMessage.info("nclskins.your_skins.delete_confirm"),
                                         !busy),
                                 contentBottom,
@@ -556,7 +539,7 @@ public final class AddSourcePresenter {
                                 widgets,
                                 ViewSpec.Widget.button(
                                         "add.catalog.delete.cancel",
-                                        rightAction,
+                                        actions.right(),
                                         UiMessage.info("gui.cancel"),
                                         !busy),
                                 contentBottom,
@@ -567,9 +550,9 @@ public final class AddSourcePresenter {
                                 ViewSpec.Widget.iconButton(
                                         AddSourceModel.personalActionId(
                                                 "add.catalog.rename:", collection.id(), skin.id()),
-                                        leftAction,
+                                        actions.left(),
                                         UiMessage.info("nclskins.your_skins.rename"),
-                                        GuiIcon.ACTION_EDIT,
+                                        GuiIcon.ACTION_RENAME,
                                         !busy && !transientMode),
                                 contentBottom);
                         addIntersectingWidget(
@@ -577,7 +560,7 @@ public final class AddSourcePresenter {
                                 ViewSpec.Widget.iconButton(
                                         AddSourceModel.personalActionId(
                                                 "add.catalog.delete:", collection.id(), skin.id()),
-                                        rightAction,
+                                        actions.right(),
                                         UiMessage.info("nclskins.your_skins.delete"),
                                         GuiIcon.ACTION_DELETE,
                                         !busy && !transientMode),
@@ -586,7 +569,8 @@ public final class AddSourcePresenter {
                 }
             }
             int rows = (skins.size() + layout.columns() - 1) / layout.columns();
-            y += rows * (layout.cardHeight() + CARD_GAP) + 8;
+            y += rows * (cardHeight + CatalogCardSizing.GAP)
+                    + CollectionGridLayout.COLLECTION_BOTTOM_PADDING;
         }
     }
 
@@ -613,6 +597,12 @@ public final class AddSourcePresenter {
         }
     }
 
+    private static int collectionCardHeight(
+            SkinCatalogSource.CollectionDescriptor collection, int personalHeight) {
+        return collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL
+                ? personalHeight : CatalogCardGeometry.readOnlyHeight(personalHeight);
+    }
+
     private static CatalogLayout catalogLayout(
             AddSourceModel model,
             int width,
@@ -620,10 +610,12 @@ public final class AddSourcePresenter {
             ViewChromeMetrics chromeMetrics) {
         Objects.requireNonNull(chromeMetrics, "chromeMetrics");
         List<SkinCatalogSource.CollectionDescriptor> collections = model.visibleCollections();
+        CollectionGridLayout.CardMetrics metrics = CatalogCardSizing.reference(width, height, chromeMetrics);
         List<CollectionGridLayout.Section> sections = collections.stream()
                 .map(collection -> new CollectionGridLayout.Section(
                         model.visibleSkins(collection).size(),
-                        model.collectionCollapsed(collection.id())))
+                        model.collectionCollapsed(collection.id()),
+                        collectionCardHeight(collection, metrics.height())))
                 .toList();
         CollectionGridLayout.Layout layout = CollectionGridLayout.calculate(
                 width,
@@ -633,11 +625,8 @@ public final class AddSourcePresenter {
                 0,
                 0,
                 COLLECTION_HEADER_HEIGHT,
-                CARD_GAP,
-                68,
-                96,
-                MIN_CARD_HEIGHT,
-                MAX_CARD_HEIGHT,
+                CatalogCardSizing.GAP,
+                metrics,
                 model.scrollOffset(),
                 sections);
         return new CatalogLayout(

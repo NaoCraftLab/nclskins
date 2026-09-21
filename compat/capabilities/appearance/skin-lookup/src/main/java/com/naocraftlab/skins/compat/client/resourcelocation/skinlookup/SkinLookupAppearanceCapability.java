@@ -28,8 +28,9 @@ import net.minecraft.resources.ResourceLocation;
 
 final class SkinLookupAppearanceCapability
         implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>, AutoCloseable {
+    private Runnable maintenanceDirty = () -> { };
     private final ResourceLocationTextureRegistry textures =
-            new ResourceLocationTextureRegistry("live/appearance");
+            new ResourceLocationTextureRegistry("live/appearance", this::markMaintenanceDirty);
     private final AppearanceOverrideController<InstalledOverride, TextureHandle> overrides =
             new AppearanceOverrideController<>(new AppearanceOverrideController.Strategy<>() {
                 @Override
@@ -66,6 +67,11 @@ final class SkinLookupAppearanceCapability
             });
 
     @Override
+    public void providerVisibility(com.naocraftlab.skins.client.ProviderVisibility visibility) {
+        MinecraftProviderVisibility.set(visibility);
+    }
+
+    @Override
     public ApplyResult apply(ResolvedProfile<AcknowledgedAppearanceAssets> resolvedProfile) {
         Objects.requireNonNull(resolvedProfile, "resolvedProfile");
         Minecraft minecraft = Minecraft.getInstance();
@@ -78,7 +84,7 @@ final class SkinLookupAppearanceCapability
         ExpectedAppearance expected = resolvedProfile.expectedAppearance();
         Optional<ApplyResult> reattached = overrides.reattachIfActive(expected);
         if (reattached.isPresent()) {
-            return reattached.orElseThrow();
+            return dirty(reattached.orElseThrow());
         }
 
         AcknowledgedAppearanceAssets payload = resolvedProfile.platformProfile();
@@ -108,10 +114,10 @@ final class SkinLookupAppearanceCapability
                 cape = location(capeHandle);
             }
 
-            PlayerSkin skin = new PlayerSkin(body, "", cape, cape, model, false);
+            PlayerSkin skin = new PlayerSkin(body, "", cape, expected.capeHasElytra() || cape == null ? cape : ResourceLocation.withDefaultNamespace("textures/entity/elytra.png"), model, false);
             InstalledOverride replacement =
                     new InstalledOverride(expected, skin, () -> skin, skinHandle, capeHandle);
-            return overrides.install(replacement);
+            return dirty(overrides.install(replacement));
         } catch (IOException | RuntimeException invalidTextureOrClientState) {
             release(skinHandle);
             release(capeHandle);
@@ -144,7 +150,7 @@ final class SkinLookupAppearanceCapability
         Objects.requireNonNull(expected, "expected");
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
-        return overrides.reattach(expected);
+        return dirty(overrides.reattach(expected));
     }
 
     @Override
@@ -156,8 +162,8 @@ final class SkinLookupAppearanceCapability
             return ApplyResult.DEFERRED;
         }
         PlayerSkin accountDefault = DefaultPlayerSkin.get(expected.profileId());
-        return overrides.install(new InstalledOverride(
-                expected, accountDefault, () -> accountDefault, null, null));
+        return dirty(overrides.install(new InstalledOverride(
+                expected, accountDefault, () -> accountDefault, null, null)));
     }
 
 
@@ -184,10 +190,20 @@ final class SkinLookupAppearanceCapability
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
         overrides.invalidate(expected);
+        markMaintenanceDirty();
+    }
+
+    void useMaintenanceDirty(Runnable listener) {
+        maintenanceDirty = Objects.requireNonNull(listener, "listener");
+    }
+
+    boolean hasActiveOverride() {
+        return overrides.active().isPresent();
     }
 
     @Override
     public void close() {
+        MinecraftProviderVisibility.set(com.naocraftlab.skins.client.ProviderVisibility.ALL);
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
         overrides.close();
@@ -197,6 +213,15 @@ final class SkinLookupAppearanceCapability
     private static void install(PlayerInfo playerInfo, InstalledOverride installed) {
         playerInfo.skinLookup = installed.skinLookup();
         playerInfo.getSkin();
+    }
+
+    private ApplyResult dirty(ApplyResult result) {
+        markMaintenanceDirty();
+        return result;
+    }
+
+    private void markMaintenanceDirty() {
+        maintenanceDirty.run();
     }
 
     private static ApplyResult attachToCurrentPlayer(

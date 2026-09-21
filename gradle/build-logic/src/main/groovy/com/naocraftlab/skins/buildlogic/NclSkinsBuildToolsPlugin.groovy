@@ -7,6 +7,7 @@ final class NclSkinsBuildToolsPlugin implements Plugin<Project> {
     @Override
     void apply(Project project) {
         project.extensions.extraProperties.set('nclskinsCatalogTools', CatalogTools)
+        project.extensions.extraProperties.set('nclskinsNativeModelTests', NativeModelTests)
         project.extensions.extraProperties.set('nclskinsMetadataRenderer', MetadataRenderer)
         project.extensions.extraProperties.set('nclskinsLoaderBackend', LoaderBackend)
         project.extensions.extraProperties.set('nclskinsRunLayout', RunLayout)
@@ -18,6 +19,7 @@ final class NclSkinsBuildToolsPlugin implements Plugin<Project> {
         project.extensions.extraProperties.set('nclskinsGenerateUpdateCatalogTaskType', GenerateUpdateCatalogTask)
         project.extensions.extraProperties.set('nclskinsVerifyUpdateCatalogDeploymentTaskType', VerifyUpdateCatalogDeploymentTask)
         project.extensions.extraProperties.set('nclskinsGenerateTargetBindingsTaskType', GenerateTargetBindingsTask)
+        project.extensions.extraProperties.set('nclskinsGenerateBlockbenchPngTaskType', BlockbenchPng.GenerateTask)
         project.extensions.extraProperties.set('nclskinsVerifyCatalogTaskType', VerifyCatalogTask)
         project.extensions.extraProperties.set('nclskinsVerifyPublicationTreeTaskType', VerifyPublicationTreeTask)
         project.extensions.extraProperties.set('nclskinsServerPluginFingerprint', ServerPluginFingerprint)

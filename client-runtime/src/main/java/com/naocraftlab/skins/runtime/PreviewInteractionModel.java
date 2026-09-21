@@ -1,8 +1,9 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.PreviewRenderer;
+
 import java.util.Collection;
 import java.util.Objects;
 
@@ -110,6 +111,15 @@ public record PreviewInteractionModel(
                 : PreviewRenderer.CapeMode.ELYTRA;
         return new PreviewInteractionModel(
                 yawDegrees, pitchDegrees, scale, outerLayerVisibility, next, rotating);
+    }
+
+    public PreviewInteractionModel withCapeMode(PreviewRenderer.CapeMode mode) {
+        Objects.requireNonNull(mode, "mode");
+        if (capeMode == mode) {
+            return this;
+        }
+        return new PreviewInteractionModel(
+                yawDegrees, pitchDegrees, scale, outerLayerVisibility, mode, rotating);
     }
 
     private PreviewInteractionModel withRotating(boolean value) {

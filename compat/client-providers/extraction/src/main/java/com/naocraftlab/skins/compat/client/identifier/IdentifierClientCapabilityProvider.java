@@ -7,6 +7,7 @@ import com.naocraftlab.skins.compat.client.MinecraftServerAppearanceRefreshNotif
 import com.naocraftlab.skins.generated.TargetClientBindings;
 import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.ClientCapabilitySet;
+import com.naocraftlab.skins.runtime.NativeResourceMaintenance;
 
 
 public final class IdentifierClientCapabilityProvider implements ClientCapabilityProvider {
@@ -15,6 +16,9 @@ public final class IdentifierClientCapabilityProvider implements ClientCapabilit
         IdentifierAppearanceSink appearance = new IdentifierAppearanceSink();
         MinecraftClientExecutor clientExecutor = new MinecraftClientExecutor();
         IdentifierBundledSkinSource bundledSkins = new IdentifierBundledSkinSource();
+        NativeResourceMaintenance maintenance = new NativeResourceMaintenance(
+                appearance::hasActiveOverride, appearance::maintain);
+        appearance.useMaintenanceDirty(maintenance::markDirty);
         return new Provision(
                 new ClientCapabilitySet(
                         new MinecraftGameSessionTokenSource(),
@@ -27,7 +31,7 @@ public final class IdentifierClientCapabilityProvider implements ClientCapabilit
                         new IdentifierOuterLayerVisibilityController(),
                         new MinecraftServerAppearanceRefreshNotifier(),
                         TargetClientBindings.skinExtensionEnvironment(bundledSkins)),
-                appearance::maintain,
+                maintenance,
                 appearance::close);
     }
 }

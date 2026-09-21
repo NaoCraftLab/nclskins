@@ -9,7 +9,10 @@ public record OwnedCapeEntry(
         String id,
         String alias,
         RemoteAssetState state,
-        String textureCacheKey) {
+        String textureCacheKey, Boolean hasElytra) {
+    public OwnedCapeEntry(String id, String alias, RemoteAssetState state, String textureCacheKey) {
+        this(id, alias, state, textureCacheKey, null);
+    }
     private static final Pattern CACHE_KEY = Pattern.compile("[0-9a-f]{64}");
 
     public OwnedCapeEntry {
@@ -27,6 +30,10 @@ public record OwnedCapeEntry(
         }
     }
 
+    public OwnedCapeEntry withElytra(boolean value) {
+        return new OwnedCapeEntry(id, alias, state, textureCacheKey, value);
+    }
+
     public Optional<String> optionalAlias() {
         return Optional.ofNullable(alias);
     }
@@ -36,6 +43,6 @@ public record OwnedCapeEntry(
     }
 
     public OwnedCapeEntry withTextureCacheKey(String cacheKey) {
-        return new OwnedCapeEntry(id, alias, state, Objects.requireNonNull(cacheKey, "cacheKey"));
+        return new OwnedCapeEntry(id, alias, state, Objects.requireNonNull(cacheKey, "cacheKey"), hasElytra);
     }
 }

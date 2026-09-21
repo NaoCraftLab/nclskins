@@ -9,7 +9,10 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashSet;
 import java.util.Optional;
@@ -24,6 +27,8 @@ final class AccountUiPreferencesJson {
         root.addProperty("schemaVersion", preferences.schemaVersion());
         root.addProperty("accountId", preferences.accountId().toString());
         root.addProperty("selectedAddSourceTab", preferences.selectedAddSourceTab().name());
+        root.addProperty("selectedEditorTab", preferences.selectedEditorTab().name());
+        root.addProperty("selectedProvidersTab", preferences.selectedProvidersTab().name());
         preferences.preferredSkinVariant()
                 .ifPresent(variant -> root.addProperty("preferredSkinVariant", variant.name()));
         JsonArray collapsedCollectionIds = new JsonArray();
@@ -31,6 +36,9 @@ final class AccountUiPreferencesJson {
                 .sorted()
                 .forEach(collapsedCollectionIds::add);
         root.add("collapsedCollectionIds", collapsedCollectionIds);
+        JsonArray capeCollections = new JsonArray();
+        preferences.collapsedCapeCollections().stream().sorted().forEach(capeCollections::add);
+        root.add("collapsedCapeCollections", capeCollections);
         return (GSON.toJson(root) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
     }
 
@@ -64,12 +72,15 @@ final class AccountUiPreferencesJson {
             } else {
                 throw new JsonParseException("preferredSkinVariant must be a string");
             }
+            Set<String> capeCollections = new LinkedHashSet<>();
+            if (root.has("collapsedCapeCollections")) root.getAsJsonArray("collapsedCapeCollections").forEach(value -> capeCollections.add(value.getAsString()));
             return new AccountUiPreferences(
                     schemaVersion,
                     UUID.fromString(required(root, "accountId").getAsString()),
                     AddSourceTab.valueOf(required(root, "selectedAddSourceTab").getAsString()),
+                    optionalEditorTab(root),
                     preferredSkinVariant,
-                    collapsedCollectionIds);
+                    collapsedCollectionIds, capeCollections, optionalProvidersTab(root));
         } catch (StorageException exception) {
             throw exception;
         } catch (JsonParseException | IllegalArgumentException | IllegalStateException exception) {
@@ -77,6 +88,33 @@ final class AccountUiPreferencesJson {
                     StorageException.Code.INVALID_STATE,
                     "UI preferences are malformed",
                     exception);
+        }
+    }
+
+    private static AppearanceProviders.Component optionalProvidersTab(JsonObject root) {
+        JsonElement value = root.get("selectedProvidersTab");
+        if (value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) {
+            try {
+                return AppearanceProviders.Component.valueOf(value.getAsString());
+            } catch (IllegalArgumentException ignored) {
+                return AppearanceProviders.Component.SKIN;
+            }
+        }
+        return AppearanceProviders.Component.SKIN;
+    }
+
+    private static EditorTab optionalEditorTab(JsonObject root) {
+        JsonElement value = root.get("selectedEditorTab");
+        if (value == null || value.isJsonNull()) {
+            return EditorTab.APPEARANCE;
+        }
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            throw new JsonParseException("selectedEditorTab must be a string");
+        }
+        try {
+            return EditorTab.valueOf(value.getAsString());
+        } catch (IllegalArgumentException unknownTab) {
+            return EditorTab.APPEARANCE;
         }
     }
 

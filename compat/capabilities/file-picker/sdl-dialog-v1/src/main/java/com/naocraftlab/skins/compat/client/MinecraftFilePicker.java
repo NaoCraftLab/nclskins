@@ -46,6 +46,16 @@ public final class MinecraftFilePicker implements FilePicker {
     }
 
     @Override
+    public CompletableFuture<Optional<Path>> chooseCapePng() {
+        return chooseFile(
+                "nclskins.capes.import",
+                null,
+                "PNG image",
+                "png",
+                SelectionType.PNG);
+    }
+
+    @Override
     public CompletableFuture<Optional<Path>> chooseDirectory() {
         return chooseDirectoryFrom(
                 null,

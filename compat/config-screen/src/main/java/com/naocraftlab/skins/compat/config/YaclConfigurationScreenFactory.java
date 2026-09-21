@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.config;
 
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.core.config.ClientConfiguration;
 import com.naocraftlab.skins.core.config.ServerConfiguration;
@@ -16,6 +17,7 @@ import dev.isxander.yacl3.api.OptionFlag;
 import dev.isxander.yacl3.api.OptionGroup;
 import dev.isxander.yacl3.api.YetAnotherConfigLib;
 import dev.isxander.yacl3.api.controller.DoubleFieldControllerBuilder;
+import dev.isxander.yacl3.api.controller.CyclingListControllerBuilder;
 import dev.isxander.yacl3.api.controller.IntegerFieldControllerBuilder;
 import dev.isxander.yacl3.api.controller.TickBoxControllerBuilder;
 import java.util.Objects;
@@ -72,10 +74,21 @@ public final class YaclConfigurationScreenFactory {
                 .build();
     }
 
+    private static CyclingListControllerBuilder<MenuPreviewPlacement> previewPlacementController(
+            Option<MenuPreviewPlacement> option) {
+        return CyclingListControllerBuilder.create(option)
+                .values(MenuPreviewPlacement.RIGHT, MenuPreviewPlacement.LEFT, MenuPreviewPlacement.OFF)
+                .formatValue(placement -> Component.translatable(switch (placement) {
+                    case RIGHT -> "nclskins.config.client.menu_preview.placement.right";
+                    case LEFT -> "nclskins.config.client.menu_preview.placement.left";
+                    case OFF -> "options.off";
+                }));
+    }
+
     private static ConfigCategory clientCategory(
             ClientConfigurationDraft draft) {
         ClientConfiguration defaults = ClientConfiguration.defaults();
-        Option<Boolean> titleScreen = Option.<Boolean>createBuilder()
+        Option<MenuPreviewPlacement> titleScreen = Option.<MenuPreviewPlacement>createBuilder()
                 .name(Component.translatable(
                         "nclskins.config.client.menu_preview.title_screen.name"))
                 .description(description(
@@ -84,9 +97,9 @@ public final class YaclConfigurationScreenFactory {
                         defaults.menuPreview().titleScreen(),
                         () -> draft.value().menuPreview().titleScreen(),
                         draft::setTitleScreenPreview)
-                .controller(TickBoxControllerBuilder::create)
+                .controller(YaclConfigurationScreenFactory::previewPlacementController)
                 .build();
-        Option<Boolean> pauseMenu = Option.<Boolean>createBuilder()
+        Option<MenuPreviewPlacement> pauseMenu = Option.<MenuPreviewPlacement>createBuilder()
                 .name(Component.translatable(
                         "nclskins.config.client.menu_preview.pause_menu.name"))
                 .description(description(
@@ -95,7 +108,7 @@ public final class YaclConfigurationScreenFactory {
                         defaults.menuPreview().pauseMenu(),
                         () -> draft.value().menuPreview().pauseMenu(),
                         draft::setPauseMenuPreview)
-                .controller(TickBoxControllerBuilder::create)
+                .controller(YaclConfigurationScreenFactory::previewPlacementController)
                 .build();
         Option<Boolean> hideIncompatibleCatalogSkins = Option.<Boolean>createBuilder()
                 .name(Component.translatable(

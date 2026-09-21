@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.identifier.submission;
 
+import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.compat.client.identifier.submission.mixin.ScreenRenderablesAccessor;
 import com.naocraftlab.skins.runtime.Bounds;
@@ -34,14 +35,15 @@ public final class NclSkinsMenuPanel {
 
     private NclSkinsMenuPanel() {}
 
-    public static void install(Screen screen, Consumer<AbstractWidget> widgetConsumer) {
+    public static void install(
+            Screen screen, Consumer<AbstractWidget> widgetConsumer, MenuPreviewPlacement placement) {
         if (!(screen instanceof TitleScreen || screen instanceof PauseScreen)
                 || SubmissionClientRuntime.closed()) {
             return;
         }
         NclSkinsScreen.warmSessionSnapshot();
         removed(screen);
-        State state = new State(screen);
+        State state = new State(screen, placement);
         STATES.put(screen, state);
         widgetConsumer.accept(state.action);
         var renderables = ((ScreenRenderablesAccessor) screen).nclskins$renderables();
@@ -83,11 +85,13 @@ public final class NclSkinsMenuPanel {
 
     private static final class State implements Renderable, AutoCloseable {
         private final Screen screen;
+        private final MenuPreviewPlacement placement;
         private final SimplePreviewRenderer renderer =
                 new SimplePreviewRenderer();
         private final Action action = new Action();
 
-        private State(Screen screen) {
+        private State(Screen screen, MenuPreviewPlacement placement) {
+            this.placement = placement;
             this.screen = screen;
         }
 
@@ -95,13 +99,13 @@ public final class NclSkinsMenuPanel {
         public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
             Optional<MenuPanelPresenter.Layout> layout = anchor(screen, action)
                     .flatMap(bounds -> PRESENTER.present(
-                            screen.width, screen.height, mouseX, mouseY, bounds));
+                            screen.width, screen.height, mouseX, mouseY, bounds, placement));
             action.apply(layout.map(MenuPanelPresenter.Layout::buttonBounds));
             if (layout.isEmpty()) {
                 return;
             }
             var appearance = SubmissionClientRuntime.runtime()
-                    .currentPlayerAppearance().orElse(null);
+                    .menuPreviewAppearance().orElse(null);
             if (appearance == null) {
                 return;
             }
@@ -115,14 +119,8 @@ public final class NclSkinsMenuPanel {
                         0x28FFFFFF);
             }
             Bounds preview = value.previewBounds();
-            Optional<com.naocraftlab.skins.client.TextureRegistry.TextureHandle> cape = appearance.cape();
             renderer.render(graphics, new PreviewRenderer.PreviewRequest(
-                    new PreviewRenderer.PreviewAppearance(
-                            appearance.skin(),
-                            appearance.model(),
-                            cape,
-                            cape.isPresent() ? PreviewRenderer.CapeMode.CAPE : PreviewRenderer.CapeMode.OFF,
-                            true),
+                    appearance,
                     preview.x(), preview.y(), preview.width(), preview.height(),
                     value.yawDegrees(), value.pitchDegrees(), value.scale(),
                     PreviewRenderer.PreviewIntent.CURRENT_APPEARANCE));

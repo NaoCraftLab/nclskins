@@ -12,6 +12,7 @@ import com.naocraftlab.skins.core.model.RemoteSkin;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,7 +26,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -309,10 +309,13 @@ public final class MinecraftProfileApi implements ProfileApi {
         }
 
         List<RemoteSkin> skins = new ArrayList<>();
+        boolean skinProjectionComplete = root.has("skins") && root.get("skins").isJsonArray();
         for (JsonElement element : optionalProfileArray(root, "skins")) {
             RemoteSkin skin = decodeSkinEntry(element);
             if (skin != null) {
                 skins.add(skin);
+            } else {
+                skinProjectionComplete = false;
             }
         }
 
@@ -326,7 +329,7 @@ public final class MinecraftProfileApi implements ProfileApi {
 
         Set<String> profileActions = decodeProfileActions(root);
         try {
-            return new RemoteProfile(id, name, skins, capes, profileActions);
+            return new RemoteProfile(id, name, skins, capes, profileActions, skinProjectionComplete);
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException exception) {
             throw invalidProfileResponse(ResponseSchemaCode.PROFILE_MODEL);
         }

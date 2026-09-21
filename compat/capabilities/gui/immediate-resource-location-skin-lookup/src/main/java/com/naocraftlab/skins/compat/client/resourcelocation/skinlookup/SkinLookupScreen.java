@@ -16,6 +16,11 @@ final class SkinLookupScreen extends NclSkinsImmediateScreen {
         super(parent, client);
     }
 
+    SkinLookupScreen(Screen parent, ImmediateClientRuntime client,
+            com.naocraftlab.skins.client.ScreenDestination destination) {
+        super(parent, client, destination);
+    }
+
     @Override
     protected void renderEpochBackground(
             GuiGraphics graphics,

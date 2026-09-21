@@ -1,0 +1,13 @@
+{
+  "menuPreview": {
+    "titleScreen": true,
+    "pauseMenu": true
+  },
+  "compatibility": {
+    "hideIncompatibleCatalogSkins": true,
+    "hideIncompatibleGalleryLooks": false
+  },
+  "storage": {
+    "dataDirectory": ""
+  }
+}

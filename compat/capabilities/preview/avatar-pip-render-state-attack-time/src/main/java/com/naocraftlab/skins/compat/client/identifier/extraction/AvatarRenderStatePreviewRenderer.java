@@ -378,7 +378,7 @@ public final class AvatarRenderStatePreviewRenderer
         ClientAsset.Texture cape = appearance.capeMode() == CapeMode.CAPE
                 ? selectedCape
                 : null;
-        ClientAsset.Texture elytra = appearance.capeMode() == CapeMode.ELYTRA ? selectedCape : null;
+        ClientAsset.Texture elytra = appearance.capeMode() == CapeMode.ELYTRA && appearance.capeHasElytra() ? selectedCape : null;
         PlayerModelType model = appearance.model() == SkinModel.SLIM
                 ? PlayerModelType.SLIM
                 : PlayerModelType.WIDE;

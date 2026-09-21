@@ -133,3 +133,6 @@ dependencies {
     add(modMenuConfiguration, "dev.isxander:yet-another-config-lib:${yaclVersion}")
     add(devLoginConfiguration, "net.covers1624:DevLogin:${targetCatalog.plugins.devLogin}")
 }
+
+ext.nclskinsFancyCompileConfiguration = clientCompileOnlyConfiguration
+apply from: '../../../gradle/fancymenu-conventions.gradle'

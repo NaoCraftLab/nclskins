@@ -17,7 +17,7 @@ public final class PointerRouting {
                         || panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER)
                 .anyMatch(panel -> panel.bounds().contains(x, y))
                 || view.clipRegions().stream()
-                .filter(region -> region.id().equals("editor.capes"))
+                .filter(region -> region.id().equals("editor.capes") || region.id().equals("editor.models"))
                 .anyMatch(region -> region.bounds().contains(x, y));
         Optional<String> previewId = view.previews().stream()
                 .filter(ignored -> !chromeOwnsPointer)

@@ -136,12 +136,67 @@ final class SemanticVerifier {
         verifySuites(root, coverage.sharedSuites, usedSuites, errors)
         verifyRuntimeBoundary(root, errors)
         verifyPublicationBoundary(root, errors)
+        verifyBuiltInPackRegistration(root, errors)
         verifyMixinInjectionPolicy(root, errors)
         verifyCompatibilityReflectionPolicy(root, errors)
         verifyVersionNamespaceScope(root, catalog, errors)
         verifyCatalogCodeIdentifiers(catalog, abi, errors)
         verifyResourceFileNames(root, errors)
         errors
+    }
+
+    static void verifyBuiltInPackRegistration(Path root, List<String> errors) {
+        Path hooks = root.resolve(
+                'client-contract/src/main/java/com/naocraftlab/skins/client/MinecraftClientHooks.java')
+        String hookText = Files.readString(hooks)
+        if (hookText.contains('afterScreenFrame') || hookText.contains(', F>')) {
+            errors.add('MinecraftClientHooks must not expose an unconsumed frame callback')
+        }
+
+        Path descriptor = root.resolve(
+                'client-contract/src/main/java/com/naocraftlab/skins/client/BuiltInClientPackDescriptor.java')
+        String descriptorText = Files.readString(descriptor)
+        ['"nclskins"', '"mojang_collections"', '"resourcepacks/mojang_collections"',
+         '"pack.nclskins.mojang_collections.name"', '"cape_catalog_reload"',
+         'Activation.DEFAULT_ENABLED', 'Position.BOTTOM'].each { String token ->
+            if (!descriptorText.contains(token)) {
+                errors.add("built-in pack descriptor is missing ${token}")
+            }
+        }
+
+        List<String> registrations = [
+                'loader/fabric/immediate/src/main/java/com/naocraftlab/skins/loader/fabric/FabricBuiltInPackRegistrar.java',
+                'loader/fabric/submission/src/main/java/com/naocraftlab/skins/loader/fabric/FabricBuiltInPackRegistrar.java',
+                'loader/fabric/extraction/src/main/java/com/naocraftlab/skins/loader/fabric/FabricBuiltInPackRegistrar.java',
+                'loader/forge/client/src/main/java/com/naocraftlab/skins/loader/forge/client/NclSkinsForgeClientEvents.java',
+                'loader/neoforge/immediate/src/main/java/com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.java',
+                'loader/neoforge/extraction/src/main/java/com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.java'
+        ]
+        registrations.each { String relative ->
+            String text = Files.readString(root.resolve(relative))
+            if (!text.contains('BuiltInClientPackDescriptor.MOJANG_COLLECTIONS')) {
+                errors.add("${relative}: built-in pack registration must use the common descriptor")
+            }
+            ['mojang_collections', 'pack.nclskins.mojang_collections.name',
+             'cape_catalog_reload'].each { String duplicated ->
+                if (text.contains('"' + duplicated + '"')) {
+                    errors.add("${relative}: duplicated built-in pack value ${duplicated}")
+                }
+            }
+        }
+
+        Files.walk(root).withCloseable { stream ->
+            stream.filter { Path source ->
+                String relative = root.relativize(source).toString().replace('\\', '/')
+                Files.isRegularFile(source) && relative.contains('/src/main/java/')
+                        && relative.endsWith('.java') && !relative.startsWith('build/')
+                        && !relative.contains('/build/')
+            }.forEach { Path source ->
+                if (Files.readString(source).contains('afterScreenFrame')) {
+                    errors.add("${root.relativize(source)}: unconsumed afterScreenFrame remains")
+                }
+            }
+        }
     }
 
     static void verifyVersionNamespaceScope(Path root, Map catalog, List<String> errors) {
@@ -299,7 +354,13 @@ final class SemanticVerifier {
                 String relative = root.relativize(source).toString().replace('\\', '/')
                 if (relative.startsWith('.') || relative.startsWith('runs/') ||
                         relative.startsWith('build/')) return
-                if (text ==~ /(?s).*\bget(?:Declared)?(?:Methods|Fields)\s*\(.*/) {
+                boolean publicActionPreflight = relative ==
+                        'compat/fancymenu/src/main/java/com/naocraftlab/skins/compat/fancymenu/FancyMenuActions.java' &&
+                        text.contains('Action.class.getMethods()') &&
+                        text.contains('Modifier.isAbstract(method.getModifiers())') &&
+                        !text.contains('getDeclared') && !text.contains('.invoke(') &&
+                        !text.contains('getFields(') && !text.contains('setAccessible(')
+                if (!publicActionPreflight && text ==~ /(?s).*\bget(?:Declared)?(?:Methods|Fields)\s*\(.*/) {
                     errors.add("${relative}: compatibility discovery by member enumeration is forbidden")
                 }
                 if (text.contains('Class.forName(') && !classLoadingLeaves.contains(relative)) {

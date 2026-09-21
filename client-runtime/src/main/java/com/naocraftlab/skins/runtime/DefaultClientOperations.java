@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.BundledSkinSource;
+import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
@@ -22,6 +23,7 @@ import com.naocraftlab.skins.core.model.AccountUiPreferences;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
@@ -36,6 +38,12 @@ import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
+import com.naocraftlab.skins.core.provider.ProviderCape;
+import com.naocraftlab.skins.core.provider.ProviderChannel;
+import com.naocraftlab.skins.core.provider.ProviderDelivery;
+import com.naocraftlab.skins.core.provider.ProviderSkin;
 import com.naocraftlab.skins.core.service.AppearanceMutationService;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
@@ -93,6 +101,8 @@ public final class DefaultClientOperations implements ClientOperations {
     private final PublicSkinImportService publicImports;
     private final ExternalAppearanceImportService externalImports;
     private final OfficialSkinTextureSource officialSkinTextures;
+    private final OfficialSkinClassifier officialSkinClassifier;
+    private volatile ResolvedOfficialSkin resolvedOfficialSkin;
 
     private final Map<UUID, LibraryObservation> libraryObservations = new ConcurrentHashMap<>();
 
@@ -100,7 +110,18 @@ public final class DefaultClientOperations implements ClientOperations {
 
     private volatile CatalogDiscoveryCache catalogDiscoveryCache;
 
+    private volatile ResourceCapeDiscovery resourceCapeDiscovery = ResourceCapeDiscovery.empty();
+
+    private volatile ResourceCapeSnapshot resourceCapeSnapshot = ResourceCapeSnapshot.empty();
+
+    private volatile CapeEditorData warmedCapeEditorData;
+
+    private volatile UUID warmedCapePreviewAccountId;
+
+    private volatile Map<String, byte[]> warmedCapePreviews = Map.of();
+
     private volatile InitialData preparedInitialData;
+    private volatile UUID startupObservedAccount;
 
     public DefaultClientOperations(
             GameSessionTokenSource tokenSource,
@@ -131,6 +152,7 @@ public final class DefaultClientOperations implements ClientOperations {
         this.profileApi = Objects.requireNonNull(profileApi, "profileApi");
         this.storage = Objects.requireNonNull(storage, "storage");
         this.bundledSkins = Objects.requireNonNull(bundledSkins, "bundledSkins");
+        this.officialSkinClassifier = new OfficialSkinClassifier(bundledSkins);
         this.clock = Objects.requireNonNull(clock, "clock");
         this.library = new LibraryService(storage, clock);
         this.sessionGate = new RemoteSessionGate();
@@ -195,7 +217,9 @@ public final class DefaultClientOperations implements ClientOperations {
     public synchronized void warmSession() throws IOException, PngValidationException {
         if (preparedInitialData == null) {
             preparedInitialData = initializeFresh(
-                    pinCurrentSession(), SessionClassification.CACHED);
+                    pinCurrentSession(), SessionClassification.FRESH_CHECKPOINT);
+            startupObservedAccount = preparedInitialData.account().accountId();
+            warmOwnedCapeCache();
         }
     }
 
@@ -241,19 +265,12 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public boolean reconciliationRecommended(InitialData data) {
         Objects.requireNonNull(data, "data");
-        return ClientOperations.super.reconciliationRecommended(data) || !data.session().valid();
+        return ClientOperations.super.reconciliationRecommended(data);
     }
 
     @Override
     public synchronized InitialData initialize() throws IOException, PngValidationException {
         return initialize(SessionClassification.CACHED);
-    }
-
-    @Override
-    public InitialData initializeForGallery()
-            throws IOException, PngValidationException {
-        return initializeFresh(
-                pinCurrentSession(), SessionClassification.FRESH_CHECKPOINT);
     }
 
     private InitialData initialize(SessionClassification sessionClassification)
@@ -288,7 +305,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 current.outerLayerVisibility(),
                 current.ownedCapes(),
                 current.intentRevision(),
-                current.syncStatus());
+                current.syncStatus(), current.providers());
     }
 
     private InitialData initializeFresh(
@@ -305,6 +322,7 @@ public final class DefaultClientOperations implements ClientOperations {
             SessionClassification sessionClassification)
             throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(context.identity());
+        AppearanceProviders observedConfiguration = storage.loadAppearance(accountId).providers();
         boolean profileValidationResolved = false;
         for (int attempt = 0; attempt < MAX_BOOTSTRAP_CAS_ATTEMPTS; attempt++) {
             AccountState state = seedVanillaDefaults(library.load(accountId));
@@ -315,7 +333,9 @@ public final class DefaultClientOperations implements ClientOperations {
             if (!profileValidationResolved) {
                 validation = switch (sessionClassification) {
                     case CACHED -> sessions.cachedStatus(context.identity());
-                    case FRESH_CHECKPOINT -> sessions.observeFreshAtCheckpoint(context.tokens());
+                    case FRESH_CHECKPOINT -> observedConfiguration.minecraftEnabled()
+                            ? sessions.observeFreshAtCheckpoint(context.tokens())
+                            : sessions.cachedStatus(context.identity());
                     case MANUAL_RETRY -> sessions.manualRetry(context.tokens());
                 };
                 profileValidationResolved = true;
@@ -324,14 +344,14 @@ public final class DefaultClientOperations implements ClientOperations {
 
                 validation = sessions.cachedStatus(context.identity());
             }
-            OfficialSkinSync official = syncCurrentOfficial(state, validation);
+            OfficialSkinSync official = syncCurrentOfficial(state, validation, sessionClassification != SessionClassification.CACHED);
             InitialPresetBootstrap bootstrap = createInitialPresetFromOfficialSkin(official, validation);
             if (bootstrap.revisionMatched()) {
                 return finishInitialization(
                         accountId,
                         bootstrap.official(),
                         validation,
-                        initialization);
+                        initialization, observedConfiguration);
             }
 
 
@@ -341,16 +361,17 @@ public final class DefaultClientOperations implements ClientOperations {
         AccountState latest = seedVanillaDefaults(library.load(accountId));
         latest = library.load(accountId);
         SessionValidation validation = sessions.cachedStatus(context.identity());
-        OfficialSkinSync official = syncCurrentOfficial(latest, validation);
-        return finishInitialization(accountId, official, validation, initialization);
+        OfficialSkinSync official = syncCurrentOfficial(latest, validation, false);
+        return finishInitialization(accountId, official, validation, initialization, observedConfiguration);
     }
 
     private InitialData finishInitialization(
             UUID accountId,
             OfficialSkinSync official,
             SessionValidation validation,
-            StorageInitialization initialization) throws IOException, PngValidationException {
+            StorageInitialization initialization, AppearanceProviders observedConfiguration) throws IOException, PngValidationException {
         Optional<UUID> activePreset = reconcileActivePreset(accountId, official.state(), validation);
+        observeMinecraftProviders(accountId, validation, observedConfiguration, true, true);
         AccountAppearanceState appearance = storage.loadAppearance(accountId);
         Optional<AppliedAppearance> localAppearance = materializeLocalAppearance(
                 accountId, validation.sessionIdentity().profileId(), appearance, validation);
@@ -364,6 +385,13 @@ public final class DefaultClientOperations implements ClientOperations {
         OwnedCapeInventory ownedCapes = validation.valid() && validation.profile() != null
                 ? publishOwnedCapeInventory(accountId, validation.profile())
                 : storage.loadOwnedCapes(accountId);
+        long capeGeneration = capeCatalogGeneration();
+        ResourceCapeDiscovery warmedDiscovery = resourceCapeDiscovery;
+        if (capeGeneration != Long.MIN_VALUE
+                && warmedDiscovery.generation() == capeGeneration) {
+            publishCapeEditorData(
+                    accountId, official.state(), capeGeneration, warmedDiscovery);
+        }
         InitialData result = new InitialData(
                 official.state(),
                 validation,
@@ -376,7 +404,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 appearance.optionalOuterLayerVisibility(),
                 ownedCapes,
                 appearance.intentRevision(),
-                appearance.syncStatus());
+                appearance.syncStatus(), appearance.providers());
         observeProfileValidated(result.account());
         return result;
     }
@@ -389,7 +417,9 @@ public final class DefaultClientOperations implements ClientOperations {
                         cape.id(),
                         cape.optionalAlias().map(DefaultClientOperations::normalizeCapeAlias).orElse(null),
                         cape.state(),
-                        cachedCapeKey(cape, previous.find(cape.id()))))
+                        cachedCapeKey(cape, previous.find(cape.id())),
+                        previous.find(cape.id()).filter(entry -> Objects.equals(entry.textureCacheKey(), TextureCache.cacheKey(cape.textureUri())))
+                                .map(OwnedCapeEntry::hasElytra).orElse(null)))
                 .toList();
         return storage.saveOwnedCapes(new OwnedCapeInventory(
                 OwnedCapeInventory.CURRENT_SCHEMA_VERSION,
@@ -720,9 +750,31 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
+    public void setSelectedProvidersTab(UUID accountId, AppearanceProviders.Component tab) throws IOException {
+        storage.setSelectedProvidersTab(accountId, tab);
+    }
+
+    @Override
+    public void setSelectedAddSourceTab(UUID accountId, AddSourceTab tab) throws IOException {
+        storage.setSelectedAddSourceTab(accountId, tab);
+    }
+
+    @Override
     public void setSelectedAddSourceTab(AddSourceTab tab) throws IOException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
         storage.setSelectedAddSourceTab(accountId, Objects.requireNonNull(tab, "tab"));
+    }
+
+    @Override
+    public void setCollapsedCapeCollections(UUID accountId, Set<String> values) throws IOException {
+        storage.setCollapsedCapeCollections(accountId, values);
+    }
+
+    @Override
+    public void setSelectedEditorTab(UUID accountId, EditorTab tab) throws IOException {
+        storage.setSelectedEditorTab(
+                Objects.requireNonNull(accountId, "accountId"),
+                Objects.requireNonNull(tab, "tab"));
     }
 
     @Override
@@ -870,6 +922,10 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public void warmOwnedCapeCache() throws IOException {
         OperationContext context = pinCurrentSession();
+        if (!storage.loadAppearance(resolveAccountId(context.identity())).providers().cape()
+                .enabled(BuiltinProvider.MINECRAFT)) {
+            return;
+        }
 
 
         SessionValidation validation = sessions.cachedStatus(context.identity());
@@ -879,14 +935,17 @@ public final class DefaultClientOperations implements ClientOperations {
         UUID accountId = resolveAccountId(context.identity());
         RemoteProfile profile = validation.profile();
         publishOwnedCapeInventory(accountId, profile);
+        Map<String, byte[]> previews = new HashMap<>();
         for (RemoteCape cape : profile.capes()) {
             try {
-                textures.get(cape);
+                byte[] capeBytes = java.nio.file.Files.readAllBytes(textures.get(cape).path());
+                Boolean classified = storage.loadOwnedCapes(accountId).find(cape.id()).map(OwnedCapeEntry::hasElytra).orElse(null);
+                boolean hasElytra = classified != null ? classified : new PngValidator().projectCape(capeBytes).hasElytra();
                 String cacheKey = TextureCache.cacheKey(cape.textureUri());
                 storage.updateOwnedCapes(accountId, current -> {
                     List<OwnedCapeEntry> updated = current.capes().stream()
                             .map(entry -> entry.id().equals(cape.id())
-                                    ? entry.withTextureCacheKey(cacheKey)
+                                    ? entry.withTextureCacheKey(cacheKey).withElytra(hasElytra)
                                     : entry)
                             .toList();
                     return new OwnedCapeInventory(
@@ -895,10 +954,29 @@ public final class DefaultClientOperations implements ClientOperations {
                             updated,
                             current.verifiedAt());
                 });
-            } catch (IOException | RuntimeException unavailableCape) {
+                storage.updateAppearance(accountId, current -> current.withProviders(
+                        current.providers().withCapeTexture(cape.id(), cacheKey, hasElytra)));
+                previews.put("cape:" + cape.id(), capeBytes);
+            } catch (IOException | PngValidationException | RuntimeException unavailableCape) {
 
             }
         }
+        publishOwnedCapePreviews(accountId, previews);
+    }
+
+    private synchronized void publishOwnedCapePreviews(
+            UUID accountId, Map<String, byte[]> owned) {
+        Map<String, byte[]> previews = new HashMap<>();
+        if (accountId.equals(warmedCapePreviewAccountId)) {
+            warmedCapePreviews.forEach((key, bytes) -> {
+                if (key.startsWith("resource:cape:")) {
+                    previews.put(key, bytes);
+                }
+            });
+        }
+        owned.forEach((key, bytes) -> previews.put(key, bytes.clone()));
+        warmedCapePreviewAccountId = accountId;
+        warmedCapePreviews = Map.copyOf(previews);
     }
 
     @Override
@@ -939,7 +1017,251 @@ public final class DefaultClientOperations implements ClientOperations {
                 appearance.optionalOuterLayerVisibility(),
                 ownedCapes,
                 appearance.intentRevision(),
-                appearance.syncStatus());
+                appearance.syncStatus(), appearance.providers());
+    }
+
+    @Override
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(java.nio.file.Path path) throws IOException, PngValidationException {
+        return importCape(resolveAccountId(pinCurrentSession().identity()), path, "Cape");
+    }
+
+    @Override
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(UUID accountId, java.nio.file.Path path, String fallbackName) throws IOException, PngValidationException {
+        requireCapeAccount(accountId);
+        byte[] bytes;
+        try (var input = java.nio.file.Files.newInputStream(path)) {
+            bytes = input.readNBytes(com.naocraftlab.skins.core.png.PngValidator.DEFAULT_MAX_BYTES + 1);
+        }
+        String name = UntrustedDisplayName.fromFileName(path.getFileName().toString(), fallbackName);
+        var entry = storage.importCape(accountId, name, bytes);
+        return entry;
+    }
+
+    @Override
+    public Optional<AccountState> reloadEditorAccount(UUID accountId) throws IOException {
+        requireCapeAccount(accountId);
+        return Optional.of(library.load(accountId));
+    }
+
+    @Override
+    public CapeEditorData loadCapeEditorData(UUID accountId)
+            throws IOException {
+        requireCapeAccount(accountId);
+        AccountState account = library.load(accountId);
+        long generation = bundledSkins.capeGeneration();
+        ResourceCapeDiscovery discovery = frozenResourceCapeDiscovery(generation);
+        return publishCapeEditorData(accountId, account, generation, discovery);
+    }
+
+    @Override
+    public long capeCatalogGeneration() {
+        return bundledSkins.capeGeneration();
+    }
+
+    @Override
+    public void warmResourceCapeCatalog(long generation) {
+        if (generation != Long.MIN_VALUE && bundledSkins.capeGeneration() == generation) {
+            frozenResourceCapeDiscovery(generation);
+        }
+    }
+
+    @Override
+    public void warmCapeCatalog(UUID accountId, long generation) throws IOException {
+        requireCapeAccount(accountId);
+        if (bundledSkins.capeGeneration() != generation) {
+            return;
+        }
+        warmResourceCapeCatalog(generation);
+        ResourceCapeDiscovery discovery = frozenResourceCapeDiscovery(generation);
+        if (bundledSkins.capeGeneration() == generation) {
+            publishCapeEditorData(accountId, library.load(accountId), generation, discovery);
+        }
+    }
+
+    @Override
+    public Optional<CapeEditorData> warmedCapeEditorData(UUID accountId) {
+        CapeEditorData data = warmedCapeEditorData;
+        return data != null && data.account().accountId().equals(accountId)
+                && data.resourceGeneration() == bundledSkins.capeGeneration()
+                ? Optional.of(data)
+                : Optional.empty();
+    }
+
+    @Override
+    public Map<String, byte[]> warmedCapePreviews(UUID accountId) {
+        if (!accountId.equals(warmedCapePreviewAccountId)) {
+            return Map.of();
+        }
+        Map<String, byte[]> copy = new HashMap<>();
+        warmedCapePreviews.forEach((key, bytes) -> copy.put(key, bytes.clone()));
+        return Map.copyOf(copy);
+    }
+
+    private synchronized CapeEditorData publishCapeEditorData(
+            UUID accountId, AccountState account, long generation,
+            ResourceCapeDiscovery discovery) {
+        resourceCapeSnapshot = new ResourceCapeSnapshot(
+                accountId, generation, discovery.entries());
+        CapeEditorData data = new CapeEditorData(
+                account,
+                discovery.collections(),
+                discovery.sourceHashes(),
+                generation);
+        warmedCapeEditorData = data;
+        Map<String, byte[]> previews = new HashMap<>();
+        if (accountId.equals(warmedCapePreviewAccountId)) {
+            warmedCapePreviews.forEach((key, bytes) -> {
+                if (!key.startsWith("resource:cape:")) {
+                    previews.put(key, bytes);
+                }
+            });
+        }
+        discovery.entries().forEach((key, entry) -> previews.put(
+                resourceCapePreviewKey(generation, key, entry.sourceSha256()),
+                entry.bytes()));
+        warmedCapePreviewAccountId = accountId;
+        warmedCapePreviews = Map.copyOf(previews);
+        return data;
+    }
+
+    private synchronized ResourceCapeDiscovery frozenResourceCapeDiscovery(long generation) {
+        ResourceCapeDiscovery cached = resourceCapeDiscovery;
+        if (generation != Long.MIN_VALUE && cached.generation() == generation) {
+            return cached;
+        }
+        List<CapeCatalogSource.CollectionDescriptor> collections = new ArrayList<>();
+        Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries = new HashMap<>();
+        Map<ResourceCapeKey, String> sourceHashes = new HashMap<>();
+        PngValidator validator = new PngValidator();
+        for (CapeCatalogSource.CollectionDescriptor collection : bundledSkins.capeCollections()) {
+            List<CapeCatalogSource.CapeDescriptor> capes = new ArrayList<>();
+            for (CapeCatalogSource.CapeDescriptor cape : collection.capes()) {
+                try {
+                    byte[] bytes = bundledSkins.loadCape(collection.id(), cape.id());
+                    PngValidator.CapePng projection = validator.projectCape(bytes);
+                    ResourceCapeKey key = new ResourceCapeKey(collection.id(), cape.id());
+                    String sourceHash = sha256(bytes);
+                    CapeCatalogSource.RenderSupport support = projection.hasElytra()
+                            ? CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA
+                            : CapeCatalogSource.RenderSupport.CAPE_ONLY;
+                    capes.add(new CapeCatalogSource.CapeDescriptor(
+                            cape.id(),
+                            cape.nameText(),
+                            cape.descriptionText(),
+                            cape.authorsText(),
+                            projection.renderSha256(),
+                            support));
+                    entries.put(key, new ResourceCapeSnapshotEntry(
+                            projection.renderSha256(), sourceHash, projection.hasElytra(), bytes));
+                    sourceHashes.put(key, sourceHash);
+                } catch (IOException | PngValidationException | RuntimeException unavailable) {
+                }
+            }
+            if (!capes.isEmpty()) {
+                collections.add(new CapeCatalogSource.CollectionDescriptor(
+                        collection.id(),
+                        collection.nameText(),
+                        collection.descriptionText(),
+                        collection.authorsText(),
+                        capes,
+                        collection.order()));
+            }
+        }
+        ResourceCapeDiscovery discovered = new ResourceCapeDiscovery(
+                generation, collections, entries, sourceHashes);
+        resourceCapeDiscovery = generation == Long.MIN_VALUE
+                ? ResourceCapeDiscovery.empty()
+                : discovered;
+        return discovered;
+    }
+
+    private static String resourceCapePreviewKey(
+            long generation, ResourceCapeKey key, String sourceSha256) {
+        return "resource:cape:" + generation + ":" + key.collectionId() + ":"
+                + key.capeId() + ":" + sourceSha256;
+    }
+
+    @Override
+    public Optional<byte[]> loadResourceCapePreview(
+            UUID accountId, ResourceCapeSelection selection) throws IOException {
+        requireCapeAccount(accountId);
+        ResourceCapeSnapshot snapshot = resourceCapeSnapshot;
+        ResourceCapeSnapshotEntry entry = snapshot.entries().get(selection.key());
+        if (!snapshot.accountId().equals(accountId)
+                || snapshot.generation() != selection.generation()
+                || bundledSkins.capeGeneration() != selection.generation()
+                || entry == null
+                || !entry.contentIdentity().equals(selection.contentIdentity())
+                || !entry.sourceSha256().equals(selection.sourceSha256())) {
+            return Optional.empty();
+        }
+        return Optional.of(entry.bytes().clone());
+    }
+
+    @Override
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry materializeResourceCape(
+            UUID accountId, ResourceCapeSelection selection)
+            throws IOException, PngValidationException {
+        requireCapeAccount(accountId);
+        ResourceCapeSnapshot snapshot = resourceCapeSnapshot;
+        ResourceCapeSnapshotEntry entry = snapshot.entries().get(selection.key());
+        if (!snapshot.accountId().equals(accountId)
+                || snapshot.generation() != selection.generation()
+                || bundledSkins.capeGeneration() != selection.generation()
+                || entry == null
+                || !entry.contentIdentity().equals(selection.contentIdentity())
+                || !entry.sourceSha256().equals(selection.sourceSha256())
+                || entry.hasElytra() != selection.hasElytra()) {
+            throw new IOException("Resource-pack cape catalog changed; reopen the editor");
+        }
+        byte[] bytes = entry.bytes().clone();
+        PngValidator.CapePng projection = new PngValidator().projectCape(bytes);
+        if (!projection.renderSha256().equals(selection.contentIdentity())
+                || projection.hasElytra() != selection.hasElytra()) {
+            throw new IOException("Resource-pack cape identity changed; reopen the editor");
+        }
+        com.naocraftlab.skins.core.model.PersonalCapeEntry imported =
+                storage.importCape(accountId, selection.displayName(), bytes);
+        if (!imported.renderSha256().equals(selection.contentIdentity())) {
+            throw new IOException("Resource-pack cape import changed identity");
+        }
+        return imported;
+    }
+
+    @Override
+    public Optional<AccountState> discardCapeIfUnreferenced(UUID accountId, UUID entryId)
+            throws IOException {
+        requireCapeAccount(accountId);
+        return Optional.of(observeLocal(storage.discardCapeIfUnreferenced(accountId, entryId)));
+    }
+
+    private void requireCapeAccount(UUID accountId) throws IOException {
+        if (!accountId.equals(resolveAccountId(pinCurrentSession().identity()))) throw new IOException("Account changed");
+    }
+
+    @Override
+    public AccountState renameCape(UUID accountId, UUID entryId, String name) throws IOException {
+        requireCapeAccount(accountId);
+        return observeLocal(storage.renameCape(accountId, entryId, name));
+    }
+
+    @Override
+    public CapeDeletion deleteCape(UUID accountId, UUID entryId) throws IOException, PngValidationException {
+        requireCapeAccount(accountId);
+        storage.deleteCape(accountId, entryId);
+        return new CapeDeletion(observeLocal(library.load(accountId)), reloadProviders());
+    }
+
+    @Override
+    public AccountState renameCape(UUID entryId, String name) throws IOException {
+        return observeLocal(storage.renameCape(resolveAccountId(pinCurrentSession().identity()), entryId, name));
+    }
+
+    @Override
+    public CapeDeletion deleteCape(UUID entryId) throws IOException, PngValidationException {
+        UUID accountId = resolveAccountId(pinCurrentSession().identity());
+        storage.deleteCape(accountId, entryId);
+        return new CapeDeletion(observeLocal(library.load(accountId)), reloadProviders());
     }
 
     @Override
@@ -961,7 +1283,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         request.personalSkinSource(),
                         pngBytes.orElseThrow(),
                         request.outerLayerVisibility(),
-                        request.capeId().orElse(null));
+                        request.capeId().orElse(null), request.offlineCape());
                 return finishEditorSave(
                         context,
                         request.originalPresetId(),
@@ -979,7 +1301,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         pngBytes.orElseThrow(),
                         request.catalogOrigin().orElseThrow(),
                         request.outerLayerVisibility(),
-                        request.capeId().orElse(null));
+                        request.capeId().orElse(null), request.offlineCape());
                 return finishEditorSave(
                         context,
                         request.originalPresetId(),
@@ -1024,7 +1346,7 @@ public final class DefaultClientOperations implements ClientOperations {
             Set<UUID> beforeIds = new HashSet<>();
             state.presets().forEach(preset -> beforeIds.add(preset.id()));
             AccountState saved = library.createPreset(
-                    accountId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId);
+                    accountId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId, request.offlineCape());
             UUID presetId = saved.presets().stream()
                     .map(AppearancePreset::id)
                     .filter(id -> !beforeIds.contains(id))
@@ -1038,7 +1360,7 @@ public final class DefaultClientOperations implements ClientOperations {
         }
         UUID presetId = request.originalPresetId().orElseThrow();
         library.updatePreset(
-                accountId, presetId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId);
+                accountId, presetId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId, request.offlineCape());
         return finishEditorSave(context, presetId);
     }
 
@@ -1055,12 +1377,14 @@ public final class DefaultClientOperations implements ClientOperations {
 
     private EditorSave finishEditorSave(OperationContext context, UUID presetId) throws IOException {
         UUID accountId = resolveAccountId(context.identity());
+        OwnedCapeInventory inventory = storage.loadOwnedCapes(accountId);
+        SessionValidation selectionValidation = sessions.cachedStatus(context.identity());
         NclSkinsStorage.ActivePresetAppearanceIntentUpdate updated =
                 storage.updateAppearanceIntentIfPresetActive(
                         accountId,
                         presetId,
-                        (account, ignored, revision) -> pendingAppearanceForPreset(
-                                accountId, account, presetId, revision));
+                        (account, current, revision) -> revisedAppearanceForPreset(
+                                accountId, account, presetId, revision, current, inventory, selectionValidation));
         AccountState latest = observeLocal(updated.account());
         if (!updated.updated()) {
             return new EditorSave(latest, presetId);
@@ -1073,27 +1397,238 @@ public final class DefaultClientOperations implements ClientOperations {
                         accountId, context.identity(), updated.state(), validation)));
     }
 
+    @Override
+    public Optional<byte[]> loadProviderTexture(ViewSpec.ProviderTexture texture) throws IOException, PngValidationException {
+        Objects.requireNonNull(texture, "texture");
+        return texture.skin() ? Optional.of(storage.readAsset(texture.cacheKey()))
+                : textures.readIfCached(texture.cacheKey());
+    }
+
+    @Override
+    public AppearanceProviders loadProviders() throws IOException {
+        OperationContext context = pinCurrentSession();
+        return storage.loadAppearance(resolveAccountId(context.identity())).providers();
+    }
+
+    @Override
+    public DurableAppearance reloadProviders() throws IOException {
+        OperationContext context = pinCurrentSession();
+        UUID accountId = resolveAccountId(context.identity());
+        return durableAppearance(accountId, context.identity(), storage.loadAppearance(accountId),
+                sessions.cachedStatus(context.identity()));
+    }
+
+    @Override
+    @SuppressWarnings("try")
+    public DurableAppearance refreshProviders(AppearanceProviders.Component component) throws IOException {
+        Objects.requireNonNull(component, "component");
+        OperationContext context = pinCurrentSession();
+        UUID accountId = resolveAccountId(context.identity());
+        try (var ignored = storage.acquireRemoteMutationLock(accountId)) {
+            AccountAppearanceState before = storage.loadAppearance(accountId);
+            boolean skin = component == AppearanceProviders.Component.SKIN;
+            boolean enabled = skin ? before.providers().skin().enabled(BuiltinProvider.MINECRAFT)
+                    : before.providers().cape().enabled(BuiltinProvider.MINECRAFT);
+            SessionValidation validation = sessions.cachedStatus(context.identity());
+            if (enabled && profileApi.rateLimitRemaining().isEmpty()) {
+                validation = sessions.observeFreshAtCheckpoint(context.tokens());
+                if (validation.valid() && validation.profile() != null) {
+                    if (skin) {
+                        syncCurrentOfficial(library.load(accountId), validation);
+                    } else {
+                        publishOwnedCapeInventory(accountId, validation.profile());
+                    }
+                    observeMinecraftProviders(accountId, validation, before.providers(), skin, !skin);
+                }
+            }
+            return durableAppearance(accountId, context.identity(), storage.loadAppearance(accountId), validation);
+        }
+    }
+
+    @Override
+    public DurableAppearance enableProvider(AppearanceProviders.Component component, BuiltinProvider provider)
+            throws IOException {
+        return changeProviders(current -> current.enable(component, provider), provider == BuiltinProvider.MINECRAFT);
+    }
+
+    @Override
+    public DurableAppearance disableProvider(AppearanceProviders.Component component, BuiltinProvider provider)
+            throws IOException {
+        return changeProviders(current -> current.disable(component, provider), false);
+    }
+
+    @Override
+    public DurableAppearance moveProvider(
+            AppearanceProviders.Component component, BuiltinProvider provider, int direction) throws IOException {
+        return changeProviders(current -> current.move(component, provider, direction), false);
+    }
+
+    @Override
+    public DurableAppearance enableProvider(UUID accountId, AppearanceProviders.Component component, BuiltinProvider provider) throws IOException {
+        return changeProviders(accountId, current -> current.enable(component, provider), provider == BuiltinProvider.MINECRAFT);
+    }
+
+    @Override
+    public DurableAppearance disableProvider(UUID accountId, AppearanceProviders.Component component, BuiltinProvider provider) throws IOException {
+        return changeProviders(accountId, current -> current.disable(component, provider), false);
+    }
+
+    @Override
+    public DurableAppearance moveProvider(UUID accountId, AppearanceProviders.Component component, BuiltinProvider provider, int direction) throws IOException {
+        return changeProviders(accountId, current -> current.move(component, provider, direction), false);
+    }
+
+    private DurableAppearance changeProviders(
+            java.util.function.UnaryOperator<AppearanceProviders> change, boolean enablesMinecraft) throws IOException {
+        return changeProviders(null, change, enablesMinecraft);
+    }
+
+    private DurableAppearance changeProviders(UUID expectedAccount,
+            java.util.function.UnaryOperator<AppearanceProviders> change, boolean enablesMinecraft) throws IOException {
+        OperationContext context = pinCurrentSession();
+        UUID accountId = resolveAccountId(context.identity());
+        if (expectedAccount != null && !expectedAccount.equals(accountId)) throw new IOException("Account changed");
+        AccountAppearanceState saved = storage.updateAppearance(accountId, current -> {
+            AppearanceProviders providers = change.apply(current.providers());
+            if (providers.equals(current.providers())) {
+                return current;
+            }
+            AccountAppearanceState updated = current.withProviders(providers);
+            if (current.syncStatus() == AppearanceSyncStatus.ATTEMPTING && !sameActivation(updated, current)) {
+                return copyAppearanceStatus(updated, AppearanceSyncStatus.UNKNOWN, current.settledRevision());
+            }
+            if (enablesMinecraft && current.hasIntent()
+                    && current.syncStatus() != AppearanceSyncStatus.UNKNOWN
+                    && current.syncStatus() != AppearanceSyncStatus.PARTIAL) {
+                return copyAppearanceStatus(updated, AppearanceSyncStatus.PENDING, current.settledRevision());
+            }
+            return updated;
+        });
+        return durableAppearance(accountId, context.identity(), saved, sessions.cachedStatus(context.identity()));
+    }
+
+    private PresetValues presetValues(
+            UUID accountId,
+            AccountState account,
+            UUID presetId,
+            OwnedCapeInventory inventory,
+            SessionValidation validation) {
+        AppearancePreset preset = library.findPreset(account, presetId);
+        String capeId = preset.capeId();
+        if (capeId != null && validation.valid() && validation.profile() != null
+                && accountId.equals(validation.profile().id()) && !validation.profile().ownsCape(capeId)) {
+            capeId = null;
+        }
+        SkinAsset skin = preset.skin().optionalAssetId()
+                .map(assetId -> library.findSkin(account, assetId))
+                .orElse(null);
+        return new PresetValues(
+                preset,
+                skin == null ? null : new ProviderSkin(skin.sha256(), skin.variant()),
+                localProviderCape(preset.offlineCape()),
+                providerCape(capeId, inventory),
+                capeId);
+    }
+
     private AccountAppearanceState pendingAppearanceForPreset(
             UUID accountId,
             AccountState account,
             UUID presetId,
-            long revision) {
-        AppearancePreset preset = library.findPreset(account, presetId);
-        SkinAsset skin = preset.skin().optionalAssetId()
-                .map(assetId -> library.findSkin(account, assetId))
-                .orElse(null);
+            long revision,
+            AppearanceProviders providers,
+            OwnedCapeInventory inventory,
+            SessionValidation validation) {
+        PresetValues values = presetValues(accountId, account, presetId, inventory, validation);
+        AppearanceProviders selected = providers.select(
+                revision, values.skin(), values.offlineCape(), values.minecraftCape());
         return new AccountAppearanceState(
                 AccountAppearanceState.CURRENT_SCHEMA_VERSION,
                 accountId,
                 revision,
-                preset.id(),
-                skin == null ? null : skin.sha256(),
-                skin == null ? null : skin.variant(),
-                preset.capeId(),
-                preset.outerLayerVisibility(),
-                AppearanceSyncStatus.PENDING,
+                values.preset().id(),
+                values.skin() == null ? null : values.skin().sha256(),
+                values.skin() == null ? null : values.skin().variant(),
+                values.capeId(),
+                values.preset().outerLayerVisibility(),
+                pendingStatus(selected),
                 0,
-                clock.instant());
+                clock.instant(),
+                selected);
+    }
+
+    private AccountAppearanceState revisedAppearanceForPreset(
+            UUID accountId,
+            AccountState account,
+            UUID presetId,
+            long revision,
+            AccountAppearanceState current,
+            OwnedCapeInventory inventory,
+            SessionValidation validation) {
+        PresetValues values = presetValues(accountId, account, presetId, inventory, validation);
+        AppearanceProviders revised = current.providers().revise(
+                revision, values.skin(), values.offlineCape(), values.minecraftCape());
+        AppearanceSyncStatus status = activeEditStatus(current, revised);
+        long settledRevision = status == AppearanceSyncStatus.OFFICIAL
+                ? revision : current.settledRevision();
+        return new AccountAppearanceState(
+                AccountAppearanceState.CURRENT_SCHEMA_VERSION,
+                accountId,
+                revision,
+                values.preset().id(),
+                values.skin() == null ? null : values.skin().sha256(),
+                values.skin() == null ? null : values.skin().variant(),
+                values.capeId(),
+                values.preset().outerLayerVisibility(),
+                status,
+                settledRevision,
+                clock.instant(),
+                revised);
+    }
+
+    private static AppearanceSyncStatus pendingStatus(AppearanceProviders providers) {
+        boolean unknown = providers.skin().enabled(BuiltinProvider.MINECRAFT)
+                        && providers.skin().minecraftDelivery().status() == ProviderDelivery.Status.UNKNOWN
+                || providers.cape().enabled(BuiltinProvider.MINECRAFT)
+                        && providers.cape().minecraftDelivery().status() == ProviderDelivery.Status.UNKNOWN;
+        return unknown ? AppearanceSyncStatus.UNKNOWN : AppearanceSyncStatus.PENDING;
+    }
+
+    private static AppearanceSyncStatus activeEditStatus(
+            AccountAppearanceState current, AppearanceProviders revised) {
+        boolean assignedMinecraft = assignedMinecraft(current.intentRevision() + 1, revised);
+        if (!assignedMinecraft) {
+            return current.syncStatus();
+        }
+        if (hasMinecraftDeliveryStatus(revised, ProviderDelivery.Status.UNKNOWN)) {
+            return AppearanceSyncStatus.UNKNOWN;
+        }
+        if (hasMinecraftDeliveryStatus(revised, ProviderDelivery.Status.ATTEMPTING)) {
+            return AppearanceSyncStatus.ATTEMPTING;
+        }
+        return AppearanceSyncStatus.PENDING;
+    }
+
+    private static boolean assignedMinecraft(long revision, AppearanceProviders providers) {
+        return providers.skin().minecraftDelivery().intentRevision() == revision
+                || providers.cape().minecraftDelivery().intentRevision() == revision;
+    }
+
+    private static boolean hasMinecraftDeliveryStatus(
+            AppearanceProviders providers, ProviderDelivery.Status status) {
+        return providers.skin().enabled(BuiltinProvider.MINECRAFT)
+                        && providers.skin().minecraftDelivery().status() == status
+                || providers.cape().enabled(BuiltinProvider.MINECRAFT)
+                        && providers.cape().minecraftDelivery().status() == status;
+    }
+
+    private static ProviderCape localProviderCape(com.naocraftlab.skins.core.model.LocalCapeReference cape) {
+        return cape == null ? null : new ProviderCape(cape.entryId() == null ? cape.sha256() : cape.entryId().toString(), cape.sha256(), cape.hasElytra());
+    }
+
+    private static ProviderCape providerCape(String capeId, OwnedCapeInventory inventory) {
+        return capeId == null ? null : new ProviderCape(capeId,
+                inventory.find(capeId).flatMap(OwnedCapeEntry::optionalTextureCacheKey).orElse(null),
+                inventory.find(capeId).map(OwnedCapeEntry::hasElytra).orElse(null));
     }
 
     @Override
@@ -1103,8 +1638,8 @@ public final class DefaultClientOperations implements ClientOperations {
         LibraryService.PresetDeletion deletion = library.deletePreset(
                 accountId,
                 Objects.requireNonNull(presetId, "presetId"),
-                (ignoredAccount, ignoredAppearance, revision) -> accountDefaultAppearance(
-                        accountId, revision, AppearanceSyncStatus.PENDING));
+                (ignoredAccount, current, revision) -> accountDefaultAppearance(
+                        accountId, revision, AppearanceSyncStatus.PENDING, current.providers()));
         AccountState deleted = observeLocal(deletion.state());
         if (!deletion.resetsAppearance()) {
             return PresetDelete.local(deleted);
@@ -1119,8 +1654,10 @@ public final class DefaultClientOperations implements ClientOperations {
     public RemoteResult applyPreset(UUID presetId) throws IOException, PngValidationException {
         PresetUse selected = usePreset(Objects.requireNonNull(presetId, "presetId"));
         ReconciliationKey key = new ReconciliationKey(
-                selected.account().accountId(), selected.intentRevision());
-        ReconciliationResult reconciled = reconcileAppearance(key, ReconciliationTrigger.LOCAL_INTENT)
+                selected.account().accountId(), selected.intentRevision(),
+                selected.providers().skin().minecraftDelivery().activation(),
+                selected.providers().cape().minecraftDelivery().activation());
+        ReconciliationResult reconciled = reconcileAppearance(key, ReconciliationTrigger.EXPLICIT_RETRY)
                 .orElseThrow(() -> new IllegalStateException(
                         "Minecraft session or local appearance changed before reconciliation"));
         return legacyRemoteResult(reconciled, "Preset reconciliation completed without a remote mutation.");
@@ -1131,12 +1668,14 @@ public final class DefaultClientOperations implements ClientOperations {
         OperationContext context = pinCurrentSession();
         UUID accountId = resolveAccountId(context.identity());
         UUID selectedPresetId = Objects.requireNonNull(presetId, "presetId");
+        OwnedCapeInventory inventory = storage.loadOwnedCapes(accountId);
+        SessionValidation selectionValidation = sessions.cachedStatus(context.identity());
         NclSkinsStorage.AccountAppearanceMutationResult selected =
-                storage.mutateAccountAndAppearance(accountId, (account, ignored, revision) ->
+                storage.mutateAccountAndAppearance(accountId, (account, current, revision) ->
                         NclSkinsStorage.AccountAppearanceMutationPlan.appearanceOnly(
                                 account,
                                 pendingAppearanceForPreset(
-                                        accountId, account, selectedPresetId, revision)));
+                                        accountId, account, selectedPresetId, revision, current.providers(), inventory, selectionValidation)));
         AccountState state = observeLocal(selected.account());
         AccountAppearanceState appearance = selected.appearance();
         SessionValidation validation = sessions.cachedStatus(context.identity());
@@ -1152,7 +1691,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 true,
                 appearance.optionalOuterLayerVisibility(),
                 appearance.intentRevision(),
-                appearance.syncStatus());
+                appearance.syncStatus(), appearance.providers());
     }
 
     @Override
@@ -1187,8 +1726,20 @@ public final class DefaultClientOperations implements ClientOperations {
             AccountAppearanceState checkpointAppearance = storage.loadAppearance(accountId);
             if (expected != null
                     && (!expected.accountId().equals(accountId)
-                            || checkpointAppearance.intentRevision() != expected.intentRevision())) {
+                            || checkpointAppearance.intentRevision() != expected.intentRevision()
+                            || checkpointAppearance.providers().skin().minecraftDelivery().activation()
+                                    != expected.skinActivation()
+                            || checkpointAppearance.providers().cape().minecraftDelivery().activation()
+                                    != expected.capeActivation())) {
                 return Optional.empty();
+            }
+            if (!checkpointAppearance.providers().minecraftEnabled()) {
+                AccountAppearanceState local = checkpointAppearance.hasIntent()
+                        ? settleAppearance(accountId, checkpointAppearance.intentRevision(),
+                                checkpointAppearance.syncStatus(), AppearanceSyncStatus.OFFICIAL)
+                        : checkpointAppearance;
+                return Optional.of(reconciliationResult(context, local,
+                        sessions.cachedStatus(context.identity()), observedAccount(accountId), Optional.empty()));
             }
             boolean explicitRecovery = trigger == ReconciliationTrigger.RATE_LIMIT_EXPIRED
                     || trigger == ReconciliationTrigger.EXPLICIT_RETRY
@@ -1268,11 +1819,11 @@ public final class DefaultClientOperations implements ClientOperations {
                     ? checkpointValidation(
                             scopedContext, trigger, checkpointAppearance.syncStatus())
                     : explicitValidation;
-            ObservedAccount observed = observeCheckpointAccount(accountId, validation);
+            ObservedAccount observed = observeCheckpointAccount(accountId, validation, checkpointAppearance.providers());
             AccountAppearanceState appearance = storage.loadAppearance(accountId);
 
 
-            if (appearance.intentRevision() != checkpointAppearance.intentRevision()) {
+            if (!sameDelivery(appearance, checkpointAppearance)) {
                 return Optional.of(reconciliationResult(
                         context, appearance, validation, observed, Optional.empty()));
             }
@@ -1307,7 +1858,8 @@ public final class DefaultClientOperations implements ClientOperations {
                         context, appearance, validation, observed, Optional.empty()));
             }
 
-            if (appearance.capeId() != null
+            if (appearance.providers().cape().enabled(BuiltinProvider.MINECRAFT)
+                    && appearance.capeId() != null
                     && appearance.syncStatus() != AppearanceSyncStatus.OFFICIAL
                     && !validation.profile().ownsCape(appearance.capeId())) {
                 long previousRevision = appearance.intentRevision();
@@ -1316,18 +1868,27 @@ public final class DefaultClientOperations implements ClientOperations {
                         accountId,
                         previousRevision,
                         previousStatus,
-                        (current, revision) -> new AccountAppearanceState(
-                                current.schemaVersion(),
-                                current.accountId(),
-                                revision,
-                                current.activePresetId(),
-                                current.skinSha256(),
-                                current.skinVariant(),
-                                null,
-                                current.outerLayerVisibility(),
-                                AppearanceSyncStatus.PENDING,
-                                0,
-                                clock.instant()));
+                        (current, revision) -> {
+                            AppearanceProviders normalized = current.providers().revise(
+                                    revision,
+                                    current.providers().skin().desired(),
+                                    current.providers().cape().offlineDesired(),
+                                    null);
+                            AppearanceSyncStatus status = activeEditStatus(current, normalized);
+                            return new AccountAppearanceState(
+                                    current.schemaVersion(),
+                                    current.accountId(),
+                                    revision,
+                                    current.activePresetId(),
+                                    current.skinSha256(),
+                                    current.skinVariant(),
+                                    null,
+                                    current.outerLayerVisibility(),
+                                    status,
+                                    status == AppearanceSyncStatus.OFFICIAL
+                                            ? revision : current.settledRevision(),
+                                    clock.instant(), normalized);
+                        });
                 appearance = effective.state();
                 if (!effective.updated()) {
                     return Optional.of(reconciliationResult(
@@ -1368,7 +1929,7 @@ public final class DefaultClientOperations implements ClientOperations {
                     return Optional.of(reconciliationResult(
                             context, appearance, validation, observed, Optional.empty()));
                 }
-                Optional<ActiveAppearance> actual = activeAppearance(validation.profile());
+                Optional<ActiveAppearance> actual = deliveryAppearance(validation.profile());
                 if (actual.isEmpty()) {
                     return Optional.of(reconciliationResult(
                             context, appearance, validation, observed, Optional.empty()));
@@ -1395,7 +1956,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         context, appearance, validation, observed, Optional.empty()));
             }
 
-            Optional<ActiveAppearance> actual = activeAppearance(validation.profile());
+            Optional<ActiveAppearance> actual = deliveryAppearance(validation.profile());
             if (actual.isPresent()) {
                 ActiveAppearance observedAppearance = actual.orElseThrow();
                 if (appearanceMatches(appearance, observedAppearance)) {
@@ -1478,7 +2039,8 @@ public final class DefaultClientOperations implements ClientOperations {
 
 
         PresetApplicationRequest request = requestFromAppearance(appearance);
-        AccountAppearanceState claimed = claimAppearance(accountId, revision, expectedStatus);
+        AccountAppearanceState claimed = claimAppearance(
+                accountId, appearance, expectedStatus, request.writeSkin(), request.writeCape());
         if (claimed.intentRevision() != revision
                 || claimed.syncStatus() != AppearanceSyncStatus.ATTEMPTING) {
             return reconciliationResult(
@@ -1491,14 +2053,14 @@ public final class DefaultClientOperations implements ClientOperations {
         PresetApplicationOutcome outcome = mutations.applyPresetWhileLockedAfterSameTokenValidation(
                 context.tokens(),
                 request,
-                () -> appearanceStillCurrent(accountId, revision));
+                () -> appearanceStillCurrent(accountId, appearance));
         AccountAppearanceState settled = settleAfterMutation(
                 accountId,
-                revision,
+                claimed,
                 AppearanceSyncStatus.ATTEMPTING,
                 settlementStatus(outcome),
                 outcome);
-        return reconciliationAfterMutation(accountId, context, settled, outcome);
+        return reconciliationAfterMutation(accountId, context, settled, outcome, appearance.providers());
     }
 
     private ReconciliationResult applyCapeRecovery(
@@ -1508,7 +2070,7 @@ public final class DefaultClientOperations implements ClientOperations {
             SessionValidation validation) throws IOException {
         long revision = appearance.intentRevision();
         AccountAppearanceState claimed = claimAppearance(
-                accountId, revision, AppearanceSyncStatus.PARTIAL);
+                accountId, appearance, AppearanceSyncStatus.PARTIAL, false, true);
         if (claimed.intentRevision() != revision
                 || claimed.syncStatus() != AppearanceSyncStatus.ATTEMPTING) {
             return reconciliationResult(
@@ -1521,7 +2083,7 @@ public final class DefaultClientOperations implements ClientOperations {
         PresetApplicationOutcome outcome = mutations.retryCapeWhileLockedAfterSameTokenValidation(
                 context.tokens(),
                 claimed.capeId(),
-                () -> appearanceStillCurrent(accountId, revision));
+                () -> appearanceStillCurrent(accountId, appearance));
         AppearanceSyncStatus status = switch (outcome.result()) {
             case APPLIED -> AppearanceSyncStatus.OFFICIAL;
             case UNKNOWN -> AppearanceSyncStatus.UNKNOWN;
@@ -1529,11 +2091,11 @@ public final class DefaultClientOperations implements ClientOperations {
         };
         AccountAppearanceState settled = settleAfterMutation(
                 accountId,
-                revision,
+                claimed,
                 AppearanceSyncStatus.ATTEMPTING,
                 status,
                 outcome);
-        return reconciliationAfterMutation(accountId, context, settled, outcome);
+        return reconciliationAfterMutation(accountId, context, settled, outcome, appearance.providers());
     }
 
     private ReconciliationResult applyPendingCapeDelta(
@@ -1543,7 +2105,7 @@ public final class DefaultClientOperations implements ClientOperations {
             SessionValidation validation) throws IOException {
         long revision = appearance.intentRevision();
         AccountAppearanceState claimed = claimAppearance(
-                accountId, revision, AppearanceSyncStatus.PENDING);
+                accountId, appearance, AppearanceSyncStatus.PENDING, false, true);
         if (claimed.intentRevision() != revision
                 || claimed.syncStatus() != AppearanceSyncStatus.ATTEMPTING) {
             return reconciliationResult(
@@ -1556,22 +2118,27 @@ public final class DefaultClientOperations implements ClientOperations {
         PresetApplicationOutcome outcome = mutations.retryCapeWhileLockedAfterSameTokenValidation(
                 context.tokens(),
                 claimed.capeId(),
-                () -> appearanceStillCurrent(accountId, revision));
+                () -> appearanceStillCurrent(accountId, appearance));
         AccountAppearanceState settled = settleAfterMutation(
                 accountId,
-                revision,
+                claimed,
                 AppearanceSyncStatus.ATTEMPTING,
                 settlementStatus(outcome),
                 outcome);
-        return reconciliationAfterMutation(accountId, context, settled, outcome);
+        return reconciliationAfterMutation(accountId, context, settled, outcome, appearance.providers());
     }
 
     private ReconciliationResult reconciliationAfterMutation(
             UUID accountId,
             OperationContext context,
             AccountAppearanceState settled,
-            PresetApplicationOutcome outcome) {
-        RemoteResult remote = refreshAfterMutation(context, outcome);
+            PresetApplicationOutcome outcome, AppearanceProviders expected) {
+        RemoteResult remote = refreshAfterMutation(context, outcome, expected);
+        try {
+            settled = storage.loadAppearance(accountId);
+        } catch (IOException localFailure) {
+            throw new RemoteMutationSettlementException(outcome.remoteAppearanceImpact());
+        }
         return new ReconciliationResult(
                 remote.account(),
                 remote.session(),
@@ -1601,6 +2168,9 @@ public final class DefaultClientOperations implements ClientOperations {
         return switch (trigger) {
             case RATE_LIMIT_EXPIRED, EXPLICIT_RETRY -> sessions.manualRetry(context.tokens());
             case SESSION_REFRESHED -> sessions.cachedStatus(context.identity());
+            case PROCESS_START -> context.identity().profileId().equals(startupObservedAccount)
+                    ? sessions.cachedStatus(context.identity())
+                    : sessions.retryTransientAtCheckpoint(context.tokens());
             default -> status == AppearanceSyncStatus.ATTEMPTING
                     ? sessions.observeFreshAtCheckpoint(context.tokens())
                     : sessions.retryTransientAtCheckpoint(context.tokens());
@@ -1623,7 +2193,7 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     private ObservedAccount observeCheckpointAccount(
-            UUID accountId, SessionValidation validation) throws IOException, PngValidationException {
+            UUID accountId, SessionValidation validation, AppearanceProviders expected) throws IOException, PngValidationException {
         AccountState state = seedVanillaDefaults(library.load(accountId));
         state = library.load(accountId);
         OfficialSkinSync official = syncCurrentOfficial(state, validation);
@@ -1635,12 +2205,40 @@ public final class DefaultClientOperations implements ClientOperations {
         observed = library.load(accountId);
         if (validation.valid() && validation.profile() != null) {
             publishOwnedCapeInventory(accountId, validation.profile());
+            observeMinecraftProviders(accountId, validation, expected, true, true);
             observeProfileValidated(observed);
         } else {
             observeLocal(observed);
         }
         return new ObservedAccount(
                 observed, latestOfficialAsset(observed).map(SkinAsset::id));
+    }
+
+    private void observeMinecraftProviders(
+            UUID accountId, SessionValidation validation, AppearanceProviders expected,
+            boolean readSkin, boolean readCape) throws IOException {
+        if (!validation.valid() || validation.profile() == null
+                || !accountId.equals(validation.profile().id())) {
+            return;
+        }
+        Optional<ActiveAppearance> actual = readSkin ? activeAppearance(validation.profile()) : Optional.empty();
+        ProviderSkin skin = actual.filter(value -> !value.accountDefault())
+                .map(value -> new ProviderSkin(value.skinSha256(), value.variant())).orElse(null);
+        RemoteCape activeCape = validation.profile().activeCape().orElse(null);
+        ProviderCape cape = !readCape || activeCape == null ? null : new ProviderCape(activeCape.id(),
+                cachedLocalCapeKey(accountId, activeCape.id(), validation).orElse(null),
+                storage.loadOwnedCapes(accountId).find(activeCape.id()).map(OwnedCapeEntry::hasElytra).orElse(null));
+        storage.updateAppearance(accountId, current -> current.withProviders(new AppearanceProviders(
+                actual.isPresent()
+                        && current.providers().skin().intentRevision() == expected.skin().intentRevision()
+                        && current.providers().skin().minecraftDelivery().activation()
+                                == expected.skin().minecraftDelivery().activation()
+                        ? current.providers().skin().observeMinecraft(skin) : current.providers().skin(),
+                !readCape || sessions.capeStateUnknown(accountId)
+                        || current.providers().cape().intentRevision() != expected.cape().intentRevision()
+                        || current.providers().cape().minecraftDelivery().activation()
+                                != expected.cape().minecraftDelivery().activation()
+                        ? current.providers().cape() : current.providers().cape().observeMinecraft(cape))));
     }
 
     private ObservedAccount observedAccount(UUID accountId) throws IOException {
@@ -1659,25 +2257,48 @@ public final class DefaultClientOperations implements ClientOperations {
                 appearance.syncStatus(),
                 appearance.optionalActivePresetId(),
                 materializeLocalAppearance(accountId, identity.profileId(), appearance, validation),
-                appearance.optionalOuterLayerVisibility());
+                appearance.optionalOuterLayerVisibility(), appearance.providers());
     }
 
     private AccountAppearanceState claimAppearance(
-            UUID accountId, long revision, AppearanceSyncStatus expectedStatus) throws IOException {
+            UUID accountId,
+            AccountAppearanceState expected,
+            AppearanceSyncStatus expectedStatus,
+            boolean claimSkin,
+            boolean claimCape) throws IOException {
         return storage.updateAppearance(accountId, current -> {
-            if (current.intentRevision() != revision
+            if (!sameDelivery(current, expected)
                     || current.syncStatus() != expectedStatus) {
                 return current;
             }
-            return copyAppearanceStatus(current, AppearanceSyncStatus.ATTEMPTING, current.settledRevision());
+            return withAppearanceStatus(
+                    current,
+                    AppearanceSyncStatus.ATTEMPTING,
+                    current.settledRevision(),
+                    new AppearanceProviders(
+                            claimDelivery(current.providers().skin(), claimSkin),
+                            claimDelivery(current.providers().cape(), claimCape)));
         });
+    }
+
+    private static <T> ProviderChannel<T> claimDelivery(
+            ProviderChannel<T> channel, boolean selected) {
+        if (!selected
+                || !channel.enabled(BuiltinProvider.MINECRAFT)
+                || channel.minecraftDelivery().status() == ProviderDelivery.Status.UNKNOWN) {
+            return channel;
+        }
+        return channel.settle(
+                channel.minecraftDelivery(), ProviderDelivery.Status.ATTEMPTING, null);
     }
 
     private PresetApplicationRequest requestFromAppearance(AccountAppearanceState appearance)
             throws IOException, PngValidationException {
+        boolean writeSkin = needsMinecraftDelivery(appearance.providers().skin());
+        boolean writeCape = needsMinecraftDelivery(appearance.providers().cape());
         ResolvedSkinAsset resolved = null;
         SkinReference skin = SkinReference.accountDefault();
-        if (appearance.skinSha256() != null) {
+        if (writeSkin && appearance.skinSha256() != null) {
             UUID assetId = UUID.randomUUID();
             resolved = new ResolvedSkinAsset(
                     assetId,
@@ -1698,7 +2319,9 @@ public final class DefaultClientOperations implements ClientOperations {
                 appearance.outerLayerVisibility(),
                 now,
                 now);
-        return new PresetApplicationRequest(preset, resolved);
+        return new PresetApplicationRequest(preset, resolved,
+                writeSkin,
+                writeCape);
     }
 
     private static AppearanceSyncStatus settlementStatus(PresetApplicationOutcome outcome) {
@@ -1726,7 +2349,7 @@ public final class DefaultClientOperations implements ClientOperations {
 
     private AppearanceComparison compareAppearance(
             AccountAppearanceState expected, RemoteProfile profile) {
-        Optional<ActiveAppearance> actual = activeAppearance(profile);
+        Optional<ActiveAppearance> actual = deliveryAppearance(profile);
         if (actual.isEmpty()) {
             return AppearanceComparison.UNRESOLVED;
         }
@@ -1735,29 +2358,51 @@ public final class DefaultClientOperations implements ClientOperations {
                 : AppearanceComparison.DIFFERENT;
     }
 
+    private static boolean needsMinecraftDelivery(ProviderChannel<?> channel) {
+        return channel.enabled(BuiltinProvider.MINECRAFT)
+                && channel.minecraftDelivery().status() != ProviderDelivery.Status.CONFIRMED;
+    }
+
     private static boolean appearanceMatches(
             AccountAppearanceState expected, ActiveAppearance actual) {
-        return Objects.equals(expected.capeId(), actual.capeId())
+        return (!needsMinecraftDelivery(expected.providers().cape())
+                        || Objects.equals(expected.capeId(), actual.capeId()))
                 && skinMatches(expected, actual);
     }
 
     private static boolean skinMatches(
             AccountAppearanceState expected, ActiveAppearance actual) {
-        return expected.skinSha256() == null
-                ? actual.accountDefault()
-                : !actual.accountDefault()
-                        && expected.skinSha256().equals(actual.skinSha256())
-                        && expected.skinVariant() == actual.variant();
+        return !needsMinecraftDelivery(expected.providers().skin())
+                || (expected.skinSha256() == null
+                        ? actual.accountDefault()
+                        : !actual.accountDefault()
+                                && expected.skinSha256().equals(actual.skinSha256())
+                                && expected.skinVariant() == actual.variant());
     }
 
-    private boolean appearanceStillCurrent(UUID accountId, long revision) {
+    private boolean appearanceStillCurrent(UUID accountId, AccountAppearanceState expected) {
         try {
             AccountAppearanceState current = storage.loadAppearance(accountId);
-            return current.intentRevision() == revision
+            return sameDelivery(current, expected)
                     && current.syncStatus() == AppearanceSyncStatus.ATTEMPTING;
         } catch (IOException unavailableState) {
             return false;
         }
+    }
+
+    private static boolean sameDelivery(AccountAppearanceState current, AccountAppearanceState expected) {
+        return current.intentRevision() == expected.intentRevision() && sameActivation(current, expected);
+    }
+
+    private static boolean sameActivation(AccountAppearanceState current, AccountAppearanceState expected) {
+        return current.providers().skin().minecraftDelivery().activation()
+                            == expected.providers().skin().minecraftDelivery().activation()
+                    && current.providers().cape().minecraftDelivery().activation()
+                            == expected.providers().cape().minecraftDelivery().activation()
+                    && current.providers().skin().enabled(BuiltinProvider.MINECRAFT)
+                            == expected.providers().skin().enabled(BuiltinProvider.MINECRAFT)
+                    && current.providers().cape().enabled(BuiltinProvider.MINECRAFT)
+                            == expected.providers().cape().enabled(BuiltinProvider.MINECRAFT);
     }
 
     @Override
@@ -1772,7 +2417,9 @@ public final class DefaultClientOperations implements ClientOperations {
             throw new IllegalStateException(
                     "Cape recovery requires the matching current PARTIAL appearance intent");
         }
-        ReconciliationKey key = new ReconciliationKey(accountId, appearance.intentRevision());
+        ReconciliationKey key = new ReconciliationKey(accountId, appearance.intentRevision(),
+                appearance.providers().skin().minecraftDelivery().activation(),
+                appearance.providers().cape().minecraftDelivery().activation());
         ReconciliationResult reconciled = reconcileAppearance(
                         context, key, ReconciliationTrigger.EXPLICIT_RETRY)
                 .orElseThrow(() -> new IllegalStateException(
@@ -1886,12 +2533,13 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     private RemoteResult refreshAfterMutation(
-            OperationContext context, PresetApplicationOutcome outcome) {
+            OperationContext context, PresetApplicationOutcome outcome, AppearanceProviders expected) {
         try {
             UUID accountId = resolveAccountId(context.identity());
             AccountState state = library.load(accountId);
             SessionValidation validation = sessions.currentStatus(context.tokens());
             OfficialSkinSync official = syncCurrentOfficial(state, validation);
+            observeMinecraftProviders(accountId, validation, expected, true, true);
             RemoteResult result = new RemoteResult(
                     outcome,
                     official.state(),
@@ -1923,55 +2571,43 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     private OfficialSkinSync syncCurrentOfficial(AccountState state, SessionValidation validation) {
+        return syncCurrentOfficial(state, validation, true);
+    }
+
+    private OfficialSkinSync syncCurrentOfficial(AccountState state, SessionValidation validation, boolean loadRemote) {
         UUID currentId = latestOfficialAsset(state).map(SkinAsset::id).orElse(null);
+        try {
+            if (!storage.loadAppearance(state.accountId()).providers().skin().enabled(BuiltinProvider.MINECRAFT)) {
+                return new OfficialSkinSync(state, currentId, false);
+            }
+        } catch (IOException unavailableState) {
+            return new OfficialSkinSync(state, currentId, false);
+        }
         if (validation.status() != SessionStatus.VALID
                 || validation.profile() == null
                 || !state.accountId().equals(validation.sessionIdentity().profileId())
                 || !state.accountId().equals(validation.profile().id())) {
             return new OfficialSkinSync(state, currentId, false);
         }
-        RemoteProfile profile = validation.profile();
-        final AppliedAppearance acknowledged;
-        try {
-            acknowledged = sessions.currentAppliedAppearance(profile);
-        } catch (IllegalStateException unknownAcknowledgedAppearance) {
+        Optional<ResolvedOfficialSkin> observation = resolveOfficialSkin(validation.profile(), loadRemote);
+        if (observation.isEmpty() || observation.orElseThrow().classification() == OfficialSkinClassifier.Result.UNKNOWN) {
             return new OfficialSkinSync(state, currentId, false);
         }
-        if (acknowledged.localSkinSha256().isPresent()) {
-            String hash = acknowledged.localSkinSha256().orElseThrow();
-            SkinVariant variant = acknowledged.skinVariant().orElseThrow();
-            Optional<SkinAsset> existing = state.skinAssets().stream()
-                    .filter(asset -> asset.sha256().equals(hash) && asset.variant() == variant)
-                    .findFirst();
-            if (existing.isPresent()) {
-                return new OfficialSkinSync(state, existing.orElseThrow().id(), true);
-            }
-            try {
-                SeededAsset seeded = ensureLibraryAsset(
-                        state,
-                        "Current official",
-                        variant,
-                        SkinSource.CURRENT_OFFICIAL,
-                        storage.readAsset(hash));
-                return new OfficialSkinSync(seeded.state(), seeded.asset().id(), true);
-            } catch (IOException | PngValidationException unavailableLocalAsset) {
-                return new OfficialSkinSync(state, currentId, false);
-            }
-        }
-        if (acknowledged.usesAccountDefaultSkin()) {
+        ResolvedOfficialSkin skin = observation.orElseThrow();
+        if (skin.classification() == OfficialSkinClassifier.Result.DEFAULT) {
             return new OfficialSkinSync(state, null, true);
         }
-        RemoteSkin activeSkin = profile.activeSkin().orElse(null);
-        if (activeSkin == null) {
-            return new OfficialSkinSync(state, currentId, false);
+        Optional<SkinAsset> existing = skin.source().localSkinSha256().isPresent()
+                ? state.skinAssets().stream()
+                        .filter(asset -> asset.sha256().equals(skin.sha256()) && asset.variant() == skin.variant())
+                        .findFirst()
+                : Optional.empty();
+        if (existing.isPresent()) {
+            return new OfficialSkinSync(state, existing.orElseThrow().id(), true);
         }
         try {
-            SeededAsset seeded = ensureLibraryAsset(
-                    state,
-                    "Current official",
-                    activeSkin.variant(),
-                    SkinSource.CURRENT_OFFICIAL,
-                    officialSkinTextures.load(activeSkin));
+            SeededAsset seeded = ensureLibraryAsset(state, "Current official", skin.variant(),
+                    SkinSource.CURRENT_OFFICIAL, skin.pngBytes());
             return new OfficialSkinSync(seeded.state(), seeded.asset().id(), true);
         } catch (IOException | PngValidationException unavailableTexture) {
             return new OfficialSkinSync(state, currentId, false);
@@ -2061,7 +2697,8 @@ public final class DefaultClientOperations implements ClientOperations {
         if (matched.isPresent()) {
             UUID matchedId = matched.orElseThrow();
             if (durablePreset.filter(matchedId::equals).isEmpty()) {
-                recordAppearance(accountId, state, matchedId, AppearanceSyncStatus.OFFICIAL);
+                return recordAppearance(accountId, state, matchedId, AppearanceSyncStatus.OFFICIAL)
+                        .optionalActivePresetId();
             }
         }
         return matched.isPresent() ? matched : durablePreset;
@@ -2083,8 +2720,13 @@ public final class DefaultClientOperations implements ClientOperations {
         ResolvedSkinAsset resolved = preset.skin().optionalAssetId().isPresent()
                 ? library.resolveSkin(state, preset.skin().assetId())
                 : null;
-        return storage.updateAppearanceIntent(accountId, (ignored, revision) ->
-                new AccountAppearanceState(
+        OwnedCapeInventory inventory = storage.loadOwnedCapes(accountId);
+        return storage.updateAppearance(accountId, current -> {
+            if (current.hasIntent()) {
+                return current;
+            }
+            long revision = Math.incrementExact(current.intentRevision());
+            return new AccountAppearanceState(
                         AccountAppearanceState.CURRENT_SCHEMA_VERSION,
                         accountId,
                         revision,
@@ -2095,19 +2737,23 @@ public final class DefaultClientOperations implements ClientOperations {
                         preset.outerLayerVisibility(),
                         status,
                         status == AppearanceSyncStatus.OFFICIAL ? revision : 0,
-                        clock.instant()));
+                        clock.instant(), current.providers().bootstrap(revision,
+                                resolved == null ? null : new ProviderSkin(resolved.sha256(), resolved.variant()),
+                                localProviderCape(preset.offlineCape()), providerCape(preset.capeId(), inventory)));
+        });
     }
 
     private AccountAppearanceState recordAccountDefaultAppearance(
             UUID accountId, AppearanceSyncStatus status) throws IOException {
-        return storage.updateAppearanceIntent(accountId, (ignored, revision) ->
-                accountDefaultAppearance(accountId, revision, status));
+        return storage.updateAppearanceIntent(accountId, (current, revision) ->
+                accountDefaultAppearance(accountId, revision, status, current.providers()));
     }
 
     private AccountAppearanceState accountDefaultAppearance(
             UUID accountId,
             long revision,
-            AppearanceSyncStatus status) {
+            AppearanceSyncStatus status,
+            AppearanceProviders providers) {
         return new AccountAppearanceState(
                 AccountAppearanceState.CURRENT_SCHEMA_VERSION,
                 accountId,
@@ -2119,7 +2765,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 OuterLayerVisibility.allVisible(),
                 status,
                 status == AppearanceSyncStatus.OFFICIAL ? revision : 0,
-                clock.instant());
+                clock.instant(), providers.select(revision, null, null));
     }
 
     private AccountAppearanceState settleAppearance(
@@ -2140,12 +2786,37 @@ public final class DefaultClientOperations implements ClientOperations {
 
     private AccountAppearanceState settleAfterMutation(
             UUID accountId,
-            long revision,
+            AccountAppearanceState expected,
             AppearanceSyncStatus expectedStatus,
             AppearanceSyncStatus status,
             PresetApplicationOutcome outcome) throws IOException {
         try {
-            return settleAppearance(accountId, revision, expectedStatus, status);
+            return storage.updateAppearance(accountId, current -> {
+                if (!sameDelivery(current, expected) || current.syncStatus() != expectedStatus) {
+                    if (current.intentRevision() > expected.intentRevision()
+                            && sameActivation(current, expected)
+                            && current.syncStatus() == AppearanceSyncStatus.UNKNOWN
+                            && (outcome.result() == MutationResult.APPLIED || outcome.result() == MutationResult.PARTIAL)) {
+                        AppearanceProviders providers = new AppearanceProviders(
+                                resumeSupersedingDelivery(
+                                        current.providers().skin(), expected.providers().skin()),
+                                resumeSupersedingDelivery(
+                                        current.providers().cape(), expected.providers().cape()));
+                        if (providers.equals(current.providers())) {
+                            return current;
+                        }
+                        return withAppearanceStatus(
+                                current,
+                                supersedingRecoveryStatus(current, providers),
+                                current.settledRevision(),
+                                providers);
+                    }
+                    return current;
+                }
+                return copyAppearanceStatus(current, status,
+                        status == AppearanceSyncStatus.OFFICIAL
+                                ? current.intentRevision() : current.settledRevision());
+            });
         } catch (IOException | RuntimeException localFailure) {
 
 
@@ -2153,10 +2824,49 @@ public final class DefaultClientOperations implements ClientOperations {
         }
     }
 
+    private static <T> ProviderChannel<T> resumeSupersedingDelivery(
+            ProviderChannel<T> current, ProviderChannel<T> previous) {
+        ProviderDelivery delivery = current.minecraftDelivery();
+        ProviderDelivery previousDelivery = previous.minecraftDelivery();
+        if (!current.enabled(BuiltinProvider.MINECRAFT)
+                || !previous.enabled(BuiltinProvider.MINECRAFT)
+                || delivery.status() != ProviderDelivery.Status.UNKNOWN
+                || previousDelivery.status() != ProviderDelivery.Status.ATTEMPTING
+                || delivery.activation() != previousDelivery.activation()
+                || delivery.intentRevision() <= previousDelivery.intentRevision()) {
+            return current;
+        }
+        return current.settle(delivery, ProviderDelivery.Status.PENDING, null);
+    }
+
+    private static AppearanceSyncStatus supersedingRecoveryStatus(
+            AccountAppearanceState current, AppearanceProviders providers) {
+        if (hasMinecraftDeliveryStatus(providers, ProviderDelivery.Status.UNKNOWN)) {
+            return AppearanceSyncStatus.UNKNOWN;
+        }
+        if (hasMinecraftDeliveryStatus(providers, ProviderDelivery.Status.ATTEMPTING)) {
+            return AppearanceSyncStatus.ATTEMPTING;
+        }
+        if (hasMinecraftDeliveryStatus(providers, ProviderDelivery.Status.PENDING)) {
+            return AppearanceSyncStatus.PENDING;
+        }
+        return current.syncStatus();
+    }
+
     private AccountAppearanceState copyAppearanceStatus(
             AccountAppearanceState current,
             AppearanceSyncStatus status,
             long settledRevision) {
+        return withAppearanceStatus(current, status, settledRevision, new AppearanceProviders(
+                deliveryStatus(current.providers().skin(), status, true),
+                deliveryStatus(current.providers().cape(), status, false)));
+    }
+
+    private AccountAppearanceState withAppearanceStatus(
+            AccountAppearanceState current,
+            AppearanceSyncStatus status,
+            long settledRevision,
+            AppearanceProviders providers) {
         return new AccountAppearanceState(
                 current.schemaVersion(),
                 current.accountId(),
@@ -2168,7 +2878,26 @@ public final class DefaultClientOperations implements ClientOperations {
                 current.outerLayerVisibility(),
                 status,
                 settledRevision,
-                clock.instant());
+                clock.instant(),
+                providers);
+    }
+
+    private static <T> ProviderChannel<T> deliveryStatus(
+            ProviderChannel<T> channel, AppearanceSyncStatus status, boolean skin) {
+        if (!channel.enabled(BuiltinProvider.MINECRAFT)
+                || channel.minecraftDelivery().status() == ProviderDelivery.Status.CONFIRMED) {
+            return channel;
+        }
+        ProviderDelivery.Status delivery = switch (status) {
+            case ATTEMPTING -> ProviderDelivery.Status.ATTEMPTING;
+            case OFFICIAL -> ProviderDelivery.Status.CONFIRMED;
+            case UNKNOWN -> ProviderDelivery.Status.UNKNOWN;
+            case PARTIAL -> skin ? ProviderDelivery.Status.CONFIRMED : ProviderDelivery.Status.PENDING;
+            case PENDING -> channel.minecraftDelivery().status() == ProviderDelivery.Status.UNKNOWN
+                    ? ProviderDelivery.Status.UNKNOWN : ProviderDelivery.Status.PENDING;
+            case LOCAL_ONLY -> ProviderDelivery.Status.IDLE;
+        };
+        return channel.settle(channel.minecraftDelivery(), delivery, channel.desired());
     }
 
     private Optional<AppliedAppearance> materializeLocalAppearance(
@@ -2176,21 +2905,18 @@ public final class DefaultClientOperations implements ClientOperations {
             UUID runningProfileId,
             AccountAppearanceState appearance,
             SessionValidation validation) {
-        if (!appearance.hasIntent()) {
-            return Optional.empty();
-        }
-        Optional<String> localCapeCacheKey = appearance.optionalCapeId()
-                .flatMap(capeId -> cachedLocalCapeKey(accountId, capeId, validation));
-        if (appearance.optionalSkinSha256().isPresent()) {
+        AppearanceProviders providers = appearance.providers();
+        ProviderSkin skin = providers.skin().resolve().map(value -> value.value()).orElse(null);
+        ProviderCape cape = providers.cape().resolve().map(value -> value.value()).orElse(null);
+        Optional<String> capeKey = cape == null ? Optional.empty() : cape.optionalTextureCacheKey()
+                .or(() -> cachedLocalCapeKey(accountId, cape.id(), validation));
+        if (skin != null) {
             return Optional.of(AppliedAppearance.localSkin(
-                    runningProfileId,
-                    appearance.optionalSkinSha256().orElseThrow(),
-                    appearance.optionalSkinVariant().orElseThrow(),
-                    Optional.empty(),
-                    localCapeCacheKey));
+                    runningProfileId, skin.sha256(), skin.variant(), Optional.empty(), capeKey)
+                    .withCapeElytra(cape == null || !Boolean.FALSE.equals(cape.hasElytra())));
         }
-        return Optional.of(AppliedAppearance.accountDefault(
-                runningProfileId, Optional.empty(), localCapeCacheKey));
+        return Optional.of(AppliedAppearance.accountDefault(runningProfileId, Optional.empty(), capeKey)
+                .withCapeElytra(cape == null || !Boolean.FALSE.equals(cape.hasElytra())));
     }
 
     private Optional<String> cachedLocalCapeKey(
@@ -2223,35 +2949,61 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     private Optional<ActiveAppearance> activeAppearance(RemoteProfile profile) {
-        String capeId = profile.activeCape().map(RemoteCape::id).orElse(null);
-        final AppliedAppearance applied;
-        try {
-            applied = sessions.currentAppliedAppearance(profile);
-        } catch (IllegalStateException unknownAcknowledgedSkin) {
-            return Optional.empty();
-        }
-        if (applied.localSkinSha256().isPresent()) {
-            return Optional.of(ActiveAppearance.local(
-                    applied.localSkinSha256().orElseThrow(),
-                    applied.skinVariant().orElseThrow(),
-                    capeId));
-        }
-        if (applied.usesAccountDefaultSkin()) {
-            return Optional.of(ActiveAppearance.accountDefault(capeId));
-        }
-        RemoteSkin activeSkin = profile.activeSkin().orElse(null);
-        if (activeSkin == null
-                || applied.skinTexture().filter(activeSkin.textureUri()::equals).isEmpty()) {
+        return resolveOfficialSkin(profile, false)
+                .filter(skin -> skin.classification() != OfficialSkinClassifier.Result.UNKNOWN)
+                .map(skin -> skin.classification() == OfficialSkinClassifier.Result.DEFAULT
+                        ? ActiveAppearance.accountDefault(profile.activeCape().map(RemoteCape::id).orElse(null))
+                        : skin.rawAppearance());
+    }
+
+    private Optional<ActiveAppearance> deliveryAppearance(RemoteProfile profile) {
+        return resolveOfficialSkin(profile, false).map(ResolvedOfficialSkin::rawAppearance);
+    }
+
+    private Optional<ResolvedOfficialSkin> resolveOfficialSkin(RemoteProfile profile, boolean loadRemote) {
+        if (!sessions.hasKnownSkin(profile)) {
             return Optional.empty();
         }
         try {
-            Optional<byte[]> cached = textures.readIfCached(activeSkin.textureUri());
-            if (cached.isEmpty()) {
-                return Optional.empty();
+            AppliedAppearance applied = sessions.currentAppliedAppearance(profile);
+            long generation = bundledSkins.generation();
+            ResolvedOfficialSkin cached = resolvedOfficialSkin;
+            if (cached != null && cached.profile() == profile && cached.source().equals(applied)
+                    && cached.generation() == generation
+                    && cached.classification() != OfficialSkinClassifier.Result.UNKNOWN) {
+                return Optional.of(cached);
             }
-            return Optional.of(ActiveAppearance.local(
-                    sha256(cached.orElseThrow()), activeSkin.variant(), capeId));
-        } catch (IOException | RuntimeException unavailableTexture) {
+            ResolvedOfficialSkin resolved;
+            if (applied.usesAccountDefaultSkin()) {
+                resolved = new ResolvedOfficialSkin(profile, applied, generation,
+                        OfficialSkinClassifier.Result.DEFAULT, null, null, null);
+            } else {
+                byte[] bytes;
+                SkinVariant variant = applied.skinVariant().orElseThrow();
+                if (applied.localSkinSha256().isPresent()) {
+                    bytes = storage.readAsset(applied.localSkinSha256().orElseThrow());
+                } else {
+                    RemoteSkin active = profile.activeSkin().orElseThrow();
+                    if (applied.skinTexture().filter(active.textureUri()::equals).isEmpty()) {
+                        return Optional.empty();
+                    }
+                    if (loadRemote) {
+                        bytes = officialSkinTextures.load(active);
+                    } else {
+                        Optional<byte[]> local = textures.readIfCached(active.textureUri());
+                        if (local.isEmpty()) return Optional.empty();
+                        bytes = local.orElseThrow();
+                    }
+                }
+                new PngValidator().validate(bytes);
+                OfficialSkinClassifier.Result classification =
+                        officialSkinClassifier.classify(profile.id(), variant, bytes);
+                resolved = new ResolvedOfficialSkin(profile, applied, generation,
+                        classification, sha256(bytes), variant, bytes);
+            }
+            resolvedOfficialSkin = resolved;
+            return Optional.of(resolved);
+        } catch (IOException | PngValidationException | RuntimeException unavailable) {
             return Optional.empty();
         }
     }
@@ -2487,6 +3239,24 @@ public final class DefaultClientOperations implements ClientOperations {
         }
     }
 
+    private record ResolvedOfficialSkin(
+            RemoteProfile profile, AppliedAppearance source, long generation,
+            OfficialSkinClassifier.Result classification, String sha256,
+            SkinVariant variant, byte[] pngBytes) {
+        private ActiveAppearance rawAppearance() {
+            String capeId = profile.activeCape().map(RemoteCape::id).orElse(null);
+            return sha256 == null ? ActiveAppearance.accountDefault(capeId)
+                    : ActiveAppearance.local(sha256, variant, capeId);
+        }
+    }
+
+    private record PresetValues(
+            AppearancePreset preset,
+            ProviderSkin skin,
+            ProviderCape offlineCape,
+            ProviderCape minecraftCape,
+            String capeId) {}
+
     @FunctionalInterface
     interface OfficialSkinTextureSource {
         byte[] load(RemoteSkin skin) throws IOException;
@@ -2551,6 +3321,50 @@ public final class DefaultClientOperations implements ClientOperations {
         private static CatalogSnapshot empty() {
             return new CatalogSnapshot(
                     new UUID(0L, 0L), Map.of(), Map.of(), Map.of());
+        }
+    }
+
+    private record ResourceCapeDiscovery(
+            long generation,
+            List<CapeCatalogSource.CollectionDescriptor> collections,
+            Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries,
+            Map<ResourceCapeKey, String> sourceHashes) {
+        private ResourceCapeDiscovery {
+            collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
+            entries = Map.copyOf(Objects.requireNonNull(entries, "entries"));
+            sourceHashes = Map.copyOf(Objects.requireNonNull(sourceHashes, "sourceHashes"));
+        }
+
+        private static ResourceCapeDiscovery empty() {
+            return new ResourceCapeDiscovery(Long.MIN_VALUE, List.of(), Map.of(), Map.of());
+        }
+    }
+
+    private record ResourceCapeSnapshot(
+            UUID accountId,
+            long generation,
+            Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries) {
+        private ResourceCapeSnapshot {
+            accountId = Objects.requireNonNull(accountId, "accountId");
+            entries = Map.copyOf(Objects.requireNonNull(entries, "entries"));
+        }
+
+        private static ResourceCapeSnapshot empty() {
+            return new ResourceCapeSnapshot(new UUID(0L, 0L), Long.MIN_VALUE, Map.of());
+        }
+    }
+
+    private record ResourceCapeSnapshotEntry(
+            String contentIdentity, String sourceSha256, boolean hasElytra, byte[] bytes) {
+        private ResourceCapeSnapshotEntry {
+            Objects.requireNonNull(contentIdentity, "contentIdentity");
+            Objects.requireNonNull(sourceSha256, "sourceSha256");
+            bytes = Objects.requireNonNull(bytes, "bytes").clone();
+        }
+
+        @Override
+        public byte[] bytes() {
+            return bytes.clone();
         }
     }
 }

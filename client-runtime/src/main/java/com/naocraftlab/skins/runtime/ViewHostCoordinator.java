@@ -63,10 +63,12 @@ public final class ViewHostCoordinator {
         }
     }
 
-    private record TabShape(String id, Bounds bounds, List<String> tabIds) {
+    private record TabShape(
+            String id, Bounds bounds, List<String> tabIds, ViewSpec.TabOrientation orientation) {
         private static TabShape of(ViewSpec.TabGroup group) {
             return new TabShape(
-                    group.id(), group.bounds(), group.tabs().stream().map(ViewSpec.Tab::id).toList());
+                    group.id(), group.bounds(), group.tabs().stream().map(ViewSpec.Tab::id).toList(),
+                    group.orientation());
         }
     }
 }

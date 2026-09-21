@@ -16,7 +16,7 @@ widgets
 5|external.review.commit|BUTTON|16,213,134,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 6|external.review.cancel|BUTTON|156,213,68,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
-0|external.review.card:candidate-0.preview|21,77,86,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+0|external.review.card:candidate-0.preview|21,77,86,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
 back_equipment_previews
 icon_decorations
 clip_regions
@@ -40,7 +40,7 @@ widgets
 5|external.review.commit|BUTTON|16,213,188,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 6|external.review.cancel|BUTTON|210,213,94,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
-0|external.review.card:candidate-0.preview|21,77,58,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+0|external.review.card:candidate-0.preview|21,77,58,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
 back_equipment_previews
 icon_decorations
 clip_regions
@@ -64,7 +64,7 @@ widgets
 5|external.review.commit|BUTTON|16,213,259,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 6|external.review.cancel|BUTTON|281,213,130,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
-0|external.review.card:candidate-0.preview|21,77,64,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+0|external.review.card:candidate-0.preview|21,77,64,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
 back_equipment_previews
 icon_decorations
 clip_regions
@@ -91,8 +91,8 @@ widgets
 6|external.review.commit|BUTTON|217,453,276,20|key:nclskins.external_import.import_selected(1):INFO|value=-|hint=-|enabled=true|visible=true|max=0
 7|external.review.cancel|BUTTON|499,453,138,20|key:gui.cancel:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
-0|external.review.card:candidate-0.preview|21,77,76,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
-1|external.review.card:candidate-1.preview|21,243,76,107|skin=ACCOUNT_DEFAULT:-|revision=external:1111111111111111111111111111111111111111111111111111111111111111:SLIM|variant=SLIM|cape=owned-cape|mode=CAPE|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+0|external.review.card:candidate-0.preview|21,77,76,107|skin=ACCOUNT_DEFAULT:-|revision=external:0000000000000000000000000000000000000000000000000000000000000000:CLASSIC|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
+1|external.review.card:candidate-1.preview|21,243,76,107|skin=ACCOUNT_DEFAULT:-|revision=external:1111111111111111111111111111111111111111111111111111111111111111:SLIM|variant=SLIM|cape=owned-cape|mode=CAPE|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-20.0|pitch=0.0|scale=1.0|preset=-
 back_equipment_previews
 icon_decorations
 clip_regions

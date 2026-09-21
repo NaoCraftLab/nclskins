@@ -3,6 +3,7 @@ package com.naocraftlab.skins.client;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -84,5 +85,47 @@ class ResourcePackCatalogDiscoveryTest {
         assertEquals(
                 "textures/entity/player/slim/hero.png",
                 ResourcePackCatalogDiscovery.texturePath("hero", SkinModel.SLIM));
+    }
+
+    @Test
+    void parsesOnlyDirectCapeTexturesWithIndependentLocalization() {
+        var cape = ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack",
+                "textures/entity/cape/hero.png",
+                "file/event.zip",
+                1).orElseThrow();
+
+        assertEquals("hero", cape.capeId());
+        assertEquals("event_pack:textures/entity/cape/hero.png", cape.contentIdentity());
+        assertEquals(
+                "nclskins.event_pack.cape.hero.name",
+                CatalogText.capeName("event_pack", "hero").translationKey().orElseThrow());
+        assertFalse(ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack", "textures/entity/cape/nested/hero.png", "file/event.zip", 1).isPresent());
+        assertFalse(ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack", "textures/entity/player/wide/hero.png", "file/event.zip", 1).isPresent());
+        assertFalse(ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack", "textures/entity/cape/hero.png", "file/event.zip", 1, true).isPresent());
+    }
+
+    @Test
+    void snapshotCacheIndexesKnownGenerationOnceAndNeverCachesUnknownGeneration() {
+        var cache = new ResourcePackCatalogDiscovery.SnapshotCache();
+        AtomicInteger indexes = new AtomicInteger();
+        java.util.function.Supplier<ResourcePackCatalogDiscovery.Snapshot> indexer = () -> {
+            indexes.incrementAndGet();
+            return new ResourcePackCatalogDiscovery.Snapshot(List.of(), List.of());
+        };
+
+        var first = cache.get(7, indexer);
+        var repeated = cache.get(7, indexer);
+        var reloaded = cache.get(8, indexer);
+        var unknown = cache.get(Long.MIN_VALUE, indexer);
+        var repeatedUnknown = cache.get(Long.MIN_VALUE, indexer);
+
+        assertTrue(first == repeated);
+        assertFalse(first == reloaded);
+        assertFalse(unknown == repeatedUnknown);
+        assertEquals(4, indexes.get());
     }
 }

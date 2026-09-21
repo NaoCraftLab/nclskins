@@ -857,6 +857,10 @@ public final class AddSourceModel {
         return 2;
     }
 
+    int messageHeight(UiMessage message, int width) {
+        return textResolver.wrappedHeight(message, Math.max(1, width));
+    }
+
     private String resolve(CatalogText text) {
         String resolved = Objects.requireNonNull(
                 textResolver.resolve(text), "resolved catalog text");
