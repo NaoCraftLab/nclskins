@@ -2398,7 +2398,7 @@ final class BuildLogicTest {
 
         String immediateIndicator = immediate.substring(
                 immediate.indexOf('private final class CompatibilityIndicatorWidget'),
-                immediate.indexOf('private static void renderActionIcon'))
+                immediate.indexOf('private void renderActionIcon'))
         assertTrue(immediateIndicator.contains('renderActionIcon('))
         assertTrue(immediateIndicator.contains('isHoveredOrFocused()'))
         assertTrue(immediateIndicator.contains('drawCardFocusFrame('))
@@ -2414,8 +2414,8 @@ final class BuildLogicTest {
         String submissionIndicator = submission.substring(
                 submission.indexOf('case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {'),
                 submission.indexOf('case CATALOG_DELETE -> {'))
-        assertTrue(submissionIndicator.contains('iconTexture(guiIcon)'))
-        assertTrue(submissionIndicator.contains('guiIcon.baseCanvas()'))
+        assertTrue(submissionIndicator.contains(
+                'renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());'))
         assertFalse(submissionIndicator.contains('renderDefaultSprite('))
         assertTrue(submission.contains('boolean iconOnlyFrame = kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON'))
         assertTrue(submission.contains('if ((iconOnlyFrame && isHoveredOrFocused())'))
@@ -2435,6 +2435,45 @@ final class BuildLogicTest {
             assertTrue(indicator.contains('extractCardFocusFrame('))
             assertFalse(indicator.contains('extractDefaultSprite('))
             assertTrue(source.count('extractActionIcon(') >= 3)
+        }
+    }
+
+    @Test
+    void nativeDeleteConfirmationIconsUseTheCatalogResourceMappings() {
+        String legacy = new File(
+                repository,
+                'compat/capabilities/gui/immediate-resource-location-player-info/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/ImmediateClientRuntime.java').text
+        assertTrue(legacy.contains('realms:textures/gui/realms/'))
+        assertTrue(legacy.contains('graphics.blit(resource, x, y, 0.0F, 0.0F, width, height, 37, 18)'))
+
+        List<String> modernPaths = [
+                'compat/capabilities/gui/immediate-resource-location-skin-lookup/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/ImmediateClientRuntime.java',
+                'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
+                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+        ]
+        modernPaths.each { String path ->
+            String source = new File(repository, path).text
+            assertTrue(source.contains('NativeGuiIcon'), path)
+            assertTrue(source.contains('pending_invite/'), path)
+            assertFalse(source.contains('pending_invite/accept_highlighted'), path)
+            assertFalse(source.contains('pending_invite/reject_highlighted'), path)
+            assertFalse(source.contains('friends/accept'), path)
+            assertFalse(source.contains('friends/reject'), path)
+        }
+
+        List<String> copiedNames = ['accept_icon.png', 'reject_icon.png', 'accept.png', 'reject.png']
+        [
+                new File(repository, 'client-runtime/src/main/resources'),
+                new File(repository, 'compat/capabilities')
+        ].each { File root ->
+            if (!root.exists()) return
+            root.eachFileRecurse { File file ->
+                if (file.isFile()) {
+                    assertFalse(copiedNames.contains(file.name), file.path)
+                    assertFalse(file.path.replace('\\', '/').contains('/pending_invite/'), file.path)
+                }
+            }
         }
     }
 

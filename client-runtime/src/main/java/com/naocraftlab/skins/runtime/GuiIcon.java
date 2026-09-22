@@ -2,7 +2,7 @@ package com.naocraftlab.skins.runtime;
 
 import java.util.Objects;
 
-public enum GuiIcon {
+public enum GuiIcon implements WidgetIcon {
     ACTION_PROVIDERS("action/providers", 16),
     ACTION_ADD_PROVIDER("action/add_provider", 16),
     ACTION_REFRESH("action/refresh", 16),

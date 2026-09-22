@@ -93,6 +93,19 @@ final class ViewHostPolicyTest {
                 ViewHostPolicy.submitAction(view, field.id(), true, "Renamed"));
     }
 
+    @Test
+    void nativeIconRemainsPartOfTheWidgetShapeWithoutChangingPointerOwnership() {
+        ViewSpec.Widget accept = ViewSpec.Widget.iconButton(
+                "delete.confirm", new Bounds(2, 2, 20, 20),
+                UiMessage.info("nclskins.your_skins.delete_confirm"),
+                NativeGuiIcon.ACCEPT, true);
+        ViewSpec view = view(List.of(accept), List.of());
+
+        assertEquals(Optional.of(NativeGuiIcon.ACCEPT),
+                ViewHostPolicy.widgetShapes(view).get(0).icon());
+        assertEquals(Optional.of(accept), ViewHostPolicy.pointerOwnerAt(view, 10, 10));
+    }
+
     private static ViewSpec.Widget widget(String id, Bounds bounds) {
         return new ViewSpec.Widget(
                 id, ViewSpec.WidgetKind.BUTTON, bounds,

@@ -23,6 +23,7 @@ import com.naocraftlab.skins.runtime.TextResolver;
 import com.naocraftlab.skins.runtime.UiMessage;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import com.naocraftlab.skins.runtime.ViewChromeMetrics;
+import com.naocraftlab.skins.runtime.NativeGuiIcon;
 import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
@@ -135,6 +136,28 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
     public void renderProviderArrow(GuiGraphics graphics, String action, int x, int y, boolean highlighted) {
         int u = action.equals("select") ? 0 : action.equals("remove") ? 32 : action.equals("up") ? 96 : 64;
         graphics.blit(ResourceLocation.tryParse("minecraft:textures/gui/resource_packs.png"), x, y, (float) u, highlighted ? 32.0F : 0.0F, 32, 32, 256, 256);
+    }
+
+    @Override
+    public void renderNativeIcon(
+            GuiGraphics graphics,
+            NativeGuiIcon icon,
+            int x,
+            int y,
+            int width,
+            int height,
+            boolean active) {
+        float tint = active ? 1.0F : 0.5F;
+        graphics.setColor(tint, tint, tint, 1.0F);
+        try {
+            ResourceLocation resource = ResourceLocation.tryParse(
+                    "realms:textures/gui/realms/"
+                            + (icon == NativeGuiIcon.ACCEPT ? "accept_icon" : "reject_icon")
+                            + ".png");
+            graphics.blit(resource, x, y, 0.0F, 0.0F, width, height, 37, 18);
+        } finally {
+            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+        }
     }
 
     @Override

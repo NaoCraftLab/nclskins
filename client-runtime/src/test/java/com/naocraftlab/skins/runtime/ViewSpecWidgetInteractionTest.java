@@ -59,4 +59,18 @@ final class ViewSpecWidgetInteractionTest {
         assertEquals(Optional.of("selected"), tab.value());
         assertEquals(Optional.of(GuiIcon.EDITOR_TAB_APPEARANCE), tab.icon());
     }
+
+    @Test
+    void nativeWidgetIconIsDistinctFromModOwnedIconInventory() {
+        ViewSpec.Widget widget = ViewSpec.Widget.iconButton(
+                "delete.confirm",
+                new Bounds(4, 8, 20, 20),
+                UiMessage.info("nclskins.your_skins.delete_confirm"),
+                NativeGuiIcon.ACCEPT,
+                true);
+
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, widget.kind());
+        assertEquals(Optional.of(NativeGuiIcon.ACCEPT), widget.icon());
+        assertTrue(widget.icon().orElseThrow() instanceof NativeGuiIcon);
+    }
 }

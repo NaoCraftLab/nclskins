@@ -247,16 +247,35 @@ final class CapeCatalogPresenter {
                     UiMessage.info("nclskins.your_skins.rename_hint"), !busy, 128, true,
                     Optional.of("editor.cape_action.save." + key)));
         }
-        CatalogCardGeometry.ActionPair geometry = editing
-                ? CatalogCardGeometry.renameActions(bounds) : CatalogCardGeometry.personalActions(bounds);
+        CatalogCardGeometry.ActionPair geometry = CatalogCardGeometry.personalActions(bounds);
         if (editing) {
-            actions.add(ViewSpec.Widget.button(
-                    "editor.cape_action." + (model.deleting() ? "confirm." : "save.") + key,
-                    geometry.left(), UiMessage.info(model.deleting()
-                            ? "nclskins.capes.delete" : "nclskins.editor.save"),
-                    !busy && (model.deleting() || !model.renameValue().trim().isEmpty())));
-            actions.add(ViewSpec.Widget.button(
-                    "editor.cape_action.cancel." + key, geometry.right(), UiMessage.info("gui.cancel"), !busy));
+            if (model.deleting()) {
+                actions.add(ViewSpec.Widget.iconButton(
+                        "editor.cape_action.confirm." + key,
+                        geometry.left(),
+                        UiMessage.info("nclskins.capes.delete"),
+                        NativeGuiIcon.ACCEPT,
+                        !busy));
+                actions.add(ViewSpec.Widget.iconButton(
+                        "editor.cape_action.cancel." + key,
+                        geometry.right(),
+                        UiMessage.info("gui.cancel"),
+                        NativeGuiIcon.REJECT,
+                        !busy));
+            } else {
+                actions.add(ViewSpec.Widget.iconButton(
+                        "editor.cape_action.save." + key,
+                        geometry.left(),
+                        UiMessage.info("nclskins.editor.save"),
+                        NativeGuiIcon.ACCEPT,
+                        !busy && !model.renameValue().trim().isEmpty()));
+                actions.add(ViewSpec.Widget.iconButton(
+                        "editor.cape_action.cancel." + key,
+                        geometry.right(),
+                        UiMessage.info("gui.cancel"),
+                        NativeGuiIcon.REJECT,
+                        !busy));
+            }
         } else {
             actions.add(ViewSpec.Widget.iconButton(
                     "editor.cape_action.rename." + key, geometry.left(), UiMessage.info("nclskins.capes.rename"),

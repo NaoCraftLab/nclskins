@@ -3510,14 +3510,21 @@ public final class ClientRuntime implements AutoCloseable {
                     updateEditor(editor -> editor.withCapeCatalog(catalog.cancelEdit()));
                     if (origin == InteractionOrigin.KEYBOARD) requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
                 }
-                case "save" -> submit(UiMessage.info("nclskins.status.saving"),
-                        () -> operations.renameCape(capeAccountId, entry, UntrustedDisplayName.sanitize(catalog.renameValue(), "")), account -> {
-                            state.account = account;
-                            refreshCapeCatalog(catalog.offline(), catalog.minecraft());
-                            state.editor = state.editor.withCapeCatalog(
-                                    state.editor.capeCatalog().cancelEdit());
-                            if (origin == InteractionOrigin.KEYBOARD) requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
-                        });
+                case "save" -> {
+                    if (!catalog.renameValue().trim().isEmpty()) {
+                        submit(UiMessage.info("nclskins.status.saving"),
+                                () -> operations.renameCape(capeAccountId, entry,
+                                        UntrustedDisplayName.sanitize(catalog.renameValue(), "")), account -> {
+                                    state.account = account;
+                                    refreshCapeCatalog(catalog.offline(), catalog.minecraft());
+                                    state.editor = state.editor.withCapeCatalog(
+                                            state.editor.capeCatalog().cancelEdit());
+                                    if (origin == InteractionOrigin.KEYBOARD) {
+                                        requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
+                                    }
+                                });
+                    }
+                }
                 case "confirm" -> submit(UiMessage.info("nclskins.status.saving"), () -> operations.deleteCape(capeAccountId, entry), result -> {
                     state.account = result.account();
                     acceptProviderChange(result.appearance());

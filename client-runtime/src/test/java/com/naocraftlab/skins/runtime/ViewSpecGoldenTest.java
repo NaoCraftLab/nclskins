@@ -444,7 +444,7 @@ final class ViewSpecGoldenTest {
             result.append(index).append('|').append(widget.id()).append('|').append(widget.kind()).append('|')
                     .append(bounds(widget.bounds())).append('|').append(message(widget.label())).append('|')
                     .append("value=").append(widget.icon()
-                            .map(GuiIcon::semanticPath)
+                            .map(ViewSpecGoldenTest::widgetIcon)
                             .orElseGet(() -> widget.value().orElse("-"))).append('|')
                     .append("hint=").append(widget.hint().map(ViewSpecGoldenTest::message).orElse("-")).append('|')
                     .append("enabled=").append(widget.enabled()).append('|')
@@ -511,6 +511,12 @@ final class ViewSpecGoldenTest {
                     .append("|maximum=").append(scrollbar.maximum()).append('\n');
         }
         return result.toString();
+    }
+
+    private static String widgetIcon(WidgetIcon icon) {
+        return icon instanceof GuiIcon guiIcon
+                ? guiIcon.semanticPath()
+                : "native/" + ((NativeGuiIcon) icon).name().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String outerLayer(OuterLayerVisibility visibility) {

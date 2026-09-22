@@ -489,7 +489,7 @@ public final class AddSourcePresenter {
                 }
                 if (renamingThisCard) {
                     PersonalSkinRename rename = personalRename.orElseThrow();
-                    CatalogCardGeometry.ActionPair actions = CatalogCardGeometry.renameActions(card);
+                    CatalogCardGeometry.ActionPair actions = CatalogCardGeometry.personalActions(card);
                     addIntersectingWidget(
                             widgets,
                             ViewSpec.Widget.textField(
@@ -505,18 +505,20 @@ public final class AddSourcePresenter {
                             contentBottom);
                     addIntersectingWidget(
                             widgets,
-                            ViewSpec.Widget.button(
+                            ViewSpec.Widget.iconButton(
                                     "add.catalog.rename.save",
                                     actions.left(),
                                     UiMessage.info("nclskins.your_skins.rename_save"),
+                                    NativeGuiIcon.ACCEPT,
                                     !busy && !rename.value().trim().isEmpty()),
                             contentBottom);
                     addIntersectingWidget(
                             widgets,
-                            ViewSpec.Widget.button(
+                            ViewSpec.Widget.iconButton(
                                     "add.catalog.rename.cancel",
                                     actions.right(),
                                     UiMessage.info("gui.cancel"),
+                                    NativeGuiIcon.REJECT,
                                     !busy),
                             contentBottom);
                 } else if (personal) {
@@ -528,19 +530,21 @@ public final class AddSourcePresenter {
                     if (pendingDelete) {
                         addIntersectingNavigableWidget(
                                 widgets,
-                                ViewSpec.Widget.button(
+                                ViewSpec.Widget.iconButton(
                                         "add.catalog.delete.confirm",
                                         actions.left(),
                                         UiMessage.info("nclskins.your_skins.delete_confirm"),
+                                        NativeGuiIcon.ACCEPT,
                                         !busy),
                                 contentBottom,
                                 navigationNodes);
                         addIntersectingNavigableWidget(
                                 widgets,
-                                ViewSpec.Widget.button(
+                                ViewSpec.Widget.iconButton(
                                         "add.catalog.delete.cancel",
                                         actions.right(),
                                         UiMessage.info("gui.cancel"),
+                                        NativeGuiIcon.REJECT,
                                         !busy),
                                 contentBottom,
                                 navigationNodes);

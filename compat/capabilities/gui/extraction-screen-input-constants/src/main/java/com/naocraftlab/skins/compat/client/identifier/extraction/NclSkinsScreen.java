@@ -21,6 +21,8 @@ import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.FocusRequestLedger;
 import com.naocraftlab.skins.runtime.GuiIcon;
+import com.naocraftlab.skins.runtime.NativeGuiIcon;
+import com.naocraftlab.skins.runtime.WidgetIcon;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.InteractionOrigin;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
@@ -1835,7 +1837,7 @@ public final class NclSkinsScreen extends Screen {
             String id,
             ViewSpec.WidgetKind kind,
             String label,
-            Optional<GuiIcon> icon,
+            Optional<WidgetIcon> icon,
             Optional<UiMessage> hint,
             boolean visible,
             int maxLength) {
@@ -1868,7 +1870,7 @@ public final class NclSkinsScreen extends Screen {
 
     private final class IconButtonWidget extends AbstractButton {
         private final String widgetId;
-        private GuiIcon icon;
+        private WidgetIcon icon;
         private final boolean iconOnly;
         private final boolean tab;
         private boolean selected;
@@ -1877,7 +1879,7 @@ public final class NclSkinsScreen extends Screen {
         private IconButtonWidget(
                 String widgetId, Bounds bounds,
                 Component message,
-                GuiIcon icon,
+                WidgetIcon icon,
                 boolean iconOnly,
                 boolean tab,
                 boolean selected,
@@ -1891,7 +1893,7 @@ public final class NclSkinsScreen extends Screen {
             this.onPress = Objects.requireNonNull(onPress, "onPress");
         }
 
-        private void setIcon(GuiIcon icon) {
+        private void setIcon(WidgetIcon icon) {
             this.icon = Objects.requireNonNull(icon, "icon");
         }
 
@@ -1979,14 +1981,14 @@ public final class NclSkinsScreen extends Screen {
 
 
     private static final class CompatibilityIndicatorWidget extends AbstractButton {
-        private GuiIcon icon;
+        private WidgetIcon icon;
 
-        private CompatibilityIndicatorWidget(Bounds bounds, Component message, GuiIcon icon) {
+        private CompatibilityIndicatorWidget(Bounds bounds, Component message, WidgetIcon icon) {
             super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
             this.icon = Objects.requireNonNull(icon, "icon");
         }
 
-        private void setIcon(GuiIcon icon) {
+        private void setIcon(WidgetIcon icon) {
             this.icon = Objects.requireNonNull(icon, "icon");
         }
 
@@ -2017,11 +2019,23 @@ public final class NclSkinsScreen extends Screen {
             int y,
             int width,
             int height,
-            GuiIcon icon) {
-        int size = icon.baseCanvas();
+            WidgetIcon icon) {
+        if (icon instanceof NativeGuiIcon nativeIcon) {
+            graphics.blitSprite(
+                    RenderPipelines.GUI_TEXTURED,
+                    Identifier.withDefaultNamespace(
+                            "pending_invite/" + (nativeIcon == NativeGuiIcon.ACCEPT ? "accept" : "reject")),
+                    x + (width - 18) / 2,
+                    y + (height - 18) / 2,
+                    18,
+                    18);
+            return;
+        }
+        GuiIcon guiIcon = (GuiIcon) icon;
+        int size = guiIcon.baseCanvas();
         graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
-                iconTexture(icon),
+                iconTexture(guiIcon),
                 x + (width - size) / 2,
                 y + (height - size) / 2,
                 0.0F,

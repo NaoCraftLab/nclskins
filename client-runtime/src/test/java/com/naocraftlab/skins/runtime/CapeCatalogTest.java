@@ -30,6 +30,7 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -338,9 +339,13 @@ class CapeCatalogTest {
         var personal = widgets.stream().filter(w -> w.id().startsWith("editor.cape_item.OFFLINE.")).toList();
         assertEquals(3, personal.size());
         assertTrue(personal.stream().allMatch(w -> w.bounds().height() == 86));
-        assertTrue(widgets.stream().filter(w -> w.id().startsWith("editor.cape_action.")).allMatch(w -> w.icon().isPresent()));
+        List<ViewSpec.Widget> idleActions = widgets.stream()
+                .filter(w -> w.id().startsWith("editor.cape_action.rename.")
+                        || w.id().startsWith("editor.cape_action.delete."))
+                .toList();
+        assertTrue(idleActions.stream().allMatch(w -> w.icon().isPresent()));
         assertTrue(widgets.stream().anyMatch(w -> w.id().startsWith("editor.cape_action.rename.")));
-        for (var action : widgets.stream().filter(w -> w.id().startsWith("editor.cape_action.")).toList()) {
+        for (var action : idleActions) {
             assertEquals(action.id().startsWith("editor.cape_action.rename.")
                     ? GuiIcon.ACTION_RENAME : GuiIcon.ACTION_DELETE, action.icon().orElseThrow());
         }
@@ -550,6 +555,55 @@ class CapeCatalogTest {
                 ViewSpec deleting = capeEditor(localAndService.edit(local.entryId(), true))
                         .present(width, height, scroll);
                 assertPersonalCapeBounds(deleting, local.entryId().toString(), expectedCardHeight);
+                ViewSpec idle = editor.present(width, height, scroll);
+                Bounds idleRenameBounds = idle.widget("editor.cape_action.rename." + local.entryId())
+                        .orElseThrow().bounds();
+                Bounds idleDeleteBounds = idle.widget("editor.cape_action.delete." + local.entryId())
+                        .orElseThrow().bounds();
+                CatalogCardGeometry.ActionPair legacyRenameActions = CatalogCardGeometry.renameActions(
+                        idle.widget("editor.cape_item.OFFLINE." + local.entryId()).orElseThrow().bounds());
+                assertNotEquals(idleRenameBounds, legacyRenameActions.left());
+                assertNotEquals(idleDeleteBounds, legacyRenameActions.right());
+                ViewSpec.Widget deleteConfirm = deleting.widget(
+                        "editor.cape_action.confirm." + local.entryId()).orElseThrow();
+                ViewSpec.Widget deleteCancel = deleting.widget(
+                        "editor.cape_action.cancel." + local.entryId()).orElseThrow();
+                assertEquals(idle.widget("editor.cape_action.rename." + local.entryId()).orElseThrow().bounds(),
+                        deleteConfirm.bounds());
+                assertEquals(idle.widget("editor.cape_action.delete." + local.entryId()).orElseThrow().bounds(),
+                        deleteCancel.bounds());
+                assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, deleteConfirm.kind());
+                assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, deleteCancel.kind());
+                assertEquals("nclskins.capes.delete", deleteConfirm.label().key());
+                assertEquals("gui.cancel", deleteCancel.label().key());
+                assertEquals(Optional.of(NativeGuiIcon.ACCEPT), deleteConfirm.icon());
+                assertEquals(Optional.of(NativeGuiIcon.REJECT), deleteCancel.icon());
+                assertTrue(deleteConfirm.enabled());
+                assertTrue(deleteCancel.enabled());
+                ViewSpec renameView = capeEditor(localAndService.edit(local.entryId(), false).rename("Renamed"))
+                        .present(width, height, scroll);
+                ViewSpec.Widget renameSave = renameView.widget(
+                        "editor.cape_action.save." + local.entryId()).orElseThrow();
+                ViewSpec.Widget renameCancel = renameView.widget(
+                        "editor.cape_action.cancel." + local.entryId()).orElseThrow();
+                assertEquals(idle.widget("editor.cape_action.rename." + local.entryId()).orElseThrow().bounds(),
+                        renameSave.bounds());
+                assertEquals(idle.widget("editor.cape_action.delete." + local.entryId()).orElseThrow().bounds(),
+                        renameCancel.bounds());
+                assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, renameSave.kind());
+                assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, renameCancel.kind());
+                assertEquals(Optional.of(NativeGuiIcon.ACCEPT), renameSave.icon());
+                assertEquals(Optional.of(NativeGuiIcon.REJECT), renameCancel.icon());
+                assertEquals("nclskins.editor.save", renameSave.label().key());
+                assertEquals("gui.cancel", renameCancel.label().key());
+                assertTrue(renameSave.enabled());
+                assertTrue(renameCancel.enabled());
+                ViewSpec blankRename = capeEditor(localAndService.edit(local.entryId(), false).rename("   "))
+                        .present(width, height, scroll);
+                assertFalse(blankRename.widget("editor.cape_action.save." + local.entryId())
+                        .orElseThrow().enabled());
+                assertTrue(blankRename.widget("editor.cape_action.cancel." + local.entryId())
+                        .orElseThrow().enabled());
             }
         }
     }
@@ -746,7 +800,13 @@ class CapeCatalogTest {
         CapeCatalogPresenter.present(editing, new Bounds(160, 68, 400, 500), 68, 86, 4, 0, false,
                 com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.CAPE,
                 widgets, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
-        assertTrue(widgets.stream().filter(w -> w.id().equals("editor.cape_action.save." + local.entryId())).findFirst().orElseThrow().enabled());
+        ViewSpec.Widget ownSave = widgets.stream()
+                .filter(w -> w.id().equals("editor.cape_action.save." + local.entryId()))
+                .findFirst().orElseThrow();
+        assertTrue(ownSave.enabled());
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, ownSave.kind());
+        assertEquals(Optional.of(NativeGuiIcon.ACCEPT), ownSave.icon());
+        assertEquals("nclskins.editor.save", ownSave.label().key());
         assertFalse(widgets.stream().filter(w -> w.id().equals("editor.cape_action.rename." + other.entryId())).findFirst().orElseThrow().enabled());
         assertFalse(widgets.stream().filter(w -> w.id().equals("editor.cape_action.delete." + other.entryId())).findFirst().orElseThrow().enabled());
     }

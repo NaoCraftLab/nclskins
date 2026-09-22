@@ -19,6 +19,8 @@ import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.FocusRequestLedger;
 import com.naocraftlab.skins.runtime.GuiIcon;
+import com.naocraftlab.skins.runtime.NativeGuiIcon;
+import com.naocraftlab.skins.runtime.WidgetIcon;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.InteractionOrigin;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
@@ -607,7 +609,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 }
                 if (widget.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
                     ((CompatibilityIndicatorWidget) nativeWidget).setIcon(
-                            widget.icon().orElseThrow());
+                            modIcon(widget));
                     nativeWidget.setTooltip(Tooltip.create(resolve(
                             widget.hint().orElse(widget.label()))));
                 }
@@ -714,7 +716,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.width(),
                     bounds.height(),
                     resolve(widget.label()),
-                    widget.icon().orElseThrow());
+                    modIcon(widget));
             button.setTooltip(Tooltip.create(resolve(
                     widget.hint().orElse(widget.label()))));
             return button;
@@ -909,7 +911,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         private final String widgetId;
         private final boolean iconOnly;
         private final boolean tab;
-        private GuiIcon icon;
+        private WidgetIcon icon;
         private boolean selected;
 
         private IconButtonWidget(
@@ -919,7 +921,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                 int width,
                 int height,
                 Component message,
-                GuiIcon icon,
+                WidgetIcon icon,
                 boolean iconOnly,
                 boolean tab,
                 boolean selected) {
@@ -931,7 +933,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             this.selected = selected;
         }
 
-        private void setIcon(GuiIcon icon) {
+        private void setIcon(WidgetIcon icon) {
             this.icon = Objects.requireNonNull(icon, "icon");
         }
 
@@ -1037,22 +1039,35 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     }
 
 
-    private static void renderActionIcon(
+    private void renderActionIcon(
             GuiGraphics graphics,
             int x,
             int y,
             int width,
             int height,
-            GuiIcon icon,
+            WidgetIcon icon,
             boolean active) {
-        int size = icon.baseCanvas();
+        if (icon instanceof NativeGuiIcon nativeIcon) {
+            int size = 18;
+            capabilities.renderNativeIcon(
+                    graphics,
+                    nativeIcon,
+                    x + (width - size) / 2,
+                    y + (height - size) / 2,
+                    size,
+                    size,
+                    active);
+            return;
+        }
+        GuiIcon modIcon = (GuiIcon) icon;
+        int size = modIcon.baseCanvas();
         int iconX = x + (width - size) / 2;
         int iconY = y + (height - size) / 2;
         float tint = active ? 1.0F : 0.5F;
         graphics.setColor(tint, tint, tint, 1.0F);
         try {
             graphics.blit(
-                    iconTexture(icon),
+                    iconTexture(modIcon),
                     iconX,
                     iconY,
                     0.0F,
@@ -1064,6 +1079,13 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         } finally {
             graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
+    }
+
+    private static GuiIcon modIcon(ViewSpec.Widget widget) {
+        return widget.icon()
+                .filter(GuiIcon.class::isInstance)
+                .map(GuiIcon.class::cast)
+                .orElseThrow(() -> new IllegalArgumentException("widget requires a mod-owned icon"));
     }
 
 

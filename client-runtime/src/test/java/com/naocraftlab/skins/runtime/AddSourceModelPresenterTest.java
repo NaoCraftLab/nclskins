@@ -27,6 +27,7 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AddSourceModelPresenterTest {
@@ -586,6 +587,9 @@ final class AddSourceModelPresenterTest {
             ViewSpec.Widget delete = view.widget(
                     "add.catalog.delete:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
                     .orElseThrow();
+            CatalogCardGeometry.ActionPair legacyRenameActions = CatalogCardGeometry.renameActions(card);
+            assertNotEquals(rename.bounds(), legacyRenameActions.left());
+            assertNotEquals(delete.bounds(), legacyRenameActions.right());
             assertEquals(new Bounds(18, card.bottom() - 22, 31, 20), rename.bounds());
             assertEquals(new Bounds(51, card.bottom() - 22, 31, 20), delete.bounds());
 
@@ -599,10 +603,29 @@ final class AddSourceModelPresenterTest {
                             PersonalSkinCatalog.COLLECTION_ID, personalHash, "Renamed hero")));
             assertEquals(new Bounds(19, 81, 62, 20), renamed.widget("add.catalog.rename.name")
                     .orElseThrow().bounds());
-            assertEquals(new Bounds(19, card.bottom() - 23, 30, 20), renamed.widget("add.catalog.rename.save")
-                    .orElseThrow().bounds());
-            assertEquals(new Bounds(51, card.bottom() - 23, 30, 20), renamed.widget("add.catalog.rename.cancel")
-                    .orElseThrow().bounds());
+            ViewSpec.Widget save = renamed.widget("add.catalog.rename.save").orElseThrow();
+            ViewSpec.Widget cancel = renamed.widget("add.catalog.rename.cancel").orElseThrow();
+            assertEquals(rename.bounds(), save.bounds());
+            assertEquals(delete.bounds(), cancel.bounds());
+            assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, save.kind());
+            assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, cancel.kind());
+            assertEquals(Optional.of(NativeGuiIcon.ACCEPT), save.icon());
+            assertEquals(Optional.of(NativeGuiIcon.REJECT), cancel.icon());
+            assertEquals("nclskins.your_skins.rename_save", save.label().key());
+            assertEquals("gui.cancel", cancel.label().key());
+            assertTrue(save.enabled());
+            assertTrue(cancel.enabled());
+
+            ViewSpec emptyRename = presenter.present(
+                    model,
+                    false,
+                    Optional.empty(),
+                    size[0],
+                    size[1],
+                    Optional.of(new AddSourcePresenter.PersonalSkinRename(
+                            PersonalSkinCatalog.COLLECTION_ID, personalHash, "   ")));
+            assertFalse(emptyRename.widget("add.catalog.rename.save").orElseThrow().enabled());
+            assertTrue(emptyRename.widget("add.catalog.rename.cancel").orElseThrow().enabled());
         }
     }
 
@@ -1298,6 +1321,27 @@ final class AddSourceModelPresenterTest {
         assertEquals(catalog.filter(), confirmation.filter());
         assertTrue(confirmationView.widget("add.catalog.delete.confirm").orElseThrow().enabled());
         assertTrue(confirmationView.widget("add.catalog.delete.cancel").orElseThrow().enabled());
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON,
+                confirmationView.widget("add.catalog.delete.confirm").orElseThrow().kind());
+        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON,
+                confirmationView.widget("add.catalog.delete.cancel").orElseThrow().kind());
+        assertEquals("nclskins.your_skins.delete_confirm",
+                confirmationView.widget("add.catalog.delete.confirm").orElseThrow().label().key());
+        assertEquals("gui.cancel",
+                confirmationView.widget("add.catalog.delete.cancel").orElseThrow().label().key());
+        assertEquals(Optional.of(NativeGuiIcon.ACCEPT),
+                confirmationView.widget("add.catalog.delete.confirm").orElseThrow().icon());
+        assertEquals(Optional.of(NativeGuiIcon.REJECT),
+                confirmationView.widget("add.catalog.delete.cancel").orElseThrow().icon());
+        ViewSpec catalogView = presenter.present(catalog, false, 320, 240);
+        assertEquals(
+                catalogView.widget("add.catalog.rename:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
+                        .orElseThrow().bounds(),
+                confirmationView.widget("add.catalog.delete.confirm").orElseThrow().bounds());
+        assertEquals(
+                catalogView.widget("add.catalog.delete:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
+                        .orElseThrow().bounds(),
+                confirmationView.widget("add.catalog.delete.cancel").orElseThrow().bounds());
         assertEquals(
                 Optional.of("add.catalog.delete.confirm"),
                 ViewNavigationPolicy.activationAction(

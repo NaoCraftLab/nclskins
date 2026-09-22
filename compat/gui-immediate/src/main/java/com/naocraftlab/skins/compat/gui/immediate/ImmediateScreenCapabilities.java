@@ -7,6 +7,7 @@ import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.runtime.ClientRuntime;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import com.naocraftlab.skins.runtime.ViewChromeMetrics;
+import com.naocraftlab.skins.runtime.NativeGuiIcon;
 import net.minecraft.client.gui.GuiGraphics;
 
 
@@ -14,6 +15,15 @@ public interface ImmediateScreenCapabilities {
     ClientRuntime runtime();
 
     void renderProviderArrow(GuiGraphics graphics, String action, int x, int y, boolean highlighted);
+
+    void renderNativeIcon(
+            GuiGraphics graphics,
+            NativeGuiIcon icon,
+            int x,
+            int y,
+            int width,
+            int height,
+            boolean active);
 
     default ViewChromeMetrics viewChromeMetrics() {
         return ViewChromeMetrics.STANDARD;

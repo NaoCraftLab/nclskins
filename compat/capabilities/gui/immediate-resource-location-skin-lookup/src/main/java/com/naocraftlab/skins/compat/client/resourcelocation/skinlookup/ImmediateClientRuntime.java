@@ -21,6 +21,7 @@ import com.naocraftlab.skins.runtime.UiMessage;
 import com.naocraftlab.skins.runtime.Bounds;
 import com.naocraftlab.skins.runtime.VerticalTabStyle;
 import com.naocraftlab.skins.runtime.ViewSpec;
+import com.naocraftlab.skins.runtime.NativeGuiIcon;
 import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
@@ -140,6 +141,30 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
     public void renderProviderArrow(GuiGraphics graphics, String action, int x, int y, boolean highlighted) {
         String sprite = "transferable_list/" + (action.equals("select") ? "select" : action.equals("remove") ? "unselect" : "move_" + action) + (highlighted ? "_highlighted" : "");
         graphics.blitSprite(ResourceLocation.tryParse("minecraft:" + sprite), x, y, 32, 32);
+    }
+
+    @Override
+    public void renderNativeIcon(
+            GuiGraphics graphics,
+            NativeGuiIcon icon,
+            int x,
+            int y,
+            int width,
+            int height,
+            boolean active) {
+        float tint = active ? 1.0F : 0.5F;
+        graphics.setColor(tint, tint, tint, 1.0F);
+        try {
+            graphics.blitSprite(
+                    ResourceLocation.withDefaultNamespace(
+                            "pending_invite/" + (icon == NativeGuiIcon.ACCEPT ? "accept" : "reject")),
+                    x,
+                    y,
+                    width,
+                    height);
+        } finally {
+            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+        }
     }
 
     @Override

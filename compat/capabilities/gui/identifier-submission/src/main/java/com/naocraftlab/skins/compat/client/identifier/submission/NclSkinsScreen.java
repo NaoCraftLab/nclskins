@@ -19,6 +19,8 @@ import com.naocraftlab.skins.runtime.ClientSnapshot;
 import com.naocraftlab.skins.runtime.CollectionHeaderStyle;
 import com.naocraftlab.skins.runtime.FocusRequestLedger;
 import com.naocraftlab.skins.runtime.GuiIcon;
+import com.naocraftlab.skins.runtime.NativeGuiIcon;
+import com.naocraftlab.skins.runtime.WidgetIcon;
 import com.naocraftlab.skins.runtime.InfoButtonStyle;
 import com.naocraftlab.skins.runtime.InteractionOrigin;
 import com.naocraftlab.skins.runtime.MarqueeRouting;
@@ -1410,7 +1412,7 @@ public final class NclSkinsScreen extends Screen {
             String id,
             ViewSpec.WidgetKind kind,
             String label,
-            Optional<GuiIcon> icon,
+            Optional<WidgetIcon> icon,
             Optional<UiMessage> hint,
             boolean visible,
             int maxLength,
@@ -1473,7 +1475,7 @@ public final class NclSkinsScreen extends Screen {
         private final String widgetId;
         private final Consumer<InputWithModifiers> action;
         private final ViewSpec.WidgetKind kind;
-        private Optional<GuiIcon> icon;
+        private Optional<WidgetIcon> icon;
         private boolean trailingInfo;
         private boolean selected;
         private final boolean transparent;
@@ -1482,7 +1484,7 @@ public final class NclSkinsScreen extends Screen {
                 String widgetId, Bounds bounds,
                 Component label,
                 ViewSpec.WidgetKind kind,
-                Optional<GuiIcon> icon,
+                Optional<WidgetIcon> icon,
                 boolean trailingInfo,
                 boolean selected,
                 boolean transparent,
@@ -1523,19 +1525,7 @@ public final class NclSkinsScreen extends Screen {
                 }
                 case ICON_BUTTON -> {
                     renderDefaultSprite(graphics);
-                    GuiIcon guiIcon = icon.orElseThrow();
-                    int size = guiIcon.baseCanvas();
-                    graphics.blit(
-                            RenderPipelines.GUI_TEXTURED,
-                            iconTexture(guiIcon),
-                            getX() + (getWidth() - size) / 2,
-                            getY() + (getHeight() - size) / 2,
-                            0.0F,
-                            0.0F,
-                            size,
-                            size,
-                            size,
-                            size);
+                    renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());
                 }
                 case INFO_BUTTON -> graphics.drawCenteredString(
                         font,
@@ -1545,19 +1535,7 @@ public final class NclSkinsScreen extends Screen {
                         InfoButtonStyle.labelColor(active, isHoveredOrFocused()));
                 case TAB_BUTTON -> renderVerticalTab(graphics);
                 case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {
-                    GuiIcon guiIcon = icon.orElseThrow();
-                    int size = guiIcon.baseCanvas();
-                    graphics.blit(
-                            RenderPipelines.GUI_TEXTURED,
-                            iconTexture(guiIcon),
-                            getX() + (getWidth() - size) / 2,
-                            getY() + (getHeight() - size) / 2,
-                            0.0F,
-                            0.0F,
-                            size,
-                            size,
-                            size,
-                            size);
+                    renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());
                 }
                 case CATALOG_DELETE -> {
                     int background = isHoveredOrFocused() ? 0xCC7A3030 : 0x99302020;
@@ -1611,11 +1589,41 @@ public final class NclSkinsScreen extends Screen {
                 graphics.disableScissor();
             }
             if (widgetId.startsWith("providers.tab.")) return;
-            GuiIcon guiIcon = icon.orElseThrow();
+            renderWidgetIcon(
+                    graphics,
+                    icon.orElseThrow(),
+                    VerticalTabStyle.iconX(getX(), selected),
+                    getY(),
+                    getWidth(),
+                    getHeight());
+        }
+
+        private void renderWidgetIcon(
+                GuiGraphics graphics, WidgetIcon widgetIcon, int x, int y, int width, int height) {
+            if (widgetIcon instanceof NativeGuiIcon nativeIcon) {
+                graphics.blitSprite(
+                        RenderPipelines.GUI_TEXTURED,
+                        Identifier.withDefaultNamespace(
+                                "pending_invite/" + (nativeIcon == NativeGuiIcon.ACCEPT ? "accept" : "reject")),
+                        x + (width - 18) / 2,
+                        y + (height - 18) / 2,
+                        18,
+                        18);
+                return;
+            }
+            GuiIcon guiIcon = (GuiIcon) widgetIcon;
             int size = guiIcon.baseCanvas();
-            graphics.blit(RenderPipelines.GUI_TEXTURED, iconTexture(guiIcon),
-                    VerticalTabStyle.iconX(getX(), selected) + (getWidth() - size) / 2,
-                    getY() + (getHeight() - size) / 2, 0.0F, 0.0F, size, size, size, size);
+            graphics.blit(
+                    RenderPipelines.GUI_TEXTURED,
+                    iconTexture(guiIcon),
+                    x + (width - size) / 2,
+                    y + (height - size) / 2,
+                    0.0F,
+                    0.0F,
+                    size,
+                    size,
+                    size,
+                    size);
         }
 
         private void renderCollectionHeader(GuiGraphics graphics, net.minecraft.client.gui.Font font) {

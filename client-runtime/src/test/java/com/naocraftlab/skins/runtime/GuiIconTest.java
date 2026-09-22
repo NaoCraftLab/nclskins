@@ -6,8 +6,17 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class GuiIconTest {
+    @Test
+    void nativeIconsDoNotEnterModOwnedResourceInventory() {
+        assertEquals(2, NativeGuiIcon.values().length);
+        for (NativeGuiIcon icon : NativeGuiIcon.values()) {
+            assertTrue(icon instanceof WidgetIcon);
+        }
+    }
+
     @Test
     void registrySealsSemanticPathsAndBaseCanvases() {
         Map<String, Integer> expected = Map.ofEntries(

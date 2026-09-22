@@ -817,7 +817,7 @@ public record ViewSpec(
             int maxLength,
             boolean selectAllOnFocusAcquire,
             Optional<String> submitActionId,
-            Optional<GuiIcon> icon) {
+            Optional<WidgetIcon> icon) {
         public Widget(
                 String id,
                 WidgetKind kind,
@@ -906,7 +906,7 @@ public record ViewSpec(
                 String id,
                 Bounds bounds,
                 UiMessage accessibleLabel,
-                GuiIcon icon,
+                WidgetIcon icon,
                 boolean enabled) {
             return iconButton(id, bounds, accessibleLabel, Optional.of(accessibleLabel), icon, enabled);
         }
@@ -916,7 +916,7 @@ public record ViewSpec(
                 Bounds bounds,
                 UiMessage accessibleLabel,
                 Optional<UiMessage> hint,
-                GuiIcon icon,
+                WidgetIcon icon,
                 boolean enabled) {
             return new Widget(
                     id,
@@ -937,7 +937,7 @@ public record ViewSpec(
                 String id,
                 Bounds bounds,
                 UiMessage accessibleLabel,
-                GuiIcon icon,
+                WidgetIcon icon,
                 boolean enabled) {
             return new Widget(
                     id,
@@ -958,7 +958,7 @@ public record ViewSpec(
                 String id,
                 Bounds bounds,
                 UiMessage accessibleLabel,
-                GuiIcon icon,
+                WidgetIcon icon,
                 boolean selected,
                 boolean enabled) {
             return new Widget(
