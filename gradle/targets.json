@@ -518,15 +518,6 @@
     }
   },
   "publicationDependencies": {
-    "fancymenu": {
-      "modId": "fancymenu",
-      "loaders": ["fabric", "forge", "neoforge"],
-      "type": "optional",
-      "platforms": {
-        "modrinth": {"projectId": "Wq5SjeWM"},
-        "curseforge": {"projectId": 367706, "slug": "fancymenu"}
-      }
-    },
     "fabric_api": {
       "modId": "fabric-api",
       "loaders": ["fabric"],

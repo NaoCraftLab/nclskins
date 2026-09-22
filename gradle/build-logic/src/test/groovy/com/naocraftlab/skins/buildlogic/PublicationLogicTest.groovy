@@ -308,8 +308,7 @@ final class PublicationLogicTest {
         assertEquals([
                 [projectId: 'P7dR8mSH', type: 'required'],
                 [projectId: '1eAoo2KR', type: 'optional'],
-                [projectId: 'bTTf2DEw', type: 'optional'],
-                [projectId: 'Wq5SjeWM', type: 'optional']
+                [projectId: 'bTTf2DEw', type: 'optional']
         ] as Set, fabric.dependencies.modrinth as Set)
 
         Map neoForge = desired('neoforge-26.3')
@@ -319,19 +318,17 @@ final class PublicationLogicTest {
         assertEquals('1.2.3-beta.4+26.3-neoforge', neoForge.name)
         assertEquals([
                 [projectId: '1eAoo2KR', type: 'optional'],
-                [projectId: 'bTTf2DEw', type: 'optional'],
-                [projectId: 'Wq5SjeWM', type: 'optional']
+                [projectId: 'bTTf2DEw', type: 'optional']
         ] as Set, neoForge.dependencies.modrinth as Set)
         assertEquals([
                 [projectId: 667299, slug: 'yacl', type: 'optional'],
-                [projectId: 560832, slug: 'sqlite-jdbc', type: 'optional'],
-                [projectId: 367706, slug: 'fancymenu', type: 'optional']
+                [projectId: 560832, slug: 'sqlite-jdbc', type: 'optional']
         ] as Set, neoForge.dependencies.curseforge as Set)
         assertFalse((fabric.dependencies.modrinth + neoForge.dependencies.modrinth).any {
-            it.projectId in ['mOgUt4GM', 'sbpqhzIG']
+            it.projectId in ['mOgUt4GM', 'sbpqhzIG', 'Wq5SjeWM']
         })
         assertFalse((fabric.dependencies.curseforge + neoForge.dependencies.curseforge).any {
-            it.projectId in [308702, 1089803]
+            it.projectId in [308702, 1089803, 367706]
         })
     }
 

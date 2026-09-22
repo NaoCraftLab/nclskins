@@ -532,6 +532,57 @@ def fullCheck = tasks.register('fullCheck', TargetBuildTask) {
     verifyCompatibility.set(true)
 }
 
+def prismSnapshot = {
+    BuildReceipt.snapshot(rootDir, nclskinsCatalogTools.loadCatalog(rootDir.toPath()),
+            ReceiptEnvironment.capture(project, nclskinsCatalogTools.loadCatalog(rootDir.toPath())))
+}
+def fullCheckSnapshot = null
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask(fullCheck.get())) {
+        BuildReceipt.invalidate(rootDir)
+        try {
+            fullCheckSnapshot = prismSnapshot()
+        } catch (IllegalStateException error) {
+            logger.lifecycle("Prism evidence unavailable: ${error.message}")
+        }
+    }
+}
+fullCheck.configure {
+    doLast {
+        if (fullCheckSnapshot != null) {
+            BuildReceipt.publish(rootDir, targetCatalog, fullCheckSnapshot, prismSnapshot(), 'fullCheck')
+        }
+    }
+}
+tasks.register('prismBuildStatus') {
+    group = 'verification'
+    description = 'Prints read-only JSON status of verified Prism artifacts.'
+    doLast {
+        Map status
+        try {
+            status = BuildReceipt.status(rootDir, targetCatalog, prismSnapshot())
+        } catch (Exception ignored) {
+            logger.info('Prism status unavailable', ignored)
+            status = [reusable: false, reason: 'unsupported-build-settings-or-inputs']
+        }
+        println groovy.json.JsonOutput.toJson(status)
+    }
+}
+tasks.register('preparePrismArtifacts', PreparePrismArtifactsTask) {
+    group = 'build'
+    description = 'Reuses verified Prism artifacts or builds and verifies current targets.'
+    def cleanRequested = providers.gradleProperty('nclskinsPrismCleanBuild').getOrElse('false')
+    def forceRequested = providers.gradleProperty('nclskinsPrismForceBuild').getOrElse('false')
+    if (!(cleanRequested in ['true', 'false']) || !(forceRequested in ['true', 'false'])) {
+        throw new GradleException('Prism build flags must be true or false')
+    }
+    cleanBuild = cleanRequested.toBoolean()
+    forceBuild = forceRequested.toBoolean()
+    configureTargetBuild(delegate, targetIds, cleanBuild ? ['clean', 'build'] : ['build'], true, true)
+    verifyCompatibility.set(cleanBuild)
+    snapshotProvider = prismSnapshot
+}
+
 def computeServerPluginReleaseState = tasks.register(
         'computeServerPluginReleaseState', ComputeServerPluginReleaseStateTask) {
     group = 'release setup'
