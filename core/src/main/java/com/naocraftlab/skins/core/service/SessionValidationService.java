@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.core.service;
 
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.GameSessionIdentityChangedException;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
 import com.naocraftlab.skins.core.api.ProfileApi;
@@ -103,6 +104,26 @@ public final class SessionValidationService {
         }
         synchronized (this) {
             validationCache.remove(identity.profileId(), cached);
+        }
+        return withFreshToken(tokenSource, identity, false);
+    }
+
+    public SessionValidation retryTokenUnavailableAtCheckpoint(
+            GameSessionTokenSource tokenSource) {
+        Objects.requireNonNull(tokenSource, "tokenSource");
+        GameSessionTokenSource.SessionIdentity identity = tokenSource.currentSession();
+        if (gate.remoteControlsBlocked(identity.profileId())) {
+            return expired(identity);
+        }
+        SessionValidation cached;
+        synchronized (this) {
+            cached = validationCache.get(identity.profileId());
+            if (cached != null && cached.failureKind() != ApiFailureKind.TOKEN_UNAVAILABLE) {
+                return cached;
+            }
+            if (cached != null) {
+                validationCache.remove(identity.profileId(), cached);
+            }
         }
         return withFreshToken(tokenSource, identity, false);
     }
@@ -250,7 +271,7 @@ public final class SessionValidationService {
             boolean manualRetry) {
         try {
             SessionValidation result = tokenSource.withAccessToken(token ->
-                    OFFLINE_ACCESS_TOKEN_SENTINEL.equals(token)
+                    token == null || token.isBlank() || OFFLINE_ACCESS_TOKEN_SENTINEL.equals(token)
                             ? rememberTokenUnavailable(identity)
                             : validateScoped(token, identity, null));
             if (manualRetry && result.valid()) {
@@ -259,6 +280,8 @@ public final class SessionValidationService {
             return result;
         } catch (GameSessionTokenUnavailableException unavailable) {
             return rememberTokenUnavailable(identity);
+        } catch (GameSessionIdentityChangedException changed) {
+            return rememberIdentityMismatch(identity);
         } catch (RuntimeException exception) {
             return rememberTokenSourceFailure(identity);
         }
@@ -294,6 +317,21 @@ public final class SessionValidationService {
                 withDiagnostic(
                         context,
                         "The running Minecraft session could not provide credentials.")));
+    }
+
+    public synchronized SessionValidation rememberIdentityMismatch(
+            GameSessionTokenSource.SessionIdentity identity) {
+        Objects.requireNonNull(identity, "identity");
+        SessionFailureContext context = new SessionFailureContext(
+                SessionCheckPhase.TOKEN_SOURCE, ApiFailureKind.INVALID_SESSION, null);
+        return remember(new SessionValidation(
+                SessionStatus.UUID_MISMATCH,
+                identity,
+                null,
+                context,
+                withDiagnostic(
+                        context,
+                        "The running Minecraft session identity changed during an operation.")));
     }
 
     private SessionValidation apiFailure(

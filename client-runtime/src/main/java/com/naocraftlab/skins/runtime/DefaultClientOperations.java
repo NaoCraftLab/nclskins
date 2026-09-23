@@ -5,6 +5,8 @@ import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
+import com.naocraftlab.skins.client.GameSessionIdentityChangedException;
+import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
@@ -1755,13 +1757,20 @@ public final class DefaultClientOperations implements ClientOperations {
                         observedAccount(accountId),
                         Optional.empty()));
             }
+            boolean reconnectAfterUnavailableToken = trigger == ReconciliationTrigger.RECONNECT
+                    && sessions.cachedStatus(context.identity()).failureKind()
+                            == ApiFailureKind.TOKEN_UNAVAILABLE;
             if (!explicitRecovery
+                    && !reconnectAfterUnavailableToken
                     && !sessions.automaticCheckpointMayAcquireToken(context.identity())) {
                 SessionValidation cached = sessions.cachedStatus(context.identity());
                 AccountAppearanceState blocked = checkpointAppearance;
+                boolean identityMismatch = cached.status()
+                        == com.naocraftlab.skins.core.service.SessionStatus.UUID_MISMATCH;
                 if (blocked.hasIntent()
-                        && (blocked.syncStatus() == AppearanceSyncStatus.PENDING
-                                || blocked.syncStatus() == AppearanceSyncStatus.ATTEMPTING)) {
+                        && (blocked.syncStatus() == AppearanceSyncStatus.ATTEMPTING
+                                || identityMismatch
+                                        && blocked.syncStatus() == AppearanceSyncStatus.PENDING)) {
                     blocked = settleAppearance(
                             accountId,
                             blocked.intentRevision(),
@@ -2008,8 +2017,8 @@ public final class DefaultClientOperations implements ClientOperations {
             throw (IOException) checked.getCause();
         } catch (ScopedCallbackRuntimeFailure callbackFailure) {
             throw callbackFailure.original();
-        } catch (RuntimeException unavailableToken) {
-            SessionValidation validation = sessions.rememberTokenSourceFailure(context.identity());
+        } catch (GameSessionIdentityChangedException identityChanged) {
+            SessionValidation validation = sessions.rememberIdentityMismatch(context.identity());
             AccountAppearanceState appearance = storage.loadAppearance(accountId);
             if (appearance.intentRevision() == checkpointAppearance.intentRevision()
                     && (appearance.syncStatus() == AppearanceSyncStatus.PENDING
@@ -2026,7 +2035,48 @@ public final class DefaultClientOperations implements ClientOperations {
                     validation,
                     observedAccount(accountId),
                     Optional.empty()));
+        } catch (GameSessionTokenUnavailableException unavailableToken) {
+            return tokenUnavailableBeforeRequest(context, accountId, checkpointAppearance);
+        } catch (RuntimeException unavailableToken) {
+            SessionValidation validation = sessions.rememberTokenSourceFailure(context.identity());
+            AccountAppearanceState appearance = storage.loadAppearance(accountId);
+            if (appearance.intentRevision() == checkpointAppearance.intentRevision()
+                    && appearance.syncStatus() == AppearanceSyncStatus.ATTEMPTING) {
+                appearance = settleAppearance(
+                        accountId,
+                        appearance.intentRevision(),
+                        appearance.syncStatus(),
+                        AppearanceSyncStatus.UNKNOWN);
+            }
+            return Optional.of(reconciliationResult(
+                    context,
+                    appearance,
+                    validation,
+                    observedAccount(accountId),
+                    Optional.empty()));
         }
+    }
+
+    private Optional<ReconciliationResult> tokenUnavailableBeforeRequest(
+            OperationContext context,
+            UUID accountId,
+            AccountAppearanceState checkpointAppearance) throws IOException {
+        SessionValidation validation = sessions.rememberTokenUnavailable(context.identity());
+        AccountAppearanceState appearance = storage.loadAppearance(accountId);
+        if (appearance.intentRevision() == checkpointAppearance.intentRevision()
+                && appearance.syncStatus() == AppearanceSyncStatus.ATTEMPTING) {
+            appearance = settleAppearance(
+                    accountId,
+                    appearance.intentRevision(),
+                    AppearanceSyncStatus.ATTEMPTING,
+                    AppearanceSyncStatus.UNKNOWN);
+        }
+        return Optional.of(reconciliationResult(
+                context,
+                appearance,
+                validation,
+                observedAccount(accountId),
+                Optional.empty()));
     }
 
     private ReconciliationResult applyFullIntent(
@@ -2167,7 +2217,16 @@ public final class DefaultClientOperations implements ClientOperations {
             AppearanceSyncStatus status) {
         return switch (trigger) {
             case RATE_LIMIT_EXPIRED, EXPLICIT_RETRY -> sessions.manualRetry(context.tokens());
-            case SESSION_REFRESHED -> sessions.cachedStatus(context.identity());
+            case SESSION_REFRESHED -> sessions.retryTokenUnavailableAtCheckpoint(context.tokens());
+            case RECONNECT -> {
+                if (status == AppearanceSyncStatus.ATTEMPTING) {
+                    yield sessions.observeFreshAtCheckpoint(context.tokens());
+                }
+                if (sessions.cachedStatus(context.identity()).failureKind() == ApiFailureKind.TOKEN_UNAVAILABLE) {
+                    yield sessions.retryTokenUnavailableAtCheckpoint(context.tokens());
+                }
+                yield sessions.retryTransientAtCheckpoint(context.tokens());
+            }
             case PROCESS_START -> context.identity().profileId().equals(startupObservedAccount)
                     ? sessions.cachedStatus(context.identity())
                     : sessions.retryTransientAtCheckpoint(context.tokens());
@@ -2337,7 +2396,8 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     private static boolean allowsAutomaticCheckpointRetry(ApiFailureKind failureKind) {
-        return failureKind == ApiFailureKind.NETWORK
+        return failureKind == ApiFailureKind.TOKEN_UNAVAILABLE
+                || failureKind == ApiFailureKind.NETWORK
                 || failureKind == ApiFailureKind.SERVER_ERROR
                 || failureKind == ApiFailureKind.RATE_LIMITED;
     }
@@ -3177,8 +3237,7 @@ public final class DefaultClientOperations implements ClientOperations {
             Objects.requireNonNull(request, "request");
             return delegate.withSession((current, accessToken) -> {
                 if (!identity.profileId().equals(current.profileId())) {
-                    throw new IllegalStateException(
-                            "Minecraft session changed while an operation was in progress");
+                    throw new GameSessionIdentityChangedException();
                 }
                 return request.execute(accessToken);
             });
@@ -3188,8 +3247,7 @@ public final class DefaultClientOperations implements ClientOperations {
             Objects.requireNonNull(request, "request");
             return delegate.withSession((current, accessToken) -> {
                 if (!identity.profileId().equals(current.profileId())) {
-                    throw new IllegalStateException(
-                            "Minecraft session changed while an operation was in progress");
+                    throw new GameSessionIdentityChangedException();
                 }
                 GameSessionTokenSource scoped = new RequestScopedTokenSource(
                         identity, accessToken);

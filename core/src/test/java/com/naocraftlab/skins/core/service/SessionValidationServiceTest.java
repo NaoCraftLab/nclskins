@@ -223,6 +223,47 @@ class SessionValidationServiceTest {
     }
 
     @Test
+    void tokenUnavailableRetriesOnceAtAnExplicitSessionCheckpoint() {
+        StubApi api = new StubApi(profile(ID));
+        StubTokens tokens = new StubTokens("0");
+        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, service.currentStatus(tokens).failureKind());
+
+        tokens.token = SECRET;
+        SessionValidation recovered = service.retryTokenUnavailableAtCheckpoint(tokens);
+
+        assertTrue(recovered.valid());
+        assertEquals(2, tokens.calls);
+        assertEquals(1, api.profileCalls);
+        assertFalse(recovered.toString().contains(SECRET));
+    }
+
+    @Test
+    void sessionCheckpointDoesNotRetryUuidMismatchOrExpiredGate() {
+        StubApi mismatchApi = new StubApi(profile(UUID.randomUUID()));
+        StubTokens mismatchTokens = new StubTokens(SECRET);
+        SessionValidationService mismatch = new SessionValidationService(
+                mismatchApi, new RemoteSessionGate());
+        assertEquals(SessionStatus.UUID_MISMATCH, mismatch.currentStatus(mismatchTokens).status());
+        assertEquals(SessionStatus.UUID_MISMATCH,
+                mismatch.retryTokenUnavailableAtCheckpoint(mismatchTokens).status());
+        assertEquals(1, mismatchTokens.calls);
+        assertEquals(1, mismatchApi.profileCalls);
+
+        StubApi expiredApi = new StubApi(profile(ID));
+        expiredApi.profileFailure = new ProfileApiException(
+                ApiFailureKind.SESSION_EXPIRED, "session expired", 401, null, false);
+        StubTokens expiredTokens = new StubTokens(SECRET);
+        SessionValidationService expired = new SessionValidationService(
+                expiredApi, new RemoteSessionGate());
+        assertEquals(SessionStatus.EXPIRED, expired.currentStatus(expiredTokens).status());
+        assertEquals(SessionStatus.EXPIRED,
+                expired.retryTokenUnavailableAtCheckpoint(expiredTokens).status());
+        assertEquals(1, expiredTokens.calls);
+        assertEquals(1, expiredApi.profileCalls);
+    }
+
+    @Test
     void offlineLauncherSentinelNeverCallsProfileApi() {
         StubApi api = new StubApi(profile(ID));
         StubTokens offline = new StubTokens("0");
@@ -244,7 +285,9 @@ class SessionValidationServiceTest {
         SessionValidation result = new SessionValidationService(api, new RemoteSessionGate()).currentStatus(tokens);
 
         assertEquals(SessionStatus.OFFLINE_OR_INVALID, result.status());
-        assertEquals(ApiFailureKind.INVALID_SESSION, result.failureKind());
+        assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, result.failureKind());
+        assertTrue(result.tokenUnavailable());
+        assertEquals(0, api.profileCalls);
     }
 
     @Test
@@ -471,7 +514,7 @@ class SessionValidationServiceTest {
     }
 
     private static final class StubTokens implements GameSessionTokenSource {
-        private final String token;
+        private String token;
         private int calls;
 
         private StubTokens(String token) {

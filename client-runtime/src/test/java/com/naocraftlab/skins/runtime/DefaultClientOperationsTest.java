@@ -861,21 +861,53 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void offlineSelectionReopensInAnotherInstanceAndSynchronizesOnceOnline() throws Exception {
+    void offlineSelectionReopensInAnotherInstanceAndWarmSessionSynchronizesOnceOnline() throws Exception {
         byte[] skin = skinPng(0xFF315B72);
+        byte[] nextSkin = skinPng(0xFF426C83);
         NclSkinsStorage shared = storage();
-        StubProfileApi offlineApi = new StubProfileApi();
-        offlineApi.profileFailure = new ProfileApiException(
-                ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations offline = new DefaultClientOperations(
-                tokens(), offlineApi, shared, ignored -> skin.clone(), fixedClock());
-        ClientOperations.InitialData initial = offline.initialize();
-        ClientOperations.EditorSave saved = offline.saveEditor(new ClientOperations.EditorSaveRequest(
+        StubProfileApi onlineApi = new StubProfileApi();
+        DefaultClientOperations onlineBeforeOffline = new DefaultClientOperations(
+                tokens(), onlineApi, shared, ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = onlineBeforeOffline.initialize();
+        ClientOperations.EditorSave confirmedA = onlineBeforeOffline.saveEditor(new ClientOperations.EditorSaveRequest(
                 Optional.empty(),
-                "Offline choice",
+                "Online A",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC,
                 SkinVariant.CLASSIC,
+                Optional.empty(),
+                Optional.empty()));
+        ClientOperations.PresetUse appliedA = onlineBeforeOffline.usePreset(confirmedA.presetId());
+        ClientOperations.ReconciliationResult confirmed = onlineBeforeOffline
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, confirmed.appearance().syncStatus());
+        var observedA = confirmed.appearance().providers().skin().minecraft();
+
+        var importedB = new LibraryService(shared, fixedClock()).importSkin(
+                TestFixtures.ACCOUNT_ID, "Offline B", SkinVariant.SLIM, SkinSource.IMPORTED, nextSkin);
+        AtomicInteger offlineTokenRequests = new AtomicInteger();
+        GameSessionTokenSource offlineTokens = new GameSessionTokenSource() {
+            @Override
+            public SessionIdentity currentSession() {
+                return new SessionIdentity(TestFixtures.ACCOUNT_ID, "Offline");
+            }
+
+            @Override
+            public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) {
+                offlineTokenRequests.incrementAndGet();
+                throw new GameSessionTokenUnavailableException();
+            }
+        };
+        DefaultClientOperations offline = new DefaultClientOperations(
+                offlineTokens, onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
+        offline.initialize();
+        ClientOperations.EditorSave saved = offline.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(),
+                "Offline choice",
+                SkinReference.asset(importedB.asset().id()),
+                SkinVariant.SLIM,
+                SkinVariant.SLIM,
                 Optional.empty(),
                 Optional.empty()));
 
@@ -883,37 +915,47 @@ final class DefaultClientOperationsTest {
         assertTrue(selected.remoteResult().isEmpty());
         assertTrue(selected.pendingOfficialSync());
         assertEquals(AppearanceSyncStatus.PENDING, selected.syncStatus());
+        long pendingRevision = selected.intentRevision();
+        long pendingActivation = selected.providers().skin().minecraftDelivery().activation();
         assertTrue(selected.intentRevision() > 0);
         assertTrue(selected.localAppearance().isPresent());
-        assertEquals(0, offlineApi.profileGets.get());
-        assertEquals(0, offlineApi.skinUploads.get());
+        assertEquals(observedA, selected.providers().skin().minecraft());
+        assertEquals(0, onlineApi.profileGets.get() - 1);
+        assertEquals(0, offlineTokenRequests.get());
+        assertEquals(1, onlineApi.skinUploads.get());
         assertEquals(Optional.of(saved.presetId()), selected.account().presets().stream()
                 .filter(preset -> preset.id().equals(saved.presetId()))
                 .map(preset -> preset.id())
                 .findFirst());
 
         DefaultClientOperations anotherOffline = new DefaultClientOperations(
-                tokens(), offlineApi, storage(), ignored -> skin.clone(), fixedClock());
+                offlineTokens, onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
         ClientOperations.InitialData reopenedOffline = anotherOffline.initialize();
         assertEquals(Optional.of(saved.presetId()), reopenedOffline.activePresetId());
         assertTrue(reopenedOffline.pendingOfficialSync());
         assertTrue(reopenedOffline.localAppearance().isPresent());
 
-        StubProfileApi onlineApi = new StubProfileApi();
         DefaultClientOperations online = new DefaultClientOperations(
-                tokens(), onlineApi, storage(), ignored -> skin.clone(), fixedClock());
-        ClientOperations.InitialData stillPending = online.initialize();
-        assertEquals(Optional.of(saved.presetId()), stillPending.activePresetId());
-        assertTrue(stillPending.pendingOfficialSync());
-        assertEquals(0, onlineApi.skinUploads.get());
+                tokens(), onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
+        ClientRuntime runtime = new ClientRuntime(online,
+                new ClientExecutor() {
+                    @Override public boolean isClientThread() { return true; }
+                    @Override public void execute(Runnable action) { action.run(); }
+                },
+                () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
+                Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
+        runtime.warmSession();
+        runtime.warmSession();
 
-        ClientOperations.ReconciliationResult synchronizedOnline = online
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
-                .orElseThrow();
-
-        assertEquals(Optional.of(saved.presetId()), synchronizedOnline.appearance().activePresetId());
-        assertEquals(AppearanceSyncStatus.OFFICIAL, synchronizedOnline.appearance().syncStatus());
-        assertEquals(1, onlineApi.skinUploads.get());
+        ClientOperations.InitialData synchronizedOnline = online.initialize();
+        assertEquals(Optional.of(saved.presetId()), synchronizedOnline.activePresetId());
+        assertEquals(AppearanceSyncStatus.OFFICIAL, synchronizedOnline.syncStatus());
+        assertEquals(pendingRevision, synchronizedOnline.intentRevision());
+        assertEquals(pendingActivation,
+                synchronizedOnline.providers().skin().minecraftDelivery().activation());
+        assertEquals(2, onlineApi.skinUploads.get());
+        assertEquals(2, onlineApi.profileGets.get());
+        runtime.close();
     }
 
     @Test
@@ -2665,7 +2707,7 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
-    void missingTokenSettlesUnknownWithoutApiAndExplicitRetryCanRecover() throws Exception {
+    void missingTokenKeepsPendingDeliveryAndSessionRefreshCanRecover() throws Exception {
         byte[] classic = skinPng(0xFF445566);
         StubProfileApi api = new StubProfileApi();
         AtomicInteger tokenRequests = new AtomicInteger();
@@ -2681,7 +2723,7 @@ final class DefaultClientOperationsTest {
                 tokenRequests.incrementAndGet();
                 String token = availableToken.get();
                 if (token == null) {
-                    throw new IllegalStateException("no active token");
+                    throw new GameSessionTokenUnavailableException();
                 }
                 return request.execute(token);
             }
@@ -2711,20 +2753,23 @@ final class DefaultClientOperationsTest {
                 .orElseThrow();
 
         assertTrue(selected.localAppearance().isPresent());
-        assertEquals(AppearanceSyncStatus.UNKNOWN, checkpoint.appearance().syncStatus());
-        assertEquals(AppearanceSyncStatus.UNKNOWN, automatic.appearance().syncStatus());
-        assertEquals(1, tokenRequests.get());
+        assertEquals(AppearanceSyncStatus.PENDING, checkpoint.appearance().syncStatus());
+        assertEquals(AppearanceSyncStatus.PENDING, automatic.appearance().syncStatus());
+        assertEquals(selected.intentRevision(), automatic.appearance().intentRevision());
+        assertEquals(ProviderDelivery.Status.PENDING,
+                automatic.appearance().providers().skin().minecraftDelivery().status());
+        assertEquals(2, tokenRequests.get());
         assertEquals(0, api.profileGets.get());
         assertEquals(0, api.skinUploads.get());
         assertEquals(0, api.skinResets.get());
 
         availableToken.set("restored-token");
         ClientOperations.ReconciliationResult explicit = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, explicit.appearance().syncStatus());
-        assertEquals(2, tokenRequests.get());
+        assertEquals(3, tokenRequests.get());
         assertEquals(1, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
     }
@@ -2786,7 +2831,7 @@ final class DefaultClientOperationsTest {
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                 .orElseThrow();
 
-        assertEquals(AppearanceSyncStatus.UNKNOWN, blockedIntent.appearance().syncStatus());
+        assertEquals(AppearanceSyncStatus.PENDING, blockedIntent.appearance().syncStatus());
         assertEquals(1, tokenRequests.get());
         assertEquals(0, api.profileGets.get());
         assertEquals(0, api.skinUploads.get());
@@ -3030,17 +3075,43 @@ final class DefaultClientOperationsTest {
         assertEquals(AppearanceSyncStatus.PENDING, failed.appearance().syncStatus());
         api.profileFailure = null;
 
-        ClientOperations.ReconciliationResult reopen = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
-                .orElseThrow();
-        assertEquals(AppearanceSyncStatus.OFFICIAL, reopen.appearance().syncStatus());
-        assertEquals(2, api.profileGets.get());
-        assertEquals(1, api.skinUploads.get());
-
         ClientOperations.ReconciliationResult reconnect = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconnect.appearance().syncStatus());
+        assertEquals(2, api.profileGets.get());
+        assertEquals(1, api.skinUploads.get());
+
+        ClientOperations.ReconciliationResult settled = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .orElseThrow();
+        assertEquals(AppearanceSyncStatus.OFFICIAL, settled.appearance().syncStatus());
+        assertEquals(2, api.profileGets.get());
+        assertEquals(1, api.skinUploads.get());
+    }
+
+    @Test
+    void reconnectWithPendingIntentRefreshesAnEarlierValidProfile() throws Exception {
+        byte[] skin = skinPng(0xFF6688AA);
+        StubProfileApi api = new StubProfileApi();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        operations.warmSession();
+        assertEquals(1, api.profileGets.get());
+
+        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Reconnect pending",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC,
+                Optional.empty(), Optional.empty()));
+        operations.usePreset(saved.presetId());
+
+        ClientOperations.ReconciliationResult reconciled = operations
+                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .orElseThrow();
+
+        assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
     }
