@@ -2260,6 +2260,35 @@ final class BuildLogicTest {
     }
 
     @Test
+    void extractionScreenLeavesReconcileNativeWidgetsAgainstFinalView() {
+        [
+                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+        ].each { String path ->
+            String source = new File(repository, path).text
+            String init = source.substring(source.indexOf('protected void init()'),
+                    source.indexOf('protected void setInitialFocus()'))
+            String extraction = source.substring(source.indexOf('public void extractRenderState('),
+                    source.indexOf('private void drawListPanels('))
+
+            assertTrue(init.indexOf('addNativeWidgets(currentView)')
+                    < init.indexOf('syncNativeWidgetState(currentView)'), path)
+            assertTrue(extraction.indexOf('ViewSpec view = runtime.view(width, height, mouseX, mouseY);')
+                    < extraction.indexOf('syncNativeWidgetState(view)'), path)
+            assertTrue(extraction.indexOf('syncNativeWidgetState(view)')
+                    < extraction.indexOf('drawPreviews(graphics, view)'), path)
+            assertTrue(extraction.indexOf('syncNativeWidgetState(view)')
+                    < extraction.indexOf('extractRenderablesClipped(graphics, view'), path)
+            assertTrue(source.contains('EditBox field = retainedEditBoxes.get(spec.id());'), path)
+            assertTrue(source.contains('boolean retained = field != null;'), path)
+            assertTrue(source.contains('''if (!retained) {
+                    field.setValue(initialValue);
+                }'''), path)
+            assertTrue(source.contains('widget.setRectangle(bounds.width(), bounds.height(), bounds.x(), bounds.y());'), path)
+        }
+    }
+
+    @Test
     void semanticVerifierRejectsOneSharedSubmissionBakedTexture() {
         List<String> errors = []
 

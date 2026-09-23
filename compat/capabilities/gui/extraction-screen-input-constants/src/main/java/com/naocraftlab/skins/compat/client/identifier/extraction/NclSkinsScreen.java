@@ -199,6 +199,7 @@ public final class NclSkinsScreen extends Screen {
         nativeTabGroups.clear();
         addNativeTabGroups(currentView);
         addNativeWidgets(currentView);
+        syncNativeWidgetState(currentView);
         widgetSignature = signatures(currentView);
         tabGroupSignature = tabSignatures(currentView);
         syncPreviewAssets(currentView);
@@ -614,6 +615,7 @@ public final class NclSkinsScreen extends Screen {
         publishNativeScroll(initialView);
         ViewSpec view = runtime.view(width, height, mouseX, mouseY);
         currentView = view;
+        syncNativeWidgetState(view);
         syncPreviewAssets(view);
 
         boolean editor = ("preset_editor".equals(view.screenId()) || "providers".equals(view.screenId()));

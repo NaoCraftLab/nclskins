@@ -2061,6 +2061,46 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void personalSkinRenameKeepsScrolledCardAndFieldGeometryAcrossTextUpdates() {
+        FakeOperations operations = new FakeOperations();
+        String hash = operations.seedPersonalSkin("Original name");
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("gallery.add");
+        runtime.dispatchWidget("add.tab.catalog");
+        runtime.dispatchWidget("add.catalog.rename:"
+                + PersonalSkinCatalog.COLLECTION_ID + ':' + hash);
+        runtime.nativeScrollPositionChanged("add.catalog", 16.0);
+
+        String cardId = "add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ':' + hash;
+        ViewSpec before = runtime.view(320, 240, 0, 0);
+        double offset = before.scrollSurface("add.catalog").orElseThrow().offsetPixels();
+        assertTrue(offset > 0.0);
+        Bounds cardBefore = before.widget(cardId).orElseThrow().bounds();
+        Bounds fieldBefore = before.widget("add.catalog.rename.name").orElseThrow().bounds();
+        Bounds relativeBefore = new Bounds(
+                fieldBefore.x() - cardBefore.x(),
+                fieldBefore.y() - cardBefore.y(),
+                fieldBefore.width(),
+                fieldBefore.height());
+
+        for (String value : List.of("Renamed", "Ren", "Renamed again")) {
+            runtime.dispatchText("add.catalog.rename.name", value);
+            ViewSpec updated = runtime.view(320, 240, 0, 0);
+            Bounds card = updated.widget(cardId).orElseThrow().bounds();
+            Bounds field = updated.widget("add.catalog.rename.name").orElseThrow().bounds();
+            assertEquals(offset, updated.scrollSurface("add.catalog").orElseThrow().offsetPixels());
+            assertEquals(cardBefore, card);
+            assertEquals(relativeBefore, new Bounds(
+                    field.x() - card.x(), field.y() - card.y(), field.width(), field.height()));
+            assertEquals(Optional.of("add.catalog.rename.name"),
+                    updated.focusRequest().map(ViewSpec.FocusRequest::widgetId));
+            assertEquals(Optional.of(value), updated.widget("add.catalog.rename.name").orElseThrow().value());
+        }
+    }
+
+    @Test
     void personalCatalogModesResetAtWorkspaceBoundariesAndRemainMutuallyExclusive() {
         FakeOperations operations = new FakeOperations();
         String hash = operations.seedPersonalSkin("Workspace skin");
@@ -4363,6 +4403,63 @@ final class ClientRuntimeTest {
         keyboardRuntime.dispatchWidget(submit, false, InteractionOrigin.KEYBOARD);
         assertEquals("Keyboard name with space", keyboardOperations.account.personalCapes().get(0).name());
         assertNull(keyboardRuntime.snapshot().editor().orElseThrow().capeCatalog().editing());
+    }
+
+    @Test
+    void capeRenamePreservesScrollWhileSearchKeepsItsResetSemantics() throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.ownedCapes = capeInventory(5);
+        operations.importCape(TestFixtures.ACCOUNT_ID, Path.of("cape.png"), "Cape");
+        operations.session = new SessionValidation(
+                SessionStatus.OFFLINE_OR_INVALID,
+                TestFixtures.validSession().sessionIdentity(),
+                null,
+                (SessionFailureContext) null,
+                "offline");
+        ClientRuntime runtime = runtime(operations, CANCELLED_PICKER);
+        runtime.initialize();
+        runtime.view(320, 240, 0, 0);
+        UUID presetId = operations.account.presets().get(0).id();
+        UUID entryId = operations.account.personalCapes().get(0).texture().entryId();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        runtime.dispatchWidget("editor.cape_action.rename." + entryId);
+        runtime.nativeScrollPositionChanged("editor.capes", 16.0);
+
+        String cardId = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                .filter(card -> card.local() != null && card.local().entryId().equals(entryId))
+                .findFirst().orElseThrow().widgetId();
+        ViewSpec before = runtime.view(320, 240, 0, 0);
+        double offset = before.scrollSurface("editor.capes").orElseThrow().offsetPixels();
+        assertTrue(offset > 0.0);
+        Bounds cardBefore = before.widget(cardId).orElseThrow().bounds();
+        Bounds fieldBefore = before.widget("editor.cape_action.name").orElseThrow().bounds();
+        Bounds relativeBefore = new Bounds(
+                fieldBefore.x() - cardBefore.x(),
+                fieldBefore.y() - cardBefore.y(),
+                fieldBefore.width(),
+                fieldBefore.height());
+
+        for (String value : List.of("Renamed", "Ren", "Renamed again")) {
+            runtime.dispatchText("editor.cape_action.name", value);
+            ViewSpec updated = runtime.view(320, 240, 0, 0);
+            assertEquals(offset, updated.scrollSurface("editor.capes").orElseThrow().offsetPixels());
+            Bounds card = updated.widget(cardId).orElseThrow().bounds();
+            Bounds field = updated.widget("editor.cape_action.name").orElseThrow().bounds();
+            assertEquals(cardBefore, card);
+            assertEquals(relativeBefore, new Bounds(
+                    field.x() - card.x(), field.y() - card.y(), field.width(), field.height()));
+            assertEquals(Optional.of("editor.cape_action.name"),
+                    updated.focusRequest().map(ViewSpec.FocusRequest::widgetId));
+            assertEquals(Optional.of(value), updated.widget("editor.cape_action.name").orElseThrow().value());
+        }
+
+        runtime.nativeScrollPositionChanged("editor.capes", 16.0);
+        runtime.view(320, 240, 0, 0);
+        runtime.dispatchText("editor.cape_search", "no such cape");
+        assertEquals(0.0, runtime.view(320, 240, 0, 0)
+                .scrollSurface("editor.capes").orElseThrow().offsetPixels());
     }
 
     @Test

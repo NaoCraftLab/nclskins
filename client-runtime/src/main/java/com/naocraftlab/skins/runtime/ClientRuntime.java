@@ -1266,12 +1266,14 @@ public final class ClientRuntime implements AutoCloseable {
                 resetGalleryScroll();
                 state.pendingPresetDeleteId = null;
                 publish();
-            } else if (("editor.cape_search".equals(widgetId) || "editor.cape_action.name".equals(widgetId))
+            } else if ("editor.cape_search".equals(widgetId)
                     && state.editor != null && state.editor.capeCatalog() != null) {
-                updateEditor(editor -> editor.withCapeCatalog(widgetId.equals("editor.cape_search")
-                        ? editor.capeCatalog().withQuery(value) : editor.capeCatalog().rename(value)));
+                updateEditor(editor -> editor.withCapeCatalog(editor.capeCatalog().withQuery(value)));
                 editorCapeScrollPosition = 0;
                 editorCapeScrollTarget = 0;
+            } else if ("editor.cape_action.name".equals(widgetId)
+                    && state.editor != null && state.editor.capeCatalog() != null) {
+                updateEditor(editor -> editor.withCapeCatalog(editor.capeCatalog().rename(value)));
             } else if ("editor.name".equals(widgetId) && state.editor != null) {
                 if (state.editor.name().equals(value)) {
                     return;
