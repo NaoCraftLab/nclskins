@@ -1,5 +1,41 @@
 ## 1.1.0
 
+### Added
+
+- **Offline capes**
+    - Import capes from 64×32 PNG files, rename them, and save them in your looks
+    - Search capes by name and filter them by whether they have an elytra texture
+    - Offline capes are visible only to you and do not replace the cape in your Minecraft profile
+- **Resource pack cape collections**
+    - Choose capes from your active resource packs, including the bundled Mojang cape collections
+    - A cape saved in a look remains available after its resource pack is disabled
+- **Appearance providers**
+    - Configure `Offline` and `Minecraft` separately for skins and capes, enable the providers you need, and change their priority
+    - Combine your local appearance with your Minecraft profile appearance and open the editor directly from the provider list
+    - Disabling both Minecraft providers hides your Minecraft skin and cape, as well as those of other players, from your view
+    - Switching looks does not update your Minecraft profile again when the same skin and cape are already confirmed
+- **Keybindings and FancyMenu**
+    - Assign keys to open `My looks`, the active look editor, `Providers`, the skin catalog, and skin import while playing
+    - Add actions for these five screens to your custom FancyMenu menus
+- **Confirmed compatibility with My Totem Doll**
+    - In `Holding Player` mode, the totem texture updates immediately when you switch looks
+
+### Changed
+
+- **Editor and skin catalog**
+    - Appearance settings in the editor now use separate vertical tabs, with visual cards for choosing the skin model
+    - The skin catalog adjusts its column count to the window width
+    - Skin rename and delete confirmations use familiar Minecraft icons
+- **Menu preview**
+    - Place the player preview on the left or right, or turn it off independently on the title screen and pause menu
+- **Skin imports**
+    - File imports accept 64×32 and 64×64 PNGs and show a clear error for unsupported formats
+
+### Fixed
+
+- Fixed skin outer-layer rendering in previews and the model shifting when tilted
+- A look selected while offline now waits for an available game session before syncing with your Minecraft account
+
 ## 1.1.0-beta.1
 
 ### Added
