@@ -7,6 +7,7 @@ import java.util.List;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -78,6 +79,45 @@ class ProviderChannelTest {
         assertEquals("remote", revised.desired());
         assertEquals("remote", revised.minecraft().value());
         assertEquals(4, revised.intentRevision());
+    }
+
+    @Test
+    void applySelectionComparesConfirmedObservationInsteadOfPreviousDesired() {
+        ProviderChannel<String> confirmed = ProviderChannel.<String>initial().select(1, "old");
+        confirmed = confirmed.settle(confirmed.minecraftDelivery(), ProviderDelivery.Status.CONFIRMED, "observed");
+        ProviderDelivery delivery = confirmed.minecraftDelivery();
+
+        ProviderChannel<String> matching = confirmed.selectMatchingObservation(2, "local", "observed", String::equals);
+        assertEquals(delivery, matching.minecraftDelivery());
+        assertEquals("observed", matching.desired());
+        assertEquals("local", matching.offline().value());
+        assertEquals(2, matching.intentRevision());
+
+        ProviderChannel<String> previousDesired = confirmed.selectMatchingObservation(2, "local", "old", String::equals);
+        assertEquals(ProviderDelivery.Status.PENDING, previousDesired.minecraftDelivery().status());
+        assertEquals(2, previousDesired.minecraftDelivery().intentRevision());
+    }
+
+    @Test
+    void applySelectionRequiresCompleteActiveConfirmation() {
+        ProviderChannel<String> confirmed = ProviderChannel.<String>initial().select(1, "value");
+        confirmed = confirmed.settle(confirmed.minecraftDelivery(), ProviderDelivery.Status.CONFIRMED, "value");
+        ProviderChannel<String> unknownObservation = new ProviderChannel<>(confirmed.order(), confirmed.offline(),
+                ProviderObservation.unknown(), confirmed.configurationRevision(), confirmed.intentRevision(),
+                confirmed.desired(), confirmed.minecraftDelivery(), confirmed.offlineDesired());
+        ProviderChannel<String> absentObservation = confirmed.observeMinecraft(null);
+        ProviderChannel<String> unknownDelivery = confirmed.settle(
+                confirmed.minecraftDelivery(), ProviderDelivery.Status.UNKNOWN, "value");
+        ProviderChannel<String> staleActivation = confirmed.move(MINECRAFT, -1);
+
+        for (ProviderChannel<String> channel : List.of(unknownObservation, absentObservation,
+                unknownDelivery, staleActivation)) {
+            ProviderChannel<String> selected = channel.selectMatchingObservation(2, "value", "value", String::equals);
+            assertNotEquals(ProviderDelivery.Status.CONFIRMED, selected.minecraftDelivery().status());
+            assertEquals(2, selected.minecraftDelivery().intentRevision());
+        }
+        assertEquals(ProviderDelivery.Status.PENDING,
+                confirmed.selectMatchingObservation(2, null, null, String::equals).minecraftDelivery().status());
     }
 
     @Test

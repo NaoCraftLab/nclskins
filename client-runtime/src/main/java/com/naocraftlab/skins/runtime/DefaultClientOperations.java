@@ -1537,12 +1537,14 @@ public final class DefaultClientOperations implements ClientOperations {
             AccountState account,
             UUID presetId,
             long revision,
-            AppearanceProviders providers,
+            AccountAppearanceState current,
             OwnedCapeInventory inventory,
             SessionValidation validation) {
         PresetValues values = presetValues(accountId, account, presetId, inventory, validation);
-        AppearanceProviders selected = providers.select(
+        AppearanceProviders selected = current.providers().selectMatchingObservations(
                 revision, values.skin(), values.offlineCape(), values.minecraftCape());
+        AppearanceSyncStatus status = assignedMinecraft(revision, selected)
+                ? pendingStatus(selected) : current.syncStatus();
         return new AccountAppearanceState(
                 AccountAppearanceState.CURRENT_SCHEMA_VERSION,
                 accountId,
@@ -1552,8 +1554,8 @@ public final class DefaultClientOperations implements ClientOperations {
                 values.skin() == null ? null : values.skin().variant(),
                 values.capeId(),
                 values.preset().outerLayerVisibility(),
-                pendingStatus(selected),
-                0,
+                status,
+                status == AppearanceSyncStatus.OFFICIAL ? revision : current.settledRevision(),
                 clock.instant(),
                 selected);
     }
@@ -1659,7 +1661,9 @@ public final class DefaultClientOperations implements ClientOperations {
                 selected.account().accountId(), selected.intentRevision(),
                 selected.providers().skin().minecraftDelivery().activation(),
                 selected.providers().cape().minecraftDelivery().activation());
-        ReconciliationResult reconciled = reconcileAppearance(key, ReconciliationTrigger.EXPLICIT_RETRY)
+        ReconciliationTrigger trigger = selected.syncStatus() == AppearanceSyncStatus.OFFICIAL
+                ? ReconciliationTrigger.LOCAL_INTENT : ReconciliationTrigger.EXPLICIT_RETRY;
+        ReconciliationResult reconciled = reconcileAppearance(key, trigger)
                 .orElseThrow(() -> new IllegalStateException(
                         "Minecraft session or local appearance changed before reconciliation"));
         return legacyRemoteResult(reconciled, "Preset reconciliation completed without a remote mutation.");
@@ -1677,7 +1681,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         NclSkinsStorage.AccountAppearanceMutationPlan.appearanceOnly(
                                 account,
                                 pendingAppearanceForPreset(
-                                        accountId, account, selectedPresetId, revision, current.providers(), inventory, selectionValidation)));
+                                        accountId, account, selectedPresetId, revision, current, inventory, selectionValidation)));
         AccountState state = observeLocal(selected.account());
         AccountAppearanceState appearance = selected.appearance();
         SessionValidation validation = sessions.cachedStatus(context.identity());

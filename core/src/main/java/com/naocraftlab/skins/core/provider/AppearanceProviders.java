@@ -56,6 +56,14 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
         return new AppearanceProviders(skin.select(revision, skinValue), cape.select(revision, offlineCape, minecraftCape));
     }
 
+    public AppearanceProviders selectMatchingObservations(
+            long revision, ProviderSkin skinValue, ProviderCape offlineCape, ProviderCape minecraftCape) {
+        return new AppearanceProviders(
+                skin.selectMatchingObservation(revision, skinValue, skinValue, Objects::equals),
+                cape.selectMatchingObservation(revision, offlineCape, minecraftCape,
+                        (observed, selected) -> observed.id().equals(selected.id())));
+    }
+
     public AppearanceProviders revise(
             long revision, ProviderSkin skinValue, ProviderCape offlineCape, ProviderCape minecraftCape) {
         ProviderCape nextOfflineCape = mergeCape(cape.offlineDesired(), offlineCape);

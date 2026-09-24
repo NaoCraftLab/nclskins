@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiPredicate;
 
 public record ProviderChannel<T>(
         List<BuiltinProvider> order,
@@ -77,6 +78,18 @@ public record ProviderChannel<T>(
                 enabled(BuiltinProvider.MINECRAFT)
                         ? minecraftDelivery.assign(revision, minecraftDelivery.activation())
                         : minecraftDelivery, localValue);
+    }
+
+    public ProviderChannel<T> selectMatchingObservation(
+            long revision, T localValue, T value, BiPredicate<T, T> matches) {
+        boolean confirmedMatch = enabled(BuiltinProvider.MINECRAFT)
+                && value != null
+                && minecraftDelivery.status() == ProviderDelivery.Status.CONFIRMED
+                && minecraftDelivery.activation() == configurationRevision
+                && minecraft.known()
+                && minecraft.value() != null
+                && matches.test(minecraft.value(), value);
+        return revise(revision, localValue, value, !confirmedMatch);
     }
 
     public ProviderChannel<T> revise(long revision, T localValue, T value, boolean assignMinecraft) {
