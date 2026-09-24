@@ -38,8 +38,8 @@ final class ReleaseLogicTest {
         } else {
             Map metadata = ReleaseMetadata.validate(versionFile, changelog, currentVersion)
             assertEquals(currentVersion, metadata.version)
-            assertEquals('beta', metadata.channel)
-            assertTrue(metadata.prerelease)
+            assertEquals('release', metadata.channel)
+            assertFalse(metadata.prerelease)
         }
 
         File pluginChangelog = new File(repository, 'PLUGIN_CHANGELOG.md')
