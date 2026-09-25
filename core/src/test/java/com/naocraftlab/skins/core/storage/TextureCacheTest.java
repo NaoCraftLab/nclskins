@@ -1,11 +1,13 @@
 package com.naocraftlab.skins.core.storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.test.TestPng;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -55,6 +57,41 @@ class TextureCacheTest {
 
         assertEquals(TextureCacheException.Code.HOST_NOT_ALLOWLISTED, exception.code());
         assertEquals(0, http.calls.get());
+    }
+
+    @Test
+    void observedCapeCachesNormalizedBytesWithoutCreatingPersonalCard() throws Exception {
+        NclSkinsStorage storage = new NclSkinsStorage(temporaryDirectory,
+                new PngValidator(), Clock.systemUTC());
+        TextureCache cache = new TextureCache(storage);
+        var cape = new PngValidator().projectImportedCape(TestPng.create(46, 22));
+        String key = cache.storeObservedCape(cape);
+        assertEquals(cape.renderSha256(), key);
+        assertTrue(cache.readIfCached(key).isPresent());
+        assertEquals(key, cache.storeObservedCape(cape));
+        assertTrue(new TextureCache(new NclSkinsStorage(temporaryDirectory,
+                new PngValidator(), Clock.systemUTC())).readIfCached(key).isPresent());
+    }
+
+    @Test
+    void hdObservedCapeReplaysCanonicalPixelsAndVerifiesExistingCache() throws Exception {
+        NclSkinsStorage storage = new NclSkinsStorage(temporaryDirectory,
+                new PngValidator(), Clock.systemUTC());
+        TextureCache cache = new TextureCache(storage);
+        PngValidator validator = new PngValidator();
+        var cape = validator.projectImportedCape(TestPng.create(92, 44));
+        String key = cache.storeObservedCape(cape);
+        byte[] restored = new TextureCache(new NclSkinsStorage(temporaryDirectory,
+                validator, Clock.systemUTC())).readIfCached(key).orElseThrow();
+        assertArrayEquals(cape.bytes(), restored);
+        assertEquals(128, javax.imageio.ImageIO.read(new ByteArrayInputStream(restored)).getWidth());
+        assertEquals(key, cache.storeObservedCape(cape));
+        Files.write(cache.cachePath(key), TestPng.create(92, 44));
+        assertThrows(PngValidationException.class, () -> cache.storeObservedCape(cape));
+        Files.write(cache.cachePath(key), TestPng.create(128, 64));
+        TextureCacheException failure = assertThrows(TextureCacheException.class,
+                () -> cache.storeObservedCape(cape));
+        assertEquals(TextureCacheException.Code.INVALID_TEXTURE, failure.code());
     }
 
     @Test

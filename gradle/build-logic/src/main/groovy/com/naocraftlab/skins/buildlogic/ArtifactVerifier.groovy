@@ -32,7 +32,7 @@ final class ArtifactVerifier {
     static final String COLLECTIONS = 'resourcepacks/mojang_collections/'
     static final String GUI_ICONS = 'assets/nclskins/textures/gui/icons/'
     static final Set<String> REQUIRED_GUI_ICONS = ([
-        'action/edit.png', 'action/duplicate.png', 'action/delete.png', 'action/select_folder.png',
+        'action/edit.png', 'action/open_account.png', 'action/duplicate.png', 'action/delete.png', 'action/select_folder.png',
         'action/collapse_all.png', 'action/expand_all.png', 'action/add_provider.png', 'action/add_cape.png',
         'action/rename.png', 'action/remove.png', 'provider/skin/no_value.png', 'provider/cape/no_value.png', 'action/refresh.png',
         'action/providers.png', 'action/add_look.png', 'editor/tab/appearance.png', 'editor/tab/cape.png',
@@ -106,6 +106,16 @@ final class ArtifactVerifier {
                 ],
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/ScreenRenderablesAccessor': [
                     renderables: 'f_169369_:Ljava/util/List;'
+                ],
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/ClientPacketListenerCapeMixin': [
+                    'handlePlayerInfoUpdate(Lnet/minecraft/network/protocol/game/ClientboundPlayerInfoUpdatePacket;)V': 'Lnet/minecraft/client/multiplayer/ClientPacketListener;m_214045_(Lnet/minecraft/network/protocol/game/ClientboundPlayerInfoUpdatePacket;)V',
+                    'handlePlayerInfoRemove(Lnet/minecraft/network/protocol/game/ClientboundPlayerInfoRemovePacket;)V': 'Lnet/minecraft/client/multiplayer/ClientPacketListener;m_213565_(Lnet/minecraft/network/protocol/game/ClientboundPlayerInfoRemovePacket;)V',
+                    'handleRespawn(Lnet/minecraft/network/protocol/game/ClientboundRespawnPacket;)V': 'Lnet/minecraft/client/multiplayer/ClientPacketListener;m_7992_(Lnet/minecraft/network/protocol/game/ClientboundRespawnPacket;)V',
+                    'handleLogin(Lnet/minecraft/network/protocol/game/ClientboundLoginPacket;)V': 'Lnet/minecraft/client/multiplayer/ClientPacketListener;m_5998_(Lnet/minecraft/network/protocol/game/ClientboundLoginPacket;)V'
+                ],
+                'com/naocraftlab/skins/compat/client/resourcelocation/optifine/mixin/OptifinePlayerCapeMixin': [
+                    'getCloakTextureLocation()Lnet/minecraft/resources/ResourceLocation;': 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108561_()Lnet/minecraft/resources/ResourceLocation;',
+                    'getElytraTextureLocation()Lnet/minecraft/resources/ResourceLocation;': 'Lnet/minecraft/client/player/AbstractClientPlayer;m_108563_()Lnet/minecraft/resources/ResourceLocation;'
                 ]
             ]
         ]
@@ -158,6 +168,7 @@ final class ArtifactVerifier {
             verifyResources(root, archive, catalog, target, names, errors)
             verifyManifest(archive, target, errors)
             verifyForgeRefmap(archive, target, names, errors)
+            verifyCapeProjectionArtifact(target, names, errors)
             verifyMixinExtrasPayload(archive, catalog, target, names, errors)
             verifyMenuPreviewCompatibility(archive, target, errors)
             verifyPreviewRegistration(archive, target, names, errors)
@@ -930,9 +941,32 @@ final class ArtifactVerifier {
         if (refmapEntries != [baseline.path] as Set) errors.add("${target.id}: Forge Mixin refmap resource set differs")
         Map refmap = json(archive, baseline.path.toString(), target, errors)
         if (refmap == null) return
+        declared.remove('com/naocraftlab/skins/compat/client/resourcelocation/optifine/mixin/OptifineCapeUtilsMixin')
         if (declared != (baseline.mappings as Map).keySet() as Set) errors.add("${target.id}: Forge Mixin declarations differ from refmap baseline")
         if (refmap.mappings != baseline.mappings) errors.add("${target.id}: Forge Mixin production mapping baseline differs")
         if (!(refmap.data instanceof Map) || refmap.data.searge != baseline.mappings) errors.add("${target.id}: Forge Mixin searge mapping baseline differs")
+    }
+
+    static void verifyCapeProjectionArtifact(Map target, List<String> names, List<String> errors) {
+        if (names.any { it.startsWith('net/optifine/') }) {
+            errors.add("${target.id}: production artifact must not vendor OptiFine")
+        }
+        boolean forgeI6 = target.id == 'forge-1.20.1'
+        String optional = 'com/naocraftlab/skins/compat/client/resourcelocation/optifine/'
+        List<String> forgeOnly = [
+                'nclskins.optifine-cape.mixins.json',
+                optional + 'OptifineMixinPlugin.class',
+                optional + 'mixin/OptifineCapeUtilsMixin.class',
+                optional + 'mixin/OptifinePlayerCapeMixin.class'
+        ]
+        forgeOnly.each { String path ->
+            if (names.contains(path) != forgeI6) {
+                errors.add("${target.id}: OptiFine I6 optional artifact ownership differs for ${path}")
+            }
+        }
+        if (!names.contains('com/naocraftlab/skins/runtime/CapeProjection.class')) {
+            errors.add("${target.id}: missing common cape projection")
+        }
     }
 
     static void verifyMenuPreviewCompatibility(ZipFile archive, Map target, List<String> errors) {

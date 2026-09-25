@@ -80,9 +80,23 @@ public final class PngValidator {
 
 
     public CapePng projectCape(byte[] bytes) throws PngValidationException {
-        Inspection inspection = inspect(bytes, false, false);
-        if (inspection.info().width() != 64 || inspection.info().height() != 32) {
-            throw failure(PngValidationException.Reason.UNSUPPORTED_DIMENSIONS, "Cape must be 64 by 32");
+        return projectCape(bytes, CapeAdmission.SOURCE);
+    }
+
+    public CapePng projectImportedCape(byte[] bytes) throws PngValidationException {
+        return projectCape(bytes, CapeAdmission.SOURCE);
+    }
+
+    public CapePng projectCanonicalCape(byte[] bytes) throws PngValidationException {
+        return projectCape(bytes, CapeAdmission.CANONICAL);
+    }
+
+    private CapePng projectCape(byte[] bytes, CapeAdmission admission) throws PngValidationException {
+        Inspection inspection = inspect(bytes, false, false, admission);
+        int sourceWidth = inspection.info().width();
+        int sourceHeight = inspection.info().height();
+        if (!admission.accepts(sourceWidth, sourceHeight)) {
+            throw failure(PngValidationException.Reason.UNSUPPORTED_DIMENSIONS, "Unsupported cape dimensions");
         }
         ByteBuffer chunks = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
         chunks.position(8);
@@ -95,13 +109,28 @@ public final class PngValidator {
             chunks.position(chunks.position() + length + 4);
         }
         BufferedImage image = inspection.image();
+        if (sourceWidth == 46 || sourceWidth == 92) {
+            int targetWidth = sourceWidth == 46 ? 64 : 128;
+            int targetHeight = sourceWidth == 46 ? 32 : 64;
+            BufferedImage padded = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_ARGB);
+            padded.setRGB(0, 0, sourceWidth, sourceHeight,
+                    image.getRGB(0, 0, sourceWidth, sourceHeight, null, 0, sourceWidth), 0, sourceWidth);
+            image = padded;
+        }
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int scale = width / 64;
         boolean elytra = false;
-        ByteBuffer pixels = ByteBuffer.allocate(64 * 32 * 4).order(ByteOrder.BIG_ENDIAN);
-        for (int y = 0; y < 32; y++) {
-            for (int x = 0; x < 64; x++) {
+        ByteBuffer pixels = ByteBuffer.allocate(width * height * 4 + (scale == 2 ? 8 : 0))
+                .order(ByteOrder.BIG_ENDIAN);
+        if (scale == 2) pixels.putInt(width).putInt(height);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
                 int pixel = visibleArgb(image.getRGB(x, y));
                 pixels.putInt(pixel);
-                boolean wing = y < 2 ? x >= 24 && x < 44 : y < 22 && x >= 22 && x < 46;
+                boolean wing = y < 2 * scale
+                        ? x >= 24 * scale && x < 44 * scale
+                        : y < 22 * scale && x >= 22 * scale && x < 46 * scale;
                 elytra |= wing && (pixel >>> 24) != 0;
             }
         }
@@ -116,6 +145,16 @@ public final class PngValidator {
     public record CapePng(byte[] bytes, String renderSha256, boolean hasElytra) {
         public CapePng { bytes = bytes.clone(); }
         @Override public byte[] bytes() { return bytes.clone(); }
+    }
+
+    private enum CapeAdmission {
+        SOURCE, CANONICAL;
+
+        boolean accepts(int width, int height) {
+            return width == 64 && height == 32
+                    || width == 128 && height == 64
+                    || this == SOURCE && (width == 46 && height == 22 || width == 92 && height == 44);
+        }
     }
 
     public byte[] normalizeSkin(byte[] bytes) throws PngValidationException {
@@ -427,6 +466,14 @@ public final class PngValidator {
             byte[] bytes,
             boolean allowScaledLayout,
             boolean stripPostIendBytes) throws PngValidationException {
+        return inspect(bytes, allowScaledLayout, stripPostIendBytes, null);
+    }
+
+    private Inspection inspect(
+            byte[] bytes,
+            boolean allowScaledLayout,
+            boolean stripPostIendBytes,
+            CapeAdmission capeAdmission) throws PngValidationException {
         Objects.requireNonNull(bytes, "bytes");
         if (bytes.length == 0) {
             throw failure(PngValidationException.Reason.EMPTY, "PNG is empty");
@@ -501,7 +548,9 @@ public final class PngValidator {
                 if (!validPngHeader(width, height, bitDepth, colorType, compression, filter, interlace)) {
                     throw failure(PngValidationException.Reason.INVALID_HEADER, "PNG header uses invalid encoding values");
                 }
-                if (!supportedDimensions(width, height, allowScaledLayout)) {
+                if (!(capeAdmission == null
+                        ? supportedDimensions(width, height, allowScaledLayout)
+                        : capeAdmission.accepts(width, height))) {
                     throw failure(
                             PngValidationException.Reason.UNSUPPORTED_DIMENSIONS,
                             allowScaledLayout

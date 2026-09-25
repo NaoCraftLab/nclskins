@@ -3,6 +3,7 @@ package com.naocraftlab.skins.compat.config;
 import net.minecraft.Util;
 import it.unimi.dsi.fastutil.booleans.BooleanConsumer;
 import java.net.URI;
+import java.util.function.BooleanSupplier;
 import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.gui.screens.Screen;
 
@@ -11,6 +12,21 @@ public final class ConfigurationLinkApi {
 
     public static Screen createScreen(BooleanConsumer callback, URI uri) {
         return new ConfirmLinkScreen(callback, uri.toString(), true);
+    }
+
+    public static Screen createScreen(BooleanConsumer callback, URI uri,
+            BooleanSupplier valid, Runnable expired) {
+        return new ConfirmLinkScreen(callback, uri.toString(), true) {
+            @Override public void tick() {
+                if (!valid.getAsBoolean()) expired.run();
+                else super.tick();
+            }
+
+            @Override public void copyToClipboard() {
+                if (!valid.getAsBoolean()) expired.run();
+                else super.copyToClipboard();
+            }
+        };
     }
 
     public static void open(URI uri) {

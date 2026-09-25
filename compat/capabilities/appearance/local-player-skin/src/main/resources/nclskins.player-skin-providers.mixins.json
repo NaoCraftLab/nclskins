@@ -5,6 +5,7 @@
   "client": [
     "CapeLayerTransparencyMixin",
     "PlayerInfoProviderMixin",
+    "ClientPacketListenerCapeMixin",
     "SkinManagerProviderMixin"
   ],
   "injectors": {

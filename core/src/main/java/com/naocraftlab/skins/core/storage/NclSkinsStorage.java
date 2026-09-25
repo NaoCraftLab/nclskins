@@ -763,7 +763,7 @@ public final class NclSkinsStorage {
 
     public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
             UUID accountId, String name, byte[] bytes) throws IOException, PngValidationException {
-        PngValidator.CapePng png = pngValidator.projectCape(bytes);
+        PngValidator.CapePng png = pngValidator.projectImportedCape(bytes);
         String hash = sha256(png.bytes());
         Path asset = capeAssetPath(accountId, hash);
         ensureInitialized();
@@ -943,7 +943,7 @@ public final class NclSkinsStorage {
                 Path source = layout.textureCache().resolve(key + ".png");
                 if (Files.isRegularFile(source)) {
                     try {
-                        var png = pngValidator.projectCape(readBoundedAsset(source));
+                        var png = pngValidator.projectCanonicalCape(readBoundedAsset(source));
                         String hash = sha256(png.bytes());
                         AtomicFileWriter.createImmutable(capeAssetPath(account.accountId(), hash), png.bytes());
                         preset = preset.withOfflineCape(new com.naocraftlab.skins.core.model.LocalCapeReference(null, hash, png.hasElytra()));

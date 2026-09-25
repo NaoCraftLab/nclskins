@@ -20,6 +20,8 @@ import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
+import com.naocraftlab.skins.core.provider.ProviderCape;
+import com.naocraftlab.skins.core.provider.ProviderObservation;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.SessionValidation;
@@ -32,6 +34,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 
 public interface ClientOperations extends AutoCloseable {
@@ -152,6 +155,44 @@ public interface ClientOperations extends AutoCloseable {
     default DurableAppearance refreshProviders(AppearanceProviders.Component component) throws Exception {
         throw new UnsupportedOperationException("Provider refresh is unavailable");
     }
+
+    default ProviderRefresh refreshProvidersWithObservation(
+            AppearanceProviders.Component component) throws Exception {
+        return new ProviderRefresh(refreshProviders(component), null);
+    }
+
+    record ProviderRefresh(DurableAppearance appearance,
+            ProviderObservation<?> confirmedMinecraft) {}
+
+    default void startOptiFineCapes() {}
+
+    default void refreshOptiFineCapes() {}
+
+    default void refreshOptiFineCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
+        refreshOptiFineCapes();
+        completion.accept(null);
+    }
+
+    default void optiFineConfigurationChanged() {}
+
+    default void adoptSharedCapeObservation(UUID accountId, String canonicalName,
+            AppearanceProviders providers) {}
+
+    default void onOptiFineObservation(Consumer<OptiFineObservation> listener) {}
+
+    default void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
+            AppearanceProviders providers) {}
+
+    record OptiFineObservation(UUID accountId, String canonicalName,
+            long capeConfigurationRevision, ProviderCape cape) {}
+
+    default void trackedCapePlayer(UUID profileId, String canonicalName) {}
+
+    default void untrackedCapePlayer(UUID profileId) {}
+
+    default void capeWorldChanged() {}
+
+    default void closeOptiFineCapes() {}
 
     default DurableAppearance enableProvider(AppearanceProviders.Component component, BuiltinProvider provider)
             throws Exception {

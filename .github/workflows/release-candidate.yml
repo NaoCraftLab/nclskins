@@ -1,0 +1,67 @@
+name: Release candidate checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact mod version planned for the release tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Validate release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require main and a release version
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]
+      - id: java17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - id: java21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - id: java25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Validate release metadata and notes
+        env:
+          VERSION: ${{ inputs.version }}
+          NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}
+          NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
+          NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
+        run: ./gradlew validateRelease -PreleaseTag="$VERSION" --no-daemon --console=plain
+      - name: Run shared release checks from source
+        env:
+          NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}
+          NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
+          NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
+        run: ./gradlew checkRelease --no-daemon --console=plain --no-build-cache --rerun-tasks
+      - name: Build and verify every catalog target
+        env:
+          NCLSKINS_BUILD_JOBS: '3'
+          NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}
+          NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
+          NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
+        run: ./gradlew fullCheck --no-daemon --console=plain --no-build-cache

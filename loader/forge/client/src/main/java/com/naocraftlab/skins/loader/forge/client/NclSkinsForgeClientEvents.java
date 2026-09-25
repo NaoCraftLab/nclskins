@@ -3,6 +3,7 @@ package com.naocraftlab.skins.loader.forge.client;
 import com.naocraftlab.skins.client.BuiltInClientPackDescriptor;
 import com.naocraftlab.skins.client.ClientLifecycleGate;
 import com.naocraftlab.skins.compat.loader.MinecraftClientHookAdapter;
+import com.naocraftlab.skins.runtime.CapeProjection;
 import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.compat.config.YaclConfigurationScreenFactory;
 import com.naocraftlab.skins.loader.forge.NclSkinsForgeMod;
@@ -17,6 +18,7 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.RegisterClientReloadListenersEvent;
 import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.event.GameShuttingDownEvent;
 import net.minecraftforge.event.AddPackFindersEvent;
 import net.minecraftforge.event.TickEvent;
@@ -136,6 +138,11 @@ public final class NclSkinsForgeClientEvents {
             if (event.phase == TickEvent.Phase.END) {
                 LIFECYCLE.dispatch(current -> current.tick(Minecraft.getInstance()));
             }
+        }
+
+        @SubscribeEvent
+        public static void playerLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+            CapeProjection.worldChanged();
         }
 
         @SubscribeEvent

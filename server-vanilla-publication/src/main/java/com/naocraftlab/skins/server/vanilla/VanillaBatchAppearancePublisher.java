@@ -9,6 +9,7 @@ import com.naocraftlab.skins.server.PublicationOutcome;
 import com.naocraftlab.skins.server.PublicationRequest;
 import com.naocraftlab.skins.server.SignedTexturesProperty;
 import com.naocraftlab.skins.server.TextureAppearance;
+import com.naocraftlab.skins.server.VerifiedOfficialProfile;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -228,6 +229,7 @@ public final class VanillaBatchAppearancePublisher
                     AdvanceResult result = job.slice.advance(budget, () -> job.cancelled);
                     if (result == AdvanceResult.COMPLETE) {
                         job.outcomes.putAll(job.slice.outcomes);
+                        job.hinted.addAll(job.slice.hinted);
                         job.slice = null;
                         continue;
                     }
@@ -351,7 +353,7 @@ public final class VanillaBatchAppearancePublisher
         }
         if (!job.completion.isCancelled()) {
             job.completion.complete(BatchPublicationResult.of(
-                    job.outcomes, job.metrics.snapshot()));
+                    job.outcomes, job.metrics.snapshot(), job.hinted));
         }
         if (next != null) {
             scheduleNextTick(next);
@@ -446,6 +448,7 @@ public final class VanillaBatchAppearancePublisher
         private final List<PublicationRequest> requests;
         private final Map<ConnectionKey, Long> intentRevisions;
         private final Map<ConnectionKey, PublicationOutcome> outcomes = new LinkedHashMap<>();
+        private final Set<ConnectionKey> hinted = new LinkedHashSet<>();
         private final CompletableFuture<BatchPublicationResult> completion = new CompletableFuture<>();
         private final MetricsAccumulator metrics = new MetricsAccumulator();
         private volatile boolean cancelled;
@@ -543,7 +546,7 @@ public final class VanillaBatchAppearancePublisher
         private void completeRemaining(PublicationOutcome outcome) {
             fillUnresolved(outcome);
             if (!completion.isCancelled()) {
-                completion.complete(BatchPublicationResult.of(outcomes, metrics.snapshot()));
+                completion.complete(BatchPublicationResult.of(outcomes, metrics.snapshot(), hinted));
             }
         }
 
@@ -564,6 +567,7 @@ public final class VanillaBatchAppearancePublisher
         private final List<PublicationRequest> requests;
         private final MetricsAccumulator metrics;
         private final Map<ConnectionKey, PublicationOutcome> outcomes = new LinkedHashMap<>();
+        private final Set<ConnectionKey> hinted = new LinkedHashSet<>();
         private final List<ActorState> actors = new ArrayList<>();
         private final ArrayDeque<TrackingPair> removedPairs = new ArrayDeque<>();
         private final ArrayDeque<FailedDelivery> reconciliation = new ArrayDeque<>();
@@ -672,6 +676,11 @@ public final class VanillaBatchAppearancePublisher
                             : current.containsSameProperty(target.orElseThrow());
                     if (exactMatch) {
                         outcomes.put(request.connection(), PublicationOutcome.UNCHANGED);
+                        if (request.observerHintAllowed()) {
+                            ActorState actor = new ActorState(request, current);
+                            actor.hint(request.profile().appearance());
+                            actors.add(actor);
+                        }
                     } else {
                         actors.add(new ActorState(request, current));
                     }
@@ -690,7 +699,8 @@ public final class VanillaBatchAppearancePublisher
             }
             List<SemanticWork> work = new ArrayList<>();
             for (ActorState actor : actors) {
-                if (actor.current.status() == LiveProfileTextures.Status.SIGNED) {
+                if (!actor.hint
+                        && actor.current.status() == LiveProfileTextures.Status.SIGNED) {
                     work.add(new SemanticWork(
                             actor.request,
                             actor.current.property().orElseThrow()));
@@ -708,6 +718,7 @@ public final class VanillaBatchAppearancePublisher
                     List<SemanticDecision> decisions = new ArrayList<>(work.size());
                     for (SemanticWork item : work) {
                         boolean matches = false;
+                        TextureAppearance verifiedLive = null;
                         try {
                             Optional<TextureAppearance> current = signatureVerifier.verify(
                                     item.property,
@@ -720,12 +731,15 @@ public final class VanillaBatchAppearancePublisher
                                         || sourcePredatesCurrent(
                                                 targetAppearance,
                                                 currentAppearance);
+                                if (matches) {
+                                    verifiedLive = currentAppearance;
+                                }
                             }
                         } catch (RuntimeException verificationFailure) {
 
                         }
                         decisions.add(new SemanticDecision(
-                                item.request.connection(), matches));
+                                item.request.connection(), matches, verifiedLive));
                     }
                     execute(() -> semanticCompleted(this, List.copyOf(decisions)));
                 });
@@ -753,14 +767,18 @@ public final class VanillaBatchAppearancePublisher
             if (phase != Phase.WAIT_SEMANTIC || aborted) {
                 return;
             }
-            Map<ConnectionKey, Boolean> matches = new LinkedHashMap<>();
+            Map<ConnectionKey, SemanticDecision> matches = new LinkedHashMap<>();
             for (SemanticDecision decision : decisions) {
-                matches.put(decision.connection, decision.matches);
+                matches.put(decision.connection, decision);
             }
             for (ActorState actor : actors) {
-                if (Boolean.TRUE.equals(matches.get(actor.request.connection()))) {
+                SemanticDecision decision = matches.get(actor.request.connection());
+                if (decision != null && decision.matches) {
                     actor.unchanged = true;
                     outcomes.put(actor.request.connection(), PublicationOutcome.UNCHANGED);
+                    if (actor.request.observerHintAllowed()) {
+                        actor.hint(decision.verifiedLive);
+                    }
                 }
             }
             phase = Phase.SNAPSHOT;
@@ -792,6 +810,9 @@ public final class VanillaBatchAppearancePublisher
                         }
                     }
                     actor.observers = List.copyOf(unique);
+                    if (actor.hint) {
+                        hinted.add(actor.request.connection());
+                    }
                     for (ConnectionKey observer : actor.observers) {
                         originalWatcherPairs.add(new WatcherPairKey(
                                 actor.request.connection(), observer));
@@ -807,6 +828,10 @@ public final class VanillaBatchAppearancePublisher
             while (actorIndex < actors.size()) {
                 ActorState actor = actors.get(actorIndex);
                 if (!actor.ready()) {
+                    nextActorObservers();
+                    continue;
+                }
+                if (actor.hint) {
                     nextActorObservers();
                     continue;
                 }
@@ -846,6 +871,9 @@ public final class VanillaBatchAppearancePublisher
             if (!actor.ready()) {
                 return;
             }
+            if (actor.hint) {
+                return;
+            }
             try {
                 if (!connections.isCurrent(actor.request)) {
                     actor.stale(outcomes);
@@ -863,7 +891,7 @@ public final class VanillaBatchAppearancePublisher
         private void setupDelivery(TickBudget budget) {
             LinkedHashSet<ConnectionKey> watchers = new LinkedHashSet<>();
             for (ActorState actor : actors) {
-                if (actor.installed) {
+                if (actor.installed || actor.hint) {
                     watchers.addAll(actor.observers);
                 }
             }
@@ -916,7 +944,9 @@ public final class VanillaBatchAppearancePublisher
                     }
                     boolean delivered = false;
                     try {
-                        transport.removeProfiles(recipient, chunk);
+                        if (!chunk.get(0).observerHintAllowed()) {
+                            transport.removeProfiles(recipient, chunk);
+                        }
                         transport.initializeProfiles(recipient, chunk);
                         delivered = true;
                     } catch (RuntimeException | Error deliveryFailure) {
@@ -929,7 +959,8 @@ public final class VanillaBatchAppearancePublisher
                                 recipient,
                                 chunk,
                                 0,
-                                completedPhase == Phase.RETRACK);
+                                completedPhase == Phase.RETRACK
+                                        && !chunk.get(0).observerHintAllowed());
                     }
                     budget.deliveryCompleted(chunk.size());
                     return true;
@@ -952,8 +983,14 @@ public final class VanillaBatchAppearancePublisher
             List<PublicationRequest> chunk = new ArrayList<>(maximum);
             while (deliveryActorIndex < actors.size() && chunk.size() < maximum) {
                 ActorState actor = actors.get(deliveryActorIndex++);
-                if (!actor.installed || sameProfile(recipient, actor.request.connection())) {
+                if ((!actor.installed && !actor.hint)
+                        || sameProfile(recipient, actor.request.connection())) {
                     continue;
+                }
+                if (!chunk.isEmpty()
+                        && chunk.get(0).observerHintAllowed() != actor.hint) {
+                    deliveryActorIndex--;
+                    break;
                 }
                 if (!connections.isProfileVisible(recipient, actor.request)) {
                     continue;
@@ -963,7 +1000,7 @@ public final class VanillaBatchAppearancePublisher
                     actor.stale(outcomes);
                     continue;
                 }
-                chunk.add(actor.request);
+                chunk.add(actor.deliveryRequest());
             }
             return List.copyOf(chunk);
         }
@@ -1062,7 +1099,9 @@ public final class VanillaBatchAppearancePublisher
                 }
                 boolean delivered = false;
                 try {
-                    transport.removeProfiles(failed.recipient, sending);
+                    if (!sending.get(0).observerHintAllowed()) {
+                        transport.removeProfiles(failed.recipient, sending);
+                    }
                     transport.initializeProfiles(failed.recipient, sending);
                     delivered = true;
                 } catch (RuntimeException | Error retryFailure) {
@@ -1214,8 +1253,10 @@ public final class VanillaBatchAppearancePublisher
     private static final class ActorState {
         private final PublicationRequest request;
         private final LiveProfileTextures current;
+        private PublicationRequest hintRequest;
         private List<ConnectionKey> observers = List.of();
         private boolean unchanged;
+        private boolean hint;
         private boolean failed;
         private boolean stale;
         private boolean installed;
@@ -1228,7 +1269,26 @@ public final class VanillaBatchAppearancePublisher
         }
 
         private boolean ready() {
-            return !unchanged && !failed && !stale && !installed;
+            return (!unchanged || hint) && !failed && !stale && !installed;
+        }
+
+        private void hint(TextureAppearance liveAppearance) {
+            if (current.status() == LiveProfileTextures.Status.INVALID) {
+                return;
+            }
+            hint = true;
+            hintRequest = new PublicationRequest(
+                    request.connection(),
+                    new VerifiedOfficialProfile(
+                            request.profile().identity(),
+                            liveAppearance,
+                            current.property()),
+                    true);
+        }
+
+        private PublicationRequest deliveryRequest() {
+            return hint ? hintRequest : new PublicationRequest(
+                    request.connection(), request.profile());
         }
 
         private void failed(Map<ConnectionKey, PublicationOutcome> outcomes) {
@@ -1326,7 +1386,8 @@ public final class VanillaBatchAppearancePublisher
 
     private record SemanticDecision(
             ConnectionKey connection,
-            boolean matches) {}
+            boolean matches,
+            TextureAppearance verifiedLive) {}
 
     @FunctionalInterface
     interface AdvanceProbe {

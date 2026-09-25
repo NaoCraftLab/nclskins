@@ -11,6 +11,7 @@ import com.naocraftlab.skins.client.MinecraftSkinCatalog;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
+import com.naocraftlab.skins.client.PlayerAppearanceSink.CapeSource;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.ScreenDestination;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
@@ -42,6 +43,9 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderCape;
+import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.storage.NclSkinsStorage;
+import com.naocraftlab.skins.core.storage.TextureCache;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -63,6 +67,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -245,6 +250,7 @@ final class ClientRuntimeTest {
     @Test
     void skinProviderGalleryDoneAndEscapeReturnToSkinProviders() {
         for (BuiltinProvider provider : BuiltinProvider.values()) {
+            if (!provider.supportsSkin() || !provider.writable()) continue;
             for (String exit : List.of("done", "escape")) {
                 FakeOperations operations = new FakeOperations();
                 operations.account = TestFixtures.account(1);
@@ -530,6 +536,7 @@ final class ClientRuntimeTest {
     @Test
     void capeProviderEditorReturnsToCapeProvidersWithoutChangingOrdinaryEditorReturn() {
         for (String exit : List.of("save", "cancel", "escape")) for (var provider : BuiltinProvider.values()) {
+            if (!provider.writable()) continue;
             FakeOperations operations = new FakeOperations();
             operations.account = TestFixtures.account(2);
             UUID active = operations.account.presets().get(1).id();
@@ -592,6 +599,7 @@ final class ClientRuntimeTest {
     @Test
     void providerEditOpensGalleryOrActiveCapeDraftWithoutApplying() {
         for (var provider : BuiltinProvider.values()) for (int activeIndex = 0; activeIndex < 2; activeIndex++) {
+            if (!provider.writable()) continue;
             FakeOperations operations = new FakeOperations();
             operations.account = TestFixtures.account(2);
             var active = operations.account.presets().get(activeIndex);
@@ -614,6 +622,181 @@ final class ClientRuntimeTest {
             assertEquals(operations.providers, runtime.snapshot().providers());
             assertEquals(Optional.of(active.id()), runtime.snapshot().activePresetId());
         }
+    }
+
+    @Test
+    void readOnlyOptifineRejectsForgedEditAndPreparesAccountLinkOnce() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        var tasks = new java.util.ArrayList<Runnable>();
+        UUID accountId = operations.account.accountId();
+        var sessions = new GameSessionTokenSource() {
+            @Override public SessionIdentity currentSession() {
+                return new SessionIdentity(accountId, "Player_1");
+            }
+            @Override public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) throws E {
+                return request.execute("current-token");
+            }
+        };
+        runtime.useOptiFineAccountLink(new OptiFineAccountLink(sessions, tasks::add,
+                (profileId, accessToken, proof) -> { }, new java.security.SecureRandom(), java.time.Clock.systemUTC()));
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.edit.OPTIFINE");
+        assertEquals("providers", runtime.view(854, 480, 0, 0).screenId());
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        runtime.dispatchWidget("providers.account.OPTIFINE");
+        runtime.dispatchWidget("providers.account.OPTIFINE");
+        assertEquals(1, tasks.size());
+        assertEquals("nclskins.providers.link_preparing", runtime.view(854, 480, 0, 0).texts().stream()
+                .filter(text -> text.id().equals("providers.account.feedback"))
+                .findFirst().orElseThrow().message().key());
+        tasks.remove(0).run();
+        assertTrue(runtime.consumeReadyOptiFineAccountLink().isPresent());
+        assertTrue(runtime.consumeReadyOptiFineAccountLink().isEmpty());
+        runtime.finishOptiFineAccountLink();
+        assertTrue(runtime.currentOptiFineAccountLink().isEmpty());
+        assertEquals("providers", runtime.view(854, 480, 0, 0).screenId());
+    }
+
+    @Test
+    void accountLinkCannotOpenAfterProviderNavigationOrLateCompletion() {
+        for (String navigation : List.of("providers.back", "providers.tab.SKIN",
+                "providers.add", "providers.edit.OFFLINE", "providers.remove.OPTIFINE")) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(1);
+            operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE,
+                    BuiltinProvider.OPTIFINE);
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            var tasks = new ArrayList<Runnable>();
+            UUID accountId = operations.account.accountId();
+            GameSessionTokenSource sessions = new GameSessionTokenSource() {
+                @Override public SessionIdentity currentSession() {
+                    return new SessionIdentity(accountId, "Player_1");
+                }
+                @Override public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) throws E {
+                    return request.execute("current-token");
+                }
+            };
+            runtime.useOptiFineAccountLink(new OptiFineAccountLink(sessions, tasks::add,
+                    (profileId, accessToken, proof) -> { }, new java.security.SecureRandom(),
+                    java.time.Clock.systemUTC()));
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.tab.CAPE");
+            runtime.dispatchWidget("providers.account.OPTIFINE");
+            assertEquals(1, tasks.size(), navigation);
+            if (navigation.equals("providers.back") || navigation.equals("providers.remove.OPTIFINE")) {
+                tasks.remove(0).run();
+                if (navigation.equals("providers.back")) {
+                    assertTrue(runtime.consumeReadyOptiFineAccountLink().isPresent());
+                }
+            }
+            runtime.dispatchWidget(navigation);
+            if (!tasks.isEmpty()) tasks.remove(0).run();
+            if (navigation.equals("providers.remove.OPTIFINE")) {
+                runtime.dispatchWidget("providers.add");
+                runtime.dispatchWidget("providers.row.OPTIFINE");
+            }
+            assertTrue(runtime.consumeReadyOptiFineAccountLink().isEmpty(), navigation);
+            assertTrue(runtime.currentOptiFineAccountLink().isEmpty(), navigation);
+        }
+    }
+
+    @Test
+    void providerRowsWheelAndKeyboardKeepFinalCapeVisibleAtShortHeight() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE,
+                BuiltinProvider.OPTIFINE);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        ViewSpec first = runtime.view(200, 191, 0, 0);
+        Bounds viewport = first.scrollSurface("providers.rows").orElseThrow().viewport();
+        assertTrue(first.scrollSurface("providers.rows").orElseThrow().maximumPixels() > 0);
+        runtime.pointerScrolled(viewport.x() + 2, viewport.y() + 2, 0, -4);
+        ViewSpec scrolled = runtime.view(200, 191, 0, 0);
+        assertTrue(scrolled.scrollSurface("providers.rows").orElseThrow().offsetPixels() > 0);
+        runtime.nativeScrollPositionChanged("providers.rows", 0);
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.DOWN, "providers.row.MINECRAFT"));
+        ViewSpec focused = runtime.view(200, 191, 0, 0);
+        assertTrue(focused.scrollSurface("providers.rows").orElseThrow().offsetPixels() > 0);
+        assertTrue(focused.widget("providers.row.OPTIFINE").orElseThrow().bounds().bottom()
+                <= focused.scrollSurface("providers.rows").orElseThrow().viewport().bottom());
+    }
+
+    @Test
+    void asyncOptifineCompletionUpdatesProvidersThenOrdinaryApplyRefreshesSelfCandidate(
+            @org.junit.jupiter.api.io.TempDir Path directory) throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.localFirst = true;
+        operations.presetUseProviders = true;
+        UUID self = operations.account.accountId();
+        NclSkinsStorage storage = new NclSkinsStorage(directory, new PngValidator(), Clock.systemUTC());
+        storage.loadOrCreateAccount(self);
+        operations.providers = storage.updateAppearance(self, current -> current.withProviders(
+                current.providers().enable(AppearanceProviders.Component.CAPE,
+                        BuiltinProvider.OPTIFINE))).providers();
+        GameSessionTokenSource tokens = new GameSessionTokenSource() {
+            @Override public SessionIdentity currentSession() { return operations.sessionIdentity(); }
+            @Override public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) {
+                throw new AssertionError("Public cape observation cannot request a token");
+            }
+        };
+        byte[] capeBytes = testCapePng();
+        var jobs = new ArrayList<Runnable>();
+        var sink = new PlayerAppearanceSink<Object>() {
+            @Override public ApplyResult apply(SignedProfileResolver.ResolvedProfile<Object> profile) {
+                return ApplyResult.UPDATED;
+            }
+            @Override public Optional<String> registerCapeTexture(UUID profileId, CapeSource source,
+                    String sha256, byte[] png) {
+                return Optional.of("nclskins:" + source.name().toLowerCase() + "/" + sha256);
+            }
+        };
+        TextureCache cache = new TextureCache(storage);
+        var reader = new OptifineCapeReader((uri, timeout, maximum) ->
+                new OptifineCapeReader.Response(200, capeBytes), new PngValidator());
+        operations.optifineCoordinator = new OptifineCapeCoordinator(tokens, storage, cache,
+                sink, CLIENT, jobs::add, reader);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertFalse(runtime.snapshot().providers().cape().optifine().known());
+        while (!jobs.isEmpty()) jobs.remove(0).run();
+        assertTrue(runtime.snapshot().providers().cape().optifine().known());
+        assertTrue(runtime.view(854, 480, 0, 0).iconDecorations().stream()
+                .anyMatch(icon -> icon.ownerWidgetId().equals("providers.row.OPTIFINE")
+                        && icon.providerTexture().isPresent()));
+
+        operations.providers = runtime.snapshot().providers();
+        var localPng = new PngValidator().projectCape(testCapePng());
+        String localKey = cache.storeObservedCape(localPng);
+        ProviderCape localCape = new ProviderCape("local", localKey, localPng.hasElytra());
+        operations.providers = new AppearanceProviders(operations.providers.skin(),
+                operations.providers.cape().select(operations.providers.cape().intentRevision() + 1,
+                        localCape));
+        runtime.dispatchWidget("providers.back");
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".apply");
+        while (!jobs.isEmpty()) jobs.remove(0).run();
+        assertEquals(BuiltinProvider.OFFLINE,
+                CapeProjection.resolve(self, operations.sessionIdentity().profileName(),
+                        null, null, true).provider());
+        operations.optifineCoordinator.close();
+    }
+
+    private static byte[] testCapePng() throws IOException {
+        BufferedImage image = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(1, 1, 0xff123456);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return output.toByteArray();
     }
 
     @Test
@@ -5122,6 +5305,23 @@ final class ClientRuntimeTest {
         private boolean settledActiveSave;
         private AppearanceProviders providers = AppearanceProviders.initial();
         private AppearanceProviders.Component providerRefresh;
+        private OptifineCapeCoordinator optifineCoordinator;
+        private boolean presetUseProviders;
+
+        @Override public void onOptiFineObservation(java.util.function.Consumer<OptiFineObservation> listener) {
+            if (optifineCoordinator != null) optifineCoordinator.onSelfObservation(listener);
+        }
+        @Override public void startOptiFineCapes() {
+            if (optifineCoordinator != null) optifineCoordinator.start();
+        }
+        @Override public void refreshOptiFineCapes() {
+            if (optifineCoordinator != null) optifineCoordinator.refresh();
+        }
+        @Override public void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
+                AppearanceProviders next) {
+            if (optifineCoordinator != null) optifineCoordinator.selfCapeCandidatesChanged(
+                    accountId, canonicalName, next);
+        }
 
         @Override public DurableAppearance reloadProviders() { return providerState(); }
         @Override public AppearanceProviders loadProviders() { return providers; }
@@ -5582,7 +5782,8 @@ final class ClientRuntimeTest {
                     true,
                     Optional.of(preset.outerLayerVisibility()),
                     appearanceRevision,
-                    appearanceSyncStatus);
+                    appearanceSyncStatus,
+                    presetUseProviders ? providers : AppearanceProviders.initial());
         }
 
         @Override

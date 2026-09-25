@@ -13,6 +13,10 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
     public AppearanceProviders {
         Objects.requireNonNull(skin, "skin");
         Objects.requireNonNull(cape, "cape");
+        if (skin.order().stream().anyMatch(provider -> !provider.supportsSkin())
+                || cape.order().stream().anyMatch(provider -> !provider.supportsCape())) {
+            throw new IllegalArgumentException("Provider does not support component");
+        }
     }
 
     public static AppearanceProviders initial() {
@@ -41,7 +45,8 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
     }
 
     public boolean galleryAvailable() {
-        return !skin.order().isEmpty() && !cape.order().isEmpty();
+        return skin.order().stream().anyMatch(BuiltinProvider::writable)
+                && cape.order().stream().anyMatch(BuiltinProvider::writable);
     }
 
     public boolean minecraftEnabled() {
@@ -87,7 +92,8 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
         var channel = bootstrapped.cape();
         return new AppearanceProviders(bootstrapped.skin(), new ProviderChannel<>(channel.order(),
                 channel.enabled(BuiltinProvider.OFFLINE) ? ProviderObservation.observed(offlineCape) : channel.offline(),
-                channel.minecraft(), channel.configurationRevision(), channel.intentRevision(), channel.desired(), channel.minecraftDelivery(), offlineCape));
+                channel.minecraft(), channel.configurationRevision(), channel.intentRevision(), channel.desired(),
+                channel.minecraftDelivery(), offlineCape, channel.optifine()));
     }
 
     public AppearanceProviders withCapeTexture(String capeId, String textureCacheKey) {
@@ -102,7 +108,8 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
                 new ProviderObservation<>(offline.known(), enrichCape(offline.value(), texture)),
                 new ProviderObservation<>(minecraft.known(), enrichCape(minecraft.value(), texture)),
                 cape.configurationRevision(), cape.intentRevision(), enrichCape(cape.desired(), texture),
-                cape.minecraftDelivery(), enrichCape(cape.offlineDesired(), texture)));
+                cape.minecraftDelivery(), enrichCape(cape.offlineDesired(), texture),
+                new ProviderObservation<>(cape.optifine().known(), enrichCape(cape.optifine().value(), texture))));
     }
 
     private static ProviderCape enrichCape(ProviderCape value, ProviderCape texture) {
@@ -129,6 +136,7 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
     }
 
     public AppearanceProviders enable(Component component, BuiltinProvider provider) {
+        requireSupported(component, provider);
         return switch (component) {
             case SKIN -> new AppearanceProviders(skin.enable(provider), cape);
             case CAPE -> new AppearanceProviders(skin, cape.enable(provider));
@@ -136,6 +144,9 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
     }
 
     public AppearanceProviders disable(Component component, BuiltinProvider provider) {
+        if (component == Component.SKIN && !provider.supportsSkin()) {
+            return this;
+        }
         return switch (component) {
             case SKIN -> new AppearanceProviders(skin.disable(provider), cape);
             case CAPE -> new AppearanceProviders(skin, cape.disable(provider));
@@ -143,9 +154,21 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
     }
 
     public AppearanceProviders move(Component component, BuiltinProvider provider, int direction) {
+        if (component == Component.SKIN && !provider.supportsSkin()) {
+            return this;
+        }
         return switch (component) {
             case SKIN -> new AppearanceProviders(skin.move(provider, direction), cape);
             case CAPE -> new AppearanceProviders(skin, cape.move(provider, direction));
         };
+    }
+
+    private static void requireSupported(Component component, BuiltinProvider provider) {
+        Objects.requireNonNull(component, "component");
+        Objects.requireNonNull(provider, "provider");
+        if (component == Component.SKIN && !provider.supportsSkin()
+                || component == Component.CAPE && !provider.supportsCape()) {
+            throw new IllegalArgumentException("Provider does not support component");
+        }
     }
 }

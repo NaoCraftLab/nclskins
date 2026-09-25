@@ -6,6 +6,7 @@ import com.naocraftlab.skins.runtime.ProviderRowStyle;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource.PlayerAppearance;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.compat.config.ConfigurationLinkApi;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
@@ -32,6 +33,7 @@ import com.naocraftlab.skins.runtime.VanillaListSurface;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import com.naocraftlab.skins.runtime.ViewHostPolicy;
 import java.util.ArrayList;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -90,6 +92,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private final ActivationCharacterGuard activationCharacters = new ActivationCharacterGuard();
     private boolean initialized;
     private boolean removed;
+    private boolean showingOptiFineLink;
     private boolean updatingText;
 
 
@@ -124,6 +127,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     @Override
     protected final void init() {
         initialized = true;
+        removed = false;
+        showingOptiFineLink = false;
 
 
         widgetShapes = List.of();
@@ -492,6 +497,11 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     @Override
     public final void removed() {
         activationCharacters.reset();
+        if (showingOptiFineLink) {
+            initialized = false;
+            super.removed();
+            return;
+        }
         if (removed) {
             return;
         }
@@ -527,7 +537,26 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             }
             return;
         }
+        if (minecraft.screen == this && !showingOptiFineLink) {
+            runtime.consumeReadyOptiFineAccountLink().ifPresent(this::showOptiFineLink);
+            if (showingOptiFineLink) return;
+        }
         synchronizeWidgets(currentView());
+    }
+
+    private void showOptiFineLink(URI uri) {
+        showingOptiFineLink = true;
+        Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
+            URI current = runtime.currentOptiFineAccountLink().orElse(null);
+            if (accepted && uri.equals(current)) ConfigurationLinkApi.open(uri);
+            else if (accepted && current == null) runtime.expireOptiFineAccountLink();
+            runtime.finishOptiFineAccountLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        }, uri, () -> runtime.currentOptiFineAccountLink().filter(uri::equals).isPresent(), () -> {
+            runtime.expireOptiFineAccountLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        });
+        minecraft.setScreen(confirmation);
     }
 
     private ViewSpec currentView() {

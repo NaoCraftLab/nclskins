@@ -6,6 +6,7 @@ import java.util.List;
 
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE;
+import static com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -203,5 +204,34 @@ class ProviderChannelTest {
         assertThrows(IllegalArgumentException.class, () -> new ProviderChannel<>(
                 List.of(OFFLINE, OFFLINE), channel.offline(), channel.minecraft(), 0, 1, "A",
                 channel.minecraftDelivery()));
+    }
+
+    @Test
+    void optifineIsReadOnlyCapeFallbackWithIndependentObservation() {
+        var initial = AppearanceProviders.initial();
+        assertEquals(List.of(OFFLINE, MINECRAFT), initial.cape().order());
+        assertThrows(IllegalArgumentException.class,
+                () -> initial.enable(AppearanceProviders.Component.SKIN, OPTIFINE));
+        var enabled = initial.enable(AppearanceProviders.Component.CAPE, OPTIFINE);
+        var cape = enabled.cape().observeOptifine(new ProviderCape("optifine", "a".repeat(64), false));
+        assertTrue(cape.optifine().known());
+        assertEquals(OPTIFINE, cape.resolve().orElseThrow().provider());
+        assertNull(cape.desired());
+        assertEquals(0, cape.minecraftDelivery().intentRevision());
+        var disabled = cape.disable(OPTIFINE);
+        assertTrue(disabled.resolve().isEmpty());
+        assertEquals(cape.optifine(), disabled.optifine());
+        assertEquals(cape.optifine(), disabled.enable(OPTIFINE).optifine());
+        assertEquals(MINECRAFT, cape.disable(OFFLINE).observeMinecraft(new ProviderCape("official", null))
+                .resolve().orElseThrow().provider());
+    }
+
+    @Test
+    void onlyReadOnlyCapeDoesNotOpenGallery() {
+        var initial = AppearanceProviders.initial()
+                .disable(AppearanceProviders.Component.CAPE, OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, MINECRAFT)
+                .enable(AppearanceProviders.Component.CAPE, OPTIFINE);
+        assertTrue(!initial.galleryAvailable());
     }
 }

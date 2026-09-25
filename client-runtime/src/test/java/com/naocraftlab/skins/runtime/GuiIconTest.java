@@ -26,6 +26,7 @@ final class GuiIconTest {
                 Map.entry("provider/skin/no_value", 32),
                 Map.entry("provider/cape/no_value", 32),
                 Map.entry("action/edit", 16),
+                Map.entry("action/open_account", 16),
                 Map.entry("action/duplicate", 16),
                 Map.entry("action/delete", 16),
                 Map.entry("action/select_folder", 16),

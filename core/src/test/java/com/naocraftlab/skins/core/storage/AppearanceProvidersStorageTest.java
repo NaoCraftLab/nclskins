@@ -21,6 +21,7 @@ import java.util.UUID;
 
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE;
+import static com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -153,6 +154,28 @@ class AppearanceProvidersStorageTest {
         document.addProperty("schemaVersion", 2);
         assertEquals(state.providers(), json.decode(document.toString().getBytes(StandardCharsets.UTF_8))
                 .state().providers());
+    }
+
+    @Test
+    void optifineObservationRoundTripsAndOldDocumentDefaultsToUnknown() throws Exception {
+        UUID account = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        storage.loadOrCreateAccount(account);
+        ProviderCape cape = new ProviderCape("optifine", "a".repeat(64), false);
+        storage.updateAppearance(account, state -> state.withProviders(state.providers()
+                .enable(AppearanceProviders.Component.CAPE, OPTIFINE)
+                .withCapeTexture(cape.id(), cape.textureCacheKey(), cape.hasElytra())));
+        storage.updateAppearance(account, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape().observeOptifine(cape))));
+        assertEquals(cape, storage().loadAppearance(account).providers().cape().optifine().value());
+
+        Path path = storage.layout().accountAppearance(account);
+        var document = com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+        document.getAsJsonObject("providers").getAsJsonObject("cape").remove("optifine");
+        Files.writeString(path, document.toString());
+        var loaded = storage().loadAppearance(account).providers();
+        assertTrue(!loaded.cape().optifine().known());
+        assertEquals(java.util.List.of(OFFLINE, MINECRAFT, OPTIFINE), loaded.cape().order());
     }
 
     private NclSkinsStorage storage() {

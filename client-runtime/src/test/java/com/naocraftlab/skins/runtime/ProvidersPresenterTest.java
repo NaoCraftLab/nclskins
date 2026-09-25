@@ -46,6 +46,9 @@ final class ProvidersPresenterTest {
             var view = presenter.present(providers, component, false, false,
                     PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC, 854, 480);
             for (var provider : BuiltinProvider.values()) {
+                if (component == AppearanceProviders.Component.SKIN && !provider.supportsSkin()
+                        || component == AppearanceProviders.Component.CAPE && !provider.supportsCape()) continue;
+                if (!provider.writable()) continue;
                 String id = "providers.edit." + provider;
                 var edit = view.widget(id).orElseThrow();
                 assertEquals(GuiIcon.ACTION_EDIT, edit.icon().orElseThrow());
@@ -63,6 +66,60 @@ final class ProvidersPresenterTest {
                 assertTrue(hidden.navigationNodes().stream().noneMatch(n -> n.id().startsWith("providers.edit.")));
             }
         }
+    }
+
+    @Test void readOnlyOptifineCapeHasIndependentGlobeAndNoSkinOrGalleryEdit() {
+        var providers = AppearanceProviders.initial()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE);
+        assertFalse(providers.galleryAvailable());
+        var presenter = new ProvidersPresenter();
+        var cape = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                854, 480, null, null, java.util.Optional.empty(), false,
+                UiMessage.info("nclskins.providers.link_preparing"));
+        var globe = cape.widget("providers.account.OPTIFINE").orElseThrow();
+        assertEquals(GuiIcon.ACTION_OPEN_ACCOUNT, globe.icon().orElseThrow());
+        assertEquals(20, globe.bounds().width());
+        assertEquals("nclskins.providers.open_account", globe.label().key());
+        assertTrue(globe.enabled());
+        assertTrue(cape.widget("providers.edit.OPTIFINE").isEmpty());
+        assertEquals("nclskins.providers.link_preparing", cape.texts().stream()
+                .filter(text -> text.id().equals("providers.account.feedback"))
+                .findFirst().orElseThrow().message().key());
+        var skinChooser = presenter.presentChooser(providers, AppearanceProviders.Component.SKIN, false, 320, 100, 0);
+        assertTrue(skinChooser.widget("providers.row.OPTIFINE").isEmpty());
+        var capeChooser = presenter.presentChooser(providers, AppearanceProviders.Component.CAPE, false, 320, 100, 0);
+        assertFalse(capeChooser.widget("providers.row.OPTIFINE").orElseThrow().enabled());
+    }
+
+    @Test void narrowWrappedFeedbackReservesRowsViewportAndRowsScroll() {
+        var providers = AppearanceProviders.initial()
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE);
+        UiMessage feedback = UiMessage.error("nclskins.providers.link_failed");
+        TextResolver measured = TextResolver.withLayout(UiMessage::key, (message, width) -> 36);
+        var presenter = new ProvidersPresenter();
+        var first = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(191, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                200, 191, null, null, java.util.Optional.empty(), false, feedback, 0, measured);
+        var text = first.texts().stream().filter(value -> value.id().equals("providers.account.feedback"))
+                .findFirst().orElseThrow();
+        var rows = first.scrollSurface("providers.rows").orElseThrow();
+        assertEquals(ViewSpec.Text.Layout.WRAP, text.layout());
+        assertEquals(36, text.bounds().height());
+        assertTrue(rows.viewport().bottom() < text.bounds().y());
+        assertTrue(text.bounds().bottom() < first.widget("providers.back").orElseThrow().bounds().y());
+        assertTrue(rows.maximumPixels() > 0);
+        assertTrue(first.clipRegions().stream().anyMatch(region -> region.id().equals("providers.rows")
+                && region.matches("providers.row.OPTIFINE")));
+        var last = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(191, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                200, 191, null, null, java.util.Optional.empty(), false, feedback, 999, measured);
+        assertEquals(last.scrollSurface("providers.rows").orElseThrow().maximumPixels(),
+                last.scrollSurface("providers.rows").orElseThrow().offsetPixels());
+        assertTrue(last.widget("providers.row.OPTIFINE").orElseThrow().bounds().bottom()
+                <= last.scrollSurface("providers.rows").orElseThrow().viewport().bottom());
     }
 
     @Test void toolbarAndMissingProviderChooserRemainAvailableWhenBothListsAreEmpty() {

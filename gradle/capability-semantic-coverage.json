@@ -99,7 +99,8 @@
         "client-contract/src/test/java/com/naocraftlab/skins/client/ExpectedAppearanceTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceRefreshCoordinatorTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceReconnectTrackerTest.java",
-        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceOverrideControllerTest.java"
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceOverrideControllerTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/OptifineCapeCoordinatorTest.java"
       ],
       "supportSources": [],
       "semantics": [
@@ -108,7 +109,10 @@
         "client-thread-publication",
         "pending-native-skin-delays-player-info-publication",
         "invalidate-and-reattach",
-        "reconnect-bounds"
+        "reconnect-bounds",
+        "targeted-player-info-provider-refresh",
+        "shared-observation-live-adoption",
+        "unchanged-provider-texture-retention"
       ]
     },
     "client-loader-lifecycle": {
@@ -218,6 +222,8 @@
         "exact-empty-native-channel",
         "connected-client-only",
         "remote-impact-gating",
+        "explicit-provider-refresh-confirmed-change",
+        "no-incoming-refresh-echo",
         "latest-generation-only"
       ]
     },
@@ -260,7 +266,9 @@
         "rapid-double-settle-window",
         "bounded-following-tick-reconciliation",
         "persistent-cancellation-retrack-barrier",
-        "failure-safe-retracking"
+        "failure-safe-retracking",
+        "unchanged-profile-initialize-only-hint",
+        "dirty-revision-hint-deduplication"
       ]
     },
     "server-refresh-reception": {

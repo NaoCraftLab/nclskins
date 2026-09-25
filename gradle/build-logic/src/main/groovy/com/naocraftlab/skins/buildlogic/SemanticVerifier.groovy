@@ -138,6 +138,7 @@ final class SemanticVerifier {
         verifyPublicationBoundary(root, errors)
         verifyBuiltInPackRegistration(root, errors)
         verifyMixinInjectionPolicy(root, errors)
+        verifyCapeProjectionBindings(root, catalog, errors)
         verifyCompatibilityReflectionPolicy(root, errors)
         verifyVersionNamespaceScope(root, catalog, errors)
         verifyCatalogCodeIdentifiers(catalog, abi, errors)
@@ -321,7 +322,8 @@ final class SemanticVerifier {
                                     }
                                     int chainableWrappers = text.count('@WrapOperation') +
                                             text.count('@WrapMethod')
-                                    if (chainableWrappers > text.count('original.call(')) {
+                                    int intentionalSuppression = optifineCapeSuppression(relative, text) ? 2 : 0
+                                    if (chainableWrappers - intentionalSuppression > text.count('original.call(')) {
                                         errors.add("${relative}: every chainable wrapper must delegate through original.call")
                                     }
                                     if (text.contains('@ModifyReturnValue') &&
@@ -331,6 +333,76 @@ final class SemanticVerifier {
                                 }
                     }
                 }
+    }
+
+    static boolean optifineCapeSuppression(String relative, String text) {
+        if (relative != 'compat/capabilities/appearance/optifine-cape/src/main/java/' +
+                'com/naocraftlab/skins/compat/client/resourcelocation/optifine/mixin/OptifineCapeUtilsMixin.java') {
+            return false
+        }
+        if (!text.contains('@Pseudo') ||
+                !text.contains('@Mixin(targets = "net.optifine.player.CapeUtils", remap = false)') ||
+                text.count('@WrapMethod') != 2 || text.contains('@WrapOperation') ||
+                text.contains('original.call(')) {
+            return false
+        }
+        String player = 'Lnet/minecraft/client/player/AbstractClientPlayer;'
+        ['downloadCape', 'reloadCape'].every { String method ->
+            String annotation = '@WrapMethod(method = "' + method + '(' + player + ')V", ' +
+                    'remap = false, require = 1, expect = 1, allow = 1)'
+            text.count(annotation) == 1 &&
+                    Pattern.compile('(?s).*private static void nclskins\\$suppress' +
+                            method.capitalize() +
+                            '\\(AbstractClientPlayer player, Operation<Void> original\\)\\s*\\{\\s*\\}.*')
+                            .matcher(text).matches()
+        }
+    }
+
+    static void verifyCapeProjectionBindings(Path root, Map catalog, List<String> errors) {
+        String optional = 'compat/capabilities/appearance/optifine-cape/src/main/'
+        String packagePath = 'com/naocraftlab/skins/compat/client/resourcelocation/optifine/'
+        Map<String, List<String>> required = [
+                (optional + 'java/' + packagePath + 'mixin/OptifinePlayerCapeMixin.java'):
+                        ['CapeProjection.resolve(', 'getCloakTextureLocation()', 'require = 3, expect = 3, allow = 3',
+                         'getElytraTextureLocation()', 'require = 1, expect = 1, allow = 1',
+                         'hasElytraCape()Z', 'remap = false'],
+                (optional + 'java/' + packagePath + 'mixin/OptifineCapeUtilsMixin.java'):
+                        ['downloadCape(', 'reloadCape(', 'require = 1, expect = 1, allow = 1'],
+                (optional + 'java/' + packagePath + 'OptifineMixinPlugin.java'):
+                        ['getResource(CAPE_UTILS)', 'shouldApplyMixin(', 'return loader != null'],
+                (optional + 'resources/nclskins.optifine-cape.mixins.json'):
+                        ['"required": true', '"plugin":', 'OptifineCapeUtilsMixin', 'OptifinePlayerCapeMixin'],
+        ]
+        [
+                'player-info-cache': 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/',
+                'skin-lookup': 'com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/mixin/',
+                'local-player-skin': 'com/naocraftlab/skins/compat/client/identifier/mixin/'
+        ].each { String bundle, String path ->
+            required["compat/capabilities/appearance/${bundle}/src/main/java/${path}ClientPacketListenerCapeMixin.java".toString()] =
+                    ['CapeProjection.playerInfoUpdated(', 'CapeProjection.untrackedPlayer(',
+                     'CapeProjection.worldEntered()', 'at = @At("TAIL")']
+        }
+        required.each { String path, List<String> markers ->
+            Path source = root.resolve(path)
+            if (!Files.isRegularFile(source)) {
+                errors.add("cape projection binding missing: ${path}")
+                return
+            }
+            String body = Files.readString(source)
+            markers.each { String marker ->
+                if (!body.contains(marker)) errors.add("${path}: cape projection binding lacks ${marker}")
+            }
+        }
+        Map forge = (catalog.targets as List).find { it.id == 'forge-1.20.1' } as Map
+        List<String> forgeResources = forge?.metadata?.mixins as List ?: []
+        if (!forgeResources.contains('nclskins.optifine-cape.mixins.json')) {
+            errors.add('Forge I6 must package the optional OptiFine mixin config')
+        }
+        (catalog.targets as List).findAll { it.id != 'forge-1.20.1' }.each { Map target ->
+            if ((target.metadata.mixins as List).contains('nclskins.optifine-cape.mixins.json')) {
+                errors.add("${target.id}: OptiFine I6 mixin config must be Forge-only")
+            }
+        }
     }
 
     static void verifyCompatibilityReflectionPolicy(Path root, List<String> errors) {

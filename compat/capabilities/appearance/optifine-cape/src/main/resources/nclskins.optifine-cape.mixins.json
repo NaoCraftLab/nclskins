@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.client.resourcelocation.optifine.mixin",
+  "plugin": "com.naocraftlab.skins.compat.client.resourcelocation.optifine.OptifineMixinPlugin",
+  "client": [
+    "OptifineCapeUtilsMixin",
+    "OptifinePlayerCapeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

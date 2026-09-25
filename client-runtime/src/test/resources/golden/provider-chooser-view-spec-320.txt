@@ -5,12 +5,13 @@ panels
 texts
 0|providers.title|8,12,304,10|key:nclskins.providers.add_cape:INFO|CENTER
 widgets
-0|providers.row.OFFLINE|BUTTON|16,19,288,20|key:nclskins.providers.offline:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-1|providers.row.MINECRAFT|BUTTON|16,43,288,20|literal:Minecraft:INFO|value=-|hint=-|enabled=false|visible=true|max=0
-2|providers.back|BUTTON|60,72,200,20|key:gui.back:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+0|providers.row.OFFLINE|BUTTON|16,-5,288,20|key:nclskins.providers.offline:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+1|providers.row.MINECRAFT|BUTTON|16,19,288,20|literal:Minecraft:INFO|value=-|hint=-|enabled=false|visible=true|max=0
+2|providers.row.OPTIFINE|BUTTON|16,43,288,20|key:nclskins.providers.optifine:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+3|providers.back|BUTTON|60,72,200,20|key:gui.back:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
 back_equipment_previews
 icon_decorations
 clip_regions
 0|providers.chooser|0,33,320,34|prefixes=providers.row.
-scrollbar=314,33,6,34|314,47,6,20|offset=23|maximum=23
+scrollbar=314,33,6,34|314,53,6,14|offset=47|maximum=47

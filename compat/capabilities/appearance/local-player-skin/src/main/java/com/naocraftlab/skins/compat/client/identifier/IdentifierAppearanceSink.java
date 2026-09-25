@@ -12,7 +12,9 @@ import com.naocraftlab.skins.runtime.AcknowledgedAppearanceAssets.Asset;
 import com.naocraftlab.skins.runtime.AppearanceOverrideController;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +34,7 @@ final class IdentifierAppearanceSink
     private Runnable maintenanceDirty = () -> { };
     private final IdentifierTextureRegistry textures =
             new IdentifierTextureRegistry("live/appearance", this::markMaintenanceDirty);
+    private final Map<ProviderCape, TextureHandle> providerCapes = new HashMap<>();
     private final AppearanceOverrideController<InstalledOverride, TextureHandle> overrides =
             new AppearanceOverrideController<>(new AppearanceOverrideController.Strategy<>() {
                 @Override
@@ -70,6 +73,48 @@ final class IdentifierAppearanceSink
     @Override
     public void providerVisibility(com.naocraftlab.skins.client.ProviderVisibility visibility) {
         MinecraftProviderVisibility.set(visibility);
+    }
+
+    @Override
+    public List<TrackedCapePlayer> trackedCapePlayers() {
+        Minecraft minecraft = Minecraft.getInstance();
+        checkClientThread(minecraft);
+        ClientPacketListener connection = minecraft.getConnection();
+        if (connection == null) return List.of();
+        List<TrackedCapePlayer> players = new ArrayList<>();
+        for (PlayerInfo info : connection.getOnlinePlayers()) {
+            var profile = info.getProfile();
+            if (profile.id() != null && profile.name() != null) {
+                players.add(new TrackedCapePlayer(profile.id(), profile.name()));
+            }
+        }
+        return List.copyOf(players);
+    }
+
+    @Override
+    public Optional<String> registerCapeTexture(UUID profileId, CapeSource provider,
+            String sha256, byte[] normalizedPng) {
+        Objects.requireNonNull(profileId, "profileId");
+        Objects.requireNonNull(provider, "provider");
+        Objects.requireNonNull(sha256, "sha256");
+        Objects.requireNonNull(normalizedPng, "normalizedPng");
+        checkClientThread(Minecraft.getInstance());
+        try {
+            TextureHandle next = textures.register(TextureKind.IMAGE, sha256, normalizedPng);
+            TextureHandle previous = providerCapes.put(new ProviderCape(profileId, provider), next);
+            release(previous);
+            return Optional.of(next.location());
+        } catch (IOException | RuntimeException unavailableTexture) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public void releaseCapeTexture(UUID profileId, CapeSource provider) {
+        Objects.requireNonNull(profileId, "profileId");
+        Objects.requireNonNull(provider, "provider");
+        checkClientThread(Minecraft.getInstance());
+        release(providerCapes.remove(new ProviderCape(profileId, provider)));
     }
 
     @Override
@@ -210,6 +255,8 @@ final class IdentifierAppearanceSink
         Minecraft minecraft = Minecraft.getInstance();
         checkClientThread(minecraft);
         overrides.close();
+        providerCapes.values().forEach(textures::release);
+        providerCapes.clear();
         textures.close();
     }
 
@@ -285,6 +332,8 @@ final class IdentifierAppearanceSink
             throw new IllegalStateException("Appearance cache changes must run on the client thread");
         }
     }
+
+    private record ProviderCape(UUID profileId, CapeSource provider) {}
 
     private record InstalledOverride(
             ExpectedAppearance expected,

@@ -399,7 +399,8 @@ final class CatalogTools {
 
     static String optionalDependencyVersion(Map catalog, Map target, String dependencyId) {
         Map declaration = (catalog.optionalDependencies as Map)[dependencyId] as Map
-        Object raw = (declaration.versions as Map)[target.id]
+        Map versions = declaration.versions instanceof Map ? declaration.versions as Map : [:]
+        Object raw = versions[target.id]
         raw == null ? null : raw.toString()
     }
 
@@ -566,9 +567,46 @@ final class CatalogTools {
         }
         Map optionalDependencies = catalog.optionalDependencies instanceof Map
                 ? catalog.optionalDependencies as Map : [:]
-        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc', 'yet_another_config_lib_v3', 'fancymenu'] as Set) {
-            errors.add('optionalDependencies must declare sqlite_jdbc and yet_another_config_lib_v3')
+        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc', 'yet_another_config_lib_v3', 'fancymenu', 'optifine', 'waveycapes'] as Set) {
+            errors.add('optionalDependencies must declare sqlite_jdbc, yet_another_config_lib_v3, fancymenu, optifine and waveycapes')
         } else {
+            Map optifine = optionalDependencies.optifine instanceof Map
+                    ? optionalDependencies.optifine as Map : [:]
+            if ((optifine.keySet() as Set) != ['targetId', 'version', 'jarSha256',
+                    'minecraftClientSha256', 'forgeSrgSha256', 'patchedClasses'] as Set
+                    || optifine.targetId != 'forge-1.20.1' || optifine.version != 'HD_U_I6'
+                    || !(optifine.jarSha256?.toString() ==~ /[0-9a-f]{64}/)
+                    || !(optifine.minecraftClientSha256?.toString() ==~ /[0-9a-f]{64}/)
+                    || !(optifine.forgeSrgSha256?.toString() ==~ /[0-9a-f]{64}/)
+                    || !(optifine.patchedClasses instanceof Map)
+                    || (optifine.patchedClasses.keySet() as Set) != [
+                            'net/minecraft/client/player/AbstractClientPlayer',
+                            'net/minecraft/client/renderer/entity/layers/CapeLayer',
+                            'net/minecraft/client/renderer/entity/layers/ElytraLayer'] as Set) {
+                errors.add('OptiFine I6 must pin exact Forge target, source JAR and three patched classes')
+            }
+            Map wavey = optionalDependencies.waveycapes instanceof Map
+                    ? optionalDependencies.waveycapes as Map : [:]
+            Map waveyArtifacts = wavey.artifacts instanceof Map ? wavey.artifacts as Map : [:]
+            Set waveyTargetIds = (catalog.targets as List).collect { it.id.toString() } as Set
+            if ((wavey.keySet() as Set) != ['projectId', 'sourceCommit', 'artifacts'] as Set
+                    || wavey.projectId != 'kYuIpRLv'
+                    || wavey.sourceCommit != 'c979ad3ad85b453b2d740dc3c78d10b8f24f55d5'
+                    || (waveyArtifacts.keySet() as Set) != waveyTargetIds
+                    || waveyArtifacts.any { Object id, Object raw ->
+                        !(raw instanceof Map)
+                                || ((raw as Map).keySet() as Set) != ['versionId', 'version', 'file', 'sha512', 'renderFactory', 'capeSource'] as Set
+                                || !(raw.versionId?.toString() ==~ /[A-Za-z0-9]{8}/)
+                                || !(raw.version?.toString() ==~ /[0-9]+\.[0-9]+\.[0-9]+/)
+                                || !(raw.file?.toString() ==~ /waveycapes-(?:fabric|forge|neoforge)-[A-Za-z0-9.\-]+\.jar/)
+                                || !(raw.sha512?.toString() ==~ /[0-9a-f]{128}/)
+                                || !raw.renderFactory?.toString()?.startsWith('net/minecraft/')
+                                || !raw.renderFactory?.toString()?.endsWith('(')
+                                || !raw.capeSource?.toString()?.startsWith('net/minecraft/')
+                                || !raw.capeSource?.toString()?.endsWith('(')
+                    }) {
+                errors.add('WaveyCapes must pin a verified public artifact for every target')
+            }
             Map sqlite = optionalDependencies.sqlite_jdbc instanceof Map
                     ? optionalDependencies.sqlite_jdbc as Map : [:]
             Map sqlitePredicates = sqlite.predicates instanceof Map ? sqlite.predicates as Map : [:]

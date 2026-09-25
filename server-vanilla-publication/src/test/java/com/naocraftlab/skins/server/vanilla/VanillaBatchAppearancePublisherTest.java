@@ -295,6 +295,157 @@ final class VanillaBatchAppearancePublisherTest {
     }
 
     @Test
+    void unchangedVerifiedProfileHintsOnlyObserversWithoutMutatingTracking() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey actor = platform.connect("actor");
+        ConnectionKey observer = platform.connect("observer");
+        platform.observers.put(actor, List.of(observer, actor));
+        SignedTexturesProperty live = new SignedTexturesProperty("live", "signature");
+        platform.current.put(actor, LiveProfileTextures.signed(live));
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 5_000_000L, 2);
+        PublicationRequest request = new PublicationRequest(
+                actor,
+                new VerifiedOfficialProfile(
+                        new ServerPlayerIdentity(actor.profileId(), "actor"),
+                        appearance('a'),
+                        Optional.of(live)),
+                true);
+
+        BatchPublicationResult result = platform.await(publisher.publishBatch(List.of(request)));
+
+        assertEquals(PublicationOutcome.UNCHANGED, result.outcome(actor).orElseThrow());
+        assertTrue(result.hinted(actor));
+        assertEquals(List.of("initialize:observer"), platform.events);
+        assertEquals(1L, result.metrics().profileDeliveries());
+        publisher.close();
+    }
+
+    @Test
+    void rotatedAndStaleSignedProfilesHintWithVerifiedLiveProperty() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey actor = platform.connect("actor");
+        ConnectionKey observer = platform.connect("observer");
+        platform.observers.put(actor, List.of(observer));
+        SignedTexturesProperty live = new SignedTexturesProperty("live", "signature");
+        platform.current.put(actor, LiveProfileTextures.signed(live));
+        platform.verifiedCurrent = appearance('a').withVerifiedSourceTimestamp(200L);
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 5_000_000L, 2);
+
+        BatchPublicationResult rotated = platform.await(publisher.publishBatch(List.of(
+                new PublicationRequest(actor, new VerifiedOfficialProfile(
+                        new ServerPlayerIdentity(actor.profileId(), "actor"),
+                        appearance('a').withVerifiedSourceTimestamp(200L),
+                        Optional.of(new SignedTexturesProperty("rotated", "rotated"))), true))));
+        BatchPublicationResult stale = platform.await(publisher.publishBatch(List.of(
+                new PublicationRequest(actor, new VerifiedOfficialProfile(
+                        new ServerPlayerIdentity(actor.profileId(), "actor"),
+                        appearance('b').withVerifiedSourceTimestamp(100L),
+                        Optional.of(new SignedTexturesProperty("stale", "stale"))), true))));
+
+        assertEquals(PublicationOutcome.UNCHANGED, rotated.outcome(actor).orElseThrow());
+        assertEquals(PublicationOutcome.UNCHANGED, stale.outcome(actor).orElseThrow());
+        assertTrue(rotated.hinted(actor));
+        assertTrue(stale.hinted(actor));
+        assertEquals(2, platform.initializeAttempts.getOrDefault(observer, 0));
+        assertTrue(platform.initializePayloads.get(observer).stream()
+                .flatMap(List::stream)
+                .allMatch(delivered -> delivered.profile().textures().orElseThrow().equals(live)));
+        assertEquals(LiveProfileTextures.Status.SIGNED, platform.current.get(actor).status());
+        assertTrue(platform.current.get(actor).containsSameProperty(live));
+        assertFalse(platform.events.contains("install"));
+        assertFalse(platform.events.contains("untrack"));
+        publisher.close();
+    }
+
+    @Test
+    void failedHintObserverRetriesWithinBudgetWithoutTrackingChanges() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey actor = platform.connect("actor");
+        ConnectionKey failed = platform.connect("failed");
+        ConnectionKey healthy = platform.connect("healthy");
+        platform.observers.put(actor, List.of(failed, healthy));
+        platform.current.put(actor, LiveProfileTextures.accountDefault());
+        platform.initializeFailures.put(failed, 1);
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 1, 5_000_000L, 2);
+        PublicationRequest request = new PublicationRequest(
+                actor,
+                new VerifiedOfficialProfile(
+                        new ServerPlayerIdentity(actor.profileId(), "actor"),
+                        TextureAppearance.accountDefault(),
+                        Optional.empty()),
+                true);
+
+        BatchPublicationResult result = platform.await(publisher.publishBatch(List.of(request)));
+
+        assertEquals(PublicationOutcome.UNCHANGED, result.outcome(actor).orElseThrow());
+        assertTrue(result.hinted(actor));
+        assertEquals(2, platform.initializeAttempts.getOrDefault(failed, 0));
+        assertEquals(1, platform.initializeAttempts.getOrDefault(healthy, 0));
+        assertEquals(1L, result.metrics().reconciliationAttempts());
+        assertFalse(platform.events.contains("untrack"));
+        assertFalse(platform.events.contains("retrack"));
+        assertFalse(platform.events.contains("install"));
+        assertTrue(platform.events.stream().noneMatch(event -> event.startsWith("remove:")));
+        publisher.close();
+    }
+
+    @Test
+    void unchangedHintAlsoReachesVisibleTabOnlyRecipient() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey actor = platform.connect("actor");
+        ConnectionKey tabOnly = platform.connect("tab-only");
+        ConnectionKey hidden = platform.connect("hidden");
+        platform.current.put(actor, LiveProfileTextures.accountDefault());
+        platform.hidden.add(new Visibility(actor, hidden));
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 5_000_000L, 2);
+        PublicationRequest request = new PublicationRequest(
+                actor,
+                new VerifiedOfficialProfile(
+                        new ServerPlayerIdentity(actor.profileId(), "actor"),
+                        TextureAppearance.accountDefault(),
+                        Optional.empty()),
+                true);
+
+        BatchPublicationResult result = platform.await(publisher.publishBatch(List.of(request)));
+
+        assertEquals(PublicationOutcome.UNCHANGED, result.outcome(actor).orElseThrow());
+        assertEquals(1, platform.initializeAttempts.getOrDefault(tabOnly, 0));
+        assertEquals(0, platform.initializeAttempts.getOrDefault(hidden, 0));
+        assertEquals(0, platform.initializeAttempts.getOrDefault(actor, 0));
+        assertTrue(platform.events.stream().noneMatch(event -> event.startsWith("remove:")));
+        publisher.close();
+    }
+
+    @Test
+    void mixedChangedAndUnchangedBatchKeepsSeparatePacketModes() throws Exception {
+        FakePlatform platform = new FakePlatform();
+        ConnectionKey unchanged = platform.connect("unchanged");
+        ConnectionKey changed = platform.connect("changed");
+        ConnectionKey observer = platform.connect("observer");
+        platform.current.put(unchanged, LiveProfileTextures.accountDefault());
+        VanillaBatchAppearancePublisher publisher = publisher(platform, 64, 5_000_000L, 2);
+        PublicationRequest hint = new PublicationRequest(
+                unchanged,
+                new VerifiedOfficialProfile(
+                        new ServerPlayerIdentity(unchanged.profileId(), "unchanged"),
+                        TextureAppearance.accountDefault(),
+                        Optional.empty()),
+                true);
+
+        BatchPublicationResult result = platform.await(publisher.publishBatch(List.of(
+                hint,
+                defaultRequest(changed, "changed"))));
+
+        assertEquals(PublicationOutcome.UNCHANGED, result.outcome(unchanged).orElseThrow());
+        assertEquals(PublicationOutcome.UPDATED, result.outcome(changed).orElseThrow());
+        assertEquals(1, platform.transportAttempts.getOrDefault(observer, 0));
+        assertEquals(2, platform.initializeAttempts.getOrDefault(observer, 0));
+        assertEquals(1, platform.events.stream().filter("install"::equals).count());
+        assertFalse(platform.events.contains("untrack"));
+        publisher.close();
+    }
+
+    @Test
     void semanticCompletionResumesOnFollowingLogicalTickWithoutFreshSameTickBudget()
             throws Exception {
         FakePlatform platform = new FakePlatform();
@@ -744,6 +895,8 @@ final class VanillaBatchAppearancePublisherTest {
         private final Map<ConnectionKey, Integer> initializeFailures = new LinkedHashMap<>();
         private final Map<ConnectionKey, Integer> transportAttempts = new LinkedHashMap<>();
         private final Map<ConnectionKey, Integer> initializeAttempts = new LinkedHashMap<>();
+        private final Map<ConnectionKey, List<List<PublicationRequest>>> initializePayloads =
+                new LinkedHashMap<>();
         private final Map<ConnectionKey, List<List<ConnectionKey>>> removePayloads =
                 new LinkedHashMap<>();
         private final Set<Visibility> hidden = new LinkedHashSet<>();
@@ -882,6 +1035,8 @@ final class VanillaBatchAppearancePublisherTest {
                 List<PublicationRequest> actors) {
             cost();
             initializeAttempts.merge(recipient, 1, Integer::sum);
+            initializePayloads.computeIfAbsent(recipient, ignored -> new ArrayList<>()).add(
+                    List.copyOf(actors));
             events.add("initialize:" + names.get(recipient));
             int failures = initializeFailures.getOrDefault(recipient, 0);
             if (failures > 0) {

@@ -4,6 +4,7 @@
   "package": "com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.mixin",
   "client": [
     "PlayerInfoProviderMixin",
+    "ClientPacketListenerCapeMixin",
     "SkinManagerProviderMixin"
   ],
   "injectors": {

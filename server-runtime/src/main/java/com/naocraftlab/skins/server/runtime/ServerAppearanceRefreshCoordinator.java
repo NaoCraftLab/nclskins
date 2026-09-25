@@ -864,7 +864,9 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
                     ? result.outcome(pending.cycle.connection.key())
                             .orElse(PublicationOutcome.FAILED)
                     : PublicationOutcome.FAILED;
-            applyPostCommit(commitPublicationOutcome(pending, outcome));
+            boolean hinted = !failure && result != null
+                    && result.hinted(pending.cycle.connection.key());
+            applyPostCommit(commitPublicationOutcome(pending, outcome, hinted));
         }
         scheduleBatch();
         pump();
@@ -872,7 +874,8 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
 
     private PostCommit commitPublicationOutcome(
             PendingPublication pending,
-            PublicationOutcome outcome) {
+            PublicationOutcome outcome,
+            boolean hinted) {
         commitProbe.beforeCommit(CommitKind.PUBLICATION, pending.revision);
         synchronized (lock) {
             if (!isCurrentLocked(pending.cycle)) {
@@ -884,6 +887,9 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             }
             if (pending.cycle.revision != pending.revision) {
                 return coalescedFollowUpActionLocked(pending.cycle);
+            }
+            if (hinted) {
+                pending.cycle.hintedRevision = pending.revision;
             }
             return switch (outcome) {
                 case UPDATED -> terminalActionLocked(
@@ -1004,7 +1010,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
             pendingPublications.clear();
         }
         for (PendingPublication item : pending) {
-            applyPostCommit(commitPublicationOutcome(item, PublicationOutcome.FAILED));
+            applyPostCommit(commitPublicationOutcome(item, PublicationOutcome.FAILED, false));
         }
         pump();
     }
@@ -1296,6 +1302,7 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         private long deadlineAt = Long.MAX_VALUE;
         private int attemptsDispatched;
         private boolean sawResolvedUnchanged;
+        private long hintedRevision;
         private boolean waitingForRetry;
         private State state = State.DELAYED;
         private Cancellable schedule = NO_SCHEDULE;
@@ -1400,7 +1407,8 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         private PublicationRequest request() {
             return new PublicationRequest(
                     cycle.connection.key(),
-                    profile);
+                    profile,
+                    cycle.hintedRevision != revision);
         }
     }
 

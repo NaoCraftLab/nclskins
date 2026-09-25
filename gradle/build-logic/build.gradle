@@ -39,9 +39,16 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    inputs.files(
+            file('../../gradle/version.properties'),
+            file('../../CHANGELOG.md'),
+            file('../../PLUGIN_CHANGELOG.md'))
+            .withPropertyName('rootReleaseFiles')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 dependencies {
+    implementation 'org.ow2.asm:asm:9.9'
     testImplementation gradleTestKit()
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'

@@ -4,10 +4,12 @@ import com.naocraftlab.skins.client.ClientLifecycleGate;
 import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.compat.config.YaclConfigurationScreenFactory;
 import com.naocraftlab.skins.compat.loader.MinecraftClientHookAdapter;
+import com.naocraftlab.skins.runtime.CapeProjection;
 import java.nio.file.Path;
 import java.util.Objects;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 
 
@@ -36,6 +38,7 @@ final class FabricClientLifecycle {
 
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> checkedLifecycle.dispatch(current -> current.tick(client)));
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> CapeProjection.worldChanged());
         ClientLifecycleEvents.CLIENT_STOPPING.register(ignored -> checkedLifecycle.close());
     }
 }

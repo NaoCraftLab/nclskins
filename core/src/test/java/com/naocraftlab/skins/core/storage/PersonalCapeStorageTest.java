@@ -52,6 +52,92 @@ class PersonalCapeStorageTest {
         assertTrue(reopened.loadOrCreateAccount(new UUID(0, 2)).personalCapes().isEmpty());
     }
 
+    @Test void optifineImportDeduplicatesPaddedPixelsAndSurvivesSourceRemovalAndRestart() throws Exception {
+        var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        storage.initialize();
+        storage.loadOrCreateAccount(account);
+        var narrow = new BufferedImage(46, 22, BufferedImage.TYPE_INT_ARGB);
+        narrow.setRGB(0, 0, 0x7f123456);
+        narrow.setRGB(45, 21, 0xff123456);
+        Path source = root.resolve("optifine.png");
+        Files.write(source, png(narrow));
+        var first = storage.importCape(account, "Original", Files.readAllBytes(source));
+        var padded = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+        padded.setRGB(0, 0, 46, 22, narrow.getRGB(0, 0, 46, 22, null, 0, 46), 0, 46);
+        var duplicate = storage.importCape(account, "Duplicate", png(padded));
+        assertEquals(first, duplicate);
+        assertEquals("Original", duplicate.name());
+        assertTrue(first.texture().hasElytra());
+        Files.delete(source);
+        var reopened = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        assertEquals(List.of(first), reopened.loadOrCreateAccount(account).personalCapes());
+        var saved = ImageIO.read(new java.io.ByteArrayInputStream(reopened.readCapeAsset(account, first.texture().sha256())));
+        assertEquals(64, saved.getWidth());
+        assertEquals(32, saved.getHeight());
+        assertEquals(0x7f123456, saved.getRGB(0, 0));
+        assertEquals(0, saved.getRGB(46, 21));
+        assertEquals(0, saved.getRGB(45, 22));
+        assertTrue(reopened.loadOrCreateAccount(new UUID(0, 2)).personalCapes().isEmpty());
+    }
+
+    @Test void optifineElytraClassificationPersistsForBothPixelPatterns() throws Exception {
+        var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        storage.initialize();
+        storage.loadOrCreateAccount(account);
+        var capeOnly = new BufferedImage(46, 22, BufferedImage.TYPE_INT_ARGB);
+        capeOnly.setRGB(22, 0, 0xff123456);
+        var withElytra = new BufferedImage(46, 22, BufferedImage.TYPE_INT_ARGB);
+        withElytra.setRGB(22, 0, 0xff123456);
+        withElytra.setRGB(24, 0, 0x01000000);
+        var plain = storage.importCape(account, "Cape", png(capeOnly));
+        var winged = storage.importCape(account, "Winged", png(withElytra));
+        assertFalse(plain.texture().hasElytra());
+        assertTrue(winged.texture().hasElytra());
+        var reopened = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        assertEquals(List.of(plain, winged), reopened.loadOrCreateAccount(account).personalCapes());
+        assertFalse(reopened.loadOrCreateAccount(account).personalCapes().get(0).texture().hasElytra());
+        assertTrue(reopened.loadOrCreateAccount(account).personalCapes().get(1).texture().hasElytra());
+    }
+
+    @Test void hdCapeKeepsPixelDetailOfflineIdentityAndElytraAfterRestart() throws Exception {
+        var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        storage.initialize();
+        storage.loadOrCreateAccount(account);
+        var source = new BufferedImage(92, 44, BufferedImage.TYPE_INT_ARGB);
+        source.setRGB(0, 0, 0x80112233);
+        source.setRGB(1, 0, 0xff445566);
+        source.setRGB(91, 43, 0x7f123456);
+        source.setRGB(49, 1, 0x01000000);
+        Path input = root.resolve("hd-optifine.png");
+        Files.write(input, png(source));
+        var first = storage.importCape(account, "Detailed", Files.readAllBytes(input));
+        var padded = new BufferedImage(128, 64, BufferedImage.TYPE_INT_ARGB);
+        padded.setRGB(0, 0, 92, 44, source.getRGB(0, 0, 92, 44, null, 0, 92), 0, 92);
+        padded.setRGB(127, 63, 0x00123456);
+        assertEquals(first, storage.importCape(account, "Duplicate", png(padded)));
+        assertTrue(first.texture().hasElytra());
+        var preset = new LibraryService(storage, java.time.Clock.systemUTC()).createPreset(
+                account, "HD offline", SkinReference.accountDefault(), OuterLayerVisibility.allVisible(), null,
+                first.texture()).presets().get(0);
+        Files.delete(input);
+
+        var reopened = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        var loaded = reopened.loadOrCreateAccount(account);
+        assertEquals(List.of(first), loaded.personalCapes());
+        assertEquals(first.texture(), loaded.presets().stream()
+                .filter(value -> value.id().equals(preset.id())).findFirst().orElseThrow().offlineCape());
+        var saved = ImageIO.read(new java.io.ByteArrayInputStream(
+                reopened.readCapeAsset(account, first.texture().sha256())));
+        assertEquals(128, saved.getWidth());
+        assertEquals(64, saved.getHeight());
+        assertEquals(0x80112233, saved.getRGB(0, 0));
+        assertEquals(0xff445566, saved.getRGB(1, 0));
+        assertEquals(0x7f123456, saved.getRGB(91, 43));
+        assertEquals(0x01000000, saved.getRGB(49, 1));
+        assertEquals(0, saved.getRGB(92, 43));
+        assertTrue(reopened.loadOrCreateAccount(new UUID(0, 2)).personalCapes().isEmpty());
+    }
+
     @Test void deletionClearsDisabledLocalReferencesButPreservesRemotePendingAndPreventsAba() throws Exception {
         var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
         storage.initialize();
@@ -194,6 +280,10 @@ class PersonalCapeStorageTest {
     private static byte[] png() throws Exception {
         var image = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
         image.setRGB(3, 5, 0xff123456);
+        return png(image);
+    }
+
+    private static byte[] png(BufferedImage image) throws Exception {
         var out = new ByteArrayOutputStream(); ImageIO.write(image, "PNG", out); return out.toByteArray();
     }
 }

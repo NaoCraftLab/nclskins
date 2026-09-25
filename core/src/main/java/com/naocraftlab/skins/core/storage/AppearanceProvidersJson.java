@@ -19,18 +19,19 @@ import java.util.function.Function;
 final class AppearanceProvidersJson {
     static JsonObject encode(AppearanceProviders state) {
         JsonObject result = new JsonObject();
-        result.add("skin", encodeChannel(state.skin(), AppearanceProvidersJson::encodeSkin));
-        result.add("cape", encodeChannel(state.cape(), AppearanceProvidersJson::encodeCape));
+        result.add("skin", encodeChannel(state.skin(), AppearanceProvidersJson::encodeSkin, false));
+        result.add("cape", encodeChannel(state.cape(), AppearanceProvidersJson::encodeCape, true));
         return result;
     }
 
     static AppearanceProviders decode(JsonObject root) {
         return new AppearanceProviders(
-                decodeChannel(object(root, "skin"), AppearanceProvidersJson::decodeSkin),
-                decodeChannel(object(root, "cape"), AppearanceProvidersJson::decodeCape));
+                decodeChannel(object(root, "skin"), AppearanceProvidersJson::decodeSkin, false),
+                decodeChannel(object(root, "cape"), AppearanceProvidersJson::decodeCape, true));
     }
 
-    private static <T> JsonObject encodeChannel(ProviderChannel<T> channel, Function<T, JsonObject> encode) {
+    private static <T> JsonObject encodeChannel(ProviderChannel<T> channel, Function<T, JsonObject> encode,
+            boolean cape) {
         JsonObject result = new JsonObject();
         JsonArray order = new JsonArray();
         channel.order().forEach(provider -> order.add(provider.name()));
@@ -39,6 +40,9 @@ final class AppearanceProvidersJson {
         result.addProperty("intentRevision", channel.intentRevision());
         result.add("offline", encodeObservation(channel.offline(), encode));
         result.add("minecraft", encodeObservation(channel.minecraft(), encode));
+        if (cape) {
+            result.add("optifine", encodeObservation(channel.optifine(), encode));
+        }
         if (channel.desired() != null) {
             result.add("desired", encode.apply(channel.desired()));
         }
@@ -51,14 +55,20 @@ final class AppearanceProvidersJson {
         return result;
     }
 
-    private static <T> ProviderChannel<T> decodeChannel(JsonObject root, Function<JsonObject, T> decode) {
+    private static <T> ProviderChannel<T> decodeChannel(JsonObject root, Function<JsonObject, T> decode,
+            boolean cape) {
         JsonElement elements = root.get("order");
-        if (elements == null || !elements.isJsonArray() || elements.getAsJsonArray().size() > 2) {
+        if (elements == null || !elements.isJsonArray()
+                || elements.getAsJsonArray().size() > (cape ? 3 : 2)) {
             throw new JsonParseException("Invalid provider order");
         }
         List<BuiltinProvider> order = new ArrayList<>();
         for (JsonElement element : elements.getAsJsonArray()) {
-            order.add(BuiltinProvider.valueOf(element.getAsString()));
+            BuiltinProvider provider = BuiltinProvider.valueOf(element.getAsString());
+            if (cape ? !provider.supportsCape() : !provider.supportsSkin()) {
+                throw new JsonParseException("Provider does not support component");
+            }
+            order.add(provider);
         }
         JsonObject delivery = object(root, "delivery");
         return new ProviderChannel<>(order,
@@ -70,7 +80,10 @@ final class AppearanceProvidersJson {
                         ProviderDelivery.Status.valueOf(string(delivery, "status"))),
                 root.has("offlineDesired")
                         ? root.get("offlineDesired").isJsonNull() ? null : decode.apply(object(root, "offlineDesired"))
-                        : root.has("desired") ? decode.apply(object(root, "desired")) : null);
+                        : root.has("desired") ? decode.apply(object(root, "desired")) : null,
+                cape && root.has("optifine")
+                        ? decodeObservation(object(root, "optifine"), decode)
+                        : ProviderObservation.unknown());
     }
 
     private static <T> JsonObject encodeObservation(ProviderObservation<T> observation, Function<T, JsonObject> encode) {

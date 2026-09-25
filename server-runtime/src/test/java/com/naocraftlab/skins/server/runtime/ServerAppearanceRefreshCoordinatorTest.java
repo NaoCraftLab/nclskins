@@ -1121,6 +1121,99 @@ final class ServerAppearanceRefreshCoordinatorTest {
     }
 
     @Test
+    void oneHintPerDirtyRevisionPreservesUnchangedRetriesAndLaterOfficialUpdate() {
+        ManualTime time = new ManualTime();
+        ConnectionSnapshot connection = connection(91, 1L);
+        List<Boolean> hintEligibility = new ArrayList<>();
+        AtomicInteger publications = new AtomicInteger();
+        BatchAppearancePublisher publisher = new BatchAppearancePublisher() {
+            @Override
+            public CompletionStage<BatchPublicationResult> publishBatch(
+                    List<PublicationRequest> requests) {
+                PublicationRequest request = requests.get(0);
+                hintEligibility.add(request.observerHintAllowed());
+                int attempt = publications.incrementAndGet();
+                PublicationOutcome outcome = attempt < 3
+                        ? PublicationOutcome.UNCHANGED
+                        : PublicationOutcome.UPDATED;
+                return CompletableFuture.completedFuture(BatchPublicationResult.of(
+                        Map.of(request.connection(), outcome),
+                        PublicationMetrics.ZERO,
+                        attempt == 1 ? Set.of(request.connection()) : Set.of()));
+            }
+
+            @Override
+            public void supersede(ConnectionKey connection) {}
+        };
+        ServerRefreshPolicy policy = policy(
+                16, 1, 10_000.0d, 20,
+                List.of(Duration.ofMillis(500), Duration.ofSeconds(2), Duration.ofSeconds(4)),
+                Duration.ofMinutes(5), Duration.ofSeconds(30),
+                Duration.ofMillis(50), 64, 0);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                ignored -> OfficialProfileResolver.completed(resolved(connection, 'a')),
+                publisher,
+                policy);
+
+        RefreshSubmission submission = coordinator.request(connection);
+        time.advance(Duration.ofSeconds(20));
+
+        assertTrue(submission.completion().toCompletableFuture().isDone());
+        assertEquals(RefreshResult.UPDATED, result(submission));
+        assertEquals(List.of(true, false, false), hintEligibility);
+        assertEquals(3, publications.get());
+        coordinator.close();
+    }
+
+    @Test
+    void newSignalAfterHintMayHintAgainAtExistingLookupCooldown() {
+        ManualTime time = new ManualTime();
+        ConnectionSnapshot connection = connection(92, 1L);
+        List<Boolean> hintEligibility = new ArrayList<>();
+        List<Long> publishTimes = new ArrayList<>();
+        BatchAppearancePublisher publisher = new BatchAppearancePublisher() {
+            @Override
+            public CompletionStage<BatchPublicationResult> publishBatch(
+                    List<PublicationRequest> requests) {
+                PublicationRequest request = requests.get(0);
+                hintEligibility.add(request.observerHintAllowed());
+                publishTimes.add(time.now());
+                return CompletableFuture.completedFuture(BatchPublicationResult.of(
+                        Map.of(request.connection(), PublicationOutcome.UNCHANGED),
+                        PublicationMetrics.ZERO,
+                        Set.of(request.connection())));
+            }
+
+            @Override
+            public void supersede(ConnectionKey connection) {}
+        };
+        ServerRefreshPolicy policy = policy(
+                16, 1, 10_000.0d, 20,
+                List.of(Duration.ofMillis(500), Duration.ofSeconds(2)),
+                Duration.ofMinutes(5), Duration.ofSeconds(30),
+                Duration.ofMillis(50), 64, 0);
+        ServerAppearanceRefreshCoordinator coordinator = coordinator(
+                time,
+                ignored -> OfficialProfileResolver.completed(resolved(connection, 'a')),
+                publisher,
+                policy);
+
+        RefreshSubmission first = coordinator.request(connection);
+        time.advance(Duration.ofMillis(550));
+        RefreshSubmission second = coordinator.request(connection);
+        assertEquals(RefreshResult.SUPERSEDED, result(first));
+        time.advance(Duration.ofSeconds(10));
+
+        assertTrue(second.completion().toCompletableFuture().isDone());
+        assertEquals(RefreshResult.UNCHANGED, result(second));
+        assertEquals(List.of(true, true), hintEligibility);
+        assertTrue(publishTimes.get(1) - publishTimes.get(0)
+                >= Duration.ofSeconds(5).toNanos());
+        coordinator.close();
+    }
+
+    @Test
     void lookupDeadlineReleasesTheSlotAndIgnoresALateCompletion() {
         ManualTime time = new ManualTime();
         CompletableFuture<OfficialProfileResolver.Resolution> held = new CompletableFuture<>();

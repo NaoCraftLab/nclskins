@@ -9,6 +9,7 @@ public enum GuiIcon implements WidgetIcon {
     ACTION_RENAME("action/rename", 16),
     ACTION_REMOVE("action/remove", 16),
     ACTION_EDIT("action/edit", 16),
+    ACTION_OPEN_ACCOUNT("action/open_account", 16),
     ACTION_DUPLICATE("action/duplicate", 16),
     ACTION_DELETE("action/delete", 16),
     ACTION_SELECT_FOLDER("action/select_folder", 16),

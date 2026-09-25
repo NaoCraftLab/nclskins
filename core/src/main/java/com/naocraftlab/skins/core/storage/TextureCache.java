@@ -3,6 +3,8 @@ package com.naocraftlab.skins.core.storage;
 import com.naocraftlab.skins.core.api.MinecraftServiceUriPolicy;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteSkin;
+import com.naocraftlab.skins.core.png.PngValidationException;
+import com.naocraftlab.skins.core.png.PngValidator;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -188,6 +190,26 @@ public final class TextureCache {
         byte[] bytes = readBounded(path);
         decodeDimensions(bytes);
         return java.util.Optional.of(bytes);
+    }
+
+    @SuppressWarnings("try")
+    public String storeObservedCape(PngValidator.CapePng cape) throws IOException, PngValidationException {
+        Objects.requireNonNull(cape, "cape");
+        storage.initialize();
+        String key = cape.renderSha256();
+        Path path = cachePath(key);
+        try (var ignored = storage.acquireTextureCacheLock(key)) {
+            if (Files.isRegularFile(path)) {
+                byte[] existing = readBounded(path);
+                if (!new PngValidator().projectCanonicalCape(existing).renderSha256().equals(key)) {
+                    throw new TextureCacheException(TextureCacheException.Code.INVALID_TEXTURE,
+                            "Cached cape failed integrity verification");
+                }
+            } else {
+                AtomicFileWriter.createImmutable(path, cape.bytes());
+            }
+        }
+        return key;
     }
 
 

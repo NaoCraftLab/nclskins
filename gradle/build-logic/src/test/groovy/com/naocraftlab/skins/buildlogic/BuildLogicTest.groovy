@@ -452,7 +452,7 @@ final class BuildLogicTest {
                 sourceIcons[relative.substring(0, relative.length() - '.bbmodel'.length()) + '.png'] = path.toFile()
             }
         }
-        assertEquals(38, sourceIcons.size())
+        assertEquals(39, sourceIcons.size())
         assertEquals(ArtifactVerifier.REQUIRED_GUI_ICONS, sourceIcons.keySet())
         sourceIcons.each { String name, File source ->
             assertNotNull(ImageIO.read(new ByteArrayInputStream(BlockbenchPng.decode(source))), name)
@@ -2151,6 +2151,46 @@ final class BuildLogicTest {
             assertTrue(errors.any { it.contains('preserve an explicit original value') })
         } finally {
             root.toFile().deleteDir()
+        }
+    }
+
+    @Test
+    void optifineCapeSuppressionIsLimitedToTwoExactMethods() {
+        String path = 'compat/capabilities/appearance/optifine-cape/src/main/java/' +
+                'com/naocraftlab/skins/compat/client/resourcelocation/optifine/mixin/OptifineCapeUtilsMixin.java'
+        String source = '''
+            @Pseudo
+            @Mixin(targets = "net.optifine.player.CapeUtils", remap = false)
+            class OptifineCapeUtilsMixin {
+                @WrapMethod(method = "downloadCape(Lnet/minecraft/client/player/AbstractClientPlayer;)V", remap = false, require = 1, expect = 1, allow = 1)
+                private static void nclskins$suppressDownloadCape(AbstractClientPlayer player, Operation<Void> original) { }
+                @WrapMethod(method = "reloadCape(Lnet/minecraft/client/player/AbstractClientPlayer;)V", remap = false, require = 1, expect = 1, allow = 1)
+                private static void nclskins$suppressReloadCape(AbstractClientPlayer player, Operation<Void> original) { }
+            }
+            '''
+        assertTrue(SemanticVerifier.optifineCapeSuppression(path, source))
+        assertFalse(SemanticVerifier.optifineCapeSuppression(path.replace('OptifineCapeUtilsMixin', 'OtherMixin'), source))
+        assertFalse(SemanticVerifier.optifineCapeSuppression(path, source.replace('net.optifine.player.CapeUtils', 'net.optifine.player.Other')))
+        assertFalse(SemanticVerifier.optifineCapeSuppression(path, source.replace('reloadCape(', 'refreshCape(')))
+        assertFalse(SemanticVerifier.optifineCapeSuppression(path, source.replace('require = 1', 'require = 0')))
+        assertFalse(SemanticVerifier.optifineCapeSuppression(path, source + '@WrapMethod'))
+    }
+
+    @Test
+    void optifinePatchReconstructionRejectsCorruptOrOutOfBoundsCommands() {
+        byte[] base = '1234'.getBytes(StandardCharsets.US_ASCII)
+        byte[] patch = [0xd1, 0xff, 0xd1, 0xff, 4,
+                        3, 97, 98, 99,
+                        249, 0, 1, 2] as byte[]
+        assertEquals('abc23', new String(
+                OptifineCapeAbiVerifier.reconstruct(base, patch), StandardCharsets.US_ASCII))
+        byte[] corrupt = patch.clone()
+        corrupt[11] = 4
+        assertThrows(IllegalStateException.class) {
+            OptifineCapeAbiVerifier.reconstruct(base, corrupt)
+        }
+        assertThrows(EOFException.class) {
+            OptifineCapeAbiVerifier.reconstruct(base, patch[0..-2] as byte[])
         }
     }
 

@@ -5,7 +5,11 @@ import java.util.Objects;
 
 public record PublicationRequest(
         ConnectionKey connection,
-        VerifiedOfficialProfile profile) {
+        VerifiedOfficialProfile profile,
+        boolean observerHintAllowed) {
+    public PublicationRequest(ConnectionKey connection, VerifiedOfficialProfile profile) {
+        this(connection, profile, false);
+    }
     public PublicationRequest {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(profile, "profile");

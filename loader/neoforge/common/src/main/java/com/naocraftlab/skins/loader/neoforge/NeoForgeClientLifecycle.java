@@ -4,11 +4,13 @@ import com.naocraftlab.skins.client.ClientLifecycleGate;
 import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.compat.config.YaclConfigurationScreenFactory;
 import com.naocraftlab.skins.compat.loader.MinecraftClientHookAdapter;
+import com.naocraftlab.skins.runtime.CapeProjection;
 import java.nio.file.Path;
 import java.util.Objects;
 import net.minecraft.client.Minecraft;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.GameShuttingDownEvent;
 
@@ -37,6 +39,8 @@ final class NeoForgeClientLifecycle {
 
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post ignored) ->
                 checkedLifecycle.dispatch(current -> current.tick(Minecraft.getInstance())));
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut ignored) ->
+                CapeProjection.worldChanged());
         NeoForge.EVENT_BUS.addListener((GameShuttingDownEvent ignored) -> checkedLifecycle.close());
     }
 }

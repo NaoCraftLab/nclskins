@@ -165,6 +165,65 @@ def verifyTargetCatalog = tasks.register('verifyTargetCatalog', VerifyCatalogTas
     delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
 }
 
+tasks.register('verifyOptifineCapeAbi', VerifyOptifineCapeAbiTask) {
+    group = 'verification'
+    description = 'Reconstructs pinned OptiFine I6 patches and checks actual cape bytecode anchors.'
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.optifineJar.set(layout.file(providers.gradleProperty('optifineJar').map { file(it) }))
+    delegate.minecraftClientJar.set(layout.file(providers.gradleProperty('optifineBaseJar').map { file(it) }))
+}
+
+repositories {
+    maven {
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+        content { includeGroup 'org.spongepowered' }
+    }
+    maven {
+        url = 'https://libraries.minecraft.net/'
+        content { includeGroup 'com.mojang' }
+    }
+}
+
+def optifineCompositionRuntime = configurations.create('optifineCompositionRuntime') {
+    transitive = false
+}
+[
+        'org.spongepowered:mixin:0.8.5',
+        'io.github.llamalad7:mixinextras-common:0.5.3',
+        'org.ow2.asm:asm:9.9.1',
+        'org.ow2.asm:asm-tree:9.9.1',
+        'org.ow2.asm:asm-commons:9.9.1',
+        'org.ow2.asm:asm-util:9.9.1',
+        'org.ow2.asm:asm-analysis:9.9.1',
+        'com.google.guava:guava:31.1-jre',
+        'com.google.code.gson:gson:2.10',
+        'org.apache.logging.log4j:log4j-api:2.19.0',
+        'org.apache.logging.log4j:log4j-core:2.19.0',
+        'com.mojang:authlib:4.0.43'
+].each { dependencies.add(optifineCompositionRuntime.name, it) }
+
+tasks.register('verifyOptifineCapeComposition', VerifyOptifineCapeCompositionTask) {
+    group = 'verification'
+    description = 'Applies production Forge mixins to pinned I6 and absent-path classes in a headless JVM.'
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.optifineJar.set(layout.file(providers.gradleProperty('optifineJar').map { file(it) }))
+    delegate.minecraftClientJar.set(layout.file(providers.gradleProperty('optifineBaseJar').map { file(it) }))
+    delegate.forgeSrgJar.set(layout.file(providers.gradleProperty('optifineForgeSrgJar').map { file(it) }))
+    delegate.nclForgeJar.set(layout.file(providers.gradleProperty('optifineNclJar').map { file(it) }))
+    delegate.probeDirectory.set(layout.projectDirectory.dir('gradle/build-logic/src/optifineComposition'))
+    delegate.repositoryDirectory.set(layout.projectDirectory)
+    delegate.runtimeJars.from(optifineCompositionRuntime)
+    delegate.workDirectory.set(layout.buildDirectory.dir('optifine-composition'))
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('verifyWaveyCapesAbi', VerifyWaveyCapesAbiTask) {
+    group = 'verification'
+    description = 'Checks pinned public WaveyCapes artifacts and their cape texture ABI.'
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    delegate.artifactsDirectory.set(layout.dir(providers.gradleProperty('waveyCapesArtifactsDir').map { file(it) }))
+}
+
 tasks.register('buildServerPlugin') {
     group = 'build'
     description = 'Builds and verifies the one universal NCL Skins Plugin JAR.'

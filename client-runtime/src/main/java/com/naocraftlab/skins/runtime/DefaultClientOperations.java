@@ -4,11 +4,13 @@ import com.naocraftlab.skins.client.BundledSkinSource;
 import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
+import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.GameSessionIdentityChangedException;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
+import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
@@ -43,6 +45,7 @@ import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderCape;
+import com.naocraftlab.skins.core.provider.ProviderObservation;
 import com.naocraftlab.skins.core.provider.ProviderChannel;
 import com.naocraftlab.skins.core.provider.ProviderDelivery;
 import com.naocraftlab.skins.core.provider.ProviderSkin;
@@ -86,6 +89,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 
 public final class DefaultClientOperations implements ClientOperations {
@@ -105,6 +112,8 @@ public final class DefaultClientOperations implements ClientOperations {
     private final OfficialSkinTextureSource officialSkinTextures;
     private final OfficialSkinClassifier officialSkinClassifier;
     private volatile ResolvedOfficialSkin resolvedOfficialSkin;
+    private volatile OptifineCapeCoordinator optifineCapes;
+    private volatile ExecutorService optifineWorker;
 
     private final Map<UUID, LibraryObservation> libraryObservations = new ConcurrentHashMap<>();
 
@@ -203,6 +212,121 @@ public final class DefaultClientOperations implements ClientOperations {
     DefaultClientOperations enablePublicImports(SignedTextureVerifier verifier) {
         publicImports.enablePlayerLookup(Objects.requireNonNull(verifier, "verifier"));
         return this;
+    }
+
+    public DefaultClientOperations attachOptifineCapes(PlayerAppearanceSink<?> sink,
+            ClientExecutor clientExecutor) {
+        if (optifineCapes != null) {
+            throw new IllegalStateException("OptiFine cape coordinator already attached");
+        }
+        AtomicInteger threadIndex = new AtomicInteger();
+        optifineWorker = Executors.newFixedThreadPool(4, action -> {
+            Thread thread = new Thread(action, "nclskins-optifine-cape-" + threadIndex.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
+        optifineCapes = new OptifineCapeCoordinator(tokenSource, storage, textures,
+                sink, clientExecutor, optifineWorker, this::verifiedOfficialCapeUri);
+        CapeProjection.installEvents(new CapeProjection.Events() {
+            @Override
+            public void trackedPlayer(UUID profileId, String canonicalName) {
+                clientExecutor.execute(() -> optifineCapes.trackedPlayer(profileId, canonicalName));
+            }
+
+            @Override
+            public void playerInfoUpdated(UUID profileId, String canonicalName) {
+                clientExecutor.execute(() -> optifineCapes.playerInfoUpdated(profileId, canonicalName));
+            }
+
+            @Override
+            public void untrackedPlayer(UUID profileId) {
+                clientExecutor.execute(() -> optifineCapes.untrackedPlayer(profileId));
+            }
+
+            @Override
+            public void worldChanged() {
+                clientExecutor.execute(() -> optifineCapes.worldChanged());
+            }
+
+            @Override
+            public void worldEntered() {
+                clientExecutor.execute(() -> optifineCapes.worldEntered());
+            }
+        });
+        return this;
+    }
+
+    @Override
+    public void startOptiFineCapes() {
+        if (optifineCapes != null) optifineCapes.start();
+    }
+
+    @Override
+    public void refreshOptiFineCapes() {
+        if (optifineCapes != null) optifineCapes.refresh();
+    }
+
+    @Override
+    public void refreshOptiFineCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
+        if (optifineCapes != null) optifineCapes.refresh(completion);
+        else completion.accept(null);
+    }
+
+    @Override
+    public void optiFineConfigurationChanged() {
+        if (optifineCapes != null) optifineCapes.configurationChanged();
+    }
+
+    @Override
+    public void adoptSharedCapeObservation(UUID accountId, String canonicalName,
+            AppearanceProviders providers) {
+        if (optifineCapes != null) optifineCapes.adoptSharedSnapshot(accountId, canonicalName, providers);
+    }
+
+    @Override
+    public void onOptiFineObservation(Consumer<OptiFineObservation> listener) {
+        if (optifineCapes != null) optifineCapes.onSelfObservation(listener);
+    }
+
+    @Override
+    public void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
+            AppearanceProviders providers) {
+        if (optifineCapes != null) optifineCapes.selfCapeCandidatesChanged(accountId,
+                canonicalName, providers);
+    }
+
+    @Override
+    public void trackedCapePlayer(UUID profileId, String canonicalName) {
+        if (optifineCapes != null) optifineCapes.trackedPlayer(profileId, canonicalName);
+    }
+
+    @Override
+    public void untrackedCapePlayer(UUID profileId) {
+        if (optifineCapes != null) optifineCapes.untrackedPlayer(profileId);
+    }
+
+    @Override
+    public void capeWorldChanged() {
+        if (optifineCapes != null) optifineCapes.worldChanged();
+    }
+
+    @Override
+    public void closeOptiFineCapes() {
+        CapeProjection.clearEvents();
+        if (optifineCapes != null) optifineCapes.close();
+        if (optifineWorker != null) optifineWorker.shutdownNow();
+    }
+
+    private Optional<java.net.URI> verifiedOfficialCapeUri(UUID accountId, String capeId) {
+        GameSessionTokenSource.SessionIdentity identity = tokenSource.currentSession();
+        if (!accountId.equals(identity.profileId())) return Optional.empty();
+        SessionValidation validation = sessions.cachedStatus(identity);
+        if (!validation.valid() || validation.profile() == null
+                || !accountId.equals(validation.profile().id())) return Optional.empty();
+        return validation.profile().capes().stream()
+                .filter(cape -> cape.id().equals(capeId))
+                .map(RemoteCape::textureUri)
+                .findFirst();
     }
 
 
@@ -942,7 +1066,8 @@ public final class DefaultClientOperations implements ClientOperations {
             try {
                 byte[] capeBytes = java.nio.file.Files.readAllBytes(textures.get(cape).path());
                 Boolean classified = storage.loadOwnedCapes(accountId).find(cape.id()).map(OwnedCapeEntry::hasElytra).orElse(null);
-                boolean hasElytra = classified != null ? classified : new PngValidator().projectCape(capeBytes).hasElytra();
+                boolean hasElytra = classified != null ? classified
+                        : new PngValidator().projectCanonicalCape(capeBytes).hasElytra();
                 String cacheKey = TextureCache.cacheKey(cape.textureUri());
                 storage.updateOwnedCapes(accountId, current -> {
                     List<OwnedCapeEntry> updated = current.capes().stream()
@@ -1120,7 +1245,7 @@ public final class DefaultClientOperations implements ClientOperations {
         }
         discovery.entries().forEach((key, entry) -> previews.put(
                 resourceCapePreviewKey(generation, key, entry.sourceSha256()),
-                entry.bytes()));
+                entry.previewBytes()));
         warmedCapePreviewAccountId = accountId;
         warmedCapePreviews = Map.copyOf(previews);
         return data;
@@ -1154,7 +1279,8 @@ public final class DefaultClientOperations implements ClientOperations {
                             projection.renderSha256(),
                             support));
                     entries.put(key, new ResourceCapeSnapshotEntry(
-                            projection.renderSha256(), sourceHash, projection.hasElytra(), bytes));
+                            projection.renderSha256(), sourceHash, projection.hasElytra(),
+                            bytes, projection.bytes()));
                     sourceHashes.put(key, sourceHash);
                 } catch (IOException | PngValidationException | RuntimeException unavailable) {
                 }
@@ -1197,7 +1323,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 || !entry.sourceSha256().equals(selection.sourceSha256())) {
             return Optional.empty();
         }
-        return Optional.of(entry.bytes().clone());
+        return Optional.of(entry.previewBytes());
     }
 
     @Override
@@ -1216,11 +1342,19 @@ public final class DefaultClientOperations implements ClientOperations {
                 || entry.hasElytra() != selection.hasElytra()) {
             throw new IOException("Resource-pack cape catalog changed; reopen the editor");
         }
-        byte[] bytes = entry.bytes().clone();
+        byte[] bytes = bundledSkins.loadCape(selection.collectionId(), selection.capeId());
+        if (!sha256(bytes).equals(entry.sourceSha256())) {
+            throw new IOException("Resource-pack cape source changed; reopen the editor");
+        }
         PngValidator.CapePng projection = new PngValidator().projectCape(bytes);
         if (!projection.renderSha256().equals(selection.contentIdentity())
                 || projection.hasElytra() != selection.hasElytra()) {
             throw new IOException("Resource-pack cape identity changed; reopen the editor");
+        }
+        requireCapeAccount(accountId);
+        if (bundledSkins.capeGeneration() != selection.generation()
+                || resourceCapeSnapshot != snapshot) {
+            throw new IOException("Resource-pack cape catalog changed; reopen the editor");
         }
         com.naocraftlab.skins.core.model.PersonalCapeEntry imported =
                 storage.importCape(accountId, selection.displayName(), bytes);
@@ -1423,6 +1557,13 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     @SuppressWarnings("try")
     public DurableAppearance refreshProviders(AppearanceProviders.Component component) throws IOException {
+        return refreshProvidersWithObservation(component).appearance();
+    }
+
+    @Override
+    @SuppressWarnings("try")
+    public ProviderRefresh refreshProvidersWithObservation(
+            AppearanceProviders.Component component) throws IOException {
         Objects.requireNonNull(component, "component");
         OperationContext context = pinCurrentSession();
         UUID accountId = resolveAccountId(context.identity());
@@ -1432,6 +1573,7 @@ public final class DefaultClientOperations implements ClientOperations {
             boolean enabled = skin ? before.providers().skin().enabled(BuiltinProvider.MINECRAFT)
                     : before.providers().cape().enabled(BuiltinProvider.MINECRAFT);
             SessionValidation validation = sessions.cachedStatus(context.identity());
+            ProviderObservation<?> confirmedMinecraft = null;
             if (enabled && profileApi.rateLimitRemaining().isEmpty()) {
                 validation = sessions.observeFreshAtCheckpoint(context.tokens());
                 if (validation.valid() && validation.profile() != null) {
@@ -1440,10 +1582,13 @@ public final class DefaultClientOperations implements ClientOperations {
                     } else {
                         publishOwnedCapeInventory(accountId, validation.profile());
                     }
-                    observeMinecraftProviders(accountId, validation, before.providers(), skin, !skin);
+                    MinecraftObservation confirmed = observeMinecraftProviders(
+                            accountId, validation, before.providers(), skin, !skin);
+                    confirmedMinecraft = skin ? confirmed.skin() : confirmed.cape();
                 }
             }
-            return durableAppearance(accountId, context.identity(), storage.loadAppearance(accountId), validation);
+            return new ProviderRefresh(durableAppearance(accountId, context.identity(),
+                    storage.loadAppearance(accountId), validation), confirmedMinecraft);
         }
     }
 
@@ -2277,12 +2422,12 @@ public final class DefaultClientOperations implements ClientOperations {
                 observed, latestOfficialAsset(observed).map(SkinAsset::id));
     }
 
-    private void observeMinecraftProviders(
+    private MinecraftObservation observeMinecraftProviders(
             UUID accountId, SessionValidation validation, AppearanceProviders expected,
             boolean readSkin, boolean readCape) throws IOException {
         if (!validation.valid() || validation.profile() == null
                 || !accountId.equals(validation.profile().id())) {
-            return;
+            return new MinecraftObservation(null, null);
         }
         Optional<ActiveAppearance> actual = readSkin ? activeAppearance(validation.profile()) : Optional.empty();
         ProviderSkin skin = actual.filter(value -> !value.accountDefault())
@@ -2291,18 +2436,27 @@ public final class DefaultClientOperations implements ClientOperations {
         ProviderCape cape = !readCape || activeCape == null ? null : new ProviderCape(activeCape.id(),
                 cachedLocalCapeKey(accountId, activeCape.id(), validation).orElse(null),
                 storage.loadOwnedCapes(accountId).find(activeCape.id()).map(OwnedCapeEntry::hasElytra).orElse(null));
-        storage.updateAppearance(accountId, current -> current.withProviders(new AppearanceProviders(
-                actual.isPresent()
+        ProviderObservation<?>[] accepted = new ProviderObservation<?>[2];
+        storage.updateAppearance(accountId, current -> {
+            boolean acceptSkin = actual.isPresent()
                         && current.providers().skin().intentRevision() == expected.skin().intentRevision()
                         && current.providers().skin().minecraftDelivery().activation()
-                                == expected.skin().minecraftDelivery().activation()
-                        ? current.providers().skin().observeMinecraft(skin) : current.providers().skin(),
-                !readCape || sessions.capeStateUnknown(accountId)
-                        || current.providers().cape().intentRevision() != expected.cape().intentRevision()
-                        || current.providers().cape().minecraftDelivery().activation()
-                                != expected.cape().minecraftDelivery().activation()
-                        ? current.providers().cape() : current.providers().cape().observeMinecraft(cape))));
+                                == expected.skin().minecraftDelivery().activation();
+            boolean acceptCape = readCape && !sessions.capeStateUnknown(accountId)
+                    && current.providers().cape().intentRevision() == expected.cape().intentRevision()
+                    && current.providers().cape().minecraftDelivery().activation()
+                            == expected.cape().minecraftDelivery().activation();
+            if (acceptSkin) accepted[0] = ProviderObservation.observed(skin);
+            if (acceptCape) accepted[1] = ProviderObservation.observed(cape);
+            return current.withProviders(new AppearanceProviders(
+                    acceptSkin ? current.providers().skin().observeMinecraft(skin) : current.providers().skin(),
+                    acceptCape ? current.providers().cape().observeMinecraft(cape) : current.providers().cape()));
+        });
+        return new MinecraftObservation(accepted[0], accepted[1]);
     }
+
+    private record MinecraftObservation(ProviderObservation<?> skin,
+            ProviderObservation<?> cape) {}
 
     private ObservedAccount observedAccount(UUID accountId) throws IOException {
         AccountState account = library.load(accountId);
@@ -3417,16 +3571,23 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     private record ResourceCapeSnapshotEntry(
-            String contentIdentity, String sourceSha256, boolean hasElytra, byte[] bytes) {
+            String contentIdentity, String sourceSha256, boolean hasElytra,
+            byte[] bytes, byte[] previewBytes) {
         private ResourceCapeSnapshotEntry {
             Objects.requireNonNull(contentIdentity, "contentIdentity");
             Objects.requireNonNull(sourceSha256, "sourceSha256");
             bytes = Objects.requireNonNull(bytes, "bytes").clone();
+            previewBytes = Objects.requireNonNull(previewBytes, "previewBytes").clone();
         }
 
         @Override
         public byte[] bytes() {
             return bytes.clone();
+        }
+
+        @Override
+        public byte[] previewBytes() {
+            return previewBytes.clone();
         }
     }
 }

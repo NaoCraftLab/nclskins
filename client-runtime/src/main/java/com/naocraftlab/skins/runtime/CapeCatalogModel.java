@@ -363,6 +363,7 @@ public record CapeCatalogModel(
     }
 
     private CapeCatalogModel inspectObserved(BuiltinProvider provider, String visualIdentity) {
+        if (!provider.writable()) return this;
         var observation = providers.cape().observation(provider);
         if (!observation.known()) {
             return this;

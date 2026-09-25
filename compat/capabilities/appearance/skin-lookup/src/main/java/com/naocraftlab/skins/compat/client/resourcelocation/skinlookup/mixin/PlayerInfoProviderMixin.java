@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.MinecraftProviderVisibility;
+import com.naocraftlab.skins.runtime.CapeProjection;
 import com.mojang.authlib.GameProfile;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.PlayerInfo;
@@ -12,6 +13,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 import net.minecraft.client.resources.PlayerSkin;
+import net.minecraft.resources.ResourceLocation;
 import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.client.resources.SkinManager;
@@ -57,13 +59,24 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
     @ModifyReturnValue(method = "getSkin", at = @At("RETURN"), require = 1, expect = 1, allow = 1)
     private PlayerSkin nclskins$visible(PlayerSkin original) {
         PlayerInfo info = (PlayerInfo) (Object) this;
-        if (Minecraft.getInstance().isLocalPlayer(info.getProfile().getId())) return original;
+        boolean self = Minecraft.getInstance().isLocalPlayer(info.getProfile().getId());
         var visibility = MinecraftProviderVisibility.current();
-        if (visibility.skin() && visibility.cape()) return original;
-        PlayerSkin fallback = DefaultPlayerSkin.get(info.getProfile());
-        return new PlayerSkin(visibility.skin() ? original.texture() : fallback.texture(),
-                visibility.skin() ? original.textureUrl() : fallback.textureUrl(),
-                visibility.cape() ? original.capeTexture() : null, visibility.cape() ? original.elytraTexture() : null,
-                visibility.skin() ? original.model() : fallback.model(), original.secure());
+        ResourceLocation officialCape = !self && visibility.cape() ? original.capeTexture() : null;
+        ResourceLocation officialElytra = !self && visibility.cape() ? original.elytraTexture() : null;
+        CapeProjection.Candidate official = officialCape == null ? null :
+                new CapeProjection.Candidate(officialCape.toString(),
+                        officialElytra == null ? null : officialElytra.toString(), officialElytra != null);
+        CapeProjection.Result resolved = CapeProjection.resolve(info.getProfile().getId(),
+                info.getProfile().getName(), null, official, self);
+        ResourceLocation cape = nclskins$location(resolved.capeLocation());
+        ResourceLocation elytra = cape == null ? null : nclskins$location(resolved.hasElytra()
+                ? resolved.elytraLocation() : "minecraft:textures/entity/elytra.png");
+        PlayerSkin fallback = self || visibility.skin() ? original : DefaultPlayerSkin.get(info.getProfile());
+        return new PlayerSkin(fallback.texture(), fallback.textureUrl(), cape, elytra,
+                fallback.model(), original.secure());
+    }
+
+    private static ResourceLocation nclskins$location(String location) {
+        return location == null ? null : ResourceLocation.tryParse(location);
     }
 }

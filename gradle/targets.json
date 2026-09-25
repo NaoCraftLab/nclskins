@@ -370,6 +370,120 @@
     "maximum": "2.14.0"
   },
   "optionalDependencies": {
+    "optifine": {
+      "targetId": "forge-1.20.1",
+      "version": "HD_U_I6",
+      "jarSha256": "0b67cb670aedf2e55a982f3d52b6d53e46791a0c984aa1d2ee58100fc9bfc650",
+      "minecraftClientSha256": "56b71336d2b4fdffd197f56595b0da93e32a946f78f382a299b8f4b92758bb0f",
+      "forgeSrgSha256": "d7ef6aecc9a6865b1d183c539176b62eaaedba62994628ce0714b9230878c61b",
+      "patchedClasses": {
+        "net/minecraft/client/player/AbstractClientPlayer": {"base": "fiv.class", "md5": "de71d10ed7045ed5261b35dc6648ecde"},
+        "net/minecraft/client/renderer/entity/layers/CapeLayer": {"base": "fsg.class", "md5": "707338422e18656701936342756c6307"},
+        "net/minecraft/client/renderer/entity/layers/ElytraLayer": {"base": "fsp.class", "md5": "b9436f7b552ca30f6d1496d2204dfc33"}
+      }
+    },
+    "waveycapes": {
+      "projectId": "kYuIpRLv",
+      "sourceCommit": "c979ad3ad85b453b2d740dc3c78d10b8f24f55d5",
+      "artifacts": {
+            "fabric-1.20.1": {
+                  "versionId": "JunWGyYI",
+                  "version": "1.11.2",
+                  "file": "waveycapes-fabric-1.11.2-mc1.20.1.jar",
+                  "sha512": "937ef84ecac2aa1e57eb748ddc6f2d60ae59e158d4f868ee9b2d83c82778b6c2342dc6d30938e3e32bc76d4f12691ea80e69de474aee1da8b3d8a3a26803e037",
+                  "renderFactory": "net/minecraft/class_1921.method_23580(",
+                  "capeSource": "net/minecraft/class_742.method_3119("
+            },
+            "forge-1.20.1": {
+                  "versionId": "YQu1WxmI",
+                  "version": "1.11.2",
+                  "file": "waveycapes-forge-1.11.2-mc1.20.1.jar",
+                  "sha512": "ec9c66e0ccbe3832cdfd6dfc68b3b73b4e8575b2e7115f5d4fcbdec66e254dc891c942db279bcce4092128f843e2fdecd7ea150ac6a931e96edb548cb725125b",
+                  "renderFactory": "net/minecraft/client/renderer/RenderType.m_110473_(",
+                  "capeSource": "net/minecraft/client/player/AbstractClientPlayer.m_108561_("
+            },
+            "fabric-1.21.1": {
+                  "versionId": "jZeY6GAm",
+                  "version": "1.11.2",
+                  "file": "waveycapes-fabric-1.11.2-mc1.21.1.jar",
+                  "sha512": "fb40dbad0f721b1314a0085d0277d7ec6e19f9d9c0f1eaa4c24bc80d2cebb933a5506993acb0381577c3aafec558df51cfea4f3260c016183e378b8770dfbd3f",
+                  "renderFactory": "net/minecraft/class_1921.method_23580(",
+                  "capeSource": "net/minecraft/class_8685.comp_1627("
+            },
+            "neoforge-1.21.1": {
+                  "versionId": "7ndXqAZv",
+                  "version": "1.11.2",
+                  "file": "waveycapes-neoforge-1.11.2-mc1.21.1.jar",
+                  "sha512": "c5bf900acf5a9fa29db9b7c0cb48eebc2e71858a43b6df143ac0c28e631900120d42ca9d780b09e31fabde4eea77cd99ad124cc5cd73832ad5c197c375538e73",
+                  "renderFactory": "net/minecraft/client/renderer/RenderType.entityTranslucent(",
+                  "capeSource": "net/minecraft/client/resources/PlayerSkin.capeTexture("
+            },
+            "fabric-1.21.11": {
+                  "versionId": "HiXJOcqr",
+                  "version": "1.11.2",
+                  "file": "waveycapes-fabric-1.11.2-mc1.21.11.jar",
+                  "sha512": "9dc36e4b6c8fd2e4bf07765a7b0384a4d0afe83558866d9804aeb4924083fdf8ea794c885ac43d3853aeda210ab7dd61db37f922e9e904583f084903fce82009",
+                  "renderFactory": "net/minecraft/class_12249.method_76000(",
+                  "capeSource": "net/minecraft/class_8685.comp_1627("
+            },
+            "neoforge-1.21.11": {
+                  "versionId": "aQLkCDa2",
+                  "version": "1.11.2",
+                  "file": "waveycapes-neoforge-1.11.2-mc1.21.11.jar",
+                  "sha512": "84be52bd4d550233204b293be4f5eec44331d8236b1c2da96da58c0941a78f8046dc95ac8750602f390b3685c572fc61ded36a267b497949350fa6475657ee90",
+                  "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
+                  "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
+            },
+            "fabric-26.1": {
+                  "versionId": "zoWJUmXV",
+                  "version": "1.11.2",
+                  "file": "waveycapes-fabric-1.11.2-mc26.1.jar",
+                  "sha512": "17a2a751cb2bea2813e9c360e3892a70af728cb890a3909ef722a1e6b5976e3606f95f0cdd5192dd77b19fbee68c1ed1f656846404511b8abd13ca6fc90a999d",
+                  "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
+                  "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
+            },
+            "neoforge-26.1": {
+                  "versionId": "eJPljGs6",
+                  "version": "1.11.1",
+                  "file": "waveycapes-neoforge-1.11.1-mc26.1.2.jar",
+                  "sha512": "b4083aecc25ba3ae9edbe31a1a222e2348315c9871aafcf5b311246cb52c0f07e281339db6119d72f196bd021ea9762437e736c00c5135f9e445f70d2e183d68",
+                  "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
+                  "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
+            },
+            "fabric-26.2": {
+                  "versionId": "lgCaDv04",
+                  "version": "1.11.2",
+                  "file": "waveycapes-fabric-1.11.2-mc26.2.jar",
+                  "sha512": "d027d800275efe2c34a6f5dd90724ac3035bcdb2a952625ac4958f8dbac27ad826515a34098ea42c5dde5bcd0e4a76b38bd51b8225a02e6e743ffed1cb1ba597",
+                  "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
+                  "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
+            },
+            "neoforge-26.2": {
+                  "versionId": "8oLUoF0z",
+                  "version": "1.11.2",
+                  "file": "waveycapes-neoforge-1.11.2-mc26.2.jar",
+                  "sha512": "6d7f6f8d788d334edc0640990d9eb6260f42da401b7dc1aaf3ea667fb2c3832db01aecb1c94ad2ff861affc7ec952ac59855ad205e8287c3d74e006761ed7635",
+                  "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
+                  "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
+            },
+            "fabric-26.3": {
+                  "versionId": "btMqe7fQ",
+                  "version": "1.11.2",
+                  "file": "waveycapes-fabric-1.11.2-mc26.3.jar",
+                  "sha512": "37258922ea1fc332f43612e14f8dbc6cc8b60cb3341adc6a6b9b49422ccd1c661607f84c6dad9ae07e24eb70d48ca0e6034f02e4b0e0abe80c108172d890d2b4",
+                  "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
+                  "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
+            },
+            "neoforge-26.3": {
+                  "versionId": "wzmGlyop",
+                  "version": "1.11.2",
+                  "file": "waveycapes-neoforge-1.11.2-mc26.3.jar",
+                  "sha512": "76b35e4502a86df164eed553d10554c1bfd214a0ff220b9f84b0115a8ca4f8ef378aef864d33594c0580167ddb72d4a5dc223198582dd505578a23b2349406f1",
+                  "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
+                  "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
+            }
+      }
+    },
     "fancymenu": {
       "side": "client",
       "versions": {
@@ -1050,6 +1164,12 @@
       "side": "client",
       "requires": ["cape-layer-translucent"]
     },
+    "optifine-cape": {
+      "java": ["compat/capabilities/appearance/optifine-cape/src/main/java"],
+      "resources": ["compat/capabilities/appearance/optifine-cape/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
     "skin-lookup": {
       "java": ["compat/capabilities/appearance/skin-lookup/src/main/java"],
       "resources": ["compat/capabilities/appearance/skin-lookup/src/main/resources"],
@@ -1108,7 +1228,7 @@
       "java": ["loader/forge/client/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": []
+      "requires": ["optifine-cape"]
     },
     "neoforge-client-common": {
       "java": ["loader/neoforge/common/src/main/java"],
@@ -1601,7 +1721,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/forge/client/NclSkinsForgeClientEvents$ForgeBus.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": 15,
-        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.optifine-cape.mixins.json"],
         "serverMixins": []
       },
       "artifact": {

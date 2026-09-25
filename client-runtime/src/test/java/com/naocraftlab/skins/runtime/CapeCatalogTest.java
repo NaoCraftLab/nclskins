@@ -727,6 +727,33 @@ class CapeCatalogTest {
     }
 
     @Test
+    void longFourFormatErrorWrapsInsideNarrowPaneWithoutCoveringSearchOrFooter() {
+        String copy = "Поддерживаются PNG 46×22, 64×32, 92×44 и 128×64 пикселя";
+        TextResolver resolver = TextResolver.withLayout(
+                message -> message.key().equals("nclskins.capes.format_error")
+                        ? copy : message.key(),
+                (message, width) -> 9 * Math.max(1, (copy.length() * 6 + width - 1) / width));
+        CapeCatalogModel base = resourceModel(resolver);
+        CapeCatalogModel errored = base.withImportError(UiMessage.error("nclskins.capes.format_error"));
+        ViewSpec view = capeEditor(errored).present(320, 240, 0.0);
+        ViewSpec.Text error = view.texts().stream()
+                .filter(text -> text.id().equals("editor.cape_error")).findFirst().orElseThrow();
+        Bounds search = view.widget("editor.cape_search").orElseThrow().bounds();
+        Bounds viewport = view.scrollSurface("editor.capes").orElseThrow().viewport();
+        Bounds footer = view.panels().stream().filter(panel -> panel.id().equals("footer"))
+                .findFirst().orElseThrow().bounds();
+        assertEquals(ViewSpec.Text.Layout.WRAP, error.layout());
+        assertTrue(error.bounds().height() > 9);
+        assertEquals(130, error.bounds().width());
+        assertEquals(search.y(), 40);
+        assertTrue(search.bottom() < error.bounds().y());
+        assertTrue(error.bounds().bottom() < viewport.y());
+        assertTrue(viewport.bottom() <= footer.y());
+        assertTrue(capeEditor(base).present(320, 240, 0.0).scrollSurface("editor.capes")
+                .orElseThrow().viewport().height() > viewport.height());
+    }
+
+    @Test
     void mixedCollectionsKeepRowsNavigationAndSelectionLinkedAcrossCollapseFractionalScrollAndResize() {
         CapeCatalogModel expanded = mixedCatalogModel();
         CapeCatalogModel collapsed = expanded.toggle("resource:event");
@@ -845,6 +872,66 @@ class CapeCatalogTest {
         assertEquals(2, model.cycleFilter(false).matches(BuiltinProvider.OFFLINE).size());
         assertEquals(3, model.cycleFilter(true).matches(BuiltinProvider.OFFLINE).size());
         assertEquals(0, model.cycleFilter(true).cycleFilter(false).filter());
+    }
+
+    @Test void importedOptifineCapesKeepElytraFiltersAndPreviewFallbackAfterRestart(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
+        var validator = new com.naocraftlab.skins.core.png.PngValidator();
+        var storage = new com.naocraftlab.skins.core.storage.NclSkinsStorage(
+                root, validator, java.time.Clock.systemUTC());
+        storage.initialize();
+        UUID accountId = new UUID(0, 91);
+        storage.loadOrCreateAccount(accountId);
+        for (int width : new int[] {46, 64, 92, 128}) {
+            for (boolean elytra : new boolean[] {false, true}) {
+                var image = new java.awt.image.BufferedImage(width,
+                        width == 46 ? 22 : width == 92 ? 44 : width == 128 ? 64 : 32,
+                        java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                int scale = width >= 92 ? 2 : 1;
+                image.setRGB(22 * scale, 0, 0xff000000 | width);
+                if (elytra) image.setRGB(24 * scale, 0, 0x01000000);
+                if (scale == 2) {
+                    image.setRGB(3, 7, 0x80112233);
+                    image.setRGB(4, 7, 0x44224466);
+                }
+                var output = new java.io.ByteArrayOutputStream();
+                javax.imageio.ImageIO.write(image, "png", output);
+                storage.importCape(accountId, width + "-" + elytra, output.toByteArray());
+            }
+        }
+        var reopened = new com.naocraftlab.skins.core.storage.NclSkinsStorage(
+                root, validator, java.time.Clock.systemUTC());
+        var account = reopened.loadOrCreateAccount(accountId);
+        assertEquals(8, account.personalCapes().size());
+        var catalog = CapeCatalogModel.open(account, AppearanceProviders.initial(),
+                account.personalCapes().get(0).texture(), Optional.empty(), List.of(), UiMessage::key);
+        for (boolean elytra : new boolean[] {false, true}) {
+            var filtered = catalog.cycleFilter(!elytra).matches(BuiltinProvider.OFFLINE).stream()
+                    .filter(card -> card.local() != null).toList();
+            assertEquals(4, filtered.size());
+            for (var card : filtered) {
+                assertEquals(elytra, card.hasElytra());
+                byte[] stored = reopened.readCapeAsset(accountId, card.local().sha256());
+                var image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(stored));
+                int expectedWidth = card.name().startsWith("92-") || card.name().startsWith("128-")
+                        ? 128 : 64;
+                assertEquals(expectedWidth, image.getWidth());
+                assertEquals(expectedWidth / 2, image.getHeight());
+                if (expectedWidth == 128) {
+                    assertEquals(0x80112233, image.getRGB(3, 7));
+                    assertEquals(0x44224466, image.getRGB(4, 7));
+                }
+                var selected = catalog.choose(card);
+                assertEquals(elytra, selected.previewHasElytra());
+                assertTrue(selected.previewCape().orElseThrow().contains(card.local().sha256()));
+                var view = capeEditor(selected).cyclePreviewMode().present(854, 480, 0, 0,
+                        new ViewChromeMetrics(33));
+                var preview = view.backEquipmentPreviews().stream()
+                        .filter(value -> value.capeId().equals(card.texture().orElseThrow()))
+                        .findFirst().orElseThrow();
+                assertEquals(elytra, preview.capeHasElytra());
+            }
+        }
     }
 
     @Test void inspectionDoesNotReplaceOtherProviderAndTabsReturnToPriority() {

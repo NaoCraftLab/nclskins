@@ -49,6 +49,8 @@ import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
+import com.naocraftlab.skins.core.provider.ProviderCape;
+import com.naocraftlab.skins.core.provider.ProviderObservation;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.LibraryOperationException;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -59,6 +61,7 @@ import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
 import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.EnumMap;
@@ -103,6 +106,11 @@ public final class ClientRuntime implements AutoCloseable {
     private final ExecutorService ownedReconciliationWorker;
     private final Executor sessionWorker;
     private final ExecutorService ownedSessionWorker;
+    private OptiFineAccountLink optiFineAccountLink;
+    private boolean optiFineLinkClaimed;
+    private UiMessage optiFineLinkFeedback;
+    private long optiFineLinkAttempt;
+    private SelfCapeInputs publishedSelfCapeInputs;
     private final TextResolver textResolver;
     private final Optional<CurrentPlayerAppearanceSource> currentAppearanceSource;
     private final Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh;
@@ -148,6 +156,8 @@ public final class ClientRuntime implements AutoCloseable {
     private int viewportHeight = 240;
     private ViewChromeMetrics viewChromeMetrics = ViewChromeMetrics.STANDARD;
     private boolean draggingGalleryScrollbar;
+    private boolean draggingProviderRowsScrollbar;
+    private double providerRowsScrollbarGrabOffset;
     private double galleryScrollbarGrabOffset;
     private boolean draggingEditorScrollbar;
     private double editorScrollbarGrabOffset;
@@ -396,6 +406,25 @@ public final class ClientRuntime implements AutoCloseable {
                         serverAppearanceRefreshNotifier, "serverAppearanceRefreshNotifier")
                 .map(ServerAppearanceReadinessCoordinator::new);
         Objects.requireNonNull(readinessScheduler, "readinessScheduler");
+        operations.onOptiFineObservation(observation -> onClient(() ->
+                acceptOptiFineObservation(observation)));
+    }
+
+    private void acceptOptiFineObservation(ClientOperations.OptiFineObservation observation) {
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.account == null
+                || !state.account.accountId().equals(observation.accountId())
+                || !state.providers.cape().enabled(BuiltinProvider.OPTIFINE)
+                || state.providers.cape().configurationRevision() != observation.capeConfigurationRevision()) return;
+        try {
+            var current = operations.sessionIdentity();
+            if (!current.profileId().equals(observation.accountId())
+                    || !current.profileName().equals(observation.canonicalName())) return;
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        state.providers = new AppearanceProviders(state.providers.skin(),
+                state.providers.cape().observeOptifine(observation.cape()));
+        publish();
     }
 
 
@@ -417,14 +446,15 @@ public final class ClientRuntime implements AutoCloseable {
         ExecutorService sessionWorker = newWorker("nclskins-session-activity");
         DefaultClientOperations operations = DefaultClientOperations
                 .createDefault(tokenSource, bundledSkins, dataRoot)
-                .enablePublicImports(signedTextureVerifier);
+                .enablePublicImports(signedTextureVerifier)
+                .attachOptifineCapes(sink, clientExecutor);
         AppearanceRefreshCoordinator<AcknowledgedAppearanceAssets> refresh =
                 new AppearanceRefreshCoordinator<>(
                         clientExecutor,
                         operations.deterministicAppearanceResolver(worker),
                         sink,
                         diagnostics);
-        return new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(
                 operations,
                 clientExecutor,
                 filePicker,
@@ -443,6 +473,56 @@ public final class ClientRuntime implements AutoCloseable {
                         serverAppearanceRefreshNotifier, "serverAppearanceRefreshNotifier")),
                 ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
                 Objects.requireNonNull(diagnostics, "diagnostics"));
+        runtime.optiFineAccountLink = new OptiFineAccountLink(tokenSource, sessionWorker);
+        return runtime;
+    }
+
+    ClientRuntime useOptiFineAccountLink(OptiFineAccountLink link) {
+        optiFineAccountLink = Objects.requireNonNull(link, "link");
+        return this;
+    }
+
+    public Optional<URI> consumeReadyOptiFineAccountLink() {
+        if (!liveOptiFineLinkView() || optiFineLinkClaimed) return Optional.empty();
+        URI uri = optiFineAccountLink.readyUri(state.account.accountId());
+        if (uri == null) return Optional.empty();
+        optiFineLinkClaimed = true;
+        return Optional.of(uri);
+    }
+
+    public Optional<URI> currentOptiFineAccountLink() {
+        if (!liveOptiFineLinkView() || !optiFineLinkClaimed) return Optional.empty();
+        return Optional.ofNullable(optiFineAccountLink.readyUri(state.account.accountId()));
+    }
+
+    public void finishOptiFineAccountLink() {
+        onClient(this::cancelOptiFineAccountLink);
+    }
+
+    public void expireOptiFineAccountLink() {
+        onClient(() -> {
+            boolean expired = optiFineAccountLink != null && optiFineAccountLink.expired();
+            cancelOptiFineAccountLink();
+            optiFineLinkFeedback = expired
+                    ? UiMessage.error("nclskins.providers.link_expired") : null;
+            publish();
+        });
+    }
+
+    private void cancelOptiFineAccountLink() {
+        optiFineLinkAttempt++;
+        if (optiFineAccountLink != null) optiFineAccountLink.cancel();
+        optiFineLinkClaimed = false;
+        optiFineLinkFeedback = null;
+    }
+
+    private boolean liveOptiFineLinkView() {
+        return optiFineAccountLink != null && state.account != null
+                && state.lifecycle == ClientSnapshot.Lifecycle.READY
+                && (state.providersOpen || !state.providers.galleryAvailable())
+                && !state.providerAdding && state.editor == null
+                && state.providerComponent == AppearanceProviders.Component.CAPE
+                && state.providers.cape().enabled(BuiltinProvider.OPTIFINE);
     }
 
     public ClientSnapshot snapshot() {
@@ -533,6 +613,7 @@ public final class ClientRuntime implements AutoCloseable {
                                 return;
                             }
                             warmed.ifPresent(this::acceptProviderSnapshot);
+                            if (warmed.isPresent()) operations.startOptiFineCapes();
                             visibility.ifPresent(this::applyDurableOuterLayerVisibility);
                             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
                                     refreshLocalAppearance(warmed
@@ -619,6 +700,18 @@ public final class ClientRuntime implements AutoCloseable {
         onClient(this::closeScreenOnClient);
     }
 
+    public void trackedCapePlayer(UUID profileId, String canonicalName) {
+        operations.trackedCapePlayer(profileId, canonicalName);
+    }
+
+    public void untrackedCapePlayer(UUID profileId) {
+        operations.untrackedCapePlayer(profileId);
+    }
+
+    public void capeWorldChanged() {
+        operations.capeWorldChanged();
+    }
+
     public void escapePressed() {
         onClient(() -> {
             if (destinationLoading()) {
@@ -678,6 +771,8 @@ public final class ClientRuntime implements AutoCloseable {
         if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
             return;
         }
+        cancelOptiFineAccountLink();
+        optiFineLinkFeedback = null;
         state.generation++;
         state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
         state.editorReturnsToProviders = false;
@@ -698,6 +793,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.galleryScrollTarget = state.galleryScrollPosition;
         }
         draggingGalleryScrollbar = false;
+        draggingProviderRowsScrollbar = false;
         draggingEditorScrollbar = false;
         draggingAddSourceScrollbar = false;
         addSourceScrollPosition = 0.0;
@@ -709,6 +805,11 @@ public final class ClientRuntime implements AutoCloseable {
         onClient(() -> {
             if (disposed) {
                 return;
+            }
+            if (optiFineAccountLink != null && optiFineAccountLink.expired()) {
+                cancelOptiFineAccountLink();
+                optiFineLinkFeedback = UiMessage.error("nclskins.providers.link_expired");
+                publish();
             }
             boolean rateLimitChanged = observeRateLimit();
             if (state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {
@@ -962,7 +1063,9 @@ public final class ClientRuntime implements AutoCloseable {
                     state.providerAdding, state.busy, state.providerPreview.withOuterLayerVisibility(
                     outerLayerVisibilityController.map(OuterLayerVisibilityController::current).orElse(OuterLayerVisibility.allVisible())),
                     currentPlayerVariant(), width, height, state.providerPreviewSources.get(AppearanceProviders.Component.SKIN),
-                    state.providerPreviewSources.get(AppearanceProviders.Component.CAPE), snapshot.rateLimitProgress());
+                    state.providerPreviewSources.get(AppearanceProviders.Component.CAPE), snapshot.rateLimitProgress(),
+                    optiFineAccountLink != null && optiFineAccountLink.preparing(), optiFineLinkFeedback,
+                    state.providerRowsOffset, textResolver);
             SkinFeatureEvidence evidence = Optional.of(providerView.previews().get(0).imageRevision()).filter(revision -> revision.startsWith("provider:skin:")).flatMap(revision -> snapshot.account().flatMap(account ->
                     account.skinAssets().stream().filter(asset -> asset.sha256().equals(revision.substring(14))).findFirst()))
                     .map(asset -> snapshot.assetEvidence().getOrDefault(asset.id(), SkinFeatureEvidence.ORDINARY)).orElse(SkinFeatureEvidence.ORDINARY);
@@ -1233,6 +1336,8 @@ public final class ClientRuntime implements AutoCloseable {
             addSourceScrollTarget = bounded;
         } else if ("providers.chooser".equals(surfaceId) && state.providerAdding) {
             state.providerChooserOffset = Math.max(0, offsetPixels);
+        } else if ("providers.rows".equals(surfaceId) && !state.providerAdding) {
+            state.providerRowsOffset = Math.max(0, offsetPixels);
         } else if ("external.review".equals(surfaceId)
                 && state.externalImport != null
                 && state.externalImport.review().isPresent()) {
@@ -1324,6 +1429,17 @@ public final class ClientRuntime implements AutoCloseable {
             }
             if (state.providersOpen || !state.providers.galleryAvailable()) {
                 if (state.providerAdding) return;
+                ViewSpec providerView = viewInternal(viewportWidth, viewportHeight, (int) mouseX, (int) mouseY);
+                Optional<ViewSpec.Scrollbar> rowsScrollbar = providerView.scrollbar()
+                        .filter(scrollbar -> scrollbar.track().contains(mouseX, mouseY));
+                if (rowsScrollbar.isPresent()) {
+                    ViewSpec.Scrollbar scrollbar = rowsScrollbar.orElseThrow();
+                    draggingProviderRowsScrollbar = true;
+                    providerRowsScrollbarGrabOffset = scrollbar.thumb().contains(mouseX, mouseY)
+                            ? mouseY - scrollbar.thumb().y() : scrollbar.thumb().height() / 2.0;
+                    setProviderRowsFromScrollbar(scrollbar, mouseY - providerRowsScrollbarGrabOffset);
+                    return;
+                }
                 state.providerPreview = state.providerPreview.beginRotate(new Bounds(0, 0, viewportWidth / 2, viewportHeight), mouseX, mouseY);
                 publish();
                 return;
@@ -1412,7 +1528,11 @@ public final class ClientRuntime implements AutoCloseable {
             if (button != 0) {
                 return;
             }
-            if (state.providerPreview.rotating()) {
+            if (draggingProviderRowsScrollbar) {
+                viewInternal(viewportWidth, viewportHeight, (int) mouseX, (int) mouseY).scrollbar()
+                        .ifPresent(scrollbar -> setProviderRowsFromScrollbar(scrollbar,
+                                mouseY - providerRowsScrollbarGrabOffset));
+            } else if (state.providerPreview.rotating()) {
                 state.providerPreview = state.providerPreview.drag(deltaX, deltaY);
                 publish();
             } else if (draggingEditorScrollbar && state.editor != null) {
@@ -1450,6 +1570,7 @@ public final class ClientRuntime implements AutoCloseable {
                 return;
             }
             state.providerPreview = state.providerPreview.endRotate();
+            draggingProviderRowsScrollbar = false;
             draggingGalleryScrollbar = false;
             draggingEditorScrollbar = false;
             draggingAddSourceScrollbar = false;
@@ -1465,6 +1586,15 @@ public final class ClientRuntime implements AutoCloseable {
         onClient(() -> {
             if (state.providersOpen || !state.providers.galleryAvailable()) {
                 if (state.providerAdding) return;
+                ViewSpec providerView = viewInternal(viewportWidth, viewportHeight, (int) mouseX, (int) mouseY);
+                ViewSpec.ScrollSurface rows = providerView.scrollSurface("providers.rows").orElse(null);
+                double amount = dominantScrollAmount(horizontalAmount, verticalAmount);
+                if (rows != null && rows.viewport().contains(mouseX, mouseY) && amount != 0.0) {
+                    state.providerRowsOffset = Math.max(0, Math.min(rows.maximumPixels(),
+                            rows.offsetPixels() - amount * WHEEL_SCROLL_PIXELS));
+                    publish();
+                    return;
+                }
                 state.providerPreview = state.providerPreview.scroll(new Bounds(0, 0, viewportWidth / 2, viewportHeight), mouseX, mouseY, verticalAmount);
                 publish();
                 return;
@@ -1565,6 +1695,11 @@ public final class ClientRuntime implements AutoCloseable {
                     state.providerChooserOffset = offsetPixels;
                     publish();
                 }
+                case "providers.rows" -> {
+                    if (state.providerAdding || !(state.providersOpen || !state.providers.galleryAvailable())) return;
+                    state.providerRowsOffset = Math.max(0, offsetPixels);
+                    publish();
+                }
                 case "external.review" -> {
                     if (state.externalImport == null || state.externalImport.review().isEmpty()) {
                         return;
@@ -1590,6 +1725,15 @@ public final class ClientRuntime implements AutoCloseable {
                 }
             }
         });
+    }
+
+    private void setProviderRowsFromScrollbar(ViewSpec.Scrollbar scrollbar, double thumbY) {
+        int travel = scrollbar.track().height() - scrollbar.thumb().height();
+        double fraction = travel <= 0 ? 0.0
+                : (thumbY - scrollbar.track().y()) / travel;
+        state.providerRowsOffset = Math.max(0, Math.min(scrollbar.maximum(),
+                fraction * scrollbar.maximum()));
+        publish();
     }
 
 
@@ -1864,6 +2008,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (disposed) {
                 return;
             }
+            cancelOptiFineAccountLink();
             disposed = true;
             state.generation++;
             state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
@@ -1875,6 +2020,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.addSource = null;
             appearanceRefresh.ifPresent(AppearanceRefreshCoordinator::close);
             serverAppearanceReadiness.ifPresent(ServerAppearanceReadinessCoordinator::close);
+            operations.closeOptiFineCapes();
             operations.close();
             previewInFlight.clear();
             previewBytes.clear();
@@ -1977,6 +2123,15 @@ public final class ClientRuntime implements AutoCloseable {
 
     private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptInitialData(
             ClientOperations.InitialData data, boolean initialized) {
+        boolean gameChanged = !state.readyData || state.account == null
+                || !state.account.accountId().equals(data.account().accountId())
+                || !Objects.equals(state.localAppearance, data.localAppearance().orElse(null))
+                || providerChainChanged(state.providers.skin(), data.providers().skin())
+                || providerChainChanged(state.providers.cape(), data.providers().cape());
+        if (state.account != null && !state.account.accountId().equals(data.account().accountId())) {
+            cancelOptiFineAccountLink();
+            optiFineLinkFeedback = null;
+        }
         UUID previousActivePresetId = state.activePresetId;
         boolean sameGalleryAnchor = sameGalleryAnchor(data);
         state.lifecycle = ClientSnapshot.Lifecycle.READY;
@@ -1990,6 +2145,8 @@ public final class ClientRuntime implements AutoCloseable {
             centerGalleryOnActive();
         }
         state.providers = data.providers();
+        operations.startOptiFineCapes();
+        adoptSharedCapeObservation(data.providers());
         state.intentRevision = data.intentRevision();
         state.syncStatus = data.syncStatus();
         state.uiPreferences = data.uiPreferences();
@@ -2015,7 +2172,9 @@ public final class ClientRuntime implements AutoCloseable {
             state.status = sessionMessage(data.session());
         }
         CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
-                refreshLocalAppearance(data.localAppearance());
+                gameChanged ? refreshLocalAppearance(data.localAppearance())
+                        : CompletableFuture.completedFuture(
+                                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
         data.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
         if (initialized || data.ownedCapes().capes().isEmpty()) {
             return localRebind;
@@ -2118,20 +2277,28 @@ public final class ClientRuntime implements AutoCloseable {
         if (id.equals("gallery.providers")) {
             state.providersOpen = true;
             state.providerPreviewSources.clear();
-            submit(UiMessage.info("nclskins.providers.title"), operations::reloadProviders, this::acceptProviderChange);
+            submit(UiMessage.info("nclskins.providers.title"), operations::reloadProviders, appearance -> {
+                acceptProviderChange(appearance);
+                adoptSharedCapeObservation(appearance.providers());
+            });
             state.providerPreview = PreviewInteractionModel.editor(viewportHeight, preferredCapeMode);
         } else if (id.equals("providers.back")) {
+            cancelOptiFineAccountLink();
             if (state.providerAdding) state.providerAdding = false;
             else if (state.rootDestination == ScreenDestination.PROVIDERS) closeScreenOnClient();
             else if (state.providers.galleryAvailable()) state.providersOpen = false;
             else closeScreenOnClient();
         } else if (id.startsWith("providers.tab.")) {
+            cancelOptiFineAccountLink();
             selectProvidersTab(AppearanceProviders.Component.valueOf(id.substring(14)));
             state.providerPreviewSources.clear();
             state.providerAdding = false;
+            state.providerRowsOffset = 0;
         } else if (id.equals("providers.add")) {
+            cancelOptiFineAccountLink();
             state.providerAdding = true;
             state.providerChooserOffset = 0;
+            state.providerRowsOffset = 0;
         } else if (id.equals("providers.preview_mode")) {
             state.providerPreview = state.providerPreview.cycleCapeMode(true);
             preferredCapeMode = state.providerPreview.capeMode();
@@ -2145,14 +2312,30 @@ public final class ClientRuntime implements AutoCloseable {
             String[] action = id.split("\\.");
             if (action.length < 2 || state.busy) return;
             if (id.equals("providers.refresh")) {
-                submit(UiMessage.info("nclskins.providers.refresh"), () -> operations.refreshProviders(component), this::acceptProviderChange);
+                RefreshComparison comparison = captureRefreshComparison(component);
+                submit(UiMessage.info("nclskins.providers.refresh"),
+                        () -> operations.refreshProvidersWithObservation(component), result -> {
+                    ClientOperations.DurableAppearance appearance = result.appearance();
+                    acceptProviderChange(appearance);
+                    if (component == AppearanceProviders.Component.CAPE) {
+                        AppearanceProviders confirmedMinecraft = appearance.providers();
+                        operations.refreshOptiFineCapes(optifine -> onClient(() ->
+                                finishRefreshComparison(comparison, confirmedMinecraft,
+                                        result.confirmedMinecraft(), optifine)));
+                    } else {
+                        finishRefreshComparison(comparison, appearance.providers(),
+                                result.confirmedMinecraft(), null);
+                    }
+                });
             } else if (action.length == 3) {
                 BuiltinProvider provider = BuiltinProvider.valueOf(action[2]);
                 String verb = action[1];
                 if (verb.equals("edit")) {
                     if (state.providerAdding || !state.providers.galleryAvailable()
+                            || !provider.writable()
                             || !(component == AppearanceProviders.Component.SKIN ? state.providers.skin().order()
-                                    : state.providers.cape().order()).contains(provider)) return;
+                            : state.providers.cape().order()).contains(provider)) return;
+                    cancelOptiFineAccountLink();
                     state.providersOpen = false;
                     clearRuntimeFocus("providers");
                     if (component == AppearanceProviders.Component.CAPE) {
@@ -2174,9 +2357,17 @@ public final class ClientRuntime implements AutoCloseable {
                     publish();
                     return;
                 }
+                if (verb.equals("account")) {
+                    if (provider != BuiltinProvider.OPTIFINE || component != AppearanceProviders.Component.CAPE
+                            || state.providerAdding || !state.providers.cape().order().contains(provider)) return;
+                    prepareOptiFineAccountLink();
+                    return;
+                }
                 if (verb.equals("row") && state.providerAdding && (component == AppearanceProviders.Component.SKIN
                         ? state.providers.skin().order() : state.providers.cape().order()).contains(provider)) return;
                 if (verb.equals("row") && !state.providerAdding) { state.providerPreviewSources.put(component, provider); publish(); return; }
+                if (verb.equals("remove") && provider == BuiltinProvider.OPTIFINE
+                        && component == AppearanceProviders.Component.CAPE) cancelOptiFineAccountLink();
                 int previousIndex = (component == AppearanceProviders.Component.SKIN ? state.providers.skin().order() : state.providers.cape().order()).indexOf(provider);
                 UUID accountId = state.account.accountId();
                 submitProviderConfiguration(() -> switch (verb) {
@@ -2186,7 +2377,9 @@ public final class ClientRuntime implements AutoCloseable {
                     case "down" -> operations.moveProvider(accountId, component, provider, 1);
                     default -> throw new IllegalArgumentException("Unknown provider action");
                 }, appearance -> {
-                    acceptProviderChange(appearance);
+                    CompletableFuture<AppearanceRefreshCoordinator.Result> providerRebind =
+                            acceptProviderChange(appearance);
+                    operations.optiFineConfigurationChanged();
                     state.providerAdding = false;
                     if (origin == InteractionOrigin.KEYBOARD) {
                         var remaining = component == AppearanceProviders.Component.SKIN ? state.providers.skin().order() : state.providers.cape().order();
@@ -2197,11 +2390,32 @@ public final class ClientRuntime implements AutoCloseable {
                     }
                     if (verb.equals("remove") && state.providerPreviewSources.get(component) == provider) state.providerPreviewSources.remove(component);
                     if (verb.equals("row")) reconcileAfterLocalRebind(
-                            refreshLocalAppearance(appearance.localAppearance()), ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                            providerRebind, ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
                 });
             }
         }
         publish();
+    }
+
+    private void prepareOptiFineAccountLink() {
+        if (!liveOptiFineLinkView() || optiFineAccountLink.preparing()) return;
+        UUID accountId = state.account.accountId();
+        long attempt = ++optiFineLinkAttempt;
+        optiFineLinkClaimed = false;
+        optiFineLinkFeedback = UiMessage.info("nclskins.providers.link_preparing");
+        publish();
+        optiFineAccountLink.begin(accountId).whenComplete((result, failure) -> onClient(() -> {
+            if (disposed || attempt != optiFineLinkAttempt || !liveOptiFineLinkView()
+                    || !accountId.equals(state.account.accountId())) return;
+            OptiFineAccountLink.Outcome outcome = failure == null ? result.outcome() : OptiFineAccountLink.Outcome.FAILED;
+            optiFineLinkFeedback = switch (outcome) {
+                case READY, CANCELLED -> null;
+                case AUTH_REQUIRED -> UiMessage.error("nclskins.providers.link_auth_required");
+                case FAILED -> UiMessage.error("nclskins.providers.link_failed");
+                case EXPIRED -> UiMessage.error("nclskins.providers.link_expired");
+            };
+            publish();
+        }));
     }
 
     private void submitProviderConfiguration(ThrowingSupplier<ClientOperations.DurableAppearance> operation,
@@ -2239,15 +2453,97 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    private void acceptProviderChange(ClientOperations.DurableAppearance appearance) {
-        if (!currentSessionOwns(appearance)) return;
+    private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptProviderChange(
+            ClientOperations.DurableAppearance appearance) {
+        if (!currentSessionOwns(appearance)) return CompletableFuture.completedFuture(
+                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+        boolean gameChanged = providerChainChanged(state.providers.skin(), appearance.providers().skin())
+                || providerChainChanged(state.providers.cape(), appearance.providers().cape());
+        boolean localChanged = !Objects.equals(state.localAppearance,
+                appearance.localAppearance().orElse(null));
+        if (!appearance.providers().cape().enabled(BuiltinProvider.OPTIFINE)) cancelOptiFineAccountLink();
         state.providers = appearance.providers();
         state.intentRevision = appearance.intentRevision();
         state.syncStatus = appearance.syncStatus();
-        appearance.localAppearance().ifPresent(this::refreshLocalAppearance);
+        CompletableFuture<AppearanceRefreshCoordinator.Result> rebind = gameChanged || localChanged
+                ? refreshLocalAppearance(appearance.localAppearance())
+                : CompletableFuture.completedFuture(AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
         observeRateLimit();
         publish();
+        return rebind;
     }
+
+    private static boolean providerChainChanged(
+            com.naocraftlab.skins.core.provider.ProviderChannel<?> before,
+            com.naocraftlab.skins.core.provider.ProviderChannel<?> after) {
+        if (!before.order().equals(after.order())) return true;
+        for (BuiltinProvider provider : before.order()) {
+            if (!before.observation(provider).equals(after.observation(provider))) return true;
+        }
+        return false;
+    }
+
+    private void adoptSharedCapeObservation(AppearanceProviders providers) {
+        if (state.account == null) return;
+        try {
+            GameSessionTokenSource.SessionIdentity identity = operations.sessionIdentity();
+            if (identity.profileId().equals(state.account.accountId())) {
+                operations.adoptSharedCapeObservation(identity.profileId(), identity.profileName(), providers);
+            }
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+    }
+
+    private RefreshComparison captureRefreshComparison(AppearanceProviders.Component component) {
+        if (state.account == null) return null;
+        try {
+            GameSessionTokenSource.SessionIdentity identity = operations.sessionIdentity();
+            if (!identity.profileId().equals(state.account.accountId())) return null;
+            return new RefreshComparison(identity.profileId(), identity.profileName(),
+                    component, state.providers);
+        } catch (RuntimeException unavailable) {
+            return null;
+        }
+    }
+
+    private void finishRefreshComparison(RefreshComparison comparison,
+            AppearanceProviders confirmedState, ProviderObservation<?> confirmedMinecraft,
+            ProviderObservation<ProviderCape> optifine) {
+        if (comparison == null || disposed || state.account == null
+                || !comparison.accountId().equals(state.account.accountId())) return;
+        GameSessionTokenSource.SessionIdentity identity;
+        try {
+            identity = operations.sessionIdentity();
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        if (!comparison.accountId().equals(identity.profileId())
+                || !comparison.canonicalName().equals(identity.profileName())) return;
+        var before = comparison.component() == AppearanceProviders.Component.SKIN
+                ? comparison.providers().skin() : comparison.providers().cape();
+        var after = comparison.component() == AppearanceProviders.Component.SKIN
+                ? confirmedState.skin() : confirmedState.cape();
+        if (before.configurationRevision() != after.configurationRevision()
+                || !before.order().equals(after.order())
+                || (comparison.component() == AppearanceProviders.Component.CAPE
+                    && state.providers.cape().configurationRevision() != after.configurationRevision())) return;
+        ProviderObservation<?> oldMinecraft = before.observation(BuiltinProvider.MINECRAFT);
+        boolean changed = before.enabled(BuiltinProvider.MINECRAFT)
+                && oldMinecraft.known() && confirmedMinecraft != null
+                && confirmedMinecraft.known() && !oldMinecraft.equals(confirmedMinecraft);
+        if (comparison.component() == AppearanceProviders.Component.CAPE
+                && before.enabled(BuiltinProvider.OPTIFINE) && optifine != null) {
+            ProviderObservation<ProviderCape> oldOptifine = comparison.providers().cape().optifine();
+            changed |= oldOptifine.known() && optifine.known() && !oldOptifine.equals(optifine);
+        }
+        if (changed) {
+            serverAppearanceReadiness.ifPresent(ServerAppearanceReadinessCoordinator::start);
+        }
+    }
+
+    private record RefreshComparison(UUID accountId, String canonicalName,
+            AppearanceProviders.Component component, AppearanceProviders providers) {}
 
     private void dispatchWidgetOnClient(
             String widgetId, boolean reverse, InteractionOrigin origin) {
@@ -5106,6 +5402,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void publish() {
+        notifySelfCapeInputs();
         appearanceRefresh.ifPresent(coordinator -> coordinator.providerVisibility(
                 new com.naocraftlab.skins.client.ProviderVisibility(
                         state.providers.skin().order().contains(BuiltinProvider.MINECRAFT),
@@ -5148,6 +5445,27 @@ public final class ClientRuntime implements AutoCloseable {
         ClientSnapshot published = snapshot;
         listeners.forEach(listener -> listener.accept(published));
     }
+
+    private void notifySelfCapeInputs() {
+        if (state.account == null) return;
+        GameSessionTokenSource.SessionIdentity identity;
+        try {
+            identity = operations.sessionIdentity();
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        if (!state.account.accountId().equals(identity.profileId())) return;
+        SelfCapeInputs next = new SelfCapeInputs(identity.profileId(), identity.profileName(),
+                state.providers.cape().offline(), state.providers.cape().minecraft());
+        if (next.equals(publishedSelfCapeInputs)) return;
+        publishedSelfCapeInputs = next;
+        operations.selfCapeCandidatesChanged(identity.profileId(), identity.profileName(),
+                state.providers);
+    }
+
+    private record SelfCapeInputs(UUID accountId, String canonicalName,
+            ProviderObservation<ProviderCape> offline,
+            ProviderObservation<ProviderCape> minecraft) {}
 
     private boolean refreshSkinExtensionEnvironment() {
         skinExtensionEnvironmentInitialized = true;
@@ -5564,6 +5882,7 @@ public final class ClientRuntime implements AutoCloseable {
         private boolean galleryReturnsToProviders;
         private boolean providerAdding;
         private double providerChooserOffset;
+        private double providerRowsOffset;
         private AppearanceProviders.Component providerComponent = AppearanceProviders.Component.SKIN;
         private PreviewInteractionModel providerPreview = PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE);
         private String galleryQuery = "";

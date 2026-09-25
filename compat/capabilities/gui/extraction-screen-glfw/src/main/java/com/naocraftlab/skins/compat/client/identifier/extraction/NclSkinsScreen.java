@@ -8,6 +8,7 @@ import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource.PlayerAppearance;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.compat.config.ConfigurationLinkApi;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
 import com.naocraftlab.skins.client.TextureRegistry.TextureKind;
@@ -34,6 +35,7 @@ import com.naocraftlab.skins.runtime.VanillaListSurface;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import com.naocraftlab.skins.runtime.ViewHostPolicy;
 import java.util.ArrayList;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -119,6 +121,7 @@ public final class NclSkinsScreen extends Screen {
     private List<WidgetSignature> widgetSignature = List.of();
     private List<TabGroupSignature> tabGroupSignature = List.of();
     private boolean activeScreen;
+    private boolean showingOptiFineLink;
     private boolean rebuilding;
     private boolean syncingTabSelection;
     private boolean pointerCaptured;
@@ -178,6 +181,7 @@ public final class NclSkinsScreen extends Screen {
     @Override
     protected void init() {
         activeScreen = true;
+        showingOptiFineLink = false;
         if (runtime.closed()) {
             return;
         }
@@ -229,6 +233,21 @@ public final class NclSkinsScreen extends Screen {
         tabGroupSignature = List.of();
     }
 
+    private void showOptiFineLink(URI uri) {
+        showingOptiFineLink = true;
+        Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
+            URI current = runtime.currentOptiFineAccountLink().orElse(null);
+            if (accepted && uri.equals(current)) ConfigurationLinkApi.open(uri);
+            else if (accepted && current == null) runtime.expireOptiFineAccountLink();
+            runtime.finishOptiFineAccountLink();
+            if (minecraft != null) ExtractionGuiApi.setScreen(minecraft, this);
+        }, uri, () -> runtime.currentOptiFineAccountLink().filter(uri::equals).isPresent(), () -> {
+            runtime.expireOptiFineAccountLink();
+            if (minecraft != null) ExtractionGuiApi.setScreen(minecraft, this);
+        });
+        ExtractionGuiApi.setScreen(minecraft, confirmation);
+    }
+
     private void snapshotChanged(ClientSnapshot snapshot) {
         if (runtime.closed()
                 || !activeScreen
@@ -240,6 +259,8 @@ public final class NclSkinsScreen extends Screen {
             ExtractionGuiApi.setScreen(minecraft, parent);
             return;
         }
+        runtime.consumeReadyOptiFineAccountLink().ifPresent(this::showOptiFineLink);
+        if (showingOptiFineLink) return;
         ViewSpec next = runtime.view(width, height, lastMouseX, lastMouseY);
         currentView = next;
         syncPreviewAssets(next);
@@ -1729,6 +1750,10 @@ public final class NclSkinsScreen extends Screen {
     public void removed() {
         activationCharacters.reset();
         activeScreen = false;
+        if (showingOptiFineLink) {
+            super.removed();
+            return;
+        }
         pointerCaptured = false;
         focusRequests.reset();
         IdentifierTextureRegistry registry = textureRegistry;

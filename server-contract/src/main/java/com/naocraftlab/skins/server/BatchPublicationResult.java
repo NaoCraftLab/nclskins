@@ -6,17 +6,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 
 public final class BatchPublicationResult {
     private final Map<ConnectionKey, PublicationOutcome> outcomes;
     private final PublicationMetrics metrics;
+    private final Set<ConnectionKey> hinted;
 
     private BatchPublicationResult(
             Map<ConnectionKey, PublicationOutcome> outcomes,
-            PublicationMetrics metrics) {
+            PublicationMetrics metrics,
+            Set<ConnectionKey> hinted) {
         this.outcomes = Collections.unmodifiableMap(new LinkedHashMap<>(outcomes));
         this.metrics = Objects.requireNonNull(metrics, "metrics");
+        this.hinted = Set.copyOf(Objects.requireNonNull(hinted, "hinted"));
     }
 
     public static BatchPublicationResult of(Map<ConnectionKey, PublicationOutcome> outcomes) {
@@ -26,12 +30,22 @@ public final class BatchPublicationResult {
     public static BatchPublicationResult of(
             Map<ConnectionKey, PublicationOutcome> outcomes,
             PublicationMetrics metrics) {
+        return of(outcomes, metrics, Set.of());
+    }
+
+    public static BatchPublicationResult of(
+            Map<ConnectionKey, PublicationOutcome> outcomes,
+            PublicationMetrics metrics,
+            Set<ConnectionKey> hinted) {
         Objects.requireNonNull(outcomes, "outcomes");
         Map<ConnectionKey, PublicationOutcome> copy = new LinkedHashMap<>();
         outcomes.forEach((key, outcome) -> copy.put(
                 Objects.requireNonNull(key, "connection key"),
                 Objects.requireNonNull(outcome, "publication outcome")));
-        return new BatchPublicationResult(copy, metrics);
+        if (!copy.keySet().containsAll(hinted)) {
+            throw new IllegalArgumentException("Hint receipt must name a publication actor");
+        }
+        return new BatchPublicationResult(copy, metrics, hinted);
     }
 
     public static BatchPublicationResult all(
@@ -57,6 +71,10 @@ public final class BatchPublicationResult {
 
     public PublicationMetrics metrics() {
         return metrics;
+    }
+
+    public boolean hinted(ConnectionKey connection) {
+        return hinted.contains(Objects.requireNonNull(connection, "connection"));
     }
 
     @Override

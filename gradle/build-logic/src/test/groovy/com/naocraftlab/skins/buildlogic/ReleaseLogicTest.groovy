@@ -22,7 +22,6 @@ final class ReleaseLogicTest {
         List<String> lines = changelog.readLines()
         String currentHeading = "## ${currentVersion}"
 
-        assertEquals('1.1.0', currentVersion)
         assertEquals(currentHeading, lines.find { !it.isBlank() })
         assertEquals(1, lines.count { it == currentHeading })
         int nextVersion = lines.findIndexOf(1) { it.startsWith('## ') }
@@ -38,8 +37,10 @@ final class ReleaseLogicTest {
         } else {
             Map metadata = ReleaseMetadata.validate(versionFile, changelog, currentVersion)
             assertEquals(currentVersion, metadata.version)
-            assertEquals('release', metadata.channel)
-            assertFalse(metadata.prerelease)
+            String expectedChannel = currentVersion.contains('-alpha.') ? 'alpha'
+                    : currentVersion.contains('-beta.') ? 'beta' : 'release'
+            assertEquals(expectedChannel, metadata.channel)
+            assertEquals(expectedChannel != 'release', metadata.prerelease)
         }
 
         File pluginChangelog = new File(repository, 'PLUGIN_CHANGELOG.md')
@@ -126,6 +127,37 @@ final class ReleaseLogicTest {
                 workflow.indexOf('Publish missing marketplace files'))
         assertTrue(workflow.indexOf('Publish missing marketplace files') <
                 workflow.indexOf('Publish GitHub production JARs'))
+    }
+
+    @Test
+    void releaseCandidateChecksRunBeforeTagWithoutPublicationAccess() {
+        String workflow = new File(repository, '.github/workflows/release-candidate.yml').text
+
+        assertTrue(workflow.contains('workflow_dispatch:'))
+        assertTrue(workflow.contains('[[ "$GITHUB_REF" == refs/heads/main ]]'))
+        assertTrue(workflow.contains('ref: ${{ github.sha }}'))
+        assertTrue(workflow.contains('persist-credentials: false'))
+        assertTrue(workflow.contains('contents: read'))
+        assertFalse(workflow.contains('contents: write'))
+        assertFalse(workflow.contains('secrets.'))
+        assertFalse(workflow.contains('gh release'))
+        assertFalse(workflow.contains('git push'))
+        assertFalse(workflow.contains('publishRelease'))
+        assertFalse(workflow.contains('openspec/'))
+        assertFalse(workflow.contains('.agents/'))
+
+        int validation = workflow.indexOf('run: ./gradlew validateRelease')
+        int shared = workflow.indexOf('run: ./gradlew checkRelease')
+        int allTargets = workflow.indexOf('run: ./gradlew fullCheck')
+        assertTrue(validation > 0 && validation < shared && shared < allTargets)
+        assertTrue(workflow.contains('-PreleaseTag="$VERSION"'))
+        assertTrue(workflow.contains('checkRelease --no-daemon --console=plain --no-build-cache --rerun-tasks'))
+        assertTrue(workflow.contains('NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}'))
+        assertTrue(workflow.contains('NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}'))
+        assertTrue(workflow.contains('NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}'))
+        workflow.readLines().findAll { it.trim().startsWith('uses:') }.each { String line ->
+            assertTrue(line ==~ /.*@[0-9a-f]{40}(?:\s+#.*)?/, line)
+        }
     }
 
     @Test
@@ -402,6 +434,19 @@ Plugin changes
                     ReleaseMetadata.validate(versionFile, changelogFile, '1.1.0-beta.2')
                 }
                 assertTrue(failure.message.contains("does not match modVersion '1.0.0-alpha.1'"))
+        }
+    }
+
+    @Test
+    void nextModBetaVersionIsPublishedAsPrereleaseMetadata() {
+        String version = '1.2.0-beta.1'
+        withReleaseFixture(version, "## ${version}\n\nRelease candidate notes\n") {
+            File versionFile, File changelogFile ->
+                Map metadata = ReleaseMetadata.validate(versionFile, changelogFile, version)
+                assertEquals(version, metadata.version)
+                assertEquals('beta', metadata.channel)
+                assertTrue(metadata.prerelease)
+                assertEquals('Release candidate notes\n', metadata.notes)
         }
     }
 
