@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.ClientExecutor;
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.client.ExpectedAppearance;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
@@ -35,6 +36,7 @@ import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderDelivery;
@@ -2169,6 +2171,98 @@ final class DefaultClientOperationsTest {
         assertEquals(4, withPack.cards().stream().filter(card -> card.resource() != null).count());
         assertFalse(withPack.cards().stream().anyMatch(card -> offline.equals(card.local())));
         assertEquals(2, reopened.loadOrCreateAccount(TestFixtures.ACCOUNT_ID).personalCapes().size());
+    }
+
+    @Test
+    void resourcePackJpegUsesFrozenCanonicalPreviewAndSurvivesPackRemoval() throws Exception {
+        BufferedImage image = new BufferedImage(64, 32, BufferedImage.TYPE_INT_RGB);
+        image.setRGB(22, 1, 0xff4477aa);
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpeg", encoded);
+        byte[] jpeg = encoded.toByteArray();
+        byte[] canonical = new PngValidator().projectCape(jpeg).bytes();
+        AtomicInteger generation = new AtomicInteger(4);
+        AtomicReference<Boolean> active = new AtomicReference<>(true);
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override public byte[] load(String collectionId, String skinId, SkinModel model) {
+                throw new AssertionError("No skin requested");
+            }
+            @Override public List<com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor>
+                    capeCollections() {
+                return active.get() ? ResourcePackCapeCatalog.build(List.of(
+                        new ResourcePackCapeCatalog.Variant("event", "hero", "top", 0,
+                                "event:textures/entity/cape/hero.jpg"),
+                        new ResourcePackCapeCatalog.Variant("event", "broken", "top", 0,
+                                "event:textures/entity/cape/broken.jpeg"))) : List.of();
+            }
+            @Override public byte[] loadCape(String collectionId, String capeId) {
+                return "hero".equals(capeId) ? jpeg.clone() : new byte[] {1, 2, 3};
+            }
+            @Override public long capeGeneration() { return generation.get(); }
+        };
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), shared, source, fixedClock());
+        var data = operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        assertEquals(List.of("hero"), data.resourceCollections().get(0).capes().stream()
+                .map(com.naocraftlab.skins.client.CapeCatalogSource.CapeDescriptor::id).toList());
+        var descriptor = data.resourceCollections().get(0).capes().get(0);
+        assertEquals(com.naocraftlab.skins.client.CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA,
+                descriptor.renderSupport());
+        var key = new ClientOperations.ResourceCapeKey("event", "hero");
+        var selection = new ClientOperations.ResourceCapeSelection("event", "hero", "Hero",
+                descriptor.contentIdentity(), data.sourceHashes().get(key),
+                data.resourceGeneration(), true);
+        assertArrayEquals(canonical, operations.loadResourceCapePreview(
+                TestFixtures.ACCOUNT_ID, selection).orElseThrow());
+        var saved = operations.materializeResourceCape(TestFixtures.ACCOUNT_ID, selection);
+        assertTrue(saved.texture().hasElytra());
+        assertArrayEquals(canonical, shared.readCapeAsset(
+                TestFixtures.ACCOUNT_ID, saved.texture().sha256()));
+
+        active.set(false);
+        generation.incrementAndGet();
+        assertTrue(operations.loadResourceCapePreview(TestFixtures.ACCOUNT_ID, selection).isEmpty());
+        var reloaded = operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        assertTrue(reloaded.resourceCollections().isEmpty());
+        assertThrows(IOException.class, () -> operations.materializeResourceCape(
+                TestFixtures.ACCOUNT_ID, selection));
+        assertEquals(saved, storage().loadOrCreateAccount(TestFixtures.ACCOUNT_ID).personalCapes().get(0));
+    }
+
+    @Test
+    void personalCapeImportRequiresMatchingPngOrJpegExtension() throws Exception {
+        byte[] png = customCapePng();
+        BufferedImage image = new BufferedImage(64, 32, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpeg", encoded);
+        Path wrongJpeg = Files.write(temporaryDirectory.resolve("wrong.jpg"), png);
+        Path wrongPng = Files.write(temporaryDirectory.resolve("wrong.png"), encoded.toByteArray());
+        Path jpeg = Files.write(temporaryDirectory.resolve("cape.jpeg"), encoded.toByteArray());
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), storage(),
+                (collection, id, model) -> png, fixedClock());
+        assertThrows(PngValidationException.class, () -> operations.importCape(
+                TestFixtures.ACCOUNT_ID, wrongJpeg, "Cape"));
+        assertThrows(PngValidationException.class, () -> operations.importCape(
+                TestFixtures.ACCOUNT_ID, wrongPng, "Cape"));
+        var imported = operations.importCape(TestFixtures.ACCOUNT_ID, jpeg, "Cape");
+        assertTrue(imported.texture().hasElytra());
+    }
+
+    @Test
+    void personalCapeFileRejectsOverSharedLimitBeforeFormatCheck() throws Exception {
+        Path oversized = temporaryDirectory.resolve("oversized.jpeg");
+        try (var file = new java.io.RandomAccessFile(oversized.toFile(), "rw")) {
+            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1L);
+        }
+        byte[] png = customCapePng();
+        DefaultClientOperations operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), storage(),
+                (collection, id, model) -> png, fixedClock());
+        PngValidationException failure = assertThrows(PngValidationException.class,
+                () -> operations.importCape(TestFixtures.ACCOUNT_ID, oversized, "Cape"));
+        assertEquals(PngValidationException.Reason.OVERSIZED, failure.reason());
     }
 
     @Test

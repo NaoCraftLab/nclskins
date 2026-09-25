@@ -122,7 +122,7 @@ public final class NclSkinsScreen extends Screen {
     private List<WidgetSignature> widgetSignature = List.of();
     private List<TabGroupSignature> tabGroupSignature = List.of();
     private boolean activeScreen;
-    private boolean showingOptiFineLink;
+    private boolean showingAccountLink;
     private boolean rebuilding;
     private boolean syncingTabSelection;
     private boolean pointerCaptured;
@@ -182,7 +182,7 @@ public final class NclSkinsScreen extends Screen {
     @Override
     protected void init() {
         activeScreen = true;
-        showingOptiFineLink = false;
+        showingAccountLink = false;
         if (runtime.closed()) {
             return;
         }
@@ -235,7 +235,7 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private void showOptiFineLink(URI uri) {
-        showingOptiFineLink = true;
+        showingAccountLink = true;
         Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
             URI current = runtime.currentOptiFineAccountLink().orElse(null);
             if (accepted && uri.equals(current)) ConfigurationLinkApi.open(uri);
@@ -244,6 +244,21 @@ public final class NclSkinsScreen extends Screen {
             if (minecraft != null) ExtractionGuiApi.setScreen(minecraft, this);
         }, uri, () -> runtime.currentOptiFineAccountLink().filter(uri::equals).isPresent(), () -> {
             runtime.expireOptiFineAccountLink();
+            if (minecraft != null) ExtractionGuiApi.setScreen(minecraft, this);
+        });
+        ExtractionGuiApi.setScreen(minecraft, confirmation);
+    }
+
+    private void showSkinMcLink(URI uri) {
+        showingAccountLink = true;
+        Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
+            if (accepted && runtime.currentSkinMcAccountLink().filter(uri::equals).isPresent()) {
+                ConfigurationLinkApi.open(uri);
+            }
+            runtime.finishSkinMcAccountLink();
+            if (minecraft != null) ExtractionGuiApi.setScreen(minecraft, this);
+        }, uri, () -> runtime.currentSkinMcAccountLink().filter(uri::equals).isPresent(), () -> {
+            runtime.finishSkinMcAccountLink();
             if (minecraft != null) ExtractionGuiApi.setScreen(minecraft, this);
         });
         ExtractionGuiApi.setScreen(minecraft, confirmation);
@@ -261,7 +276,8 @@ public final class NclSkinsScreen extends Screen {
             return;
         }
         runtime.consumeReadyOptiFineAccountLink().ifPresent(this::showOptiFineLink);
-        if (showingOptiFineLink) return;
+        if (!showingAccountLink) runtime.consumeReadySkinMcAccountLink().ifPresent(this::showSkinMcLink);
+        if (showingAccountLink) return;
         ViewSpec next = runtime.view(width, height, lastMouseX, lastMouseY);
         currentView = next;
         scrollController.synchronize(next.scrollSurfaces().stream().findFirst());
@@ -1759,7 +1775,7 @@ public final class NclSkinsScreen extends Screen {
     public void removed() {
         activationCharacters.reset();
         activeScreen = false;
-        if (showingOptiFineLink) {
+        if (showingAccountLink) {
             super.removed();
             return;
         }

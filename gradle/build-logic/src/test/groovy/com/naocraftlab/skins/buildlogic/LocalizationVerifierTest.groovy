@@ -59,7 +59,7 @@ final class LocalizationVerifierTest {
         File directory = new File(repository,
                 'compat/resources/canonical/src/main/resources/assets/nclskins/lang')
         Map baseline = CatalogTools.loadJson(new File(directory, 'en_us.json'))
-        assertEquals(290, baseline.size())
+        assertEquals(292, baseline.size())
         assertEquals('NCL Skins', baseline['key.category.nclskins.main'])
         assertTrue(LocalizationVerifier.productionKeys(repository).containsAll([
                 'key.category.nclskins.main', 'key.nclskins.open_gallery',

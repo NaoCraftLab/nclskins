@@ -7,6 +7,7 @@ import java.util.List;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE;
+import static com.naocraftlab.skins.core.provider.BuiltinProvider.SKINMC;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -224,6 +225,66 @@ class ProviderChannelTest {
         assertEquals(cape.optifine(), disabled.enable(OPTIFINE).optifine());
         assertEquals(MINECRAFT, cape.disable(OFFLINE).observeMinecraft(new ProviderCape("official", null))
                 .resolve().orElseThrow().provider());
+    }
+
+    @Test
+    void optifineEnableDisableReorderAndAbsenceKeepCapeFallbackAndSkinIndependent() {
+        var offline = new ProviderCape("offline", null, false);
+        var minecraft = new ProviderCape("official", null, true);
+        var optifine = new ProviderCape("optifine", "a".repeat(64), false);
+        var initial = AppearanceProviders.initial();
+        var base = initial.cape();
+        var configured = new AppearanceProviders(initial.skin(), new ProviderChannel<>(base.order(),
+                ProviderObservation.observed(offline), ProviderObservation.observed(minecraft),
+                base.configurationRevision(), base.intentRevision(), base.desired(),
+                base.minecraftDelivery(), base.offlineDesired(), ProviderObservation.observed(optifine)));
+
+        assertEquals(OFFLINE, configured.cape().resolve().orElseThrow().provider());
+        assertEquals(List.of(OFFLINE, MINECRAFT), configured.skin().order());
+
+        var enabled = configured.enable(AppearanceProviders.Component.CAPE, OPTIFINE);
+        assertEquals(OFFLINE, enabled.cape().resolve().orElseThrow().provider());
+        var first = enabled.move(AppearanceProviders.Component.CAPE, OPTIFINE, -1)
+                .move(AppearanceProviders.Component.CAPE, OPTIFINE, -1);
+        assertEquals(List.of(OPTIFINE, OFFLINE, MINECRAFT), first.cape().order());
+        assertEquals(OPTIFINE, first.cape().resolve().orElseThrow().provider());
+        assertEquals(optifine, first.cape().optifine().value());
+        assertEquals(configured.skin(), first.skin());
+
+        var absent = new AppearanceProviders(first.skin(), first.cape().observeOptifine(null));
+        assertTrue(absent.cape().optifine().known());
+        assertEquals(OFFLINE, absent.cape().resolve().orElseThrow().provider());
+        var withoutOffline = absent.disable(AppearanceProviders.Component.CAPE, OFFLINE);
+        assertEquals(MINECRAFT, withoutOffline.cape().resolve().orElseThrow().provider());
+
+        var disabled = first.disable(AppearanceProviders.Component.CAPE, OPTIFINE);
+        assertEquals(OFFLINE, disabled.cape().resolve().orElseThrow().provider());
+        assertEquals(optifine, disabled.cape().optifine().value());
+        var reenabled = disabled.enable(AppearanceProviders.Component.CAPE, OPTIFINE);
+        assertEquals(List.of(OFFLINE, MINECRAFT, OPTIFINE), reenabled.cape().order());
+        assertEquals(OFFLINE, reenabled.cape().resolve().orElseThrow().provider());
+        assertEquals(optifine, reenabled.cape().optifine().value());
+    }
+
+    @Test
+    void skinmcCapeObservationIsIndependentAndKnownAbsenceFallsThrough() {
+        var initial = AppearanceProviders.initial();
+        assertThrows(IllegalArgumentException.class,
+                () -> initial.enable(AppearanceProviders.Component.SKIN, SKINMC));
+        var enabled = initial.enable(AppearanceProviders.Component.CAPE, SKINMC);
+        assertTrue(!enabled.cape().skinmc().known());
+        var cape = new ProviderCape("skinmc", "c".repeat(64), true);
+        var observed = new AppearanceProviders(enabled.skin(), enabled.cape().observeSkinmc(cape));
+        assertEquals(SKINMC, observed.cape().resolve().orElseThrow().provider());
+        assertEquals(initial.skin(), observed.skin());
+        var absent = new AppearanceProviders(observed.skin(), observed.cape().observeSkinmc(null)
+                .observeMinecraft(new ProviderCape("official", null, false)));
+        assertTrue(absent.cape().skinmc().known());
+        assertEquals(OFFLINE, absent.cape().resolve().orElseThrow().provider());
+        var disabled = observed.disable(AppearanceProviders.Component.CAPE, SKINMC);
+        assertEquals(cape, disabled.cape().skinmc().value());
+        assertEquals(cape, disabled.enable(AppearanceProviders.Component.CAPE, SKINMC)
+                .cape().skinmc().value());
     }
 
     @Test

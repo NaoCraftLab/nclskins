@@ -1,7 +1,10 @@
 package com.naocraftlab.skins.core.storage;
 
 import com.naocraftlab.skins.core.model.AccountAppearanceState;
+import com.naocraftlab.skins.core.model.AccountState;
+import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
+import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
@@ -22,6 +25,7 @@ import java.util.UUID;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE;
+import static com.naocraftlab.skins.core.provider.BuiltinProvider.SKINMC;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -176,6 +180,212 @@ class AppearanceProvidersStorageTest {
         var loaded = storage().loadAppearance(account).providers();
         assertTrue(!loaded.cape().optifine().known());
         assertEquals(java.util.List.of(OFFLINE, MINECRAFT, OPTIFINE), loaded.cape().order());
+    }
+
+    @Test
+    void skinmcIsCapeOnlyDisabledByDefaultAndOldDocumentLoadsUnknownObservation() throws Exception {
+        UUID account = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        storage.loadOrCreateAccount(account);
+        storage.updateAppearance(account, state -> state);
+        Path path = storage.layout().accountAppearance(account);
+        var old = com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+        old.getAsJsonObject("providers").getAsJsonObject("cape").remove("skinmc");
+        Files.writeString(path, old.toString());
+
+        var loaded = storage.loadAppearance(account).providers();
+        assertTrue(!loaded.skin().enabled(SKINMC));
+        assertTrue(!loaded.cape().enabled(SKINMC));
+        assertTrue(!loaded.cape().skinmc().known());
+
+        ProviderCape cape = new ProviderCape("skinmc", "a".repeat(64), true);
+        storage.updateAppearance(account, state -> state.withProviders(state.providers()
+                .enable(AppearanceProviders.Component.CAPE, SKINMC)));
+        storage.updateAppearance(account, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape().observeSkinmc(cape))));
+        assertEquals(cape, storage().loadAppearance(account).providers().cape().skinmc().value());
+        assertTrue(!storage().loadAppearance(account).providers().skin().enabled(SKINMC));
+        assertThrows(IllegalArgumentException.class,
+                () -> storage().loadAppearance(account).providers()
+                        .enable(AppearanceProviders.Component.SKIN, SKINMC));
+    }
+
+    @Test
+    void futureProviderOrderAndOpaqueFieldsSurviveAllAppearanceWrites() throws Exception {
+        UUID account = UUID.randomUUID();
+        UUID preset = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        storage.updateAccount(account, current -> new AccountState(current.schemaVersion(),
+                account, current.skinAssets(), current.personalSkins(),
+                java.util.List.of(new AppearancePreset(preset, "Preset", SkinReference.accountDefault(),
+                        null, Instant.EPOCH, Instant.EPOCH)), current.updatedAt(), current.personalCapes()));
+        storage.updateAppearance(account, state -> advanced(state, 1, preset));
+        Path path = storage.layout().accountAppearance(account);
+        writeFutureFixture(path);
+
+        assertEquals(java.util.List.of(OFFLINE, MINECRAFT),
+                storage.loadAppearance(account).providers().skin().order());
+        assertEquals(java.util.List.of(OFFLINE, MINECRAFT),
+                storage.loadAppearance(account).providers().cape().order());
+
+        storage.updateAppearance(account, state -> state.withProviders(state.providers()
+                .move(AppearanceProviders.Component.CAPE, MINECRAFT, -1)));
+        assertFuturePreserved(path, java.util.List.of("MINECRAFT", "FUTURE_CAPE", "OFFLINE"));
+        storage.updateAppearance(account, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, MINECRAFT)));
+        assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE"));
+
+        storage.updateAppearanceIntent(account, (state, revision) -> advanced(state, revision, preset));
+        assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE"));
+        var current = storage.loadAppearance(account);
+        storage.updateAppearanceIntentIfCurrent(account, current.intentRevision(), current.syncStatus(),
+                (state, revision) -> advanced(state, revision, preset));
+        assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE"));
+        current = storage.loadAppearance(account);
+        storage.updateAppearanceIntentIfRevisionAndPreset(account, current.intentRevision(), preset,
+                (state, revision) -> advanced(state, revision, preset));
+        assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE"));
+        storage.updateAppearanceIntentIfPresetActive(account, preset,
+                (ignored, state, revision) -> advanced(state, revision, preset));
+        assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE"));
+        storage.mutateAccountAndAppearance(account, (known, state, revision) ->
+                NclSkinsStorage.AccountAppearanceMutationPlan.appearanceOnly(
+                        known, advanced(state, revision, preset)));
+        assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE"));
+        assertEquals(3, storage().loadAppearance(account).schemaVersion());
+    }
+
+    @Test
+    void futureProviderDoesNotHideMalformedKnownDataOrUnboundedOrder() throws Exception {
+        UUID account = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        storage.updateAppearance(account, state -> state);
+        Path path = storage.layout().accountAppearance(account);
+        writeFutureFixture(path);
+        var valid = com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+        var cape = valid.getAsJsonObject("providers").getAsJsonObject("cape");
+
+        cape.getAsJsonObject("minecraft").remove("known");
+        Files.writeString(path, valid.toString());
+        assertThrows(StorageException.class, () -> storage.loadAppearance(account));
+        cape.getAsJsonObject("minecraft").addProperty("known", false);
+        cape.getAsJsonArray("order").add("FUTURE_CAPE");
+        Files.writeString(path, valid.toString());
+        assertThrows(StorageException.class, () -> storage.loadAppearance(account));
+        cape.getAsJsonArray("order").remove(cape.getAsJsonArray("order").size() - 1);
+        for (int index = 0; index < 32; index++) cape.getAsJsonArray("order").add("FUTURE_" + index);
+        Files.writeString(path, valid.toString());
+        assertThrows(StorageException.class, () -> storage.loadAppearance(account));
+        cape.getAsJsonArray("order").remove(cape.getAsJsonArray("order").size() - 1);
+        valid.addProperty("schemaVersion", 99);
+        Files.writeString(path, valid.toString());
+        assertEquals(StorageException.Code.UNSUPPORTED_SCHEMA,
+                assertThrows(StorageException.class, () -> storage.loadAppearance(account)).code());
+    }
+
+    @Test
+    void transactionRecoveryRetainsFutureProviderDocument() throws Exception {
+        UUID account = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        storage.updateAccount(account, current -> current);
+        storage.updateAppearance(account, current -> current);
+        Path appearancePath = storage.layout().accountAppearance(account);
+        writeFutureFixture(appearancePath);
+        var marker = new com.google.gson.JsonObject();
+        marker.add("account", com.google.gson.JsonParser.parseString(
+                Files.readString(storage.layout().accountState(account))));
+        marker.add("appearance", com.google.gson.JsonParser.parseString(Files.readString(appearancePath)));
+        Path journal = storage.layout().accountState(account).getParent().resolve("cape-transaction.json");
+        Files.writeString(journal, marker.toString());
+
+        storage.loadAppearance(account);
+
+        assertTrue(!Files.exists(journal));
+        assertFuturePreserved(appearancePath,
+                java.util.List.of("OFFLINE", "FUTURE_CAPE", "MINECRAFT"));
+    }
+
+    @Test
+    void recoverableCapeDeletionKeepsFutureProviderDataAndSkinmcObservation() throws Exception {
+        UUID account = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        var image = new java.awt.image.BufferedImage(64, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(1, 1, 0xff123456);
+        var output = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "png", output);
+        var entry = storage.importCape(account, "Cape", output.toByteArray());
+        var offline = new ProviderCape(entry.texture().entryId().toString(),
+                entry.texture().sha256(), false);
+        var skinmc = new ProviderCape("skinmc", "b".repeat(64), true);
+        storage.updateAppearance(account, state -> advanced(state, 1, UUID.randomUUID())
+                .withProviders(state.providers().select(1, null, offline, null)
+                        .enable(AppearanceProviders.Component.CAPE, SKINMC)));
+        storage.updateAppearance(account, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape().observeSkinmc(skinmc))));
+        Path path = storage.layout().accountAppearance(account);
+        writeFutureFixture(path);
+
+        storage.deleteCape(account, entry.texture().entryId());
+
+        assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE", "MINECRAFT", "SKINMC"));
+        assertEquals(skinmc, storage.loadAppearance(account).providers().cape().skinmc().value());
+    }
+
+    private static AccountAppearanceState advanced(AccountAppearanceState state, long revision, UUID preset) {
+        return new AccountAppearanceState(state.schemaVersion(), state.accountId(), revision, preset,
+                state.skinSha256(), state.skinVariant(), state.capeId(),
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                AppearanceSyncStatus.LOCAL_ONLY, 0, state.updatedAt().plusNanos(1), state.providers());
+    }
+
+    private static void writeFutureFixture(Path path) throws Exception {
+        var root = com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+        var providers = root.getAsJsonObject("providers");
+        var skin = providers.getAsJsonObject("skin");
+        var cape = providers.getAsJsonObject("cape");
+        var skinOrder = new com.google.gson.JsonArray();
+        for (String id : java.util.List.of("OFFLINE", "FUTURE_SKIN", "MINECRAFT")) skinOrder.add(id);
+        skin.add("order", skinOrder);
+        var capeOrder = new com.google.gson.JsonArray();
+        for (String id : java.util.List.of("OFFLINE", "FUTURE_CAPE", "MINECRAFT")) capeOrder.add(id);
+        if (strings(cape.getAsJsonArray("order")).contains("SKINMC")) capeOrder.add("SKINMC");
+        cape.add("order", capeOrder);
+        var skinData = new com.google.gson.JsonObject();
+        skinData.addProperty("enabled", true);
+        skinData.addProperty("opaque", "future-skin-state");
+        skin.add("FUTURE_SKIN", skinData);
+        var capeData = new com.google.gson.JsonObject();
+        capeData.addProperty("enabled", true);
+        capeData.addProperty("opaque", "future-cape-state");
+        cape.add("FUTURE_CAPE", capeData);
+        var disabled = new com.google.gson.JsonObject();
+        disabled.addProperty("enabled", false);
+        disabled.addProperty("opaque", "disabled-future-state");
+        cape.add("FUTURE_DISABLED", disabled);
+        Files.writeString(path, root.toString());
+    }
+
+    private static void assertFuturePreserved(Path path, java.util.List<String> capeOrder) throws Exception {
+        var providers = com.google.gson.JsonParser.parseString(Files.readString(path))
+                .getAsJsonObject().getAsJsonObject("providers");
+        var skin = providers.getAsJsonObject("skin");
+        var cape = providers.getAsJsonObject("cape");
+        assertEquals(java.util.List.of("OFFLINE", "FUTURE_SKIN", "MINECRAFT"),
+                strings(skin.getAsJsonArray("order")));
+        assertEquals(capeOrder, strings(cape.getAsJsonArray("order")));
+        assertEquals("future-skin-state", skin.getAsJsonObject("FUTURE_SKIN").get("opaque").getAsString());
+        assertTrue(skin.getAsJsonObject("FUTURE_SKIN").get("enabled").getAsBoolean());
+        assertEquals("future-cape-state", cape.getAsJsonObject("FUTURE_CAPE").get("opaque").getAsString());
+        assertTrue(cape.getAsJsonObject("FUTURE_CAPE").get("enabled").getAsBoolean());
+        assertEquals("disabled-future-state",
+                cape.getAsJsonObject("FUTURE_DISABLED").get("opaque").getAsString());
+        assertTrue(!cape.getAsJsonObject("FUTURE_DISABLED").get("enabled").getAsBoolean());
+    }
+
+    private static java.util.List<String> strings(com.google.gson.JsonArray values) {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        values.forEach(value -> ids.add(value.getAsString()));
+        return ids;
     }
 
     private NclSkinsStorage storage() {

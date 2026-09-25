@@ -37,7 +37,19 @@ public interface SkinCatalogSource extends CapeCatalogSource {
     @Override
     default byte[] loadCape(String collectionId, String capeId) throws IOException {
         String namespace = requireStableId(collectionId, "collectionId");
-        return loadResource(namespace + ":" + CapeCatalogSource.texturePath(capeId));
+        String stableCapeId = requireStableId(capeId, "capeId");
+        String prefix = namespace + ":" + CapeCatalogSource.CAPE_TEXTURE_ROOT + "/" + stableCapeId;
+        String selected = capeCollections().stream()
+                .filter(collection -> collection.id().equals(namespace))
+                .flatMap(collection -> collection.capes().stream())
+                .filter(cape -> cape.id().equals(stableCapeId))
+                .map(CapeCatalogSource.CapeDescriptor::contentIdentity)
+                .filter(identity -> identity.equals(prefix + ".png")
+                        || identity.equals(prefix + ".jpg")
+                        || identity.equals(prefix + ".jpeg"))
+                .findFirst()
+                .orElse(prefix + ".png");
+        return loadResource(selected);
     }
 
     @Override
@@ -126,6 +138,9 @@ public interface SkinCatalogSource extends CapeCatalogSource {
         Objects.requireNonNull(pngBytes, "pngBytes");
         if (pngBytes.length == 0) {
             throw new IllegalArgumentException("Catalog skin PNG must not be empty");
+        }
+        if (pngBytes.length > EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES) {
+            throw new IllegalArgumentException("Catalog skin PNG exceeds the encoded texture limit");
         }
         return pngBytes.clone();
     }

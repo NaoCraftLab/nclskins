@@ -11,8 +11,10 @@ import com.naocraftlab.skins.core.provider.ProviderChannel;
 import com.naocraftlab.skins.core.provider.ProviderSkin;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,6 +53,16 @@ public final class ProvidersPresenter {
             int width, int height, BuiltinProvider selectedSkin, BuiltinProvider selectedCape,
             Optional<ClientSnapshot.RateLimitProgress> cooldown, boolean linkPreparing, UiMessage linkFeedback,
             double desiredOffset, TextResolver textResolver) {
+        return present(providers, component, adding, busy, transform, defaultVariant, width, height,
+                selectedSkin, selectedCape, cooldown, linkPreparing, linkFeedback, desiredOffset,
+                textResolver, Map.of());
+    }
+
+    public ViewSpec present(AppearanceProviders providers, AppearanceProviders.Component component,
+            boolean adding, boolean busy, PreviewInteractionModel transform, SkinVariant defaultVariant,
+            int width, int height, BuiltinProvider selectedSkin, BuiltinProvider selectedCape,
+            Optional<ClientSnapshot.RateLimitProgress> cooldown, boolean linkPreparing, UiMessage linkFeedback,
+            double desiredOffset, TextResolver textResolver, Map<BuiltinProvider, Duration> capeProviderCooldowns) {
         if (adding) return presentChooser(providers, component, busy, width, height, 0);
         BuiltinProvider selected = component == AppearanceProviders.Component.SKIN ? selectedSkin : selectedCape;
         List<BuiltinProvider> order = component == AppearanceProviders.Component.SKIN ? providers.skin().order() : providers.cape().order();
@@ -62,7 +74,10 @@ public final class ProvidersPresenter {
         int feedbackY = height - 37 - feedbackHeight;
         int viewportBottom = showFeedback ? feedbackY - 4 : height - 37;
         Bounds rowViewport = new Bounds(x, 65, contentWidth, Math.max(1, viewportBottom - 65));
-        int rowContentHeight = Math.max(0, order.size() * 40 - 4);
+        Map<BuiltinProvider, Duration> visibleCooldowns = component == AppearanceProviders.Component.CAPE
+                ? capeProviderCooldowns : Map.of();
+        int rowContentHeight = Math.max(0, order.stream().mapToInt(provider ->
+                rowHeight(provider, visibleCooldowns, textResolver, contentWidth)).sum() - 4);
         int maximum = Math.max(0, rowContentHeight - rowViewport.height());
         int offset = (int) Math.round(Math.max(0, Math.min(maximum, desiredOffset)));
         var widgets = new ArrayList<ViewSpec.Widget>();
@@ -95,12 +110,19 @@ public final class ProvidersPresenter {
         for (BuiltinProvider provider : displayed) {
             UiMessage name = providerName(provider);
             String id = "providers.row." + provider.name();
-            widgets.add(ViewSpec.Widget.selectableCard(id, new Bounds(x, y, contentWidth, 36), name, provider == selected, !busy));
+            UiMessage providerCooldown = cooldownMessage(visibleCooldowns.get(provider));
+            int rowHeight = rowHeight(provider, visibleCooldowns, textResolver, contentWidth);
+            widgets.add(ViewSpec.Widget.selectableCard(id, new Bounds(x, y, contentWidth, rowHeight - 4), name, provider == selected, !busy));
             Object value = component == AppearanceProviders.Component.SKIN
                     ? providers.skin().observation(provider).value()
                     : providers.cape().observation(provider).value();
             icons.add(icon(id, new Bounds(x + 2, y + 2, 32, 32), value, overlay, component));
             texts.add(new ViewSpec.Text(id + ".name", new Bounds(x + 38, y + 4, Math.max(1, contentWidth - (providers.galleryAvailable() ? 90 : 66)), 10), name, ViewSpec.Text.Alignment.LEFT));
+            if (providerCooldown != null) {
+                texts.add(new ViewSpec.Text(id + ".cooldown",
+                        new Bounds(x + 2, y + 36, Math.max(1, contentWidth - 4), rowHeight - 40),
+                        providerCooldown, ViewSpec.Text.Alignment.LEFT, ViewSpec.Text.Layout.WRAP));
+            }
             for (int action = 0; action < 2; action++) {
                 String verb = action == 0 ? "up" : "down";
                 widgets.add(new ViewSpec.Widget("providers." + verb + "." + provider.name(), ViewSpec.WidgetKind.PROVIDER_ACTION,
@@ -108,16 +130,17 @@ public final class ProvidersPresenter {
                         UiMessage.info(action == 0 ? "nclskins.providers.up" : "nclskins.providers.down"), Optional.empty(), Optional.empty(),
                         !busy && (action == 0 ? order.indexOf(provider) > 0 : order.indexOf(provider) < order.size() - 1), true, 0));
             }
-            if (provider == BuiltinProvider.OPTIFINE && component == AppearanceProviders.Component.CAPE) {
+            if ((provider == BuiltinProvider.OPTIFINE || provider == BuiltinProvider.SKINMC)
+                    && component == AppearanceProviders.Component.CAPE) {
                 widgets.add(ViewSpec.Widget.iconButton("providers.account." + provider.name(),
                         new Bounds(x + contentWidth - 48, y + 8, 20, 20),
                         UiMessage.info("nclskins.providers.open_account"), GuiIcon.ACTION_OPEN_ACCOUNT,
-                        !busy && !linkPreparing));
+                        !busy && (provider != BuiltinProvider.OPTIFINE || !linkPreparing)));
             } else if (provider.writable() && providers.galleryAvailable()) widgets.add(ViewSpec.Widget.iconButton("providers.edit." + provider.name(),
                     new Bounds(x + contentWidth - 48, y + 8, 20, 20), UiMessage.info("nclskins.providers.edit"), GuiIcon.ACTION_EDIT, !busy));
             widgets.add(ViewSpec.Widget.iconButton("providers.remove." + provider.name(),
                     new Bounds(x + contentWidth - 24, y + 8, 20, 20), UiMessage.info("nclskins.providers.remove"), GuiIcon.ACTION_REMOVE, !busy));
-            y += 40;
+            y += rowHeight;
         }
         if (showFeedback) {
             texts.add(new ViewSpec.Text("providers.account.feedback",
@@ -170,7 +193,7 @@ public final class ProvidersPresenter {
                 panels, texts, widgets, List.of(preview), scrollbar, List.of(tabs), Optional.empty(),
                 List.of(new ViewSpec.ClipRegion("providers.rows", rowViewport,
                         List.of("providers.row.", "providers.up.", "providers.down.",
-                                "providers.edit.", "providers.remove.", "providers.account.OPTIFINE"))),
+                                "providers.edit.", "providers.remove.", "providers.account."))),
                 List.of(), icons, List.of(new ViewSpec.ScrollSurface("providers.rows", rowViewport,
                         ViewSpec.Scrollbar.Orientation.VERTICAL, offset, maximum)), List.of(), progress, navigation);
     }
@@ -227,11 +250,30 @@ public final class ProvidersPresenter {
         return Math.min(200, Math.max(1, width - 32));
     }
 
+    private static int rowHeight(BuiltinProvider provider, Map<BuiltinProvider, Duration> cooldowns,
+            TextResolver textResolver, int contentWidth) {
+        UiMessage message = cooldownMessage(cooldowns.get(provider));
+        return message == null ? 40 : 40 + Math.max(10,
+                textResolver.wrappedHeight(message, Math.max(1, contentWidth - 4)));
+    }
+
+    private static UiMessage cooldownMessage(Duration remaining) {
+        if (remaining == null || remaining.isNegative() || remaining.isZero()) return null;
+        Duration bounded = remaining.compareTo(Duration.ofHours(24)) > 0
+                ? Duration.ofHours(24) : remaining;
+        long seconds = bounded.getSeconds() + (bounded.getNano() > 0 ? 1 : 0);
+        String display = seconds >= 3600
+                ? "%d:%02d:%02d".formatted(seconds / 3600, seconds / 60 % 60, seconds % 60)
+                : "%d:%02d".formatted(seconds / 60, seconds % 60);
+        return UiMessage.info("nclskins.providers.cooldown", display);
+    }
+
     private static UiMessage providerName(BuiltinProvider provider) {
         return switch (provider) {
             case OFFLINE -> UiMessage.info("nclskins.providers.offline");
             case MINECRAFT -> UiMessage.literal("Minecraft", UiMessage.Severity.INFO);
             case OPTIFINE -> UiMessage.info("nclskins.providers.optifine");
+            case SKINMC -> UiMessage.info("nclskins.providers.skinmc");
         };
     }
 

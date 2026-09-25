@@ -22,6 +22,10 @@ public final class FilePickerCoordinator {
         return choose(dialog, SelectionType.PNG);
     }
 
+    public CompletableFuture<Optional<Path>> chooseCape(Dialog dialog) {
+        return choose(dialog, SelectionType.CAPE);
+    }
+
     public CompletableFuture<Optional<Path>> chooseDirectory(Dialog dialog) {
         return choose(dialog, SelectionType.DIRECTORY);
     }
@@ -37,6 +41,11 @@ public final class FilePickerCoordinator {
     public CompletableFuture<Optional<Path>> chooseAsync(
             AsyncDialog dialog, Executor starter) {
         return chooseAsync(dialog, SelectionType.PNG, starter);
+    }
+
+    public CompletableFuture<Optional<Path>> chooseCapeAsync(
+            AsyncDialog dialog, Executor starter) {
+        return chooseAsync(dialog, SelectionType.CAPE, starter);
     }
 
     public CompletableFuture<Optional<Path>> chooseDirectoryAsync(
@@ -143,12 +152,13 @@ public final class FilePickerCoordinator {
             if (!Files.isDirectory(path)) {
                 throw new IllegalArgumentException("The selected path is not a local directory");
             }
-        } else if (selectionType == SelectionType.PNG) {
+        } else if (selectionType == SelectionType.PNG || selectionType == SelectionType.CAPE) {
             Path fileName = path.getFileName();
-            if (fileName == null
-                    || !fileName.toString().toLowerCase(Locale.ROOT).endsWith(".png")
-                    || !Files.isRegularFile(path)) {
-                throw new IllegalArgumentException("The selected file is not a local PNG");
+            String name = fileName == null ? "" : fileName.toString().toLowerCase(Locale.ROOT);
+            if (!Files.isRegularFile(path)
+                    || !(name.endsWith(".png") || selectionType == SelectionType.CAPE
+                    && (name.endsWith(".jpg") || name.endsWith(".jpeg")))) {
+                throw new IllegalArgumentException("The selected file is not a supported local image");
             }
         } else if (!Files.isRegularFile(path)
                 || path.getFileName() == null
@@ -161,6 +171,7 @@ public final class FilePickerCoordinator {
     private static String pickerUnavailable(SelectionType type) {
         return switch (type) {
             case PNG -> "The system PNG picker is unavailable";
+            case CAPE -> "The system cape picker is unavailable";
             case DIRECTORY -> "The system directory picker is unavailable";
             case SQLITE_DATABASE -> "The system SQLite database picker is unavailable";
         };
@@ -169,6 +180,7 @@ public final class FilePickerCoordinator {
     private static String pickerCouldNotStart(SelectionType type) {
         return switch (type) {
             case PNG -> "The system PNG picker could not be started";
+            case CAPE -> "The system cape picker could not be started";
             case DIRECTORY -> "The system directory picker could not be started";
             case SQLITE_DATABASE -> "The system SQLite database picker could not be started";
         };
@@ -176,6 +188,7 @@ public final class FilePickerCoordinator {
 
     private enum SelectionType {
         PNG,
+        CAPE,
         DIRECTORY,
         SQLITE_DATABASE
     }

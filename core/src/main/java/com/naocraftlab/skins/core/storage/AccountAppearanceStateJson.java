@@ -20,6 +20,10 @@ final class AccountAppearanceStateJson {
     private static final Gson GSON = new GsonBuilder().serializeNulls().disableHtmlEscaping().setPrettyPrinting().create();
 
     byte[] encode(AccountAppearanceState state) {
+        return encode(state, null);
+    }
+
+    byte[] encode(AccountAppearanceState state, byte[] previous) {
         JsonObject root = new JsonObject();
         root.addProperty("schemaVersion", state.schemaVersion());
         root.addProperty("accountId", state.accountId().toString());
@@ -40,7 +44,20 @@ final class AccountAppearanceStateJson {
         root.addProperty("syncStatus", state.syncStatus().name());
         root.addProperty("settledRevision", state.settledRevision());
         root.addProperty("updatedAt", state.updatedAt().toString());
-        root.add("providers", AppearanceProvidersJson.encode(state.providers()));
+        JsonObject providers = AppearanceProvidersJson.encode(state.providers());
+        if (previous != null) {
+            try {
+                JsonObject old = JsonParser.parseString(new String(previous, StandardCharsets.UTF_8))
+                        .getAsJsonObject();
+                if (old.get("schemaVersion").getAsInt() == AccountAppearanceState.CURRENT_SCHEMA_VERSION) {
+                    providers = AppearanceProvidersJson.mergeUnknown(
+                            old.getAsJsonObject("providers"), state.providers());
+                }
+            } catch (JsonParseException | IllegalStateException | NullPointerException exception) {
+                throw new IllegalArgumentException("Previous appearance state is malformed", exception);
+            }
+        }
+        root.add("providers", providers);
         return (GSON.toJson(root) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
     }
 

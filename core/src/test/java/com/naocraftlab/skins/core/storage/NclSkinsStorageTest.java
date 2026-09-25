@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.core.storage;
 
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.core.model.AccountAppearanceState;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
@@ -312,12 +313,23 @@ class NclSkinsStorageTest {
     void rejectsAnAssetThatGrowsBeyondTheReadLimit() throws Exception {
         NclSkinsStorage storage = storage();
         StoredAsset stored = storage.storeAsset(TestPng.create(64, 64));
-        Files.write(stored.path(), new byte[PngValidator.DEFAULT_MAX_BYTES + 1]);
+        try (var file = new java.io.RandomAccessFile(stored.path().toFile(), "rw")) {
+            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
+        }
+
+        StorageException exact = assertThrows(
+                StorageException.class, () -> storage.readAsset(stored.sha256()));
+        assertEquals("Content-addressed skin asset failed integrity verification", exact.getMessage());
+
+        try (var file = new java.io.RandomAccessFile(stored.path().toFile(), "rw")) {
+            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1L);
+        }
 
         StorageException exception = assertThrows(
                 StorageException.class, () -> storage.readAsset(stored.sha256()));
 
         assertEquals(StorageException.Code.ASSET_INTEGRITY_FAILURE, exception.code());
+        assertEquals("Stored skin asset exceeds the configured size limit", exception.getMessage());
     }
 
     @Test

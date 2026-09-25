@@ -46,6 +46,9 @@ public interface BundledSkinSource extends SkinCatalogSource {
         if (pngBytes.length == 0) {
             throw new IllegalArgumentException("Bundled skin PNG must not be empty");
         }
+        if (pngBytes.length > EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES) {
+            throw new IllegalArgumentException("Bundled skin PNG exceeds the encoded texture limit");
+        }
         return pngBytes.clone();
     }
 }

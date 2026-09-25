@@ -3,7 +3,8 @@ package com.naocraftlab.skins.core.provider;
 public enum BuiltinProvider {
     OFFLINE(true, true, true),
     MINECRAFT(true, true, true),
-    OPTIFINE(false, true, false);
+    OPTIFINE(false, true, false),
+    SKINMC(false, true, false);
 
     private final boolean skin;
     private final boolean cape;

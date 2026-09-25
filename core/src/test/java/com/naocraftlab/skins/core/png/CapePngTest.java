@@ -3,6 +3,7 @@ package com.naocraftlab.skins.core.png;
 import org.junit.jupiter.api.Test;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 
@@ -170,6 +171,90 @@ class CapePngTest {
         assertThrows(PngValidationException.class, () -> validator.projectCape(hdAnimated.toByteArray()));
         hd[hd.length - 1] ^= 1;
         assertThrows(PngValidationException.class, () -> validator.projectImportedCape(hd));
+    }
+
+    @Test void baselineAndProgressiveJpegUseOpaqueCanonicalCapePixels() throws Exception {
+        BufferedImage source = new BufferedImage(64, 32, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 32; y++) {
+            for (int x = 0; x < 64; x++) {
+                source.setRGB(x, y, x < 22 ? 0xffbf4020 : 0xff303030);
+            }
+        }
+        for (boolean progressive : new boolean[]{false, true}) {
+            byte[] jpeg = jpeg(source, progressive);
+            var cape = validator.projectCape(jpeg);
+            var imported = validator.projectImportedCape(jpeg);
+            var decoded = ImageIO.read(new java.io.ByteArrayInputStream(cape.bytes()));
+            assertEquals(64, decoded.getWidth());
+            assertEquals(32, decoded.getHeight());
+            assertEquals(0xff, decoded.getRGB(30, 4) >>> 24);
+            assertTrue(cape.hasElytra());
+            assertArrayEquals(cape.bytes(), imported.bytes());
+            assertEquals(cape.renderSha256(), validator.projectCanonicalCape(cape.bytes()).renderSha256());
+            assertThrows(PngValidationException.class, () -> validator.projectCanonicalCape(jpeg));
+        }
+    }
+
+    @Test void jpegPreflightRejectsWrongSizeMarkersMultipleImagesAndOversize() throws Exception {
+        byte[] valid = jpeg(new BufferedImage(64, 32, BufferedImage.TYPE_INT_RGB), false);
+        byte[] wrongSize = jpeg(new BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB), false);
+        assertEquals(PngValidationException.Reason.UNSUPPORTED_DIMENSIONS,
+                assertThrows(PngValidationException.class, () -> validator.projectCape(wrongSize)).reason());
+        assertThrows(PngValidationException.class, () -> validator.projectCape(new byte[]{(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x00}));
+        assertThrows(PngValidationException.class, () -> validator.projectCape(java.util.Arrays.copyOf(valid, valid.length - 2)));
+        byte[] multiple = new byte[valid.length * 2];
+        System.arraycopy(valid, 0, multiple, 0, valid.length);
+        System.arraycopy(valid, 0, multiple, valid.length, valid.length);
+        assertThrows(PngValidationException.class, () -> validator.projectCape(multiple));
+        byte[] trailing = java.util.Arrays.copyOf(valid, valid.length + 1);
+        assertThrows(PngValidationException.class, () -> validator.projectCape(trailing));
+        int scanStart = -1;
+        for (int i = 2; i < valid.length - 4; i++) {
+            if ((valid[i] & 0xff) == 0xff && (valid[i + 1] & 0xff) == 0xda) {
+                scanStart = i + 2 + ((valid[i + 2] & 0xff) << 8 | valid[i + 3] & 0xff);
+                break;
+            }
+        }
+        assertTrue(scanStart > 0);
+        byte[] emptyScan = java.util.Arrays.copyOf(valid, scanStart + 2);
+        emptyScan[scanStart] = (byte) 0xff;
+        emptyScan[scanStart + 1] = (byte) 0xd9;
+        assertThrows(PngValidationException.class, () -> validator.projectCape(emptyScan));
+        byte[] oversized = java.util.Arrays.copyOf(valid, PngValidator.DEFAULT_MAX_BYTES + 1);
+        assertEquals(PngValidationException.Reason.OVERSIZED,
+                assertThrows(PngValidationException.class, () -> validator.projectCape(oversized)).reason());
+        byte[] unsupportedFrame = valid.clone();
+        for (int i = 2; i < unsupportedFrame.length - 1; i++) {
+            if ((unsupportedFrame[i] & 0xff) == 0xff && (unsupportedFrame[i + 1] & 0xff) == 0xc0) {
+                unsupportedFrame[i + 1] = (byte) 0xc1;
+                break;
+            }
+        }
+        assertThrows(PngValidationException.class, () -> validator.projectCape(unsupportedFrame));
+    }
+
+    @Test void pngTransparentWingFallbackRemainsUnchanged() throws Exception {
+        BufferedImage png = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+        png.setRGB(4, 4, 0xff112233);
+        var cape = validator.projectCape(png(png));
+        assertFalse(cape.hasElytra());
+        assertEquals(0, ImageIO.read(new java.io.ByteArrayInputStream(cape.bytes())).getRGB(30, 4));
+    }
+
+    private static byte[] jpeg(BufferedImage image, boolean progressive) throws Exception {
+        var writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            try (var stream = ImageIO.createImageOutputStream(output)) {
+                writer.setOutput(stream);
+                var params = writer.getDefaultWriteParam();
+                params.setProgressiveMode(progressive ? ImageWriteParam.MODE_DEFAULT : ImageWriteParam.MODE_DISABLED);
+                writer.write(null, new javax.imageio.IIOImage(image, null, null), params);
+            }
+            return output.toByteArray();
+        } finally {
+            writer.dispose();
+        }
     }
 
     private static byte[] png(BufferedImage image) throws Exception {

@@ -38,12 +38,15 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
     @Test
     void oversizedTextureFileIsRejectedByTheReadItself(@TempDir Path temporary) throws IOException {
         Path oversized = temporary.resolve("oversized.png");
-        Files.write(oversized, new byte[1024 * 1024 + 1]);
+        try (var file = new java.io.RandomAccessFile(oversized.toFile(), "rw")) {
+            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1L);
+        }
         FakeHarness harness = new FakeHarness();
 
         try (harness) {
             assertThrows(IOException.class, () -> harness.registry.register(
                     TextureKind.PLAYER_SKIN, CONTENT_HASH, oversized));
+            org.junit.jupiter.api.Assertions.assertEquals(0, harness.registry.loadAttempts);
         }
     }
 
@@ -53,7 +56,28 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
 
         try (harness) {
             assertThrows(IOException.class, () -> harness.registry.register(
-                    TextureKind.PLAYER_SKIN, CONTENT_HASH, new byte[1024 * 1024 + 1]));
+                    TextureKind.PLAYER_SKIN, CONTENT_HASH,
+                    new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1]));
+            org.junit.jupiter.api.Assertions.assertEquals(0, harness.registry.loadAttempts);
+        }
+    }
+
+    @Test
+    void exactTextureLimitReachesTheNativeAdapterForBothKinds(@TempDir Path temporary) throws IOException {
+        Path exact = temporary.resolve("exact.png");
+        try (var file = new java.io.RandomAccessFile(exact.toFile(), "rw")) {
+            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
+        }
+        FakeHarness harness = new FakeHarness();
+        try (harness) {
+            assertThrows(IOException.class, () -> harness.registry.register(
+                    TextureKind.IMAGE, CONTENT_HASH, exact));
+            org.junit.jupiter.api.Assertions.assertEquals(1, harness.registry.loadAttempts);
+            IOException invalid = assertThrows(IOException.class, () -> harness.registry.register(
+                    TextureKind.PLAYER_SKIN, CONTENT_HASH,
+                    new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES]));
+            org.junit.jupiter.api.Assertions.assertEquals("Player skin is not a decodable PNG image",
+                    invalid.getMessage());
         }
     }
 
@@ -126,10 +150,12 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
     private static final class FakeTextureRegistry extends AbstractTextureRegistry<String> {
         private final AtomicInteger unloads = new AtomicInteger();
         private byte[] lastLoadedBytes;
+        private int loadAttempts;
 
         @Override
         protected LoadedTexture<String> load(TextureKind kind, String sha256, byte[] pngBytes)
                 throws IOException {
+            loadAttempts++;
             lastLoadedBytes = pngBytes.clone();
             BufferedImage image;
             try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {

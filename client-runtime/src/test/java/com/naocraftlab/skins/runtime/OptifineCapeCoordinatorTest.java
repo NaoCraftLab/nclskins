@@ -20,6 +20,9 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +31,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -38,6 +42,303 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OptifineCapeCoordinatorTest {
     @TempDir Path directory;
+
+    @Test
+    void skinMcUsesSharedPriorityAbsenceAndSourceScopedHandles() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        fixture.storage.updateAppearance(fixture.session.identity.profileId(), state ->
+                state.withProviders(state.providers().enable(AppearanceProviders.Component.CAPE,
+                        BuiltinProvider.SKINMC).move(AppearanceProviders.Component.CAPE,
+                                BuiltinProvider.SKINMC, -1)));
+        fixture.status = 200;
+        AtomicInteger skinMcCalls = new AtomicInteger();
+        AtomicInteger skinMcStatus = new AtomicInteger(200);
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            skinMcCalls.incrementAndGet();
+            return new OptifineCapeReader.Response(skinMcStatus.get(),
+                    skinMcStatus.get() == 200 ? fixture.image : new byte[0],
+                    Map.of("Content-Type", List.of("image/png")));
+        }, new PngValidator(), Clock.systemUTC());
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
+                Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        UUID self = fixture.session.identity.profileId();
+        assertEquals(BuiltinProvider.SKINMC,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+        assertTrue(fixture.sink.registered.containsKey("nclskins:skinmc/" + self));
+        UUID remote = UUID.randomUUID();
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(remote, "Remote"));
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        assertEquals(BuiltinProvider.SKINMC,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        assertNull(CapeProjection.resolve(remote, "Renamed", null, null, false).provider());
+        assertTrue(fixture.sink.registered.containsKey("nclskins:skinmc/" + remote));
+        int beforeReorder = skinMcCalls.get();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().move(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC, 1)));
+        fixture.coordinator.configurationChanged();
+        assertEquals(beforeReorder, skinMcCalls.get());
+        skinMcStatus.set(404);
+        fixture.coordinator.refreshSkinMc(ignored -> {});
+        assertEquals(BuiltinProvider.OPTIFINE,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().disable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        fixture.coordinator.configurationChanged();
+        fixture.coordinator.refreshSkinMc(ignored -> {});
+        assertEquals(beforeReorder + 2, skinMcCalls.get());
+        assertFalse(fixture.sink.registered.containsKey("nclskins:skinmc/" + self));
+        assertFalse(fixture.sink.registered.containsKey("nclskins:skinmc/" + remote));
+    }
+
+    @Test
+    void skinMcCooldownRetainsLatestCurrentActorMarkersAndLeavesOptifineAvailable() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID self = fixture.session.identity.profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        MutableClock clock = new MutableClock();
+        AtomicInteger skinMcCalls = new AtomicInteger();
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            skinMcCalls.incrementAndGet();
+            return new OptifineCapeReader.Response(429, new byte[0],
+                    Map.of("Retry-After", List.of("120")));
+        }, new PngValidator(), clock);
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
+                Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        assertEquals(1, skinMcCalls.get());
+        assertTrue(fixture.coordinator.cooldownRemaining(BuiltinProvider.SKINMC).isPresent());
+        assertTrue(fixture.coordinator.cooldownRemaining(BuiltinProvider.OPTIFINE).isEmpty());
+        UUID remote = UUID.randomUUID();
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(remote, "Remote"));
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        for (int index = 0; index < 10; index++) fixture.coordinator.playerInfoUpdated(remote, "Remote");
+        fixture.coordinator.refresh();
+        assertEquals(1, skinMcCalls.get());
+        assertTrue(fixture.calls.get() >= 1);
+        fixture.coordinator.untrackedPlayer(remote);
+        clock.advanceSeconds(121);
+        fixture.coordinator.refreshSkinMc(ignored -> {});
+        assertEquals(2, skinMcCalls.get());
+    }
+
+    @Test
+    void accountSwitchKeepsBothServiceCooldownsAndDropsOldActorWork() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID oldAccount = fixture.session.identity.profileId();
+        UUID nextAccount = UUID.randomUUID();
+        for (UUID account : List.of(oldAccount, nextAccount)) {
+            fixture.storage.loadOrCreateAccount(account);
+            fixture.storage.updateAppearance(account, state -> state.withProviders(state.providers()
+                    .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                    .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        }
+        MutableClock clock = new MutableClock();
+        List<String> optifineNames = new ArrayList<>();
+        List<UUID> skinMcProfiles = new ArrayList<>();
+        OptifineCapeReader optifine = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+            optifineNames.add(uri.getPath().substring("/capes/".length()).replace(".png", ""));
+            return new OptifineCapeReader.Response(optifineNames.size() == 1 ? 429 : 404,
+                    new byte[0], optifineNames.size() == 1
+                            ? Map.of("Retry-After", List.of("120")) : Map.of());
+        }, new PngValidator(), clock);
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            skinMcProfiles.add(UUID.fromString(uri.getPath().substring(uri.getPath().lastIndexOf('/') + 1)));
+            return new OptifineCapeReader.Response(skinMcProfiles.size() == 1 ? 429 : 404,
+                    new byte[0], skinMcProfiles.size() == 1
+                            ? Map.of("Retry-After", List.of("120")) : Map.of());
+        }, new PngValidator(), clock);
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
+                Runnable::run, optifine, skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        assertEquals(List.of("Self"), optifineNames);
+        assertEquals(List.of(oldAccount), skinMcProfiles);
+
+        UUID oldTracked = UUID.randomUUID();
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(oldTracked, "Remote"));
+        fixture.coordinator.trackedPlayer(oldTracked, "Remote");
+        fixture.sink.players.clear();
+        fixture.session.identity = new GameSessionTokenSource.SessionIdentity(nextAccount, "Next");
+        fixture.coordinator.configurationChanged();
+        for (int attempt = 0; attempt < 5; attempt++) {
+            fixture.coordinator.refresh();
+            fixture.coordinator.refreshSkinMc(ignored -> {});
+        }
+        assertEquals(List.of("Self"), optifineNames);
+        assertEquals(List.of(oldAccount), skinMcProfiles);
+        assertEquals(java.time.Duration.ofSeconds(120),
+                fixture.coordinator.cooldownRemaining(BuiltinProvider.OPTIFINE).orElseThrow());
+        assertEquals(java.time.Duration.ofSeconds(120),
+                fixture.coordinator.cooldownRemaining(BuiltinProvider.SKINMC).orElseThrow());
+
+        clock.advanceSeconds(120);
+        fixture.coordinator.refresh();
+        fixture.coordinator.refreshSkinMc(ignored -> {});
+        assertEquals(List.of("Self", "Next"), optifineNames);
+        assertEquals(List.of(oldAccount, nextAccount), skinMcProfiles);
+    }
+
+    @Test
+    void combinedRefreshAfterCooldownConsumesOneLatestSkinMcMarker() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID self = fixture.session.identity.profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        MutableClock clock = new MutableClock();
+        AtomicInteger skinMcReads = new AtomicInteger();
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            int read = skinMcReads.incrementAndGet();
+            return new OptifineCapeReader.Response(read == 1 ? 429 : 404, new byte[0],
+                    read == 1 ? Map.of("Retry-After", List.of("120")) : Map.of());
+        }, new PngValidator(), clock);
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
+                Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        for (int attempt = 0; attempt < 5; attempt++) {
+            fixture.coordinator.refresh();
+            fixture.coordinator.refreshSkinMc(ignored -> {});
+        }
+        assertEquals(1, skinMcReads.get());
+
+        clock.advanceSeconds(120);
+        fixture.coordinator.refresh();
+        fixture.coordinator.refreshSkinMc(ignored -> {});
+        assertEquals(2, skinMcReads.get(), "one combined Refresh admits one SkinMC GET");
+    }
+
+    @Test
+    void skinMcCooldownCoalescesSelfAndTrackedActorWithoutReplayBurst() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID self = fixture.session.identity.profileId();
+        UUID remote = UUID.randomUUID();
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(remote, "Remote"));
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        MutableClock clock = new MutableClock();
+        AtomicInteger calls = new AtomicInteger();
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            int call = calls.incrementAndGet();
+            return new OptifineCapeReader.Response(call == 1 ? 429 : 404, new byte[0],
+                    call == 1 ? Map.of("Retry-After", List.of("120")) : Map.of());
+        }, new PngValidator(), clock);
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
+                Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        for (int index = 0; index < 10; index++) {
+            fixture.coordinator.playerInfoUpdated(remote, "Remote");
+            fixture.coordinator.refreshSkinMc(ignored -> {});
+        }
+        assertEquals(1, calls.get());
+        clock.advanceSeconds(121);
+        fixture.coordinator.refreshSkinMc(ignored -> {});
+        assertEquals(3, calls.get());
+        assertEquals(0, fixture.sink.registered.size());
+    }
+
+    @Test
+    void optifineCooldownDoesNotBlockSkinMcLookup() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID self = fixture.session.identity.profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        fixture.status = 429;
+        AtomicInteger skinMcCalls = new AtomicInteger();
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            skinMcCalls.incrementAndGet();
+            return new OptifineCapeReader.Response(200, fixture.image,
+                    Map.of("Content-Type", List.of("image/png")));
+        }, new PngValidator(), Clock.systemUTC());
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
+                Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        assertEquals(1, skinMcCalls.get());
+        assertTrue(fixture.coordinator.cooldownRemaining(BuiltinProvider.OPTIFINE).isPresent());
+        assertTrue(fixture.coordinator.cooldownRemaining(BuiltinProvider.SKINMC).isEmpty());
+        assertEquals(BuiltinProvider.SKINMC,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+    }
+
+    @Test
+    void sharedSkinMcAbsenceReleasesOnlyItsConfirmedSourceWithoutLookup() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID self = fixture.session.identity.profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)
+                        .move(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC, -1)));
+        fixture.status = 200;
+        AtomicInteger skinMcCalls = new AtomicInteger();
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            skinMcCalls.incrementAndGet();
+            return new OptifineCapeReader.Response(200, fixture.image,
+                    Map.of("Content-Type", List.of("image/png")));
+        }, new PngValidator(), Clock.systemUTC());
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
+                Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        assertEquals(BuiltinProvider.SKINMC,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+        int before = skinMcCalls.get();
+        var absent = fixture.storage.updateAppearance(self, state -> state.withProviders(
+                new AppearanceProviders(state.providers().skin(),
+                        state.providers().cape().observeSkinmc(null))));
+        fixture.coordinator.adoptSharedSnapshot(self, "Self", absent.providers());
+        assertEquals(before, skinMcCalls.get());
+        assertFalse(fixture.sink.registered.containsKey("nclskins:skinmc/" + self));
+        assertEquals(BuiltinProvider.OPTIFINE,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+    }
+
+    @Test
+    void trackedRosterHasFiniteCapAcrossPublicCapeProviders() throws Exception {
+        Fixture fixture = fixture();
+        for (int index = 0; index < 600; index++) {
+            fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(
+                    UUID.nameUUIDFromBytes(("bounded-" + index).getBytes()), "Player_" + index));
+        }
+        fixture.coordinator.start();
+        assertEquals(513, fixture.calls.get());
+    }
+
+    @Test
+    void lateSkinMcResponseCannotRestoreDepartedPlayerOrOldAccount() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID self = fixture.session.identity.profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        HoldExecutor held = new HoldExecutor();
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) ->
+                new OptifineCapeReader.Response(200, fixture.image,
+                        Map.of("Content-Type", List.of("image/png"))),
+                new PngValidator(), Clock.systemUTC());
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
+                fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        UUID remote = UUID.randomUUID();
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        fixture.coordinator.untrackedPlayer(remote);
+        fixture.session.identity = new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(), "Next");
+        fixture.coordinator.configurationChanged();
+        held.runAll();
+        assertFalse(fixture.sink.registered.containsKey("nclskins:skinmc/" + self));
+        assertFalse(fixture.sink.registered.containsKey("nclskins:skinmc/" + remote));
+    }
 
     @Test
     void refreshSweepsEntireRosterAndDoesNotPollOnProjection() throws Exception {
@@ -388,6 +689,92 @@ class OptifineCapeCoordinatorTest {
             assertEquals(expected.renderSha256(), new PngValidator().projectCanonicalCape(
                     fixture.sink.registered.get("nclskins:optifine/" + remote)).renderSha256());
         }
+    }
+
+    @Test
+    void observerHintRechecksOnlyTargetedTrackedPlayerAfterKnownAbsence() throws Exception {
+        Fixture fixture = fixture();
+        UUID target = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(target, "Target"));
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(other, "Other"));
+        fixture.coordinator.start();
+        assertEquals(1, fixture.reads("Self"));
+        assertEquals(1, fixture.reads("Target"));
+        assertEquals(1, fixture.reads("Other"));
+
+        fixture.status = 200;
+        fixture.image = substitutedPng(64);
+        fixture.coordinator.playerInfoUpdated(target, "Target");
+
+        assertEquals(1, fixture.reads("Self"));
+        assertEquals(2, fixture.reads("Target"));
+        assertEquals(1, fixture.reads("Other"));
+        assertEquals(BuiltinProvider.OPTIFINE,
+                CapeProjection.resolve(target, "Target", null, null, false).provider());
+        assertNull(CapeProjection.resolve(other, "Other", null, null, false).provider());
+    }
+
+    @Test
+    void observerHintRechecksTargetAcrossLocallyEnabledPublicProvidersWithoutBurst() throws Exception {
+        Fixture fixture = fixture();
+        fixture.coordinator.close();
+        UUID self = fixture.session.identity.profileId();
+        UUID target = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(target, "Target"));
+        fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(other, "Other"));
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        Map<UUID, AtomicInteger> skinMcReads = new HashMap<>();
+        SkinMcCapeReader skinMc = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            UUID profile = UUID.fromString(uri.getPath().substring(uri.getPath().lastIndexOf('/') + 1));
+            skinMcReads.computeIfAbsent(profile, ignored -> new AtomicInteger()).incrementAndGet();
+            return new OptifineCapeReader.Response(404, new byte[0]);
+        }, new PngValidator(), Clock.systemUTC());
+        ManualExecutor held = new ManualExecutor();
+        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
+                fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+        fixture.coordinator.start();
+        drainHeld(held);
+        assertEquals(1, fixture.reads("Self"));
+        assertEquals(1, fixture.reads("Target"));
+        assertEquals(1, fixture.reads("Other"));
+        assertEquals(1, skinMcReads.get(self).get());
+        assertEquals(1, skinMcReads.get(target).get());
+        assertEquals(1, skinMcReads.get(other).get());
+
+        for (int hint = 0; hint < 10_000; hint++) fixture.coordinator.playerInfoUpdated(target, "Target");
+        drainHeld(held);
+        assertEquals(1, fixture.reads("Self"));
+        assertEquals(3, fixture.reads("Target"), "one in-flight and one latest followup read");
+        assertEquals(1, fixture.reads("Other"));
+        assertEquals(1, skinMcReads.get(self).get());
+        assertEquals(3, skinMcReads.get(target).get(), "one in-flight and one latest followup read");
+        assertEquals(1, skinMcReads.get(other).get());
+
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().disable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)));
+        fixture.coordinator.configurationChanged();
+        drainHeld(held);
+        fixture.coordinator.playerInfoUpdated(target, "Target");
+        drainHeld(held);
+        assertEquals(4, fixture.reads("Target"));
+        assertEquals(3, skinMcReads.get(target).get(), "disabled local source is never queried");
+
+        fixture.storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)
+                        .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)));
+        fixture.coordinator.configurationChanged();
+        drainHeld(held);
+        int optifineBefore = fixture.reads("Target");
+        int skinMcBefore = skinMcReads.get(target).get();
+        fixture.coordinator.playerInfoUpdated(target, "Target");
+        drainHeld(held);
+        assertEquals(optifineBefore, fixture.reads("Target"), "disabled OptiFine is never queried");
+        assertEquals(skinMcBefore + 1, skinMcReads.get(target).get(),
+                "SkinMC-only observer configuration rechecks SkinMC");
     }
 
     @Test
@@ -829,6 +1216,18 @@ class OptifineCapeCoordinatorTest {
         }
     }
 
+    private static final class MutableClock extends Clock {
+        private final AtomicLong seconds = new AtomicLong(Instant.parse("2026-09-25T10:00:00Z").getEpochSecond());
+
+        void advanceSeconds(long count) { seconds.addAndGet(count); }
+
+        @Override public ZoneId getZone() { return ZoneOffset.UTC; }
+
+        @Override public Clock withZone(ZoneId zone) { return this; }
+
+        @Override public Instant instant() { return Instant.ofEpochSecond(seconds.get()); }
+    }
+
     private static final class ImmediateClient implements ClientExecutor {
         @Override public boolean isClientThread() { return true; }
         @Override public void execute(Runnable action) { action.run(); }
@@ -841,6 +1240,18 @@ class OptifineCapeCoordinatorTest {
         public void execute(Runnable action) {
             calls++;
             action.run();
+        }
+    }
+
+    private static final class HoldExecutor implements java.util.concurrent.Executor {
+        private final List<Runnable> jobs = new ArrayList<>();
+
+        @Override public void execute(Runnable action) { jobs.add(action); }
+
+        void runAll() {
+            int count = 0;
+            while (!jobs.isEmpty() && count++ < 2_000) jobs.remove(0).run();
+            assertTrue(jobs.isEmpty());
         }
     }
 

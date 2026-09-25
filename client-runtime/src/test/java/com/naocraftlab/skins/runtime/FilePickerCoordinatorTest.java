@@ -62,6 +62,26 @@ final class FilePickerCoordinatorTest {
     }
 
     @Test
+    void capePickerAcceptsJpegAndKeepsSkinPickerPngOnly(@TempDir Path directory) throws Exception {
+        QueuedExecutor worker = new QueuedExecutor();
+        FilePickerCoordinator picker = new FilePickerCoordinator(worker);
+        Path jpeg = Files.write(directory.resolve("cape.JPEG"), new byte[] {1});
+
+        var selected = picker.chooseCape(() -> Optional.of(jpeg));
+        worker.runFirst();
+        assertEquals(Optional.of(jpeg.toAbsolutePath().normalize()), selected.join());
+
+        var skin = picker.choose(() -> Optional.of(jpeg));
+        worker.runFirst();
+        CompletionException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                CompletionException.class, skin::join);
+        assertInstanceOf(IllegalStateException.class, failure.getCause());
+        var cancelled = picker.chooseCape(Optional::empty);
+        worker.runFirst();
+        assertEquals(Optional.empty(), cancelled.join());
+    }
+
+    @Test
     void rejectsInvalidPathAndConcurrentDialog(@TempDir Path directory) throws Exception {
         QueuedExecutor worker = new QueuedExecutor();
         FilePickerCoordinator picker = new FilePickerCoordinator(worker);

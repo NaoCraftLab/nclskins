@@ -49,9 +49,9 @@ public final class MinecraftFilePicker implements FilePicker {
             title = Component.translatable("nclskins.capes.import").getString();
         } catch (RuntimeException failure) {
             return CompletableFuture.failedFuture(
-                    new IllegalStateException("The system PNG picker could not be prepared", failure));
+                    new IllegalStateException("The system cape picker could not be prepared", failure));
         }
-        return COORDINATOR.choose(() -> selectLocalPng(title));
+        return COORDINATOR.chooseCape(() -> selectLocalCape(title));
     }
 
     @Override
@@ -110,6 +110,18 @@ public final class MinecraftFilePicker implements FilePicker {
                 return Optional.empty();
             }
             return Optional.of(Path.of(selected));
+        }
+    }
+
+    private static Optional<Path> selectLocalCape(String title) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            PointerBuffer filters = stack.mallocPointer(3);
+            filters.put(stack.UTF8("*.png"));
+            filters.put(stack.UTF8("*.jpg"));
+            filters.put(stack.UTF8("*.jpeg")).flip();
+            String selected = TinyFileDialogs.tinyfd_openFileDialog(
+                    title, null, filters, title, false);
+            return selected == null ? Optional.empty() : Optional.of(Path.of(selected));
         }
     }
 

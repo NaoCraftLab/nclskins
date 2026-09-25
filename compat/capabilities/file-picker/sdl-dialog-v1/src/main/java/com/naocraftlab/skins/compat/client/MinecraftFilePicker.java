@@ -50,9 +50,9 @@ public final class MinecraftFilePicker implements FilePicker {
         return chooseFile(
                 "nclskins.capes.import",
                 null,
-                "PNG image",
-                "png",
-                SelectionType.PNG);
+                null,
+                "png;jpg;jpeg",
+                SelectionType.CAPE);
     }
 
     @Override
@@ -112,6 +112,8 @@ public final class MinecraftFilePicker implements FilePicker {
             return CompletableFuture.failedFuture(new IllegalStateException(
                     selectionType == SelectionType.PNG
                             ? "The system PNG picker could not be prepared"
+                            : selectionType == SelectionType.CAPE
+                            ? "The system cape picker could not be prepared"
                             : "The system database picker could not be prepared",
                     failure));
         }
@@ -119,11 +121,13 @@ public final class MinecraftFilePicker implements FilePicker {
                 SDLDialog.SDL_FILEDIALOG_OPENFILE,
                 title,
                 initialDirectory,
-                filterName,
+                selectionType == SelectionType.CAPE ? title : filterName,
                 filterPattern);
-        return selectionType == SelectionType.PNG
-                ? COORDINATOR.chooseAsync(dialog, clientExecutor::execute)
-                : COORDINATOR.chooseSqliteDatabaseAsync(dialog, clientExecutor::execute);
+        return switch (selectionType) {
+            case PNG -> COORDINATOR.chooseAsync(dialog, clientExecutor::execute);
+            case CAPE -> COORDINATOR.chooseCapeAsync(dialog, clientExecutor::execute);
+            case SQLITE_DATABASE -> COORDINATOR.chooseSqliteDatabaseAsync(dialog, clientExecutor::execute);
+        };
     }
 
     private CompletableFuture<Optional<Path>> openDialog(
@@ -145,6 +149,7 @@ public final class MinecraftFilePicker implements FilePicker {
 
     private enum SelectionType {
         PNG,
+        CAPE,
         SQLITE_DATABASE
     }
 

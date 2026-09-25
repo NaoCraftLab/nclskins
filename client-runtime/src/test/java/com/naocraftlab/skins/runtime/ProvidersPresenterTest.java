@@ -94,6 +94,41 @@ final class ProvidersPresenterTest {
         assertFalse(capeChooser.widget("providers.row.OPTIFINE").orElseThrow().enabled());
     }
 
+    @Test void skinMcCapeRowKeepsAccountActionPreviewAndKeyboardAtNarrowWidth() {
+        var initial = AppearanceProviders.initial().enable(
+                AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC);
+        var absent = new AppearanceProviders(initial.skin(), initial.cape().observeSkinmc(null));
+        var presenter = new ProvidersPresenter();
+        var empty = presenter.present(absent, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(191, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 200, 191, null, BuiltinProvider.SKINMC);
+        var row = empty.widget("providers.row.SKINMC").orElseThrow();
+        var account = empty.widget("providers.account.SKINMC").orElseThrow();
+        assertEquals("nclskins.providers.skinmc", row.label().key());
+        assertEquals(GuiIcon.ACTION_OPEN_ACCOUNT, account.icon().orElseThrow());
+        assertEquals("nclskins.providers.open_account", account.label().key());
+        assertTrue(empty.widget("providers.edit.SKINMC").isEmpty());
+        assertEquals(row.bounds().right() - 28, account.bounds().right());
+        assertTrue(empty.clipRegions().stream().anyMatch(region ->
+                region.id().equals("providers.rows") && region.matches(account.id())));
+        assertEquals("providers.account.SKINMC", ViewNavigationPolicy.target(empty,
+                "providers.up.SKINMC", ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
+        assertTrue(empty.iconDecorations().stream().filter(icon ->
+                icon.ownerWidgetId().equals(row.id())).findFirst().orElseThrow()
+                .providerTexture().isEmpty());
+
+        var observed = new AppearanceProviders(initial.skin(), initial.cape().observeSkinmc(
+                new ProviderCape("cape", "b".repeat(64), true)));
+        var populated = presenter.present(observed, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.ELYTRA),
+                SkinVariant.CLASSIC, 854, 480, null, BuiltinProvider.SKINMC);
+        assertTrue(populated.previews().get(0).capeId().orElseThrow().contains("b".repeat(64)));
+        assertTrue(populated.widget("providers.preview_mode").isPresent());
+        assertTrue(presenter.present(observed, AppearanceProviders.Component.SKIN, false, false,
+                PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 854, 480).widget("providers.row.SKINMC").isEmpty());
+    }
+
     @Test void narrowWrappedFeedbackReservesRowsViewportAndRowsScroll() {
         var providers = AppearanceProviders.initial()
                 .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE);
@@ -191,6 +226,37 @@ final class ProvidersPresenterTest {
                     PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
                     854, 480, null, null, progress).progressDecorations().isEmpty());
         }
+    }
+
+    @Test void publicCapeCooldownsUseSeparateWrappedRowsAndDoNotAlterMinecraftProgress() {
+        var providers = AppearanceProviders.initial()
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC);
+        var presenter = new ProvidersPresenter();
+        var remaining = java.util.Map.of(BuiltinProvider.OPTIFINE, java.time.Duration.ofSeconds(61),
+                BuiltinProvider.SKINMC, java.time.Duration.ofMillis(1500));
+        var view = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(191, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                200, 191, null, null, java.util.Optional.empty(), false, null, 0,
+                UiMessage::key, remaining);
+        var optifine = view.texts().stream().filter(text -> text.id().equals("providers.row.OPTIFINE.cooldown"))
+                .findFirst().orElseThrow();
+        var skinmc = view.texts().stream().filter(text -> text.id().equals("providers.row.SKINMC.cooldown"))
+                .findFirst().orElseThrow();
+        assertEquals("nclskins.providers.cooldown", optifine.message().key());
+        assertEquals("1:01", optifine.message().arguments().get(0));
+        assertEquals("0:02", skinmc.message().arguments().get(0));
+        assertEquals(ViewSpec.Text.Layout.WRAP, skinmc.layout());
+        assertTrue(view.widget("providers.row.OPTIFINE").orElseThrow().bounds().height() > 36);
+        assertTrue(view.widget("providers.row.SKINMC").orElseThrow().bounds().height() > 36);
+        assertTrue(view.clipRegions().stream().anyMatch(region ->
+                region.id().equals("providers.rows") && region.matches(skinmc.id())));
+        assertTrue(view.progressDecorations().isEmpty());
+        var skins = presenter.present(providers, AppearanceProviders.Component.SKIN, false, false,
+                PreviewInteractionModel.editor(191, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                200, 191, null, null, java.util.Optional.empty(), false, null, 0,
+                UiMessage::key, remaining);
+        assertTrue(skins.texts().stream().noneMatch(text -> text.id().endsWith(".cooldown")));
     }
 
     @Test void keyboardTraversalStaysWithinRowsAndSkipsDisabledActions() {

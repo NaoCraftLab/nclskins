@@ -16,6 +16,9 @@ public final class PlayerSkinTextureNormalizer {
 
     public static byte[] normalizePng(byte[] pngBytes) throws IOException {
         Objects.requireNonNull(pngBytes, "pngBytes");
+        if (pngBytes.length > EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES) {
+            throw new IOException("Player skin exceeds the encoded texture limit");
+        }
         BufferedImage decoded;
         try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {
             decoded = ImageIO.read(input);

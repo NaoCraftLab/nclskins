@@ -97,11 +97,19 @@ class ResourcePackCatalogDiscoveryTest {
 
         assertEquals("hero", cape.capeId());
         assertEquals("event_pack:textures/entity/cape/hero.png", cape.contentIdentity());
+        assertTrue(ResourcePackCatalogDiscovery.isCapeCandidatePath("textures/entity/cape/hero.jpg"));
+        assertTrue(ResourcePackCatalogDiscovery.isCapeCandidatePath("textures/entity/cape/hero.jpeg"));
+        assertEquals("event_pack:textures/entity/cape/hero.jpg",
+                ResourcePackCatalogDiscovery.capeVariant("event_pack",
+                        "textures/entity/cape/hero.jpg", "file/event.zip", 1)
+                        .orElseThrow().contentIdentity());
         assertEquals(
                 "nclskins.event_pack.cape.hero.name",
                 CatalogText.capeName("event_pack", "hero").translationKey().orElseThrow());
         assertFalse(ResourcePackCatalogDiscovery.capeVariant(
                 "event_pack", "textures/entity/cape/nested/hero.png", "file/event.zip", 1).isPresent());
+        assertFalse(ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack", "textures/entity/cape/nested/hero.jpeg", "file/event.zip", 1).isPresent());
         assertFalse(ResourcePackCatalogDiscovery.capeVariant(
                 "event_pack", "textures/entity/player/wide/hero.png", "file/event.zip", 1).isPresent());
         assertFalse(ResourcePackCatalogDiscovery.capeVariant(

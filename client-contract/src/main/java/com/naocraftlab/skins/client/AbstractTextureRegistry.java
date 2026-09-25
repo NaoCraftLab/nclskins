@@ -12,8 +12,6 @@ import java.util.regex.Pattern;
 
 public abstract class AbstractTextureRegistry<R> implements TextureRegistry {
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
-    private static final int MAX_PLAYER_SKIN_BYTES = 1024 * 1024;
-    private static final int MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
     private final Map<TextureKey, Entry<R>> entries = new HashMap<>();
     private final Map<TextureHandle, TextureKey> handles = new HashMap<>();
@@ -109,10 +107,8 @@ public abstract class AbstractTextureRegistry<R> implements TextureRegistry {
     }
 
     private static int maximumBytes(TextureKind kind) {
-        TextureKind requiredKind = Objects.requireNonNull(kind, "kind");
-        return requiredKind == TextureKind.PLAYER_SKIN
-                ? MAX_PLAYER_SKIN_BYTES
-                : MAX_IMAGE_BYTES;
+        Objects.requireNonNull(kind, "kind");
+        return EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES;
     }
 
     private static byte[] readBounded(Path path, int maximumBytes) throws IOException {

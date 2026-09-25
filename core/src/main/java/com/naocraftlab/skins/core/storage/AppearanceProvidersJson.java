@@ -13,7 +13,9 @@ import com.naocraftlab.skins.core.provider.ProviderDelivery;
 import com.naocraftlab.skins.core.provider.ProviderObservation;
 import com.naocraftlab.skins.core.provider.ProviderSkin;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 
 final class AppearanceProvidersJson {
@@ -30,6 +32,44 @@ final class AppearanceProvidersJson {
                 decodeChannel(object(root, "cape"), AppearanceProvidersJson::decodeCape, true));
     }
 
+    static JsonObject mergeUnknown(JsonObject original, AppearanceProviders state) {
+        JsonObject merged = original.deepCopy();
+        JsonObject encoded = encode(state);
+        mergeChannel(merged.getAsJsonObject("skin"), encoded.getAsJsonObject("skin"));
+        mergeChannel(merged.getAsJsonObject("cape"), encoded.getAsJsonObject("cape"));
+        return merged;
+    }
+
+    private static void mergeChannel(JsonObject original, JsonObject encoded) {
+        JsonArray oldOrder = original.getAsJsonArray("order");
+        JsonArray newOrder = encoded.getAsJsonArray("order");
+        List<String> known = new ArrayList<>();
+        newOrder.forEach(element -> known.add(element.getAsString()));
+        JsonArray mergedOrder = new JsonArray();
+        int nextKnown = 0;
+        for (JsonElement entry : oldOrder) {
+            String id = entry.getAsString();
+            if (knownProvider(id)) {
+                if (nextKnown < known.size()) mergedOrder.add(known.get(nextKnown++));
+            } else {
+                mergedOrder.add(id);
+            }
+        }
+        while (nextKnown < known.size()) mergedOrder.add(known.get(nextKnown++));
+        original.add("order", mergedOrder);
+        encoded.entrySet().forEach(entry -> {
+            if (!entry.getKey().equals("order")) original.add(entry.getKey(), entry.getValue().deepCopy());
+        });
+        if (!encoded.has("desired")) original.remove("desired");
+    }
+
+    private static boolean knownProvider(String id) {
+        for (BuiltinProvider provider : BuiltinProvider.values()) {
+            if (provider.name().equals(id)) return true;
+        }
+        return false;
+    }
+
     private static <T> JsonObject encodeChannel(ProviderChannel<T> channel, Function<T, JsonObject> encode,
             boolean cape) {
         JsonObject result = new JsonObject();
@@ -42,6 +82,7 @@ final class AppearanceProvidersJson {
         result.add("minecraft", encodeObservation(channel.minecraft(), encode));
         if (cape) {
             result.add("optifine", encodeObservation(channel.optifine(), encode));
+            result.add("skinmc", encodeObservation(channel.skinmc(), encode));
         }
         if (channel.desired() != null) {
             result.add("desired", encode.apply(channel.desired()));
@@ -59,12 +100,25 @@ final class AppearanceProvidersJson {
             boolean cape) {
         JsonElement elements = root.get("order");
         if (elements == null || !elements.isJsonArray()
-                || elements.getAsJsonArray().size() > (cape ? 3 : 2)) {
+                || elements.getAsJsonArray().size() > 32) {
             throw new JsonParseException("Invalid provider order");
         }
         List<BuiltinProvider> order = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (JsonElement element : elements.getAsJsonArray()) {
-            BuiltinProvider provider = BuiltinProvider.valueOf(element.getAsString());
+            if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+                throw new JsonParseException("Invalid provider ID");
+            }
+            String id = element.getAsString();
+            if (!id.matches("[A-Z][A-Z0-9_]{0,63}") || !seen.add(id)) {
+                throw new JsonParseException("Invalid provider ID");
+            }
+            BuiltinProvider provider;
+            try {
+                provider = BuiltinProvider.valueOf(id);
+            } catch (IllegalArgumentException unknown) {
+                continue;
+            }
             if (cape ? !provider.supportsCape() : !provider.supportsSkin()) {
                 throw new JsonParseException("Provider does not support component");
             }
@@ -83,6 +137,9 @@ final class AppearanceProvidersJson {
                         : root.has("desired") ? decode.apply(object(root, "desired")) : null,
                 cape && root.has("optifine")
                         ? decodeObservation(object(root, "optifine"), decode)
+                        : ProviderObservation.unknown(),
+                cape && root.has("skinmc")
+                        ? decodeObservation(object(root, "skinmc"), decode)
                         : ProviderObservation.unknown());
     }
 

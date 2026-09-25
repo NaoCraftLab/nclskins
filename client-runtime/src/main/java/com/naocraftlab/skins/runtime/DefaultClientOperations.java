@@ -221,7 +221,7 @@ public final class DefaultClientOperations implements ClientOperations {
         }
         AtomicInteger threadIndex = new AtomicInteger();
         optifineWorker = Executors.newFixedThreadPool(4, action -> {
-            Thread thread = new Thread(action, "nclskins-optifine-cape-" + threadIndex.incrementAndGet());
+            Thread thread = new Thread(action, "nclskins-public-cape-" + threadIndex.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         });
@@ -273,6 +273,17 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
+    public void refreshSkinMcCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
+        if (optifineCapes != null) optifineCapes.refreshSkinMc(completion);
+        else completion.accept(null);
+    }
+
+    @Override
+    public Optional<java.time.Duration> capeProviderCooldown(BuiltinProvider provider) {
+        return optifineCapes == null ? Optional.empty() : optifineCapes.cooldownRemaining(provider);
+    }
+
+    @Override
     public void optiFineConfigurationChanged() {
         if (optifineCapes != null) optifineCapes.configurationChanged();
     }
@@ -286,6 +297,11 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public void onOptiFineObservation(Consumer<OptiFineObservation> listener) {
         if (optifineCapes != null) optifineCapes.onSelfObservation(listener);
+    }
+
+    @Override
+    public void onSkinMcObservation(Consumer<SkinMcObservation> listener) {
+        if (optifineCapes != null) optifineCapes.onSkinMcObservation(listener);
     }
 
     @Override
@@ -863,10 +879,13 @@ public final class DefaultClientOperations implements ClientOperations {
                 Objects.requireNonNull(collectionId, "collectionId"),
                 Objects.requireNonNull(skinId, "skinId"),
                 Objects.requireNonNull(model, "model"));
-
-
+        Objects.requireNonNull(loaded, "catalog source returned null");
+        if (loaded.length > PngValidator.DEFAULT_MAX_BYTES) {
+            throw new PngValidationException(PngValidationException.Reason.OVERSIZED,
+                    "Catalog skin exceeds the encoded texture limit");
+        }
         return new PngValidator().normalizeSkin(
-                Objects.requireNonNull(loaded, "catalog source returned null").clone());
+                loaded.clone());
     }
 
     @Override
@@ -1064,7 +1083,7 @@ public final class DefaultClientOperations implements ClientOperations {
         Map<String, byte[]> previews = new HashMap<>();
         for (RemoteCape cape : profile.capes()) {
             try {
-                byte[] capeBytes = java.nio.file.Files.readAllBytes(textures.get(cape).path());
+                byte[] capeBytes = textures.read(textures.get(cape));
                 Boolean classified = storage.loadOwnedCapes(accountId).find(cape.id()).map(OwnedCapeEntry::hasElytra).orElse(null);
                 boolean hasElytra = classified != null ? classified
                         : new PngValidator().projectCanonicalCape(capeBytes).hasElytra();
@@ -1155,11 +1174,28 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(UUID accountId, java.nio.file.Path path, String fallbackName) throws IOException, PngValidationException {
         requireCapeAccount(accountId);
+        String fileName = path.getFileName() == null ? "" : path.getFileName().toString();
+        String lowerName = fileName.toLowerCase(java.util.Locale.ROOT);
+        boolean jpegFile = lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg");
+        if (!jpegFile && !lowerName.endsWith(".png")) {
+            throw new PngValidationException(PngValidationException.Reason.BAD_SIGNATURE,
+                    "Unsupported cape file extension");
+        }
         byte[] bytes;
         try (var input = java.nio.file.Files.newInputStream(path)) {
             bytes = input.readNBytes(com.naocraftlab.skins.core.png.PngValidator.DEFAULT_MAX_BYTES + 1);
         }
-        String name = UntrustedDisplayName.fromFileName(path.getFileName().toString(), fallbackName);
+        if (bytes.length > PngValidator.DEFAULT_MAX_BYTES) {
+            throw new PngValidationException(PngValidationException.Reason.OVERSIZED,
+                    "Cape file exceeds the encoded texture limit");
+        }
+        boolean jpegBytes = bytes.length >= 2 && (bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xd8;
+        if (jpegFile != jpegBytes) {
+            throw new PngValidationException(PngValidationException.Reason.BAD_SIGNATURE,
+                    "Cape file format does not match its extension");
+        }
+        requireCapeAccount(accountId);
+        String name = UntrustedDisplayName.fromFileName(fileName, fallbackName);
         var entry = storage.importCape(accountId, name, bytes);
         return entry;
     }

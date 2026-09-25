@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.core.png;
 
 import com.naocraftlab.skins.core.compatibility.SkinConflictReason;
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.test.TestPng;
@@ -16,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Random;
 import java.util.zip.CRC32;
 import java.util.zip.DeflaterOutputStream;
 
@@ -83,6 +85,45 @@ class PngValidatorTest {
                 PngValidationException.class,
                 () -> bounded.validate(bytes));
         assertEquals(PngValidationException.Reason.OVERSIZED, exception.reason());
+    }
+
+    @Test
+    void encodedTextureLimitIsInclusiveAndCheckedBeforeDecode() {
+        assertEquals(68_157_440, EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
+        byte[] exact = new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES];
+        assertEquals(PngValidationException.Reason.BAD_SIGNATURE,
+                assertThrows(PngValidationException.class,
+                        () -> validator.projectImport(exact)).reason());
+        byte[] over = Arrays.copyOf(exact, exact.length + 1);
+        assertEquals(PngValidationException.Reason.OVERSIZED,
+                assertThrows(PngValidationException.class,
+                        () -> validator.projectImport(over)).reason());
+    }
+
+    @Test
+    void highEntropyRgba16ScaledSkinFitsSharedEncodedLimit() throws Exception {
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        Random random = new Random(0x5eed);
+        try (DeflaterOutputStream deflater = new DeflaterOutputStream(compressed)) {
+            byte[] row = new byte[1 + 2048 * 8];
+            for (int y = 0; y < 2048; y++) {
+                random.nextBytes(row);
+                row[0] = 0;
+                deflater.write(row);
+            }
+        }
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        png.write(new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
+        byte[] header = ByteBuffer.allocate(13)
+                .putInt(2048).putInt(2048).put((byte) 16).put((byte) 6)
+                .put((byte) 0).put((byte) 0).put((byte) 0).array();
+        png.write(chunk("IHDR", header));
+        png.write(chunk("IDAT", compressed.toByteArray()));
+        png.write(chunk("IEND", new byte[0]));
+        byte[] encoded = png.toByteArray();
+        assertTrue(encoded.length > 32 * 1024 * 1024);
+        assertTrue(encoded.length <= EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
+        assertEquals(64, validator.validate(validator.projectImport(encoded).pngBytes()).width());
     }
 
     @Test

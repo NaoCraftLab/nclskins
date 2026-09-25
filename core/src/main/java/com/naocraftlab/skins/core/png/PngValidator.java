@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.core.png;
 
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.core.compatibility.SkinFeatureAnalyzer;
 import com.naocraftlab.skins.core.model.SkinVariant;
 
@@ -25,7 +26,7 @@ import java.util.zip.Inflater;
 
 
 public final class PngValidator {
-    public static final int DEFAULT_MAX_BYTES = 1_048_576;
+    public static final int DEFAULT_MAX_BYTES = EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES;
 
     public static final int MAX_SOURCE_DIMENSION = 2_048;
     public static final long MAX_SOURCE_PIXELS = 4_194_304L;
@@ -51,7 +52,7 @@ public final class PngValidator {
         if (maxBytes < 128) {
             throw new IllegalArgumentException("maxBytes is unreasonably small");
         }
-        this.maxBytes = maxBytes;
+        this.maxBytes = Math.min(maxBytes, EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
     }
 
     public int maxBytes() {
@@ -92,6 +93,9 @@ public final class PngValidator {
     }
 
     private CapePng projectCape(byte[] bytes, CapeAdmission admission) throws PngValidationException {
+        if (admission == CapeAdmission.SOURCE && JpegCapeDecoder.hasSignature(bytes)) {
+            return projectCape(JpegCapeDecoder.toPng(bytes, maxBytes), CapeAdmission.CANONICAL);
+        }
         Inspection inspection = inspect(bytes, false, false, admission);
         int sourceWidth = inspection.info().width();
         int sourceHeight = inspection.info().height();

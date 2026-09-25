@@ -173,6 +173,14 @@ public interface ClientOperations extends AutoCloseable {
         completion.accept(null);
     }
 
+    default void refreshSkinMcCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
+        completion.accept(null);
+    }
+
+    default Optional<Duration> capeProviderCooldown(BuiltinProvider provider) {
+        return Optional.empty();
+    }
+
     default void optiFineConfigurationChanged() {}
 
     default void adoptSharedCapeObservation(UUID accountId, String canonicalName,
@@ -180,10 +188,15 @@ public interface ClientOperations extends AutoCloseable {
 
     default void onOptiFineObservation(Consumer<OptiFineObservation> listener) {}
 
+    default void onSkinMcObservation(Consumer<SkinMcObservation> listener) {}
+
     default void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
             AppearanceProviders providers) {}
 
     record OptiFineObservation(UUID accountId, String canonicalName,
+            long capeConfigurationRevision, ProviderCape cape) {}
+
+    record SkinMcObservation(UUID accountId, String canonicalName,
             long capeConfigurationRevision, ProviderCape cape) {}
 
     default void trackedCapePlayer(UUID profileId, String canonicalName) {}

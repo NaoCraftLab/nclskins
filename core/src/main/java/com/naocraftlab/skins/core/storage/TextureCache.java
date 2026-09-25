@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.core.storage;
 
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.core.api.MinecraftServiceUriPolicy;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteSkin;
@@ -24,7 +25,7 @@ import javax.imageio.ImageIO;
 
 
 public final class TextureCache {
-    public static final int DEFAULT_MAX_BYTES = 4 * 1024 * 1024;
+    public static final int DEFAULT_MAX_BYTES = EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES;
     private static final int MAX_DIMENSION = 4096;
     private static final long MAX_PIXELS = 16L * 1024L * 1024L;
     private static final byte[] PNG_SIGNATURE = {
@@ -61,7 +62,7 @@ public final class TextureCache {
         if (maxBytes < 1024) {
             throw new IllegalArgumentException("maxBytes is unreasonably small");
         }
-        this.maxBytes = maxBytes;
+        this.maxBytes = Math.min(maxBytes, EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
     }
 
     public CachedTexture get(RemoteSkin skin) throws IOException {

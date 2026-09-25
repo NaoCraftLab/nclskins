@@ -4,6 +4,7 @@ import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.ClientExecutor;
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.client.ExpectedAppearance;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
@@ -707,6 +708,37 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void skinMcAccountUsesFixedConfirmationUriAndExpiresOnNavigation() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE,
+                BuiltinProvider.SKINMC);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.account.SKINMC");
+        assertTrue(runtime.consumeReadySkinMcAccountLink().isEmpty());
+
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.account.SKINMC");
+        assertEquals(java.net.URI.create("https://skinmc.net/account/capes"),
+                runtime.consumeReadySkinMcAccountLink().orElseThrow());
+        assertTrue(runtime.consumeReadySkinMcAccountLink().isEmpty());
+        assertEquals(java.net.URI.create("https://skinmc.net/account/capes"),
+                runtime.currentSkinMcAccountLink().orElseThrow());
+        runtime.dispatchWidget("providers.tab.SKIN");
+        assertTrue(runtime.currentSkinMcAccountLink().isEmpty());
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertTrue(runtime.consumeReadySkinMcAccountLink().isEmpty());
+
+        runtime.dispatchWidget("providers.account.SKINMC");
+        assertTrue(runtime.consumeReadySkinMcAccountLink().isPresent());
+        runtime.finishSkinMcAccountLink();
+        assertTrue(runtime.currentSkinMcAccountLink().isEmpty());
+        assertTrue(runtime.consumeReadySkinMcAccountLink().isEmpty());
+    }
+
+    @Test
     void providerRowsWheelAndKeyboardKeepFinalCapeVisibleAtShortHeight() {
         FakeOperations operations = new FakeOperations();
         operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE,
@@ -967,6 +999,54 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void publicCapeCooldownsStayProviderScopedAcrossTicksAndManualRefresh() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC);
+        operations.capeCooldowns.put(BuiltinProvider.OPTIFINE, Duration.ofMillis(1500));
+        operations.capeCooldowns.put(BuiltinProvider.SKINMC, Duration.ofSeconds(61));
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.tick();
+        assertEquals(Duration.ofSeconds(2), runtime.snapshot().capeProviderCooldowns().get(BuiltinProvider.OPTIFINE));
+        assertEquals(Duration.ofSeconds(61), runtime.snapshot().capeProviderCooldowns().get(BuiltinProvider.SKINMC));
+        assertFalse(runtime.snapshot().rateLimited());
+        assertTrue(runtime.snapshot().rateLimitProgress().isEmpty());
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertTrue(runtime.view(320, 240, 0, 0).texts().stream().anyMatch(text ->
+                text.id().equals("providers.row.SKINMC.cooldown")));
+
+        operations.capeCooldowns.remove(BuiltinProvider.OPTIFINE);
+        runtime.tick();
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(AppearanceProviders.Component.CAPE, operations.providerRefresh);
+        assertEquals(1, operations.optifineRefreshes);
+        assertEquals(1, operations.skinMcRefreshes);
+        assertEquals(Map.of(BuiltinProvider.SKINMC, Duration.ofSeconds(61)),
+                runtime.snapshot().capeProviderCooldowns());
+
+        operations.capeCooldowns.put(BuiltinProvider.SKINMC, Duration.ofMillis(1));
+        runtime.tick();
+        assertEquals(Map.of(BuiltinProvider.SKINMC, Duration.ofSeconds(1)),
+                runtime.snapshot().capeProviderCooldowns());
+        operations.capeCooldowns.clear();
+        runtime.tick();
+        assertTrue(runtime.snapshot().capeProviderCooldowns().isEmpty());
+        assertTrue(runtime.view(320, 240, 0, 0).texts().stream().noneMatch(text ->
+                text.id().endsWith(".cooldown")));
+
+        operations.capeCooldowns.put(BuiltinProvider.SKINMC, Duration.ofSeconds(30));
+        runtime.tick();
+        operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(), "switched"),
+                null, (SessionFailureContext) null, "session switched");
+        runtime.tick();
+        assertTrue(runtime.snapshot().capeProviderCooldowns().isEmpty());
+    }
+
+    @Test
     void explicitApplyRecoversUnknownThroughFreshCheckpoint() {
         FakeOperations operations = new FakeOperations();
         operations.localFirst = true;
@@ -1154,6 +1234,21 @@ final class ClientRuntimeTest {
                 "add.catalog.delete.confirm", false, InteractionOrigin.POINTER);
         assertEquals(baselineFocus, runtime.view(854, 480, 0, 0).focusRequest());
         assertFalse(operations.account.personalSkins().get(0).visible());
+    }
+
+    @Test
+    void oversizedSkinImportDoesNotReachOperations() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        int before = runtime.snapshot().account().orElseThrow().skinAssets().size();
+
+        runtime.importSkin("Oversized", SkinVariant.CLASSIC,
+                new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1]);
+
+        assertEquals(before, runtime.snapshot().account().orElseThrow().skinAssets().size());
+        assertEquals(UiMessage.Severity.ERROR, runtime.snapshot().status().severity());
+        assertFalse(runtime.snapshot().busy());
     }
 
     @Test
@@ -5305,6 +5400,9 @@ final class ClientRuntimeTest {
         private boolean settledActiveSave;
         private AppearanceProviders providers = AppearanceProviders.initial();
         private AppearanceProviders.Component providerRefresh;
+        private final EnumMap<BuiltinProvider, Duration> capeCooldowns = new EnumMap<>(BuiltinProvider.class);
+        private int optifineRefreshes;
+        private int skinMcRefreshes;
         private OptifineCapeCoordinator optifineCoordinator;
         private boolean presetUseProviders;
 
@@ -5316,6 +5414,19 @@ final class ClientRuntimeTest {
         }
         @Override public void refreshOptiFineCapes() {
             if (optifineCoordinator != null) optifineCoordinator.refresh();
+        }
+        @Override public void refreshOptiFineCapes(
+                java.util.function.Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<ProviderCape>> completion) {
+            optifineRefreshes++;
+            completion.accept(null);
+        }
+        @Override public void refreshSkinMcCapes(
+                java.util.function.Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<ProviderCape>> completion) {
+            skinMcRefreshes++;
+            completion.accept(null);
+        }
+        @Override public Optional<Duration> capeProviderCooldown(BuiltinProvider provider) {
+            return Optional.ofNullable(capeCooldowns.get(provider));
         }
         @Override public void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
                 AppearanceProviders next) {

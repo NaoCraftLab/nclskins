@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.test.TestPng;
 import java.io.ByteArrayInputStream;
@@ -131,6 +132,25 @@ class TextureCacheTest {
                 TextureCacheException.class, () -> cache.readIfCached(SOURCE));
 
         assertEquals(TextureCacheException.Code.OVERSIZED, exception.code());
+    }
+
+    @Test
+    void persistedCacheUsesInclusiveSharedTextureBoundary() throws Exception {
+        TextureCache cache = cache(new FakeHttpClient(new IOException("must not download")),
+                TextureCache.DEFAULT_MAX_BYTES);
+        Path path = cache.cachePath(SOURCE);
+        Files.createDirectories(path.getParent());
+        try (var file = new java.io.RandomAccessFile(path.toFile(), "rw")) {
+            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
+        }
+        assertEquals(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES,
+                cache.readIfCached(SOURCE).orElseThrow().length);
+        try (var file = new java.io.RandomAccessFile(path.toFile(), "rw")) {
+            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1L);
+        }
+        assertEquals(TextureCacheException.Code.OVERSIZED,
+                assertThrows(TextureCacheException.class,
+                        () -> cache.readIfCached(SOURCE)).code());
     }
 
     @Test

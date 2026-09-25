@@ -41,6 +41,27 @@ class ResourcePackCapeCatalogTest {
                 variant(CapeCatalogSource.MINECRAFT_COLLECTION_ID, "two", "pack", 0))));
     }
 
+    @Test
+    void highestPackWinsBeforeExtensionAndSamePackUsesPngJpgJpegOrder() {
+        var topJpg = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "top", 0, "event:textures/entity/cape/hero.jpg");
+        var lowerPng = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "lower", 1, "event:textures/entity/cape/hero.png");
+        assertEquals(topJpg.contentIdentity(), ResourcePackCapeCatalog.build(List.of(lowerPng, topJpg))
+                .get(0).capes().get(0).contentIdentity());
+        assertEquals(lowerPng.contentIdentity(), ResourcePackCapeCatalog.build(List.of(lowerPng))
+                .get(0).capes().get(0).contentIdentity());
+
+        var topPng = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "top", 0, "event:textures/entity/cape/hero.png");
+        var topJpeg = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "top", 0, "event:textures/entity/cape/hero.jpeg");
+        assertEquals(topPng.contentIdentity(), ResourcePackCapeCatalog.build(List.of(
+                topJpeg, topJpg, topPng, lowerPng)).get(0).capes().get(0).contentIdentity());
+        assertEquals(topJpg.contentIdentity(), ResourcePackCapeCatalog.build(List.of(
+                topJpeg, topJpg)).get(0).capes().get(0).contentIdentity());
+    }
+
     private static ResourcePackCapeCatalog.Variant variant(
             String collectionId, String capeId, String packId, int rank) {
         return new ResourcePackCapeCatalog.Variant(

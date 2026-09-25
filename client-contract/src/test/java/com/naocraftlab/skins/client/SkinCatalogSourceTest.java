@@ -17,6 +17,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SkinCatalogSourceTest {
     @Test
+    void selectedResourcePackCapeExtensionLoadsThroughLayeredSource() throws Exception {
+        AtomicReference<String> requested = new AtomicReference<>();
+        SkinCatalogSource packs = new SkinCatalogSource() {
+            @Override public byte[] load(String collectionId, String skinId, SkinModel model) {
+                return new byte[] {1};
+            }
+            @Override public byte[] loadResource(String identifier) {
+                requested.set(identifier);
+                return new byte[] {2};
+            }
+            @Override public List<CapeCatalogSource.CollectionDescriptor> capeCollections() {
+                return ResourcePackCapeCatalog.build(List.of(new ResourcePackCapeCatalog.Variant(
+                        "event", "hero", "top", 0, "event:textures/entity/cape/hero.jpg")));
+            }
+        };
+        SkinCatalogSource layered = SkinCatalogSource.resourcePacksBeforeVanilla(
+                packs, (collectionId, skinId, model) -> new byte[] {3});
+        assertArrayEquals(new byte[] {2}, layered.loadCape("event", "hero"));
+        assertEquals("event:textures/entity/cape/hero.jpg", requested.get());
+    }
+
+    @Test
     void minecraftCatalogDeclaresNineSkinsWithBothModelsInStableOrder() {
         var collections = MinecraftSkinCatalog.collections();
 
@@ -102,6 +124,15 @@ class SkinCatalogSourceTest {
         assertArrayEquals(new byte[]{1, 2, 3}, owned);
         assertNotSame(supplied, owned);
         assertThrows(IllegalArgumentException.class, () -> SkinCatalogSource.ownedCopy(new byte[0]));
+    }
+
+    @Test
+    void catalogAndBundledCopyRejectOversizedTextureBeforeClone() {
+        byte[] oversized = new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1];
+        assertThrows(IllegalArgumentException.class,
+                () -> SkinCatalogSource.ownedCopy(oversized));
+        assertThrows(IllegalArgumentException.class,
+                () -> BundledSkinSource.ownedCopy(oversized));
     }
 
     @Test

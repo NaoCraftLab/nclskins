@@ -67,7 +67,7 @@ public final class ResourcePackCatalogDiscovery {
 
     public static boolean isCapeCandidatePath(String path) {
         Objects.requireNonNull(path, "path");
-        return path.startsWith(CAPE_TEXTURE_ROOT + "/") && path.endsWith(".png");
+        return path.startsWith(CAPE_TEXTURE_ROOT + "/") && capeExtension(path) != null;
     }
 
     public static Optional<ResourcePackCapeCatalog.Variant> capeVariant(
@@ -87,8 +87,9 @@ public final class ResourcePackCatalogDiscovery {
         if (hasAnimationMetadata || !isCapeCandidatePath(path)) {
             return Optional.empty();
         }
+        String extension = capeExtension(path);
         String capeId = path.substring(
-                CAPE_TEXTURE_ROOT.length() + 1, path.length() - ".png".length());
+                CAPE_TEXTURE_ROOT.length() + 1, path.length() - extension.length());
         if (capeId.isEmpty() || capeId.indexOf('/') >= 0) {
             return Optional.empty();
         }
@@ -102,6 +103,13 @@ public final class ResourcePackCatalogDiscovery {
         } catch (IllegalArgumentException invalidCatalogId) {
             return Optional.empty();
         }
+    }
+
+    private static String capeExtension(String path) {
+        if (path.endsWith(".png")) return ".png";
+        if (path.endsWith(".jpg")) return ".jpg";
+        if (path.endsWith(".jpeg")) return ".jpeg";
+        return null;
     }
 
 

@@ -18,6 +18,7 @@ import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -32,6 +33,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -492,6 +494,71 @@ final class ClientRuntimeRegressionTest {
             assertEquals(visibility.value, runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
             assertEquals(OuterLayerVisibility.noneVisible(), first.outerLayerVisibility());
             assertTrue(visibility.applied.isEmpty());
+        }
+    }
+
+    @Test
+    void menuPreviewReadsPublishedSelfCapeWithoutRefreshingOrLeakingAnotherIdentity() {
+        StubOperations operations = new StubOperations();
+        var identity = operations.session.sessionIdentity();
+        var self = new CapeProjection.Identity(identity.profileId(), identity.profileName());
+        var stale = new TextureRegistry.TextureHandle("nclskins:stale", 64, 32);
+        var skin = new TextureRegistry.TextureHandle("nclskins:skin", 64, 64);
+        var visibility = new TestVisibility();
+        var sourceReads = new AtomicInteger();
+        CurrentPlayerAppearanceSource source = () -> {
+            sourceReads.incrementAndGet();
+            return new CurrentPlayerAppearanceSource.PlayerAppearance(
+                    skin, SkinModel.SLIM, Optional.of(stale));
+        };
+        try (var runtime = new ClientRuntime(operations, CLIENT, CANCELLED_PICKER, Runnable::run,
+                TEXT, Optional.of(source), Optional.empty(), Optional.of(visibility), Optional.empty(),
+                ServerAppearanceReadinessCoordinator.DelayScheduler.system(), DiagnosticSinks.discarding())) {
+            var optifine = new CapeProjection.Candidate("nclskins:optifine", null, false);
+            var skinmc = new CapeProjection.Candidate("nclskins:skinmc", "nclskins:skinmc", true);
+            CapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC, BuiltinProvider.MINECRAFT),
+                    Map.of(self, optifine), Map.of(self, skinmc), self, null, null));
+            var first = runtime.menuPreviewAppearance().orElseThrow();
+            assertEquals("nclskins:optifine", first.cape().orElseThrow().location());
+            assertFalse(first.capeHasElytra());
+            assertEquals(skin, first.skin());
+            assertEquals(SkinModel.SLIM, first.model());
+            assertEquals(visibility.value, first.outerLayerVisibility());
+
+            CapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.SKINMC, BuiltinProvider.OPTIFINE, BuiltinProvider.MINECRAFT),
+                    Map.of(self, optifine), Map.of(self, skinmc), self, null, null));
+            var second = runtime.menuPreviewAppearance().orElseThrow();
+            assertEquals("nclskins:skinmc", second.cape().orElseThrow().location());
+            assertTrue(second.capeHasElytra());
+
+            CapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.SKINMC, BuiltinProvider.OPTIFINE, BuiltinProvider.MINECRAFT),
+                    Map.of(self, optifine), Map.of(), self, null, null));
+            assertEquals("nclskins:optifine",
+                    runtime.menuPreviewAppearance().orElseThrow().cape().orElseThrow().location());
+
+            CapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.SKINMC, BuiltinProvider.OPTIFINE, BuiltinProvider.MINECRAFT),
+                    Map.of(), Map.of(), self, null, null));
+            var absent = runtime.menuPreviewAppearance().orElseThrow();
+            assertTrue(absent.cape().isEmpty());
+            assertEquals(PreviewRenderer.CapeMode.OFF, absent.capeMode());
+
+            var other = new CapeProjection.Identity(UUID.randomUUID(), identity.profileName());
+            CapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.SKINMC), Map.of(), Map.of(other, skinmc), other, null, null));
+            assertEquals(stale, runtime.menuPreviewAppearance().orElseThrow().cape().orElseThrow());
+            var renamed = new CapeProjection.Identity(identity.profileId(), "OtherName");
+            CapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.SKINMC), Map.of(), Map.of(renamed, skinmc), renamed, null, null));
+            assertEquals(stale, runtime.menuPreviewAppearance().orElseThrow().cape().orElseThrow());
+            assertEquals(6, sourceReads.get());
+            assertEquals(0, operations.initializeCalls.get());
+            assertEquals(0, operations.warmSessionCalls.get());
+        } finally {
+            CapeProjection.clear();
         }
     }
 

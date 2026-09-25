@@ -934,6 +934,32 @@ class CapeCatalogTest {
         }
     }
 
+    @Test void importedJpegAppearsAsOfflineCapeWithElytraAfterRestart(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
+        var storage = new com.naocraftlab.skins.core.storage.NclSkinsStorage(
+                root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        storage.initialize();
+        UUID accountId = new UUID(0, 92);
+        storage.loadOrCreateAccount(accountId);
+        var image = new java.awt.image.BufferedImage(64, 32,
+                java.awt.image.BufferedImage.TYPE_INT_RGB);
+        image.setRGB(22, 0, 0xff557799);
+        var output = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "jpeg", output);
+        var entry = storage.importCape(accountId, "JPEG", output.toByteArray());
+        var reopened = new com.naocraftlab.skins.core.storage.NclSkinsStorage(
+                root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        var account = reopened.loadOrCreateAccount(accountId);
+        var catalog = CapeCatalogModel.open(account, AppearanceProviders.initial(),
+                entry.texture(), Optional.empty(), List.of(), UiMessage::key);
+        var card = catalog.cards().stream()
+                .filter(value -> entry.texture().equals(value.local()))
+                .findFirst().orElseThrow();
+        assertTrue(card.hasElytra());
+        assertTrue(catalog.previewHasElytra());
+        assertEquals(entry, account.personalCapes().get(0));
+    }
+
     @Test void inspectionDoesNotReplaceOtherProviderAndTabsReturnToPriority() {
         var model = model();
         var owned = model.cards().stream().filter(card -> card.key().equals("owned")).findFirst().orElseThrow();

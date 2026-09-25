@@ -92,7 +92,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private final ActivationCharacterGuard activationCharacters = new ActivationCharacterGuard();
     private boolean initialized;
     private boolean removed;
-    private boolean showingOptiFineLink;
+    private boolean showingAccountLink;
     private boolean updatingText;
 
 
@@ -128,7 +128,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     protected final void init() {
         initialized = true;
         removed = false;
-        showingOptiFineLink = false;
+        showingAccountLink = false;
 
 
         widgetShapes = List.of();
@@ -497,7 +497,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     @Override
     public final void removed() {
         activationCharacters.reset();
-        if (showingOptiFineLink) {
+        if (showingAccountLink) {
             initialized = false;
             super.removed();
             return;
@@ -537,15 +537,16 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             }
             return;
         }
-        if (minecraft.screen == this && !showingOptiFineLink) {
+        if (minecraft.screen == this && !showingAccountLink) {
             runtime.consumeReadyOptiFineAccountLink().ifPresent(this::showOptiFineLink);
-            if (showingOptiFineLink) return;
+            if (!showingAccountLink) runtime.consumeReadySkinMcAccountLink().ifPresent(this::showSkinMcLink);
+            if (showingAccountLink) return;
         }
         synchronizeWidgets(currentView());
     }
 
     private void showOptiFineLink(URI uri) {
-        showingOptiFineLink = true;
+        showingAccountLink = true;
         Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
             URI current = runtime.currentOptiFineAccountLink().orElse(null);
             if (accepted && uri.equals(current)) ConfigurationLinkApi.open(uri);
@@ -554,6 +555,21 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             if (minecraft != null) minecraft.setScreen(this);
         }, uri, () -> runtime.currentOptiFineAccountLink().filter(uri::equals).isPresent(), () -> {
             runtime.expireOptiFineAccountLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        });
+        minecraft.setScreen(confirmation);
+    }
+
+    private void showSkinMcLink(URI uri) {
+        showingAccountLink = true;
+        Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
+            if (accepted && runtime.currentSkinMcAccountLink().filter(uri::equals).isPresent()) {
+                ConfigurationLinkApi.open(uri);
+            }
+            runtime.finishSkinMcAccountLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        }, uri, () -> runtime.currentSkinMcAccountLink().filter(uri::equals).isPresent(), () -> {
+            runtime.finishSkinMcAccountLink();
             if (minecraft != null) minecraft.setScreen(this);
         });
         minecraft.setScreen(confirmation);

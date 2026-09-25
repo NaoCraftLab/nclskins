@@ -244,7 +244,7 @@ public final class NclSkinsStorage {
             if (!accountId.equals(replacement.accountId())) {
                 throw new IllegalArgumentException("Appearance update changed the account UUID");
             }
-            AtomicFileWriter.replace(layout.accountAppearance(accountId), appearanceStateJson.encode(replacement));
+            AtomicFileWriter.replace(layout.accountAppearance(accountId), encodeAppearanceLocked(accountId, replacement));
             return replacement;
         }
     }
@@ -274,7 +274,7 @@ public final class NclSkinsStorage {
             if (replacement.intentRevision() != nextRevision) {
                 throw new IllegalArgumentException("Appearance update did not use the allocated revision");
             }
-            AtomicFileWriter.replace(layout.accountAppearance(accountId), appearanceStateJson.encode(replacement));
+            AtomicFileWriter.replace(layout.accountAppearance(accountId), encodeAppearanceLocked(accountId, replacement));
             return replacement;
         }
     }
@@ -310,7 +310,7 @@ public final class NclSkinsStorage {
             if (replacement.intentRevision() != nextRevision) {
                 throw new IllegalArgumentException("Appearance update did not use the allocated revision");
             }
-            AtomicFileWriter.replace(layout.accountAppearance(accountId), appearanceStateJson.encode(replacement));
+            AtomicFileWriter.replace(layout.accountAppearance(accountId), encodeAppearanceLocked(accountId, replacement));
             return new AppearanceIntentUpdate(replacement, true);
         }
     }
@@ -359,7 +359,7 @@ public final class NclSkinsStorage {
                 throw new IllegalArgumentException("Appearance update did not use the allocated revision");
             }
             AtomicFileWriter.replace(
-                    layout.accountAppearance(accountId), appearanceStateJson.encode(replacement));
+                    layout.accountAppearance(accountId), encodeAppearanceLocked(accountId, replacement));
             return new ActivePresetAppearanceIntentUpdate(account, replacement, true);
         }
     }
@@ -417,7 +417,7 @@ public final class NclSkinsStorage {
             if (recoverable && plan.accountUpdated()) {
                 com.google.gson.JsonObject transaction = new com.google.gson.JsonObject();
                 transaction.add("account", com.google.gson.JsonParser.parseString(new String(stateJson.encode(plan.account()), java.nio.charset.StandardCharsets.UTF_8)));
-                transaction.add("appearance", com.google.gson.JsonParser.parseString(new String(appearanceStateJson.encode(plan.appearance()), java.nio.charset.StandardCharsets.UTF_8)));
+                transaction.add("appearance", com.google.gson.JsonParser.parseString(new String(encodeAppearanceLocked(accountId, plan.appearance()), java.nio.charset.StandardCharsets.UTF_8)));
                 AtomicFileWriter.replace(transactionPath(accountId), transaction.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 recoverAccountTransaction(accountId);
                 return new AccountAppearanceMutationResult(plan.account(), plan.appearance(), true, true);
@@ -425,7 +425,7 @@ public final class NclSkinsStorage {
             if (plan.appearanceUpdated()) {
                 AtomicFileWriter.replace(
                         layout.accountAppearance(accountId),
-                        appearanceStateJson.encode(plan.appearance()));
+                        encodeAppearanceLocked(accountId, plan.appearance()));
             }
             if (plan.accountUpdated()) {
                 saveAccountLocked(plan.account());
@@ -554,7 +554,7 @@ public final class NclSkinsStorage {
                 throw new IllegalArgumentException("Appearance update did not use the allocated revision");
             }
             AtomicFileWriter.replace(
-                    layout.accountAppearance(accountId), appearanceStateJson.encode(replacement));
+                    layout.accountAppearance(accountId), encodeAppearanceLocked(accountId, replacement));
             return replacement;
         }
     }
@@ -857,7 +857,8 @@ public final class NclSkinsStorage {
             AccountAppearanceState appearance = appearanceStateJson.decode(appearanceBytes).state();
             validateAccountId(accountId, account);
             if (!accountId.equals(appearance.accountId())) throw new IllegalArgumentException("Transaction account mismatch");
-            AtomicFileWriter.replace(layout.accountAppearance(accountId), appearanceStateJson.encode(appearance));
+            AtomicFileWriter.replace(layout.accountAppearance(accountId),
+                    boundedAppearanceBytes(appearanceStateJson.encode(appearance, appearanceBytes)));
             AtomicFileWriter.replace(layout.accountState(accountId), stateJson.encode(account));
             AtomicFileWriter.replace(layout.accountBackup(accountId), stateJson.encode(account));
             Files.delete(path);
@@ -894,7 +895,8 @@ public final class NclSkinsStorage {
             var replacement = new com.naocraftlab.skins.core.provider.ProviderChannel<>(channel.order(),
                     matches.test(channel.offline().value()) ? com.naocraftlab.skins.core.provider.ProviderObservation.<com.naocraftlab.skins.core.provider.ProviderCape>observed(null) : channel.offline(),
                     channel.minecraft(), channel.configurationRevision(), channel.intentRevision(), channel.desired(), channel.minecraftDelivery(),
-                    matches.test(channel.offlineDesired()) ? null : channel.offlineDesired());
+                    matches.test(channel.offlineDesired()) ? null : channel.offlineDesired(),
+                    channel.optifine(), channel.skinmc());
             var providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(appearance.providers().skin(), replacement);
             var changed = new AccountAppearanceState(appearance.schemaVersion(), accountId, revision, appearance.activePresetId(),
                     appearance.skinSha256(), appearance.skinVariant(), appearance.capeId(), appearance.outerLayerVisibility(),
@@ -1018,6 +1020,21 @@ public final class NclSkinsStorage {
             AtomicFileWriter.replace(path, appearanceStateJson.encode(state));
         }
         return state;
+    }
+
+    private byte[] encodeAppearanceLocked(UUID accountId, AccountAppearanceState state) throws IOException {
+        Path path = layout.accountAppearance(accountId);
+        byte[] previous = Files.exists(path) ? readBoundedState(path) : null;
+        byte[] encoded = appearanceStateJson.encode(state, previous);
+        return boundedAppearanceBytes(encoded);
+    }
+
+    private static byte[] boundedAppearanceBytes(byte[] encoded) throws StorageException {
+        if (encoded.length > MAX_STATE_BYTES) {
+            throw new StorageException(StorageException.Code.INVALID_STATE,
+                    "Appearance state exceeds size limit");
+        }
+        return encoded;
     }
 
     private AccountUiPreferencesResult loadUiPreferencesLocked(UUID accountId) throws IOException {

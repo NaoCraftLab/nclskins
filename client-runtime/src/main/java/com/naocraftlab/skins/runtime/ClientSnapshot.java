@@ -10,6 +10,7 @@ import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinAsset;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
 import com.naocraftlab.skins.core.service.RecoveryAction;
 import com.naocraftlab.skins.core.service.SessionStatus;
@@ -41,6 +42,7 @@ public record ClientSnapshot(
         boolean busy,
         boolean rateLimited,
         Optional<RateLimitProgress> rateLimitProgress,
+        Map<BuiltinProvider, Duration> capeProviderCooldowns,
         int galleryOffset,
         long generation,
         long intentRevision,
@@ -53,6 +55,26 @@ public record ClientSnapshot(
         boolean hideIncompatibleCatalogSkins,
         boolean hideIncompatibleGalleryLooks,
         AppearanceProviders providers) {
+    public ClientSnapshot(
+            Lifecycle lifecycle, Optional<AccountState> account, Optional<SessionValidation> session,
+            Optional<RemoteProfile> remoteProfile, Optional<PresetApplicationOutcome> lastMutation,
+            Optional<UUID> selectedSkinId, Optional<UUID> selectedPresetId, Optional<String> selectedCapeId,
+            Optional<UUID> currentOfficialSkinId, Optional<UUID> activePresetId,
+            Optional<PresetEditorModel> editor, Optional<AddSourceModel> addSource, UiMessage status,
+            boolean busy, boolean rateLimited, Optional<RateLimitProgress> rateLimitProgress,
+            int galleryOffset, long generation, long intentRevision, AppearanceSyncStatus syncStatus,
+            boolean syncInProgress, SessionActivity sessionActivity,
+            SkinExtensionEnvironment skinExtensionEnvironment, Map<UUID, SkinFeatureEvidence> assetEvidence,
+            Map<String, SkinFeatureEvidence> catalogEvidence, boolean hideIncompatibleCatalogSkins,
+            boolean hideIncompatibleGalleryLooks, AppearanceProviders providers) {
+        this(lifecycle, account, session, remoteProfile, lastMutation, selectedSkinId, selectedPresetId,
+                selectedCapeId, currentOfficialSkinId, activePresetId, editor, addSource, status,
+                busy, rateLimited, rateLimitProgress, Map.of(), galleryOffset, generation,
+                intentRevision, syncStatus, syncInProgress, sessionActivity, skinExtensionEnvironment,
+                assetEvidence, catalogEvidence, hideIncompatibleCatalogSkins,
+                hideIncompatibleGalleryLooks, providers);
+    }
+
     public ClientSnapshot(
             Lifecycle lifecycle,
             Optional<AccountState> account,
@@ -363,6 +385,13 @@ public record ClientSnapshot(
         editor = Objects.requireNonNull(editor, "editor");
         addSource = Objects.requireNonNull(addSource, "addSource");
         rateLimitProgress = Objects.requireNonNull(rateLimitProgress, "rateLimitProgress");
+        capeProviderCooldowns = Map.copyOf(Objects.requireNonNull(capeProviderCooldowns, "capeProviderCooldowns"));
+        capeProviderCooldowns.forEach((provider, remaining) -> {
+            if ((provider != BuiltinProvider.OPTIFINE && provider != BuiltinProvider.SKINMC)
+                    || remaining.isZero() || remaining.isNegative() || remaining.compareTo(Duration.ofHours(24)) > 0) {
+                throw new IllegalArgumentException("invalid cape provider cooldown");
+            }
+        });
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(syncStatus, "syncStatus");
         Objects.requireNonNull(sessionActivity, "sessionActivity");

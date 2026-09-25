@@ -104,7 +104,10 @@ public final class MinecraftLauncherImportAdapter implements ExternalImportAdapt
             }
             value = value.substring(comma + 1);
         }
-        if (value.length() > (PngValidator.DEFAULT_MAX_BYTES * 4 / 3) + 16) {
+        int encodedLength = value.length();
+        int padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+        if (encodedLength % 4 == 1
+                || (3L * encodedLength / 4) - padding > PngValidator.DEFAULT_MAX_BYTES) {
             return Optional.empty();
         }
         try {

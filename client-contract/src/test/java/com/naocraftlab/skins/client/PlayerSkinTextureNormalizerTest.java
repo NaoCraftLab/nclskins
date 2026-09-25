@@ -65,6 +65,14 @@ class PlayerSkinTextureNormalizerTest {
         assertThrows(IOException.class, () -> PlayerSkinTextureNormalizer.normalize(invalid));
     }
 
+    @Test
+    void rejectsOversizedEncodedSkinBeforeDecoder() {
+        byte[] oversized = new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1];
+        IOException failure = assertThrows(IOException.class,
+                () -> PlayerSkinTextureNormalizer.normalizePng(oversized));
+        assertEquals("Player skin exceeds the encoded texture limit", failure.getMessage());
+    }
+
     private static BufferedImage coordinateImage(int width, int height, int alpha) {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         for (int y = 0; y < height; y++) {

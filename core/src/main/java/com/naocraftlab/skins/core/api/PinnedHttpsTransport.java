@@ -163,7 +163,7 @@ class PinnedHttpsTransport {
         String hostHeader = asciiHost.indexOf(':') >= 0 ? '[' + asciiHost + ']' : asciiHost;
         String request = "GET " + path + " HTTP/1.1\r\n"
                 + "Host: " + hostHeader + "\r\n"
-                + "Accept: image/png, application/octet-stream\r\n"
+                + "Accept: image/png, image/jpeg, application/octet-stream\r\n"
                 + "Accept-Encoding: identity\r\n"
                 + "User-Agent: NCL-Skin/0.1\r\n"
                 + "Connection: close\r\n\r\n";

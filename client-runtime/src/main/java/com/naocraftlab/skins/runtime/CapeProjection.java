@@ -5,6 +5,7 @@ import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -55,9 +56,22 @@ public final class CapeProjection {
 
     public static Result resolve(UUID profileId, String canonicalName, Candidate offline,
             Candidate minecraft, boolean self) {
+        return resolve(CURRENT.get(), profileId, canonicalName, offline, minecraft, self);
+    }
+
+    public static Optional<Result> resolveSelf(UUID profileId, String canonicalName) {
         Snapshot snapshot = CURRENT.get();
+        if (!new Identity(profileId, canonicalName).equals(snapshot.selfIdentity())) {
+            return Optional.empty();
+        }
+        return Optional.of(resolve(snapshot, profileId, canonicalName, null, null, true));
+    }
+
+    private static Result resolve(Snapshot snapshot, UUID profileId, String canonicalName,
+            Candidate offline, Candidate minecraft, boolean self) {
         Identity identity = new Identity(profileId, canonicalName);
         Candidate optifine = snapshot.optifine().get(identity);
+        Candidate skinmc = snapshot.skinmc().get(identity);
         if (self && identity.equals(snapshot.selfIdentity())) {
             offline = snapshot.selfOffline();
             minecraft = snapshot.selfMinecraft();
@@ -67,6 +81,7 @@ public final class CapeProjection {
                 case OFFLINE -> self ? offline : null;
                 case MINECRAFT -> minecraft;
                 case OPTIFINE -> optifine;
+                case SKINMC -> skinmc;
             };
             if (candidate != null && candidate.capeLocation() != null) {
                 return new Result(candidate.capeLocation(), candidate.elytraLocation(),
@@ -89,15 +104,22 @@ public final class CapeProjection {
             BuiltinProvider provider) {}
 
     public record Snapshot(List<BuiltinProvider> order, Map<Identity, Candidate> optifine,
+            Map<Identity, Candidate> skinmc,
             Identity selfIdentity, Candidate selfOffline, Candidate selfMinecraft) {
         public Snapshot {
             order = List.copyOf(Objects.requireNonNull(order, "order"));
             optifine = Map.copyOf(Objects.requireNonNull(optifine, "optifine"));
+            skinmc = Map.copyOf(Objects.requireNonNull(skinmc, "skinmc"));
+        }
+
+        public Snapshot(List<BuiltinProvider> order, Map<Identity, Candidate> optifine,
+                Identity selfIdentity, Candidate selfOffline, Candidate selfMinecraft) {
+            this(order, optifine, Map.of(), selfIdentity, selfOffline, selfMinecraft);
         }
 
         public static Snapshot empty() {
             return new Snapshot(List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT),
-                    Map.of(), null, null, null);
+                    Map.of(), Map.of(), null, null, null);
         }
     }
 

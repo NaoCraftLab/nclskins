@@ -152,6 +152,138 @@ final class ClientRuntimeServerSignalBoundaryTest {
     }
 
     @Test
+    void skinMcObservationUpdatesViewWithoutSendingOrAcceptingAnotherIdentity() {
+        SignalScenario scenario = SignalScenario.readerOrLoser();
+        scenario.providers = scenario.providers.enable(
+                com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                com.naocraftlab.skins.core.provider.BuiltinProvider.SKINMC);
+        TestNotifier notifier = new TestNotifier(OptionalLong.of(1L));
+        ClientRuntime runtime = runtime(scenario, notifier);
+        runtime.initialize();
+        var cape = new com.naocraftlab.skins.core.provider.ProviderCape("skinmc", "a".repeat(64), false);
+        long revision = runtime.snapshot().providers().cape().configurationRevision();
+
+        scenario.skinMcObservation.accept(new ClientOperations.SkinMcObservation(
+                scenario.currentIdentity.profileId(), scenario.currentIdentity.profileName(), revision, cape));
+        assertEquals(cape, runtime.snapshot().providers().cape().skinmc().value());
+        assertEquals(0, notifier.notifications);
+
+        scenario.skinMcObservation.accept(new ClientOperations.SkinMcObservation(
+                UUID.randomUUID(), scenario.currentIdentity.profileName(), revision, null));
+        assertEquals(cape, runtime.snapshot().providers().cape().skinmc().value());
+        assertEquals(0, notifier.notifications);
+    }
+
+    @Test
+    void explicitCapeRefreshSignalsOnceWhenBothPublicSourcesChange() {
+        SignalScenario scenario = SignalScenario.readerOrLoser();
+        scenario.providers = scenario.providers
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT)
+                .enable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE)
+                .enable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.SKINMC);
+        scenario.providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
+                scenario.providers.skin(), scenario.providers.cape().observeOptifine(null).observeSkinmc(null));
+        TestNotifier notifier = new TestNotifier(OptionalLong.of(1L));
+        ClientRuntime runtime = runtime(scenario, notifier);
+        runtime.initialize();
+        runtime.dispatchWidget("providers.tab.CAPE");
+
+        scenario.refreshCape = new com.naocraftlab.skins.core.provider.ProviderCape(
+                "optifine", "a".repeat(64), false);
+        scenario.refreshSkinMcCape = new com.naocraftlab.skins.core.provider.ProviderCape(
+                "skinmc", "b".repeat(64), false);
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(1, notifier.notifications);
+        assertEquals(scenario.refreshSkinMcCape, runtime.snapshot().providers().cape().skinmc().value());
+
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(1, notifier.notifications);
+        scenario.refreshConfirmed = false;
+        scenario.refreshSkinMcCape = null;
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(2, notifier.notifications, "one confirmed SkinMC disappearance signals once");
+        scenario.skinMcRefreshConfirmed = false;
+        scenario.refreshConfirmed = true;
+        scenario.refreshCape = null;
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(3, notifier.notifications, "OptiFine change still signals with unknown SkinMC");
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(3, notifier.notifications);
+    }
+
+    @Test
+    void explicitRefreshSignalsSkinMcChangeBelowWinningOfflineCape() {
+        SignalScenario scenario = SignalScenario.readerOrLoser();
+        scenario.providers = scenario.providers
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT)
+                .enable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.SKINMC);
+        var cape = scenario.providers.cape();
+        scenario.providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
+                scenario.providers.skin(), new com.naocraftlab.skins.core.provider.ProviderChannel<>(
+                        cape.order(),
+                        com.naocraftlab.skins.core.provider.ProviderObservation.observed(
+                                new com.naocraftlab.skins.core.provider.ProviderCape("offline", null, false)),
+                        cape.minecraft(), cape.configurationRevision(), cape.intentRevision(),
+                        cape.desired(), cape.minecraftDelivery(), cape.offlineDesired(),
+                        cape.optifine(), com.naocraftlab.skins.core.provider.ProviderObservation.observed(null)));
+        TestNotifier notifier = new TestNotifier(OptionalLong.of(1L));
+        ClientRuntime runtime = runtime(scenario, notifier);
+        runtime.initialize();
+        runtime.dispatchWidget("providers.tab.CAPE");
+
+        scenario.refreshSkinMcCape = new com.naocraftlab.skins.core.provider.ProviderCape(
+                "skinmc", "b".repeat(64), false);
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE,
+                runtime.snapshot().providers().cape().resolve().orElseThrow().provider());
+        assertEquals(1, notifier.notifications);
+
+        scenario.skinMcRefreshConfirmed = false;
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(1, notifier.notifications);
+    }
+
+    @Test
+    void explicitRefreshWaitsForBothPublicConfirmationsAndDropsStaleIdentity() {
+        SignalScenario scenario = SignalScenario.readerOrLoser();
+        scenario.providers = scenario.providers
+                .enable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE)
+                .enable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.SKINMC);
+        scenario.providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
+                scenario.providers.skin(), scenario.providers.cape().observeOptifine(null).observeSkinmc(null));
+        scenario.deferSkinMcCompletion = true;
+        TestNotifier notifier = new TestNotifier(OptionalLong.of(1L));
+        ClientRuntime runtime = runtime(scenario, notifier);
+        runtime.initialize();
+        runtime.dispatchWidget("providers.tab.CAPE");
+        scenario.refreshCape = new com.naocraftlab.skins.core.provider.ProviderCape(
+                "optifine", "a".repeat(64), false);
+        scenario.refreshSkinMcCape = new com.naocraftlab.skins.core.provider.ProviderCape(
+                "skinmc", "b".repeat(64), false);
+
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(0, notifier.notifications, "first provider must not finish the comparison");
+        scenario.completeSkinMcRefresh();
+        assertEquals(1, notifier.notifications);
+
+        scenario.refreshCape = null;
+        scenario.refreshSkinMcCape = null;
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(1, notifier.notifications);
+        scenario.currentIdentity = new GameSessionTokenSource.SessionIdentity(
+                UUID.randomUUID(), "Switched");
+        scenario.completeSkinMcRefresh();
+        assertEquals(1, notifier.notifications, "old account result cannot signal after switch");
+    }
+
+    @Test
     void explicitCapeRefreshSignalsOneConfirmedOptifineChangeOnly() {
         SignalScenario scenario = SignalScenario.readerOrLoser();
         scenario.providers = scenario.providers
@@ -176,6 +308,44 @@ final class ClientRuntimeServerSignalBoundaryTest {
         scenario.refreshCape = null;
         runtime.dispatchWidget("providers.refresh");
         assertEquals(2, notifier.notifications);
+    }
+
+    @Test
+    void explicitRefreshSignalsChangedOptifineEvenBelowWinningOfflineCape() {
+        SignalScenario scenario = SignalScenario.readerOrLoser();
+        scenario.providers = scenario.providers
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT)
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT)
+                .enable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE);
+        var cape = scenario.providers.cape();
+        scenario.providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
+                scenario.providers.skin(), new com.naocraftlab.skins.core.provider.ProviderChannel<>(
+                        cape.order(),
+                        com.naocraftlab.skins.core.provider.ProviderObservation.observed(
+                                new com.naocraftlab.skins.core.provider.ProviderCape("offline", null, false)),
+                        cape.minecraft(), cape.configurationRevision(), cape.intentRevision(),
+                        cape.desired(), cape.minecraftDelivery(), cape.offlineDesired(),
+                        com.naocraftlab.skins.core.provider.ProviderObservation.observed(null)));
+        TestNotifier notifier = new TestNotifier(OptionalLong.of(1L));
+        ClientRuntime runtime = runtime(scenario, notifier);
+        runtime.initialize();
+        runtime.dispatchWidget("providers.tab.CAPE");
+
+        scenario.refreshCape = new com.naocraftlab.skins.core.provider.ProviderCape(
+                "optifine", "a".repeat(64), false);
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE,
+                runtime.snapshot().providers().cape().resolve().orElseThrow().provider());
+        assertEquals(1, notifier.notifications);
+
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(1, notifier.notifications);
+        scenario.refreshConfirmed = false;
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(1, notifier.notifications);
     }
 
     @Test
@@ -336,10 +506,15 @@ final class ClientRuntimeServerSignalBoundaryTest {
                 Optional.empty());
         private int reconciliationCalls;
         private Consumer<ClientOperations.OptiFineObservation> optifineObservation;
+        private Consumer<ClientOperations.SkinMcObservation> skinMcObservation;
         private com.naocraftlab.skins.core.provider.AppearanceProviders providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial();
         private com.naocraftlab.skins.core.provider.ProviderCape refreshCape;
+        private com.naocraftlab.skins.core.provider.ProviderCape refreshSkinMcCape;
         private Runnable afterRefresh = () -> {};
         private boolean refreshConfirmed = true;
+        private boolean skinMcRefreshConfirmed = true;
+        private boolean deferSkinMcCompletion;
+        private Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>> pendingSkinMcRefresh;
         private Optional<AppliedAppearance> localAppearance = Optional.empty();
         private com.naocraftlab.skins.core.provider.ProviderObservation<?> confirmedMinecraft;
 
@@ -392,9 +567,13 @@ final class ClientRuntimeServerSignalBoundaryTest {
                                 durable.outerLayerVisibility(), providers), confirmedMinecraft);
                 case "refreshOptiFineCapes" -> {
                     if (arguments != null && arguments.length == 1) {
-                        if (refreshConfirmed) optifineObservation.accept(new ClientOperations.OptiFineObservation(
-                                currentIdentity.profileId(), currentIdentity.profileName(),
-                                providers.cape().configurationRevision(), refreshCape));
+                        if (refreshConfirmed) {
+                            providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
+                                    providers.skin(), providers.cape().observeOptifine(refreshCape));
+                            optifineObservation.accept(new ClientOperations.OptiFineObservation(
+                                    currentIdentity.profileId(), currentIdentity.profileName(),
+                                    providers.cape().configurationRevision(), refreshCape));
+                        }
                         afterRefresh.run();
                         ((Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>>) arguments[0])
                                 .accept(refreshConfirmed
@@ -403,8 +582,27 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     }
                     yield null;
                 }
+                case "refreshSkinMcCapes" -> {
+                    if (skinMcRefreshConfirmed) {
+                        providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
+                                providers.skin(), providers.cape().observeSkinmc(refreshSkinMcCape));
+                        skinMcObservation.accept(new ClientOperations.SkinMcObservation(
+                                currentIdentity.profileId(), currentIdentity.profileName(),
+                                providers.cape().configurationRevision(), refreshSkinMcCape));
+                    }
+                    var completion = (Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>>) arguments[0];
+                    if (deferSkinMcCompletion) pendingSkinMcRefresh = completion;
+                    else completion.accept(skinMcRefreshConfirmed
+                            ? com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshSkinMcCape)
+                            : null);
+                    yield null;
+                }
                 case "onOptiFineObservation" -> {
                     optifineObservation = (Consumer<ClientOperations.OptiFineObservation>) arguments[0];
+                    yield null;
+                }
+                case "onSkinMcObservation" -> {
+                    skinMcObservation = (Consumer<ClientOperations.SkinMcObservation>) arguments[0];
                     yield null;
                 }
                 case "close", "startOptiFineCapes", "selfCapeCandidatesChanged", "closeOptiFineCapes" -> null;
@@ -430,6 +628,14 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     OwnedCapeInventory.empty(account.accountId(), Instant.EPOCH),
                     durable.intentRevision(),
                     durable.syncStatus(), providers);
+        }
+
+        private void completeSkinMcRefresh() {
+            var completion = pendingSkinMcRefresh;
+            pendingSkinMcRefresh = null;
+            completion.accept(skinMcRefreshConfirmed
+                    ? com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshSkinMcCape)
+                    : null);
         }
 
         private ClientOperations.PresetUse selectPreset(UUID selectedPresetId) {

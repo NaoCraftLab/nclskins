@@ -12,6 +12,14 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.InetSocketAddress;
 import java.time.Duration;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -119,6 +127,90 @@ class OptifineCapeReaderTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void providerCooldownSuppressesHttpAndUsesBoundedRetryAfter() {
+        MutableClock clock = new MutableClock();
+        AtomicInteger requests = new AtomicInteger();
+        var reader = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+            requests.incrementAndGet();
+            return new OptifineCapeReader.Response(429, new byte[0],
+                    Map.of("Retry-After", List.of("120")));
+        }, new PngValidator(), clock);
+        assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Player").failure());
+        assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Player").failure());
+        assertEquals(1, requests.get());
+        assertEquals(Duration.ofSeconds(120), reader.cooldownRemaining().orElseThrow());
+        clock.advanceSeconds(120);
+        reader.read("Player");
+        assertEquals(2, requests.get());
+    }
+
+    @Test
+    void invalidAndOverflowRetryAfterUseFiniteFallback() {
+        for (String value : List.of("-5", "999999999999999999999999999999", "garbage")) {
+            MutableClock clock = new MutableClock();
+            var reader = new OptifineCapeReader((uri, timeout, maxBytes) ->
+                    new OptifineCapeReader.Response(429, new byte[0],
+                            Map.of("Retry-After", List.of(value))), new PngValidator(), clock);
+            reader.read("Player");
+            assertEquals(Duration.ofSeconds(60), reader.cooldownRemaining().orElseThrow());
+        }
+    }
+
+    @Test
+    void accountChangeKeepsDeadlineAndRejectsOldAdmission() {
+        MutableClock clock = new MutableClock();
+        AtomicInteger requests = new AtomicInteger();
+        var reader = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+            requests.incrementAndGet();
+            return new OptifineCapeReader.Response(429, new byte[0],
+                    Map.of("Retry-After", List.of("120")));
+        }, new PngValidator(), clock);
+        long oldEpoch = reader.accountEpoch();
+        reader.read("Old", oldEpoch);
+        reader.accountChanged();
+        assertEquals(Duration.ofSeconds(120), reader.cooldownRemaining().orElseThrow());
+        assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("New").failure());
+        assertEquals(1, requests.get());
+        clock.advanceSeconds(120);
+        assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Old", oldEpoch).failure());
+        assertEquals(1, requests.get());
+        reader.read("New");
+        assertEquals(2, requests.get());
+    }
+
+    @Test
+    void delayedOldAccountRateLimitCannotExtendCurrentDeadline() {
+        MutableClock clock = new MutableClock();
+        AtomicInteger requests = new AtomicInteger();
+        AtomicReference<OptifineCapeReader> current = new AtomicReference<>();
+        var reader = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+            if (requests.incrementAndGet() == 1) {
+                current.get().accountChanged();
+                return new OptifineCapeReader.Response(429, new byte[0],
+                        Map.of("Retry-After", List.of("86400")));
+            }
+            return new OptifineCapeReader.Response(404, new byte[0]);
+        }, new PngValidator(), clock);
+        current.set(reader);
+        assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Old").failure());
+        assertEquals(true, reader.cooldownRemaining().isEmpty());
+        assertEquals(OptifineCapeReader.Kind.ABSENT, reader.read("New").kind());
+        assertEquals(2, requests.get());
+    }
+
+    private static final class MutableClock extends Clock {
+        private final AtomicLong seconds = new AtomicLong(Instant.parse("2026-09-25T10:00:00Z").getEpochSecond());
+
+        void advanceSeconds(long count) { seconds.addAndGet(count); }
+
+        @Override public ZoneId getZone() { return ZoneOffset.UTC; }
+
+        @Override public Clock withZone(ZoneId zone) { return this; }
+
+        @Override public Instant instant() { return Instant.ofEpochSecond(seconds.get()); }
     }
 
     private static OptifineCapeReader reader(int status, byte[] body) {

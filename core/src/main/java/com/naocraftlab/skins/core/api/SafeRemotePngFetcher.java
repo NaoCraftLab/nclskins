@@ -102,7 +102,13 @@ public final class SafeRemotePngFetcher {
     }
 
     public ValidatedUri validate(String input) throws PublicSkinImportException {
-        long deadline = saturatedAdd(nanoTime.getAsLong(), timeout.toNanos());
+        return validate(input, timeout);
+    }
+
+    public ValidatedUri validate(String input, Duration limit) throws PublicSkinImportException {
+        Objects.requireNonNull(limit, "limit");
+        if (limit.isZero() || limit.isNegative()) throw networkFailure();
+        long deadline = saturatedAdd(nanoTime.getAsLong(), limit.toNanos());
         return validateBeforeDeadline(input, deadline);
     }
 
@@ -151,17 +157,21 @@ public final class SafeRemotePngFetcher {
         }
         final InetAddress[] addresses;
         try {
-            addresses = resolver.resolve(asciiHost, remaining(deadline));
+            if (asciiHost.indexOf(':') >= 0 || asciiHost.matches("[0-9.]+")) {
+                addresses = new InetAddress[]{InetAddress.getByName(asciiHost)};
+            } else {
+                addresses = resolver.resolve(asciiHost, remaining(deadline));
+            }
         } catch (IOException exception) {
             throw new PublicSkinImportException(
                     PublicSkinImportException.Code.NETWORK_FAILURE,
                     "Remote PNG host could not be resolved.");
         }
-        if (addresses.length == 0) {
+        if (addresses == null || addresses.length == 0) {
             throw unsafe();
         }
         for (InetAddress address : addresses) {
-            if (!isPublic(address)) {
+            if (address == null || !isPublic(address)) {
                 throw unsafe();
             }
         }

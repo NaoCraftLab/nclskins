@@ -80,6 +80,25 @@ class PersonalCapeStorageTest {
         assertTrue(reopened.loadOrCreateAccount(new UUID(0, 2)).personalCapes().isEmpty());
     }
 
+    @Test void jpegImportStoresOnlyCanonicalPngAndDeduplicatesItsDecodedPixels() throws Exception {
+        var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
+        storage.initialize();
+        storage.loadOrCreateAccount(account);
+        var image = new BufferedImage(64, 32, BufferedImage.TYPE_INT_RGB);
+        image.setRGB(20, 1, 0xff335577);
+        var output = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpeg", output);
+        byte[] jpeg = output.toByteArray();
+        var canonical = new com.naocraftlab.skins.core.png.PngValidator().projectImportedCape(jpeg);
+
+        var first = storage.importCape(account, "JPEG", jpeg);
+        assertTrue(first.texture().hasElytra());
+        assertArrayEquals(canonical.bytes(), storage.readCapeAsset(account, first.texture().sha256()));
+        assertEquals(first, storage.importCape(account, "PNG copy", canonical.bytes()));
+        assertEquals(1, storage.loadOrCreateAccount(account).personalCapes().size());
+        assertTrue(storage.loadOrCreateAccount(new UUID(0, 2)).personalCapes().isEmpty());
+    }
+
     @Test void optifineElytraClassificationPersistsForBothPixelPatterns() throws Exception {
         var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
         storage.initialize();
