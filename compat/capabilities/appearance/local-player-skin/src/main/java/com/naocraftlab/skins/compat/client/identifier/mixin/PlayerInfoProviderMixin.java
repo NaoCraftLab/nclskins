@@ -73,11 +73,13 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
         var visibility = MinecraftProviderVisibility.current();
         ClientAsset.Texture officialCape = !self && visibility.cape() ? original.cape() : null;
         ClientAsset.Texture officialElytra = !self && visibility.cape() ? original.elytra() : null;
-        CapeProjection.Candidate official = officialCape == null ? null :
+        CapeProjection.Candidate fallbackOfficial = officialCape == null ? null :
                 new CapeProjection.Candidate(officialCape.texturePath().toString(),
                         officialElytra == null ? null : officialElytra.texturePath().toString(), officialElytra != null);
+        if (!self) CapeProjection.visibleSkin(info.getProfile().id(), info.getProfile().name(),
+                visibility.skin() ? original.body().texturePath().toString() : null);
         CapeProjection.Result resolved = CapeProjection.resolve(info.getProfile().id(),
-                info.getProfile().name(), null, official, self);
+                info.getProfile().name(), null, fallbackOfficial, self);
         ClientAsset.Texture cape = nclskins$texture(resolved.capeLocation());
         ClientAsset.Texture elytra = cape == null ? null : nclskins$texture(resolved.hasElytra()
                 ? resolved.elytraLocation() : "minecraft:textures/entity/equipment/wings/elytra.png");

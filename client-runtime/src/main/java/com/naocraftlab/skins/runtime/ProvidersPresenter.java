@@ -130,11 +130,14 @@ public final class ProvidersPresenter {
                         UiMessage.info(action == 0 ? "nclskins.providers.up" : "nclskins.providers.down"), Optional.empty(), Optional.empty(),
                         !busy && (action == 0 ? order.indexOf(provider) > 0 : order.indexOf(provider) < order.size() - 1), true, 0));
             }
-            if ((provider == BuiltinProvider.OPTIFINE || provider == BuiltinProvider.SKINMC)
+            if ((provider == BuiltinProvider.OPTIFINE || provider == BuiltinProvider.SKINMC
+                    || provider == BuiltinProvider.SNEAKY)
                     && component == AppearanceProviders.Component.CAPE) {
                 widgets.add(ViewSpec.Widget.iconButton("providers.account." + provider.name(),
                         new Bounds(x + contentWidth - 48, y + 8, 20, 20),
-                        UiMessage.info("nclskins.providers.open_account"), GuiIcon.ACTION_OPEN_ACCOUNT,
+                        UiMessage.info(provider == BuiltinProvider.SNEAKY
+                                ? "nclskins.providers.open_sneaky_editor"
+                                : "nclskins.providers.open_account"), GuiIcon.ACTION_OPEN_ACCOUNT,
                         !busy && (provider != BuiltinProvider.OPTIFINE || !linkPreparing)));
             } else if (provider.writable() && providers.galleryAvailable()) widgets.add(ViewSpec.Widget.iconButton("providers.edit." + provider.name(),
                     new Bounds(x + contentWidth - 48, y + 8, 20, 20), UiMessage.info("nclskins.providers.edit"), GuiIcon.ACTION_EDIT, !busy));
@@ -274,6 +277,7 @@ public final class ProvidersPresenter {
             case MINECRAFT -> UiMessage.literal("Minecraft", UiMessage.Severity.INFO);
             case OPTIFINE -> UiMessage.info("nclskins.providers.optifine");
             case SKINMC -> UiMessage.info("nclskins.providers.skinmc");
+            case SNEAKY -> UiMessage.info("nclskins.providers.sneaky");
         };
     }
 

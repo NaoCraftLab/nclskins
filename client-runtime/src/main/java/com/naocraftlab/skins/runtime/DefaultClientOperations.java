@@ -252,6 +252,21 @@ public final class DefaultClientOperations implements ClientOperations {
             public void worldEntered() {
                 clientExecutor.execute(() -> optifineCapes.worldEntered());
             }
+
+            @Override
+            public void skinTextureReady(String skinLocation, int[] argb) {
+                clientExecutor.execute(() -> optifineCapes.skinTextureReady(skinLocation, argb));
+            }
+
+            @Override
+            public boolean hasSkinTexture(String skinLocation) {
+                return optifineCapes.hasSkinTexture(skinLocation);
+            }
+
+            @Override
+            public void visibleSkin(UUID profileId, String canonicalName, String skinLocation) {
+                clientExecutor.execute(() -> optifineCapes.visibleSkin(profileId, canonicalName, skinLocation));
+            }
         });
         return this;
     }
@@ -302,6 +317,11 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public void onSkinMcObservation(Consumer<SkinMcObservation> listener) {
         if (optifineCapes != null) optifineCapes.onSkinMcObservation(listener);
+    }
+
+    @Override
+    public void onSneakyObservation(Consumer<SneakyObservation> listener) {
+        if (optifineCapes != null) optifineCapes.onSneakyObservation(listener);
     }
 
     @Override

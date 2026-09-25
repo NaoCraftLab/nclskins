@@ -16,6 +16,51 @@ class SkinFeatureCompatibilityTest {
     private final SkinCompatibilityEvaluator evaluator = new SkinCompatibilityEvaluator();
 
     @Test
+    void sneakyMarkerIsIndependentOfEarsAndOnlyConflictsWithActiveExpressiveConsumers() {
+        BufferedImage skin = earsV1();
+        int[] marker = {0xfffff42f, 0xffffffff, 0xff9c59d1, 0xff292929};
+        for (int index = 0; index < marker.length; index++) skin.setRGB(60, 48 + index, marker[index]);
+        fill(skin, 4, 0, 4, 2);
+        SkinFeatureEvidence evidence = analyzer.analyze(skin);
+        assertEquals(List.of(SkinFeature.EARS, SkinFeature.SNEAKY_CAPES), evidence.supportedFeatures());
+        assertEquals(List.of(SkinConflictReason.SNEAKY_FRESH_MOVES_OVERLAP,
+                SkinConflictReason.SNEAKY_JUST_EXPRESSIONS_OVERLAP), evidence.potentialConflicts());
+        assertEquals(SkinCompatibilityStatus.EXTENDED,
+                evaluator.evaluate(evidence, SkinExtensionEnvironment.unknown(1)).status());
+        Map<SkinConsumer, SkinConsumerState> states = new EnumMap<>(SkinConsumer.class);
+        states.put(SkinConsumer.FRESH_MOVES, SkinConsumerState.ACTIVE);
+        states.put(SkinConsumer.JUST_EXPRESSIONS, SkinConsumerState.INACTIVE);
+        SkinCompatibility active = evaluator.evaluate(evidence, new SkinExtensionEnvironment(2, states));
+        assertEquals(SkinCompatibilityStatus.INCOMPATIBLE, active.status());
+        assertEquals(List.of(SkinConflictReason.SNEAKY_FRESH_MOVES_OVERLAP), active.activeConflicts());
+        skin.setRGB(60, 51, marker[3] ^ 1);
+        for (int y = 0; y < 2; y++) for (int x = 4; x < 8; x++) skin.setRGB(x, y, 0);
+        assertEquals(List.of(SkinFeature.EARS), analyzer.analyze(skin).supportedFeatures());
+    }
+
+    @Test
+    void sneakyMarkerAlwaysConflictsEvenWithTransparentPayloadOrCompleteExpressiveLayout() {
+        for (int[] layout : new int[][] {{4, 0, 4, 2}, {24, 2, 4, 3}, {60, 4, 4, 2}}) {
+            BufferedImage skin = blank();
+            int[] marker = {0xfffff42f, 0xffffffff, 0xff9c59d1, 0xff292929};
+            for (int index = 0; index < marker.length; index++) skin.setRGB(60, 48 + index, marker[index]);
+            fill(skin, layout[0], layout[1], layout[2], layout[3]);
+            SkinFeatureEvidence evidence = analyzer.analyze(skin);
+            assertEquals(List.of(SkinFeature.SNEAKY_CAPES), evidence.supportedFeatures());
+            assertEquals(List.of(SkinConflictReason.SNEAKY_FRESH_MOVES_OVERLAP,
+                    SkinConflictReason.SNEAKY_JUST_EXPRESSIONS_OVERLAP), evidence.potentialConflicts());
+            assertEquals(SkinCompatibilityStatus.EXTENDED,
+                    evaluator.evaluate(evidence, SkinExtensionEnvironment.unknown(1)).status());
+            for (SkinConsumer consumer : List.of(SkinConsumer.FRESH_MOVES, SkinConsumer.JUST_EXPRESSIONS)) {
+                Map<SkinConsumer, SkinConsumerState> states = new EnumMap<>(SkinConsumer.class);
+                states.put(consumer, SkinConsumerState.ACTIVE);
+                assertEquals(SkinCompatibilityStatus.INCOMPATIBLE,
+                        evaluator.evaluate(evidence, new SkinExtensionEnvironment(2, states)).status());
+            }
+        }
+    }
+
+    @Test
     void recognizesExactEarsV0AndV1Markers() {
         BufferedImage v0 = blank();
         int[] colors = {

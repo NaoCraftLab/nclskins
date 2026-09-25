@@ -1,5 +1,7 @@
 package com.naocraftlab.skins.core.compatibility;
 
+import com.naocraftlab.skins.core.png.SneakyCapeDecoder;
+
 import java.awt.image.BufferedImage;
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -9,6 +11,7 @@ import java.util.Set;
 
 
 public final class SkinFeatureAnalyzer {
+    private static final SneakyCapeDecoder SNEAKY = new SneakyCapeDecoder();
     private static final int EARS_V0_MAGIC = 0x3f23d8;
     private static final int EARS_V1_MAGIC = 0xea2501;
     private static final Set<Integer> EARS_MAGIC_COLORS = Set.of(
@@ -38,7 +41,13 @@ public final class SkinFeatureAnalyzer {
         List<SkinConflictReason> conflicts = new ArrayList<>();
 
         analyzeEars(image, features, conflicts);
-        analyzeExpressive(image, features, conflicts);
+        if (SNEAKY.hasMarker(image)) {
+            features.add(SkinFeature.SNEAKY_CAPES);
+            conflicts.add(SkinConflictReason.SNEAKY_FRESH_MOVES_OVERLAP);
+            conflicts.add(SkinConflictReason.SNEAKY_JUST_EXPRESSIONS_OVERLAP);
+        } else {
+            analyzeExpressive(image, features, conflicts);
+        }
         return new SkinFeatureEvidence(features, conflicts);
     }
 

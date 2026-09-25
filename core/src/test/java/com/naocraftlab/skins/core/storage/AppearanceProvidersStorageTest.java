@@ -26,6 +26,7 @@ import static com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.OPTIFINE;
 import static com.naocraftlab.skins.core.provider.BuiltinProvider.SKINMC;
+import static com.naocraftlab.skins.core.provider.BuiltinProvider.SNEAKY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -208,6 +209,26 @@ class AppearanceProvidersStorageTest {
         assertThrows(IllegalArgumentException.class,
                 () -> storage().loadAppearance(account).providers()
                         .enable(AppearanceProviders.Component.SKIN, SKINMC));
+    }
+
+    @Test
+    void sneakyPersistsOnlyCapeOrderWithoutObservationOrSchemaChange() throws Exception {
+        UUID account = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        var baseline = storage.loadAppearance(account);
+        ProviderCape observed = new ProviderCape("sneaky:skin", "a".repeat(64), false);
+        storage.updateAppearance(account, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape().enable(SNEAKY).observeSneaky(observed))));
+        var loaded = storage.loadAppearance(account);
+        assertEquals(baseline.schemaVersion(), loaded.schemaVersion());
+        assertTrue(loaded.providers().cape().enabled(SNEAKY));
+        assertTrue(!loaded.providers().skin().enabled(SNEAKY));
+        assertTrue(!loaded.providers().cape().sneaky().known());
+        assertThrows(IllegalArgumentException.class, () -> loaded.providers()
+                .enable(AppearanceProviders.Component.SKIN, SNEAKY));
+        var document = com.google.gson.JsonParser.parseString(Files.readString(
+                storage.layout().accountAppearance(account))).getAsJsonObject();
+        assertTrue(!document.getAsJsonObject("providers").getAsJsonObject("cape").has("sneaky"));
     }
 
     @Test

@@ -208,6 +208,7 @@ public final class NclSkinsScreen extends Screen {
             } else {
                 runtime.consumeReadyOptiFineAccountLink().ifPresent(this::showOptiFineLink);
                 if (!showingAccountLink) runtime.consumeReadySkinMcAccountLink().ifPresent(this::showSkinMcLink);
+            if (!showingAccountLink) runtime.consumeReadySneakyEditorLink().ifPresent(this::showSneakyEditorLink);
                 if (showingAccountLink) return;
                 refresh();
             }
@@ -224,6 +225,21 @@ public final class NclSkinsScreen extends Screen {
             if (minecraft != null) minecraft.setScreen(this);
         }, uri, () -> runtime.currentOptiFineAccountLink().filter(uri::equals).isPresent(), () -> {
             runtime.expireOptiFineAccountLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        });
+        minecraft.setScreen(confirmation);
+    }
+
+    private void showSneakyEditorLink(URI uri) {
+        showingAccountLink = true;
+        Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
+            if (accepted && runtime.currentSneakyEditorLink().filter(uri::equals).isPresent()) {
+                ConfigurationLinkApi.open(uri);
+            }
+            runtime.finishSneakyEditorLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        }, uri, () -> runtime.currentSneakyEditorLink().filter(uri::equals).isPresent(), () -> {
+            runtime.finishSneakyEditorLink();
             if (minecraft != null) minecraft.setScreen(this);
         });
         minecraft.setScreen(confirmation);

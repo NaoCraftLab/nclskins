@@ -48,6 +48,7 @@ final class CompatibilityMessages {
             case EARS -> "ears";
             case FRESH_MOVES -> "fresh_moves";
             case JUST_EXPRESSIONS -> "just_expressions";
+            case SNEAKY_CAPES -> "sneaky_capes";
         });
     }
 
@@ -56,6 +57,8 @@ final class CompatibilityMessages {
             case MALFORMED_EARS_DATA -> "malformed_ears_data";
             case MALFORMED_EXPRESSIVE_DATA -> "malformed_expressive_data";
             case MISSING_EXPRESSIVE_RUNTIME -> "missing_expressive_runtime";
+            case SNEAKY_FRESH_MOVES_OVERLAP -> "sneaky_fresh_moves_overlap";
+            case SNEAKY_JUST_EXPRESSIONS_OVERLAP -> "sneaky_just_expressions_overlap";
         });
     }
 }

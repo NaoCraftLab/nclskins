@@ -4,7 +4,9 @@ package com.naocraftlab.skins.core.compatibility;
 public enum SkinConflictReason {
     MALFORMED_EARS_DATA(SkinConsumer.EARS),
     MALFORMED_EXPRESSIVE_DATA(SkinConsumer.FRESH_MOVES),
-    MISSING_EXPRESSIVE_RUNTIME(SkinConsumer.FRESH_MOVES);
+    MISSING_EXPRESSIVE_RUNTIME(SkinConsumer.FRESH_MOVES),
+    SNEAKY_FRESH_MOVES_OVERLAP(SkinConsumer.FRESH_MOVES),
+    SNEAKY_JUST_EXPRESSIONS_OVERLAP(SkinConsumer.JUST_EXPRESSIONS);
 
     private final SkinConsumer consumer;
 

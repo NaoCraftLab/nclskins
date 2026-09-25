@@ -3098,6 +3098,41 @@
           ]
         },
         {
+          "name": "net.minecraft.client.renderer.texture.HttpTexture",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "field",
+              "name": "processLegacySkin",
+              "descriptor": "Z",
+              "access": "private final",
+              "finality": "final"
+            },
+            {
+              "kind": "method",
+              "name": "processLegacySkin",
+              "descriptor": "(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;",
+              "access": "private",
+              "finality": "implementation"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.resources.SkinManager",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "registerTexture",
+              "descriptor": "(Lcom/mojang/authlib/minecraft/MinecraftProfileTexture;Lcom/mojang/authlib/minecraft/MinecraftProfileTexture$Type;Lnet/minecraft/client/resources/SkinManager$SkinTextureCallback;)Lnet/minecraft/resources/ResourceLocation;",
+              "access": "private",
+              "finality": "implementation"
+            }
+          ]
+        },
+        {
           "name": "net.minecraft.client.renderer.entity.layers.CapeLayer",
           "access": "public",
           "finality": "concrete",
@@ -3114,6 +3149,23 @@
       ],
       "mixinAnchors": [
         {
+          "kind": "head",
+          "owner": "net.minecraft.client.renderer.texture.HttpTexture",
+          "method": "processLegacySkin",
+          "descriptor": "(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;"
+        },
+        {
+          "kind": "invoke",
+          "owner": "net.minecraft.client.resources.SkinManager",
+          "method": "registerTexture",
+          "descriptor": "(Lcom/mojang/authlib/minecraft/MinecraftProfileTexture;Lcom/mojang/authlib/minecraft/MinecraftProfileTexture$Type;Lnet/minecraft/client/resources/SkinManager$SkinTextureCallback;)Lnet/minecraft/resources/ResourceLocation;",
+          "opcode": "invokevirtual",
+          "targetOwner": "net.minecraft.client.renderer.texture.TextureManager",
+          "targetMethod": "register",
+          "targetDescriptor": "(Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/client/renderer/texture/AbstractTexture;)V",
+          "count": 1
+        },
+        {
           "kind": "invoke",
           "owner": "net.minecraft.client.renderer.entity.layers.CapeLayer",
           "method": "render",
@@ -3125,7 +3177,7 @@
           "count": 1
         }
       ],
-      "baselineSha256": "c6cb8375b49ca884669daf60c5ee10f86132c1b9c83373bfb055afadea1441b0"
+      "baselineSha256": "590723054de0984f71248950d2f7b95dd823b5218cfd3cca49d127c34eea4f4d"
     },
     "skin-lookup": {
       "kind": "appearance",
@@ -3190,6 +3242,41 @@
           ]
         },
         {
+          "name": "net.minecraft.client.renderer.texture.HttpTexture",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "field",
+              "name": "processLegacySkin",
+              "descriptor": "Z",
+              "access": "private final",
+              "finality": "final"
+            },
+            {
+              "kind": "method",
+              "name": "processLegacySkin",
+              "descriptor": "(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;",
+              "access": "private",
+              "finality": "implementation"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.resources.SkinManager$TextureCache",
+          "access": "static",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "registerTexture",
+              "descriptor": "(Lcom/mojang/authlib/minecraft/MinecraftProfileTexture;)Ljava/util/concurrent/CompletableFuture;",
+              "access": "private",
+              "finality": "implementation"
+            }
+          ]
+        },
+        {
           "name": "net.minecraft.client.renderer.entity.layers.CapeLayer",
           "access": "public",
           "finality": "concrete",
@@ -3206,6 +3293,23 @@
       ],
       "mixinAnchors": [
         {
+          "kind": "head",
+          "owner": "net.minecraft.client.renderer.texture.HttpTexture",
+          "method": "processLegacySkin",
+          "descriptor": "(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;"
+        },
+        {
+          "kind": "invoke",
+          "owner": "net.minecraft.client.resources.SkinManager$TextureCache",
+          "method": "registerTexture",
+          "descriptor": "(Lcom/mojang/authlib/minecraft/MinecraftProfileTexture;)Ljava/util/concurrent/CompletableFuture;",
+          "opcode": "invokevirtual",
+          "targetOwner": "net.minecraft.client.renderer.texture.TextureManager",
+          "targetMethod": "register",
+          "targetDescriptor": "(Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/client/renderer/texture/AbstractTexture;)V",
+          "count": 1
+        },
+        {
           "kind": "invoke",
           "owner": "net.minecraft.client.renderer.entity.layers.CapeLayer",
           "method": "render",
@@ -3217,7 +3321,7 @@
           "count": 1
         }
       ],
-      "baselineSha256": "207207f05d8458b2e0340b46965842908a72eb883571fadbcda652eaccd874ed"
+      "baselineSha256": "c3d4a3132660a03a2c67271170ca2acf1b72019f669c3c91a00dab31942cbebb"
     },
     "avatar-pip-extraction-simple-model-no-attack-time": {
       "kind": "preview",
@@ -3378,6 +3482,27 @@
           ]
         },
         {
+          "name": "net.minecraft.client.renderer.texture.SkinTextureDownloader",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "registerTextureInManager",
+              "descriptor": "(Lnet/minecraft/core/ClientAsset$Texture;Lcom/mojang/blaze3d/platform/NativeImage;)Ljava/util/concurrent/CompletableFuture;",
+              "access": "private",
+              "finality": "implementation"
+            },
+            {
+              "kind": "method",
+              "name": "processLegacySkin",
+              "descriptor": "(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/lang/String;)Lcom/mojang/blaze3d/platform/NativeImage;",
+              "access": "private static",
+              "finality": "static"
+            }
+          ]
+        },
+        {
           "name": "net.minecraft.client.multiplayer.ClientPacketListener",
           "access": "public",
           "finality": "concrete",
@@ -3408,6 +3533,18 @@
       ],
       "mixinAnchors": [
         {
+          "kind": "head",
+          "owner": "net.minecraft.client.renderer.texture.SkinTextureDownloader",
+          "method": "registerTextureInManager",
+          "descriptor": "(Lnet/minecraft/core/ClientAsset$Texture;Lcom/mojang/blaze3d/platform/NativeImage;)Ljava/util/concurrent/CompletableFuture;"
+        },
+        {
+          "kind": "head",
+          "owner": "net.minecraft.client.renderer.texture.SkinTextureDownloader",
+          "method": "processLegacySkin",
+          "descriptor": "(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/lang/String;)Lcom/mojang/blaze3d/platform/NativeImage;"
+        },
+        {
           "kind": "invoke",
           "owner": "net.minecraft.client.renderer.entity.layers.CapeLayer",
           "method": "submit",
@@ -3419,7 +3556,7 @@
           "count": 1
         }
       ],
-      "baselineSha256": "f68ef0c5a27eaf82b7bb2a59a261f5008d64b1177771ed315a0a77c5c48bee46"
+      "baselineSha256": "f19cee3fd16407027353de07efe7f36ad8f244eacb39be95904cc41391faa348"
     },
     "fabric-immediate": {
       "kind": "loaderScreen",
@@ -6341,7 +6478,9 @@
       "player-info-cache": {
         "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
         "net.minecraft.client.multiplayer.PlayerInfo": "2baba81c2f9857f80efc3c09a9f9f7d7b17b0a35b3b5ef3bf317aa3159629e6e",
-        "net.minecraft.client.renderer.entity.layers.CapeLayer": "e86d07521d134aab93387eb3ae94376d365dc7df88bc9a6131a2d1c5918fb363"
+        "net.minecraft.client.renderer.entity.layers.CapeLayer": "e86d07521d134aab93387eb3ae94376d365dc7df88bc9a6131a2d1c5918fb363",
+        "net.minecraft.client.renderer.texture.HttpTexture": "bbeb99f6692f33ed3e2ffd00fa1eab04530afa41688a9ebd35d2c007aa081e45",
+        "net.minecraft.client.resources.SkinManager": "dfb4c67d29ecf66b38e5db8048c6168d6bef7a48d0eb7ad83934fd90afca94fc"
       },
       "profile-mutation-authlib-v4": {
         "com.mojang.authlib.GameProfile": "a64d2301f7fa60edc7dcaaa2b1de74fe32eb00632c4bca6632e438e6757a47de",
@@ -6404,7 +6543,9 @@
         "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
         "net.minecraft.client.multiplayer.PlayerInfo": "f433468c8a624a2037092bfd3d8a0edb241ec5ddc54f5932d1767cf37733e2d7",
         "net.minecraft.client.resources.SkinManager": "9a4806362dc925edb5c1bbdfb6b767abb0e910bba331cf4ca1fa1d8efe7a408d",
-        "net.minecraft.client.renderer.entity.layers.CapeLayer": "e86d07521d134aab93387eb3ae94376d365dc7df88bc9a6131a2d1c5918fb363"
+        "net.minecraft.client.renderer.entity.layers.CapeLayer": "e86d07521d134aab93387eb3ae94376d365dc7df88bc9a6131a2d1c5918fb363",
+        "net.minecraft.client.renderer.texture.HttpTexture": "bbeb99f6692f33ed3e2ffd00fa1eab04530afa41688a9ebd35d2c007aa081e45",
+        "net.minecraft.client.resources.SkinManager$TextureCache": "41e426c336947bde94b8efd8ff598de9d9c98fc3471800732229a17ea582c50b"
       },
       "vanilla-pack-resource-location": {
         "net.minecraft.client.Minecraft": "74b1d9b19b2fb18fb978ccfb607107fc966fa24799648842cbadbc9a2273e325",
@@ -6614,7 +6755,8 @@
         "net.minecraft.client.multiplayer.PlayerInfo": "e4cceaf3cd2c90fea083deb548785256a2ee261455988f27c44bb9fa4cd7ed3c",
         "net.minecraft.client.resources.SkinManager": "b734ca6e29a1a01e4357de1ca0e1597b23d8ce36c90f1b79de1779c4866c1456",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c",
-        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721"
+        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721",
+        "net.minecraft.client.renderer.texture.SkinTextureDownloader": "e613319c3da339c732ded56b9490be41434348a8ee90f57c1d5e7825aa0bfac2"
       },
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
@@ -6749,7 +6891,8 @@
         "net.minecraft.client.multiplayer.PlayerInfo": "e4cceaf3cd2c90fea083deb548785256a2ee261455988f27c44bb9fa4cd7ed3c",
         "net.minecraft.client.resources.SkinManager": "b734ca6e29a1a01e4357de1ca0e1597b23d8ce36c90f1b79de1779c4866c1456",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c",
-        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721"
+        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721",
+        "net.minecraft.client.renderer.texture.SkinTextureDownloader": "e613319c3da339c732ded56b9490be41434348a8ee90f57c1d5e7825aa0bfac2"
       },
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
@@ -6880,7 +7023,8 @@
         "net.minecraft.client.multiplayer.PlayerInfo": "e4cceaf3cd2c90fea083deb548785256a2ee261455988f27c44bb9fa4cd7ed3c",
         "net.minecraft.client.resources.SkinManager": "b734ca6e29a1a01e4357de1ca0e1597b23d8ce36c90f1b79de1779c4866c1456",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c",
-        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721"
+        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721",
+        "net.minecraft.client.renderer.texture.SkinTextureDownloader": "e613319c3da339c732ded56b9490be41434348a8ee90f57c1d5e7825aa0bfac2"
       },
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
@@ -7009,7 +7153,8 @@
         "net.minecraft.client.multiplayer.PlayerInfo": "e4cceaf3cd2c90fea083deb548785256a2ee261455988f27c44bb9fa4cd7ed3c",
         "net.minecraft.client.resources.SkinManager": "b734ca6e29a1a01e4357de1ca0e1597b23d8ce36c90f1b79de1779c4866c1456",
         "net.minecraft.world.entity.player.PlayerSkin": "c8ccdfa68c0fb141b68a89c8e3a2962895ce0a72c6eece0132f2c94a78932d2c",
-        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721"
+        "net.minecraft.client.renderer.entity.layers.CapeLayer": "182e69bfe607694e4c6eec05742d253a47e499e7b73cb95d3ee6ec9ef1a51721",
+        "net.minecraft.client.renderer.texture.SkinTextureDownloader": "e613319c3da339c732ded56b9490be41434348a8ee90f57c1d5e7825aa0bfac2"
       },
       "minecraft-user-v1": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",

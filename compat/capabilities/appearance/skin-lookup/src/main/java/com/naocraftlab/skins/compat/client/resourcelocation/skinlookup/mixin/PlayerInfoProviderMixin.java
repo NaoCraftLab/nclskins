@@ -61,6 +61,8 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
         PlayerInfo info = (PlayerInfo) (Object) this;
         boolean self = Minecraft.getInstance().isLocalPlayer(info.getProfile().getId());
         var visibility = MinecraftProviderVisibility.current();
+        if (!self) CapeProjection.visibleSkin(info.getProfile().getId(), info.getProfile().getName(),
+                visibility.skin() ? original.texture().toString() : null);
         ResourceLocation officialCape = !self && visibility.cape() ? original.capeTexture() : null;
         ResourceLocation officialElytra = !self && visibility.cape() ? original.elytraTexture() : null;
         CapeProjection.Candidate official = officialCape == null ? null :

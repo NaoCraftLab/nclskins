@@ -190,6 +190,8 @@ public interface ClientOperations extends AutoCloseable {
 
     default void onSkinMcObservation(Consumer<SkinMcObservation> listener) {}
 
+    default void onSneakyObservation(Consumer<SneakyObservation> listener) {}
+
     default void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
             AppearanceProviders providers) {}
 
@@ -198,6 +200,10 @@ public interface ClientOperations extends AutoCloseable {
 
     record SkinMcObservation(UUID accountId, String canonicalName,
             long capeConfigurationRevision, ProviderCape cape) {}
+
+    record SneakyObservation(UUID accountId, String canonicalName,
+            long capeConfigurationRevision, String skinSha256,
+            ProviderObservation<ProviderCape> observation) {}
 
     default void trackedCapePlayer(UUID profileId, String canonicalName) {}
 

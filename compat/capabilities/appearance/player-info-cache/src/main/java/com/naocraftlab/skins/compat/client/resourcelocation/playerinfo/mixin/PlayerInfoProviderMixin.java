@@ -70,6 +70,9 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
 
     @ModifyReturnValue(method = "getSkinLocation", at = @At("RETURN"), require = 1, expect = 1, allow = 1)
     private ResourceLocation nclskins$getSkinLocation(ResourceLocation original) {
+        GameProfile profile = ((PlayerInfo) (Object) this).getProfile();
+        if (!nclskins$local()) CapeProjection.visibleSkin(profile.getId(), profile.getName(),
+                MinecraftProviderVisibility.current().skin() && original != null ? original.toString() : null);
         if (nclskins$local() || MinecraftProviderVisibility.current().skin()) return original;
         return DefaultPlayerSkin.getDefaultSkin(((PlayerInfo) (Object) this).getProfile().getId());
     }

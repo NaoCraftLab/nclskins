@@ -70,6 +70,25 @@ final class GalleryPresenterTest {
     }
 
     @Test
+    void galleryHidesInactiveSneakyPresetButKeepsActiveOne() {
+        AccountState account = TestFixtures.account(2);
+        UUID active = account.presets().get(0).id();
+        SkinFeatureEvidence sneaky = new SkinFeatureEvidence(
+                List.of(com.naocraftlab.skins.core.compatibility.SkinFeature.SNEAKY_CAPES),
+                List.of(SkinConflictReason.SNEAKY_FRESH_MOVES_OVERLAP,
+                        SkinConflictReason.SNEAKY_JUST_EXPRESSIONS_OVERLAP));
+        ClientSnapshot hidden = withCompatibility(TestFixtures.ready(account, active, 0),
+                new SkinExtensionEnvironment(5,
+                        Map.of(SkinConsumer.FRESH_MOVES, SkinConsumerState.ACTIVE)),
+                Map.of(TestFixtures.CLASSIC_ID, sneaky, TestFixtures.SLIM_ID, sneaky), true);
+        assertEquals(List.of("gallery.add", "gallery.card." + active), presenter.cardIds(hidden, "Preset"));
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE),
+                presenter.present(hidden, 854, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                        SkinVariant.CLASSIC, "Preset", Optional.empty())
+                        .widget("gallery.preset." + active + ".compatibility").orElseThrow().icon());
+    }
+
+    @Test
     void coldInitializationIsNeutralUntilAccountDataExists() {
         ClientSnapshot cold = initializingSnapshot(Optional.empty(), Optional.empty());
 

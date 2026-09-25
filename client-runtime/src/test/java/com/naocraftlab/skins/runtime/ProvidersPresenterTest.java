@@ -14,6 +14,44 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProvidersPresenterTest {
+    @Test void sneakyGlobeAndCapeInspectionStayAvailableWithoutWritableProviders() {
+        var providers = AppearanceProviders.initial()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        providers = new AppearanceProviders(providers.skin(), providers.cape().observeSneaky(
+                new ProviderCape("sneaky:asset", "a".repeat(64), true)));
+        var presenter = new ProvidersPresenter();
+        var cape = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 854, 480, null, BuiltinProvider.SNEAKY);
+        var globe = cape.widget("providers.account.SNEAKY").orElseThrow();
+        assertEquals(GuiIcon.ACTION_OPEN_ACCOUNT, globe.icon().orElseThrow());
+        assertEquals("nclskins.providers.open_sneaky_editor", globe.label().key());
+        assertTrue(globe.enabled());
+        assertTrue(cape.widget("providers.edit.SNEAKY").isEmpty());
+        assertEquals("provider:cape:" + "a".repeat(64), cape.previews().get(0).capeId().orElseThrow());
+        assertTrue(presenter.presentChooser(providers, AppearanceProviders.Component.SKIN,
+                false, 854, 480, 0).widget("providers.row.SNEAKY").isEmpty());
+    }
+
+    @Test void losingSneakyRowKeepsItsOwnTextureWhileResultUsesMinecraft() {
+        String sneakyKey = "a".repeat(64);
+        String minecraftKey = "b".repeat(64);
+        var providers = AppearanceProviders.initial()
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        providers = new AppearanceProviders(providers.skin(), providers.cape()
+                .observeMinecraft(new ProviderCape("official", minecraftKey, false))
+                .observeSneaky(new ProviderCape("sneaky:asset", sneakyKey, true)));
+        var presenter = new ProvidersPresenter();
+        var transform = PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE);
+        var result = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                transform, SkinVariant.CLASSIC, 854, 480, null, null);
+        var inspected = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                transform, SkinVariant.CLASSIC, 854, 480, null, BuiltinProvider.SNEAKY);
+        assertEquals("provider:cape:" + minecraftKey, result.previews().get(0).capeId().orElseThrow());
+        assertEquals("provider:cape:" + sneakyKey, inspected.previews().get(0).capeId().orElseThrow());
+    }
     private ViewSpec view(AppearanceProviders providers, String query, boolean adding) {
         return new ProvidersPresenter().present(providers, AppearanceProviders.Component.SKIN, adding, false,
                 PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC, 854, 480);

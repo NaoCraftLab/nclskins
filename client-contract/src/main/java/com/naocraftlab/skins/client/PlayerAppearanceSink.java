@@ -43,7 +43,7 @@ public interface PlayerAppearanceSink<P> {
     default void releaseCapeTexture(UUID profileId, CapeSource provider) {}
 
     enum CapeSource {
-        OFFLINE, MINECRAFT, OPTIFINE, SKINMC
+        OFFLINE, MINECRAFT, OPTIFINE, SKINMC, SNEAKY
     }
 
     record TrackedCapePlayer(UUID profileId, String canonicalName) {

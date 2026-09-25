@@ -17,6 +17,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProviderChannelTest {
     @Test
+    void sneakyIsCapeOnlyDisabledInitiallyAndFollowsCapePriority() {
+        AppearanceProviders initial = AppearanceProviders.initial();
+        assertTrue(!initial.cape().enabled(BuiltinProvider.SNEAKY));
+        assertTrue(!BuiltinProvider.SNEAKY.supportsSkin());
+        var enabled = initial.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        assertEquals(BuiltinProvider.SNEAKY, enabled.cape().order().get(enabled.cape().order().size() - 1));
+        ProviderCape cape = new ProviderCape("sneaky:test", "a".repeat(64), true);
+        var observed = enabled.cape().observeSneaky(cape);
+        assertEquals(cape, observed.resolve().orElseThrow().value());
+        assertEquals(cape, observed.move(BuiltinProvider.SNEAKY, -1).sneaky().value());
+        assertTrue(observed.disable(BuiltinProvider.SNEAKY).resolve().isEmpty());
+    }
+    @Test
     void bootstrapPreservesKnownOfflineAndCannotOverwriteAnIntent() {
         var channel = new ProviderChannel<String>(java.util.List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT),
                 ProviderObservation.observed("offline"), ProviderObservation.unknown(), 0, 0, null,

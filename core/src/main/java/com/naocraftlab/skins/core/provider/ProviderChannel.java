@@ -16,7 +16,15 @@ public record ProviderChannel<T>(
         ProviderDelivery minecraftDelivery,
         T offlineDesired,
         ProviderObservation<T> optifine,
-        ProviderObservation<T> skinmc) {
+        ProviderObservation<T> skinmc,
+        ProviderObservation<T> sneaky) {
+    public ProviderChannel(List<BuiltinProvider> order, ProviderObservation<T> offline,
+            ProviderObservation<T> minecraft, long configurationRevision, long intentRevision,
+            T desired, ProviderDelivery minecraftDelivery, T offlineDesired,
+            ProviderObservation<T> optifine, ProviderObservation<T> skinmc) {
+        this(order, offline, minecraft, configurationRevision, intentRevision, desired,
+                minecraftDelivery, offlineDesired, optifine, skinmc, ProviderObservation.unknown());
+    }
     public ProviderChannel(List<BuiltinProvider> order, ProviderObservation<T> offline,
             ProviderObservation<T> minecraft, long configurationRevision, long intentRevision,
             T desired, ProviderDelivery minecraftDelivery, T offlineDesired,
@@ -48,6 +56,7 @@ public record ProviderChannel<T>(
         Objects.requireNonNull(minecraft, "minecraft");
         Objects.requireNonNull(optifine, "optifine");
         Objects.requireNonNull(skinmc, "skinmc");
+        Objects.requireNonNull(sneaky, "sneaky");
         Objects.requireNonNull(minecraftDelivery, "minecraftDelivery");
         if (configurationRevision < 0 || intentRevision < 0
                 || minecraftDelivery.intentRevision() > intentRevision
@@ -72,6 +81,7 @@ public record ProviderChannel<T>(
             case MINECRAFT -> minecraft;
             case OPTIFINE -> optifine;
             case SKINMC -> skinmc;
+            case SNEAKY -> sneaky;
         };
     }
 
@@ -98,7 +108,7 @@ public record ProviderChannel<T>(
                 minecraft, configurationRevision, revision, value,
                 enabled(BuiltinProvider.MINECRAFT)
                         ? minecraftDelivery.assign(revision, minecraftDelivery.activation())
-                        : minecraftDelivery, localValue, optifine, skinmc);
+                        : minecraftDelivery, localValue, optifine, skinmc, sneaky);
     }
 
     public ProviderChannel<T> selectMatchingObservation(
@@ -123,7 +133,7 @@ public record ProviderChannel<T>(
                 enabled(BuiltinProvider.MINECRAFT) && assignMinecraft
                         ? minecraftDelivery.assign(revision, minecraftDelivery.activation())
                         : minecraftDelivery,
-                localValue, optifine, skinmc);
+                localValue, optifine, skinmc, sneaky);
     }
 
     public ProviderChannel<T> enable(BuiltinProvider provider) {
@@ -139,7 +149,7 @@ public record ProviderChannel<T>(
                 minecraft, generation, intentRevision, desired,
                 provider == BuiltinProvider.MINECRAFT
                         ? minecraftDelivery.assign(intentRevision, generation) : minecraftDelivery,
-                offlineDesired, optifine, skinmc);
+                offlineDesired, optifine, skinmc, sneaky);
     }
 
     public ProviderChannel<T> bootstrap(long revision, T value) {
@@ -150,7 +160,7 @@ public record ProviderChannel<T>(
                 configurationRevision, revision, value,
                 enabled(BuiltinProvider.MINECRAFT)
                         ? new ProviderDelivery(revision, minecraftDelivery.activation(), ProviderDelivery.Status.CONFIRMED)
-                        : selected.minecraftDelivery(), selected.offlineDesired(), optifine, skinmc);
+                        : selected.minecraftDelivery(), selected.offlineDesired(), optifine, skinmc, sneaky);
     }
 
     public ProviderChannel<T> disable(BuiltinProvider provider) {
@@ -166,7 +176,7 @@ public record ProviderChannel<T>(
                                 ? ProviderDelivery.Status.UNKNOWN : minecraftDelivery.status())
                 : minecraftDelivery;
         return new ProviderChannel<>(updated, offline, minecraft, generation,
-                intentRevision, desired, delivery, offlineDesired, optifine, skinmc);
+                intentRevision, desired, delivery, offlineDesired, optifine, skinmc, sneaky);
     }
 
     public ProviderChannel<T> move(BuiltinProvider provider, int direction) {
@@ -182,7 +192,7 @@ public record ProviderChannel<T>(
         java.util.Collections.swap(updated, index, target);
         return new ProviderChannel<>(updated, offline, minecraft,
                 Math.incrementExact(configurationRevision), intentRevision, desired, minecraftDelivery,
-                offlineDesired, optifine, skinmc);
+                offlineDesired, optifine, skinmc, sneaky);
     }
 
     public ProviderChannel<T> observeMinecraft(T value) {
@@ -193,7 +203,7 @@ public record ProviderChannel<T>(
                 ? ProviderObservation.observed(value) : offline;
         return new ProviderChannel<>(order, initialOffline, ProviderObservation.observed(value),
                 configurationRevision, intentRevision, desired, minecraftDelivery, offlineDesired,
-                optifine, skinmc);
+                optifine, skinmc, sneaky);
     }
 
     public ProviderChannel<T> observeOptifine(T value) {
@@ -202,7 +212,7 @@ public record ProviderChannel<T>(
         }
         return new ProviderChannel<>(order, offline, minecraft, configurationRevision,
                 intentRevision, desired, minecraftDelivery, offlineDesired,
-                ProviderObservation.observed(value), skinmc);
+                ProviderObservation.observed(value), skinmc, sneaky);
     }
 
     public ProviderChannel<T> observeSkinmc(T value) {
@@ -211,7 +221,18 @@ public record ProviderChannel<T>(
         }
         return new ProviderChannel<>(order, offline, minecraft, configurationRevision,
                 intentRevision, desired, minecraftDelivery, offlineDesired, optifine,
-                ProviderObservation.observed(value));
+                ProviderObservation.observed(value), sneaky);
+    }
+
+    public ProviderChannel<T> observeSneaky(T value) {
+        if (!enabled(BuiltinProvider.SNEAKY)) return this;
+        return withSneakyObservation(ProviderObservation.observed(value));
+    }
+
+    public ProviderChannel<T> withSneakyObservation(ProviderObservation<T> observation) {
+        return new ProviderChannel<>(order, offline, minecraft, configurationRevision,
+                intentRevision, desired, minecraftDelivery, offlineDesired, optifine,
+                skinmc, observation);
     }
 
     public ProviderChannel<T> settle(
@@ -225,7 +246,7 @@ public record ProviderChannel<T>(
                 status == ProviderDelivery.Status.CONFIRMED
                         ? ProviderObservation.observed(observed) : minecraft,
                 configurationRevision, intentRevision, desired, minecraftDelivery.withStatus(status),
-                offlineDesired, optifine, skinmc);
+                offlineDesired, optifine, skinmc, sneaky);
     }
 
     public record Resolved<T>(BuiltinProvider provider, T value) {

@@ -6,7 +6,9 @@
     "CapeLayerTransparencyMixin",
     "PlayerInfoProviderMixin",
     "ClientPacketListenerCapeMixin",
-    "SkinManagerProviderMixin"
+    "SkinManagerProviderMixin",
+    "SkinTextureDownloaderProviderMixin",
+    "NativeImageSneakyPixelsMixin"
   ],
   "injectors": {
     "defaultRequire": 1

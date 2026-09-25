@@ -515,10 +515,11 @@ final class LocalizationVerifier {
                 'nclskins.standard_skins.authors'
         ])
         (1..8).each { keys.add("nclskins.compatibility.tooltip.${it}") }
-        ['ears', 'fresh_moves', 'just_expressions'].each {
+        ['ears', 'fresh_moves', 'just_expressions', 'sneaky_capes'].each {
             keys.add("nclskins.compatibility.feature.${it}")
         }
-        ['malformed_ears_data', 'malformed_expressive_data', 'missing_expressive_runtime'].each {
+        ['malformed_ears_data', 'malformed_expressive_data', 'missing_expressive_runtime',
+                'sneaky_fresh_moves_overlap', 'sneaky_just_expressions_overlap'].each {
             keys.add("nclskins.compatibility.reason.${it}")
         }
         List<String> importSources = [

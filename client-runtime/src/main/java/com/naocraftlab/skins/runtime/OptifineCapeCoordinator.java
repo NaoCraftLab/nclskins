@@ -6,6 +6,7 @@ import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.PlayerAppearanceSink.CapeSource;
 import com.naocraftlab.skins.client.PlayerAppearanceSink.TrackedCapePlayer;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.SneakyCapeDecoder;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderCape;
@@ -14,6 +15,7 @@ import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.TextureCache;
 
 import java.io.IOException;
+import java.awt.image.BufferedImage;
 import java.net.URI;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -21,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -68,6 +71,13 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     private ProviderObservation<ProviderCape> confirmedRefreshObservation;
     private boolean explicitSweep;
     private final Map<BuiltinProvider, CapeProjection.Candidate> selfCandidates = new HashMap<>();
+    private final Map<String, TextureObservation> sneakyTextures = new LinkedHashMap<>();
+    private final Map<CapeProjection.Identity, String> sneakyVisibleSkins = new HashMap<>();
+    private final Map<CapeProjection.Identity, Observed> sneakyRemote = new HashMap<>();
+    private Consumer<ClientOperations.SneakyObservation> sneakyObservationListener = ignored -> {};
+    private Observed sneakySelf;
+    private String sneakySkinSha;
+    private long sneakyEpoch;
 
     private AppearanceProviders providers = AppearanceProviders.initial();
     private AppearanceProviders selfCandidateProviders = AppearanceProviders.initial();
@@ -148,12 +158,17 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         skinMcObservationListener = Objects.requireNonNull(listener, "listener");
     }
 
+    public synchronized void onSneakyObservation(
+            Consumer<ClientOperations.SneakyObservation> listener) {
+        sneakyObservationListener = Objects.requireNonNull(listener, "listener");
+    }
+
     public synchronized java.util.Optional<java.time.Duration> cooldownRemaining(BuiltinProvider provider) {
         if (closed || provider == null) return java.util.Optional.empty();
         return switch (provider) {
             case OPTIFINE -> reader.cooldownRemaining();
             case SKINMC -> skinMcReader.cooldownRemaining();
-            case OFFLINE, MINECRAFT -> java.util.Optional.empty();
+            case OFFLINE, MINECRAFT, SNEAKY -> java.util.Optional.empty();
         };
     }
 
@@ -206,8 +221,14 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         if (closed) return;
         boolean wasEnabled = enabled();
         boolean wasSkinMcEnabled = skinMcEnabled();
+        boolean wasSneakyEnabled = providers.cape().enabled(BuiltinProvider.SNEAKY);
         CapeProjection.Identity previousSelf = selfIdentity;
         reloadConfiguration();
+        if (wasSneakyEnabled != providers.cape().enabled(BuiltinProvider.SNEAKY)) {
+            for (CapeProjection.Identity identity : List.copyOf(sneakyVisibleSkins.keySet())) {
+                updateSneakyRemote(identity);
+            }
+        }
         if (Objects.equals(previousSelf, selfIdentity)
                 && wasEnabled == enabled() && wasSkinMcEnabled == skinMcEnabled()) {
             publish();
@@ -265,6 +286,11 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             if (request != null && request.future != null) request.future.cancel(true);
         }
         providers = snapshot;
+        scheduleSneakySelf();
+        if (sneakySelf != null) notifySneakySelf(ProviderObservation.observed(
+                sneakySelf.png() == null || sneakySelf.location() == null ? null
+                        : new ProviderCape("sneaky:" + sneakySkinSha,
+                                sneakySelf.png().renderSha256(), sneakySelf.png().hasElytra())));
         adoptSkinMcSnapshot(identity, snapshot, previousSkinMc);
         if (changedCandidates) {
             selfCandidateProviders = snapshot;
@@ -398,6 +424,8 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         if (previous != null && !previous.equals(identity)) {
             remove(previous);
             removeSkinMc(previous);
+            removeSneakyRemote(previous);
+            sneakyVisibleSkins.remove(previous);
         }
         if (enabled() && !observed.containsKey(identity) && !attempted.contains(identity)) {
             if (queue.size() >= MAX_QUEUE) {
@@ -413,6 +441,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             enqueueSkinMc(identity, false);
             pumpSkinMc();
         }
+        updateSneakyRemote(identity);
     }
 
     public synchronized void playerInfoUpdated(UUID profileId, String canonicalName) {
@@ -450,6 +479,8 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         if (removed != null && !removed.equals(selfIdentity)) {
             remove(removed);
             removeSkinMc(removed);
+            removeSneakyRemote(removed);
+            sneakyVisibleSkins.remove(removed);
             publish();
             pump();
             pumpSkinMc();
@@ -469,6 +500,8 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             if (!identity.equals(selfIdentity)) remove(identity);
         }
         tracked.clear();
+        for (CapeProjection.Identity identity : List.copyOf(sneakyRemote.keySet())) removeSneakyRemote(identity);
+        sneakyVisibleSkins.clear();
         attempted.clear();
         repeatPending.clear();
         resetSkinMcWork();
@@ -499,6 +532,10 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         sweep = List.<CapeProjection.Identity>of().iterator();
         releaseObservedTextures();
         releaseSkinMcTextures();
+        clearSneakySelf();
+        for (CapeProjection.Identity identity : List.copyOf(sneakyRemote.keySet())) removeSneakyRemote(identity);
+        sneakyVisibleSkins.clear();
+        sneakyTextures.clear();
         observed.clear();
         skinMcObserved.clear();
         cancelSelfPreparation();
@@ -519,6 +556,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         CapeProjection.Identity nextSelf = new CapeProjection.Identity(session.profileId(), session.profileName());
         boolean identityChanged = !nextSelf.equals(selfIdentity);
         if (identityChanged) {
+            CapeProjection.invalidateVisibleSkins();
             reader.accountChanged();
             skinMcReader.accountChanged();
             generation++;
@@ -535,6 +573,9 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             unknownSweepPending = false;
             releaseObservedTextures();
             releaseSkinMcTextures();
+            clearSneakySelf();
+            for (CapeProjection.Identity identity : List.copyOf(sneakyRemote.keySet())) removeSneakyRemote(identity);
+            sneakyVisibleSkins.clear();
             observed.clear();
             skinMcObserved.clear();
             cancelSelfPreparation();
@@ -547,6 +588,11 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                     || !Objects.equals(selfCandidateProviders.cape().offline(), loaded.cape().offline())
                     || !Objects.equals(selfCandidateProviders.cape().minecraft(), loaded.cape().minecraft());
             providers = loaded;
+            scheduleSneakySelf();
+            if (sneakySelf != null) notifySneakySelf(ProviderObservation.observed(
+                    sneakySelf.png() == null || sneakySelf.location() == null ? null
+                            : new ProviderCape("sneaky:" + sneakySkinSha,
+                                    sneakySelf.png().renderSha256(), sneakySelf.png().hasElytra())));
             restoreSelfObservation();
             restoreSkinMcSelfObservation();
             if (candidateInputsChanged) {
@@ -555,8 +601,134 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             }
         } catch (IOException failure) {
             providers = AppearanceProviders.initial();
+            clearSneakySelf();
         }
         publish();
+    }
+
+    private void clearSneakySelf() {
+        sneakyEpoch++;
+        if (selfIdentity != null && sneakySelf != null && sneakySelf.location() != null) {
+            sink.releaseCapeTexture(selfIdentity.profileId(), CapeSource.SNEAKY);
+        }
+        sneakySelf = null;
+        sneakySkinSha = null;
+    }
+
+    private void scheduleSneakySelf() {
+        if (selfIdentity == null || !providers.cape().enabled(BuiltinProvider.SNEAKY)) {
+            clearSneakySelf();
+            return;
+        }
+        String selected = providers.skin().resolve()
+                .map(resolved -> resolved.value().sha256()).orElse(null);
+        if (Objects.equals(sneakySkinSha, selected)) return;
+        clearSneakySelf();
+        sneakySkinSha = selected;
+        notifySneakySelf(ProviderObservation.unknown());
+        if (selected == null) return;
+        long expectedEpoch = sneakyEpoch;
+        CapeProjection.Identity identity = selfIdentity;
+        worker.execute(() -> {
+            boolean available = false;
+            PngValidator.CapePng cape = null;
+            String cacheKey = null;
+            try {
+                byte[] skin = storage.readAsset(selected);
+                available = true;
+                cape = new SneakyCapeDecoder().decode(skin).orElse(null);
+                if (cape != null) cacheKey = textures.storeObservedCape(cape);
+            } catch (IOException | com.naocraftlab.skins.core.png.PngValidationException unavailable) {
+                available = false;
+            }
+            boolean confirmed = available;
+            PngValidator.CapePng decoded = cape;
+            String confirmedKey = cacheKey;
+            clientExecutor.execute(() -> completeSneakySelf(identity, selected, expectedEpoch,
+                    confirmed, decoded, confirmedKey));
+        });
+    }
+
+    private synchronized void completeSneakySelf(CapeProjection.Identity identity, String skinSha,
+            long expectedEpoch, boolean confirmed, PngValidator.CapePng cape, String cacheKey) {
+        if (closed || expectedEpoch != sneakyEpoch || !identity.equals(selfIdentity)
+                || !Objects.equals(sneakySkinSha, skinSha)
+                || !providers.cape().enabled(BuiltinProvider.SNEAKY)) return;
+        if (!confirmed) return;
+        String location = cape == null ? null : sink.registerCapeTexture(identity.profileId(),
+                CapeSource.SNEAKY, cape.renderSha256(), cape.bytes()).orElse(null);
+        sneakySelf = new Observed(cape, location);
+        ProviderCape observedCape = cape != null && location != null
+                ? new ProviderCape("sneaky:" + skinSha, cacheKey, cape.hasElytra()) : null;
+        notifySneakySelf(ProviderObservation.observed(observedCape));
+        publish();
+    }
+
+    private void notifySneakySelf(ProviderObservation<ProviderCape> observation) {
+        if (selfIdentity == null || !providers.cape().enabled(BuiltinProvider.SNEAKY)) return;
+        sneakyObservationListener.accept(new ClientOperations.SneakyObservation(
+                selfIdentity.profileId(), selfIdentity.canonicalName(),
+                providers.cape().configurationRevision(), sneakySkinSha, observation));
+    }
+
+    public synchronized void skinTextureReady(String skinLocation, int[] argb) {
+        if (closed || skinLocation == null || argb == null || argb.length != 64 * 64) return;
+        BufferedImage skin = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        skin.setRGB(0, 0, 64, 64, argb, 0, 64);
+        PngValidator.CapePng cape;
+        try {
+            cape = new SneakyCapeDecoder().decode(skin).orElse(null);
+        } catch (com.naocraftlab.skins.core.png.PngValidationException unavailable) {
+            return;
+        }
+        if (sneakyTextures.size() >= MAX_TRACKED && !sneakyTextures.containsKey(skinLocation)) {
+            sneakyTextures.remove(sneakyTextures.keySet().iterator().next());
+        }
+        sneakyTextures.put(skinLocation, new TextureObservation(cape));
+        for (var entry : List.copyOf(sneakyVisibleSkins.entrySet())) {
+            if (skinLocation.equals(entry.getValue())) updateSneakyRemote(entry.getKey());
+        }
+        publish();
+    }
+
+    public synchronized boolean hasSkinTexture(String skinLocation) {
+        return sneakyTextures.containsKey(skinLocation);
+    }
+
+    public synchronized void visibleSkin(UUID profileId, String canonicalName, String skinLocation) {
+        if (closed || profileId == null || canonicalName == null) return;
+        CapeProjection.Identity identity = new CapeProjection.Identity(profileId, canonicalName);
+        if (identity.equals(selfIdentity) || !current(identity)) return;
+        if (skinLocation == null) sneakyVisibleSkins.remove(identity);
+        else sneakyVisibleSkins.put(identity, skinLocation);
+        updateSneakyRemote(identity);
+        publish();
+    }
+
+    private void updateSneakyRemote(CapeProjection.Identity identity) {
+        String skinLocation = sneakyVisibleSkins.get(identity);
+        TextureObservation texture = skinLocation == null ? null : sneakyTextures.get(skinLocation);
+        if (!providers.cape().enabled(BuiltinProvider.SNEAKY) || !current(identity)
+                || texture == null || texture.cape() == null) {
+            removeSneakyRemote(identity);
+            return;
+        }
+        PngValidator.CapePng cape = texture.cape();
+        Observed previous = sneakyRemote.get(identity);
+        if (previous != null && previous.png() != null
+                && previous.png().renderSha256().equals(cape.renderSha256())
+                && previous.location() != null) return;
+        removeSneakyRemote(identity);
+        String location = sink.registerCapeTexture(identity.profileId(), CapeSource.SNEAKY,
+                cape.renderSha256(), cape.bytes()).orElse(null);
+        sneakyRemote.put(identity, new Observed(cape, location));
+    }
+
+    private void removeSneakyRemote(CapeProjection.Identity identity) {
+        Observed removed = sneakyRemote.remove(identity);
+        if (removed != null && removed.location() != null) {
+            sink.releaseCapeTexture(identity.profileId(), CapeSource.SNEAKY);
+        }
     }
 
     private void restoreSelfObservation() {
@@ -1245,14 +1417,26 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                     png == null ? null : png.renderSha256(),
                     png != null && png.hasElytra(), entry.getValue().location() != null));
         }
+        Map<CapeProjection.Identity, ObservationKey> sneakyRemoteObservations = new HashMap<>();
+        for (var entry : sneakyRemote.entrySet()) {
+            PngValidator.CapePng png = entry.getValue().png();
+            sneakyRemoteObservations.put(entry.getKey(), new ObservationKey(
+                    png == null ? null : png.renderSha256(),
+                    png != null && png.hasElytra(), entry.getValue().location() != null));
+        }
         ProjectionState state = new ProjectionState(selfIdentity, providers.cape().order(),
                 providers.cape().offline(), providers.cape().minecraft(),
                 providers.cape().optifine(), providers.cape().skinmc(),
-                Map.copyOf(observations), Map.copyOf(skinMcObservations), Map.copyOf(selfCandidates));
+                sneakySkinSha, sneakySelf == null || sneakySelf.png() == null ? null
+                        : new ObservationKey(sneakySelf.png().renderSha256(),
+                                sneakySelf.png().hasElytra(), sneakySelf.location() != null),
+                Map.copyOf(observations), Map.copyOf(skinMcObservations),
+                Map.copyOf(sneakyRemoteObservations), Map.copyOf(selfCandidates));
         if (state.equals(publishedProjection)) return;
         publishedProjection = state;
         Map<CapeProjection.Identity, CapeProjection.Candidate> capes = new HashMap<>();
         Map<CapeProjection.Identity, CapeProjection.Candidate> skinMcCapes = new HashMap<>();
+        Map<CapeProjection.Identity, CapeProjection.Candidate> sneakyCapes = new HashMap<>();
         if (enabled()) {
             for (var entry : observed.entrySet()) {
                 if (entry.getValue().location() != null && current(entry.getKey())) {
@@ -1269,7 +1453,19 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 }
             }
         }
-        CapeProjection.publish(new CapeProjection.Snapshot(providers.cape().order(), capes, skinMcCapes,
+        if (providers.cape().enabled(BuiltinProvider.SNEAKY) && selfIdentity != null
+                && sneakySelf != null && sneakySelf.location() != null) {
+            sneakyCapes.put(selfIdentity, candidate(sneakySelf.location(), sneakySelf.png().hasElytra()));
+        }
+        if (providers.cape().enabled(BuiltinProvider.SNEAKY)) {
+            for (var entry : sneakyRemote.entrySet()) {
+                if (entry.getValue().location() != null && current(entry.getKey())) {
+                    sneakyCapes.put(entry.getKey(), candidate(entry.getValue().location(),
+                            entry.getValue().png().hasElytra()));
+                }
+            }
+        }
+        CapeProjection.publish(new CapeProjection.Snapshot(providers.cape().order(), capes, skinMcCapes, sneakyCapes,
                 selfIdentity, selfCandidates.get(BuiltinProvider.OFFLINE),
                 selfCandidates.get(BuiltinProvider.MINECRAFT)));
     }
@@ -1280,14 +1476,19 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
 
     private record Observed(PngValidator.CapePng png, String location) {}
 
+    private record TextureObservation(PngValidator.CapePng cape) {}
+
     private record ObservationKey(String sha256, boolean hasElytra, boolean registered) {}
 
     private record ProjectionState(CapeProjection.Identity selfIdentity, List<BuiltinProvider> order,
             ProviderObservation<ProviderCape> offline, ProviderObservation<ProviderCape> minecraft,
             ProviderObservation<ProviderCape> optifine,
             ProviderObservation<ProviderCape> skinmc,
+            String sneakySkinSha,
+            ObservationKey sneakyObservation,
             Map<CapeProjection.Identity, ObservationKey> observations,
             Map<CapeProjection.Identity, ObservationKey> skinMcObservations,
+            Map<CapeProjection.Identity, ObservationKey> sneakyRemoteObservations,
             Map<BuiltinProvider, CapeProjection.Candidate> selfCandidates) {}
 
     private record Persisted(boolean applied, ProviderCape cape) {}

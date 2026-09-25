@@ -540,6 +540,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         if (minecraft.screen == this && !showingAccountLink) {
             runtime.consumeReadyOptiFineAccountLink().ifPresent(this::showOptiFineLink);
             if (!showingAccountLink) runtime.consumeReadySkinMcAccountLink().ifPresent(this::showSkinMcLink);
+            if (!showingAccountLink) runtime.consumeReadySneakyEditorLink().ifPresent(this::showSneakyEditorLink);
             if (showingAccountLink) return;
         }
         synchronizeWidgets(currentView());
@@ -570,6 +571,21 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             if (minecraft != null) minecraft.setScreen(this);
         }, uri, () -> runtime.currentSkinMcAccountLink().filter(uri::equals).isPresent(), () -> {
             runtime.finishSkinMcAccountLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        });
+        minecraft.setScreen(confirmation);
+    }
+
+    private void showSneakyEditorLink(URI uri) {
+        showingAccountLink = true;
+        Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
+            if (accepted && runtime.currentSneakyEditorLink().filter(uri::equals).isPresent()) {
+                ConfigurationLinkApi.open(uri);
+            }
+            runtime.finishSneakyEditorLink();
+            if (minecraft != null) minecraft.setScreen(this);
+        }, uri, () -> runtime.currentSneakyEditorLink().filter(uri::equals).isPresent(), () -> {
+            runtime.finishSneakyEditorLink();
             if (minecraft != null) minecraft.setScreen(this);
         });
         minecraft.setScreen(confirmation);

@@ -76,6 +76,9 @@ final class ArtifactVerifier {
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/HttpTextureUploadMixin'          : [
                         'upload(Lcom/mojang/blaze3d/platform/NativeImage;)V': 'Lnet/minecraft/client/renderer/texture/HttpTexture;m_118020_(Lcom/mojang/blaze3d/platform/NativeImage;)V'
                 ],
+                'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/HttpTextureSneakyMixin': [
+                    processLegacySkin: 'Lnet/minecraft/client/renderer/texture/HttpTexture;m_118032_(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;'
+                ],
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/LivingEntityRendererPreviewMixin': [
                         render                                                                                                                                                                                              : 'Lnet/minecraft/client/renderer/entity/LivingEntityRenderer;m_7392_(Lnet/minecraft/world/entity/LivingEntity;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V',
                         'Lnet/minecraft/client/renderer/entity/layers/RenderLayer;render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/world/entity/Entity;FFFFFF)V': 'Lnet/minecraft/client/renderer/entity/layers/RenderLayer;m_6494_(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/world/entity/Entity;FFFFFF)V'
@@ -169,6 +172,9 @@ final class ArtifactVerifier {
             verifyManifest(archive, target, errors)
             verifyForgeRefmap(archive, target, names, errors)
             verifyCapeProjectionArtifact(target, names, errors)
+            verifyMixinHelperPackages(archive, target, names, errors)
+            verifyLegacySkinRegistrationSeam(archive, target, names, errors)
+            verifyPreAlphaSkinCapture(archive, target, names, errors)
             verifyMixinExtrasPayload(archive, catalog, target, names, errors)
             verifyMenuPreviewCompatibility(archive, target, errors)
             verifyPreviewRegistration(archive, target, names, errors)
@@ -966,6 +972,113 @@ final class ArtifactVerifier {
         }
         if (!names.contains('com/naocraftlab/skins/runtime/CapeProjection.class')) {
             errors.add("${target.id}: missing common cape projection")
+        }
+    }
+
+    static void verifyMixinHelperPackages(ZipFile archive, Map target, List<String> names, List<String> errors) {
+        Map<String, String> reserved = [:]
+        Set<String> mixins = []
+        names.findAll { it.startsWith('nclskins.') && it.endsWith('.mixins.json') }.each { String path ->
+            Map config = json(archive, path, target, errors)
+            if (config == null) return
+            String packageName = config.package?.toString()
+            if (packageName == null || packageName.isBlank()) {
+                errors.add("${target.id}: missing mixin package in ${path}")
+                return
+            }
+            String prefix = packageName.replace('.', '/') + '/'
+            reserved.putIfAbsent(prefix, path)
+            ['mixins', 'client', 'server'].each { String group ->
+                if (config[group] instanceof List) {
+                    config[group].each { mixin -> mixins.add(prefix + mixin.toString().replace('.', '/')) }
+                }
+            }
+        }
+        names.findAll { it.endsWith('.class') }.each { String entry ->
+            String owner = reserved.find { String prefix, String path -> entry.startsWith(prefix) }?.value
+            if (owner != null && !mixins.any { String mixin -> entry == mixin + '.class'
+                    || entry.startsWith(mixin + '$') }) {
+                errors.add("${target.id}: ordinary helper in configured mixin package ${owner}: ${entry}")
+            }
+        }
+        String epoch = target.minecraft.epoch.toString()
+        String base = 'com/naocraftlab/skins/compat/client/'
+        String ordinary = epoch in ['1.20.1', '1.21.1']
+                ? base + 'resourcelocation/' + (epoch == '1.20.1' ? 'playerinfo/' : 'skinlookup/')
+                : base + 'identifier/'
+        List<String> helpers = epoch in ['1.20.1', '1.21.1']
+                ? ['RegisteredSkinTexture.class']
+                : ['SneakyUnmodifiedSkinPixels.class']
+        helpers.each { String helper ->
+            if (!names.contains(ordinary + helper)) {
+                errors.add("${target.id}: missing ordinary mixin helper ${ordinary + helper}")
+            }
+            if (names.contains(ordinary + 'mixin/' + helper)) {
+                errors.add("${target.id}: helper remains in configured mixin package ${ordinary + 'mixin/' + helper}")
+            }
+        }
+        String modernBase = base + 'identifier/'
+        ['OfficialCapeCaptureBridge.class',
+         'mixin/SkinManagerOfficialCapeMixin.class',
+         'mixin/SkinManagerOfficialOwnerMixin.class',
+         'mixin/SkinManagerOfficialScopeMixin.class'].each { String forbidden ->
+            if (names.contains(modernBase + forbidden)) {
+                errors.add("${target.id}: original Sneaky interoperability class remains ${modernBase + forbidden}")
+            }
+        }
+    }
+
+    static void verifyLegacySkinRegistrationSeam(ZipFile archive, Map target, List<String> names, List<String> errors) {
+        String epoch = target.minecraft.epoch.toString()
+        if (!(epoch in ['1.20.1', '1.21.1'])) return
+        String leaf = epoch == '1.20.1' ? 'playerinfo' : 'skinlookup'
+        String base = "com/naocraftlab/skins/compat/client/resourcelocation/${leaf}/mixin/"
+        String registration = base + (epoch == '1.20.1' ? 'SkinManagerProviderMixin.class' : 'SkinTextureRegistrationMixin.class')
+        String texture = base + 'HttpTextureSneakyMixin.class'
+        if (!names.contains(registration) || !names.contains(texture)) {
+            errors.add("${target.id}: missing registered skin texture seam")
+            return
+        }
+        if (!LegacySkinRegistrationSeamVerifier.bindsRegisteredLocationBeforeTextureRegistration(read(archive, registration))) {
+            errors.add("${target.id}: skin upload must bind TextureManager registered location before register")
+        }
+        if (!LegacySkinRegistrationSeamVerifier.uploadsOnlyRegisteredLocation(read(archive, texture))) {
+            errors.add("${target.id}: skin upload identity must originate only from registered texture location")
+        }
+    }
+
+    static void verifyPreAlphaSkinCapture(ZipFile archive, Map target, List<String> names, List<String> errors) {
+        String epoch = target.minecraft.epoch.toString()
+        boolean fabric = target.loader.id == 'fabric'
+        if (epoch in ['1.20.1', '1.21.1']) {
+            String leaf = epoch == '1.20.1' ? 'playerinfo' : 'skinlookup'
+            String path = "com/naocraftlab/skins/compat/client/resourcelocation/${leaf}/mixin/HttpTextureSneakyMixin.class"
+            String targetMethod = fabric ? 'method_22798' : 'processLegacySkin'
+            if (!names.contains(path) || !PreAlphaSkinCaptureVerifier.injectedAtHead(
+                    read(archive, path), 'nclskins$capture', targetMethod)) {
+                errors.add("${target.id}: legacy Sneaky pixels must be captured at processLegacySkin HEAD")
+            }
+            return
+        }
+        String base = 'com/naocraftlab/skins/compat/client/identifier/mixin/'
+        String duck = 'com/naocraftlab/skins/compat/client/identifier/SneakyUnmodifiedSkinPixels.class'
+        if (!names.contains(duck) || !PreAlphaSkinCaptureVerifier.publicDuckLinks(read(archive, duck))) {
+            errors.add("${target.id}: NativeImage Sneaky duck interface must link across packages")
+        }
+        String path = base + 'SkinTextureDownloaderProviderMixin.class'
+        String carrier = base + 'NativeImageSneakyPixelsMixin.class'
+        if (!names.contains(path) || !names.contains(carrier)) {
+            errors.add("${target.id}: missing modern Sneaky pre-alpha image carrier")
+            return
+        }
+        byte[] bytes = read(archive, path)
+        boolean intermediary = fabric && epoch == '1.21.11'
+        String process = intermediary ? 'method_65863' : 'processLegacySkin'
+        String register = intermediary ? 'method_65860' : 'registerTextureInManager'
+        if (!PreAlphaSkinCaptureVerifier.injectedAtHead(bytes, 'nclskins$rememberUnmodifiedSkinPixels', process)
+                || !PreAlphaSkinCaptureVerifier.injectedAtHead(bytes, 'nclskins$captureSkinPixels', register)
+                || !PreAlphaSkinCaptureVerifier.modernStages(bytes)) {
+            errors.add("${target.id}: modern Sneaky pixels must be copied before native alpha forcing and published with registered texture identity")
         }
     }
 

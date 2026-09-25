@@ -739,6 +739,28 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void sneakyEditorUsesFixedConfirmationUriAndExpiresOnNavigation() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE,
+                BuiltinProvider.SNEAKY);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.account.SNEAKY");
+        assertEquals(java.net.URI.create("https://penguinspy.neocities.org/projects/loom/"),
+                runtime.consumeReadySneakyEditorLink().orElseThrow());
+        assertTrue(runtime.consumeReadySneakyEditorLink().isEmpty());
+        assertTrue(runtime.currentSneakyEditorLink().isPresent());
+        runtime.finishSneakyEditorLink();
+        assertTrue(runtime.currentSneakyEditorLink().isEmpty());
+        runtime.dispatchWidget("providers.account.SNEAKY");
+        runtime.dispatchWidget("providers.tab.SKIN");
+        assertTrue(runtime.consumeReadySneakyEditorLink().isEmpty());
+    }
+
+    @Test
     void providerRowsWheelAndKeyboardKeepFinalCapeVisibleAtShortHeight() {
         FakeOperations operations = new FakeOperations();
         operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE,

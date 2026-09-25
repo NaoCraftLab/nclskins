@@ -167,6 +167,26 @@ final class AddSourceModelPresenterTest {
     }
 
     @Test
+    void catalogHidesSneakyVariantOnlyWhenExpressiveConsumerIsActive() {
+        SkinCatalogSource.CollectionDescriptor collection = collection(
+                "sneaky", skin("dual", "Dual", SkinModel.CLASSIC, SkinModel.SLIM));
+        SkinFeatureEvidence sneaky = new SkinFeatureEvidence(
+                List.of(SkinFeature.SNEAKY_CAPES),
+                List.of(SkinConflictReason.SNEAKY_FRESH_MOVES_OVERLAP,
+                        SkinConflictReason.SNEAKY_JUST_EXPRESSIONS_OVERLAP));
+        Map<String, SkinFeatureEvidence> evidence = Map.of("sneaky:dual:CLASSIC", sneaky);
+        AddSourceModel active = openCatalog(List.of(collection)).withCompatibilityContext(
+                new SkinExtensionEnvironment(6,
+                        Map.of(SkinConsumer.FRESH_MOVES, SkinConsumerState.ACTIVE)), evidence, true);
+        assertEquals(List.of(SkinModel.SLIM), active.visibleSkins(collection).get(0).models());
+        AddSourceModel inactive = openCatalog(List.of(collection)).withCompatibilityContext(
+                new SkinExtensionEnvironment(7,
+                        Map.of(SkinConsumer.FRESH_MOVES, SkinConsumerState.INACTIVE)), evidence, true);
+        assertEquals(List.of(SkinModel.CLASSIC, SkinModel.SLIM),
+                inactive.visibleSkins(collection).get(0).models());
+    }
+
+    @Test
     void importTabShowsFilePlayerAndUrlWithoutStartingNetworkFromTextInput() {
         AddSourceModel model = AddSourceModel.open(
                         AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())

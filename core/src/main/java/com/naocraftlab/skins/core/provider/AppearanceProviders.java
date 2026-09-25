@@ -93,7 +93,7 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
         return new AppearanceProviders(bootstrapped.skin(), new ProviderChannel<>(channel.order(),
                 channel.enabled(BuiltinProvider.OFFLINE) ? ProviderObservation.observed(offlineCape) : channel.offline(),
                 channel.minecraft(), channel.configurationRevision(), channel.intentRevision(), channel.desired(),
-                channel.minecraftDelivery(), offlineCape, channel.optifine(), channel.skinmc()));
+                channel.minecraftDelivery(), offlineCape, channel.optifine(), channel.skinmc(), channel.sneaky()));
     }
 
     public AppearanceProviders withCapeTexture(String capeId, String textureCacheKey) {
@@ -110,7 +110,8 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
                 cape.configurationRevision(), cape.intentRevision(), enrichCape(cape.desired(), texture),
                 cape.minecraftDelivery(), enrichCape(cape.offlineDesired(), texture),
                 new ProviderObservation<>(cape.optifine().known(), enrichCape(cape.optifine().value(), texture)),
-                new ProviderObservation<>(cape.skinmc().known(), enrichCape(cape.skinmc().value(), texture))));
+                new ProviderObservation<>(cape.skinmc().known(), enrichCape(cape.skinmc().value(), texture)),
+                new ProviderObservation<>(cape.sneaky().known(), enrichCape(cape.sneaky().value(), texture))));
     }
 
     private static ProviderCape enrichCape(ProviderCape value, ProviderCape texture) {

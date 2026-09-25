@@ -256,6 +256,26 @@ class PngValidatorTest {
     }
 
     @Test
+    void importAndStoredRenderKeepSneakyMarkerPayloadAndAlpha() throws Exception {
+        BufferedImage skin = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        int[] markers = {0xfffff42f, 0xffffffff, 0xff9c59d1, 0xff292929};
+        for (int index = 0; index < markers.length; index++) skin.setRGB(60, 48 + index, markers[index]);
+        skin.setRGB(56, 16, 0x40224466);
+        skin.setRGB(44, 48, 0x8022aa44);
+        byte[] source = encode(skin);
+        assertArrayEquals(source, validator.projectImport(source).pngBytes());
+        assertArrayEquals(source, validator.projectStoredRender(source).pngBytes());
+        BufferedImage stored = ImageIO.read(new ByteArrayInputStream(validator.normalizeSkin(source)));
+        assertEquals(0x40224466, stored.getRGB(56, 16));
+        assertEquals(0x8022aa44, stored.getRGB(44, 48));
+        assertTrue(new SneakyCapeDecoder().decode(stored).isPresent());
+
+        BufferedImage legacy = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+        legacy.setRGB(56, 16, 0x40224466);
+        assertTrue(new SneakyCapeDecoder().decode(validator.normalizeSkin(encode(legacy))).isEmpty());
+    }
+
+    @Test
     void legacyNormalizationClearsEveryPixelOutsideRenderableUvMask() throws Exception {
         BufferedImage legacy = opaqueSkin(64, 32);
         BufferedImage normalized = ImageIO.read(new ByteArrayInputStream(

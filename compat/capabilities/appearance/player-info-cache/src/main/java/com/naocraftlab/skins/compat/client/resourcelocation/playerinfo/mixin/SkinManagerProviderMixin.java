@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.mixin;
 
+import com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.RegisteredSkinTexture;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.MinecraftProviderVisibility;
@@ -19,6 +20,11 @@ abstract class SkinManagerProviderMixin {
             MinecraftProfileTexture profileTexture, MinecraftProfileTexture.Type type, SkinManager.SkinTextureCallback callback) {
         var visibility = MinecraftProviderVisibility.current();
         if (!(callback instanceof MinecraftProviderVisibility.ProviderCallback)
-                || (type == MinecraftProfileTexture.Type.SKIN ? visibility.skin() : visibility.cape())) original.call(manager, location, texture);
+                || (type == MinecraftProfileTexture.Type.SKIN ? visibility.skin() : visibility.cape())) {
+            if (type == MinecraftProfileTexture.Type.SKIN && texture instanceof RegisteredSkinTexture registered) {
+                registered.nclskins$registeredSkinLocation(location);
+            }
+            original.call(manager, location, texture);
+        }
     }
 }

@@ -19,6 +19,8 @@ import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
+import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.ProviderSkin;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -183,6 +185,92 @@ final class ClientRuntimeRegressionTest {
         assertEquals(20, indicator.bounds().height());
         assertTrue(editor.iconDecorations().stream().noneMatch(icon ->
                 icon.ownerWidgetId().equals(indicator.id())));
+    }
+
+    @Test
+    void providersCapePreviewShowsSneakyConflictFromDisplayedSkin() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(
+                operations.providers.skin().select(1, new ProviderSkin("1".repeat(64), SkinVariant.CLASSIC))
+                        .observeMinecraft(new ProviderSkin("2".repeat(64), SkinVariant.SLIM)),
+                operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        BufferedImage skin = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        int[] marker = {0xfffff42f, 0xffffffff, 0xff9c59d1, 0xff292929};
+        for (int index = 0; index < marker.length; index++) skin.setRGB(60, 48 + index, marker[index]);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(skin, "png", output);
+        operations.skinPreviewBytes = output.toByteArray();
+        ByteArrayOutputStream ordinary = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB), "png", ordinary);
+        operations.skinPreviewByAsset = Map.of(TestFixtures.CLASSIC_ID, output.toByteArray(),
+                TestFixtures.SLIM_ID, ordinary.toByteArray());
+        ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() ->
+                new SkinExtensionEnvironmentSource.Snapshot(3, Map.of(
+                        SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES,
+                        SkinExtensionEnvironmentSource.State.ACTIVE)));
+        runtime.initialize();
+        ViewSpec.Preview preview = runtime.view(854, 480, 0, 0).previews().stream()
+                .filter(candidate -> candidate.skin().equals(operations.account.presets().get(0).skin()))
+                .findFirst().orElseThrow();
+        runtime.loadSkinPreview(preview).join();
+        assertTrue(runtime.snapshot().assetEvidence().containsKey(TestFixtures.CLASSIC_ID));
+        ViewSpec.Preview slimPreview = runtime.view(854, 480, 0, 0).previews().stream()
+                .filter(candidate -> candidate.skin().equals(operations.account.presets().get(1).skin()))
+                .findFirst().orElseThrow();
+        runtime.loadSkinPreview(slimPreview).join();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        ViewSpec providers = runtime.view(854, 480, 0, 0);
+        assertEquals("provider:skin:" + "1".repeat(64), providers.previews().get(0).imageRevision());
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), providers.widget(
+                "providers.compatibility").orElseThrow().icon());
+        assertTrue(providers.widget("providers.compatibility").orElseThrow().label().key()
+                .startsWith("nclskins.compatibility.tooltip."));
+        runtime.dispatchWidget("providers.tab.SKIN");
+        runtime.dispatchWidget("providers.row.MINECRAFT");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.compatibility").isEmpty());
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE),
+                runtime.view(854, 480, 0, 0).widget("providers.compatibility").orElseThrow().icon());
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.row.SNEAKY");
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE),
+                runtime.view(854, 480, 0, 0).widget("providers.compatibility").orElseThrow().icon());
+    }
+
+    @Test
+    void providersSelectedSneakySkinWarnsWhileFinalSkinIsCompatible() throws Exception {
+        StubOperations operations = new StubOperations();
+        var ordinarySkin = new ProviderSkin("2".repeat(64), SkinVariant.SLIM);
+        var sneakySkin = new ProviderSkin("1".repeat(64), SkinVariant.CLASSIC);
+        operations.providers = new AppearanceProviders(
+                operations.providers.skin().select(1, ordinarySkin).observeMinecraft(sneakySkin),
+                operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        BufferedImage marked = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        int[] marker = {0xfffff42f, 0xffffffff, 0xff9c59d1, 0xff292929};
+        for (int index = 0; index < marker.length; index++) marked.setRGB(60, 48 + index, marker[index]);
+        ByteArrayOutputStream sneaky = new ByteArrayOutputStream();
+        ByteArrayOutputStream ordinary = new ByteArrayOutputStream();
+        ImageIO.write(marked, "png", sneaky);
+        ImageIO.write(new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB), "png", ordinary);
+        operations.skinPreviewByAsset = Map.of(TestFixtures.CLASSIC_ID, sneaky.toByteArray(),
+                TestFixtures.SLIM_ID, ordinary.toByteArray());
+        ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() ->
+                new SkinExtensionEnvironmentSource.Snapshot(4, Map.of(
+                        SkinExtensionEnvironmentSource.Consumer.JUST_EXPRESSIONS,
+                        SkinExtensionEnvironmentSource.State.ACTIVE)));
+        runtime.initialize();
+        for (ViewSpec.Preview preview : runtime.view(854, 480, 0, 0).previews()) {
+            runtime.loadSkinPreview(preview).join();
+        }
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.SKIN");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.compatibility").isEmpty());
+        runtime.dispatchWidget("providers.row.MINECRAFT");
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE),
+                runtime.view(854, 480, 0, 0).widget("providers.compatibility").orElseThrow().icon());
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.compatibility").isEmpty());
     }
 
     @Test
@@ -733,6 +821,7 @@ final class ClientRuntimeRegressionTest {
     private static final class StubOperations implements ClientOperations {
         private final SessionValidation session = TestFixtures.validSession();
         private AccountState account = TestFixtures.account(2);
+        private AppearanceProviders providers = AppearanceProviders.initial();
         private boolean failEditorSave;
         private MutationResult mutationResult = MutationResult.APPLIED;
         private Set<RecoveryAction> recoveryActions = Set.of();
@@ -750,6 +839,7 @@ final class ClientRuntimeRegressionTest {
         private boolean failNextCapePreview;
         private boolean visibilityInResults;
         private byte[] skinPreviewBytes = {1, 2, 3};
+        private Map<UUID, byte[]> skinPreviewByAsset = Map.of();
         private boolean warmCheckpoint;
         private long appearanceRevision;
 
@@ -798,7 +888,10 @@ final class ClientRuntimeRegressionTest {
                     com.naocraftlab.skins.core.model.AccountUiPreferences.defaults(account.accountId()),
                     visibilityInResults
                             ? Optional.of(account.presets().get(0).outerLayerVisibility())
-                            : Optional.empty());
+                            : Optional.empty(),
+                    com.naocraftlab.skins.core.model.OwnedCapeInventory.empty(account.accountId(),
+                            java.time.Instant.EPOCH),
+                    0, AppearanceSyncStatus.LOCAL_ONLY, providers);
         }
 
         @Override
@@ -948,7 +1041,7 @@ final class ClientRuntimeRegressionTest {
                 failNextSkinPreview = false;
                 throw new IllegalStateException("characterized preview failure");
             }
-            return skinPreviewBytes.clone();
+            return skinPreviewByAsset.getOrDefault(skinId, skinPreviewBytes).clone();
         }
 
         @Override

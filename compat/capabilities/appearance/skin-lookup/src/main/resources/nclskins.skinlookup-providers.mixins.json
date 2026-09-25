@@ -5,7 +5,9 @@
   "client": [
     "PlayerInfoProviderMixin",
     "ClientPacketListenerCapeMixin",
-    "SkinManagerProviderMixin"
+    "SkinManagerProviderMixin",
+    "HttpTextureSneakyMixin",
+    "SkinTextureRegistrationMixin"
   ],
   "injectors": {
     "defaultRequire": 1

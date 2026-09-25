@@ -112,9 +112,12 @@ public final class ClientRuntime implements AutoCloseable {
     private UiMessage optiFineLinkFeedback;
     private long optiFineLinkAttempt;
     private static final URI SKINMC_ACCOUNT_URI = URI.create("https://skinmc.net/account/capes");
+    private static final URI SNEAKY_EDITOR_URI = URI.create("https://penguinspy.neocities.org/projects/loom/");
     private UUID skinMcLinkAccountId;
     private boolean skinMcLinkPending;
     private boolean skinMcLinkClaimed;
+    private boolean sneakyEditorLinkPending;
+    private boolean sneakyEditorLinkClaimed;
     private SelfCapeInputs publishedSelfCapeInputs;
     private final TextResolver textResolver;
     private final Optional<CurrentPlayerAppearanceSource> currentAppearanceSource;
@@ -415,6 +418,8 @@ public final class ClientRuntime implements AutoCloseable {
                 acceptOptiFineObservation(observation)));
         operations.onSkinMcObservation(observation -> onClient(() ->
                 acceptSkinMcObservation(observation)));
+        operations.onSneakyObservation(observation -> onClient(() ->
+                acceptSneakyObservation(observation)));
     }
 
     private void acceptOptiFineObservation(ClientOperations.OptiFineObservation observation) {
@@ -448,6 +453,25 @@ public final class ClientRuntime implements AutoCloseable {
         }
         state.providers = new AppearanceProviders(state.providers.skin(),
                 state.providers.cape().observeSkinmc(observation.cape()));
+        publish();
+    }
+
+    private void acceptSneakyObservation(ClientOperations.SneakyObservation observation) {
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.account == null
+                || !state.account.accountId().equals(observation.accountId())
+                || !state.providers.cape().enabled(BuiltinProvider.SNEAKY)
+                || state.providers.cape().configurationRevision() != observation.capeConfigurationRevision()
+                || !Objects.equals(state.providers.skin().resolve()
+                        .map(resolved -> resolved.value().sha256()).orElse(null), observation.skinSha256())) return;
+        try {
+            var current = operations.sessionIdentity();
+            if (!current.profileId().equals(observation.accountId())
+                    || !current.profileName().equals(observation.canonicalName())) return;
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        state.providers = new AppearanceProviders(state.providers.skin(),
+                state.providers.cape().withSneakyObservation(observation.observation()));
         publish();
     }
 
@@ -538,6 +562,21 @@ public final class ClientRuntime implements AutoCloseable {
         onClient(this::cancelSkinMcAccountLink);
     }
 
+    public Optional<URI> consumeReadySneakyEditorLink() {
+        if (!liveSneakyEditorLinkView() || !sneakyEditorLinkPending || sneakyEditorLinkClaimed) return Optional.empty();
+        sneakyEditorLinkClaimed = true;
+        return Optional.of(SNEAKY_EDITOR_URI);
+    }
+
+    public Optional<URI> currentSneakyEditorLink() {
+        return liveSneakyEditorLinkView() && sneakyEditorLinkClaimed
+                ? Optional.of(SNEAKY_EDITOR_URI) : Optional.empty();
+    }
+
+    public void finishSneakyEditorLink() {
+        onClient(this::cancelSneakyEditorLink);
+    }
+
     public void expireOptiFineAccountLink() {
         onClient(() -> {
             boolean expired = optiFineAccountLink != null && optiFineAccountLink.expired();
@@ -559,6 +598,19 @@ public final class ClientRuntime implements AutoCloseable {
         skinMcLinkPending = false;
         skinMcLinkClaimed = false;
         skinMcLinkAccountId = null;
+    }
+
+    private void cancelSneakyEditorLink() {
+        sneakyEditorLinkPending = false;
+        sneakyEditorLinkClaimed = false;
+    }
+
+    private boolean liveSneakyEditorLinkView() {
+        return state.lifecycle == ClientSnapshot.Lifecycle.READY
+                && (state.providersOpen || !state.providers.galleryAvailable())
+                && !state.providerAdding && state.editor == null
+                && state.providerComponent == AppearanceProviders.Component.CAPE
+                && state.providers.cape().enabled(BuiltinProvider.SNEAKY);
     }
 
     private boolean liveSkinMcLinkView() {
@@ -827,6 +879,7 @@ public final class ClientRuntime implements AutoCloseable {
         }
         cancelOptiFineAccountLink();
         cancelSkinMcAccountLink();
+        cancelSneakyEditorLink();
         optiFineLinkFeedback = null;
         state.generation++;
         state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
@@ -2107,6 +2160,7 @@ public final class ClientRuntime implements AutoCloseable {
             }
             cancelOptiFineAccountLink();
             cancelSkinMcAccountLink();
+            cancelSneakyEditorLink();
             disposed = true;
             state.generation++;
             state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
@@ -2229,6 +2283,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (state.account != null && !state.account.accountId().equals(data.account().accountId())) {
             cancelOptiFineAccountLink();
             cancelSkinMcAccountLink();
+            cancelSneakyEditorLink();
             optiFineLinkFeedback = null;
         }
         UUID previousActivePresetId = state.activePresetId;
@@ -2384,6 +2439,7 @@ public final class ClientRuntime implements AutoCloseable {
         } else if (id.equals("providers.back")) {
             cancelOptiFineAccountLink();
             cancelSkinMcAccountLink();
+            cancelSneakyEditorLink();
             if (state.providerAdding) state.providerAdding = false;
             else if (state.rootDestination == ScreenDestination.PROVIDERS) closeScreenOnClient();
             else if (state.providers.galleryAvailable()) state.providersOpen = false;
@@ -2391,6 +2447,7 @@ public final class ClientRuntime implements AutoCloseable {
         } else if (id.startsWith("providers.tab.")) {
             cancelOptiFineAccountLink();
             cancelSkinMcAccountLink();
+            cancelSneakyEditorLink();
             selectProvidersTab(AppearanceProviders.Component.valueOf(id.substring(14)));
             state.providerPreviewSources.clear();
             state.providerAdding = false;
@@ -2398,6 +2455,7 @@ public final class ClientRuntime implements AutoCloseable {
         } else if (id.equals("providers.add")) {
             cancelOptiFineAccountLink();
             cancelSkinMcAccountLink();
+            cancelSneakyEditorLink();
             state.providerAdding = true;
             state.providerChooserOffset = 0;
             state.providerRowsOffset = 0;
@@ -2451,6 +2509,7 @@ public final class ClientRuntime implements AutoCloseable {
                             : state.providers.cape().order()).contains(provider)) return;
                     cancelOptiFineAccountLink();
                     cancelSkinMcAccountLink();
+                    cancelSneakyEditorLink();
                     state.providersOpen = false;
                     clearRuntimeFocus("providers");
                     if (component == AppearanceProviders.Component.CAPE) {
@@ -2473,11 +2532,16 @@ public final class ClientRuntime implements AutoCloseable {
                     return;
                 }
                 if (verb.equals("account")) {
-                    if ((provider != BuiltinProvider.OPTIFINE && provider != BuiltinProvider.SKINMC)
+                    if ((provider != BuiltinProvider.OPTIFINE && provider != BuiltinProvider.SKINMC
+                            && provider != BuiltinProvider.SNEAKY)
                             || component != AppearanceProviders.Component.CAPE
                             || state.providerAdding || !state.providers.cape().order().contains(provider)) return;
                     if (provider == BuiltinProvider.OPTIFINE) prepareOptiFineAccountLink();
-                    else {
+                    else if (provider == BuiltinProvider.SNEAKY) {
+                        sneakyEditorLinkPending = true;
+                        sneakyEditorLinkClaimed = false;
+                        publish();
+                    } else {
                         skinMcLinkAccountId = state.account.accountId();
                         skinMcLinkPending = true;
                         skinMcLinkClaimed = false;
@@ -2492,6 +2556,8 @@ public final class ClientRuntime implements AutoCloseable {
                         && component == AppearanceProviders.Component.CAPE) cancelOptiFineAccountLink();
                 if (verb.equals("remove") && provider == BuiltinProvider.SKINMC
                         && component == AppearanceProviders.Component.CAPE) cancelSkinMcAccountLink();
+                if (verb.equals("remove") && provider == BuiltinProvider.SNEAKY
+                        && component == AppearanceProviders.Component.CAPE) cancelSneakyEditorLink();
                 int previousIndex = (component == AppearanceProviders.Component.SKIN ? state.providers.skin().order() : state.providers.cape().order()).indexOf(provider);
                 UUID accountId = state.account.accountId();
                 submitProviderConfiguration(() -> switch (verb) {
@@ -2587,6 +2653,7 @@ public final class ClientRuntime implements AutoCloseable {
                 appearance.localAppearance().orElse(null));
         if (!appearance.providers().cape().enabled(BuiltinProvider.OPTIFINE)) cancelOptiFineAccountLink();
         if (!appearance.providers().cape().enabled(BuiltinProvider.SKINMC)) cancelSkinMcAccountLink();
+        if (!appearance.providers().cape().enabled(BuiltinProvider.SNEAKY)) cancelSneakyEditorLink();
         state.providers = appearance.providers();
         state.intentRevision = appearance.intentRevision();
         state.syncStatus = appearance.syncStatus();

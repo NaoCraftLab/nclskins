@@ -36,6 +36,7 @@ import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1056,6 +1057,315 @@ class OptifineCapeCoordinatorTest {
         assertEquals("minecraft", CapeProjection.resolve(remote, "Remote", offline, minecraft, false).capeLocation());
         assertNull(CapeProjection.resolve(remote, "ChangedName", offline, null, false).capeLocation());
         CapeProjection.clear();
+    }
+
+    @Test
+    void sneakyRemoteUsesVisibleSkinPixelsAndClearsOnWorldChange() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        fixture.coordinator.start();
+        UUID remote = UUID.randomUUID();
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        fixture.coordinator.visibleSkin(remote, "Remote", "minecraft:skin/a");
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+        fixture.coordinator.skinTextureReady("minecraft:skin/a", sneakyPixels());
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        assertTrue(fixture.sink.registered.containsKey("nclskins:sneaky/" + remote));
+        fixture.coordinator.visibleSkin(remote, "Remote", null);
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+        fixture.coordinator.visibleSkin(remote, "Remote", "minecraft:skin/a");
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        fixture.coordinator.visibleSkin(remote, "Remote", "minecraft:skin/b");
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+        fixture.coordinator.skinTextureReady("minecraft:skin/a", sneakyPixels());
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+        fixture.coordinator.skinTextureReady("minecraft:skin/b", sneakyPixels());
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        fixture.coordinator.configurationChanged();
+        var official = new CapeProjection.Candidate("minecraft:official", null, false);
+        assertEquals(BuiltinProvider.MINECRAFT,
+                CapeProjection.resolve(remote, "Remote", null, official, false).provider());
+        fixture.coordinator.worldChanged();
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+    }
+
+    @Test
+    void sneakyRemoteUsesRegisteredKeysWhenSkinUploadsShareOneDefaultFallback() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        fixture.coordinator.start();
+
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID pending = UUID.randomUUID();
+        String sharedDefaultFallback = "minecraft:textures/entity/player/wide/steve.png";
+        String firstRegisteredSkin = "minecraft:skins/first-hash";
+        String secondRegisteredSkin = "minecraft:skins/second-hash";
+        fixture.coordinator.trackedPlayer(first, "First");
+        fixture.coordinator.trackedPlayer(second, "Second");
+        fixture.coordinator.trackedPlayer(pending, "Pending");
+        fixture.coordinator.visibleSkin(first, "First", firstRegisteredSkin);
+        fixture.coordinator.visibleSkin(second, "Second", secondRegisteredSkin);
+        fixture.coordinator.visibleSkin(pending, "Pending", sharedDefaultFallback);
+
+        fixture.coordinator.skinTextureReady(firstRegisteredSkin, sneakyPixels());
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(first, "First", null, null, false).provider());
+        assertNull(CapeProjection.resolve(second, "Second", null, null, false).capeLocation());
+        assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
+
+        fixture.coordinator.skinTextureReady(secondRegisteredSkin, sneakyPixels());
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(second, "Second", null, null, false).provider());
+        assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
+    }
+
+    @Test
+    void sneakyRemoteRecoversWarmSkinAcrossWorldRetrackAndAccountWithoutReupload() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        fixture.coordinator.start();
+        UUID remote = UUID.randomUUID();
+        String key = "minecraft:skins/warm-hash";
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        fixture.coordinator.visibleSkin(remote, "Remote", key);
+        fixture.coordinator.skinTextureReady(key, sneakyPixels());
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+
+        fixture.coordinator.worldEntered();
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        fixture.coordinator.visibleSkin(remote, "Remote", key);
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        fixture.coordinator.untrackedPlayer(remote);
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        fixture.coordinator.visibleSkin(remote, "Remote", key);
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+
+        UUID nextAccount = UUID.randomUUID();
+        fixture.storage.loadOrCreateAccount(nextAccount);
+        fixture.storage.updateAppearance(nextAccount, state -> state.withProviders(state.providers()
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        fixture.session.identity = new GameSessionTokenSource.SessionIdentity(nextAccount, "Next");
+        fixture.coordinator.configurationChanged();
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).capeLocation());
+        fixture.coordinator.trackedPlayer(remote, "Remote");
+        fixture.coordinator.visibleSkin(remote, "Remote", key);
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        UUID pending = UUID.randomUUID();
+        fixture.coordinator.trackedPlayer(pending, "Pending");
+        fixture.coordinator.visibleSkin(pending, "Pending", "minecraft:textures/entity/player/default.png");
+        assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
+    }
+
+    @Test
+    void sneakyNativeOwnerReplaysAfterDecodedCacheEvictionWithoutDefaultSharing() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        fixture.coordinator.start();
+        CapeProjection.installEvents(new CapeProjection.Events() {
+            @Override public void trackedPlayer(UUID profileId, String name) {
+                fixture.coordinator.trackedPlayer(profileId, name);
+            }
+            @Override public void playerInfoUpdated(UUID profileId, String name) {
+                fixture.coordinator.playerInfoUpdated(profileId, name);
+            }
+            @Override public void untrackedPlayer(UUID profileId) {
+                fixture.coordinator.untrackedPlayer(profileId);
+            }
+            @Override public void worldChanged() { fixture.coordinator.worldChanged(); }
+            @Override public void worldEntered() { fixture.coordinator.worldEntered(); }
+            @Override public void skinTextureReady(String location, int[] pixels) {
+                fixture.coordinator.skinTextureReady(location, pixels);
+            }
+            @Override public boolean hasSkinTexture(String location) {
+                return fixture.coordinator.hasSkinTexture(location);
+            }
+            @Override public void visibleSkin(UUID profileId, String name, String location) {
+                fixture.coordinator.visibleSkin(profileId, name, location);
+            }
+        });
+        try {
+            UUID remote = UUID.randomUUID();
+            UUID pending = UUID.randomUUID();
+            String key = "minecraft:skins/immutable-hash";
+            Object nativeTexture = new Object();
+            CapeProjection.trackedPlayer(remote, "Remote");
+            CapeProjection.trackedPlayer(pending, "Pending");
+            CapeProjection.skinTextureReady(key, sneakyPixels(), nativeTexture);
+            CapeProjection.visibleSkin(remote, "Remote", key);
+            CapeProjection.visibleSkin(pending, "Pending", "minecraft:textures/entity/player/default.png");
+            assertEquals(BuiltinProvider.SNEAKY,
+                    CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+            assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
+
+            for (int index = 0; index < 512; index++) {
+                fixture.coordinator.skinTextureReady("minecraft:skins/other-" + index, new int[64 * 64]);
+            }
+            assertFalse(fixture.coordinator.hasSkinTexture(key));
+            CapeProjection.visibleSkin(remote, "Remote", key);
+            assertEquals(BuiltinProvider.SNEAKY,
+                    CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+            assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
+
+            CapeProjection.untrackedPlayer(remote);
+            CapeProjection.trackedPlayer(remote, "Remote");
+            CapeProjection.visibleSkin(remote, "Remote", key);
+            assertEquals(BuiltinProvider.SNEAKY,
+                    CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+            CapeProjection.worldEntered();
+            CapeProjection.trackedPlayer(remote, "Remote");
+            CapeProjection.visibleSkin(remote, "Remote", key);
+            assertEquals(BuiltinProvider.SNEAKY,
+                    CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+
+            UUID nextAccount = UUID.randomUUID();
+            fixture.storage.loadOrCreateAccount(nextAccount);
+            fixture.storage.updateAppearance(nextAccount, state -> state.withProviders(state.providers()
+                    .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+            fixture.session.identity = new GameSessionTokenSource.SessionIdentity(nextAccount, "Next");
+            fixture.coordinator.configurationChanged();
+            CapeProjection.trackedPlayer(remote, "Remote");
+            CapeProjection.visibleSkin(remote, "Remote", key);
+            assertEquals(BuiltinProvider.SNEAKY,
+                    CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+            assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
+        } finally {
+            CapeProjection.clearEvents();
+            fixture.coordinator.close();
+        }
+    }
+
+    @Test
+    void sneakySelfReadsOnlySelectedAssetAndRespectsCapeOrder() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        byte[] skin = sneakySkin();
+        String sha = fixture.storage.storeAsset(skin).sha256();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin().disable(BuiltinProvider.OFFLINE).observeMinecraft(
+                        new com.naocraftlab.skins.core.provider.ProviderSkin(sha,
+                                com.naocraftlab.skins.core.model.SkinVariant.CLASSIC)),
+                state.providers().cape().disable(BuiltinProvider.OPTIFINE)
+                        .enable(BuiltinProvider.SNEAKY))));
+        fixture.coordinator.start();
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+        String ordinarySha = fixture.storage.storeAsset(png()).sha256();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin().observeMinecraft(
+                        new com.naocraftlab.skins.core.provider.ProviderSkin(ordinarySha,
+                                com.naocraftlab.skins.core.model.SkinVariant.CLASSIC)),
+                state.providers().cape())));
+        fixture.coordinator.configurationChanged();
+        assertNull(CapeProjection.resolve(self, "Self", null, null, true).provider());
+        fixture.storage.updateAppearance(self, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin().observeMinecraft(
+                        new com.naocraftlab.skins.core.provider.ProviderSkin(sha,
+                                com.naocraftlab.skins.core.model.SkinVariant.CLASSIC)),
+                state.providers().cape())));
+        fixture.coordinator.configurationChanged();
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+        fixture.storage.updateAppearance(self, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape()
+                        .observeMinecraft(new com.naocraftlab.skins.core.provider.ProviderCape("official", null, false))
+                        .move(BuiltinProvider.SNEAKY, -1))));
+        fixture.coordinator.configurationChanged();
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+    }
+
+    @Test
+    void sneakySelfPublishesExactPreviewBytesBeforeObservation() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        byte[] skin = sneakySkin();
+        String sha = fixture.storage.storeAsset(skin).sha256();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin().observeMinecraft(
+                        new com.naocraftlab.skins.core.provider.ProviderSkin(sha,
+                                com.naocraftlab.skins.core.model.SkinVariant.CLASSIC)),
+                state.providers().cape().disable(BuiltinProvider.OPTIFINE)
+                        .enable(BuiltinProvider.SNEAKY))));
+        List<ClientOperations.SneakyObservation> notifications = new ArrayList<>();
+        fixture.coordinator.onSneakyObservation(notifications::add);
+        fixture.coordinator.start();
+
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(self, "Self", null, null, true).provider());
+        var observed = notifications.get(notifications.size() - 1).observation();
+        assertTrue(observed.known());
+        var sneaky = observed.optionalValue().orElseThrow();
+        byte[] expected = new com.naocraftlab.skins.core.png.SneakyCapeDecoder()
+                .decode(skin).orElseThrow().bytes();
+        byte[] preview = new TextureCache(fixture.storage)
+                .readIfCached(sneaky.textureCacheKey()).orElseThrow();
+        assertArrayEquals(expected, preview);
+        assertArrayEquals(preview, fixture.sink.registered.get("nclskins:sneaky/" + self));
+    }
+
+    @Test
+    void sneakyPayloadInLosingMinecraftSkinDoesNotBecomeOwnCape() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        String sneakySha = fixture.storage.storeAsset(sneakySkin()).sha256();
+        String ordinarySha = fixture.storage.storeAsset(png()).sha256();
+        fixture.storage.updateAppearance(self, state -> {
+            var observed = state.providers().skin().observeMinecraft(
+                    new com.naocraftlab.skins.core.provider.ProviderSkin(sneakySha,
+                            com.naocraftlab.skins.core.model.SkinVariant.CLASSIC));
+            var skin = new com.naocraftlab.skins.core.provider.ProviderChannel<>(observed.order(),
+                    com.naocraftlab.skins.core.provider.ProviderObservation.observed(
+                            new com.naocraftlab.skins.core.provider.ProviderSkin(ordinarySha,
+                                    com.naocraftlab.skins.core.model.SkinVariant.CLASSIC)),
+                    observed.minecraft(), observed.configurationRevision(), observed.intentRevision(),
+                    observed.desired(), observed.minecraftDelivery(), observed.offlineDesired(),
+                    observed.optifine(), observed.skinmc());
+            return state.withProviders(new AppearanceProviders(skin,
+                    state.providers().cape().disable(BuiltinProvider.OPTIFINE)
+                            .enable(BuiltinProvider.SNEAKY)));
+        });
+        fixture.coordinator.start();
+        assertNull(CapeProjection.resolve(self, "Self", null, null, true).capeLocation());
+    }
+
+    private static int[] sneakyPixels() {
+        int[] pixels = new int[64 * 64];
+        int[] markers = {0xfffff42f, 0xffffffff, 0xff9c59d1, 0xff292929};
+        for (int index = 0; index < markers.length; index++) pixels[(48 + index) * 64 + 60] = markers[index];
+        pixels[16 * 64 + 56] = 0xff123456;
+        return pixels;
+    }
+
+    private static byte[] sneakySkin() throws IOException {
+        BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(0, 0, 64, 64, sneakyPixels(), 0, 64);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return output.toByteArray();
     }
 
     @Test
