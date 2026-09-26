@@ -245,7 +245,7 @@ public final class ExternalImportPresenter {
                 layout.scrollbar(),
                 List.of(),
                 Optional.empty(),
-                List.of(new ViewSpec.ClipRegion(
+                List.of(AppearanceCollections.clip(
                         "external.review.viewport",
                         viewport,
                         List.of("external.review.collection.", "external.review.card:"))),
@@ -307,57 +307,31 @@ public final class ExternalImportPresenter {
             List<ViewSpec.Preview> previews,
             List<ViewSpec.IconDecoration> iconDecorations,
             List<ViewSpec.NavigationNode> navigationNodes) {
-        int y = layout.contentStart() - layout.scrollOffset();
-        if (duplicateSection) {
-            int freshCount = review.candidates(false).size();
-            if (freshCount > 0) {
-                y += sectionHeight(
-                        freshCount,
-                        review.collectionCollapsed(false),
-                        layout.columns(),
-                        layout.cardHeight());
-            }
-        }
-        if (candidates.isEmpty()) {
-            return;
-        }
+        if (candidates.isEmpty()) return;
         String sectionId = duplicateSection ? "duplicates" : "new";
-        Bounds header = new Bounds(16, y, Math.max(1, layout.contentRight() - 16), HEADER_HEIGHT);
+        List<AppearanceCollections.Section> sections = new ArrayList<>();
+        for (boolean duplicate : List.of(false, true)) {
+            int count = review.candidates(duplicate).size();
+            if (count > 0) sections.add(new AppearanceCollections.Section(duplicate ? "duplicates" : "new",
+                    count, review.collectionCollapsed(duplicate), layout.cardHeight()));
+        }
+        var section = AppearanceCollections.layout(sections, layout.columns()).sections().stream()
+                .filter(value -> value.section().id().equals(sectionId)).findFirst().orElseThrow();
+        int contentTop = layout.contentStart() - layout.scrollOffset();
+        Bounds header = section.header(16, contentTop, Math.max(1, layout.contentRight() - 16));
         String headerId = "external.review.collection." + sectionId;
-        navigationNodes.add(ViewSpec.NavigationNode.card(
-                headerId,
-                header,
-                "external.review",
-                navigationNodes.size(),
-                -1,
-                !busy,
-                ViewSpec.NavigationPattern.GRID,
-                Optional.of(headerId)));
-        if (intersects(header, layout.contentBottom())) {
-            widgets.add(ViewSpec.Widget.collectionHeader(
-                    headerId,
-                    header,
-                    UiMessage.info(collectionHeaderKey(
-                            duplicateSection,
-                            review.collectionCollapsed(duplicateSection)), candidates.size()),
-                    !busy,
-                    false));
-        }
-        y += HEADER_HEIGHT + 4;
-        if (review.collectionCollapsed(duplicateSection)) {
-            return;
-        }
+        Bounds viewport = new Bounds(0, CHROME_HEIGHT, layout.contentRight(), Math.max(1, layout.contentBottom() - CHROME_HEIGHT));
+        var headerPresentation = AppearanceCollections.header(headerId, header,
+                UiMessage.info(collectionHeaderKey(duplicateSection, review.collectionCollapsed(duplicateSection)), candidates.size()),
+                !busy, viewport, "external.review", navigationNodes.size(), -1);
+        navigationNodes.add(headerPresentation.navigation());
+        headerPresentation.widget().ifPresent(widgets::add);
+        if (section.section().collapsed()) return;
         for (int index = 0; index < candidates.size(); index++) {
             ClientOperations.ExternalImportCandidate candidate = candidates.get(index);
-            int column = index % layout.columns();
-            int row = index / layout.columns();
-            Bounds card = new Bounds(
-                    layout.cardStartX() + column * (layout.cardWidth() + CARD_GAP),
-                    y + row * (layout.cardHeight() + CARD_GAP),
-                    layout.cardWidth(),
-                    layout.cardHeight());
+            Bounds card = section.card(index, layout.cardStartX(), contentTop, layout.cardWidth());
             String id = "external.review.card:" + candidate.id();
-            navigationNodes.add(ViewSpec.NavigationNode.card(
+            navigationNodes.add(AppearanceCollections.navigation(
                     id,
                     card,
                     "external.review",
@@ -369,71 +343,31 @@ public final class ExternalImportPresenter {
             if (!intersects(card, layout.contentBottom())) {
                 continue;
             }
-            panels.add(new ViewSpec.Panel(id, card, ViewSpec.Panel.Style.VANILLA_LIST));
-            widgets.add(ViewSpec.Widget.selectableCard(
-                    id,
-                    card,
+            var chrome = AppearanceCard.chrome(id, id, card, ViewSpec.WidgetKind.SELECTABLE_CARD,
                     UiMessage.literal(candidate.displayName(), UiMessage.Severity.INFO),
-                    review.selectedIds().contains(candidate.id()),
-                    !busy));
-            texts.add(new ViewSpec.Text(
-                    id + ".name",
-                    new Bounds(card.x() + 4, card.y() + 7, Math.max(1, card.width() - 8), 10),
-                    UiMessage.literal(candidate.displayName(), UiMessage.Severity.INFO),
-                    ViewSpec.Text.Alignment.CENTER,
-                    Optional.of(new ViewSpec.MarqueeActivation(card, List.of(id)))));
+                    review.selectedIds().contains(candidate.id()) ? Optional.of("selected") : Optional.empty(), !busy);
+            panels.add(chrome.surface());
+            widgets.add(chrome.widget());
+            texts.add(AppearanceCard.name(id + ".name", CatalogCardGeometry.name(card),
+                    UiMessage.literal(candidate.displayName(), UiMessage.Severity.INFO), card, List.of(id)));
             Optional<String> capeId = Optional.ofNullable(candidate.capeId());
-            previews.add(new ViewSpec.Preview(
-                    id + ".preview",
-                    new Bounds(
-                            card.x() + 5,
-                            card.y() + 20,
-                            Math.max(1, card.width() - 10),
-                            Math.max(1, card.height() - 25)),
-                    SkinReference.accountDefault(),
-                    "external:" + candidate.sha256() + ":" + candidate.variant().name(),
-                    candidate.variant(),
-                    capeId,
-                    capeId.isPresent()
-                            ? PreviewRenderer.CapeMode.CAPE
-                            : PreviewRenderer.CapeMode.OFF,
-                    OuterLayerVisibility.allVisible(),
-                    -20.0F,
-                    0.0F,
-                    1.0F,
-                    Optional.empty(),
-                    Optional.empty(),
-                    Optional.of(new ViewSpec.ExternalImage(candidate.id())),
-                    PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL));
+            previews.add(new AppearanceCard.Skin(SkinReference.accountDefault(),
+                    "external:" + candidate.sha256() + ":" + candidate.variant().name(), candidate.variant(), capeId,
+                    capeId.isPresent() ? PreviewRenderer.CapeMode.CAPE : PreviewRenderer.CapeMode.OFF,
+                    OuterLayerVisibility.allVisible(), -20.0F, 0.0F, 1.0F, Optional.empty(), Optional.empty(),
+                    Optional.of(new ViewSpec.ExternalImage(candidate.id())), PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL, true)
+                    .present(id + ".preview", AppearanceCard.Role.READ_ONLY.preview(card)));
             SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(
                     candidate.featureEvidence(), environment);
             if (compatibility.status() != SkinCompatibilityStatus.ORDINARY) {
-                String indicatorId = id + ".compatibility";
-                Bounds previewBounds = previews.get(previews.size() - 1).anchorBounds();
-                Bounds indicatorBounds = new Bounds(
-                        card.x() + 2,
-                        card.bottom() - 22,
-                        20,
-                        20);
-                widgets.add(ViewSpec.Widget.compatibilityIndicator(
-                        indicatorId,
-                        indicatorBounds,
-                        CompatibilityMessages.accessibleLabel(compatibility),
-                        CompatibilityMessages.icon(compatibility)));
+                widgets.add(AppearanceCard.compatibility(id + ".compatibility", card, card.bottom() - 2, compatibility));
             }
         }
     }
 
-    private static int sectionHeight(int count, boolean collapsed, int columns, int cardHeight) {
-        int height = HEADER_HEIGHT + 4;
-        if (!collapsed) {
-            height += ((count + columns - 1) / columns) * (cardHeight + CARD_GAP) + 8;
-        }
-        return height;
-    }
-
     private static boolean intersects(Bounds bounds, int bottom) {
-        return bounds.bottom() > CHROME_HEIGHT && bounds.y() < bottom;
+        return AppearanceCollections.visibleVertically(bounds,
+                new Bounds(0, CHROME_HEIGHT, 1, Math.max(1, bottom - CHROME_HEIGHT)));
     }
 
     private static String collectionHeaderKey(boolean duplicates, boolean collapsed) {

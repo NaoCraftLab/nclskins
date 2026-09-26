@@ -127,7 +127,11 @@ final class SemanticVerifier {
                     (roots.isEmpty() || !roots.any { source.startsWith(it) })) {
                 errors.add("${implementation}: leaf source ${root.relativize(source)} is outside its catalog-selected source bundle")
             }
-            verifyLeaf(implementation, key, Files.readString(source), errors)
+            String leafText = Files.readString(source)
+            if (key == 'gui') {
+                leafText = guiHostSources(roots)
+            }
+            verifyLeaf(implementation, key, leafText, errors)
             if (implementation == 'identifier-submission') {
                 verifyIdentifierSubmissionGuiBundle(roots, errors)
             }
@@ -470,6 +474,17 @@ final class SemanticVerifier {
         }
     }
 
+    static String guiHostSources(Set<Path> roots) {
+        StringBuilder sources = new StringBuilder()
+        roots.findAll(Files::isDirectory).each { Path sourceRoot ->
+            Files.walk(sourceRoot).withCloseable { stream ->
+                stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.java') }
+                        .sorted().forEach { sources.append(Files.readString(it)).append('\n') }
+            }
+        }
+        return sources.toString()
+    }
+
     static void verifyPreviewBundle(
             String implementation, Set<Path> roots, List<String> errors) {
         StringBuilder sources = new StringBuilder()
@@ -711,7 +726,7 @@ final class SemanticVerifier {
             }
         }
         if (implementation == 'identifier-extraction-menu-tab-input-constants'
-                && (!compact.contains('isEnterKey(event.shortcutKey())')
+                && (!compact.contains('event.shortcutKey() == InputConstants.KEYCODE_RETURN')
                         || !compact.contains('switch (event.shortcutKey())')
                         || compact.contains('isEnterKey(event.key())')
                         || compact.contains('switch (event.key())'))) {

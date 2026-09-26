@@ -2278,32 +2278,36 @@ final class BuildLogicTest {
     }
 
     @Test
-    void inputConstantsScreenUsesNativeMouseButtonWithoutChangingGlfwScreen() {
-        File glfwScreen = new File(
-                repository,
-                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java')
-        File inputConstantsScreen = new File(
-                repository,
-                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java')
-
-        assertTrue(glfwScreen.text.contains('private static final int LEFT_MOUSE_BUTTON = 0;'))
-        assertTrue(inputConstantsScreen.text.contains(
-                'private static final int NATIVE_LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;'))
-        assertTrue(inputConstantsScreen.text.contains(
-                'private static final int PRODUCT_PRIMARY_POINTER_BUTTON = 0;'))
-        assertTrue(inputConstantsScreen.text.contains(
-                'runtime.pointerPressed(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);'))
-        assertTrue(inputConstantsScreen.text.contains('''runtime.pointerDragged(
-                    event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON, dragX, dragY);'''))
-        assertTrue(inputConstantsScreen.text.contains(
-                'runtime.pointerReleased(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);'))
+    void extractionFamiliesSelectOneSharedHostAndOneInputAdapter() {
+        Set<Path> hosts = [] as Set
+        catalog.capabilityImplementations.findAll { String id, declaration ->
+            id.startsWith('identifier-extraction-') && declaration.bundle
+        }.each { String id, declaration ->
+            Set<Path> roots = SemanticVerifier.bundleRoots(repository.toPath(), catalog.sourceBundles as Map, declaration.bundle.toString())
+            List<Path> screens = []
+            List<Path> adapters = []
+            roots.findAll(Files::isDirectory).each { Path root ->
+                Files.walk(root).withCloseable { stream ->
+                    stream.filter(Files::isRegularFile).forEach { Path source ->
+                        if (source.fileName.toString() == 'NclSkinsScreen.java') screens.add(source)
+                        if (source.fileName.toString() == 'ExtractionInputAdapter.java') adapters.add(source)
+                    }
+                }
+            }
+            assertEquals(1, screens.size(), id)
+            assertEquals(1, adapters.size(), id)
+            assertTrue(screens[0].toString().contains('/extraction-shared/'), id)
+            assertTrue(adapters[0].toString().contains(id.endsWith('input-constants')
+                    ? '/extraction-screen-input-constants/' : '/extraction-screen-glfw/'), id)
+            hosts.add(screens[0])
+        }
+        assertEquals(1, hosts.size())
     }
 
     @Test
     void extractionScreenLeavesReconcileNativeWidgetsAgainstFinalView() {
         [
-                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
-                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+                'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ].each { String path ->
             String source = new File(repository, path).text
             String init = source.substring(source.indexOf('protected void init()'),
@@ -2395,8 +2399,7 @@ final class BuildLogicTest {
         [
                 'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java',
                 'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
-                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
-                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+                'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ].each { String path ->
             String source = new File(repository, path).text
             assertTrue(source.contains('GuiIcon'), path)
@@ -2421,12 +2424,7 @@ final class BuildLogicTest {
                         'private static int textColor('
                 ],
                 [
-                        'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
-                        'private void drawText(',
-                        'private void drawPreciseTooltip('
-                ],
-                [
-                        'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                        'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
                         'private void drawText(',
                         'private void drawPreciseTooltip('
                 ]
@@ -2453,8 +2451,7 @@ final class BuildLogicTest {
                 repository,
                 'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java').text
         List<String> extraction = [
-                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
-                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+                'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ].collect { new File(repository, it).text }
 
         String cardStyle = new File(
@@ -2518,8 +2515,7 @@ final class BuildLogicTest {
         List<String> modernPaths = [
                 'compat/capabilities/gui/immediate-resource-location-skin-lookup/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/ImmediateClientRuntime.java',
                 'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
-                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
-                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+                'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ]
         modernPaths.each { String path ->
             String source = new File(repository, path).text
@@ -2555,8 +2551,7 @@ final class BuildLogicTest {
                 repository,
                 'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java').text
         List<String> extraction = [
-                'compat/capabilities/gui/extraction-screen-glfw/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
-                'compat/capabilities/gui/extraction-screen-input-constants/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+                'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ].collect { new File(repository, it).text }
 
         assertTrue(immediate.contains('''if (editor) {

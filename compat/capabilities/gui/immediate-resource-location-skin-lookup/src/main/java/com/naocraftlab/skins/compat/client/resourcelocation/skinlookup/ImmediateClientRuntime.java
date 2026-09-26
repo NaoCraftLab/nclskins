@@ -1,7 +1,6 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.skinlookup;
 
 import java.util.Optional;
-import com.mojang.math.Axis;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.FilePicker;
@@ -19,7 +18,6 @@ import com.naocraftlab.skins.runtime.ClientCapabilityProvider;
 import com.naocraftlab.skins.runtime.TextResolver;
 import com.naocraftlab.skins.runtime.UiMessage;
 import com.naocraftlab.skins.runtime.Bounds;
-import com.naocraftlab.skins.runtime.VerticalTabStyle;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import com.naocraftlab.skins.runtime.NativeGuiIcon;
 import java.nio.file.Path;
@@ -33,17 +31,7 @@ import net.minecraft.network.chat.Component;
 import org.lwjgl.opengl.GL11;
 import org.slf4j.LoggerFactory;
 
-
 public final class ImmediateClientRuntime implements ImmediateScreenCapabilities {
-    private static final net.minecraft.resources.ResourceLocation TAB_SELECTED =
-            net.minecraft.resources.ResourceLocation.withDefaultNamespace("widget/tab_selected");
-    private static final net.minecraft.resources.ResourceLocation TAB_SELECTED_HIGHLIGHTED =
-            net.minecraft.resources.ResourceLocation.withDefaultNamespace(
-                    "widget/tab_selected_highlighted");
-    private static final net.minecraft.resources.ResourceLocation TAB =
-            net.minecraft.resources.ResourceLocation.withDefaultNamespace("widget/tab");
-    private static final net.minecraft.resources.ResourceLocation TAB_HIGHLIGHTED =
-            net.minecraft.resources.ResourceLocation.withDefaultNamespace("widget/tab_highlighted");
     private static final ImmediateClientRuntime INSTANCE = new ImmediateClientRuntime();
 
     private final ClientCapabilityProvider.Provision provision =
@@ -86,7 +74,6 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
 
     public void tick(Minecraft minecraft) {
         Objects.requireNonNull(minecraft, "minecraft");
-
 
         ClientApplicationHost<Object> current = application();
         if (current.closed()) {
@@ -212,35 +199,15 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
             int textureV,
             Optional<com.naocraftlab.skins.runtime.Bounds> selectedVerticalTabBounds,
             Optional<com.naocraftlab.skins.runtime.Bounds> verticalTabGroupBounds) {
-        com.naocraftlab.skins.runtime.Bounds bounds = panel.bounds();
-        if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
-            NclSkinsVanillaScreenStyle.renderListPanel(
-                    graphics,
-                    bounds.x(),
-                    bounds.y(),
-                    bounds.width(),
-                    bounds.height(),
-                    textureU,
-                    textureV);
-        } else if (panel.style() == ViewSpec.Panel.Style.VANILLA_TAB_CONTENT) {
-            NclSkinsVanillaScreenStyle.renderTabContentPanel(
-                    graphics, bounds, verticalTabGroupBounds);
-        } else {
-            NclSkinsVanillaScreenStyle.renderFramePanel(graphics, bounds, panel.style());
-        }
+        NativeSurfaceAdapter.renderPanel(graphics, panel, textureU, textureV, selectedVerticalTabBounds, verticalTabGroupBounds);
     }
 
     @Override
     public void renderScrollbar(GuiGraphics graphics, ViewSpec.Scrollbar scrollbar) {
-        NclSkinsVanillaScreenStyle.renderHorizontalScrollbar(
-                graphics,
-                scrollbar.track().x(),
-                scrollbar.track().y(),
-                scrollbar.track().width(),
-                scrollbar.thumb().x(),
-                scrollbar.thumb().width());
+        NativeSurfaceAdapter.renderScrollbar(graphics, scrollbar);
     }
 
+    @Override
     public void renderVerticalTab(
             GuiGraphics graphics,
             int x,
@@ -250,32 +217,7 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
             boolean selected,
             boolean highlighted,
             boolean active) {
-        net.minecraft.resources.ResourceLocation sprite = selected
-                ? (highlighted ? TAB_SELECTED_HIGHLIGHTED : TAB_SELECTED)
-                : (highlighted ? TAB_HIGHLIGHTED : TAB);
-        if (selected) {
-            NclSkinsVanillaScreenStyle.renderSelectedTabUnderlay(
-                    graphics, x, y, width, height);
-        }
-        RenderSystem.enableBlend();
-        try {
-            Bounds edge = VerticalTabStyle.rightEdge(new Bounds(x, y, width, height));
-            graphics.enableScissor(x, y, edge.x(), edge.bottom());
-            try {
-                graphics.pose().pushPose();
-                try {
-                    graphics.pose().translate(x, y + height, 0.0F);
-                    graphics.pose().mulPose(Axis.ZP.rotationDegrees(-90.0F));
-                    graphics.blitSprite(sprite, 0, 0, height, width);
-                } finally {
-                    graphics.pose().popPose();
-                }
-            } finally {
-                graphics.disableScissor();
-            }
-        } finally {
-            RenderSystem.disableBlend();
-        }
+        NativeSurfaceAdapter.renderVerticalTab(graphics, x, y, width, height, selected, highlighted, active);
     }
 
     private static Component resolve(UiMessage message) {

@@ -176,23 +176,13 @@ public final class GalleryPresenter {
                     layout.cardTop(),
                     cardWidth,
                     layout.cardHeight());
-            if (!intersects(panelBounds, cardViewport)) {
+            if (!AppearanceCollections.intersects(panelBounds, cardViewport)) {
                 continue;
             }
-            panels.add(new ViewSpec.Panel(card.id(), panelBounds, ViewSpec.Panel.Style.VANILLA_LIST));
-            String anchorId = card.anchorId();
-            widgets.add(new ViewSpec.Widget(
-                    anchorId,
-                    ViewSpec.WidgetKind.CATALOG_CARD,
-                    panelBounds,
-                    card.accessibleLabel(),
-                    Optional.empty(),
-                    Optional.empty(),
-                    !snapshot.busy()
-                            && snapshot.account().isPresent()
-                            && pendingDeleteId.isEmpty(),
-                    true,
-                    0));
+            var chrome = AppearanceCard.chrome(card.id(), card.anchorId(), panelBounds, ViewSpec.WidgetKind.CATALOG_CARD,
+                    card.accessibleLabel(), Optional.empty(), !snapshot.busy() && snapshot.account().isPresent() && pendingDeleteId.isEmpty());
+            panels.add(chrome.surface());
+            widgets.add(chrome.widget());
             if (card.preset().isEmpty()) {
                 int iconX = x + (cardWidth - DECORATION_ICON_SIZE) / 2;
                 int hintY = layout.cardTop() + Math.max(44, layout.cardHeight() / 2 + 10);
@@ -273,7 +263,7 @@ public final class GalleryPresenter {
                 scrollbar,
                 List.of(),
                 Optional.empty(),
-                List.of(new ViewSpec.ClipRegion(
+                List.of(AppearanceCollections.clip(
                         "gallery.cards",
                         cardViewport,
                         List.of("gallery.card.", "gallery.add", "gallery.preset."))),
@@ -362,7 +352,7 @@ public final class GalleryPresenter {
                     layout.cardTop(),
                     layout.cardWidth(),
                     layout.cardHeight());
-            ViewSpec.NavigationNode node = ViewSpec.NavigationNode.card(
+            ViewSpec.NavigationNode node = AppearanceCollections.navigation(
                     card.anchorId(),
                     bounds,
                     "gallery.cards",
@@ -494,20 +484,12 @@ public final class GalleryPresenter {
         boolean active = snapshot.activePresetId().filter(preset.id()::equals).isPresent();
         SkinCompatibility compatibility = snapshot.compatibilityFor(preset);
         boolean hasCompatibility = compatibility.status() != SkinCompatibilityStatus.ORDINARY;
-        texts.add(new ViewSpec.Text(
-                prefix + ".name",
+        texts.add(AppearanceCard.name(prefix + ".name",
                 new Bounds(x + 8, top + 8, Math.max(1, cardWidth - 16), 10),
                 UiMessage.literal(preset.name(), UiMessage.Severity.INFO),
-                ViewSpec.Text.Alignment.CENTER,
-                Optional.of(new ViewSpec.MarqueeActivation(
-                        new Bounds(x, top, cardWidth, Math.max(1, bottom - top)),
-                        List.of(
-                                prefix + ".apply",
-                                prefix + ".edit",
-                                prefix + ".duplicate",
-                                prefix + ".delete",
-                                prefix + ".delete_confirm",
-                                prefix + ".delete_cancel")))));
+                new Bounds(x, top, cardWidth, Math.max(1, bottom - top)),
+                List.of(prefix + ".apply", prefix + ".edit", prefix + ".duplicate", prefix + ".delete",
+                        prefix + ".delete_confirm", prefix + ".delete_cancel")));
         int innerWidth = cardWidth;
         int applyRow = bottom - CARD_ACTION_BOTTOM_INSET - ACTION_HEIGHT;
         int secondaryRow = !confirmingDelete && cardWidth < ONE_ROW_ACTION_MIN_WIDTH
@@ -533,35 +515,18 @@ public final class GalleryPresenter {
                 break;
             }
         }
-        previews.add(new ViewSpec.Preview(
-                prefix + ".preview",
-                new Bounds(x + 8, previewTop, Math.max(1, cardWidth - 16), Math.max(1, previewBottom - previewTop)),
-                preset.skin(),
-                preset.skin().optionalAssetId()
-                        .map(id -> "asset:" + id)
-                        .orElse("current-player"),
-                variant,
-                capeId,
-                capeId.isPresent() ? capeMode : PreviewRenderer.CapeMode.OFF,
-                preset.outerLayerVisibility(),
-                yaw,
-                pitch,
-                0.88F,
-                Optional.of(preset.id())).withCapeElytra(hasElytra));
+        previews.add(new AppearanceCard.Skin(preset.skin(),
+                preset.skin().optionalAssetId().map(id -> "asset:" + id).orElse("current-player"), variant,
+                capeId, capeId.isPresent() ? capeMode : PreviewRenderer.CapeMode.OFF, preset.outerLayerVisibility(),
+                yaw, pitch, 0.88F, Optional.of(preset.id()), Optional.empty(), Optional.empty(),
+                PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL, hasElytra)
+                .present(prefix + ".preview", new Bounds(x + 8, previewTop, Math.max(1, cardWidth - 16), Math.max(1, previewBottom - previewTop))));
 
         if (hasCompatibility) {
             String indicatorId = prefix + ".compatibility";
             int indicatorBottom = (confirmingDelete ? applyRow : secondaryRow) - 2;
-            Bounds indicatorBounds = new Bounds(
-                    x + 2,
-                    indicatorBottom - 20,
-                    20,
-                    20);
-            widgets.add(ViewSpec.Widget.compatibilityIndicator(
-                    indicatorId,
-                    indicatorBounds,
-                    CompatibilityMessages.accessibleLabel(compatibility),
-                    CompatibilityMessages.icon(compatibility)));
+            widgets.add(AppearanceCard.compatibility(indicatorId,
+                    new Bounds(x, top, cardWidth, Math.max(1, bottom - top)), indicatorBottom, compatibility));
         }
 
         if (confirmingDelete) {
@@ -689,7 +654,7 @@ public final class GalleryPresenter {
 
     private static void addIntersectingAction(
             List<ViewSpec.Widget> widgets, ViewSpec.Widget widget, Bounds viewport) {
-        if (intersects(widget.bounds(), viewport)) {
+        if (AppearanceCollections.intersects(widget.bounds(), viewport)) {
             widgets.add(widget);
         }
     }
@@ -996,13 +961,6 @@ public final class GalleryPresenter {
                 .flatMap(id -> account.skinAssets().stream().filter(asset -> asset.id().equals(id)).findFirst())
                 .map(SkinAsset::variant)
                 .orElse(currentPlayerVariant);
-    }
-
-    private static boolean intersects(Bounds candidate, Bounds viewport) {
-        return candidate.right() > viewport.x()
-                && candidate.x() < viewport.right()
-                && candidate.bottom() > viewport.y()
-                && candidate.y() < viewport.bottom();
     }
 
     private record GalleryCard(Optional<AppearancePreset> preset) {

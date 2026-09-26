@@ -560,6 +560,17 @@ public record ViewSpec(
     }
 
 
+    public enum SurfaceRole { MENU, WORKSPACE, TABBED_MENU, IMPORT }
+
+    public SurfaceRole surfaceRole() {
+        return switch (screenId) {
+            case "preset_editor" -> SurfaceRole.WORKSPACE;
+            case "add_source" -> SurfaceRole.TABBED_MENU;
+            case "external_chooser", "external_review" -> SurfaceRole.IMPORT;
+            default -> SurfaceRole.MENU;
+        };
+    }
+
     public record TabGroup(String id, Bounds bounds, List<Tab> tabs, TabOrientation orientation) {
         public TabGroup(String id, Bounds bounds, List<Tab> tabs) {
             this(id, bounds, tabs, TabOrientation.HORIZONTAL);

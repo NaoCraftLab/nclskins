@@ -31,7 +31,6 @@ import com.naocraftlab.skins.runtime.MarqueeText;
 import com.naocraftlab.skins.runtime.PreviewAssetCache;
 import com.naocraftlab.skins.runtime.PointerRouting;
 import com.naocraftlab.skins.runtime.UiMessage;
-import com.naocraftlab.skins.runtime.VanillaListSurface;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import com.naocraftlab.skins.runtime.ViewHostPolicy;
 import java.util.ArrayList;
@@ -67,15 +66,9 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
-import com.mojang.blaze3d.platform.InputConstants;
-
 
 public final class NclSkinsScreen extends Screen {
     private boolean keyboardNavigation;
-    private static final Identifier INWORLD_MENU_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/inworld_menu_background.png");
-    private static final Identifier MENU_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/menu_background.png");
     private static final Identifier TAB_HIGHLIGHTED =
             Identifier.withDefaultNamespace("widget/tab_highlighted");
     private static final Identifier TAB = Identifier.withDefaultNamespace("widget/tab");
@@ -83,12 +76,6 @@ public final class NclSkinsScreen extends Screen {
             Identifier.withDefaultNamespace("widget/tab_selected_highlighted");
     private static final Identifier TAB_SELECTED =
             Identifier.withDefaultNamespace("widget/tab_selected");
-    private static final Identifier MENU_LIST_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
-    private static final Identifier INWORLD_MENU_LIST_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
-    private static final Identifier TAB_HEADER_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/tab_header_background.png");
     private static final Identifier SCROLLER_SPRITE =
             Identifier.withDefaultNamespace("widget/scroller");
     private static final Identifier SCROLLER_BACKGROUND_SPRITE =
@@ -99,8 +86,6 @@ public final class NclSkinsScreen extends Screen {
     private static final int MUTED_COLOR = 0xFF9BA8BC;
     private static final int ERROR_COLOR = 0xFFFF9A9A;
     private static final int ACTIVE_TEXT_COLOR = 0xFF8EE6A5;
-    private static final int NATIVE_LEFT_MOUSE_BUTTON = InputConstants.MOUSE_BUTTON_LEFT;
-    private static final int PRODUCT_PRIMARY_POINTER_BUTTON = 0;
 
     private final Screen parent;
     private final ClientRuntime runtime;
@@ -149,7 +134,6 @@ public final class NclSkinsScreen extends Screen {
         this.runtime = NclSkinsExtractionClientRuntime.runtime();
     }
 
-
     public static com.naocraftlab.skins.diagnostics.DiagnosticSink clientDiagnostics() {
         return NclSkinsExtractionClientRuntime.runtime().diagnostics();
     }
@@ -161,7 +145,6 @@ public final class NclSkinsScreen extends Screen {
     public static FilePicker nativeFileDialog() {
         return NclSkinsExtractionClientRuntime.nativeFileDialog();
     }
-
 
     public static void warmSessionSnapshot() {
         NclSkinsExtractionClientRuntime.warmup();
@@ -226,7 +209,6 @@ public final class NclSkinsScreen extends Screen {
     protected void clearWidgets() {
         super.clearWidgets();
         orderedRenderables.clear();
-
 
         nativeWidgets.clear();
         nativeTabGroups.clear();
@@ -296,14 +278,15 @@ public final class NclSkinsScreen extends Screen {
         if (showingAccountLink) return;
         ViewSpec next = runtime.view(width, height, lastMouseX, lastMouseY);
         currentView = next;
-        scrollController.synchronize(next.scrollSurfaces().stream().findFirst());
+        if (ExtractionInputAdapter.synchronizeBeforeRebuild()) {
+            scrollController.synchronize(next.scrollSurfaces().stream().findFirst());
+        }
         syncPreviewAssets(next);
         List<WidgetSignature> nextSignature = signatures(next);
         List<TabGroupSignature> nextTabSignature = tabSignatures(next);
         if (!rebuilding
                 && (!nextSignature.equals(widgetSignature)
                         || !nextTabSignature.equals(tabGroupSignature))) {
-
 
             String focusedWidgetId = currentFocusedWidgetId();
             boolean pendingFocusBeforeRebuild = focusRequests.pending(next).isPresent();
@@ -648,13 +631,12 @@ public final class NclSkinsScreen extends Screen {
             super.extractMenuBackground(graphics);
             return;
         }
-        drawCreateWorldTabBackground(graphics);
+        NativeSurfaceAdapter.drawCreateWorldTabBackground(graphics, width);
         extractMenuBackground(graphics, 0, 24, width, height);
     }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-
 
         if (runtime.closed()) {
             return;
@@ -664,7 +646,9 @@ public final class NclSkinsScreen extends Screen {
         ViewSpec initialView = runtime.view(width, height, mouseX, mouseY);
         scrollController.synchronize(initialView.scrollSurfaces().stream().findFirst());
         scrollController.extractRenderState(graphics, mouseX, mouseY, partialTick);
-        applyFocusRequest(initialView);
+        if (ExtractionInputAdapter.focusBeforeScrollPublication()) {
+            applyFocusRequest(initialView);
+        }
         publishNativeScroll(initialView);
         ViewSpec view = runtime.view(width, height, mouseX, mouseY);
         currentView = view;
@@ -688,10 +672,9 @@ public final class NclSkinsScreen extends Screen {
             drawBackEquipmentPreviews(graphics, view);
         }
 
-
         graphics.nextStratum();
-        drawFrameBackgrounds(graphics, view);
-        drawFrameSeparators(graphics, view);
+        NativeSurfaceAdapter.drawFrameBackgrounds(graphics, view);
+        NativeSurfaceAdapter.drawFrameSeparators(graphics, view, width, height);
         drawScrollbar(graphics, view, mouseX, mouseY);
         graphics.nextStratum();
         extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);
@@ -708,9 +691,9 @@ public final class NclSkinsScreen extends Screen {
         for (ViewSpec.Panel panel : view.panels()) {
             if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
                 drawClipped(graphics, view, panel.id(), () ->
-                        drawVanillaListPanel(graphics, view, panel));
+                        NativeSurfaceAdapter.drawVanillaListPanel(graphics, view, panel));
             } else if (panel.style() == ViewSpec.Panel.Style.VANILLA_TAB_CONTENT) {
-                drawVanillaTabContentPanel(graphics, view, panel);
+                NativeSurfaceAdapter.drawVanillaTabContentPanel(graphics, view, panel);
             }
         }
     }
@@ -965,172 +948,8 @@ public final class NclSkinsScreen extends Screen {
         closeMissingRenderers(galleryRenderers, visibleIds);
     }
 
-    private void drawVanillaListPanel(
-            GuiGraphicsExtractor graphics, ViewSpec view, ViewSpec.Panel panel) {
-        Bounds bounds = panel.bounds();
-        if (bounds.width() <= 0 || bounds.height() <= 0) {
-            return;
-        }
-        Identifier background = minecraft.level == null
-                ? MENU_LIST_BACKGROUND
-                : INWORLD_MENU_LIST_BACKGROUND;
-        VanillaListSurface.Sample sample = VanillaListSurface.sample(view, panel);
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
-                background,
-                bounds.x(),
-                bounds.y(),
-                sample.u(),
-                sample.v(),
-                bounds.width(),
-                bounds.height(),
-                32,
-                32);
-        Identifier top = minecraft.level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
-        Identifier bottom = minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
-        VanillaListSurface.Boundaries boundaries = VanillaListSurface.boundaries(bounds);
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
-                top,
-                bounds.x(), boundaries.topY(), 0.0F, 0.0F, bounds.width(), 2, 32, 2);
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
-                bottom,
-                bounds.x(), boundaries.bottomY(),
-                0.0F, 0.0F, bounds.width(), 2, 32, 2);
-    }
-
-    private void drawVanillaTabContentPanel(
-            GuiGraphicsExtractor graphics, ViewSpec view, ViewSpec.Panel panel) {
-        Bounds bounds = panel.bounds();
-        if (bounds.width() <= 0 || bounds.height() <= 0) {
-            return;
-        }
-        Identifier background = minecraft.level == null
-                ? MENU_BACKGROUND
-                : INWORLD_MENU_BACKGROUND;
-        Identifier separator = minecraft.level == null
-                ? HEADER_SEPARATOR
-                : INWORLD_HEADER_SEPARATOR;
-        Optional<Bounds> selectedVerticalTabBounds = VerticalTabStyle.selectedBounds(view);
-        VerticalTabStyle.backgroundSegments(bounds)
-                .forEach(segment -> graphics.blit(
-                        RenderPipelines.GUI_TEXTURED,
-                        background,
-                        segment.x(),
-                        segment.y(),
-                        segment.x(),
-                        segment.y(),
-                        segment.width(),
-                        segment.height(),
-                        32,
-                        32));
-        selectedVerticalTabBounds
-                .map(tab -> VerticalTabStyle.separatorSegments(bounds, tab))
-                .orElseGet(() -> List.of(new Bounds(
-                        bounds.x(), bounds.y(), Math.min(2, bounds.width()), bounds.height())))
-                .forEach(segment -> {
-                    graphics.pose().pushMatrix();
-                    graphics.pose().translate(segment.x(), segment.bottom());
-                    graphics.pose().rotate((float) (-Math.PI / 2.0));
-                    graphics.blit(
-                            RenderPipelines.GUI_TEXTURED,
-                            separator,
-                            0, 0, 0.0F, 0.0F,
-                            segment.height(), segment.width(), 32, 2);
-                    graphics.pose().popMatrix();
-                });
-    }
-
-    private void drawFrameBackgrounds(GuiGraphicsExtractor graphics, ViewSpec view) {
-        Identifier background = minecraft.level == null
-                ? MENU_LIST_BACKGROUND
-                : INWORLD_MENU_LIST_BACKGROUND;
-        for (ViewSpec.Panel panel : view.panels()) {
-            if (panel.style() != ViewSpec.Panel.Style.VANILLA_HEADER
-                    && panel.style() != ViewSpec.Panel.Style.VANILLA_FOOTER) {
-                continue;
-            }
-            Bounds bounds = panel.bounds();
-            graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
-                    background,
-                    bounds.x(),
-                    bounds.y(),
-                    0.0F,
-                    (float) bounds.y(),
-                    bounds.width(),
-                    bounds.height(),
-                    32,
-                    32);
-        }
-    }
-
-    private void drawFrameSeparators(GuiGraphicsExtractor graphics, ViewSpec view) {
-        Identifier header = minecraft.level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
-        Identifier footer = minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
-        if ("add_source".equals(view.screenId())) {
-            graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
-                    footer,
-                    0,
-                    height - 33,
-                    0.0F,
-                    0.0F,
-                    width,
-                    2,
-                    32,
-                    2);
-        }
-        boolean tabBarOwnsHeaderSeparator = view.tabGroups().stream()
-                .anyMatch(group -> group.orientation() == ViewSpec.TabOrientation.HORIZONTAL);
-        for (ViewSpec.Panel panel : view.panels()) {
-            Bounds bounds = panel.bounds();
-            if (panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER
-                    && !tabBarOwnsHeaderSeparator) {
-                graphics.blit(
-                        RenderPipelines.GUI_TEXTURED,
-                        header,
-                        bounds.x(),
-                        bounds.bottom() - 2,
-                        0.0F,
-                        0.0F,
-                        bounds.width(),
-                        2,
-                        32,
-                        2);
-            } else if (panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER) {
-                graphics.blit(
-                        RenderPipelines.GUI_TEXTURED,
-                        footer,
-                        bounds.x(),
-                        bounds.y(),
-                        0.0F,
-                        0.0F,
-                        bounds.width(),
-                        2,
-                        32,
-                        2);
-            }
-        }
-    }
-
     private boolean isAddSourceView() {
-        return currentView != null && "add_source".equals(currentView.screenId());
-    }
-
-    private void drawCreateWorldTabBackground(GuiGraphicsExtractor graphics) {
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
-                TAB_HEADER_BACKGROUND,
-                0,
-                0,
-                0.0F,
-                0.0F,
-                width,
-                24,
-                16,
-                16);
+        return currentView != null && currentView.surfaceRole() == ViewSpec.SurfaceRole.TABBED_MENU;
     }
 
     private void drawScrollbar(GuiGraphicsExtractor graphics, ViewSpec view, int mouseX, int mouseY) {
@@ -1392,7 +1211,7 @@ public final class NclSkinsScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        boolean space = event.shortcutKey() == InputConstants.KEYCODE_SPACE;
+        boolean space = ExtractionInputAdapter.isSpace(event);
         activationCharacters.keyPressed(space);
         keyboardNavigation = true;
         if (runtime.closed()) {
@@ -1408,7 +1227,7 @@ public final class NclSkinsScreen extends Screen {
         InteractionOrigin priorOrigin = dispatchOrigin;
         dispatchOrigin = InteractionOrigin.KEYBOARD;
         try {
-            if (isEnterKey(event.shortcutKey()) && dispatchFocusedSubmit(view)) {
+            if (ExtractionInputAdapter.isEnterKey(event) && dispatchFocusedSubmit(view)) {
                 return true;
             }
             for (NativeTabGroup group : nativeTabGroups.values()) {
@@ -1423,15 +1242,16 @@ public final class NclSkinsScreen extends Screen {
                     return true;
                 }
             }
-            Optional<ViewSpec.NavigationCommand> navigation = navigationCommand(event);
+            Optional<ViewSpec.NavigationCommand> navigation = ExtractionInputAdapter.navigationCommand(event);
             if (navigation.isPresent()
                     && runtime.dispatchNavigation(
                             navigation.orElseThrow(), currentFocusedWidgetId())) {
                 activationCharacters.activated(spaceActivation);
-                ViewSpec navigated = runtime.view(width, height, lastMouseX, lastMouseY);
-                currentView = navigated;
-                scrollController.synchronize(
-                        navigated.scrollSurfaces().stream().findFirst());
+                if (ExtractionInputAdapter.synchronizeAfterNavigation()) {
+                    ViewSpec navigated = runtime.view(width, height, lastMouseX, lastMouseY);
+                    currentView = navigated;
+                    scrollController.synchronize(navigated.scrollSurfaces().stream().findFirst());
+                }
                 return true;
             }
             boolean priorShift = dispatchShiftDown;
@@ -1458,7 +1278,6 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-
     @Override
     public boolean charTyped(CharacterEvent event) {
         return activationCharacters.charTyped(event.codepoint()) || super.charTyped(event);
@@ -1466,7 +1285,7 @@ public final class NclSkinsScreen extends Screen {
 
     @Override
     public boolean keyReleased(KeyEvent event) {
-        activationCharacters.keyReleased(event.shortcutKey() == InputConstants.KEYCODE_SPACE);
+        activationCharacters.keyReleased(ExtractionInputAdapter.isSpace(event));
         return super.keyReleased(event);
     }
 
@@ -1485,7 +1304,7 @@ public final class NclSkinsScreen extends Screen {
         Optional<String> inlineCapeAction = ViewHostPolicy.inlineCapePointerActionAt(
                 view, event.x(), event.y());
         if (inlineCapeAction.isPresent()) {
-            if (event.button() == NATIVE_LEFT_MOUSE_BUTTON) {
+            if (ExtractionInputAdapter.isPrimaryPointer(event)) {
                 runtime.dispatchWidget(
                         inlineCapeAction.orElseThrow(), event.hasShiftDown(), InteractionOrigin.POINTER);
             }
@@ -1497,13 +1316,13 @@ public final class NclSkinsScreen extends Screen {
                         || (widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE || widget.kind() == ViewSpec.WidgetKind.PROVIDER_ACTION));
         if (priorityAction.isPresent()) {
             ViewSpec.Widget action = priorityAction.orElseThrow();
-            if (event.button() == NATIVE_LEFT_MOUSE_BUTTON && action.enabled()) {
+            if (ExtractionInputAdapter.isPrimaryPointer(event) && action.enabled()) {
                 runtime.dispatchWidget(
                         action.id(), event.hasShiftDown(), InteractionOrigin.POINTER);
             }
             return true;
         }
-        if (event.button() == NATIVE_LEFT_MOUSE_BUTTON && pointerOwner.isEmpty()) {
+        if (ExtractionInputAdapter.isPrimaryPointer(event) && pointerOwner.isEmpty()) {
             for (ViewSpec.Widget widget : view.widgets()) {
                 if (!widget.visible()
                         && widget.enabled()
@@ -1543,12 +1362,11 @@ public final class NclSkinsScreen extends Screen {
         }
         if (pointerOwner.isPresent()) {
 
-
             return true;
         }
-        if (event.button() == NATIVE_LEFT_MOUSE_BUTTON && capturesPointer(view, event.x(), event.y())) {
+        if (ExtractionInputAdapter.isPrimaryPointer(event) && capturesPointer(view, event.x(), event.y())) {
             pointerCaptured = true;
-            runtime.pointerPressed(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);
+            runtime.pointerPressed(event.x(), event.y(), ExtractionInputAdapter.productPointerButton(event));
             return true;
         }
         return false;
@@ -1619,35 +1437,14 @@ public final class NclSkinsScreen extends Screen {
         editBox.setHighlightPos(0);
     }
 
-    private static boolean isEnterKey(int keyCode) {
-        return keyCode == InputConstants.KEYCODE_RETURN || keyCode == InputConstants.KEYCODE_NUMPADENTER;
-    }
-
-    private Optional<ViewSpec.NavigationCommand> navigationCommand(KeyEvent event) {
-        return switch (event.shortcutKey()) {
-            case InputConstants.KEYCODE_TAB -> Optional.of(event.hasShiftDown()
-                    ? ViewSpec.NavigationCommand.TAB_BACKWARD
-                    : ViewSpec.NavigationCommand.TAB_FORWARD);
-            case InputConstants.KEYCODE_LEFT -> Optional.of(ViewSpec.NavigationCommand.LEFT);
-            case InputConstants.KEYCODE_RIGHT -> Optional.of(ViewSpec.NavigationCommand.RIGHT);
-            case InputConstants.KEYCODE_UP -> Optional.of(ViewSpec.NavigationCommand.UP);
-            case InputConstants.KEYCODE_DOWN -> Optional.of(ViewSpec.NavigationCommand.DOWN);
-            case InputConstants.KEYCODE_RETURN,
-                    InputConstants.KEYCODE_NUMPADENTER,
-                    InputConstants.KEYCODE_SPACE -> Optional.of(ViewSpec.NavigationCommand.ACTIVATE);
-            default -> Optional.empty();
-        };
-    }
-
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
         if (runtime.closed()) {
             pointerCaptured = false;
             return false;
         }
-        if (pointerCaptured && event.button() == NATIVE_LEFT_MOUSE_BUTTON) {
-            runtime.pointerDragged(
-                    event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON, dragX, dragY);
+        if (pointerCaptured && ExtractionInputAdapter.isPrimaryPointer(event)) {
+            runtime.pointerDragged(event.x(), event.y(), ExtractionInputAdapter.productPointerButton(event), dragX, dragY);
             return true;
         }
         return super.mouseDragged(event, dragX, dragY);
@@ -1659,9 +1456,9 @@ public final class NclSkinsScreen extends Screen {
             pointerCaptured = false;
             return false;
         }
-        if (pointerCaptured && event.button() == NATIVE_LEFT_MOUSE_BUTTON) {
+        if (pointerCaptured && ExtractionInputAdapter.isPrimaryPointer(event)) {
             pointerCaptured = false;
-            runtime.pointerReleased(event.x(), event.y(), PRODUCT_PRIMARY_POINTER_BUTTON);
+            runtime.pointerReleased(event.x(), event.y(), ExtractionInputAdapter.productPointerButton(event));
             return true;
         }
         return super.mouseReleased(event);
@@ -1902,7 +1699,6 @@ public final class NclSkinsScreen extends Screen {
             int maxLength) {
         private WidgetSignature(ViewSpec.Widget widget) {
 
-
             this(
                     widget.id(),
                     widget.kind(),
@@ -1925,7 +1721,6 @@ public final class NclSkinsScreen extends Screen {
                     widget.maxLength());
         }
     }
-
 
     private final class IconButtonWidget extends AbstractButton {
         private final String widgetId;
@@ -1973,22 +1768,8 @@ public final class NclSkinsScreen extends Screen {
                         ? (VerticalTabStyle.highlighted(isHovered, isFocused(), keyboardNavigation) ? TAB_SELECTED_HIGHLIGHTED : TAB_SELECTED)
                         : (VerticalTabStyle.highlighted(isHovered, isFocused(), keyboardNavigation) ? TAB_HIGHLIGHTED : TAB);
                 if (selected) {
-                    Bounds underlay = VerticalTabStyle.selectedUnderlay(
-                            new Bounds(getX(), getY(), getWidth(), getHeight()));
-                    Identifier background = Minecraft.getInstance().level == null
-                            ? MENU_BACKGROUND
-                            : INWORLD_MENU_BACKGROUND;
-                    graphics.blit(
-                            RenderPipelines.GUI_TEXTURED,
-                            background,
-                            underlay.x(),
-                            underlay.y(),
-                            underlay.x(),
-                            underlay.y(),
-                            underlay.width(),
-                            underlay.height(),
-                            32,
-                            32);
+                    NativeSurfaceAdapter.renderSelectedTabUnderlay(
+                            graphics, new Bounds(getX(), getY(), getWidth(), getHeight()));
                 }
                 graphics.pose().pushMatrix();
                 Bounds edge = VerticalTabStyle.rightEdge(
@@ -2038,7 +1819,6 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-
     private static final class CompatibilityIndicatorWidget extends AbstractButton {
         private WidgetIcon icon;
 
@@ -2070,7 +1850,6 @@ public final class NclSkinsScreen extends Screen {
             defaultButtonNarrationText(output);
         }
     }
-
 
     private static void extractActionIcon(
             GuiGraphicsExtractor graphics,
@@ -2105,7 +1884,6 @@ public final class NclSkinsScreen extends Screen {
                 size);
     }
 
-
     private static final class TransparentButtonWidget extends AbstractButton {
         private final Consumer<InputWithModifiers> onPress;
 
@@ -2131,7 +1909,6 @@ public final class NclSkinsScreen extends Screen {
             defaultButtonNarrationText(output);
         }
     }
-
 
     private static final class CatalogCardWidget extends AbstractButton {
         private final Runnable onPress;
@@ -2159,7 +1936,6 @@ public final class NclSkinsScreen extends Screen {
             defaultButtonNarrationText(output);
         }
     }
-
 
     private static final class CapeCardWidget extends AbstractButton {
         private final String widgetId;
@@ -2219,7 +1995,6 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-
     private static final class CatalogDeleteWidget extends AbstractButton {
         private final Font font;
         private final Runnable onPress;
@@ -2254,7 +2029,6 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-
     private static final class InfoButtonWidget extends AbstractButton {
         private final Font font;
         private final Runnable onPress;
@@ -2286,7 +2060,6 @@ public final class NclSkinsScreen extends Screen {
             defaultButtonNarrationText(output);
         }
     }
-
 
     private static final class CollectionHeaderWidget extends AbstractButton {
         private final Font font;

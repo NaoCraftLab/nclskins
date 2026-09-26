@@ -29,7 +29,6 @@ import com.naocraftlab.skins.runtime.MarqueeText;
 import com.naocraftlab.skins.runtime.PointerRouting;
 import com.naocraftlab.skins.runtime.PreviewAssetCache;
 import com.naocraftlab.skins.runtime.UiMessage;
-import com.naocraftlab.skins.runtime.VanillaListSurface;
 import com.naocraftlab.skins.runtime.VerticalTabStyle;
 import com.naocraftlab.skins.runtime.ProviderRowStyle;
 import com.naocraftlab.skins.runtime.ViewHostPolicy;
@@ -67,17 +66,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.lwjgl.glfw.GLFW;
 
-
 public final class NclSkinsScreen extends Screen {
     private boolean keyboardNavigation;
-    private static final Identifier MENU_LIST_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
-    private static final Identifier INWORLD_MENU_LIST_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
-    private static final Identifier MENU_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/menu_background.png");
-    private static final Identifier INWORLD_MENU_BACKGROUND =
-            Identifier.withDefaultNamespace("textures/gui/inworld_menu_background.png");
     private static final Identifier TAB = Identifier.withDefaultNamespace("widget/tab");
     private static final Identifier TAB_HIGHLIGHTED =
             Identifier.withDefaultNamespace("widget/tab_highlighted");
@@ -533,7 +523,7 @@ public final class NclSkinsScreen extends Screen {
             renderBackEquipment(graphics, current);
         }
         graphics.nextStratum();
-        renderFramePanels(graphics, current);
+        NativeSurfaceAdapter.renderFramePanels(graphics, current);
         renderScrollbar(graphics, current, mouseX, mouseY);
         graphics.nextStratum();
         renderWidgetsClipped(graphics, current, mouseX, mouseY, partialTick);
@@ -746,98 +736,16 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private void renderListPanels(GuiGraphics graphics, ViewSpec current) {
-        Identifier background = minecraft.level == null
-                ? MENU_LIST_BACKGROUND
-                : INWORLD_MENU_LIST_BACKGROUND;
-        Identifier top = minecraft.level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
-        Identifier bottom = minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
-        for (ViewSpec.Panel panel : current.panels()) {
-            if (panel.style() != ViewSpec.Panel.Style.VANILLA_LIST
-                    && panel.style() != ViewSpec.Panel.Style.VANILLA_TAB_CONTENT) {
-                continue;
-            }
-            Bounds b = panel.bounds();
-            if (b.width() <= 0 || b.height() <= 0) {
-                continue;
-            }
-            VanillaListSurface.Sample sample = VanillaListSurface.sample(current, panel);
-            clipped(graphics, current, panel.id(), () -> {
-                if (panel.style() == ViewSpec.Panel.Style.VANILLA_TAB_CONTENT) {
-                    Identifier tabBackground = minecraft.level == null
-                            ? MENU_BACKGROUND : INWORLD_MENU_BACKGROUND;
-                    VerticalTabStyle.backgroundSegments(b).forEach(segment -> graphics.blit(
-                            RenderPipelines.GUI_TEXTURED, tabBackground,
-                            segment.x(), segment.y(),
-                            sample.u() + segment.x() - b.x(), sample.v() + segment.y() - b.y(),
-                            segment.width(), segment.height(), 32, 32));
-                    VerticalTabStyle.selectedBounds(current)
-                            .map(tab -> VerticalTabStyle.separatorSegments(b, tab))
-                            .orElseGet(() -> List.of(new Bounds(
-                                    b.x(), b.y(), Math.min(2, b.width()), b.height())))
-                            .forEach(segment -> {
-                                graphics.pose().pushMatrix();
-                                graphics.pose().translate(segment.x(), segment.bottom());
-                                graphics.pose().rotate((float) (-Math.PI / 2.0));
-                                blitSeparator(graphics, top, 0, 0, segment.height());
-                                graphics.pose().popMatrix();
-                            });
-                    return;
-                }
-                graphics.blit(RenderPipelines.GUI_TEXTURED, background,
-                        b.x(), b.y(), sample.u(), sample.v(), b.width(), b.height(), 32, 32);
-                VanillaListSurface.Boundaries boundaries = VanillaListSurface.boundaries(b);
-                blitSeparator(graphics, top, b.x(), boundaries.topY(), b.width());
-                blitSeparator(graphics, bottom, b.x(), boundaries.bottomY(), b.width());
-            });
-        }
-    }
-
-    private void renderFramePanels(GuiGraphics graphics, ViewSpec current) {
-        Identifier background = minecraft.level == null
-                ? MENU_LIST_BACKGROUND
-                : INWORLD_MENU_LIST_BACKGROUND;
-        if ("add_source".equals(current.screenId())) {
-            int footerY = Math.max(0, current.height() - 33);
-            graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
-                    background,
-                    0, footerY, 0.0F, (float) footerY,
-                    current.width(), current.height() - footerY, 32, 32);
-            blitSeparator(
-                    graphics,
-                    minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR,
-                    0, footerY, current.width());
-        }
-        boolean tabBarOwnsHeaderSeparator = current.tabGroups().stream()
-                .anyMatch(group -> group.orientation() == ViewSpec.TabOrientation.HORIZONTAL);
         for (ViewSpec.Panel panel : current.panels()) {
             if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST
                     || panel.style() == ViewSpec.Panel.Style.VANILLA_TAB_CONTENT) {
-                continue;
-            }
-            Bounds b = panel.bounds();
-            graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
-                    background,
-                    b.x(), b.y(), 0.0F, (float) b.y(), b.width(), b.height(), 32, 32);
-            if (panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER
-                    && !tabBarOwnsHeaderSeparator) {
-                blitSeparator(
-                        graphics,
-                        minecraft.level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR,
-                        b.x(), b.bottom() - 2, b.width());
-            } else if (panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER) {
-                blitSeparator(
-                        graphics,
-                        minecraft.level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR,
-                        b.x(), b.y(), b.width());
+                if (panel.bounds().width() <= 0 || panel.bounds().height() <= 0) {
+                    continue;
+                }
+                clipped(graphics, current, panel.id(), () ->
+                        NativeSurfaceAdapter.renderPanel(graphics, current, panel));
             }
         }
-    }
-
-    private static void blitSeparator(
-            GuiGraphics graphics, Identifier texture, int x, int y, int width) {
-        graphics.blit(RenderPipelines.GUI_TEXTURED, texture, x, y, 0.0F, 0.0F, width, 2, 32, 2);
     }
 
     private void renderPreviews(GuiGraphics graphics, ViewSpec current) {
@@ -1113,7 +1021,6 @@ public final class NclSkinsScreen extends Screen {
             }
         }
     }
-
 
     @Override
     public boolean charTyped(CharacterEvent event) {
@@ -1625,13 +1532,8 @@ public final class NclSkinsScreen extends Screen {
                     ? (VerticalTabStyle.highlighted(isHovered, isFocused(), keyboardNavigation) ? TAB_SELECTED_HIGHLIGHTED : TAB_SELECTED)
                     : (VerticalTabStyle.highlighted(isHovered, isFocused(), keyboardNavigation) ? TAB_HIGHLIGHTED : TAB);
             if (selected) {
-                Bounds underlay = VerticalTabStyle.selectedUnderlay(
-                        new Bounds(getX(), getY(), getWidth(), getHeight()));
-                Identifier background = Minecraft.getInstance().level == null
-                        ? MENU_BACKGROUND : INWORLD_MENU_BACKGROUND;
-                graphics.blit(RenderPipelines.GUI_TEXTURED, background,
-                        underlay.x(), underlay.y(), underlay.x(), underlay.y(),
-                        underlay.width(), underlay.height(), 32, 32);
+                NativeSurfaceAdapter.renderSelectedTabUnderlay(
+                        graphics, new Bounds(getX(), getY(), getWidth(), getHeight()));
             }
             graphics.pose().pushMatrix();
             Bounds edge = VerticalTabStyle.rightEdge(

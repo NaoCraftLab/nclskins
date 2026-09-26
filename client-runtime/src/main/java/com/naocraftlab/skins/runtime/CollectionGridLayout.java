@@ -89,12 +89,8 @@ final class CollectionGridLayout {
         for (Section section : sections) {
             Objects.requireNonNull(section, "sections contains null");
             itemCount += section.itemCount();
-            totalHeight += collectionHeaderHeight + COLLECTION_HEADER_GAP;
-            if (!section.collapsed()) {
-                int rows = (section.itemCount() + columns - 1) / columns;
-                totalHeight += rows * (section.cardHeight().orElse(cardHeight) + cardGap)
-                        + COLLECTION_BOTTOM_PADDING;
-            }
+            totalHeight += sectionHeight(section.itemCount(), section.collapsed(), columns,
+                    section.cardHeight().orElse(cardHeight), collectionHeaderHeight, cardGap);
         }
         int maximum = Math.max(0, totalHeight - viewportHeight);
         int normalizedOffset = Math.max(0, Math.min(scrollOffset, maximum));
@@ -120,6 +116,14 @@ final class CollectionGridLayout {
                 itemCount,
                 normalizedOffset,
                 scrollbar);
+    }
+
+    static int sectionHeight(int itemCount, boolean collapsed, int columns, int cardHeight, int headerHeight, int cardGap) {
+        int height = headerHeight + COLLECTION_HEADER_GAP;
+        if (!collapsed) {
+            height += ((itemCount + columns - 1) / columns) * (cardHeight + cardGap) + COLLECTION_BOTTOM_PADDING;
+        }
+        return height;
     }
 
     static CardMetrics cardMetrics(

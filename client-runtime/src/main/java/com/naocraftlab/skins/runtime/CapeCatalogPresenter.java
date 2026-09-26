@@ -5,8 +5,6 @@ import java.util.List;
 import java.util.Optional;
 
 final class CapeCatalogPresenter {
-    private static final int COLLECTION_HEADER_HEIGHT = CollectionGridLayout.COLLECTION_HEADER_HEIGHT;
-
     static int errorHeight(CapeCatalogModel model, int width) {
         return model.importError() != null
                 ? 4 + model.textResolver().wrappedHeight(model.importError(), Math.max(1, width))
@@ -18,13 +16,14 @@ final class CapeCatalogPresenter {
     }
 
     static CardPosition selectedPosition(CapeCatalogModel model, int columns, int cardHeight) {
-        CapeCatalogLayout layout = layout(model, columns, cardHeight);
-        for (SectionLayout section : layout.sections()) {
-            for (RowLayout row : section.rows()) {
-                for (int index = row.start(); index < row.end(); index++) {
-                    if (selected(model, section.cards().get(index))) {
-                        return new CardPosition(row.top(), row.height());
-                    }
+        AppearanceCollections.Layout layout = layout(model, columns, cardHeight);
+        for (var section : layout.sections()) {
+            List<CapeCatalogModel.Card> cards = model.matches(section.section().id());
+            if (section.section().collapsed()) continue;
+            for (int index = 0; index < cards.size(); index++) {
+                if (selected(model, cards.get(index))) {
+                    Bounds bounds = section.card(index, 0, 0, 1);
+                    return new CardPosition(bounds.y(), bounds.height());
                 }
             }
         }
@@ -108,128 +107,81 @@ final class CapeCatalogPresenter {
                     ViewSpec.Text.Alignment.CENTER,
                     ViewSpec.Text.Layout.WRAP));
         }
-        clips.add(new ViewSpec.ClipRegion(
+        clips.add(AppearanceCollections.clip(
                 "editor.capes",
                 viewport,
                 List.of("editor.cape_item.", "editor.cape_surface.", "editor.cape_header.", "editor.cape_action.")));
 
-        CapeCatalogLayout layout = layout(model, columns, cardHeight);
+        AppearanceCollections.Layout layout = layout(model, columns, cardHeight);
         int scrollOffset = (int) Math.round(scroll);
         int ordinal = 2;
         int tabOrder = 4;
-        for (SectionLayout section : layout.sections()) {
-            String collectionId = section.collectionId();
+        for (var section : layout.sections()) {
+            String collectionId = section.section().id();
             String headerId = "editor.cape_header." + collectionId;
-            Bounds header = new Bounds(
-                    viewport.x(),
-                    viewport.y() + section.headerTop() - scrollOffset,
-                    viewport.width(),
-                    COLLECTION_HEADER_HEIGHT);
-            navigation.add(ViewSpec.NavigationNode.card(
-                    headerId,
-                    header,
-                    "editor.capes",
-                    ordinal++,
-                    tabOrder++,
-                    !busy,
-                    ViewSpec.NavigationPattern.GRID,
-                    Optional.of(headerId)));
-            if (visible(header, viewport)) {
-                widgets.add(ViewSpec.Widget.collectionHeader(
-                        headerId,
-                        header,
-                        UiMessage.info(
-                                "nclskins.capes.collection",
-                                model.collapsed().contains(collectionId) ? "▶" : "▼",
-                                model.collectionLabel(collectionId)),
-                        !busy,
-                        false));
-                model.collectionInfo(collectionId).ifPresent(info -> tooltips.add(new ViewSpec.TooltipRegion(
+            Bounds header = section.header(viewport.x(), viewport.y() - scrollOffset, viewport.width());
+            var headerPresentation = AppearanceCollections.header(headerId, header,
+                    UiMessage.info("nclskins.capes.collection",
+                            model.collapsed().contains(collectionId) ? "▶" : "▼", model.collectionLabel(collectionId)),
+                    !busy, viewport, "editor.capes", ordinal++, tabOrder++);
+            navigation.add(headerPresentation.navigation());
+            headerPresentation.widget().ifPresent(widgets::add);
+            if (headerPresentation.widget().isPresent()) {
+                model.collectionInfo(collectionId).ifPresent(info -> tooltips.add(AppearanceCard.info(
                         "editor.cape_tooltip.collection." + collectionId,
                         new Bounds(header.x() + 12, header.y() + 3, Math.max(1, header.width() - 12), 10),
-                        model.collectionLabel(collectionId),
-                        ViewSpec.Text.Alignment.LEFT,
-                        UiMessage.literal(info, UiMessage.Severity.INFO))));
+                        model.collectionLabel(collectionId), ViewSpec.Text.Alignment.LEFT, info)));
             }
-            for (RowLayout row : section.rows()) {
-                for (int index = row.start(); index < row.end(); index++) {
-                    CapeCatalogModel.Card card = section.cards().get(index);
-                    Bounds bounds = new Bounds(
-                            viewport.x() + (index - row.start()) * (cardWidth + CatalogCardSizing.GAP),
-                            viewport.y() + row.top() - scrollOffset,
-                            cardWidth,
-                            row.height());
-                    String id = card.widgetId();
-                    navigation.add(ViewSpec.NavigationNode.card(
-                            id,
-                            bounds,
-                            "editor.capes",
-                            ordinal++,
-                            tabOrder++,
-                            !busy,
-                            ViewSpec.NavigationPattern.GRID,
-                            Optional.of(id)));
-                    List<ViewSpec.Widget> actions = personalActions(model, card, bounds, busy);
-                    for (ViewSpec.Widget action : actions) {
-                        ViewSpec.NavigationNode node = ViewSpec.NavigationNode.control(action, ordinal++, tabOrder++);
-                        navigation.add(new ViewSpec.NavigationNode(
-                                node.id(), node.bounds(), Optional.of("editor.capes"), node.documentOrder(),
-                                node.tabOrder(), node.enabled(), node.pattern(), node.activationActionId()));
-                    }
-                    if (!visible(bounds, viewport)) {
-                        continue;
-                    }
-                    String surface = "editor.cape_surface." + collectionId + "." + card.key();
-                    panels.add(new ViewSpec.Panel(surface, bounds, ViewSpec.Panel.Style.VANILLA_LIST));
-                    widgets.add(new ViewSpec.Widget(
-                            id,
-                            ViewSpec.WidgetKind.CAPE_CARD,
-                            bounds,
-                            card.label(),
-                            Optional.of(model.selected(card) ? "selected" : "unselected"),
-                            Optional.empty(),
-                            !busy,
-                            true,
-                            0));
-                    boolean editing = card.local() != null
-                            && card.local().entryId().equals(model.editing());
-                    if (!(editing && !model.deleting()) && !card.importCard()) {
-                        Bounds nameBounds = CatalogCardGeometry.name(bounds);
-                        texts.add(new ViewSpec.Text(
-                                surface + ".name",
-                                nameBounds,
-                                card.label(),
-                                ViewSpec.Text.Alignment.CENTER,
-                                Optional.of(new ViewSpec.MarqueeActivation(bounds, List.of(id)))));
-                        card.info().ifPresent(info -> tooltips.add(new ViewSpec.TooltipRegion(
-                                "editor.cape_tooltip.card." + collectionId + "." + card.key(),
-                                nameBounds,
-                                card.label(),
-                                ViewSpec.Text.Alignment.CENTER,
-                                UiMessage.literal(info, UiMessage.Severity.INFO))));
-                    }
-                    boolean personal = collectionId.equals("OFFLINE");
-                    Bounds previewBounds = personal
-                            ? CatalogCardGeometry.previewWithActions(bounds)
-                            : CatalogCardGeometry.preview(bounds);
-                    if (card.texture().isPresent()) {
-                        previews.add(new ViewSpec.BackEquipmentPreview(
-                                surface + ".preview",
-                                previewBounds,
-                                card.texture().orElseThrow(),
-                                mode,
-                                !Boolean.FALSE.equals(card.hasElytra())));
-                    } else {
-                        icons.add(new ViewSpec.IconDecoration(
-                                surface + ".icon",
-                                CatalogCardGeometry.serviceIcon(previewBounds),
-                                card.importCard() ? GuiIcon.ACTION_ADD_CAPE : GuiIcon.APPEARANCE_CAPE_NONE,
-                                id,
-                                0.8F,
-                                1.0F));
-                    }
-                    widgets.addAll(actions);
+            if (section.section().collapsed()) continue;
+            List<CapeCatalogModel.Card> cards = model.matches(collectionId);
+            for (int index = 0; index < cards.size(); index++) {
+                CapeCatalogModel.Card card = cards.get(index);
+                Bounds bounds = section.card(index, viewport.x(), viewport.y() - scrollOffset, cardWidth);
+                String id = card.widgetId();
+                navigation.add(AppearanceCollections.navigation(
+                        id,
+                        bounds,
+                        "editor.capes",
+                        ordinal++,
+                        tabOrder++,
+                        !busy,
+                        ViewSpec.NavigationPattern.GRID,
+                        Optional.of(id)));
+                List<ViewSpec.Widget> actions = personalActions(model, card, bounds, busy);
+                for (ViewSpec.Widget action : actions) {
+                    ViewSpec.NavigationNode node = ViewSpec.NavigationNode.control(action, ordinal++, tabOrder++);
+                    navigation.add(new ViewSpec.NavigationNode(
+                            node.id(), node.bounds(), Optional.of("editor.capes"), node.documentOrder(),
+                            node.tabOrder(), node.enabled(), node.pattern(), node.activationActionId()));
                 }
+                if (!AppearanceCollections.visibleVertically(bounds, viewport)) {
+                    continue;
+                }
+                String surface = "editor.cape_surface." + collectionId + "." + card.key();
+                var chrome = AppearanceCard.chrome(surface, id, bounds, ViewSpec.WidgetKind.CAPE_CARD,
+                        card.label(), Optional.of(model.selected(card) ? "selected" : "unselected"), !busy);
+                panels.add(chrome.surface());
+                widgets.add(chrome.widget());
+                boolean editing = card.local() != null
+                        && card.local().entryId().equals(model.editing());
+                if (!(editing && !model.deleting()) && !card.importCard()) {
+                    Bounds nameBounds = CatalogCardGeometry.name(bounds);
+                    texts.add(AppearanceCard.name(surface + ".name", nameBounds, card.label(), bounds, List.of(id)));
+                    card.info().ifPresent(info -> tooltips.add(AppearanceCard.info(
+                            "editor.cape_tooltip.card." + collectionId + "." + card.key(),
+                            nameBounds, card.label(), ViewSpec.Text.Alignment.CENTER, info)));
+                }
+                AppearanceCard.Role role = collectionId.equals("OFFLINE")
+                        ? AppearanceCard.Role.PERSONAL : AppearanceCard.Role.READ_ONLY;
+                Bounds previewBounds = role.preview(bounds);
+                if (card.texture().isPresent()) {
+                    previews.add(new AppearanceCard.Cape(card.texture().orElseThrow(), mode,
+                            !Boolean.FALSE.equals(card.hasElytra())).present(surface + ".preview", previewBounds));
+                } else {
+                    icons.add(AppearanceCard.service(surface + ".icon", previewBounds,
+                            card.importCard() ? GuiIcon.ACTION_ADD_CAPE : GuiIcon.APPEARANCE_CAPE_NONE, id));
+                }
+                widgets.addAll(actions);
             }
         }
     }
@@ -239,108 +191,44 @@ final class CapeCatalogPresenter {
         if (card.local() == null) return List.of();
         String key = card.local().entryId().toString();
         boolean editing = card.local().entryId().equals(model.editing());
-        List<ViewSpec.Widget> actions = new ArrayList<>();
-        if (editing && !model.deleting()) {
-            actions.add(ViewSpec.Widget.textField(
-                    "editor.cape_action.name", CatalogCardGeometry.renameField(bounds),
-                    UiMessage.info("nclskins.capes.rename"), model.renameValue(),
-                    UiMessage.info("nclskins.your_skins.rename_hint"), !busy, 128, true,
-                    Optional.of("editor.cape_action.save." + key)));
-        }
-        CatalogCardGeometry.ActionPair geometry = CatalogCardGeometry.personalActions(bounds);
+        Optional<AppearanceCard.Rename> rename = editing && !model.deleting()
+                ? Optional.of(new AppearanceCard.Rename("editor.cape_action.name", UiMessage.info("nclskins.capes.rename"),
+                        model.renameValue(), UiMessage.info("nclskins.your_skins.rename_hint"), !busy,
+                        "editor.cape_action.save." + key)) : Optional.empty();
+        AppearanceCard.Action left;
+        AppearanceCard.Action right;
         if (editing) {
-            if (model.deleting()) {
-                actions.add(ViewSpec.Widget.iconButton(
-                        "editor.cape_action.confirm." + key,
-                        geometry.left(),
-                        UiMessage.info("nclskins.capes.delete"),
-                        NativeGuiIcon.ACCEPT,
-                        !busy));
-                actions.add(ViewSpec.Widget.iconButton(
-                        "editor.cape_action.cancel." + key,
-                        geometry.right(),
-                        UiMessage.info("gui.cancel"),
-                        NativeGuiIcon.REJECT,
-                        !busy));
-            } else {
-                actions.add(ViewSpec.Widget.iconButton(
-                        "editor.cape_action.save." + key,
-                        geometry.left(),
-                        UiMessage.info("nclskins.editor.save"),
-                        NativeGuiIcon.ACCEPT,
-                        !busy && !model.renameValue().trim().isEmpty()));
-                actions.add(ViewSpec.Widget.iconButton(
-                        "editor.cape_action.cancel." + key,
-                        geometry.right(),
-                        UiMessage.info("gui.cancel"),
-                        NativeGuiIcon.REJECT,
-                        !busy));
-            }
+            left = new AppearanceCard.Action("editor.cape_action." + (model.deleting() ? "confirm." : "save.") + key,
+                    UiMessage.info(model.deleting() ? "nclskins.capes.delete" : "nclskins.editor.save"),
+                    NativeGuiIcon.ACCEPT, !busy && (model.deleting() || !model.renameValue().trim().isEmpty()));
+            right = new AppearanceCard.Action("editor.cape_action.cancel." + key, UiMessage.info("gui.cancel"),
+                    NativeGuiIcon.REJECT, !busy);
         } else {
-            actions.add(ViewSpec.Widget.iconButton(
-                    "editor.cape_action.rename." + key, geometry.left(), UiMessage.info("nclskins.capes.rename"),
-                    GuiIcon.ACTION_RENAME, !busy && model.editing() == null));
-            actions.add(ViewSpec.Widget.iconButton(
-                    "editor.cape_action.delete." + key, geometry.right(), UiMessage.info("nclskins.capes.delete"),
-                    GuiIcon.ACTION_DELETE, !busy && model.editing() == null));
+            left = new AppearanceCard.Action("editor.cape_action.rename." + key, UiMessage.info("nclskins.capes.rename"),
+                    GuiIcon.ACTION_RENAME, !busy && model.editing() == null);
+            right = new AppearanceCard.Action("editor.cape_action.delete." + key, UiMessage.info("nclskins.capes.delete"),
+                    GuiIcon.ACTION_DELETE, !busy && model.editing() == null);
         }
-        return actions;
+        return AppearanceCard.actions(bounds, rename, left, right);
     }
 
-    private static CapeCatalogLayout layout(CapeCatalogModel model, int columns, int cardHeight) {
-        List<SectionLayout> sections = new ArrayList<>();
-        int y = 0;
+    private static AppearanceCollections.Layout layout(CapeCatalogModel model, int columns, int cardHeight) {
+        List<AppearanceCollections.Section> sections = new ArrayList<>();
         for (String collectionId : model.visibleCollections()) {
-            List<CapeCatalogModel.Card> cards = model.matches(collectionId);
-            if (cards.isEmpty()) {
-                continue;
-            }
-            int headerTop = y;
-            y += COLLECTION_HEADER_HEIGHT + CollectionGridLayout.COLLECTION_HEADER_GAP;
-            List<RowLayout> rows = new ArrayList<>();
-            if (!model.collapsed().contains(collectionId)) {
-                int rowHeight = collectionId.equals("OFFLINE")
-                        ? cardHeight : CatalogCardGeometry.readOnlyHeight(cardHeight);
-                for (int start = 0; start < cards.size(); start += columns) {
-                    int end = Math.min(cards.size(), start + columns);
-                    rows.add(new RowLayout(start, end, y, rowHeight));
-                    y += rowHeight + CatalogCardSizing.GAP;
-                }
-                y += CollectionGridLayout.COLLECTION_BOTTOM_PADDING;
-            }
-            sections.add(new SectionLayout(collectionId, cards, headerTop, rows));
+            int count = model.matches(collectionId).size();
+            if (count == 0) continue;
+            AppearanceCard.Role role = collectionId.equals("OFFLINE")
+                    ? AppearanceCard.Role.PERSONAL : AppearanceCard.Role.READ_ONLY;
+            sections.add(new AppearanceCollections.Section(collectionId, count,
+                    model.collapsed().contains(collectionId), role.height(cardHeight)));
         }
-        return new CapeCatalogLayout(sections, y);
+        return AppearanceCollections.layout(sections, columns);
     }
 
     private static boolean selected(CapeCatalogModel model, CapeCatalogModel.Card card) {
         return model.inspected() != null
                 ? model.inspected().equals(card)
                 : model.selected(card) && !card.service();
-    }
-
-    private static boolean visible(Bounds bounds, Bounds viewport) {
-        return bounds.bottom() > viewport.y() && bounds.y() < viewport.bottom();
-    }
-
-    private record CapeCatalogLayout(List<SectionLayout> sections, int contentHeight) {
-        private CapeCatalogLayout {
-            sections = List.copyOf(sections);
-        }
-    }
-
-    private record SectionLayout(
-            String collectionId,
-            List<CapeCatalogModel.Card> cards,
-            int headerTop,
-            List<RowLayout> rows) {
-        private SectionLayout {
-            cards = List.copyOf(cards);
-            rows = List.copyOf(rows);
-        }
-    }
-
-    private record RowLayout(int start, int end, int top, int height) {
     }
 
     record CardPosition(int top, int height) {

@@ -1,13 +1,9 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.skinlookup;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.naocraftlab.skins.compat.gui.immediate.NclSkinsImmediateScreen;
 import com.naocraftlab.skins.runtime.ViewSpec;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.gui.screens.worldselection.CreateWorldScreen;
-import net.minecraft.resources.ResourceLocation;
-
 
 final class SkinLookupScreen extends NclSkinsImmediateScreen {
     private boolean createWorldChrome;
@@ -28,14 +24,14 @@ final class SkinLookupScreen extends NclSkinsImmediateScreen {
             int mouseX,
             int mouseY,
             float partialTick) {
-        createWorldChrome = "add_source".equals(view.screenId());
+        createWorldChrome = view.surfaceRole() == ViewSpec.SurfaceRole.TABBED_MENU;
         try {
             renderBackground(graphics, mouseX, mouseY, partialTick);
         } finally {
             createWorldChrome = false;
         }
-        if ("add_source".equals(view.screenId())) {
-            renderCreateWorldFooterSeparator(graphics);
+        if (view.surfaceRole() == ViewSpec.SurfaceRole.TABBED_MENU) {
+            NativeSurfaceAdapter.renderCreateWorldFooterSeparator(graphics, width, height);
         }
     }
 
@@ -45,26 +41,8 @@ final class SkinLookupScreen extends NclSkinsImmediateScreen {
             super.renderMenuBackground(graphics);
             return;
         }
-        graphics.blit(
-                CreateWorldScreen.TAB_HEADER_BACKGROUND,
-                0,
-                0,
-                0.0F,
-                0.0F,
-                width,
-                24,
-                16,
-                16);
+        NativeSurfaceAdapter.renderTabHeader(graphics, width);
         renderMenuBackground(graphics, 0, 24, width, height);
-    }
-
-    private void renderCreateWorldFooterSeparator(GuiGraphics graphics) {
-        ResourceLocation footer = minecraft.level == null
-                ? Screen.FOOTER_SEPARATOR
-                : Screen.INWORLD_FOOTER_SEPARATOR;
-        RenderSystem.enableBlend();
-        graphics.blit(footer, 0, height - 33, 0.0F, 0.0F, width, 2, 32, 2);
-        RenderSystem.disableBlend();
     }
 
     @Override

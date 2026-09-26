@@ -88,17 +88,20 @@ public final class ProvidersPresenter {
                 new ViewSpec.Panel("footer", new Bounds(0, height - 33, width, 33), ViewSpec.Panel.Style.VANILLA_FOOTER),
                 new ViewSpec.Panel("providers.content", new Bounds(divider, 33, width - divider, Math.max(1, height - 66)), ViewSpec.Panel.Style.VANILLA_TAB_CONTENT));
         boolean overlay = transform.outerLayerVisibility().visible(OuterLayerPart.HEAD);
+        var tabDescriptors = new ArrayList<VerticalTabs.Tab>();
         for (var tab : AppearanceProviders.Component.values()) {
-            int index = tab == AppearanceProviders.Component.SKIN ? 0 : 1;
-            String id = "providers.tab." + tab.name();
-            Bounds bounds = VerticalTabStyle.bounds(divider, index);
-            widgets.add(ViewSpec.Widget.verticalTabButton(id, bounds,
-                    UiMessage.info(index == 0 ? "nclskins.providers.skins" : "nclskins.providers.capes"),
-                    noValueIcon(tab), tab == component, true));
-            Object value = index == 0 ? providers.skin().resolve().map(ProviderChannel.Resolved::value).orElse(null)
+            Object value = tab == AppearanceProviders.Component.SKIN
+                    ? providers.skin().resolve().map(ProviderChannel.Resolved::value).orElse(null)
                     : providers.cape().resolve().map(ProviderChannel.Resolved::value).orElse(null);
-            icons.add(icon(id, new Bounds(VerticalTabStyle.iconX(bounds.x(), tab == component) + 4, bounds.y() + 4, 16, 16), value, overlay, tab));
+            tabDescriptors.add(new VerticalTabs.Tab("providers.tab." + tab.name(),
+                    UiMessage.info(tab == AppearanceProviders.Component.SKIN
+                            ? "nclskins.providers.skins" : "nclskins.providers.capes"),
+                    noValueIcon(tab), tab == component, true,
+                    Optional.of(new VerticalTabs.Content(providerTexture(value, overlay)))));
         }
+        var tabs = VerticalTabs.present("providers.tabs", divider, tabDescriptors);
+        widgets.addAll(tabs.widgets());
+        icons.addAll(tabs.icons());
         widgets.add(ViewSpec.Widget.iconButton("providers.add", new Bounds(x, 39, 20, 20),
                 UiMessage.info("nclskins.providers.add"), GuiIcon.ACTION_ADD_PROVIDER, !busy));
         texts.add(new ViewSpec.Text("providers.component", new Bounds(x + 24, 44, Math.max(1, contentWidth - 48), 10),
@@ -153,21 +156,24 @@ public final class ProvidersPresenter {
         widgets.add(ViewSpec.Widget.button("providers.back", new Bounds((width - backWidth(width)) / 2, height - 28, backWidth(width), 20), UiMessage.info("gui.back"), true));
         var skin = selectedSkin == null ? providers.skin().resolve().map(ProviderChannel.Resolved::value) : Optional.ofNullable(providers.skin().observation(selectedSkin).value());
         var cape = selectedCape == null ? providers.cape().resolve().map(ProviderChannel.Resolved::value) : Optional.ofNullable(providers.cape().observation(selectedCape).value());
-        if (cape.isPresent()) widgets.add(ViewSpec.Widget.iconOnlyButton("providers.preview_mode", new Bounds(2, 35, 20, 20),
-                UiMessage.info(transform.capeMode() == PreviewRenderer.CapeMode.ELYTRA ? "item.minecraft.elytra" : "options.modelPart.cape"),
-                transform.capeMode() == PreviewRenderer.CapeMode.ELYTRA ? GuiIcon.APPEARANCE_BACK_ELYTRA : GuiIcon.APPEARANCE_BACK_CAPE, true));
+        widgets.addAll(PlayerAppearanceStage.controls(new Bounds(0, 0, divider, height),
+                cape.isPresent() ? Optional.of(PlayerAppearanceStage.capeMode("providers.preview_mode", transform, true))
+                        : Optional.empty(), List.of()));
         texts.add(new ViewSpec.Text("providers.title", new Bounds(0, 12, width, 10), UiMessage.info(adding ? "nclskins.providers.add" : "nclskins.providers.title"), ViewSpec.Text.Alignment.CENTER));
         String revision = skin.map(s -> "provider:skin:" + s.sha256()).orElse("provider:default");
         SkinReference reference = skin.map(s -> SkinReference.asset(UUID.nameUUIDFromBytes(s.sha256().getBytes(StandardCharsets.US_ASCII)))).orElse(SkinReference.accountDefault());
-        var preview = new ViewSpec.Preview("editor.preview", new Bounds(0, 0, width, height), new Bounds(0, 0, divider, height), reference,
-                revision, skin.map(ProviderSkin::variant).orElse(defaultVariant), cape.map(c -> c.textureCacheKey() == null ? c.id() : "provider:cape:" + c.textureCacheKey()),
-                cape.isPresent() ? transform.capeMode() : PreviewRenderer.CapeMode.OFF, transform.outerLayerVisibility(), transform.yawDegrees(), transform.pitchDegrees(), transform.scale(), Optional.empty(), Optional.empty(), PreviewRenderer.PreviewIntent.EDITOR_DRAFT).withCapeElytra(cape.map(value -> !Boolean.FALSE.equals(value.hasElytra())).orElse(true));
+        var preview = PlayerAppearanceStage.present("editor.preview", width, height, new Bounds(0, 0, divider, height),
+                new PlayerAppearanceStage.Appearance(reference, revision, skin.map(ProviderSkin::variant).orElse(defaultVariant),
+                        cape.map(c -> c.textureCacheKey() == null ? c.id() : "provider:cape:" + c.textureCacheKey()),
+                        Optional.empty(), Optional.empty(), cape.map(value -> !Boolean.FALSE.equals(value.hasElytra())).orElse(true),
+                        PreviewRenderer.PreviewIntent.EDITOR_DRAFT), transform);
         var navigation = new ArrayList<ViewSpec.NavigationNode>();
         int tabOrder = 0;
         for (var widget : widgets) {
             if (widget.kind() == ViewSpec.WidgetKind.TAB_BUTTON) {
-                navigation.add(new ViewSpec.NavigationNode(widget.id(), widget.bounds(), Optional.of("providers.tabs"), navigation.size(),
-                        widget.value().filter("selected"::equals).isPresent() ? tabOrder++ : -1, widget.enabled(), ViewSpec.NavigationPattern.VERTICAL_LIST, Optional.of(widget.id())));
+                int index = tabs.widgets().indexOf(widget);
+                navigation.add(tabs.navigation(index, navigation.size(), tabOrder));
+                if (tabs.group().tabs().get(index).selected()) tabOrder++;
             } else if (widget.id().matches("providers\\.(row|up|down|edit|remove|account)\\..+")) {
                 String provider = widget.id().substring(widget.id().lastIndexOf('.') + 1);
                 Bounds row = widgets.stream().filter(w -> w.id().equals("providers.row." + provider)).findFirst().orElseThrow().bounds();
@@ -177,9 +183,6 @@ public final class ProvidersPresenter {
                 navigation.add(ViewSpec.NavigationNode.control(widget, navigation.size(), tabOrder++));
             }
         }
-        var tabs = new ViewSpec.TabGroup("providers.tabs", new Bounds(VerticalTabStyle.bounds(divider, 0).x(), 45, 24, 48), List.of(
-                new ViewSpec.Tab("providers.tab.SKIN", UiMessage.info("nclskins.providers.skins"), component == AppearanceProviders.Component.SKIN, true),
-                new ViewSpec.Tab("providers.tab.CAPE", UiMessage.info("nclskins.providers.capes"), component == AppearanceProviders.Component.CAPE, true)), ViewSpec.TabOrientation.VERTICAL);
         List<ViewSpec.ProgressDecoration> progress = order.contains(BuiltinProvider.MINECRAFT)
                 ? cooldown.map(value -> List.of(new ViewSpec.ProgressDecoration("providers.minecraft.cooldown",
                         "providers.row.MINECRAFT", value.fraction(), 0xFF5A8FCB, 2, 33, 2))).orElse(List.of()) : List.of();
@@ -193,7 +196,7 @@ public final class ProvidersPresenter {
                             6, thumbHeight), offset, maximum, ViewSpec.Scrollbar.Orientation.VERTICAL));
         }
         return new ViewSpec("providers", UiMessage.info("nclskins.providers.title"), width, height,
-                panels, texts, widgets, List.of(preview), scrollbar, List.of(tabs), Optional.empty(),
+                panels, texts, widgets, List.of(preview), scrollbar, List.of(tabs.group()), Optional.empty(),
                 List.of(new ViewSpec.ClipRegion("providers.rows", rowViewport,
                         List.of("providers.row.", "providers.up.", "providers.down.",
                                 "providers.edit.", "providers.remove.", "providers.account."))),
@@ -289,8 +292,13 @@ public final class ProvidersPresenter {
     }
 
     private ViewSpec.IconDecoration icon(String owner, Bounds bounds, Object value, boolean overlay, AppearanceProviders.Component component) {
-        Optional<ViewSpec.ProviderTexture> texture = value instanceof ProviderSkin skin ? Optional.of(new ViewSpec.ProviderTexture(skin.sha256(), true, overlay))
-                : value instanceof ProviderCape cape && cape.textureCacheKey() != null ? Optional.of(new ViewSpec.ProviderTexture(cape.textureCacheKey(), false, false)) : Optional.empty();
-        return new ViewSpec.IconDecoration(owner + ".icon", bounds, noValueIcon(component), owner, 1, 1, texture);
+        return new ViewSpec.IconDecoration(owner + ".icon", bounds, noValueIcon(component), owner, 1, 1,
+                providerTexture(value, overlay));
+    }
+
+    private static Optional<ViewSpec.ProviderTexture> providerTexture(Object value, boolean overlay) {
+        return value instanceof ProviderSkin skin ? Optional.of(new ViewSpec.ProviderTexture(skin.sha256(), true, overlay))
+                : value instanceof ProviderCape cape && cape.textureCacheKey() != null
+                ? Optional.of(new ViewSpec.ProviderTexture(cape.textureCacheKey(), false, false)) : Optional.empty();
     }
 }

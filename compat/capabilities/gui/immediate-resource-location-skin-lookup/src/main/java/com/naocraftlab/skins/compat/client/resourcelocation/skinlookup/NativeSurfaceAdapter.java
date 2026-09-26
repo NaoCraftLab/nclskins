@@ -7,13 +7,23 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.worldselection.CreateWorldScreen;
 import net.minecraft.resources.ResourceLocation;
 import com.naocraftlab.skins.runtime.Bounds;
 import com.naocraftlab.skins.runtime.VanillaListSurface;
 import com.naocraftlab.skins.runtime.ViewSpec;
 
+final class NativeSurfaceAdapter {
+    private static final net.minecraft.resources.ResourceLocation TAB_SELECTED =
+            net.minecraft.resources.ResourceLocation.withDefaultNamespace("widget/tab_selected");
+    private static final net.minecraft.resources.ResourceLocation TAB_SELECTED_HIGHLIGHTED =
+            net.minecraft.resources.ResourceLocation.withDefaultNamespace(
+                    "widget/tab_selected_highlighted");
+    private static final net.minecraft.resources.ResourceLocation TAB =
+            net.minecraft.resources.ResourceLocation.withDefaultNamespace("widget/tab");
+    private static final net.minecraft.resources.ResourceLocation TAB_HIGHLIGHTED =
+            net.minecraft.resources.ResourceLocation.withDefaultNamespace("widget/tab_highlighted");
 
-final class NclSkinsVanillaScreenStyle {
     static final int SCROLLBAR_SIZE = 6;
 
     private static final ResourceLocation INWORLD_MENU_BACKGROUND =
@@ -29,7 +39,7 @@ final class NclSkinsVanillaScreenStyle {
     private static final ResourceLocation SCROLLER_BACKGROUND =
             ResourceLocation.withDefaultNamespace("widget/scroller_background");
 
-    private NclSkinsVanillaScreenStyle() {}
+    private NativeSurfaceAdapter() {}
 
     static void renderListPanel(
             GuiGraphics graphics,
@@ -176,4 +186,97 @@ final class NclSkinsVanillaScreenStyle {
                 left, top, left, top, width, height, 32, 32);
     }
 
+    static void renderPanel(
+            GuiGraphics graphics,
+            ViewSpec.Panel panel,
+            int textureU,
+            int textureV,
+            Optional<com.naocraftlab.skins.runtime.Bounds> selectedVerticalTabBounds,
+            Optional<com.naocraftlab.skins.runtime.Bounds> verticalTabGroupBounds) {
+        com.naocraftlab.skins.runtime.Bounds bounds = panel.bounds();
+        if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST) {
+            renderListPanel(
+                    graphics,
+                    bounds.x(),
+                    bounds.y(),
+                    bounds.width(),
+                    bounds.height(),
+                    textureU,
+                    textureV);
+        } else if (panel.style() == ViewSpec.Panel.Style.VANILLA_TAB_CONTENT) {
+            renderTabContentPanel(
+                    graphics, bounds, verticalTabGroupBounds);
+        } else {
+            renderFramePanel(graphics, bounds, panel.style());
+        }
+    }
+
+    static void renderScrollbar(GuiGraphics graphics, ViewSpec.Scrollbar scrollbar) {
+        renderHorizontalScrollbar(
+                graphics,
+                scrollbar.track().x(),
+                scrollbar.track().y(),
+                scrollbar.track().width(),
+                scrollbar.thumb().x(),
+                scrollbar.thumb().width());
+    }
+
+    static void renderVerticalTab(
+            GuiGraphics graphics,
+            int x,
+            int y,
+            int width,
+            int height,
+            boolean selected,
+            boolean highlighted,
+            boolean active) {
+        net.minecraft.resources.ResourceLocation sprite = selected
+                ? (highlighted ? TAB_SELECTED_HIGHLIGHTED : TAB_SELECTED)
+                : (highlighted ? TAB_HIGHLIGHTED : TAB);
+        if (selected) {
+            renderSelectedTabUnderlay(
+                    graphics, x, y, width, height);
+        }
+        RenderSystem.enableBlend();
+        try {
+            Bounds edge = VerticalTabStyle.rightEdge(new Bounds(x, y, width, height));
+            graphics.enableScissor(x, y, edge.x(), edge.bottom());
+            try {
+                graphics.pose().pushPose();
+                try {
+                    graphics.pose().translate(x, y + height, 0.0F);
+                    graphics.pose().mulPose(Axis.ZP.rotationDegrees(-90.0F));
+                    graphics.blitSprite(sprite, 0, 0, height, width);
+                } finally {
+                    graphics.pose().popPose();
+                }
+            } finally {
+                graphics.disableScissor();
+            }
+        } finally {
+            RenderSystem.disableBlend();
+        }
+    }
+
+    static void renderCreateWorldFooterSeparator(GuiGraphics graphics, int width, int height) {
+        ResourceLocation footer = Minecraft.getInstance().level == null
+                ? Screen.FOOTER_SEPARATOR
+                : Screen.INWORLD_FOOTER_SEPARATOR;
+        RenderSystem.enableBlend();
+        graphics.blit(footer, 0, height - 33, 0.0F, 0.0F, width, 2, 32, 2);
+        RenderSystem.disableBlend();
+    }
+
+    static void renderTabHeader(GuiGraphics graphics, int width) {
+        graphics.blit(
+                CreateWorldScreen.TAB_HEADER_BACKGROUND,
+                0,
+                0,
+                0.0F,
+                0.0F,
+                width,
+                24,
+                16,
+                16);
+    }
 }

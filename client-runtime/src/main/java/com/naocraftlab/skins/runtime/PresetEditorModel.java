@@ -744,14 +744,12 @@ public final class PresetEditorModel {
                 ViewSpec.Panel.Style.VANILLA_TAB_CONTENT));
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Text> texts = new ArrayList<>();
-        widgets.add(ViewSpec.Widget.verticalTabButton(
-                "editor.tab.appearance", VerticalTabStyle.bounds(dividerX, 0),
-                UiMessage.info("nclskins.editor.tab.appearance"), GuiIcon.EDITOR_TAB_APPEARANCE,
-                selectedEditorTab == EditorTab.APPEARANCE, !busy));
-        widgets.add(ViewSpec.Widget.verticalTabButton(
-                "editor.tab.cape", VerticalTabStyle.bounds(dividerX, 1),
-                UiMessage.info("nclskins.editor.tab.cape"), GuiIcon.EDITOR_TAB_CAPE,
-                selectedEditorTab == EditorTab.CAPE, !busy));
+        var tabs = VerticalTabs.present("editor.tabs", dividerX, List.of(
+                new VerticalTabs.Tab("editor.tab.appearance", UiMessage.info("nclskins.editor.tab.appearance"),
+                        GuiIcon.EDITOR_TAB_APPEARANCE, selectedEditorTab == EditorTab.APPEARANCE, !busy),
+                new VerticalTabs.Tab("editor.tab.cape", UiMessage.info("nclskins.editor.tab.cape"),
+                        GuiIcon.EDITOR_TAB_CAPE, selectedEditorTab == EditorTab.CAPE, !busy)));
+        widgets.addAll(tabs.widgets());
         if (selectedEditorTab == EditorTab.APPEARANCE) {
             widgets.add(ViewSpec.Widget.textField(
                     "editor.name",
@@ -795,7 +793,7 @@ public final class PresetEditorModel {
                     navigationNodes,
                     capeGallery);
         }
-        addPreviewCycleControls(widgets, previewBounds, height);
+        addPreviewCycleControls(widgets, previewBounds);
         widgets.add(ViewSpec.Widget.button(
                 "editor.save",
                 new Bounds(footerX, bottom, half, 20),
@@ -827,13 +825,8 @@ public final class PresetEditorModel {
                 message,
                 ViewSpec.Text.Alignment.CENTER)));
 
-        for (int index = 0; index < 2; index++) {
-            ViewSpec.Widget tab = widgets.get(index);
-            boolean selected = index == (selectedEditorTab == EditorTab.APPEARANCE ? 0 : 1);
-            navigationNodes.add(new ViewSpec.NavigationNode(
-                    tab.id(), tab.bounds(), Optional.of("editor.tabs"), index,
-                    selected ? 0 : -1, tab.enabled(), ViewSpec.NavigationPattern.VERTICAL_LIST,
-                    Optional.of(tab.id())));
+        for (int index = 0; index < tabs.widgets().size(); index++) {
+            navigationNodes.add(tabs.navigation(index, index, 0));
         }
         int tabOrder = capeCatalog != null && selectedEditorTab == EditorTab.CAPE
                 ? Math.max(4, navigationNodes.stream().mapToInt(ViewSpec.NavigationNode::tabOrder).max().orElse(3) + 1)
@@ -859,29 +852,15 @@ public final class PresetEditorModel {
             }
         }
 
-        PreviewRenderer.CapeMode effectiveCapeMode = previewCapeId().isPresent()
-                ? preview.capeMode()
-                : PreviewRenderer.CapeMode.OFF;
         Optional<ViewSpec.CatalogImage> previewCatalogImage = catalogOrigin.map(origin ->
                 new ViewSpec.CatalogImage(origin.collectionId(), origin.skinId()));
-        ViewSpec.Preview previewSpec = new ViewSpec.Preview(
-                "editor.preview",
-                new Bounds(0, 0, width, height),
-                previewBounds,
-                skin,
-                png.map(DraftPng::revision).orElseGet(() -> skin.optionalAssetId()
-                        .map(id -> "asset:" + id)
-                        .orElse("current-player")),
-                variant,
-                previewCapeId(),
-                effectiveCapeMode,
-                preview.outerLayerVisibility(),
-                preview.yawDegrees(),
-                preview.pitchDegrees(),
-                preview.scale(),
-                originalPresetId,
-                previewCatalogImage,
-                PreviewRenderer.PreviewIntent.EDITOR_DRAFT).withCapeElytra(capeCatalog == null || capeCatalog.previewHasElytra());
+        ViewSpec.Preview previewSpec = PlayerAppearanceStage.present("editor.preview", width, height,
+                previewBounds, new PlayerAppearanceStage.Appearance(skin,
+                        png.map(DraftPng::revision).orElseGet(() -> skin.optionalAssetId()
+                                .map(id -> "asset:" + id).orElse("current-player")),
+                        variant, previewCapeId(), originalPresetId, previewCatalogImage,
+                        capeCatalog == null || capeCatalog.previewHasElytra(), PreviewRenderer.PreviewIntent.EDITOR_DRAFT),
+                preview);
         return new ViewSpec(
                 "preset_editor",
                 UiMessage.info(originalPresetId.isPresent()
@@ -894,12 +873,7 @@ public final class PresetEditorModel {
                 widgets,
                 List.of(previewSpec),
                 selectedEditorTab == EditorTab.CAPE ? capeGallery.scrollbar() : modelGallery.scrollbar(),
-                List.of(new ViewSpec.TabGroup(
-                        "editor.tabs", new Bounds(VerticalTabStyle.bounds(dividerX, 0).x(), 45, 24, 48),
-                        List.of(
-                                new ViewSpec.Tab("editor.tab.appearance", UiMessage.info("nclskins.editor.tab.appearance"), selectedEditorTab == EditorTab.APPEARANCE, !busy),
-                                new ViewSpec.Tab("editor.tab.cape", UiMessage.info("nclskins.editor.tab.cape"), selectedEditorTab == EditorTab.CAPE, !busy)),
-                        ViewSpec.TabOrientation.VERTICAL)),
+                List.of(tabs.group()),
                 Optional.empty(),
                 clipRegions,
                 backEquipmentPreviews,
@@ -971,31 +945,16 @@ public final class PresetEditorModel {
         return Math.max(0.0, Math.min(layout.maximum(), centered));
     }
 
-    private void addPreviewCycleControls(
-            List<ViewSpec.Widget> widgets,
-            Bounds previewBounds,
-            int height) {
-        int size = 20;
-        int gap = 2;
-        int inset = gap;
-        int x = previewBounds.x() + inset;
-        if (hasCapePreview()) {
-            widgets.add(ViewSpec.Widget.iconOnlyButton(
-                    "editor.preview_mode",
-                    new Bounds(x, 33 + inset, size, size),
-                    previewModeLabel(),
-                    preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA
-                            ? GuiIcon.APPEARANCE_BACK_ELYTRA
-                            : GuiIcon.APPEARANCE_BACK_CAPE,
-                    !busy));
+    private void addPreviewCycleControls(List<ViewSpec.Widget> widgets, Bounds previewBounds) {
+        var outerLayers = new ArrayList<PlayerAppearanceStage.Control>();
+        for (String id : List.of("head", "body", "legs")) {
+            EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(id, preview.outerLayerVisibility());
+            outerLayers.add(new PlayerAppearanceStage.Control("editor.outer_layer." + id,
+                    state.label(), state.icon(), !busy));
         }
-
-        int contentHeight = Math.max(0, height - 66);
-        int stackHeight = size * 3 + gap * 2;
-        int y = 33 + Math.max(0, (contentHeight - stackHeight) / 2);
-        addOuterLayerCycleControl(widgets, "head", x, y, size);
-        addOuterLayerCycleControl(widgets, "body", x, y + size + gap, size);
-        addOuterLayerCycleControl(widgets, "legs", x, y + (size + gap) * 2, size);
+        widgets.addAll(PlayerAppearanceStage.controls(previewBounds,
+                hasCapePreview() ? Optional.of(PlayerAppearanceStage.capeMode("editor.preview_mode", preview, !busy))
+                        : Optional.empty(), outerLayers));
     }
 
     private void addModelGallery(
@@ -1006,7 +965,7 @@ public final class PresetEditorModel {
             List<ViewSpec.ClipRegion> clips,
             List<ViewSpec.NavigationNode> navigation,
             EditorCardLayout layout) {
-        clips.add(new ViewSpec.ClipRegion("editor.models", layout.viewport(),
+        clips.add(AppearanceCollections.clip("editor.models", layout.viewport(),
                 List.of("editor.name", "editor.catalog_info", "editor.model_label",
                         "editor.model_card.", "editor.model_choice.")));
         for (int index = 0; index < 2; index++) {
@@ -1022,25 +981,23 @@ public final class PresetEditorModel {
             boolean enabled = !busy && variantAvailable(choice);
             UiMessage label = UiMessage.info(index == 0
                     ? "nclskins.editor.arms_classic" : "nclskins.editor.arms_slim");
-            navigation.add(ViewSpec.NavigationNode.card(id, card, "editor.models", index + 3,
+            navigation.add(AppearanceCollections.navigation(id, card, "editor.models", index + 3,
                     choice == variant ? 3 : -1, enabled, ViewSpec.NavigationPattern.HORIZONTAL_LIST,
                     Optional.of(id)));
-            if (!intersects(card, layout.viewport())) {
+            if (!AppearanceCollections.intersects(card, layout.viewport())) {
                 continue;
             }
-            panels.add(new ViewSpec.Panel(prefix, card, ViewSpec.Panel.Style.VANILLA_LIST));
-            texts.add(new ViewSpec.Text(prefix + ".name",
-                    CatalogCardGeometry.name(card),
-                    label, ViewSpec.Text.Alignment.CENTER,
-                    Optional.of(new ViewSpec.MarqueeActivation(card, List.of(id)))));
+            var chrome = AppearanceCard.chrome(prefix, id, card, ViewSpec.WidgetKind.CAPE_CARD,
+                    UiMessage.info(choice == variant ? "nclskins.editor.model_selected"
+                            : enabled ? "nclskins.editor.model_available" : "nclskins.editor.model_unavailable", label),
+                    Optional.of(choice == variant ? "selected" : "unselected"), enabled);
+            panels.add(chrome.surface());
+            texts.add(AppearanceCard.name(prefix + ".name", CatalogCardGeometry.name(card), label, card, List.of(id)));
             icons.add(new ViewSpec.IconDecoration(prefix + ".icon",
                     SkinCardPreviewLayout.modelIcon(card),
                     index == 0 ? GuiIcon.APPEARANCE_MODEL_CLASSIC : GuiIcon.APPEARANCE_MODEL_SLIM,
                     id, enabled ? (choice == variant ? 1.0F : 0.8F) : 0.35F, enabled ? 1.0F : 0.35F));
-            widgets.add(new ViewSpec.Widget(id, ViewSpec.WidgetKind.CAPE_CARD, card,
-                    UiMessage.info(choice == variant ? "nclskins.editor.model_selected"
-                            : enabled ? "nclskins.editor.model_available" : "nclskins.editor.model_unavailable", label),
-                    Optional.of(choice == variant ? "selected" : "unselected"), Optional.empty(), enabled, true, 0));
+            widgets.add(chrome.widget());
         }
     }
 
@@ -1104,22 +1061,17 @@ public final class PresetEditorModel {
                     UiMessage.info("nclskins.editor.no_capes"), ViewSpec.Text.Alignment.CENTER));
             return;
         }
-        clipRegions.add(new ViewSpec.ClipRegion(
+        clipRegions.add(AppearanceCollections.clip(
                 "editor.capes",
                 layout.viewport(),
                 List.of("editor.cape_card.", "editor.cape_choice.")));
         int scroll = (int) Math.round(layout.position());
         for (int index = 0; index < capeChoices.size(); index++) {
             CapeChoice choice = capeChoices.get(index);
-            int column = index % layout.columns();
-            int row = index / layout.columns();
-            Bounds card = new Bounds(
-                    layout.cardStartX() + column * (layout.cardWidth() + CatalogCardSizing.GAP),
-                    layout.viewport().y() + row * (layout.cardHeight() + CatalogCardSizing.GAP) - scroll,
-                    layout.cardWidth(),
-                    layout.cardHeight());
+            Bounds card = AppearanceCollections.gridCard(index, layout.columns(), layout.cardStartX(),
+                    layout.viewport().y() - scroll, layout.cardWidth(), layout.cardHeight(), CatalogCardSizing.GAP);
             String choiceWidgetId = "editor.cape_choice." + index;
-            navigationNodes.add(ViewSpec.NavigationNode.card(
+            navigationNodes.add(AppearanceCollections.navigation(
                     choiceWidgetId,
                     card,
                     "editor.capes",
@@ -1128,43 +1080,23 @@ public final class PresetEditorModel {
                     !busy,
                     ViewSpec.NavigationPattern.GRID,
                     Optional.empty()));
-            if (!intersects(card, layout.viewport())) {
+            if (!AppearanceCollections.intersects(card, layout.viewport())) {
                 continue;
             }
             String prefix = "editor.cape_card." + index;
-            panels.add(new ViewSpec.Panel(prefix, card, ViewSpec.Panel.Style.VANILLA_LIST));
-            texts.add(new ViewSpec.Text(
-                    prefix + ".name",
-                    CatalogCardGeometry.name(card),
-                    choice.label(),
-                    ViewSpec.Text.Alignment.CENTER,
-                    Optional.of(new ViewSpec.MarqueeActivation(card, List.of(choiceWidgetId)))));
-            if (choice.id().isPresent()) {
-                Bounds preview = CatalogCardGeometry.preview(card);
-                backEquipmentPreviews.add(new ViewSpec.BackEquipmentPreview(
-                        prefix + ".equipment",
-                        preview,
-                        choice.id().orElseThrow(),
-                        backEquipmentMode()));
-            } else {
-                iconDecorations.add(new ViewSpec.IconDecoration(
-                        prefix + ".empty",
-                        CatalogCardGeometry.serviceIcon(CatalogCardGeometry.preview(card)),
-                        GuiIcon.APPEARANCE_CAPE_NONE,
-                        choiceWidgetId,
-                        0.8F,
-                        1.0F));
-            }
-            widgets.add(new ViewSpec.Widget(
-                    choiceWidgetId,
-                    ViewSpec.WidgetKind.CAPE_CARD,
-                    card,
+            var chrome = AppearanceCard.chrome(prefix, choiceWidgetId, card, ViewSpec.WidgetKind.CAPE_CARD,
                     choice.id().isEmpty() ? choice.label() : capeLabel(choice.label()),
-                    Optional.of(choice.id().equals(capeId) ? "selected" : "unselected"),
-                    Optional.empty(),
-                    !busy,
-                    true,
-                    0));
+                    Optional.of(choice.id().equals(capeId) ? "selected" : "unselected"), !busy);
+            panels.add(chrome.surface());
+            texts.add(AppearanceCard.name(prefix + ".name", CatalogCardGeometry.name(card), choice.label(), card, List.of(choiceWidgetId)));
+            Bounds slot = AppearanceCard.Role.READ_ONLY.preview(card);
+            if (choice.id().isPresent()) {
+                backEquipmentPreviews.add(new AppearanceCard.Cape(choice.id().orElseThrow(), backEquipmentMode(), true)
+                        .present(prefix + ".equipment", slot));
+            } else {
+                iconDecorations.add(AppearanceCard.service(prefix + ".empty", slot, GuiIcon.APPEARANCE_CAPE_NONE, choiceWidgetId));
+            }
+            widgets.add(chrome.widget());
         }
     }
 
@@ -1188,7 +1120,7 @@ public final class PresetEditorModel {
         CollectionGridLayout.CardMetrics metrics = CatalogCardSizing.pane(contentWidth, height, chromeMetrics);
         int columns = metrics.columns();
         int cardWidth = metrics.width();
-        int cardHeight = capeCatalog == null ? CatalogCardGeometry.readOnlyHeight(metrics.height()) : metrics.height();
+        int cardHeight = capeCatalog == null ? AppearanceCard.Role.READ_ONLY.height(metrics.height()) : metrics.height();
         int cardStartX = viewport.x();
         int rows = (capeChoices.size() + columns - 1) / columns;
         int totalHeight = capeCatalog == null ? (rows == 0 ? 0 : rows * (cardHeight + CatalogCardSizing.GAP) - CatalogCardSizing.GAP)
@@ -1240,12 +1172,6 @@ public final class PresetEditorModel {
         return 0;
     }
 
-    private static boolean intersects(Bounds candidate, Bounds viewport) {
-        return candidate.right() > viewport.x()
-                && candidate.x() < viewport.right()
-                && candidate.bottom() > viewport.y()
-                && candidate.y() < viewport.bottom();
-    }
 
     private record EditorCardLayout(
             Bounds viewport,
@@ -1257,23 +1183,6 @@ public final class PresetEditorModel {
             int maximum,
             double position,
             Optional<ViewSpec.Scrollbar> scrollbar) {}
-
-    private void addOuterLayerCycleControl(
-            List<ViewSpec.Widget> widgets,
-            String id,
-            int x,
-            int y,
-            int size) {
-        EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(
-                id, preview.outerLayerVisibility());
-        UiMessage accessibleLabel = state.label();
-        widgets.add(ViewSpec.Widget.iconOnlyButton(
-                "editor.outer_layer." + id,
-                new Bounds(x, y, size, size),
-                accessibleLabel,
-                state.icon(),
-                !busy));
-    }
 
     private UiMessage selectedCapeLabel() {
         CapeChoice selected = capeChoices.stream()
@@ -1296,12 +1205,6 @@ public final class PresetEditorModel {
             info.append(authors);
         });
         return info.isEmpty() ? Optional.empty() : Optional.of(info.toString());
-    }
-
-    private UiMessage previewModeLabel() {
-        return UiMessage.info(preview.capeMode() == PreviewRenderer.CapeMode.ELYTRA
-                ? "item.minecraft.elytra"
-                : "options.modelPart.cape");
     }
 
     private boolean hasCapePreview() {
