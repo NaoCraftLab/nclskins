@@ -59,4 +59,38 @@ final class BukkitObserverPublicationTest {
 
         assertEquals("Observer tracking was not restored", failure.getMessage());
     }
+
+    @Test
+    void preservesPublicationFailureWhenRetrackingAlsoFails() {
+        IllegalStateException publication = new IllegalStateException("publication");
+        IllegalStateException tracking = new IllegalStateException("tracking");
+        List<String> calls = new ArrayList<>();
+
+        IllegalStateException actual = assertThrows(IllegalStateException.class,
+                () -> BukkitObserverPublication.refresh(
+                        () -> calls.add("untrack"),
+                        () -> { calls.add("publish"); throw publication; },
+                        () -> { calls.add("retrack"); throw tracking; },
+                        () -> { calls.add("check"); return true; }));
+
+        assertEquals(tracking, actual);
+        assertEquals(List.of(publication), List.of(actual.getSuppressed()));
+        assertEquals(List.of("untrack", "publish", "retrack"), calls);
+    }
+
+    @Test
+    void failedUntrackDoesNotStartLaterPublicationOperations() {
+        IllegalStateException expected = new IllegalStateException("untrack");
+        List<String> calls = new ArrayList<>();
+
+        IllegalStateException actual = assertThrows(IllegalStateException.class,
+                () -> BukkitObserverPublication.refresh(
+                        () -> { throw expected; },
+                        () -> calls.add("publish"),
+                        () -> calls.add("retrack"),
+                        () -> { calls.add("check"); return true; }));
+
+        assertEquals(expected, actual);
+        assertEquals(List.of(), calls);
+    }
 }

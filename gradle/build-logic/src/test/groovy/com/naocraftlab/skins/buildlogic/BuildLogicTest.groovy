@@ -1348,13 +1348,20 @@ final class BuildLogicTest {
         String paperPublication = new File(repository,
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/' +
                 'PaperProfilePublicationBackend.java').text
-        assertTrue(paperPublication.contains('getMethod("getProfile")'))
-        assertTrue(paperPublication.contains('getDeclaredMethod(\n                "unregisterEntity"'))
-        assertTrue(paperPublication.contains('getDeclaredMethod(\n                "trackAndShowEntity"'))
-        assertTrue(paperPublication.contains('invokeObserver(unregisterEntity'))
-        assertTrue(paperPublication.contains('invokeObserver(trackAndShowEntity'))
+        String paperBinding = new File(repository,
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/' +
+                'PaperPublicationBinding.java').text
+        assertTrue(paperBinding.contains('getMethod("getProfile")'))
+        assertTrue(paperBinding.contains('"unregisterEntity", entity'))
+        assertTrue(paperBinding.contains('"trackAndShowEntity", org.bukkit.entity.Entity.class'))
+        assertTrue(paperBinding.contains('unregisterEntity.invoke(observer, handle)'))
+        assertTrue(paperBinding.contains('trackAndShowEntity.invoke(observer, player, player.getUniqueId())'))
+        assertTrue(paperBinding.contains('profileState.install('))
         assertTrue(paperPublication.contains('observer != checkedActor'))
-        assertTrue(paperPublication.contains('profileState.install('))
+        assertTrue(paperPublication.contains('binding.install('))
+        assertFalse(paperPublication.contains('java.lang.reflect'))
+        assertFalse(paperPublication.contains('.invoke('))
+        assertFalse(paperPublication.contains('Class.forName('))
         assertFalse(paperPublication.contains('hidePlayer('))
         assertFalse(paperPublication.contains('showPlayer('))
         assertFalse(paperPublication.contains('refreshPlayer'))

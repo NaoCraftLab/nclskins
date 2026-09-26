@@ -112,8 +112,9 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                     'com/naocraftlab/skins/server/plugin/bukkit/PaperProfilePublicationBackend$PaperPublication.class'
             String paperProfileState =
                     'com/naocraftlab/skins/server/plugin/bukkit/PaperProfileStateBinding.class'
-            String paperSymbols = names.contains(paperBackend)
-                    ? new String(zip.getInputStream(zip.getEntry(paperBackend)).readAllBytes(),
+            String paperBinding = 'com/naocraftlab/skins/server/plugin/bukkit/PaperPublicationBinding.class'
+            String paperSymbols = names.contains(paperBinding)
+                    ? new String(zip.getInputStream(zip.getEntry(paperBinding)).readAllBytes(),
                             StandardCharsets.ISO_8859_1)
                     : ''
             String profileStateSymbols = names.contains(paperProfileState)
@@ -122,6 +123,8 @@ abstract class VerifyServerPluginArtifactTask extends DefaultTask {
                     : ''
             if (!names.contains(paperBackend) ||
                     !names.contains(paperPublication) ||
+                    !names.contains(paperBinding) ||
+                    !names.contains('com/naocraftlab/skins/server/plugin/bukkit/PaperPublicationBinding$Actor.class') ||
                     !names.contains(paperProfileState) ||
                     !['getProfile', 'unregisterEntity', 'trackAndShowEntity'].every {
                         String symbol -> paperSymbols.contains(symbol)

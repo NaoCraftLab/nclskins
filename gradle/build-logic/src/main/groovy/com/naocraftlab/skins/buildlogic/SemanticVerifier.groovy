@@ -415,7 +415,7 @@ final class SemanticVerifier {
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/BukkitRuntimeDetector.java',
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/ExactAuthlibSignatureVerifier.java',
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/ExactLegacyPublicationBackend.java',
-                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperProfilePublicationBackend.java',
+                'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperPublicationBinding.java',
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperProfileStateBinding.java',
                 'server-plugin-bukkit/src/main/java/com/naocraftlab/skins/server/plugin/bukkit/PaperConnectionAssuranceBinding.java'
         ] as Set
