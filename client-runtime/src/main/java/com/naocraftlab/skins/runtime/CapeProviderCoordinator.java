@@ -15,7 +15,6 @@ import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.TextureCache;
 
 import java.io.IOException;
-import java.awt.image.BufferedImage;
 import java.net.URI;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -35,79 +34,58 @@ import java.util.concurrent.Future;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
-public final class OptifineCapeCoordinator implements AutoCloseable {
+public final class CapeProviderCoordinator implements AutoCloseable {
     private static final int MAX_ACTIVE = 4;
     private static final int MAX_QUEUE = 256;
     private static final int MAX_TRACKED = 512;
 
+    private final RemoteCapeScheduler optifineSchedule = new RemoteCapeScheduler(BuiltinProvider.OPTIFINE);
+    private final RemoteCapeScheduler skinMcSchedule = new RemoteCapeScheduler(BuiltinProvider.SKINMC);
     private final GameSessionTokenSource tokenSource;
     private final NclSkinsStorage storage;
     private final TextureCache textures;
     private final PlayerAppearanceSink<?> sink;
+    private final OwnedCapeTextures nativeTextures;
     private final ClientExecutor clientExecutor;
     private final Executor worker;
+    private final CapePreparationQueue preparations;
     private final OptifineCapeReader reader;
     private final SkinMcCapeReader skinMcReader;
     private final BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri;
     private final Map<UUID, CapeProjection.Identity> tracked = new HashMap<>();
     private final Map<CapeProjection.Identity, Observed> observed = new HashMap<>();
-    private final ArrayDeque<CapeProjection.Identity> queue = new ArrayDeque<>();
-    private final Map<CapeProjection.Identity, Request> pending = new HashMap<>();
-    private final Set<CapeProjection.Identity> attempted = new HashSet<>();
-    private final Set<CapeProjection.Identity> repeatPending = new LinkedHashSet<>();
     private final Map<CapeProjection.Identity, Observed> skinMcObserved = new HashMap<>();
-    private final ArrayDeque<CapeProjection.Identity> skinMcQueue = new ArrayDeque<>();
-    private final Map<CapeProjection.Identity, Request> skinMcPending = new HashMap<>();
-    private final Set<CapeProjection.Identity> skinMcAttempted = new HashSet<>();
-    private final Set<CapeProjection.Identity> skinMcDeferred = new LinkedHashSet<>();
-    private Iterator<CapeProjection.Identity> skinMcSweep = List.<CapeProjection.Identity>of().iterator();
-    private final List<Consumer<ProviderObservation<ProviderCape>>> skinMcRefreshCompletions = new ArrayList<>();
-    private ProviderObservation<ProviderCape> confirmedSkinMcRefresh;
-    private boolean skinMcRefreshPending;
-    private boolean skinMcUnknownOnly;
-    private boolean skinMcExplicitSweep;
-    private boolean skinMcPumping;
-    private final List<Consumer<ProviderObservation<ProviderCape>>> refreshCompletions = new ArrayList<>();
-    private ProviderObservation<ProviderCape> confirmedRefreshObservation;
-    private boolean explicitSweep;
     private final Map<BuiltinProvider, CapeProjection.Candidate> selfCandidates = new HashMap<>();
-    private final Map<String, TextureObservation> sneakyTextures = new LinkedHashMap<>();
+    private final SneakyCapeProcessor sneakyProcessor;
+    private final Map<String, String> sneakyTextureKeys = new java.util.concurrent.ConcurrentHashMap<>();
+    private final CapeProjection.Registration registration;
     private final Map<CapeProjection.Identity, String> sneakyVisibleSkins = new HashMap<>();
     private final Map<CapeProjection.Identity, Observed> sneakyRemote = new HashMap<>();
-    private Consumer<ClientOperations.SneakyObservation> sneakyObservationListener = ignored -> {};
+    private Consumer<CapeObservationPort.Observation> observationListener = ignored -> {};
     private Observed sneakySelf;
     private String sneakySkinSha;
-    private long sneakyEpoch;
 
     private AppearanceProviders providers = AppearanceProviders.initial();
     private AppearanceProviders selfCandidateProviders = AppearanceProviders.initial();
-    private Consumer<ClientOperations.OptiFineObservation> selfObservationListener = ignored -> {};
-    private Consumer<ClientOperations.SkinMcObservation> skinMcObservationListener = ignored -> {};
     private volatile CapeProjection.Identity selfIdentity;
-    private Iterator<CapeProjection.Identity> sweep = List.<CapeProjection.Identity>of().iterator();
     private volatile long generation;
     private long selfPreparation;
     private volatile long selfEpoch;
     private volatile long skinMcSelfEpoch;
     private long adoptionSequence;
     private long skinMcAdoptionSequence;
-    private Future<?> selfPreparationFuture;
-    private boolean refreshPending;
-    private boolean unknownSweepPending;
-    private boolean unknownOnly;
-    private boolean pumping;
     private CapeProjection.Identity startedIdentity;
     private ProjectionState publishedProjection;
     private volatile boolean closed;
 
-    public OptifineCapeCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
+    public CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
             TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
             Executor worker, BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri) {
         this(tokenSource, storage, textures, sink, clientExecutor, worker,
                 new OptifineCapeReader(), new SkinMcCapeReader(), officialCapeUri);
     }
 
-    OptifineCapeCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
+    CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
             TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
             Executor worker, OptifineCapeReader reader) {
         this(tokenSource, storage, textures, sink, clientExecutor, worker, reader,
@@ -115,7 +93,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 (accountId, capeId) -> java.util.Optional.empty());
     }
 
-    OptifineCapeCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
+    CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
             TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
             Executor worker, OptifineCapeReader reader,
             BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri) {
@@ -123,7 +101,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 new SkinMcCapeReader(), officialCapeUri);
     }
 
-    OptifineCapeCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
+    CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
             TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
             Executor worker, OptifineCapeReader reader, SkinMcCapeReader skinMcReader,
             BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri) {
@@ -131,15 +109,37 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         this.storage = Objects.requireNonNull(storage, "storage");
         this.textures = Objects.requireNonNull(textures, "textures");
         this.sink = Objects.requireNonNull(sink, "sink");
+        this.nativeTextures = new OwnedCapeTextures(sink);
         this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
         this.worker = Objects.requireNonNull(worker, "worker");
+        this.preparations = new CapePreparationQueue(worker);
         this.reader = Objects.requireNonNull(reader, "reader");
         this.skinMcReader = Objects.requireNonNull(skinMcReader, "skinMcReader");
         this.officialCapeUri = Objects.requireNonNull(officialCapeUri, "officialCapeUri");
+        this.sneakyProcessor = new SneakyCapeProcessor(worker, clientExecutor, this::sneakyPrepared,
+                this::retainedSneakyIdentities, this::currentSneakyPreparation);
+        this.registration = CapeProjection.installEvents(new CapeProjection.Events() {
+            public void trackedPlayer(UUID id, String name) { dispatch(() -> CapeProviderCoordinator.this.trackedPlayer(id, name)); }
+            public void playerInfoUpdated(UUID id, String name) { dispatch(() -> CapeProviderCoordinator.this.playerInfoUpdated(id, name)); }
+            public void untrackedPlayer(UUID id) { dispatch(() -> CapeProviderCoordinator.this.untrackedPlayer(id)); }
+            public void worldChanged() { dispatch(CapeProviderCoordinator.this::worldChanged); }
+            public void worldEntered() { dispatch(CapeProviderCoordinator.this::worldEntered); }
+            public void skinTextureReady(String location, int[] pixels, long revision) {
+                dispatch(() -> CapeProviderCoordinator.this.skinTextureReady(location, pixels, revision));
+            }
+            public boolean hasSkinTexture(String location) { return CapeProviderCoordinator.this.hasSkinTexture(location); }
+            public void visibleSkin(UUID id, String name, String location) { dispatch(() -> CapeProviderCoordinator.this.visibleSkin(id, name, location)); }
+        });
+    }
+
+    private void dispatch(Runnable action) {
+        clientExecutor.execute(() -> {
+            if (!closed && registration.active()) action.run();
+        });
     }
 
     public synchronized void start() {
-        if (closed) return;
+        if (closed || !registration.active()) return;
         GameSessionTokenSource.SessionIdentity session = tokenSource.currentSession();
         CapeProjection.Identity identity = new CapeProjection.Identity(session.profileId(), session.profileName());
         if (identity.equals(startedIdentity)) return;
@@ -148,23 +148,12 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         scheduleSkinMcRefresh(false);
     }
 
-    public synchronized void onSelfObservation(
-            Consumer<ClientOperations.OptiFineObservation> listener) {
-        selfObservationListener = Objects.requireNonNull(listener, "listener");
-    }
-
-    public synchronized void onSkinMcObservation(
-            Consumer<ClientOperations.SkinMcObservation> listener) {
-        skinMcObservationListener = Objects.requireNonNull(listener, "listener");
-    }
-
-    public synchronized void onSneakyObservation(
-            Consumer<ClientOperations.SneakyObservation> listener) {
-        sneakyObservationListener = Objects.requireNonNull(listener, "listener");
+    public synchronized void onCapeObservation(Consumer<CapeObservationPort.Observation> listener) {
+        observationListener = Objects.requireNonNull(listener, "listener");
     }
 
     public synchronized java.util.Optional<java.time.Duration> cooldownRemaining(BuiltinProvider provider) {
-        if (closed || provider == null) return java.util.Optional.empty();
+        if (closed || !registration.active() || provider == null) return java.util.Optional.empty();
         return switch (provider) {
             case OPTIFINE -> reader.cooldownRemaining();
             case SKINMC -> skinMcReader.cooldownRemaining();
@@ -174,7 +163,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
 
     public synchronized void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
             AppearanceProviders next) {
-        if (closed || selfIdentity == null || !selfIdentity.equals(
+        if (closed || !registration.active() || selfIdentity == null || !selfIdentity.equals(
                 new CapeProjection.Identity(accountId, canonicalName))) return;
         if (Objects.equals(selfCandidateProviders.cape().offline(), next.cape().offline())
                 && Objects.equals(selfCandidateProviders.cape().minecraft(), next.cape().minecraft())) return;
@@ -183,15 +172,15 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     }
 
     public synchronized void refresh() {
-        if (closed) return;
+        if (closed || !registration.active()) return;
         reloadConfiguration();
         if (!enabled()) return;
-        if (!pending.isEmpty() || !queue.isEmpty() || sweep.hasNext()) {
-            refreshPending = true;
+        if (!optifineSchedule.pending.isEmpty() || !optifineSchedule.queue.isEmpty() || optifineSchedule.sweep.hasNext()) {
+            optifineSchedule.refreshPending = true;
             return;
         }
-        attempted.clear();
-        startSweep(false);
+        optifineSchedule.attempted.clear();
+        optifineSchedule.startSweep(false);
     }
 
     public synchronized void refreshSkinMc(Consumer<ProviderObservation<ProviderCape>> completion) {
@@ -200,10 +189,10 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             completion.accept(null);
             return;
         }
-        skinMcRefreshCompletions.add(completion);
+        skinMcSchedule.refreshCompletions.add(completion);
         reloadConfiguration();
         scheduleSkinMcRefresh(false);
-        if (!skinMcEnabled()) finishSkinMcRefreshCompletions();
+        if (!skinMcEnabled()) skinMcSchedule.finishRefreshCompletions();
     }
 
     public synchronized void refresh(Consumer<ProviderObservation<ProviderCape>> completion) {
@@ -212,19 +201,22 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             completion.accept(null);
             return;
         }
-        refreshCompletions.add(completion);
+        optifineSchedule.refreshCompletions.add(completion);
         refresh();
-        if (!enabled()) finishRefreshCompletions();
+        if (!enabled()) optifineSchedule.finishRefreshCompletions();
     }
 
     public synchronized void configurationChanged() {
-        if (closed) return;
+        if (closed || !registration.active()) return;
         boolean wasEnabled = enabled();
         boolean wasSkinMcEnabled = skinMcEnabled();
         boolean wasSneakyEnabled = providers.cape().enabled(BuiltinProvider.SNEAKY);
         CapeProjection.Identity previousSelf = selfIdentity;
         reloadConfiguration();
         if (wasSneakyEnabled != providers.cape().enabled(BuiltinProvider.SNEAKY)) {
+            sneakyProcessor.invalidate();
+            registration.invalidateVisibleSkins();
+            scheduleSneakySelf();
             for (CapeProjection.Identity identity : List.copyOf(sneakyVisibleSkins.keySet())) {
                 updateSneakyRemote(identity);
             }
@@ -235,34 +227,35 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             return;
         }
         generation++;
-        queue.clear();
-        cancelPending();
-        repeatPending.clear();
-        sweep = List.<CapeProjection.Identity>of().iterator();
-        refreshPending = false;
-        confirmedRefreshObservation = null;
-        finishRefreshCompletions();
-        resetSkinMcWork();
-        finishSkinMcRefreshCompletions();
+        sneakyProcessor.invalidate();
+        optifineSchedule.queue.clear();
+        optifineSchedule.cancelPending();
+        optifineSchedule.repeatPending.clear();
+        optifineSchedule.sweep = List.<CapeProjection.Identity>of().iterator();
+        optifineSchedule.refreshPending = false;
+        optifineSchedule.confirmedRefreshObservation = null;
+        optifineSchedule.finishRefreshCompletions();
+        skinMcSchedule.reset();
+        skinMcSchedule.finishRefreshCompletions();
         if (!enabled()) {
             releaseObservedTextures();
         } else {
             if (!wasEnabled) restoreObservedTextures();
-            startSweep(true);
+            optifineSchedule.startSweep(true);
         }
         if (!skinMcEnabled()) releaseSkinMcTextures();
         else {
             if (!wasSkinMcEnabled) restoreSkinMcTextures();
-            startSkinMcSweep(true);
+            skinMcSchedule.startSweep(true);
         }
         publish();
-        pump();
-        pumpSkinMc();
+        optifineSchedule.pump();
+        skinMcSchedule.pump();
     }
 
     public synchronized void adoptSharedSnapshot(UUID accountId, String canonicalName,
             AppearanceProviders snapshot) {
-        if (closed || selfIdentity == null || !selfIdentity.equals(
+        if (closed || !registration.active() || selfIdentity == null || !selfIdentity.equals(
                 new CapeProjection.Identity(accountId, canonicalName)) || !current(selfIdentity)) return;
         long sequence = ++adoptionSequence;
         long expectedGeneration = generation;
@@ -279,11 +272,14 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 || !Objects.equals(selfCandidateProviders.cape().minecraft(), snapshot.cape().minecraft());
         if (changedObservation) {
             selfEpoch++;
-            confirmedRefreshObservation = null;
-            queue.remove(identity);
-            attempted.remove(identity);
-            Request request = pending.remove(identity);
-            if (request != null && request.future != null) request.future.cancel(true);
+            optifineSchedule.confirmedRefreshObservation = null;
+            optifineSchedule.queue.remove(identity);
+            optifineSchedule.attempted.remove(identity);
+            Request request = optifineSchedule.pending.remove(identity);
+            if (request != null && request.future != null) {
+            request.future.cancel(true);
+            purgeCancelledWork();
+        }
         }
         providers = snapshot;
         scheduleSneakySelf();
@@ -301,7 +297,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 || !cape.id().equals(capeId(identity)) || cape.textureCacheKey() == null) {
             clearAdoptedSelf(identity, nextObservation.known() && cape == null);
             publish();
-            pump();
+            optifineSchedule.pump();
             return;
         }
         if (!changedObservation && represented != null && represented.png() != null
@@ -309,7 +305,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 && cape.textureCacheKey().equals(represented.png().renderSha256())
                 && Objects.equals(cape.hasElytra(), represented.png().hasElytra())) {
             publish();
-            pump();
+            optifineSchedule.pump();
             return;
         }
         if (changedObservation) clearAdoptedSelf(identity, false);
@@ -330,14 +326,14 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             clientExecutor.execute(() -> completeSharedAdoption(identity, snapshot,
                     sequence, expectedGeneration, validated));
         };
-        worker.execute(preparation);
-        pump();
+        preparations.submit(CapePreparationQueue.Slot.OPTIFINE_ADOPTION, preparation);
+        optifineSchedule.pump();
     }
 
     private synchronized void completeSharedAdoption(CapeProjection.Identity identity,
             AppearanceProviders snapshot, long sequence, long expectedGeneration,
             PngValidator.CapePng png) {
-        if (closed || adoptionSequence != sequence || generation != expectedGeneration
+        if (closed || !registration.active() || adoptionSequence != sequence || generation != expectedGeneration
                 || !identity.equals(selfIdentity)
                 || !current(identity) || !enabled()
                 || !providers.cape().optifine().equals(snapshot.cape().optifine())) return;
@@ -362,13 +358,16 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         long sequence = ++skinMcAdoptionSequence;
         long expectedGeneration = generation;
         skinMcSelfEpoch++;
-        skinMcQueue.remove(identity);
-        skinMcAttempted.remove(identity);
-        skinMcRefreshPending = false;
-        confirmedSkinMcRefresh = null;
-        finishSkinMcRefreshCompletions();
-        Request request = skinMcPending.remove(identity);
-        if (request != null && request.future != null) request.future.cancel(true);
+        skinMcSchedule.queue.remove(identity);
+        skinMcSchedule.attempted.remove(identity);
+        skinMcSchedule.refreshPending = false;
+        skinMcSchedule.confirmedRefreshObservation = null;
+        skinMcSchedule.finishRefreshCompletions();
+        Request request = skinMcSchedule.pending.remove(identity);
+        if (request != null && request.future != null) {
+            request.future.cancel(true);
+            purgeCancelledWork();
+        }
         removeSkinMc(identity);
         if (!skinMcEnabled() || !next.known() || cape == null
                 || !cape.id().equals(skinMcCapeId(identity)) || cape.textureCacheKey() == null) {
@@ -376,7 +375,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             publish();
             return;
         }
-        worker.execute(() -> {
+        preparations.submit(CapePreparationQueue.Slot.SKINMC_ADOPTION, () -> {
             PngValidator.CapePng png = null;
             try {
                 byte[] bytes = textures.readIfCached(cape.textureCacheKey()).orElse(null);
@@ -397,7 +396,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     private synchronized void completeSkinMcSharedAdoption(CapeProjection.Identity identity,
             AppearanceProviders snapshot, long sequence, long expectedGeneration,
             PngValidator.CapePng png) {
-        if (closed || skinMcAdoptionSequence != sequence || generation != expectedGeneration
+        if (closed || !registration.active() || skinMcAdoptionSequence != sequence || generation != expectedGeneration
                 || !identity.equals(selfIdentity) || !current(identity) || !skinMcEnabled()
                 || !providers.cape().skinmc().equals(snapshot.cape().skinmc())) return;
         if (png == null) {
@@ -411,41 +410,38 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     private void clearAdoptedSelf(CapeProjection.Identity identity, boolean knownAbsent) {
         Observed old = observed.remove(identity);
         if (old != null && old.location() != null) {
-            sink.releaseCapeTexture(identity.profileId(), CapeSource.OPTIFINE);
+            nativeTextures.release(identity.profileId(), CapeSource.OPTIFINE);
         }
         if (knownAbsent) observed.put(identity, new Observed(null, null));
     }
 
     public synchronized void trackedPlayer(UUID profileId, String canonicalName) {
-        if (closed) return;
+        if (closed || !registration.active()) return;
         if (!tracked.containsKey(profileId) && tracked.size() >= MAX_TRACKED) return;
         CapeProjection.Identity identity = new CapeProjection.Identity(profileId, canonicalName);
         CapeProjection.Identity previous = tracked.put(profileId, identity);
         if (previous != null && !previous.equals(identity)) {
-            remove(previous);
-            removeSkinMc(previous);
-            removeSneakyRemote(previous);
-            sneakyVisibleSkins.remove(previous);
+            retireTrackedIdentity(previous);
         }
-        if (enabled() && !observed.containsKey(identity) && !attempted.contains(identity)) {
-            if (queue.size() >= MAX_QUEUE) {
-                unknownSweepPending = true;
-                repeatPending.add(identity);
+        if (enabled() && !observed.containsKey(identity) && !optifineSchedule.attempted.contains(identity)) {
+            if (optifineSchedule.queue.size() >= MAX_QUEUE) {
+                optifineSchedule.unknownSweepPending = true;
+                optifineSchedule.repeatPending.add(identity);
             } else {
-                enqueue(identity, false);
+                optifineSchedule.enqueue(identity, false);
             }
-            pump();
+            optifineSchedule.pump();
         }
         if (skinMcEnabled() && !skinMcObserved.containsKey(identity)
-                && !skinMcAttempted.contains(identity)) {
-            enqueueSkinMc(identity, false);
-            pumpSkinMc();
+                && !skinMcSchedule.attempted.contains(identity)) {
+            skinMcSchedule.enqueue(identity, false);
+            skinMcSchedule.pump();
         }
         updateSneakyRemote(identity);
     }
 
     public synchronized void playerInfoUpdated(UUID profileId, String canonicalName) {
-        if (closed || !enabled() && !skinMcEnabled()) return;
+        if (closed || !registration.active() || !enabled() && !skinMcEnabled()) return;
         CapeProjection.Identity identity = new CapeProjection.Identity(profileId, canonicalName);
         CapeProjection.Identity previous = tracked.get(profileId);
         if (previous == null || !previous.equals(identity)) {
@@ -454,93 +450,103 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         }
         if (identity.equals(selfIdentity)) return;
         if (skinMcEnabled()) {
-            if (skinMcPending.containsKey(identity) || skinMcReader.cooldownRemaining().isPresent()) {
-                skinMcDeferred.add(identity);
-            } else if (!skinMcQueue.contains(identity)) {
-                skinMcAttempted.remove(identity);
-                enqueueSkinMc(identity, false);
+            if (skinMcSchedule.pending.containsKey(identity) || skinMcReader.cooldownRemaining().isPresent()) {
+                skinMcSchedule.repeatPending.add(identity);
+            } else if (!skinMcSchedule.queue.contains(identity)) {
+                skinMcSchedule.attempted.remove(identity);
+                skinMcSchedule.enqueue(identity, false);
             }
-            pumpSkinMc();
+            skinMcSchedule.pump();
         }
         if (!enabled()) return;
-        if (pending.containsKey(identity)) {
-            repeatPending.add(identity);
+        if (optifineSchedule.pending.containsKey(identity)) {
+            optifineSchedule.repeatPending.add(identity);
             return;
         }
-        if (queue.contains(identity)) return;
-        attempted.remove(identity);
-        if (queue.size() >= MAX_QUEUE) repeatPending.add(identity);
-        else enqueue(identity, false);
-        pump();
+        if (optifineSchedule.queue.contains(identity)) return;
+        optifineSchedule.attempted.remove(identity);
+        if (optifineSchedule.queue.size() >= MAX_QUEUE) optifineSchedule.repeatPending.add(identity);
+        else optifineSchedule.enqueue(identity, false);
+        optifineSchedule.pump();
     }
 
     public synchronized void untrackedPlayer(UUID profileId) {
         CapeProjection.Identity removed = tracked.remove(profileId);
         if (removed != null && !removed.equals(selfIdentity)) {
-            remove(removed);
-            removeSkinMc(removed);
-            removeSneakyRemote(removed);
-            sneakyVisibleSkins.remove(removed);
+            retireTrackedIdentity(removed);
             publish();
-            pump();
-            pumpSkinMc();
+            optifineSchedule.pump();
+            skinMcSchedule.pump();
         }
     }
 
     public synchronized void worldChanged() {
-        if (closed) return;
+        if (closed || !registration.active()) return;
         generation++;
-        queue.clear();
-        cancelPending();
-        sweep = List.<CapeProjection.Identity>of().iterator();
-        refreshPending = false;
-        confirmedRefreshObservation = null;
-        finishRefreshCompletions();
+        sneakyProcessor.invalidate();
+        optifineSchedule.queue.clear();
+        optifineSchedule.cancelPending();
+        optifineSchedule.sweep = List.<CapeProjection.Identity>of().iterator();
+        optifineSchedule.refreshPending = false;
+        optifineSchedule.confirmedRefreshObservation = null;
+        optifineSchedule.finishRefreshCompletions();
         for (CapeProjection.Identity identity : List.copyOf(observed.keySet())) {
             if (!identity.equals(selfIdentity)) remove(identity);
         }
         tracked.clear();
         for (CapeProjection.Identity identity : List.copyOf(sneakyRemote.keySet())) removeSneakyRemote(identity);
         sneakyVisibleSkins.clear();
-        attempted.clear();
-        repeatPending.clear();
-        resetSkinMcWork();
+        optifineSchedule.attempted.clear();
+        optifineSchedule.repeatPending.clear();
+        skinMcSchedule.reset();
         for (CapeProjection.Identity identity : List.copyOf(skinMcObserved.keySet())) {
             if (!identity.equals(selfIdentity)) removeSkinMc(identity);
         }
+        scheduleSneakySelf();
         scheduleSelfCandidates();
         publish();
     }
 
     public synchronized void worldEntered() {
         worldChanged();
-        if (!closed && enabled()) startSweep(true);
-        if (!closed && skinMcEnabled()) startSkinMcSweep(true);
+        if (!closed && enabled()) optifineSchedule.startSweep(true);
+        if (!closed && skinMcEnabled()) skinMcSchedule.startSweep(true);
     }
 
     @Override
     public synchronized void close() {
+        if (!clientExecutor.isClientThread()) {
+            clientExecutor.execute(this::close);
+            return;
+        }
         if (closed) return;
         closed = true;
         generation++;
-        queue.clear();
-        cancelPending();
+        sneakyProcessor.invalidate();
+        optifineSchedule.queue.clear();
+        optifineSchedule.cancelPending();
         tracked.clear();
-        attempted.clear();
-        repeatPending.clear();
-        resetSkinMcWork();
-        sweep = List.<CapeProjection.Identity>of().iterator();
+        optifineSchedule.attempted.clear();
+        optifineSchedule.repeatPending.clear();
+        skinMcSchedule.reset();
+        optifineSchedule.sweep = List.<CapeProjection.Identity>of().iterator();
         releaseObservedTextures();
         releaseSkinMcTextures();
         clearSneakySelf();
         for (CapeProjection.Identity identity : List.copyOf(sneakyRemote.keySet())) removeSneakyRemote(identity);
         sneakyVisibleSkins.clear();
-        sneakyTextures.clear();
+        sneakyProcessor.close();
+        sneakyTextureKeys.clear();
+        preparations.close();
         observed.clear();
         skinMcObserved.clear();
         cancelSelfPreparation();
         releaseSelfCandidates();
-        CapeProjection.clear();
+        registration.close();
+    }
+
+    private void purgeCancelledWork() {
+        if (worker instanceof java.util.concurrent.ThreadPoolExecutor pool) pool.purge();
     }
 
     private boolean enabled() {
@@ -556,21 +562,22 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         CapeProjection.Identity nextSelf = new CapeProjection.Identity(session.profileId(), session.profileName());
         boolean identityChanged = !nextSelf.equals(selfIdentity);
         if (identityChanged) {
-            CapeProjection.invalidateVisibleSkins();
+            registration.invalidateVisibleSkins();
             reader.accountChanged();
             skinMcReader.accountChanged();
             generation++;
+            sneakyProcessor.invalidate();
             selfEpoch++;
             skinMcSelfEpoch++;
-            queue.clear();
-            cancelPending();
+            optifineSchedule.queue.clear();
+            optifineSchedule.cancelPending();
             tracked.clear();
-            attempted.clear();
-            repeatPending.clear();
-            resetSkinMcWork();
-            sweep = List.<CapeProjection.Identity>of().iterator();
-            refreshPending = false;
-            unknownSweepPending = false;
+            optifineSchedule.attempted.clear();
+            optifineSchedule.repeatPending.clear();
+            skinMcSchedule.reset();
+            optifineSchedule.sweep = List.<CapeProjection.Identity>of().iterator();
+            optifineSchedule.refreshPending = false;
+            optifineSchedule.unknownSweepPending = false;
             releaseObservedTextures();
             releaseSkinMcTextures();
             clearSneakySelf();
@@ -606,10 +613,22 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         publish();
     }
 
+    private boolean currentSneakyPreparation() {
+        return !closed && registration.active() && selfIdentity != null && current(selfIdentity)
+                && providers.cape().enabled(BuiltinProvider.SNEAKY);
+    }
+
+    private Set<String> retainedSneakyIdentities() {
+        Set<String> identities = new HashSet<>();
+        for (String location : sneakyVisibleSkins.values()) identities.add(sneakyKey(location));
+        if (sneakySkinSha != null) identities.add("asset:" + sneakySkinSha);
+        return identities;
+    }
+
     private void clearSneakySelf() {
-        sneakyEpoch++;
+        if (sneakySkinSha != null) sneakyProcessor.forget("asset:" + sneakySkinSha);
         if (selfIdentity != null && sneakySelf != null && sneakySelf.location() != null) {
-            sink.releaseCapeTexture(selfIdentity.profileId(), CapeSource.SNEAKY);
+            nativeTextures.release(selfIdentity.profileId(), CapeSource.SNEAKY);
         }
         sneakySelf = null;
         sneakySkinSha = null;
@@ -622,92 +641,97 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         }
         String selected = providers.skin().resolve()
                 .map(resolved -> resolved.value().sha256()).orElse(null);
-        if (Objects.equals(sneakySkinSha, selected)) return;
+        if (Objects.equals(sneakySkinSha, selected)
+                && (selected == null || sneakySelf != null || sneakyProcessor.contains("asset:" + selected))) return;
         clearSneakySelf();
         sneakySkinSha = selected;
         notifySneakySelf(ProviderObservation.unknown());
         if (selected == null) return;
-        long expectedEpoch = sneakyEpoch;
-        CapeProjection.Identity identity = selfIdentity;
-        worker.execute(() -> {
-            boolean available = false;
-            PngValidator.CapePng cape = null;
-            String cacheKey = null;
-            try {
-                byte[] skin = storage.readAsset(selected);
-                available = true;
-                cape = new SneakyCapeDecoder().decode(skin).orElse(null);
-                if (cape != null) cacheKey = textures.storeObservedCape(cape);
-            } catch (IOException | com.naocraftlab.skins.core.png.PngValidationException unavailable) {
-                available = false;
-            }
-            boolean confirmed = available;
-            PngValidator.CapePng decoded = cape;
-            String confirmedKey = cacheKey;
-            clientExecutor.execute(() -> completeSneakySelf(identity, selected, expectedEpoch,
-                    confirmed, decoded, confirmedKey));
+        sneakyProcessor.prepare("asset:" + selected, () -> {
+            byte[] skin = storage.readAsset(selected);
+            PngValidator.CapePng cape = new SneakyCapeDecoder().decode(skin).orElse(null);
+            String cacheKey = cape == null ? null : textures.storeObservedCape(cape);
+            return new SneakyCapeProcessor.Prepared(cape, cacheKey);
         });
     }
 
-    private synchronized void completeSneakySelf(CapeProjection.Identity identity, String skinSha,
-            long expectedEpoch, boolean confirmed, PngValidator.CapePng cape, String cacheKey) {
-        if (closed || expectedEpoch != sneakyEpoch || !identity.equals(selfIdentity)
-                || !Objects.equals(sneakySkinSha, skinSha)
+    private void completeSneakySelf(String key) {
+        if (selfIdentity == null || !current(selfIdentity) || sneakySkinSha == null
+                || !key.equals("asset:" + sneakySkinSha)
                 || !providers.cape().enabled(BuiltinProvider.SNEAKY)) return;
-        if (!confirmed) return;
-        String location = cape == null ? null : sink.registerCapeTexture(identity.profileId(),
+        SneakyCapeProcessor.Prepared prepared = sneakyProcessor.prepared(key);
+        if (prepared == null || sneakySelf != null) return;
+        PngValidator.CapePng cape = prepared.cape();
+        String location = cape == null ? null : nativeTextures.register(selfIdentity.profileId(),
                 CapeSource.SNEAKY, cape.renderSha256(), cape.bytes()).orElse(null);
         sneakySelf = new Observed(cape, location);
         ProviderCape observedCape = cape != null && location != null
-                ? new ProviderCape("sneaky:" + skinSha, cacheKey, cape.hasElytra()) : null;
+                ? new ProviderCape("sneaky:" + sneakySkinSha, prepared.cacheKey(), cape.hasElytra()) : null;
         notifySneakySelf(ProviderObservation.observed(observedCape));
-        publish();
     }
 
     private void notifySneakySelf(ProviderObservation<ProviderCape> observation) {
         if (selfIdentity == null || !providers.cape().enabled(BuiltinProvider.SNEAKY)) return;
-        sneakyObservationListener.accept(new ClientOperations.SneakyObservation(
+        observationListener.accept(new CapeObservationPort.Observation(BuiltinProvider.SNEAKY,
                 selfIdentity.profileId(), selfIdentity.canonicalName(),
                 providers.cape().configurationRevision(), sneakySkinSha, observation));
     }
 
     public synchronized void skinTextureReady(String skinLocation, int[] argb) {
-        if (closed || skinLocation == null || argb == null || argb.length != 64 * 64) return;
-        BufferedImage skin = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        skin.setRGB(0, 0, 64, 64, argb, 0, 64);
-        PngValidator.CapePng cape;
-        try {
-            cape = new SneakyCapeDecoder().decode(skin).orElse(null);
-        } catch (com.naocraftlab.skins.core.png.PngValidationException unavailable) {
-            return;
+        skinTextureReady(skinLocation, argb, 0);
+    }
+
+    private synchronized void skinTextureReady(String skinLocation, int[] argb, long revision) {
+        if (!currentSneakyPreparation() || skinLocation == null || argb == null || argb.length != 64 * 64) return;
+        String key = revision == 0 ? skinLocation : "native:" + revision;
+        String previous = sneakyTextureKeys.get(skinLocation);
+        if (!sneakyTextureKeys.containsKey(skinLocation) && sneakyTextureKeys.size() >= MAX_TRACKED) {
+            String retired = sneakyTextureKeys.remove(sneakyTextureKeys.keySet().iterator().next());
+            sneakyProcessor.forget(retired);
         }
-        if (sneakyTextures.size() >= MAX_TRACKED && !sneakyTextures.containsKey(skinLocation)) {
-            sneakyTextures.remove(sneakyTextures.keySet().iterator().next());
+        sneakyTextureKeys.put(skinLocation, key);
+        if (previous != null && !previous.equals(key)) {
+            sneakyProcessor.forget(previous);
+            for (var entry : List.copyOf(sneakyVisibleSkins.entrySet())) {
+                if (skinLocation.equals(entry.getValue())) updateSneakyRemote(entry.getKey());
+            }
+            publish();
         }
-        sneakyTextures.put(skinLocation, new TextureObservation(cape));
+        sneakyProcessor.prepare(key, argb);
+    }
+
+    private synchronized void sneakyPrepared(String skinLocation) {
+        if (closed || !registration.active()) return;
+        completeSneakySelf(skinLocation);
         for (var entry : List.copyOf(sneakyVisibleSkins.entrySet())) {
-            if (skinLocation.equals(entry.getValue())) updateSneakyRemote(entry.getKey());
+            if (skinLocation.equals(sneakyKey(entry.getValue()))) updateSneakyRemote(entry.getKey());
         }
         publish();
     }
 
-    public synchronized boolean hasSkinTexture(String skinLocation) {
-        return sneakyTextures.containsKey(skinLocation);
+    private String sneakyKey(String location) {
+        return sneakyTextureKeys.getOrDefault(location, location);
+    }
+
+    public boolean hasSkinTexture(String skinLocation) {
+        return sneakyProcessor.contains(sneakyKey(skinLocation));
     }
 
     public synchronized void visibleSkin(UUID profileId, String canonicalName, String skinLocation) {
-        if (closed || profileId == null || canonicalName == null) return;
+        if (closed || !registration.active() || profileId == null || canonicalName == null) return;
         CapeProjection.Identity identity = new CapeProjection.Identity(profileId, canonicalName);
         if (identity.equals(selfIdentity) || !current(identity)) return;
-        if (skinLocation == null) sneakyVisibleSkins.remove(identity);
-        else sneakyVisibleSkins.put(identity, skinLocation);
+        String previous = skinLocation == null ? sneakyVisibleSkins.remove(identity)
+                : sneakyVisibleSkins.put(identity, skinLocation);
+        if (previous != null && !Objects.equals(previous, skinLocation)
+                && !sneakyVisibleSkins.containsValue(previous)) sneakyProcessor.forget(sneakyKey(previous));
         updateSneakyRemote(identity);
         publish();
     }
 
     private void updateSneakyRemote(CapeProjection.Identity identity) {
         String skinLocation = sneakyVisibleSkins.get(identity);
-        TextureObservation texture = skinLocation == null ? null : sneakyTextures.get(skinLocation);
+        SneakyCapeProcessor.Prepared texture = skinLocation == null ? null : sneakyProcessor.prepared(sneakyKey(skinLocation));
         if (!providers.cape().enabled(BuiltinProvider.SNEAKY) || !current(identity)
                 || texture == null || texture.cape() == null) {
             removeSneakyRemote(identity);
@@ -719,7 +743,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 && previous.png().renderSha256().equals(cape.renderSha256())
                 && previous.location() != null) return;
         removeSneakyRemote(identity);
-        String location = sink.registerCapeTexture(identity.profileId(), CapeSource.SNEAKY,
+        String location = nativeTextures.register(identity.profileId(), CapeSource.SNEAKY,
                 cape.renderSha256(), cape.bytes()).orElse(null);
         sneakyRemote.put(identity, new Observed(cape, location));
     }
@@ -727,7 +751,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     private void removeSneakyRemote(CapeProjection.Identity identity) {
         Observed removed = sneakyRemote.remove(identity);
         if (removed != null && removed.location() != null) {
-            sink.releaseCapeTexture(identity.profileId(), CapeSource.SNEAKY);
+            nativeTextures.release(identity.profileId(), CapeSource.SNEAKY);
         }
     }
 
@@ -746,7 +770,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             if (bytes == null) return;
             PngValidator.CapePng png = new PngValidator().projectCanonicalCape(bytes);
             if (!png.renderSha256().equals(cape.textureCacheKey())) return;
-            String location = enabled() ? sink.registerCapeTexture(selfIdentity.profileId(),
+            String location = enabled() ? nativeTextures.register(selfIdentity.profileId(),
                     CapeSource.OPTIFINE, png.renderSha256(), png.bytes()).orElse(null) : null;
             observed.put(selfIdentity, new Observed(png, location));
         } catch (IOException | com.naocraftlab.skins.core.png.PngValidationException invalid) {
@@ -769,7 +793,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             PngValidator.CapePng png = new PngValidator().projectCanonicalCape(bytes);
             if (!png.renderSha256().equals(cape.textureCacheKey())
                     || !Objects.equals(png.hasElytra(), cape.hasElytra())) return;
-            String location = skinMcEnabled() ? sink.registerCapeTexture(selfIdentity.profileId(),
+            String location = skinMcEnabled() ? nativeTextures.register(selfIdentity.profileId(),
                     CapeSource.SKINMC, png.renderSha256(), png.bytes()).orElse(null) : null;
             skinMcObserved.put(selfIdentity, new Observed(png, location));
         } catch (IOException | com.naocraftlab.skins.core.png.PngValidationException invalid) {
@@ -812,27 +836,20 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             }
             clientExecutor.execute(() -> applySelfCandidates(identity, expectedGeneration, token, prepared));
         };
-        if (worker instanceof ExecutorService service) {
-            Future<?> future = service.submit(preparation);
-            if (selfPreparation == token) selfPreparationFuture = future;
-        } else {
-            worker.execute(preparation);
-        }
+        preparations.submit(CapePreparationQueue.Slot.SELF_CANDIDATES, preparation);
     }
 
     private void cancelSelfPreparation() {
-        if (selfPreparationFuture != null) selfPreparationFuture.cancel(true);
-        selfPreparationFuture = null;
         selfPreparation++;
     }
 
     private synchronized void applySelfCandidates(CapeProjection.Identity identity,
             long expectedGeneration, long token, Map<BuiltinProvider, Prepared> prepared) {
-        if (closed || generation != expectedGeneration || selfPreparation != token
+        if (closed || !registration.active() || generation != expectedGeneration || selfPreparation != token
                 || !identity.equals(selfIdentity) || !current(identity)) return;
         for (var entry : prepared.entrySet()) {
             Prepared value = entry.getValue();
-            sink.registerCapeTexture(identity.profileId(), CapeSource.valueOf(entry.getKey().name()),
+            nativeTextures.register(identity.profileId(), CapeSource.valueOf(entry.getKey().name()),
                     value.sha256(), value.bytes()).ifPresent(location -> selfCandidates.put(
                     entry.getKey(), candidate(location, value.hasElytra())));
         }
@@ -842,7 +859,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     private void releaseSelfCandidates() {
         if (selfIdentity != null) {
             for (BuiltinProvider provider : selfCandidates.keySet()) {
-                sink.releaseCapeTexture(selfIdentity.profileId(), CapeSource.valueOf(provider.name()));
+                nativeTextures.release(selfIdentity.profileId(), CapeSource.valueOf(provider.name()));
             }
         }
         selfCandidates.clear();
@@ -850,427 +867,22 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
 
     private void scheduleSkinMcRefresh(boolean unknownOnly) {
         if (!skinMcEnabled()) return;
-        if (!skinMcPending.isEmpty() || !skinMcQueue.isEmpty() || skinMcSweep.hasNext()) {
-            skinMcRefreshPending = true;
+        if (!skinMcSchedule.pending.isEmpty() || !skinMcSchedule.queue.isEmpty() || skinMcSchedule.sweep.hasNext()) {
+            skinMcSchedule.refreshPending = true;
             return;
         }
-        skinMcAttempted.clear();
-        startSkinMcSweep(unknownOnly);
-    }
-
-    private void startSkinMcSweep(boolean unknownOnly) {
-        skinMcUnknownOnly = unknownOnly;
-        skinMcExplicitSweep = !unknownOnly;
-        if (!unknownOnly) confirmedSkinMcRefresh = null;
-        List<CapeProjection.Identity> identities = new ArrayList<>();
-        identities.add(selfIdentity);
-        Set<CapeProjection.Identity> seen = new HashSet<>();
-        seen.add(selfIdentity);
-        for (TrackedCapePlayer player : sink.trackedCapePlayers()) {
-            if (identities.size() > MAX_TRACKED) break;
-            CapeProjection.Identity identity = new CapeProjection.Identity(
-                    player.profileId(), player.canonicalName());
-            CapeProjection.Identity previous = tracked.put(player.profileId(), identity);
-            if (previous != null && !previous.equals(identity)) {
-                remove(previous);
-                removeSkinMc(previous);
-            }
-            if (seen.add(identity)) identities.add(identity);
-        }
-        for (CapeProjection.Identity identity : List.copyOf(tracked.values())) {
-            if (!seen.contains(identity)) {
-                tracked.remove(identity.profileId());
-                remove(identity);
-                removeSkinMc(identity);
-            }
-        }
-        skinMcSweep = identities.iterator();
-        fillSkinMcQueue();
-        pumpSkinMc();
-        if (skinMcReader.cooldownRemaining().isPresent()) finishSkinMcRefreshCompletions();
-    }
-
-    private void enqueueSkinMc(CapeProjection.Identity identity, boolean discovery) {
-        if (skinMcReader.cooldownRemaining().isPresent()) {
-            if (identity.equals(selfIdentity) || tracked.containsValue(identity)) skinMcDeferred.add(identity);
-            return;
-        }
-        if (skinMcQueue.size() >= MAX_QUEUE || skinMcPending.containsKey(identity)
-                || skinMcQueue.contains(identity) || discovery && skinMcUnknownOnly
-                && (skinMcObserved.containsKey(identity) || skinMcAttempted.contains(identity))) return;
-        skinMcQueue.add(identity);
-    }
-
-    private void fillSkinMcQueue() {
-        if (skinMcReader.cooldownRemaining().isPresent()) {
-            while (!skinMcQueue.isEmpty()) skinMcDeferred.add(skinMcQueue.remove());
-            while (skinMcSweep.hasNext()) {
-                CapeProjection.Identity identity = skinMcSweep.next();
-                if (current(identity)) skinMcDeferred.add(identity);
-            }
-            return;
-        }
-        Iterator<CapeProjection.Identity> deferred = skinMcDeferred.iterator();
-        while (deferred.hasNext() && skinMcQueue.size() < MAX_QUEUE) {
-            CapeProjection.Identity identity = deferred.next();
-            if (!current(identity) || !skinMcEnabled()) {
-                deferred.remove();
-                continue;
-            }
-            if (skinMcPending.containsKey(identity)) continue;
-            if (!skinMcQueue.contains(identity)) skinMcQueue.add(identity);
-            skinMcAttempted.remove(identity);
-            deferred.remove();
-        }
-        while (skinMcQueue.size() < MAX_QUEUE && skinMcSweep.hasNext()) {
-            enqueueSkinMc(skinMcSweep.next(), true);
-        }
-    }
-
-    private void pumpSkinMc() {
-        if (skinMcPumping || closed || !skinMcEnabled()) return;
-        skinMcPumping = true;
-        try {
-            fillSkinMcQueue();
-            while (skinMcReader.cooldownRemaining().isEmpty()
-                    && pending.size() + skinMcPending.size() < MAX_ACTIVE && !skinMcQueue.isEmpty()) {
-                CapeProjection.Identity identity = skinMcQueue.remove();
-                if (!current(identity) || skinMcPending.containsKey(identity)) continue;
-                Request request = new Request(generation, skinMcSelfEpoch,
-                        identity.equals(selfIdentity) ? providers.cape().skinmc() : null,
-                        skinMcExplicitSweep);
-                long accountEpoch = skinMcReader.accountEpoch();
-                skinMcPending.put(identity, request);
-                Runnable task = () -> {
-                    if (closed || request.generation != generation
-                            || identity.equals(selfIdentity) && request.selfEpoch != skinMcSelfEpoch
-                            || !current(identity)) return;
-                    SkinMcCapeReader.Outcome outcome = skinMcReader.read(identity.profileId(), accountEpoch);
-                    if (identity.equals(selfIdentity) && outcome.kind() != SkinMcCapeReader.Kind.FAILURE) {
-                        Persisted persisted = persistSkinMcSelf(identity, request, outcome);
-                        clientExecutor.execute(() -> completeSkinMc(identity, request, outcome, persisted));
-                    } else {
-                        clientExecutor.execute(() -> completeSkinMc(identity, request, outcome, null));
-                    }
-                };
-                if (worker instanceof ExecutorService service) {
-                    Future<?> future = service.submit(task);
-                    if (skinMcPending.get(identity) == request) request.future = future;
-                } else {
-                    worker.execute(task);
-                }
-                fillSkinMcQueue();
-            }
-        } finally {
-            skinMcPumping = false;
-        }
-    }
-
-    private synchronized void completeSkinMc(CapeProjection.Identity identity, Request request,
-            SkinMcCapeReader.Outcome outcome, Persisted persisted) {
-        if (skinMcPending.get(identity) != request) return;
-        skinMcPending.remove(identity);
-        if (!closed && request.generation == generation
-                && (!identity.equals(selfIdentity) || request.selfEpoch == skinMcSelfEpoch)
-                && skinMcEnabled() && current(identity)) {
-            skinMcAttempted.add(identity);
-            if (outcome.failure() == SkinMcCapeReader.Failure.RATE_LIMITED) {
-                skinMcDeferred.add(identity);
-            }
-            if (outcome.kind() == SkinMcCapeReader.Kind.ABSENT) {
-                if (!identity.equals(selfIdentity) || persisted != null && persisted.applied()) {
-                    replaceSkinMc(identity, new Observed(null, null));
-                    if (identity.equals(selfIdentity) && request.explicitRefresh) {
-                        confirmedSkinMcRefresh = ProviderObservation.observed(null);
-                    }
-                }
-            } else if (outcome.kind() == SkinMcCapeReader.Kind.PRESENT) {
-                if (!identity.equals(selfIdentity) || persisted != null && persisted.applied()) {
-                    replaceSkinMc(identity, new Observed(outcome.cape(), null));
-                    if (identity.equals(selfIdentity) && request.explicitRefresh) {
-                        confirmedSkinMcRefresh = ProviderObservation.observed(persisted.cape());
-                    }
-                }
-            }
-        }
-        fillSkinMcQueue();
-        if (skinMcReader.cooldownRemaining().isPresent()) skinMcRefreshPending = false;
-        if (skinMcPending.isEmpty() && skinMcQueue.isEmpty() && !skinMcSweep.hasNext()) {
-            if (skinMcRefreshPending && skinMcReader.cooldownRemaining().isEmpty()) {
-                skinMcRefreshPending = false;
-                skinMcAttempted.clear();
-                startSkinMcSweep(false);
-            } else {
-                finishSkinMcRefreshCompletions();
-            }
-        } else {
-            pumpSkinMc();
-        }
-        if (!queue.isEmpty() || sweep.hasNext()) pump();
-    }
-
-    private void finishSkinMcRefreshCompletions() {
-        if (skinMcRefreshCompletions.isEmpty()) return;
-        List<Consumer<ProviderObservation<ProviderCape>>> completions = List.copyOf(skinMcRefreshCompletions);
-        skinMcRefreshCompletions.clear();
-        ProviderObservation<ProviderCape> confirmed = confirmedSkinMcRefresh;
-        confirmedSkinMcRefresh = null;
-        completions.forEach(completion -> completion.accept(confirmed));
-    }
-
-    private void resetSkinMcWork() {
-        skinMcQueue.clear();
-        for (Request request : skinMcPending.values()) {
-            if (request.future != null) request.future.cancel(true);
-        }
-        skinMcPending.clear();
-        skinMcAttempted.clear();
-        skinMcDeferred.clear();
-        skinMcSweep = List.<CapeProjection.Identity>of().iterator();
-        skinMcRefreshPending = false;
-        confirmedSkinMcRefresh = null;
-        finishSkinMcRefreshCompletions();
-    }
-
-    private void startSweep(boolean unknownOnly) {
-        this.unknownOnly = unknownOnly;
-        this.explicitSweep = !unknownOnly;
-        if (!unknownOnly) confirmedRefreshObservation = null;
-        List<CapeProjection.Identity> identities = new ArrayList<>();
-        identities.add(selfIdentity);
-        Set<CapeProjection.Identity> seen = new HashSet<>();
-        seen.add(selfIdentity);
-        for (TrackedCapePlayer player : sink.trackedCapePlayers()) {
-            if (identities.size() > MAX_TRACKED) break;
-            CapeProjection.Identity identity = new CapeProjection.Identity(
-                    player.profileId(), player.canonicalName());
-            CapeProjection.Identity previous = tracked.put(player.profileId(), identity);
-            if (previous != null && !previous.equals(identity)) {
-                remove(previous);
-                removeSkinMc(previous);
-            }
-            if (seen.add(identity)) identities.add(identity);
-        }
-        for (CapeProjection.Identity identity : List.copyOf(tracked.values())) {
-            if (!seen.contains(identity)) {
-                tracked.remove(identity.profileId());
-                remove(identity);
-                removeSkinMc(identity);
-            }
-        }
-        sweep = identities.iterator();
-        fillQueue();
-        pump();
-        if (reader.cooldownRemaining().isPresent()) finishRefreshCompletions();
-    }
-
-    private void enqueue(CapeProjection.Identity identity, boolean discovery) {
-        if (reader.cooldownRemaining().isPresent()) {
-            if (identity.equals(selfIdentity) || tracked.containsValue(identity)) repeatPending.add(identity);
-            return;
-        }
-        if (queue.size() >= MAX_QUEUE || pending.containsKey(identity) || queue.contains(identity)
-                || discovery && unknownOnly
-                && (observed.containsKey(identity) || attempted.contains(identity))) return;
-        queue.add(identity);
-    }
-
-    private void fillQueue() {
-        if (reader.cooldownRemaining().isPresent()) {
-            while (!queue.isEmpty()) repeatPending.add(queue.remove());
-            while (sweep.hasNext()) {
-                CapeProjection.Identity identity = sweep.next();
-                if (current(identity)) repeatPending.add(identity);
-            }
-            return;
-        }
-        Iterator<CapeProjection.Identity> deferred = repeatPending.iterator();
-        while (deferred.hasNext()) {
-            CapeProjection.Identity identity = deferred.next();
-            if (!enabled() || !current(identity)) {
-                deferred.remove();
-                continue;
-            }
-            if (pending.containsKey(identity)) continue;
-            if (queue.contains(identity)) {
-                deferred.remove();
-                continue;
-            }
-            if (queue.size() >= MAX_QUEUE) break;
-            attempted.remove(identity);
-            queue.add(identity);
-            deferred.remove();
-        }
-        while (queue.size() < MAX_QUEUE && sweep.hasNext()) {
-            enqueue(sweep.next(), true);
-        }
-    }
-
-    private void pump() {
-        if (pumping || closed) return;
-        pumping = true;
-        try {
-            fillQueue();
-            while (enabled() && reader.cooldownRemaining().isEmpty()
-                    && pending.size() + skinMcPending.size() < MAX_ACTIVE && !queue.isEmpty()) {
-                CapeProjection.Identity identity = queue.remove();
-                if (!current(identity) || pending.containsKey(identity)) continue;
-                long requestGeneration = generation;
-                Request request = new Request(requestGeneration, selfEpoch,
-                        identity.equals(selfIdentity) ? providers.cape().optifine() : null,
-                        explicitSweep);
-                long accountEpoch = reader.accountEpoch();
-                pending.put(identity, request);
-                Runnable task = () -> {
-                    if (closed || request.generation != generation
-                            || identity.equals(selfIdentity) && request.selfEpoch != selfEpoch
-                            || !current(identity)) return;
-                    OptifineCapeReader.Outcome outcome = reader.read(identity.canonicalName(), accountEpoch);
-                    if (identity.equals(selfIdentity)
-                            && outcome.kind() != OptifineCapeReader.Kind.FAILURE) {
-                        Persisted persisted = persistSelf(identity, request, outcome);
-                        clientExecutor.execute(() -> complete(identity, request, outcome, persisted));
-                    } else {
-                        clientExecutor.execute(() -> complete(identity, request, outcome, null));
-                    }
-                };
-                if (worker instanceof ExecutorService service) {
-                    Future<?> future = service.submit(task);
-                    if (pending.get(identity) == request) request.future = future;
-                } else {
-                    worker.execute(task);
-                }
-                fillQueue();
-            }
-        } finally {
-            pumping = false;
-        }
-    }
-
-    private synchronized void complete(CapeProjection.Identity identity, Request request,
-            OptifineCapeReader.Outcome outcome, Persisted persisted) {
-        if (pending.get(identity) != request) return;
-        pending.remove(identity);
-        if (!closed && request.generation == generation
-                && (!identity.equals(selfIdentity) || request.selfEpoch == selfEpoch)
-                && enabled() && current(identity)) {
-            attempted.add(identity);
-            if (outcome.failure() == OptifineCapeReader.Failure.RATE_LIMITED) {
-                repeatPending.add(identity);
-            }
-            if (outcome.kind() == OptifineCapeReader.Kind.ABSENT) {
-                if (!identity.equals(selfIdentity) || persisted != null && persisted.applied()) {
-                    replace(identity, new Observed(null, null));
-                    if (identity.equals(selfIdentity) && request.explicitRefresh) {
-                        confirmedRefreshObservation = ProviderObservation.observed(null);
-                    }
-                }
-            } else if (outcome.kind() == OptifineCapeReader.Kind.PRESENT) {
-                if (!identity.equals(selfIdentity) || persisted != null && persisted.applied()) {
-                    replace(identity, new Observed(outcome.cape(), null));
-                    if (identity.equals(selfIdentity) && request.explicitRefresh) {
-                        confirmedRefreshObservation = ProviderObservation.observed(persisted.cape());
-                    }
-                }
-            }
-        }
-        fillQueue();
-        if (reader.cooldownRemaining().isPresent()) refreshPending = false;
-        if (pending.isEmpty() && queue.isEmpty() && !sweep.hasNext()) {
-            if (refreshPending) {
-                refreshPending = false;
-                attempted.clear();
-                startSweep(false);
-            } else {
-                finishRefreshCompletions();
-                if (unknownSweepPending) {
-                    unknownSweepPending = false;
-                    startSweep(true);
-                }
-            }
-        } else {
-            pump();
-        }
-        if (!skinMcQueue.isEmpty() || skinMcSweep.hasNext()) pumpSkinMc();
-    }
-
-    private void finishRefreshCompletions() {
-        if (refreshCompletions.isEmpty()) return;
-        List<Consumer<ProviderObservation<ProviderCape>>> completions = List.copyOf(refreshCompletions);
-        refreshCompletions.clear();
-        ProviderObservation<ProviderCape> confirmed = confirmedRefreshObservation;
-        confirmedRefreshObservation = null;
-        completions.forEach(completion -> completion.accept(confirmed));
-    }
-
-    private Persisted persistSelf(CapeProjection.Identity identity, Request request,
-            OptifineCapeReader.Outcome outcome) {
-        if (closed || request.generation != generation || request.selfEpoch != selfEpoch
-                || !current(identity)) {
-            return new Persisted(false, null);
-        }
-        try {
-            ProviderCape cape = null;
-            if (outcome.kind() == OptifineCapeReader.Kind.PRESENT) {
-                String key = textures.storeObservedCape(outcome.cape());
-                cape = new ProviderCape(capeId(identity), key, outcome.cape().hasElytra());
-            }
-            ProviderCape confirmed = cape;
-            boolean[] applied = {false};
-            storage.updateAppearance(identity.profileId(), current -> {
-                GameSessionTokenSource.SessionIdentity session = tokenSource.currentSession();
-                if (closed || request.generation != generation || request.selfEpoch != selfEpoch
-                        || !identity.equals(new CapeProjection.Identity(
-                                session.profileId(), session.profileName()))
-                        || !current.providers().cape().enabled(BuiltinProvider.OPTIFINE)
-                        || !current.providers().cape().optifine().equals(request.dispatchedObservation)) return current;
-                applied[0] = true;
-                return current.withProviders(new AppearanceProviders(current.providers().skin(),
-                        current.providers().cape().observeOptifine(confirmed)));
-            });
-            return new Persisted(applied[0], cape);
-        } catch (IOException | com.naocraftlab.skins.core.png.PngValidationException unavailable) {
-            return new Persisted(false, null);
-        }
-    }
-
-    private Persisted persistSkinMcSelf(CapeProjection.Identity identity, Request request,
-            SkinMcCapeReader.Outcome outcome) {
-        if (closed || request.generation != generation || request.selfEpoch != skinMcSelfEpoch
-                || !current(identity)) return new Persisted(false, null);
-        try {
-            ProviderCape cape = null;
-            if (outcome.kind() == SkinMcCapeReader.Kind.PRESENT) {
-                String key = textures.storeObservedCape(outcome.cape());
-                cape = new ProviderCape(skinMcCapeId(identity), key, outcome.cape().hasElytra());
-            }
-            ProviderCape confirmed = cape;
-            boolean[] applied = {false};
-            storage.updateAppearance(identity.profileId(), current -> {
-                GameSessionTokenSource.SessionIdentity session = tokenSource.currentSession();
-                if (closed || request.generation != generation || request.selfEpoch != skinMcSelfEpoch
-                        || !identity.equals(new CapeProjection.Identity(
-                                session.profileId(), session.profileName()))
-                        || !current.providers().cape().enabled(BuiltinProvider.SKINMC)
-                        || !current.providers().cape().skinmc().equals(request.dispatchedObservation)) return current;
-                applied[0] = true;
-                return current.withProviders(new AppearanceProviders(current.providers().skin(),
-                        current.providers().cape().observeSkinmc(confirmed)));
-            });
-            return new Persisted(applied[0], cape);
-        } catch (IOException | com.naocraftlab.skins.core.png.PngValidationException unavailable) {
-            return new Persisted(false, null);
-        }
+        skinMcSchedule.attempted.clear();
+        skinMcSchedule.startSweep(unknownOnly);
     }
 
     private void replaceSkinMc(CapeProjection.Identity identity, Observed next) {
         Observed previous = skinMcObserved.get(identity);
         if (sameObservation(previous, next)) return;
         if (previous != null && previous.location() != null) {
-            sink.releaseCapeTexture(identity.profileId(), CapeSource.SKINMC);
+            nativeTextures.release(identity.profileId(), CapeSource.SKINMC);
         }
         if (next.png() != null) {
-            var registered = sink.registerCapeTexture(identity.profileId(), CapeSource.SKINMC,
+            var registered = nativeTextures.register(identity.profileId(), CapeSource.SKINMC,
                     next.png().renderSha256(), next.png().bytes());
             next = new Observed(next.png(), registered.orElse(null));
         }
@@ -1280,8 +892,8 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                     : new ProviderCape(skinMcCapeId(identity), next.png().renderSha256(),
                             next.png().hasElytra());
             providers = new AppearanceProviders(providers.skin(), providers.cape().observeSkinmc(cape));
-            skinMcObservationListener.accept(new ClientOperations.SkinMcObservation(identity.profileId(),
-                    identity.canonicalName(), providers.cape().configurationRevision(), cape));
+            observationListener.accept(new CapeObservationPort.Observation(BuiltinProvider.SKINMC, identity.profileId(),
+                    identity.canonicalName(), providers.cape().configurationRevision(), null, ProviderObservation.observed(cape)));
         }
         publish();
     }
@@ -1290,10 +902,10 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         Observed previous = observed.get(identity);
         if (sameObservation(previous, next)) return;
         if (previous != null && previous.location() != null) {
-            sink.releaseCapeTexture(identity.profileId(), CapeSource.OPTIFINE);
+            nativeTextures.release(identity.profileId(), CapeSource.OPTIFINE);
         }
         if (next.png() != null) {
-            var registered = sink.registerCapeTexture(identity.profileId(), CapeSource.OPTIFINE,
+            var registered = nativeTextures.register(identity.profileId(), CapeSource.OPTIFINE,
                     next.png().renderSha256(), next.png().bytes());
             next = new Observed(next.png(), registered.orElse(null));
         }
@@ -1302,8 +914,8 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             ProviderCape cape = next.png() == null ? null
                     : new ProviderCape(capeId(identity), next.png().renderSha256(), next.png().hasElytra());
             providers = new AppearanceProviders(providers.skin(), providers.cape().observeOptifine(cape));
-            selfObservationListener.accept(new ClientOperations.OptiFineObservation(identity.profileId(),
-                    identity.canonicalName(), providers.cape().configurationRevision(), cape));
+            observationListener.accept(new CapeObservationPort.Observation(BuiltinProvider.OPTIFINE, identity.profileId(),
+                    identity.canonicalName(), providers.cape().configurationRevision(), null, ProviderObservation.observed(cape)));
         }
         publish();
     }
@@ -1334,41 +946,48 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         return identity.equals(selfIdentity) || identity.equals(tracked.get(identity.profileId()));
     }
 
+    private void retireTrackedIdentity(CapeProjection.Identity identity) {
+        remove(identity);
+        removeSkinMc(identity);
+        removeSneakyRemote(identity);
+        String skin = sneakyVisibleSkins.remove(identity);
+        if (skin != null && !sneakyVisibleSkins.containsValue(skin)) sneakyProcessor.forget(sneakyKey(skin));
+    }
+
     private void remove(CapeProjection.Identity identity) {
-        queue.remove(identity);
-        attempted.remove(identity);
-        repeatPending.remove(identity);
-        Request request = pending.remove(identity);
-        if (request != null && request.future != null) request.future.cancel(true);
+        optifineSchedule.queue.remove(identity);
+        optifineSchedule.attempted.remove(identity);
+        optifineSchedule.repeatPending.remove(identity);
+        Request request = optifineSchedule.pending.remove(identity);
+        if (request != null && request.future != null) {
+            request.future.cancel(true);
+            purgeCancelledWork();
+        }
         Observed removed = observed.remove(identity);
         if (removed != null && removed.location() != null) {
-            sink.releaseCapeTexture(identity.profileId(), CapeSource.OPTIFINE);
+            nativeTextures.release(identity.profileId(), CapeSource.OPTIFINE);
         }
     }
 
     private void removeSkinMc(CapeProjection.Identity identity) {
-        skinMcQueue.remove(identity);
-        skinMcAttempted.remove(identity);
-        skinMcDeferred.remove(identity);
-        Request request = skinMcPending.remove(identity);
-        if (request != null && request.future != null) request.future.cancel(true);
+        skinMcSchedule.queue.remove(identity);
+        skinMcSchedule.attempted.remove(identity);
+        skinMcSchedule.repeatPending.remove(identity);
+        Request request = skinMcSchedule.pending.remove(identity);
+        if (request != null && request.future != null) {
+            request.future.cancel(true);
+            purgeCancelledWork();
+        }
         Observed removed = skinMcObserved.remove(identity);
         if (removed != null && removed.location() != null) {
-            sink.releaseCapeTexture(identity.profileId(), CapeSource.SKINMC);
+            nativeTextures.release(identity.profileId(), CapeSource.SKINMC);
         }
-    }
-
-    private void cancelPending() {
-        for (Request request : pending.values()) {
-            if (request.future != null) request.future.cancel(true);
-        }
-        pending.clear();
     }
 
     private void releaseObservedTextures() {
         for (var entry : observed.entrySet()) {
             if (entry.getValue().location() != null) {
-                sink.releaseCapeTexture(entry.getKey().profileId(), CapeSource.OPTIFINE);
+                nativeTextures.release(entry.getKey().profileId(), CapeSource.OPTIFINE);
                 entry.setValue(new Observed(entry.getValue().png(), null));
             }
         }
@@ -1377,7 +996,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     private void releaseSkinMcTextures() {
         for (var entry : skinMcObserved.entrySet()) {
             if (entry.getValue().location() != null) {
-                sink.releaseCapeTexture(entry.getKey().profileId(), CapeSource.SKINMC);
+                nativeTextures.release(entry.getKey().profileId(), CapeSource.SKINMC);
                 entry.setValue(new Observed(entry.getValue().png(), null));
             }
         }
@@ -1387,7 +1006,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         for (var entry : observed.entrySet()) {
             if (entry.getValue().png() == null || !current(entry.getKey())) continue;
             var png = entry.getValue().png();
-            String location = sink.registerCapeTexture(entry.getKey().profileId(), CapeSource.OPTIFINE,
+            String location = nativeTextures.register(entry.getKey().profileId(), CapeSource.OPTIFINE,
                     png.renderSha256(), png.bytes()).orElse(null);
             entry.setValue(new Observed(png, location));
         }
@@ -1397,7 +1016,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
         for (var entry : skinMcObserved.entrySet()) {
             if (entry.getValue().png() == null || !current(entry.getKey())) continue;
             var png = entry.getValue().png();
-            String location = sink.registerCapeTexture(entry.getKey().profileId(), CapeSource.SKINMC,
+            String location = nativeTextures.register(entry.getKey().profileId(), CapeSource.SKINMC,
                     png.renderSha256(), png.bytes()).orElse(null);
             entry.setValue(new Observed(png, location));
         }
@@ -1465,7 +1084,7 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
                 }
             }
         }
-        CapeProjection.publish(new CapeProjection.Snapshot(providers.cape().order(), capes, skinMcCapes, sneakyCapes,
+        registration.publish(new CapeProjection.Snapshot(providers.cape().order(), capes, skinMcCapes, sneakyCapes,
                 selfIdentity, selfCandidates.get(BuiltinProvider.OFFLINE),
                 selfCandidates.get(BuiltinProvider.MINECRAFT)));
     }
@@ -1475,8 +1094,6 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
     }
 
     private record Observed(PngValidator.CapePng png, String location) {}
-
-    private record TextureObservation(PngValidator.CapePng cape) {}
 
     private record ObservationKey(String sha256, boolean hasElytra, boolean registered) {}
 
@@ -1508,6 +1125,268 @@ public final class OptifineCapeCoordinator implements AutoCloseable {
             this.selfEpoch = selfEpoch;
             this.dispatchedObservation = dispatchedObservation;
             this.explicitRefresh = explicitRefresh;
+        }
+    }
+    private Persisted persistRemoteSelf(BuiltinProvider provider, CapeProjection.Identity identity, Request request,
+            RemoteRead outcome) {
+        if (closed || !registration.active() || request.generation != generation || request.selfEpoch != (provider == BuiltinProvider.OPTIFINE ? selfEpoch : skinMcSelfEpoch)
+                || !current(identity)) {
+            return new Persisted(false, null);
+        }
+        try {
+            ProviderCape cape = null;
+            if (outcome.kind() == ReadKind.PRESENT) {
+                String key = textures.storeObservedCape(outcome.cape());
+                cape = new ProviderCape((provider == BuiltinProvider.OPTIFINE ? capeId(identity) : skinMcCapeId(identity)), key, outcome.cape().hasElytra());
+            }
+            ProviderCape confirmed = cape;
+            boolean[] applied = {false};
+            storage.updateAppearance(identity.profileId(), current -> {
+                GameSessionTokenSource.SessionIdentity session = tokenSource.currentSession();
+                if (closed || !registration.active() || request.generation != generation || request.selfEpoch != (provider == BuiltinProvider.OPTIFINE ? selfEpoch : skinMcSelfEpoch)
+                        || !identity.equals(new CapeProjection.Identity(
+                                session.profileId(), session.profileName()))
+                        || !current.providers().cape().enabled(provider)
+                        || !current.providers().cape().observation(provider).equals(request.dispatchedObservation)) return current;
+                applied[0] = true;
+                return current.withProviders(new AppearanceProviders(current.providers().skin(),
+                        provider == BuiltinProvider.OPTIFINE ? current.providers().cape().observeOptifine(confirmed) : current.providers().cape().observeSkinmc(confirmed)));
+            });
+            return new Persisted(applied[0], cape);
+        } catch (IOException | com.naocraftlab.skins.core.png.PngValidationException unavailable) {
+            return new Persisted(false, null);
+        }
+    }
+
+    private enum ReadKind { PRESENT, ABSENT, FAILURE }
+    private record RemoteRead(ReadKind kind, PngValidator.CapePng cape, boolean rateLimited) {}
+
+    private final class RemoteCapeScheduler {
+        private final ArrayDeque<CapeProjection.Identity> queue = new ArrayDeque<>();
+        private final Map<CapeProjection.Identity, Request> pending = new HashMap<>();
+        private final Set<CapeProjection.Identity> attempted = new HashSet<>();
+        private final Set<CapeProjection.Identity> repeatPending = new LinkedHashSet<>();
+        private Iterator<CapeProjection.Identity> sweep = List.<CapeProjection.Identity>of().iterator();
+        private final List<Consumer<ProviderObservation<ProviderCape>>> refreshCompletions = new ArrayList<>();
+        private ProviderObservation<ProviderCape> confirmedRefreshObservation;
+        private boolean explicitSweep;
+        private boolean refreshPending;
+        private boolean unknownSweepPending;
+        private boolean unknownOnly;
+        private boolean pumping;
+
+        private final BuiltinProvider provider;
+        private RemoteCapeScheduler(BuiltinProvider provider) { this.provider = provider; }
+        private RemoteCapeScheduler other() { return provider == BuiltinProvider.OPTIFINE ? skinMcSchedule : optifineSchedule; }
+        private boolean enabled() { return providers.cape().enabled(provider); }
+        private long epoch() { return provider == BuiltinProvider.OPTIFINE ? selfEpoch : skinMcSelfEpoch; }
+        private Map<CapeProjection.Identity, Observed> observations() { return provider == BuiltinProvider.OPTIFINE ? observed : skinMcObserved; }
+        private java.util.Optional<java.time.Duration> cooldownRemaining() { return CapeProviderCoordinator.this.cooldownRemaining(provider); }
+        private long accountEpoch() { return provider == BuiltinProvider.OPTIFINE ? reader.accountEpoch() : skinMcReader.accountEpoch(); }
+        private RemoteRead read(CapeProjection.Identity identity, long accountEpoch) {
+            if (provider == BuiltinProvider.OPTIFINE) {
+                var result = reader.read(identity.canonicalName(), accountEpoch);
+                return new RemoteRead(ReadKind.valueOf(result.kind().name()), result.cape(),
+                        result.failure() == OptifineCapeReader.Failure.RATE_LIMITED);
+            }
+            var result = skinMcReader.read(identity.profileId(), accountEpoch);
+            return new RemoteRead(ReadKind.valueOf(result.kind().name()), result.cape(),
+                    result.failure() == SkinMcCapeReader.Failure.RATE_LIMITED);
+        }
+        private Persisted persist(CapeProjection.Identity identity, Request request, RemoteRead result) {
+            return persistRemoteSelf(provider, identity, request, result);
+        }
+        private void replaceObservation(CapeProjection.Identity identity, Observed next) {
+            if (provider == BuiltinProvider.OPTIFINE) replace(identity, next);
+            else replaceSkinMc(identity, next);
+        }
+        private void reset() {
+            queue.clear();
+            cancelPending();
+            attempted.clear();
+            repeatPending.clear();
+            sweep = List.<CapeProjection.Identity>of().iterator();
+            refreshPending = false;
+            unknownSweepPending = false;
+            confirmedRefreshObservation = null;
+            finishRefreshCompletions();
+        }
+
+        private void startSweep(boolean unknownOnly) {
+            this.unknownOnly = unknownOnly;
+            this.explicitSweep = !unknownOnly;
+            if (!unknownOnly) confirmedRefreshObservation = null;
+            List<CapeProjection.Identity> identities = new ArrayList<>();
+            identities.add(selfIdentity);
+            Set<CapeProjection.Identity> seen = new HashSet<>();
+            seen.add(selfIdentity);
+            for (TrackedCapePlayer player : sink.trackedCapePlayers()) {
+                if (identities.size() > MAX_TRACKED) break;
+                CapeProjection.Identity identity = new CapeProjection.Identity(
+                        player.profileId(), player.canonicalName());
+                CapeProjection.Identity previous = tracked.put(player.profileId(), identity);
+                if (previous != null && !previous.equals(identity)) {
+                    retireTrackedIdentity(previous);
+                }
+                if (seen.add(identity)) identities.add(identity);
+            }
+            for (CapeProjection.Identity identity : List.copyOf(tracked.values())) {
+                if (!seen.contains(identity)) {
+                    tracked.remove(identity.profileId());
+                    retireTrackedIdentity(identity);
+                }
+            }
+            sweep = identities.iterator();
+            fillQueue();
+            pump();
+            if (cooldownRemaining().isPresent()) finishRefreshCompletions();
+        }
+
+        private void enqueue(CapeProjection.Identity identity, boolean discovery) {
+            if (cooldownRemaining().isPresent()) {
+                if (identity.equals(selfIdentity) || tracked.containsValue(identity)) repeatPending.add(identity);
+                return;
+            }
+            if (queue.size() >= MAX_QUEUE || pending.containsKey(identity) || queue.contains(identity)
+                    || discovery && unknownOnly
+                    && (observations().containsKey(identity) || attempted.contains(identity))) return;
+            queue.add(identity);
+        }
+
+        private void fillQueue() {
+            if (cooldownRemaining().isPresent()) {
+                while (!queue.isEmpty()) repeatPending.add(queue.remove());
+                while (sweep.hasNext()) {
+                    CapeProjection.Identity identity = sweep.next();
+                    if (current(identity)) repeatPending.add(identity);
+                }
+                return;
+            }
+            Iterator<CapeProjection.Identity> deferred = repeatPending.iterator();
+            while (deferred.hasNext()) {
+                CapeProjection.Identity identity = deferred.next();
+                if (!enabled() || !current(identity)) {
+                    deferred.remove();
+                    continue;
+                }
+                if (pending.containsKey(identity)) continue;
+                if (queue.contains(identity)) {
+                    deferred.remove();
+                    continue;
+                }
+                if (queue.size() >= MAX_QUEUE) break;
+                attempted.remove(identity);
+                queue.add(identity);
+                deferred.remove();
+            }
+            while (queue.size() < MAX_QUEUE && sweep.hasNext()) {
+                enqueue(sweep.next(), true);
+            }
+        }
+
+        private void pump() {
+            if (pumping || closed) return;
+            pumping = true;
+            try {
+                fillQueue();
+                while (enabled() && cooldownRemaining().isEmpty()
+                        && pending.size() + other().pending.size() < MAX_ACTIVE && !queue.isEmpty()) {
+                    CapeProjection.Identity identity = queue.remove();
+                    if (!current(identity) || pending.containsKey(identity)) continue;
+                    long requestGeneration = generation;
+                    Request request = new Request(requestGeneration, epoch(),
+                            identity.equals(selfIdentity) ? providers.cape().observation(provider) : null,
+                            explicitSweep);
+                    long accountEpoch = accountEpoch();
+                    pending.put(identity, request);
+                    Runnable task = () -> {
+                        if (closed || !registration.active() || request.generation != generation
+                                || identity.equals(selfIdentity) && request.selfEpoch != epoch()
+                                || !current(identity)) return;
+                        RemoteRead outcome = read(identity, accountEpoch);
+                        if (identity.equals(selfIdentity)
+                                && outcome.kind() != ReadKind.FAILURE) {
+                            Persisted persisted = persist(identity, request, outcome);
+                            clientExecutor.execute(() -> { synchronized (CapeProviderCoordinator.this) { complete(identity, request, outcome, persisted); } });
+                        } else {
+                            clientExecutor.execute(() -> { synchronized (CapeProviderCoordinator.this) { complete(identity, request, outcome, null); } });
+                        }
+                    };
+                    if (worker instanceof ExecutorService service) {
+                        Future<?> future = service.submit(task);
+                        if (pending.get(identity) == request) request.future = future;
+                    } else {
+                        worker.execute(task);
+                    }
+                    fillQueue();
+                }
+            } finally {
+                pumping = false;
+            }
+        }
+
+        private void complete(CapeProjection.Identity identity, Request request,
+                RemoteRead outcome, Persisted persisted) {
+            if (pending.get(identity) != request) return;
+            pending.remove(identity);
+            if (!closed && registration.active() && request.generation == generation
+                    && (!identity.equals(selfIdentity) || request.selfEpoch == epoch())
+                    && enabled() && current(identity)) {
+                attempted.add(identity);
+                if (outcome.rateLimited()) {
+                    repeatPending.add(identity);
+                }
+                if (outcome.kind() == ReadKind.ABSENT) {
+                    if (!identity.equals(selfIdentity) || persisted != null && persisted.applied()) {
+                        replaceObservation(identity, new Observed(null, null));
+                        if (identity.equals(selfIdentity) && request.explicitRefresh) {
+                            confirmedRefreshObservation = ProviderObservation.observed(null);
+                        }
+                    }
+                } else if (outcome.kind() == ReadKind.PRESENT) {
+                    if (!identity.equals(selfIdentity) || persisted != null && persisted.applied()) {
+                        replaceObservation(identity, new Observed(outcome.cape(), null));
+                        if (identity.equals(selfIdentity) && request.explicitRefresh) {
+                            confirmedRefreshObservation = ProviderObservation.observed(persisted.cape());
+                        }
+                    }
+                }
+            }
+            fillQueue();
+            if (cooldownRemaining().isPresent()) refreshPending = false;
+            if (pending.isEmpty() && queue.isEmpty() && !sweep.hasNext()) {
+                if (refreshPending) {
+                    refreshPending = false;
+                    attempted.clear();
+                    startSweep(false);
+                } else {
+                    finishRefreshCompletions();
+                    if (unknownSweepPending) {
+                        unknownSweepPending = false;
+                        startSweep(true);
+                    }
+                }
+            } else {
+                pump();
+            }
+            if (!other().queue.isEmpty() || other().sweep.hasNext()) other().pump();
+        }
+
+        private void finishRefreshCompletions() {
+            if (refreshCompletions.isEmpty()) return;
+            List<Consumer<ProviderObservation<ProviderCape>>> completions = List.copyOf(refreshCompletions);
+            refreshCompletions.clear();
+            ProviderObservation<ProviderCape> confirmed = confirmedRefreshObservation;
+            confirmedRefreshObservation = null;
+            completions.forEach(completion -> completion.accept(confirmed));
+        }
+
+        private void cancelPending() {
+            for (Request request : pending.values()) {
+                if (request.future != null) request.future.cancel(true);
+            }
+            pending.clear();
+            purgeCancelledWork();
         }
     }
 }

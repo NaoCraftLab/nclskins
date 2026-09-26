@@ -3,146 +3,133 @@ package com.naocraftlab.skins.runtime;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 
 import java.util.List;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ConcurrentHashMap;
-import java.lang.ref.ReferenceQueue;
-import java.lang.ref.WeakReference;
 
 public final class CapeProjection {
-    private static final AtomicReference<Snapshot> CURRENT = new AtomicReference<>(Snapshot.empty());
-    private static final AtomicReference<Events> EVENTS = new AtomicReference<>();
-    private static final Map<Identity, String> VISIBLE_SKINS = new ConcurrentHashMap<>();
-    private static final ReferenceQueue<Object> NATIVE_SKIN_QUEUE = new ReferenceQueue<>();
-    private static final Map<String, NativeSkin> NATIVE_SKINS = new HashMap<>();
+    private static final AtomicReference<Registration> CURRENT = new AtomicReference<>();
+    private static final RetainedSkinPixels PIXELS = new RetainedSkinPixels();
 
     public static void skinTextureReady(String skinLocation, int[] argb) {
         skinTextureReady(skinLocation, argb, null);
     }
 
     public static void skinTextureReady(String skinLocation, int[] argb, Object nativeTexture) {
-        if (nativeTexture != null && skinLocation != null && argb != null && argb.length == 64 * 64) {
-            synchronized (NATIVE_SKINS) {
-                drainNativeSkins();
-                NATIVE_SKINS.put(skinLocation, new NativeSkin(nativeTexture, skinLocation, argb.clone()));
-            }
+        if (skinLocation == null || argb == null || argb.length != 64 * 64) return;
+        RetainedSkinPixels.Snapshot pixels = PIXELS.capture(skinLocation, argb, nativeTexture);
+        Registration registration = CURRENT.get();
+        if (registration != null && pixels != null) {
+            registration.events.skinTextureReady(skinLocation, pixels.argb(), pixels.revision());
         }
-        Events events = EVENTS.get();
-        if (events != null) events.skinTextureReady(skinLocation, argb.clone());
     }
 
     public static void visibleSkin(UUID profileId, String canonicalName, String skinLocation) {
         Identity identity = new Identity(profileId, canonicalName);
-        Events events = EVENTS.get();
+        Registration registration = CURRENT.get();
+        Events events = registration == null ? null : registration.events;
         if (skinLocation != null && events != null && !events.hasSkinTexture(skinLocation)) {
-            int[] retained = null;
-            synchronized (NATIVE_SKINS) {
-                drainNativeSkins();
-                NativeSkin nativeSkin = NATIVE_SKINS.get(skinLocation);
-                if (nativeSkin != null) {
-                    if (nativeSkin.get() == null) NATIVE_SKINS.remove(skinLocation, nativeSkin);
-                    else retained = nativeSkin.argb().clone();
-                }
-            }
-            if (retained != null) events.skinTextureReady(skinLocation, retained);
+            RetainedSkinPixels.Snapshot retained = PIXELS.snapshot(skinLocation);
+            if (retained != null) events.skinTextureReady(skinLocation, retained.argb(), retained.revision());
         }
-        String previous = skinLocation == null ? VISIBLE_SKINS.remove(identity)
-                : VISIBLE_SKINS.put(identity, skinLocation);
+        if (registration == null) return;
+        if (!registration.visibleSkins.containsKey(identity) && registration.visibleSkins.size() >= 513) return;
+        String previous = skinLocation == null ? registration.visibleSkins.remove(identity)
+                : registration.visibleSkins.put(identity, skinLocation);
         if (Objects.equals(previous, skinLocation)) return;
         if (events != null) events.visibleSkin(profileId, canonicalName, skinLocation);
     }
 
-    public static void installEvents(Events events) {
-        VISIBLE_SKINS.clear();
-        EVENTS.set(Objects.requireNonNull(events, "events"));
-    }
-
-    public static void clearEvents() {
-        EVENTS.set(null);
+    public static Registration installEvents(Events events) {
+        Registration registration = new Registration(Objects.requireNonNull(events, "events"));
+        CURRENT.set(registration);
+        return registration;
     }
 
     public static void trackedPlayer(UUID profileId, String canonicalName) {
-        Events events = EVENTS.get();
+        Registration registration = CURRENT.get();
+        Events events = registration == null ? null : registration.events;
         if (events != null) events.trackedPlayer(profileId, canonicalName);
     }
 
     public static void playerInfoUpdated(UUID profileId, String canonicalName) {
-        Events events = EVENTS.get();
+        Registration registration = CURRENT.get();
+        Events events = registration == null ? null : registration.events;
         if (events != null) events.playerInfoUpdated(profileId, canonicalName);
     }
 
     public static void untrackedPlayer(UUID profileId) {
-        VISIBLE_SKINS.keySet().removeIf(identity -> identity.profileId().equals(profileId));
-        Events events = EVENTS.get();
+        Registration registration = CURRENT.get();
+        if (registration != null) registration.visibleSkins.keySet().removeIf(identity -> identity.profileId().equals(profileId));
+        Events events = registration == null ? null : registration.events;
         if (events != null) events.untrackedPlayer(profileId);
     }
 
     public static void worldChanged() {
-        VISIBLE_SKINS.clear();
-        Events events = EVENTS.get();
+        invalidateVisibleSkins();
+        Registration registration = CURRENT.get();
+        Events events = registration == null ? null : registration.events;
         if (events != null) events.worldChanged();
     }
 
     public static void worldEntered() {
-        VISIBLE_SKINS.clear();
-        Events events = EVENTS.get();
+        invalidateVisibleSkins();
+        Registration registration = CURRENT.get();
+        Events events = registration == null ? null : registration.events;
         if (events != null) events.worldEntered();
     }
 
-    public static void invalidateVisibleSkins() {
-        VISIBLE_SKINS.clear();
+    static void invalidateVisibleSkins() {
+        Registration registration = CURRENT.get();
+        if (registration != null) registration.invalidateVisibleSkins();
     }
 
-    public static void publish(Snapshot snapshot) {
-        CURRENT.set(Objects.requireNonNull(snapshot, "snapshot"));
+    private static Snapshot snapshot() {
+        Registration registration = CURRENT.get();
+        return registration == null ? Snapshot.empty() : registration.snapshot;
     }
 
-    public static void clear() {
-        CURRENT.set(Snapshot.empty());
-        VISIBLE_SKINS.clear();
+    public static final class Registration implements AutoCloseable {
+        private final Events events;
+        private final Map<Identity, String> visibleSkins = new ConcurrentHashMap<>();
+        private volatile Snapshot snapshot = Snapshot.empty();
+        private volatile boolean closed;
+
+        private Registration(Events events) { this.events = events; }
+
+        public boolean active() { return !closed && CURRENT.get() == this; }
+
+        public void publish(Snapshot next) {
+            if (active()) snapshot = Objects.requireNonNull(next, "snapshot");
+        }
+
+        public void invalidateVisibleSkins() {
+            if (active()) visibleSkins.clear();
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+            CURRENT.compareAndSet(this, null);
+            visibleSkins.clear();
+            snapshot = Snapshot.empty();
+        }
     }
 
     public static Result resolve(UUID profileId, String canonicalName, Candidate offline,
             Candidate minecraft, boolean self) {
-        return resolve(CURRENT.get(), profileId, canonicalName, offline, minecraft, self);
+        return EffectiveCapeResolver.resolve(snapshot(), profileId, canonicalName, offline, minecraft, self);
     }
 
     public static Optional<Result> resolveSelf(UUID profileId, String canonicalName) {
-        Snapshot snapshot = CURRENT.get();
+        Snapshot snapshot = snapshot();
         if (!new Identity(profileId, canonicalName).equals(snapshot.selfIdentity())) {
             return Optional.empty();
         }
-        return Optional.of(resolve(snapshot, profileId, canonicalName, null, null, true));
-    }
-
-    private static Result resolve(Snapshot snapshot, UUID profileId, String canonicalName,
-            Candidate offline, Candidate minecraft, boolean self) {
-        Identity identity = new Identity(profileId, canonicalName);
-        Candidate optifine = snapshot.optifine().get(identity);
-        Candidate skinmc = snapshot.skinmc().get(identity);
-        Candidate sneaky = snapshot.sneaky().get(identity);
-        if (self && identity.equals(snapshot.selfIdentity())) {
-            offline = snapshot.selfOffline();
-            minecraft = snapshot.selfMinecraft();
-        }
-        for (BuiltinProvider provider : snapshot.order()) {
-            Candidate candidate = switch (provider) {
-                case OFFLINE -> self ? offline : null;
-                case MINECRAFT -> minecraft;
-                case OPTIFINE -> optifine;
-                case SKINMC -> skinmc;
-                case SNEAKY -> sneaky;
-            };
-            if (candidate != null && candidate.capeLocation() != null) {
-                return new Result(candidate.capeLocation(), candidate.elytraLocation(),
-                        candidate.hasElytra(), provider);
-            }
-        }
-        return new Result(null, null, false, null);
+        return Optional.of(EffectiveCapeResolver.resolve(snapshot, profileId, canonicalName, null, null, true));
     }
 
     public record Identity(UUID profileId, String canonicalName) {
@@ -153,26 +140,6 @@ public final class CapeProjection {
     }
 
     public record Candidate(String capeLocation, String elytraLocation, boolean hasElytra) {}
-
-    private static final class NativeSkin extends WeakReference<Object> {
-        private final String location;
-        private final int[] argb;
-
-        private NativeSkin(Object owner, String location, int[] argb) {
-            super(owner, NATIVE_SKIN_QUEUE);
-            this.location = location;
-            this.argb = argb;
-        }
-
-        private int[] argb() { return argb; }
-    }
-
-    private static void drainNativeSkins() {
-        NativeSkin expired;
-        while ((expired = (NativeSkin) NATIVE_SKIN_QUEUE.poll()) != null) {
-            NATIVE_SKINS.remove(expired.location, expired);
-        }
-    }
 
     public record Result(String capeLocation, String elytraLocation, boolean hasElytra,
             BuiltinProvider provider) {}
@@ -212,6 +179,9 @@ public final class CapeProjection {
         void worldChanged();
         void worldEntered();
         default void skinTextureReady(String skinLocation, int[] argb) {}
+        default void skinTextureReady(String skinLocation, int[] argb, long revision) {
+            skinTextureReady(skinLocation, argb);
+        }
         default boolean hasSkinTexture(String skinLocation) { return true; }
         default void visibleSkin(UUID profileId, String canonicalName, String skinLocation) {}
     }

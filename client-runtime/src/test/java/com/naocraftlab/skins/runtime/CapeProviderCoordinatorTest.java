@@ -39,9 +39,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class OptifineCapeCoordinatorTest {
+class CapeProviderCoordinatorTest {
     @TempDir Path directory;
 
     @Test
@@ -61,7 +62,7 @@ class OptifineCapeCoordinatorTest {
                     skinMcStatus.get() == 200 ? fixture.image : new byte[0],
                     Map.of("Content-Type", List.of("image/png")));
         }, new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -108,7 +109,7 @@ class OptifineCapeCoordinatorTest {
             return new OptifineCapeReader.Response(429, new byte[0],
                     Map.of("Retry-After", List.of("120")));
         }, new PngValidator(), clock);
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -155,7 +156,7 @@ class OptifineCapeCoordinatorTest {
                     new byte[0], skinMcProfiles.size() == 1
                             ? Map.of("Retry-After", List.of("120")) : Map.of());
         }, new PngValidator(), clock);
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, optifine, skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -200,7 +201,7 @@ class OptifineCapeCoordinatorTest {
             return new OptifineCapeReader.Response(read == 1 ? 429 : 404, new byte[0],
                     read == 1 ? Map.of("Retry-After", List.of("120")) : Map.of());
         }, new PngValidator(), clock);
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -232,7 +233,7 @@ class OptifineCapeCoordinatorTest {
             return new OptifineCapeReader.Response(call == 1 ? 429 : 404, new byte[0],
                     call == 1 ? Map.of("Retry-After", List.of("120")) : Map.of());
         }, new PngValidator(), clock);
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -261,7 +262,7 @@ class OptifineCapeCoordinatorTest {
             return new OptifineCapeReader.Response(200, fixture.image,
                     Map.of("Content-Type", List.of("image/png")));
         }, new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -287,7 +288,7 @@ class OptifineCapeCoordinatorTest {
             return new OptifineCapeReader.Response(200, fixture.image,
                     Map.of("Content-Type", List.of("image/png")));
         }, new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -327,7 +328,7 @@ class OptifineCapeCoordinatorTest {
                 new OptifineCapeReader.Response(200, fixture.image,
                         Map.of("Content-Type", List.of("image/png"))),
                 new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -365,7 +366,7 @@ class OptifineCapeCoordinatorTest {
         fixture.status = 503;
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -387,7 +388,7 @@ class OptifineCapeCoordinatorTest {
         fixture.status = 200;
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -438,7 +439,7 @@ class OptifineCapeCoordinatorTest {
         assertTrue(fixture.storage.loadAppearance(self).providers().cape().optifine().known());
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
@@ -506,7 +507,7 @@ class OptifineCapeCoordinatorTest {
 
             fixture.status = 503;
             ManualExecutor held = new ManualExecutor();
-            fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                     fixture.reader());
             fixture.coordinator.start();
@@ -536,7 +537,7 @@ class OptifineCapeCoordinatorTest {
             fixture.coordinator.close();
 
             ManualExecutor heldValid = new ManualExecutor();
-            fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                     heldValid, fixture.reader());
             fixture.coordinator.start();
@@ -551,7 +552,7 @@ class OptifineCapeCoordinatorTest {
             assertFalse(new PngValidator().projectCanonicalCape(substituted).renderSha256().equals(key));
             Files.write(new TextureCache(fixture.storage).cachePath(key), substituted);
             ManualExecutor heldTampered = new ManualExecutor();
-            fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                     heldTampered, fixture.reader());
             fixture.coordinator.start();
@@ -565,7 +566,7 @@ class OptifineCapeCoordinatorTest {
             Files.write(new TextureCache(fixture.storage).cachePath(key), new byte[] {1, 2, 3});
             ManualExecutor heldMalformed = new ManualExecutor();
             fixture.status = 503;
-            fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                     heldMalformed, fixture.reader());
             int previousCalls = fixture.calls.get();
@@ -587,7 +588,7 @@ class OptifineCapeCoordinatorTest {
         fixture.image = detailedPng(92);
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -611,7 +612,7 @@ class OptifineCapeCoordinatorTest {
         Fixture fixture = fixture();
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         UUID remote = UUID.randomUUID();
@@ -734,7 +735,7 @@ class OptifineCapeCoordinatorTest {
             return new OptifineCapeReader.Response(404, new byte[0]);
         }, new PngValidator(), Clock.systemUTC());
         ManualExecutor held = new ManualExecutor();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -786,7 +787,7 @@ class OptifineCapeCoordinatorTest {
         fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(remote, "Remote"));
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -884,7 +885,7 @@ class OptifineCapeCoordinatorTest {
         fixture.status = 200;
         CountingExecutor preparations = new CountingExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 preparations, fixture.reader());
         fixture.coordinator.start();
@@ -925,7 +926,7 @@ class OptifineCapeCoordinatorTest {
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
         TextureCache cache = new TextureCache(fixture.storage);
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 cache, fixture.sink, new ImmediateClient(), held, fixture.reader());
         fixture.coordinator.start();
         UUID self = fixture.session.currentSession().profileId();
@@ -954,7 +955,7 @@ class OptifineCapeCoordinatorTest {
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
         TextureCache cache = new TextureCache(fixture.storage);
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 cache, fixture.sink, new ImmediateClient(), held, fixture.reader());
         fixture.coordinator.start();
         while (!held.jobs.isEmpty()) held.runNext();
@@ -1007,10 +1008,11 @@ class OptifineCapeCoordinatorTest {
             fixture.coordinator.untrackedPlayer(remote);
         }
         assertEquals(321, fixture.calls.get());
-        var attempted = OptifineCapeCoordinator.class.getDeclaredField("attempted");
+        Object scheduler = schedule(fixture.coordinator);
+        var attempted = scheduler.getClass().getDeclaredField("attempted");
         attempted.setAccessible(true);
-        assertEquals(1, ((java.util.Set<?>) attempted.get(fixture.coordinator)).size());
-        var tracked = OptifineCapeCoordinator.class.getDeclaredField("tracked");
+        assertEquals(1, ((java.util.Set<?>) attempted.get(scheduler)).size());
+        var tracked = CapeProviderCoordinator.class.getDeclaredField("tracked");
         tracked.setAccessible(true);
         assertTrue(((java.util.Map<?, ?>) tracked.get(fixture.coordinator)).isEmpty());
     }
@@ -1021,7 +1023,7 @@ class OptifineCapeCoordinatorTest {
         fixture.status = 200;
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -1045,18 +1047,124 @@ class OptifineCapeCoordinatorTest {
         var optifine = new CapeProjection.Candidate("optifine", null, false);
         var map = java.util.Map.of(new CapeProjection.Identity(self, "Self"), optifine,
                 new CapeProjection.Identity(remote, "Remote"), optifine);
-        CapeProjection.publish(new CapeProjection.Snapshot(
+        TestCapeProjection.publish(new CapeProjection.Snapshot(
                 List.of(BuiltinProvider.OPTIFINE, BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT),
                 map, new CapeProjection.Identity(self, "Self"), offline, minecraft));
         assertEquals("optifine", CapeProjection.resolve(self, "Self", null, null, true).capeLocation());
         assertEquals("optifine", CapeProjection.resolve(remote, "Remote", offline, minecraft, false).capeLocation());
-        CapeProjection.publish(new CapeProjection.Snapshot(
+        TestCapeProjection.publish(new CapeProjection.Snapshot(
                 List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT, BuiltinProvider.OPTIFINE),
                 map, new CapeProjection.Identity(self, "Self"), offline, minecraft));
         assertEquals("offline", CapeProjection.resolve(self, "Self", null, null, true).capeLocation());
         assertEquals("minecraft", CapeProjection.resolve(remote, "Remote", offline, minecraft, false).capeLocation());
         assertNull(CapeProjection.resolve(remote, "ChangedName", offline, null, false).capeLocation());
-        CapeProjection.clear();
+        TestCapeProjection.clear();
+    }
+
+    @Test
+    void oldProcessCloseCannotReleaseNewProcessTexturesOrSnapshot() throws Exception {
+        Fixture fixture = fixture();
+        fixture.status = 200;
+        fixture.coordinator.start();
+        CapeProviderCoordinator old = fixture.coordinator;
+        CapeProviderCoordinator next = new CapeProviderCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), Runnable::run,
+                fixture.reader());
+        next.start();
+        UUID self = fixture.session.currentSession().profileId();
+        String location = CapeProjection.resolve(self, "Self", null, null, true).capeLocation();
+        assertNotNull(location);
+        old.close();
+        old.close();
+        assertEquals(location, CapeProjection.resolve(self, "Self", null, null, true).capeLocation());
+        assertTrue(fixture.sink.registered.containsKey(location));
+        next.close();
+        assertFalse(fixture.sink.registered.containsKey(location));
+    }
+
+    @Test
+    void sneakyOldWorldCompletionCannotPopulateNewWorldAndWarmPixelsCanRetry() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        HoldExecutor worker = new HoldExecutor();
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), worker,
+                fixture.reader());
+        fixture.coordinator.start();
+        worker.runAll();
+        UUID remote = UUID.randomUUID();
+        Object nativeTexture = new Object();
+        CapeProjection.trackedPlayer(remote, "Remote");
+        CapeProjection.visibleSkin(remote, "Remote", "minecraft:world-skin");
+        CapeProjection.skinTextureReady("minecraft:world-skin", sneakyPixels(), nativeTexture);
+        fixture.coordinator.worldChanged();
+        worker.runAll();
+        assertFalse(fixture.coordinator.hasSkinTexture("minecraft:world-skin"));
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        CapeProjection.worldEntered();
+        CapeProjection.trackedPlayer(remote, "Remote");
+        CapeProjection.visibleSkin(remote, "Remote", "minecraft:world-skin");
+        worker.runAll();
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        fixture.coordinator.close();
+    }
+
+    @Test
+    void nativeTextureReplacementUnderSameLocationInvalidatesPreparedCape() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        fixture.coordinator.start();
+        UUID remote = UUID.randomUUID();
+        CapeProjection.trackedPlayer(remote, "Remote");
+        CapeProjection.visibleSkin(remote, "Remote", "minecraft:reloaded");
+        Object oldTexture = new Object();
+        CapeProjection.skinTextureReady("minecraft:reloaded", sneakyPixels(), oldTexture);
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        Object newTexture = new Object();
+        CapeProjection.skinTextureReady("minecraft:reloaded", new int[4096], newTexture);
+        assertNull(CapeProjection.resolve(remote, "Remote", null, null, false).provider());
+        fixture.coordinator.close();
+    }
+
+    @Test
+    void sneakyPreparationWaitsForWorkerAndCoalescesSharedTexture() throws Exception {
+        Fixture fixture = fixture();
+        UUID self = fixture.session.currentSession().profileId();
+        fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        HoldExecutor worker = new HoldExecutor();
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+                new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), worker,
+                fixture.reader());
+        fixture.coordinator.start();
+        worker.runAll();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        fixture.coordinator.trackedPlayer(first, "First");
+        fixture.coordinator.trackedPlayer(second, "Second");
+        fixture.coordinator.visibleSkin(first, "First", "minecraft:shared");
+        fixture.coordinator.visibleSkin(second, "Second", "minecraft:shared");
+        fixture.coordinator.skinTextureReady("minecraft:shared", sneakyPixels());
+        fixture.coordinator.skinTextureReady("minecraft:shared", sneakyPixels());
+        assertNull(CapeProjection.resolve(first, "First", null, null, false).provider());
+        assertEquals(1, worker.jobs.size());
+        worker.runAll();
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(first, "First", null, null, false).provider());
+        assertEquals(BuiltinProvider.SNEAKY,
+                CapeProjection.resolve(second, "Second", null, null, false).provider());
+        fixture.coordinator.skinTextureReady("minecraft:shared", sneakyPixels());
+        assertTrue(worker.jobs.isEmpty());
+        fixture.coordinator.close();
     }
 
     @Test
@@ -1185,33 +1293,12 @@ class OptifineCapeCoordinatorTest {
                 .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
                 .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
         fixture.coordinator.start();
-        CapeProjection.installEvents(new CapeProjection.Events() {
-            @Override public void trackedPlayer(UUID profileId, String name) {
-                fixture.coordinator.trackedPlayer(profileId, name);
-            }
-            @Override public void playerInfoUpdated(UUID profileId, String name) {
-                fixture.coordinator.playerInfoUpdated(profileId, name);
-            }
-            @Override public void untrackedPlayer(UUID profileId) {
-                fixture.coordinator.untrackedPlayer(profileId);
-            }
-            @Override public void worldChanged() { fixture.coordinator.worldChanged(); }
-            @Override public void worldEntered() { fixture.coordinator.worldEntered(); }
-            @Override public void skinTextureReady(String location, int[] pixels) {
-                fixture.coordinator.skinTextureReady(location, pixels);
-            }
-            @Override public boolean hasSkinTexture(String location) {
-                return fixture.coordinator.hasSkinTexture(location);
-            }
-            @Override public void visibleSkin(UUID profileId, String name, String location) {
-                fixture.coordinator.visibleSkin(profileId, name, location);
-            }
-        });
+        Object nativeTexture = new Object();
+        List<Object> otherNativeTextures = new ArrayList<>();
         try {
             UUID remote = UUID.randomUUID();
             UUID pending = UUID.randomUUID();
             String key = "minecraft:skins/immutable-hash";
-            Object nativeTexture = new Object();
             CapeProjection.trackedPlayer(remote, "Remote");
             CapeProjection.trackedPlayer(pending, "Pending");
             CapeProjection.skinTextureReady(key, sneakyPixels(), nativeTexture);
@@ -1222,9 +1309,13 @@ class OptifineCapeCoordinatorTest {
             assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
 
             for (int index = 0; index < 512; index++) {
-                fixture.coordinator.skinTextureReady("minecraft:skins/other-" + index, new int[64 * 64]);
+                Object otherTexture = new Object();
+                otherNativeTextures.add(otherTexture);
+                CapeProjection.skinTextureReady("minecraft:skins/other-" + index, new int[64 * 64], otherTexture);
             }
             assertFalse(fixture.coordinator.hasSkinTexture(key));
+            CapeProjection.worldEntered();
+            CapeProjection.trackedPlayer(remote, "Remote");
             CapeProjection.visibleSkin(remote, "Remote", key);
             assertEquals(BuiltinProvider.SNEAKY,
                     CapeProjection.resolve(remote, "Remote", null, null, false).provider());
@@ -1253,7 +1344,8 @@ class OptifineCapeCoordinatorTest {
                     CapeProjection.resolve(remote, "Remote", null, null, false).provider());
             assertNull(CapeProjection.resolve(pending, "Pending", null, null, false).capeLocation());
         } finally {
-            CapeProjection.clearEvents();
+            java.lang.ref.Reference.reachabilityFence(nativeTexture);
+            java.lang.ref.Reference.reachabilityFence(otherNativeTextures);
             fixture.coordinator.close();
         }
     }
@@ -1310,8 +1402,8 @@ class OptifineCapeCoordinatorTest {
                                 com.naocraftlab.skins.core.model.SkinVariant.CLASSIC)),
                 state.providers().cape().disable(BuiltinProvider.OPTIFINE)
                         .enable(BuiltinProvider.SNEAKY))));
-        List<ClientOperations.SneakyObservation> notifications = new ArrayList<>();
-        fixture.coordinator.onSneakyObservation(notifications::add);
+        List<CapeObservationPort.Observation> notifications = new ArrayList<>();
+        fixture.coordinator.onCapeObservation(notifications::add);
         fixture.coordinator.start();
 
         assertEquals(BuiltinProvider.SNEAKY,
@@ -1382,7 +1474,7 @@ class OptifineCapeCoordinatorTest {
         Files.write(cache.cachePath(TextureCache.cacheKey(official)), png());
         fixture.coordinator.close();
         fixture.status = 200;
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 cache, fixture.sink, new ImmediateClient(), Runnable::run, fixture.reader(),
                 (accountId, capeId) -> accountId.equals(self) && capeId.equals("official")
                         ? Optional.of(official) : Optional.empty());
@@ -1401,7 +1493,7 @@ class OptifineCapeCoordinatorTest {
         FakeSink sink = new FakeSink();
         Fixture fixture = new Fixture(session, storage, sink);
         fixture.image = png();
-        fixture.coordinator = new OptifineCapeCoordinator(session, storage, new TextureCache(storage),
+        fixture.coordinator = new CapeProviderCoordinator(session, storage, new TextureCache(storage),
                 sink, new ImmediateClient(), Runnable::run, fixture.reader());
         return fixture;
     }
@@ -1414,7 +1506,7 @@ class OptifineCapeCoordinatorTest {
         fixture.worker = held;
         UUID remote = UUID.randomUUID();
         fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(remote, "Remote"));
-        fixture.coordinator = new OptifineCapeCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -1441,10 +1533,17 @@ class OptifineCapeCoordinatorTest {
                 validator.projectCanonicalCape(registered).renderSha256());
     }
 
-    private static Set<?> deferredActors(OptifineCapeCoordinator coordinator) throws Exception {
-        var field = OptifineCapeCoordinator.class.getDeclaredField("repeatPending");
+    private static Object schedule(CapeProviderCoordinator coordinator) throws Exception {
+        var field = CapeProviderCoordinator.class.getDeclaredField("optifineSchedule");
         field.setAccessible(true);
-        return (Set<?>) field.get(coordinator);
+        return field.get(coordinator);
+    }
+
+    private static Set<?> deferredActors(CapeProviderCoordinator coordinator) throws Exception {
+        Object scheduler = schedule(coordinator);
+        var field = scheduler.getClass().getDeclaredField("repeatPending");
+        field.setAccessible(true);
+        return (Set<?>) field.get(scheduler);
     }
 
     private static byte[] png() throws IOException {
@@ -1484,7 +1583,7 @@ class OptifineCapeCoordinatorTest {
         private final Map<String, AtomicInteger> perPlayerReads = new HashMap<>();
         private volatile int status = 404;
         private volatile byte[] image;
-        private OptifineCapeCoordinator coordinator;
+        private CapeProviderCoordinator coordinator;
         private ManualExecutor worker;
 
         private Fixture(FakeSession session, NclSkinsStorage storage, FakeSink sink) {

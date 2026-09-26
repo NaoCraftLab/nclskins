@@ -47,8 +47,10 @@ abstract class VerifyOptifineCapeCompositionTask extends DefaultTask {
                 new File(root, 'compat/capabilities/gui/immediate-resource-location-player-info/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/AbstractClientPlayerPreviewMixin.java'),
                 new File(root, 'client-contract/src/main/java/com/naocraftlab/skins/client/PlayerAppearanceSink.java'),
                 new File(root, 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/CapeProjection.java'),
-                new File(root, 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/OptifineCapeCoordinator.java'),
-                new File(root, 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/OptifineCapeReader.java')
+                new File(root, 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/CapeProviderCoordinator.java'),
+                new File(root, 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/OptifineCapeReader.java'),
+                new File(root, 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/EffectiveCapeResolver.java'),
+                new File(root, 'client-runtime/src/main/java/com/naocraftlab/skins/runtime/OwnedCapeTextures.java')
         ].collectMany { File path -> path.isDirectory() ?
                 project.fileTree(path).matching { include '**/*.java', '**/*.json' }.files : [path] }
         if (relevantSources.any { !it.isFile() }

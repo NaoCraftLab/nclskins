@@ -101,6 +101,7 @@ final class DefaultClientOperationsTest {
             @Override public boolean isClientThread() { return true; }
             @Override public void execute(Runnable action) { action.run(); }
         };
+        operations.attachOptifineCapes(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
         ClientRuntime runtime = new ClientRuntime(operations, client,
                 () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
                 Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
@@ -1241,11 +1242,12 @@ final class DefaultClientOperationsTest {
 
         DefaultClientOperations online = new DefaultClientOperations(
                 tokens(), onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
-        ClientRuntime runtime = new ClientRuntime(online,
-                new ClientExecutor() {
-                    @Override public boolean isClientThread() { return true; }
-                    @Override public void execute(Runnable action) { action.run(); }
-                },
+        ClientExecutor client = new ClientExecutor() {
+            @Override public boolean isClientThread() { return true; }
+            @Override public void execute(Runnable action) { action.run(); }
+        };
+        online.attachOptifineCapes(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
+        ClientRuntime runtime = new ClientRuntime(online, client,
                 () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
                 Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
         runtime.warmSession();

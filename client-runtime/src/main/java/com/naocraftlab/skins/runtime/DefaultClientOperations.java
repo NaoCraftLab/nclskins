@@ -112,7 +112,7 @@ public final class DefaultClientOperations implements ClientOperations {
     private final OfficialSkinTextureSource officialSkinTextures;
     private final OfficialSkinClassifier officialSkinClassifier;
     private volatile ResolvedOfficialSkin resolvedOfficialSkin;
-    private volatile OptifineCapeCoordinator optifineCapes;
+    private volatile CapeProviderCoordinator optifineCapes;
     private volatile ExecutorService optifineWorker;
 
     private final Map<UUID, LibraryObservation> libraryObservations = new ConcurrentHashMap<>();
@@ -220,135 +220,86 @@ public final class DefaultClientOperations implements ClientOperations {
             throw new IllegalStateException("OptiFine cape coordinator already attached");
         }
         AtomicInteger threadIndex = new AtomicInteger();
-        optifineWorker = Executors.newFixedThreadPool(4, action -> {
+        optifineWorker = new java.util.concurrent.ThreadPoolExecutor(4, 4, 0L,
+                java.util.concurrent.TimeUnit.MILLISECONDS, new java.util.concurrent.ArrayBlockingQueue<>(32), action -> {
             Thread thread = new Thread(action, "nclskins-public-cape-" + threadIndex.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         });
-        optifineCapes = new OptifineCapeCoordinator(tokenSource, storage, textures,
+        optifineCapes = new CapeProviderCoordinator(tokenSource, storage, textures,
                 sink, clientExecutor, optifineWorker, this::verifiedOfficialCapeUri);
-        CapeProjection.installEvents(new CapeProjection.Events() {
-            @Override
-            public void trackedPlayer(UUID profileId, String canonicalName) {
-                clientExecutor.execute(() -> optifineCapes.trackedPlayer(profileId, canonicalName));
-            }
-
-            @Override
-            public void playerInfoUpdated(UUID profileId, String canonicalName) {
-                clientExecutor.execute(() -> optifineCapes.playerInfoUpdated(profileId, canonicalName));
-            }
-
-            @Override
-            public void untrackedPlayer(UUID profileId) {
-                clientExecutor.execute(() -> optifineCapes.untrackedPlayer(profileId));
-            }
-
-            @Override
-            public void worldChanged() {
-                clientExecutor.execute(() -> optifineCapes.worldChanged());
-            }
-
-            @Override
-            public void worldEntered() {
-                clientExecutor.execute(() -> optifineCapes.worldEntered());
-            }
-
-            @Override
-            public void skinTextureReady(String skinLocation, int[] argb) {
-                clientExecutor.execute(() -> optifineCapes.skinTextureReady(skinLocation, argb));
-            }
-
-            @Override
-            public boolean hasSkinTexture(String skinLocation) {
-                return optifineCapes.hasSkinTexture(skinLocation);
-            }
-
-            @Override
-            public void visibleSkin(UUID profileId, String canonicalName, String skinLocation) {
-                clientExecutor.execute(() -> optifineCapes.visibleSkin(profileId, canonicalName, skinLocation));
-            }
-        });
         return this;
+    }
+
+    private CapeProviderCoordinator capeCoordinator() {
+        return Objects.requireNonNull(optifineCapes, "Cape providers must be attached before runtime use");
     }
 
     @Override
     public void startOptiFineCapes() {
-        if (optifineCapes != null) optifineCapes.start();
+        capeCoordinator().start();
     }
 
     @Override
     public void refreshOptiFineCapes() {
-        if (optifineCapes != null) optifineCapes.refresh();
+        capeCoordinator().refresh();
     }
 
     @Override
     public void refreshOptiFineCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
-        if (optifineCapes != null) optifineCapes.refresh(completion);
-        else completion.accept(null);
+        capeCoordinator().refresh(completion);
     }
 
     @Override
     public void refreshSkinMcCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
-        if (optifineCapes != null) optifineCapes.refreshSkinMc(completion);
-        else completion.accept(null);
+        capeCoordinator().refreshSkinMc(completion);
     }
 
     @Override
     public Optional<java.time.Duration> capeProviderCooldown(BuiltinProvider provider) {
-        return optifineCapes == null ? Optional.empty() : optifineCapes.cooldownRemaining(provider);
+        return capeCoordinator().cooldownRemaining(provider);
     }
 
     @Override
     public void optiFineConfigurationChanged() {
-        if (optifineCapes != null) optifineCapes.configurationChanged();
+        capeCoordinator().configurationChanged();
     }
 
     @Override
     public void adoptSharedCapeObservation(UUID accountId, String canonicalName,
             AppearanceProviders providers) {
-        if (optifineCapes != null) optifineCapes.adoptSharedSnapshot(accountId, canonicalName, providers);
+        capeCoordinator().adoptSharedSnapshot(accountId, canonicalName, providers);
     }
 
     @Override
-    public void onOptiFineObservation(Consumer<OptiFineObservation> listener) {
-        if (optifineCapes != null) optifineCapes.onSelfObservation(listener);
-    }
-
-    @Override
-    public void onSkinMcObservation(Consumer<SkinMcObservation> listener) {
-        if (optifineCapes != null) optifineCapes.onSkinMcObservation(listener);
-    }
-
-    @Override
-    public void onSneakyObservation(Consumer<SneakyObservation> listener) {
-        if (optifineCapes != null) optifineCapes.onSneakyObservation(listener);
+    public void onCapeObservation(Consumer<CapeObservationPort.Observation> listener) {
+        capeCoordinator().onCapeObservation(listener);
     }
 
     @Override
     public void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
             AppearanceProviders providers) {
-        if (optifineCapes != null) optifineCapes.selfCapeCandidatesChanged(accountId,
+        capeCoordinator().selfCapeCandidatesChanged(accountId,
                 canonicalName, providers);
     }
 
     @Override
     public void trackedCapePlayer(UUID profileId, String canonicalName) {
-        if (optifineCapes != null) optifineCapes.trackedPlayer(profileId, canonicalName);
+        capeCoordinator().trackedPlayer(profileId, canonicalName);
     }
 
     @Override
     public void untrackedCapePlayer(UUID profileId) {
-        if (optifineCapes != null) optifineCapes.untrackedPlayer(profileId);
+        capeCoordinator().untrackedPlayer(profileId);
     }
 
     @Override
     public void capeWorldChanged() {
-        if (optifineCapes != null) optifineCapes.worldChanged();
+        capeCoordinator().worldChanged();
     }
 
     @Override
     public void closeOptiFineCapes() {
-        CapeProjection.clearEvents();
         if (optifineCapes != null) optifineCapes.close();
         if (optifineWorker != null) optifineWorker.shutdownNow();
     }

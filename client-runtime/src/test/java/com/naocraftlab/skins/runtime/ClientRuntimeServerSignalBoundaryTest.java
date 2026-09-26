@@ -1,5 +1,8 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
+import com.naocraftlab.skins.core.provider.ProviderObservation;
+
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
@@ -143,9 +146,9 @@ final class ClientRuntimeServerSignalBoundaryTest {
         runtime.initialize();
         var cape = new com.naocraftlab.skins.core.provider.ProviderCape("optifine", "a".repeat(64), false);
 
-        scenario.optifineObservation.accept(new ClientOperations.OptiFineObservation(
+        scenario.optifineObservation.accept(new CapeObservationPort.Observation(BuiltinProvider.OPTIFINE,
                 scenario.currentIdentity.profileId(), scenario.currentIdentity.profileName(),
-                runtime.snapshot().providers().cape().configurationRevision(), cape));
+                runtime.snapshot().providers().cape().configurationRevision(), null, ProviderObservation.observed(cape)));
 
         assertEquals(cape, runtime.snapshot().providers().cape().optifine().value());
         assertEquals(0, notifier.notifications);
@@ -163,13 +166,13 @@ final class ClientRuntimeServerSignalBoundaryTest {
         var cape = new com.naocraftlab.skins.core.provider.ProviderCape("skinmc", "a".repeat(64), false);
         long revision = runtime.snapshot().providers().cape().configurationRevision();
 
-        scenario.skinMcObservation.accept(new ClientOperations.SkinMcObservation(
-                scenario.currentIdentity.profileId(), scenario.currentIdentity.profileName(), revision, cape));
+        scenario.skinMcObservation.accept(new CapeObservationPort.Observation(BuiltinProvider.SKINMC,
+                scenario.currentIdentity.profileId(), scenario.currentIdentity.profileName(), revision, null, ProviderObservation.observed(cape)));
         assertEquals(cape, runtime.snapshot().providers().cape().skinmc().value());
         assertEquals(0, notifier.notifications);
 
-        scenario.skinMcObservation.accept(new ClientOperations.SkinMcObservation(
-                UUID.randomUUID(), scenario.currentIdentity.profileName(), revision, null));
+        scenario.skinMcObservation.accept(new CapeObservationPort.Observation(BuiltinProvider.SKINMC,
+                UUID.randomUUID(), scenario.currentIdentity.profileName(), revision, null, ProviderObservation.observed(null)));
         assertEquals(cape, runtime.snapshot().providers().cape().skinmc().value());
         assertEquals(0, notifier.notifications);
     }
@@ -388,9 +391,9 @@ final class ClientRuntimeServerSignalBoundaryTest {
         var unrelated = new com.naocraftlab.skins.core.provider.ProviderCape(
                 "optifine", "b".repeat(64), false);
         scenario.afterRefresh = () -> scenario.optifineObservation.accept(
-                new ClientOperations.OptiFineObservation(scenario.currentIdentity.profileId(),
+                new CapeObservationPort.Observation(BuiltinProvider.OPTIFINE, scenario.currentIdentity.profileId(),
                         scenario.currentIdentity.profileName(),
-                        scenario.providers.cape().configurationRevision(), unrelated));
+                        scenario.providers.cape().configurationRevision(), null, ProviderObservation.observed(unrelated)));
         runtime.dispatchWidget("providers.refresh");
         assertEquals(unrelated, runtime.snapshot().providers().cape().optifine().value());
         assertEquals(0, notifier.notifications);
@@ -505,8 +508,8 @@ final class ClientRuntimeServerSignalBoundaryTest {
                 Optional.empty(),
                 Optional.empty());
         private int reconciliationCalls;
-        private Consumer<ClientOperations.OptiFineObservation> optifineObservation;
-        private Consumer<ClientOperations.SkinMcObservation> skinMcObservation;
+        private Consumer<CapeObservationPort.Observation> optifineObservation;
+        private Consumer<CapeObservationPort.Observation> skinMcObservation;
         private com.naocraftlab.skins.core.provider.AppearanceProviders providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial();
         private com.naocraftlab.skins.core.provider.ProviderCape refreshCape;
         private com.naocraftlab.skins.core.provider.ProviderCape refreshSkinMcCape;
@@ -522,7 +525,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
             this.settlement = settlement;
             operations = (ClientOperations) Proxy.newProxyInstance(
                     ClientOperations.class.getClassLoader(),
-                    new Class<?>[] {ClientOperations.class},
+                    new Class<?>[] {TestCapeOperations.class},
                     this);
         }
 
@@ -570,9 +573,9 @@ final class ClientRuntimeServerSignalBoundaryTest {
                         if (refreshConfirmed) {
                             providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
                                     providers.skin(), providers.cape().observeOptifine(refreshCape));
-                            optifineObservation.accept(new ClientOperations.OptiFineObservation(
+                            optifineObservation.accept(new CapeObservationPort.Observation(BuiltinProvider.OPTIFINE,
                                     currentIdentity.profileId(), currentIdentity.profileName(),
-                                    providers.cape().configurationRevision(), refreshCape));
+                                    providers.cape().configurationRevision(), null, com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshCape)));
                         }
                         afterRefresh.run();
                         ((Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>>) arguments[0])
@@ -586,9 +589,9 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     if (skinMcRefreshConfirmed) {
                         providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
                                 providers.skin(), providers.cape().observeSkinmc(refreshSkinMcCape));
-                        skinMcObservation.accept(new ClientOperations.SkinMcObservation(
+                        skinMcObservation.accept(new CapeObservationPort.Observation(BuiltinProvider.SKINMC,
                                 currentIdentity.profileId(), currentIdentity.profileName(),
-                                providers.cape().configurationRevision(), refreshSkinMcCape));
+                                providers.cape().configurationRevision(), null, com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshSkinMcCape)));
                     }
                     var completion = (Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>>) arguments[0];
                     if (deferSkinMcCompletion) pendingSkinMcRefresh = completion;
@@ -597,12 +600,9 @@ final class ClientRuntimeServerSignalBoundaryTest {
                             : null);
                     yield null;
                 }
-                case "onOptiFineObservation" -> {
-                    optifineObservation = (Consumer<ClientOperations.OptiFineObservation>) arguments[0];
-                    yield null;
-                }
-                case "onSkinMcObservation" -> {
-                    skinMcObservation = (Consumer<ClientOperations.SkinMcObservation>) arguments[0];
+                case "onCapeObservation" -> {
+                    optifineObservation = (Consumer<CapeObservationPort.Observation>) arguments[0];
+                    skinMcObservation = optifineObservation;
                     yield null;
                 }
                 case "close", "startOptiFineCapes", "selfCapeCandidatesChanged", "closeOptiFineCapes" -> null;

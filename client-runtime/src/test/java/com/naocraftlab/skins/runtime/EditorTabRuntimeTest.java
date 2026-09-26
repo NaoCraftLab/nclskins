@@ -302,7 +302,7 @@ final class EditorTabRuntimeTest {
                 DiagnosticSinks.discarding());
     }
 
-    private static final class Operations implements ClientOperations {
+    private static final class Operations implements TestCapeOperations {
         private final AccountState account = TestFixtures.account(1);
         private final SessionValidation session;
         private AccountUiPreferences preferences;

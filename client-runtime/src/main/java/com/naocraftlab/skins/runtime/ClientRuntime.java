@@ -91,6 +91,7 @@ public final class ClientRuntime implements AutoCloseable {
     private static final int SESSION_RETRY_FEEDBACK_TICKS = 6;
 
     private final ClientOperations operations;
+    private final CapeObservationPort capeObservations;
     private final DiagnosticSink diagnostics;
     private CompletableFuture<Void> providerConfigurationWrite = CompletableFuture.completedFuture(null);
     private long editorCatalogGeneration;
@@ -394,6 +395,7 @@ public final class ClientRuntime implements AutoCloseable {
             ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this.operations = Objects.requireNonNull(operations, "operations");
+        this.capeObservations = operations;
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
         this.filePicker = Objects.requireNonNull(filePicker, "filePicker");
@@ -414,15 +416,17 @@ public final class ClientRuntime implements AutoCloseable {
                         serverAppearanceRefreshNotifier, "serverAppearanceRefreshNotifier")
                 .map(ServerAppearanceReadinessCoordinator::new);
         Objects.requireNonNull(readinessScheduler, "readinessScheduler");
-        operations.onOptiFineObservation(observation -> onClient(() ->
-                acceptOptiFineObservation(observation)));
-        operations.onSkinMcObservation(observation -> onClient(() ->
-                acceptSkinMcObservation(observation)));
-        operations.onSneakyObservation(observation -> onClient(() ->
-                acceptSneakyObservation(observation)));
+        capeObservations.onCapeObservation(observation -> onClient(() -> {
+            switch (observation.provider()) {
+                case OPTIFINE -> acceptOptiFineObservation(observation);
+                case SKINMC -> acceptSkinMcObservation(observation);
+                case SNEAKY -> acceptSneakyObservation(observation);
+                default -> throw new IllegalArgumentException("Not a read-only cape provider");
+            }
+        }));
     }
 
-    private void acceptOptiFineObservation(ClientOperations.OptiFineObservation observation) {
+    private void acceptOptiFineObservation(CapeObservationPort.Observation observation) {
         if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.account == null
                 || !state.account.accountId().equals(observation.accountId())
                 || !state.providers.cape().enabled(BuiltinProvider.OPTIFINE)
@@ -439,7 +443,7 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    private void acceptSkinMcObservation(ClientOperations.SkinMcObservation observation) {
+    private void acceptSkinMcObservation(CapeObservationPort.Observation observation) {
         if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.account == null
                 || !state.account.accountId().equals(observation.accountId())
                 || !state.providers.cape().enabled(BuiltinProvider.SKINMC)
@@ -456,7 +460,7 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    private void acceptSneakyObservation(ClientOperations.SneakyObservation observation) {
+    private void acceptSneakyObservation(CapeObservationPort.Observation observation) {
         if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.account == null
                 || !state.account.accountId().equals(observation.accountId())
                 || !state.providers.cape().enabled(BuiltinProvider.SNEAKY)
@@ -719,7 +723,7 @@ public final class ClientRuntime implements AutoCloseable {
                                 return;
                             }
                             warmed.ifPresent(this::acceptProviderSnapshot);
-                            if (warmed.isPresent()) operations.startOptiFineCapes();
+                            if (warmed.isPresent()) capeObservations.startOptiFineCapes();
                             visibility.ifPresent(this::applyDurableOuterLayerVisibility);
                             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
                                     refreshLocalAppearance(warmed
@@ -807,15 +811,15 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     public void trackedCapePlayer(UUID profileId, String canonicalName) {
-        operations.trackedCapePlayer(profileId, canonicalName);
+        capeObservations.trackedCapePlayer(profileId, canonicalName);
     }
 
     public void untrackedCapePlayer(UUID profileId) {
-        operations.untrackedCapePlayer(profileId);
+        capeObservations.untrackedCapePlayer(profileId);
     }
 
     public void capeWorldChanged() {
-        operations.capeWorldChanged();
+        capeObservations.capeWorldChanged();
     }
 
     public void escapePressed() {
@@ -1054,7 +1058,7 @@ public final class ClientRuntime implements AutoCloseable {
                 && state.account.accountId().equals(currentSessionAccountId())) {
             for (BuiltinProvider provider : List.of(BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC)) {
                 if (!state.providers.cape().enabled(provider)) continue;
-                operations.capeProviderCooldown(provider).ifPresent(remaining -> {
+                capeObservations.capeProviderCooldown(provider).ifPresent(remaining -> {
                     if (remaining.isNegative() || remaining.isZero()) return;
                     Duration bounded = remaining.compareTo(Duration.ofHours(24)) > 0
                             ? Duration.ofHours(24) : remaining;
@@ -2172,7 +2176,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.addSource = null;
             appearanceRefresh.ifPresent(AppearanceRefreshCoordinator::close);
             serverAppearanceReadiness.ifPresent(ServerAppearanceReadinessCoordinator::close);
-            operations.closeOptiFineCapes();
+            capeObservations.closeOptiFineCapes();
             operations.close();
             previewInFlight.clear();
             previewBytes.clear();
@@ -2299,7 +2303,7 @@ public final class ClientRuntime implements AutoCloseable {
             centerGalleryOnActive();
         }
         state.providers = data.providers();
-        operations.startOptiFineCapes();
+        capeObservations.startOptiFineCapes();
         adoptSharedCapeObservation(data.providers());
         state.intentRevision = data.intentRevision();
         state.syncStatus = data.syncStatus();
@@ -2485,12 +2489,12 @@ public final class ClientRuntime implements AutoCloseable {
                                 finishRefreshComparison(comparison, confirmedMinecraft,
                                         result.confirmedMinecraft(), optifine.join(), skinmc.join())));
                         try {
-                            operations.refreshOptiFineCapes(optifine::complete);
+                            capeObservations.refreshOptiFineCapes(optifine::complete);
                         } catch (RuntimeException unavailable) {
                             optifine.complete(null);
                         }
                         try {
-                            operations.refreshSkinMcCapes(skinmc::complete);
+                            capeObservations.refreshSkinMcCapes(skinmc::complete);
                         } catch (RuntimeException unavailable) {
                             skinmc.complete(null);
                         }
@@ -2569,7 +2573,7 @@ public final class ClientRuntime implements AutoCloseable {
                 }, appearance -> {
                     CompletableFuture<AppearanceRefreshCoordinator.Result> providerRebind =
                             acceptProviderChange(appearance);
-                    operations.optiFineConfigurationChanged();
+                    capeObservations.optiFineConfigurationChanged();
                     state.providerAdding = false;
                     if (origin == InteractionOrigin.KEYBOARD) {
                         var remaining = component == AppearanceProviders.Component.SKIN ? state.providers.skin().order() : state.providers.cape().order();
@@ -2680,7 +2684,7 @@ public final class ClientRuntime implements AutoCloseable {
         try {
             GameSessionTokenSource.SessionIdentity identity = operations.sessionIdentity();
             if (identity.profileId().equals(state.account.accountId())) {
-                operations.adoptSharedCapeObservation(identity.profileId(), identity.profileName(), providers);
+                capeObservations.adoptSharedCapeObservation(identity.profileId(), identity.profileName(), providers);
             }
         } catch (RuntimeException unavailable) {
             return;
@@ -5675,7 +5679,7 @@ public final class ClientRuntime implements AutoCloseable {
                 state.providers.cape().offline(), state.providers.cape().minecraft());
         if (next.equals(publishedSelfCapeInputs)) return;
         publishedSelfCapeInputs = next;
-        operations.selfCapeCandidatesChanged(identity.profileId(), identity.profileName(),
+        capeObservations.selfCapeCandidatesChanged(identity.profileId(), identity.profileName(),
                 state.providers);
     }
 

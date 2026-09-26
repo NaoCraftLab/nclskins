@@ -100,7 +100,7 @@
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceRefreshCoordinatorTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceReconnectTrackerTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceOverrideControllerTest.java",
-        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/OptifineCapeCoordinatorTest.java"
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/CapeProviderCoordinatorTest.java"
       ],
       "supportSources": [],
       "semantics": [

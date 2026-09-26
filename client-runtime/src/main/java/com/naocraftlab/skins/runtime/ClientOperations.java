@@ -37,7 +37,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 
-public interface ClientOperations extends AutoCloseable {
+public interface ClientOperations extends AutoCloseable, CapeObservationPort {
 
     default Optional<byte[]> loadProviderTexture(ViewSpec.ProviderTexture texture) throws Exception {
         return Optional.empty();
@@ -163,55 +163,6 @@ public interface ClientOperations extends AutoCloseable {
 
     record ProviderRefresh(DurableAppearance appearance,
             ProviderObservation<?> confirmedMinecraft) {}
-
-    default void startOptiFineCapes() {}
-
-    default void refreshOptiFineCapes() {}
-
-    default void refreshOptiFineCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
-        refreshOptiFineCapes();
-        completion.accept(null);
-    }
-
-    default void refreshSkinMcCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
-        completion.accept(null);
-    }
-
-    default Optional<Duration> capeProviderCooldown(BuiltinProvider provider) {
-        return Optional.empty();
-    }
-
-    default void optiFineConfigurationChanged() {}
-
-    default void adoptSharedCapeObservation(UUID accountId, String canonicalName,
-            AppearanceProviders providers) {}
-
-    default void onOptiFineObservation(Consumer<OptiFineObservation> listener) {}
-
-    default void onSkinMcObservation(Consumer<SkinMcObservation> listener) {}
-
-    default void onSneakyObservation(Consumer<SneakyObservation> listener) {}
-
-    default void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
-            AppearanceProviders providers) {}
-
-    record OptiFineObservation(UUID accountId, String canonicalName,
-            long capeConfigurationRevision, ProviderCape cape) {}
-
-    record SkinMcObservation(UUID accountId, String canonicalName,
-            long capeConfigurationRevision, ProviderCape cape) {}
-
-    record SneakyObservation(UUID accountId, String canonicalName,
-            long capeConfigurationRevision, String skinSha256,
-            ProviderObservation<ProviderCape> observation) {}
-
-    default void trackedCapePlayer(UUID profileId, String canonicalName) {}
-
-    default void untrackedCapePlayer(UUID profileId) {}
-
-    default void capeWorldChanged() {}
-
-    default void closeOptiFineCapes() {}
 
     default DurableAppearance enableProvider(AppearanceProviders.Component component, BuiltinProvider provider)
             throws Exception {

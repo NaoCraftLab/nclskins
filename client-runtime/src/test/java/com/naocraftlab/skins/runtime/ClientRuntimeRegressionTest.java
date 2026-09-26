@@ -604,7 +604,7 @@ final class ClientRuntimeRegressionTest {
                 ServerAppearanceReadinessCoordinator.DelayScheduler.system(), DiagnosticSinks.discarding())) {
             var optifine = new CapeProjection.Candidate("nclskins:optifine", null, false);
             var skinmc = new CapeProjection.Candidate("nclskins:skinmc", "nclskins:skinmc", true);
-            CapeProjection.publish(new CapeProjection.Snapshot(
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
                     List.of(BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC, BuiltinProvider.MINECRAFT),
                     Map.of(self, optifine), Map.of(self, skinmc), self, null, null));
             var first = runtime.menuPreviewAppearance().orElseThrow();
@@ -614,20 +614,20 @@ final class ClientRuntimeRegressionTest {
             assertEquals(SkinModel.SLIM, first.model());
             assertEquals(visibility.value, first.outerLayerVisibility());
 
-            CapeProjection.publish(new CapeProjection.Snapshot(
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
                     List.of(BuiltinProvider.SKINMC, BuiltinProvider.OPTIFINE, BuiltinProvider.MINECRAFT),
                     Map.of(self, optifine), Map.of(self, skinmc), self, null, null));
             var second = runtime.menuPreviewAppearance().orElseThrow();
             assertEquals("nclskins:skinmc", second.cape().orElseThrow().location());
             assertTrue(second.capeHasElytra());
 
-            CapeProjection.publish(new CapeProjection.Snapshot(
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
                     List.of(BuiltinProvider.SKINMC, BuiltinProvider.OPTIFINE, BuiltinProvider.MINECRAFT),
                     Map.of(self, optifine), Map.of(), self, null, null));
             assertEquals("nclskins:optifine",
                     runtime.menuPreviewAppearance().orElseThrow().cape().orElseThrow().location());
 
-            CapeProjection.publish(new CapeProjection.Snapshot(
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
                     List.of(BuiltinProvider.SKINMC, BuiltinProvider.OPTIFINE, BuiltinProvider.MINECRAFT),
                     Map.of(), Map.of(), self, null, null));
             var absent = runtime.menuPreviewAppearance().orElseThrow();
@@ -635,18 +635,18 @@ final class ClientRuntimeRegressionTest {
             assertEquals(PreviewRenderer.CapeMode.OFF, absent.capeMode());
 
             var other = new CapeProjection.Identity(UUID.randomUUID(), identity.profileName());
-            CapeProjection.publish(new CapeProjection.Snapshot(
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
                     List.of(BuiltinProvider.SKINMC), Map.of(), Map.of(other, skinmc), other, null, null));
             assertEquals(stale, runtime.menuPreviewAppearance().orElseThrow().cape().orElseThrow());
             var renamed = new CapeProjection.Identity(identity.profileId(), "OtherName");
-            CapeProjection.publish(new CapeProjection.Snapshot(
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
                     List.of(BuiltinProvider.SKINMC), Map.of(), Map.of(renamed, skinmc), renamed, null, null));
             assertEquals(stale, runtime.menuPreviewAppearance().orElseThrow().cape().orElseThrow());
             assertEquals(6, sourceReads.get());
             assertEquals(0, operations.initializeCalls.get());
             assertEquals(0, operations.warmSessionCalls.get());
         } finally {
-            CapeProjection.clear();
+            TestCapeProjection.clear();
         }
     }
 
@@ -818,7 +818,7 @@ final class ClientRuntimeRegressionTest {
         }
     }
 
-    private static final class StubOperations implements ClientOperations {
+    private static final class StubOperations implements TestCapeOperations {
         private final SessionValidation session = TestFixtures.validSession();
         private AccountState account = TestFixtures.account(2);
         private AppearanceProviders providers = AppearanceProviders.initial();

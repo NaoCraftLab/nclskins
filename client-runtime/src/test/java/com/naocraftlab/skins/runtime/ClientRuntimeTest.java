@@ -816,7 +816,7 @@ final class ClientRuntimeTest {
         TextureCache cache = new TextureCache(storage);
         var reader = new OptifineCapeReader((uri, timeout, maximum) ->
                 new OptifineCapeReader.Response(200, capeBytes), new PngValidator());
-        operations.optifineCoordinator = new OptifineCapeCoordinator(tokens, storage, cache,
+        operations.optifineCoordinator = new CapeProviderCoordinator(tokens, storage, cache,
                 sink, CLIENT, jobs::add, reader);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
@@ -5235,7 +5235,7 @@ final class ClientRuntimeTest {
         }
     }
 
-    private static final class FakeOperations implements ClientOperations {
+    private static final class FakeOperations implements TestCapeOperations {
         private Exception capeImportFailure;
         private UUID capeImportAccount;
         private List<CapeCatalogSource.CollectionDescriptor> resourceCapeCollections = List.of();
@@ -5425,11 +5425,11 @@ final class ClientRuntimeTest {
         private final EnumMap<BuiltinProvider, Duration> capeCooldowns = new EnumMap<>(BuiltinProvider.class);
         private int optifineRefreshes;
         private int skinMcRefreshes;
-        private OptifineCapeCoordinator optifineCoordinator;
+        private CapeProviderCoordinator optifineCoordinator;
         private boolean presetUseProviders;
 
-        @Override public void onOptiFineObservation(java.util.function.Consumer<OptiFineObservation> listener) {
-            if (optifineCoordinator != null) optifineCoordinator.onSelfObservation(listener);
+        @Override public void onCapeObservation(java.util.function.Consumer<CapeObservationPort.Observation> listener) {
+            if (optifineCoordinator != null) optifineCoordinator.onCapeObservation(listener);
         }
         @Override public void startOptiFineCapes() {
             if (optifineCoordinator != null) optifineCoordinator.start();
