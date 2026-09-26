@@ -3225,6 +3225,7 @@ public final class ClientRuntime implements AutoCloseable {
                                     editorOwnedCapes(),
                                     viewportHeight,
                                     preferredCapeMode);
+                    state.editor = state.editor.withFrozenCatalogSelection(selection.frozen());
                     prepareEditorEvidence(state.editor);
                     initializeEditorCapeCatalog(null);
                     resetEditorScroll();
@@ -3291,7 +3292,7 @@ public final class ClientRuntime implements AutoCloseable {
                         resolvedCatalogText(skin.authorsText()))),
                 Map.copyOf(variants),
                 Map.copyOf(reusableVariants),
-                resolvedInitial);
+                resolvedInitial, operations.freezeCatalogSelection(collection.id(), skin.id()));
     }
 
     private Optional<String> resolvedCatalogText(
@@ -4296,7 +4297,7 @@ public final class ClientRuntime implements AutoCloseable {
                             request.originalPresetId(), request.name(), request.skin(),
                             request.initialVariant(), request.variant(), request.capeId(),
                             request.outerLayerVisibility(), request.pngBytes(), request.catalogOrigin(), request.personalSkinName(),
-                            personalSource).withOfflineCape(offlineCape));
+                            personalSource).withOfflineCape(offlineCape).withFrozenCatalogSelection(request.frozenCatalogSelection()));
                 },
                 saved -> {
                     UUID previousActivePresetId = state.activePresetId;
@@ -5987,7 +5988,7 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<CatalogOrigin> origin,
             Map<SkinVariant, byte[]> variants,
             Map<SkinVariant, PresetEditorModel.ReusableCatalogVariant> reusableVariants,
-            SkinVariant initialVariant) {
+            SkinVariant initialVariant, Optional<CatalogMaterialization.FrozenCatalogSelection> frozen) {
         private CatalogSelection {
             Objects.requireNonNull(skin, "skin");
             origin = Objects.requireNonNull(origin, "origin");

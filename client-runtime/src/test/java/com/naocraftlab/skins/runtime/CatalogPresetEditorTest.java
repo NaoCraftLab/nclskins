@@ -17,6 +17,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class CatalogPresetEditorTest {
     @Test
+    void frozenCatalogSelectionSurvivesEditorCopiesUntilSave() {
+        var frozen = new CatalogMaterialization.FrozenCatalogSelection(java.util.UUID.randomUUID(),
+                "event", "hero", 17, Map.of(com.naocraftlab.skins.client.SkinModel.CLASSIC, "0".repeat(64)), Map.of());
+        var model = PresetEditorModel.openCatalog("Hero", new CatalogOrigin("pack", "event", "hero"),
+                Map.of(SkinVariant.CLASSIC, new byte[] {1}), SkinVariant.CLASSIC, Optional.empty(),
+                480, PreviewRenderer.CapeMode.CAPE).withFrozenCatalogSelection(Optional.of(frozen));
+        var copied = model.withSelectedEditorTab(com.naocraftlab.skins.core.model.EditorTab.CAPE)
+                .withCapeCatalog(null).withBusy(UiMessage.info("nclskins.status.saving"));
+        assertEquals(Optional.of(frozen), copied.saveRequest().frozenCatalogSelection());
+        assertEquals(Optional.of(frozen), copied.saveRequest().withOfflineCape(null).frozenCatalogSelection());
+    }
+
+    @Test
     void modelCardsFillTwoColumnsPreserveAspectAndClipAtTheFooter() {
         PresetEditorModel model = PresetEditorModel.openCatalog(
                 "Model", new CatalogOrigin("minecraft", "minecraft", "model"),

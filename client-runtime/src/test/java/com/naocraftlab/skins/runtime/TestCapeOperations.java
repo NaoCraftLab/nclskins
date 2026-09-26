@@ -10,6 +10,11 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 interface TestCapeOperations extends ClientOperations {
+    @Override
+    default Optional<FrozenCatalogSelection> freezeCatalogSelection(String collectionId, String skinId) throws Exception {
+        throw new UnsupportedOperationException("This test fixture has no skin catalog");
+    }
+
     default void startOptiFineCapes() {}
 
     default void refreshOptiFineCapes() {}

@@ -1,15 +1,11 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.BundledSkinSource;
-import com.naocraftlab.skins.client.CapeCatalogSource;
-import com.naocraftlab.skins.client.CatalogCollectionOrder;
-import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.GameSessionIdentityChangedException;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
-import com.naocraftlab.skins.client.PersonalSkinCatalog;
 import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
@@ -31,8 +27,6 @@ import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.OwnedCapeEntry;
 import com.naocraftlab.skins.core.model.OwnedCapeInventory;
-import com.naocraftlab.skins.core.model.PersonalSkinEntry;
-import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.RemoteSkin;
@@ -90,7 +84,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -117,19 +110,7 @@ public final class DefaultClientOperations implements ClientOperations {
 
     private final Map<UUID, LibraryObservation> libraryObservations = new ConcurrentHashMap<>();
 
-    private volatile CatalogSnapshot catalogSnapshot = CatalogSnapshot.empty();
-
-    private volatile CatalogDiscoveryCache catalogDiscoveryCache;
-
-    private volatile ResourceCapeDiscovery resourceCapeDiscovery = ResourceCapeDiscovery.empty();
-
-    private volatile ResourceCapeSnapshot resourceCapeSnapshot = ResourceCapeSnapshot.empty();
-
-    private volatile CapeEditorData warmedCapeEditorData;
-
-    private volatile UUID warmedCapePreviewAccountId;
-
-    private volatile Map<String, byte[]> warmedCapePreviews = Map.of();
+    private final PreparedCatalogService preparedCatalog;
 
     private volatile InitialData preparedInitialData;
     private volatile UUID startupObservedAccount;
@@ -170,9 +151,13 @@ public final class DefaultClientOperations implements ClientOperations {
         this.sessions = new SessionValidationService(profileApi, sessionGate);
         this.mutations = new AppearanceMutationService(profileApi, storage, sessionGate, sessions);
         this.textures = new TextureCache(storage);
+        CatalogAccountAccess catalogAccounts = new LibraryCatalogAdapter(library, storage,
+                () -> resolveAccountId(pinCurrentSession().identity()));
+        this.preparedCatalog = new PreparedCatalogService(bundledSkins, catalogAccounts);
         this.publicImports = new PublicSkinImportService(this.textures, this::loadCatalogSkin);
         this.externalImports = new ExternalAppearanceImportService(
-                this.library, this.publicImports, this.bundledSkins);
+                new ExternalImportSourceAdapter(this.publicImports, this.bundledSkins),
+                this.preparedCatalog, new LibraryExternalImportAdapter(this.library, catalogAccounts));
         this.officialSkinTextures = officialSkinTextures != null
                 ? officialSkinTextures
                 : skin -> this.textures.read(this.textures.get(skin));
@@ -498,13 +483,7 @@ public final class DefaultClientOperations implements ClientOperations {
         OwnedCapeInventory ownedCapes = validation.valid() && validation.profile() != null
                 ? publishOwnedCapeInventory(accountId, validation.profile())
                 : storage.loadOwnedCapes(accountId);
-        long capeGeneration = capeCatalogGeneration();
-        ResourceCapeDiscovery warmedDiscovery = resourceCapeDiscovery;
-        if (capeGeneration != Long.MIN_VALUE
-                && warmedDiscovery.generation() == capeGeneration) {
-            publishCapeEditorData(
-                    accountId, official.state(), capeGeneration, warmedDiscovery);
-        }
+        preparedCatalog.publishInitializedAccount(accountId, official.state());
         InitialData result = new InitialData(
                 official.state(),
                 validation,
@@ -561,33 +540,12 @@ public final class DefaultClientOperations implements ClientOperations {
 
     @Override
     public synchronized List<SkinCatalogSource.CollectionDescriptor> catalogCollections() throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        AccountState account = library.load(accountId);
-        long generation = bundledSkins.generation();
-        CatalogDiscoveryCache cached = catalogDiscoveryCache;
-        CatalogDiscovery discovery;
-        if (generation != Long.MIN_VALUE
-                && cached != null
-                && cached.matches(accountId, account.personalSkins(), generation)) {
-            discovery = cached.discovery();
-        } else {
-            discovery = discoverAvailableCatalogCollections(accountId, account);
-            catalogDiscoveryCache = generation == Long.MIN_VALUE
-                    ? null
-                    : new CatalogDiscoveryCache(
-                            accountId, account.personalSkins(), generation, discovery);
-        }
-        catalogSnapshot = new CatalogSnapshot(
-                accountId,
-                discovery.variantHashes(),
-                discovery.personalAssets(),
-                discovery.featureEvidence());
-        return discovery.collections();
+        return preparedCatalog.catalogCollections();
     }
 
     @Override
     public Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> catalogFeatureEvidence() {
-        return catalogSnapshot.featureEvidence();
+        return preparedCatalog.catalogFeatureEvidence();
     }
 
     @Override
@@ -611,252 +569,21 @@ public final class DefaultClientOperations implements ClientOperations {
         return true;
     }
 
-    private CatalogDiscovery discoverAvailableCatalogCollections(
-            UUID accountId, AccountState account) {
-        List<SkinCatalogSource.CollectionDescriptor> collections = new ArrayList<>();
-        Map<CatalogVariantKey, String> variantHashes = new HashMap<>();
-        Map<CatalogVariantKey, UUID> personalAssets = new HashMap<>();
-        Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence = new HashMap<>();
-        List<PersonalSkinEntry> visiblePersonalSkins = account.personalSkins().stream()
-                .filter(PersonalSkinEntry::visible)
-                .sorted(Comparator.comparing(PersonalSkinEntry::addedAt)
-                        .reversed()
-                        .thenComparing(PersonalSkinEntry::sha256))
-                .toList();
-        List<SkinCatalogSource.SkinDescriptor> personalSkins = personalSkinDescriptors(
-                accountId,
-                visiblePersonalSkins.stream()
-                        .filter(entry -> entry.source() != PersonalSkinSource.PLAYER_NAME)
-                        .toList(),
-                PersonalSkinCatalog.COLLECTION_ID,
-                variantHashes,
-                personalAssets,
-                featureEvidence);
-        if (!personalSkins.isEmpty()) {
-            collections.add(new SkinCatalogSource.CollectionDescriptor(
-                    PersonalSkinCatalog.COLLECTION_ID,
-                    CatalogText.translated("nclskins.your_skins.name", "Your skins"),
-                    Optional.empty(),
-                    Optional.empty(),
-                    personalSkins,
-                    CatalogCollectionOrder.personal(PersonalSkinCatalog.SOURCE_ID)));
-        }
-        List<SkinCatalogSource.SkinDescriptor> otherPlayerSkins = personalSkinDescriptors(
-                accountId,
-                visiblePersonalSkins.stream()
-                        .filter(entry -> entry.source() == PersonalSkinSource.PLAYER_NAME)
-                        .toList(),
-                PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
-                variantHashes,
-                personalAssets,
-                featureEvidence);
-        if (!otherPlayerSkins.isEmpty()) {
-            collections.add(new SkinCatalogSource.CollectionDescriptor(
-                    PersonalSkinCatalog.OTHER_PLAYERS_COLLECTION_ID,
-                    CatalogText.translated(
-                            "nclskins.other_players.name", "Other players' skins"),
-                    Optional.empty(),
-                    Optional.empty(),
-                    otherPlayerSkins,
-                    CatalogCollectionOrder.personal(
-                            PersonalSkinCatalog.OTHER_PLAYERS_SOURCE_ID)));
-        }
-        for (SkinCatalogSource.CollectionDescriptor collection : bundledSkins.collections()) {
-            if (PersonalSkinCatalog.isCollection(collection.id())) {
-                continue;
-            }
-            List<SkinCatalogSource.SkinDescriptor> skins = new ArrayList<>();
-            for (SkinCatalogSource.SkinDescriptor skin : collection.skins()) {
-                List<SkinModel> availableModels = new ArrayList<>();
-                for (SkinModel model : skin.models()) {
-                    try {
-                        byte[] normalized = loadCatalogSkinFromSource(
-                                collection.id(), skin.id(), model);
-                        variantHashes.put(
-                                new CatalogVariantKey(collection.id(), skin.id(), model),
-                                sha256(normalized));
-                        featureEvidence.put(
-                                new ClientOperations.CatalogVariant(
-                                        collection.id(),
-                                        skin.id(),
-                                        model == SkinModel.SLIM
-                                                ? SkinVariant.SLIM
-                                                : SkinVariant.CLASSIC),
-                                new PngValidator()
-                                        .projectImport(normalized)
-                                        .featureEvidence());
-                        availableModels.add(model);
-                    } catch (IOException | PngValidationException unavailableVariant) {
-
-                    }
-                }
-                if (!availableModels.isEmpty()) {
-                    skins.add(new SkinCatalogSource.SkinDescriptor(
-                            skin.id(),
-                            skin.nameText(),
-                            skin.descriptionText(),
-                            skin.authorsText(),
-                            availableModels));
-                }
-            }
-            if (!skins.isEmpty()) {
-                collections.add(new SkinCatalogSource.CollectionDescriptor(
-                        collection.id(),
-                        collection.nameText(),
-                        collection.descriptionText(),
-                        collection.authorsText(),
-                        skins,
-                        collection.order()));
-            }
-        }
-        return new CatalogDiscovery(
-                collections, variantHashes, personalAssets, featureEvidence);
-    }
-
-    private List<SkinCatalogSource.SkinDescriptor> personalSkinDescriptors(
-            UUID accountId,
-            List<PersonalSkinEntry> entries,
-            String collectionId,
-            Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets,
-            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
-        return entries.stream()
-                .map(entry -> personalSkinDescriptor(
-                        accountId,
-                        entry,
-                        collectionId,
-                        variantHashes,
-                        personalAssets,
-                        featureEvidence))
-                .toList();
-    }
-
-    private SkinCatalogSource.SkinDescriptor personalSkinDescriptor(
-            UUID accountId,
-            PersonalSkinEntry entry,
-            String collectionId,
-            Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets,
-            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
-        List<SkinModel> models = new ArrayList<>(2);
-        addPersonalVariant(
-                accountId,
-                entry,
-                SkinVariant.CLASSIC,
-                SkinModel.CLASSIC,
-                collectionId,
-                models,
-                variantHashes,
-                personalAssets,
-                featureEvidence);
-        addPersonalVariant(
-                accountId,
-                entry,
-                SkinVariant.SLIM,
-                SkinModel.SLIM,
-                collectionId,
-                models,
-                variantHashes,
-                personalAssets,
-                featureEvidence);
-        if (models.isEmpty()) {
-            throw new IllegalStateException("Personal skin has no indexed variants");
-        }
-        return new SkinCatalogSource.SkinDescriptor(
-                entry.sha256(),
-                CatalogText.literal(entry.displayName()),
-                Optional.empty(),
-                Optional.empty(),
-                models);
-    }
-
-    private void addPersonalVariant(
-            UUID accountId,
-            PersonalSkinEntry entry,
-            SkinVariant variant,
-            SkinModel model,
-            String collectionId,
-            List<SkinModel> models,
-            Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets,
-            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
-        entry.optionalAssetId(variant).ifPresent(assetId -> {
-            CatalogVariantKey key = new CatalogVariantKey(
-                    collectionId, entry.sha256(), model);
-            models.add(model);
-            variantHashes.put(key, entry.sha256());
-            personalAssets.put(key, assetId);
-            try {
-                byte[] normalized = storage.readAsset(entry.sha256());
-                featureEvidence.put(
-                        new ClientOperations.CatalogVariant(
-                                collectionId, entry.sha256(), variant),
-                        new PngValidator()
-                                .projectStoredRender(normalized)
-                                .featureEvidence());
-            } catch (IOException | PngValidationException unavailableAsset) {
-            }
-        });
+    @Override
+    public Optional<FrozenCatalogSelection> freezeCatalogSelection(String collectionId, String skinId) throws IOException {
+        return preparedCatalog.freezeCatalogSelection(collectionId, skinId);
     }
 
     @Override
     public byte[] loadCatalogSkin(String collectionId, String skinId, SkinModel model)
             throws IOException, PngValidationException {
-        CatalogVariantKey key = new CatalogVariantKey(collectionId, skinId, model);
-        CatalogSnapshot snapshot = catalogSnapshot;
-        UUID personalAssetId = snapshot.personalAssets().get(key);
-        if (PersonalSkinCatalog.isCollection(collectionId)) {
-            UUID accountId = resolveAccountId(pinCurrentSession().identity());
-            if (!snapshot.accountId().equals(accountId) || personalAssetId == null) {
-                throw new IOException("Personal catalog selection is stale; reopen Add");
-            }
-            byte[] normalized = storage.readAsset(skinId);
-            if (!skinId.equals(sha256(normalized))) {
-                throw new IOException("Personal catalog asset changed; reopen Add");
-            }
-            return normalized;
-        }
-        byte[] normalized = loadCatalogSkinFromSource(collectionId, skinId, model);
-        String expectedHash = snapshot.variantHashes().get(key);
-        if (expectedHash != null && !expectedHash.equals(sha256(normalized))) {
-            throw new IOException("Catalog resources changed; reopen Add to refresh the catalog");
-        }
-        return normalized;
+        return preparedCatalog.loadCatalogSkin(collectionId, skinId, model);
     }
 
     @Override
     public Optional<UUID> reusableCatalogSkinAsset(
             String collectionId, String skinId, SkinModel model) throws IOException {
-        CatalogVariantKey key = new CatalogVariantKey(collectionId, skinId, model);
-        CatalogSnapshot snapshot = catalogSnapshot;
-        if (!PersonalSkinCatalog.isCollection(collectionId)) {
-            return Optional.empty();
-        }
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        UUID assetId = snapshot.personalAssets().get(key);
-        if (!snapshot.accountId().equals(accountId) || assetId == null) {
-            throw new IOException("Personal catalog selection is stale; reopen Add");
-        }
-        return Optional.of(assetId);
-    }
-
-    private byte[] loadCatalogSkinFromSource(
-            String collectionId, String skinId, SkinModel model)
-            throws IOException, PngValidationException {
-        if (PersonalSkinCatalog.isCollection(collectionId)) {
-            throw new IOException("The personal catalog is not a resource-pack source");
-        }
-        byte[] loaded = bundledSkins.load(
-                Objects.requireNonNull(collectionId, "collectionId"),
-                Objects.requireNonNull(skinId, "skinId"),
-                Objects.requireNonNull(model, "model"));
-        Objects.requireNonNull(loaded, "catalog source returned null");
-        if (loaded.length > PngValidator.DEFAULT_MAX_BYTES) {
-            throw new PngValidationException(PngValidationException.Reason.OVERSIZED,
-                    "Catalog skin exceeds the encoded texture limit");
-        }
-        return new PngValidator().normalizeSkin(
-                loaded.clone());
+        return preparedCatalog.reusableCatalogSkinAsset(collectionId, skinId, model);
     }
 
     @Override
@@ -976,7 +703,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 Objects.requireNonNull(selected, "selected"),
                 skipped,
                 warnings);
-        catalogDiscoveryCache = null;
+        preparedCatalog.invalidatePersonalView();
         AccountState observed = observeLocal(result.state());
         return new ExternalImportResult(
                 observed,
@@ -1025,7 +752,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 accountId,
                 sha256,
                 normalizeName(newName, "Imported skin"));
-        catalogDiscoveryCache = null;
+        preparedCatalog.invalidatePersonalView();
         return observeLocal(renamed);
     }
 
@@ -1081,19 +808,8 @@ public final class DefaultClientOperations implements ClientOperations {
         publishOwnedCapePreviews(accountId, previews);
     }
 
-    private synchronized void publishOwnedCapePreviews(
-            UUID accountId, Map<String, byte[]> owned) {
-        Map<String, byte[]> previews = new HashMap<>();
-        if (accountId.equals(warmedCapePreviewAccountId)) {
-            warmedCapePreviews.forEach((key, bytes) -> {
-                if (key.startsWith("resource:cape:")) {
-                    previews.put(key, bytes);
-                }
-            });
-        }
-        owned.forEach((key, bytes) -> previews.put(key, bytes.clone()));
-        warmedCapePreviewAccountId = accountId;
-        warmedCapePreviews = Map.copyOf(previews);
+    private void publishOwnedCapePreviews(UUID accountId, Map<String, byte[]> owned) {
+        preparedCatalog.publishOwnedCapePreviews(accountId, owned);
     }
 
     @Override
@@ -1180,195 +896,45 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public CapeEditorData loadCapeEditorData(UUID accountId)
             throws IOException {
-        requireCapeAccount(accountId);
-        AccountState account = library.load(accountId);
-        long generation = bundledSkins.capeGeneration();
-        ResourceCapeDiscovery discovery = frozenResourceCapeDiscovery(generation);
-        return publishCapeEditorData(accountId, account, generation, discovery);
+        return preparedCatalog.loadCapeEditorData(accountId);
     }
 
     @Override
     public long capeCatalogGeneration() {
-        return bundledSkins.capeGeneration();
+        return preparedCatalog.capeCatalogGeneration();
     }
 
     @Override
-    public void warmResourceCapeCatalog(long generation) {
-        if (generation != Long.MIN_VALUE && bundledSkins.capeGeneration() == generation) {
-            frozenResourceCapeDiscovery(generation);
-        }
+    public void warmResourceCapeCatalog(long generation) throws IOException {
+        preparedCatalog.warmResourceCapeCatalog(generation);
     }
 
     @Override
     public void warmCapeCatalog(UUID accountId, long generation) throws IOException {
-        requireCapeAccount(accountId);
-        if (bundledSkins.capeGeneration() != generation) {
-            return;
-        }
-        warmResourceCapeCatalog(generation);
-        ResourceCapeDiscovery discovery = frozenResourceCapeDiscovery(generation);
-        if (bundledSkins.capeGeneration() == generation) {
-            publishCapeEditorData(accountId, library.load(accountId), generation, discovery);
-        }
+        preparedCatalog.warmCapeCatalog(accountId, generation);
     }
 
     @Override
     public Optional<CapeEditorData> warmedCapeEditorData(UUID accountId) {
-        CapeEditorData data = warmedCapeEditorData;
-        return data != null && data.account().accountId().equals(accountId)
-                && data.resourceGeneration() == bundledSkins.capeGeneration()
-                ? Optional.of(data)
-                : Optional.empty();
+        return preparedCatalog.warmedCapeEditorData(accountId);
     }
 
     @Override
     public Map<String, byte[]> warmedCapePreviews(UUID accountId) {
-        if (!accountId.equals(warmedCapePreviewAccountId)) {
-            return Map.of();
-        }
-        Map<String, byte[]> copy = new HashMap<>();
-        warmedCapePreviews.forEach((key, bytes) -> copy.put(key, bytes.clone()));
-        return Map.copyOf(copy);
-    }
-
-    private synchronized CapeEditorData publishCapeEditorData(
-            UUID accountId, AccountState account, long generation,
-            ResourceCapeDiscovery discovery) {
-        resourceCapeSnapshot = new ResourceCapeSnapshot(
-                accountId, generation, discovery.entries());
-        CapeEditorData data = new CapeEditorData(
-                account,
-                discovery.collections(),
-                discovery.sourceHashes(),
-                generation);
-        warmedCapeEditorData = data;
-        Map<String, byte[]> previews = new HashMap<>();
-        if (accountId.equals(warmedCapePreviewAccountId)) {
-            warmedCapePreviews.forEach((key, bytes) -> {
-                if (!key.startsWith("resource:cape:")) {
-                    previews.put(key, bytes);
-                }
-            });
-        }
-        discovery.entries().forEach((key, entry) -> previews.put(
-                resourceCapePreviewKey(generation, key, entry.sourceSha256()),
-                entry.previewBytes()));
-        warmedCapePreviewAccountId = accountId;
-        warmedCapePreviews = Map.copyOf(previews);
-        return data;
-    }
-
-    private synchronized ResourceCapeDiscovery frozenResourceCapeDiscovery(long generation) {
-        ResourceCapeDiscovery cached = resourceCapeDiscovery;
-        if (generation != Long.MIN_VALUE && cached.generation() == generation) {
-            return cached;
-        }
-        List<CapeCatalogSource.CollectionDescriptor> collections = new ArrayList<>();
-        Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries = new HashMap<>();
-        Map<ResourceCapeKey, String> sourceHashes = new HashMap<>();
-        PngValidator validator = new PngValidator();
-        for (CapeCatalogSource.CollectionDescriptor collection : bundledSkins.capeCollections()) {
-            List<CapeCatalogSource.CapeDescriptor> capes = new ArrayList<>();
-            for (CapeCatalogSource.CapeDescriptor cape : collection.capes()) {
-                try {
-                    byte[] bytes = bundledSkins.loadCape(collection.id(), cape.id());
-                    PngValidator.CapePng projection = validator.projectCape(bytes);
-                    ResourceCapeKey key = new ResourceCapeKey(collection.id(), cape.id());
-                    String sourceHash = sha256(bytes);
-                    CapeCatalogSource.RenderSupport support = projection.hasElytra()
-                            ? CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA
-                            : CapeCatalogSource.RenderSupport.CAPE_ONLY;
-                    capes.add(new CapeCatalogSource.CapeDescriptor(
-                            cape.id(),
-                            cape.nameText(),
-                            cape.descriptionText(),
-                            cape.authorsText(),
-                            projection.renderSha256(),
-                            support));
-                    entries.put(key, new ResourceCapeSnapshotEntry(
-                            projection.renderSha256(), sourceHash, projection.hasElytra(),
-                            bytes, projection.bytes()));
-                    sourceHashes.put(key, sourceHash);
-                } catch (IOException | PngValidationException | RuntimeException unavailable) {
-                }
-            }
-            if (!capes.isEmpty()) {
-                collections.add(new CapeCatalogSource.CollectionDescriptor(
-                        collection.id(),
-                        collection.nameText(),
-                        collection.descriptionText(),
-                        collection.authorsText(),
-                        capes,
-                        collection.order()));
-            }
-        }
-        ResourceCapeDiscovery discovered = new ResourceCapeDiscovery(
-                generation, collections, entries, sourceHashes);
-        resourceCapeDiscovery = generation == Long.MIN_VALUE
-                ? ResourceCapeDiscovery.empty()
-                : discovered;
-        return discovered;
-    }
-
-    private static String resourceCapePreviewKey(
-            long generation, ResourceCapeKey key, String sourceSha256) {
-        return "resource:cape:" + generation + ":" + key.collectionId() + ":"
-                + key.capeId() + ":" + sourceSha256;
+        return preparedCatalog.warmedCapePreviews(accountId);
     }
 
     @Override
     public Optional<byte[]> loadResourceCapePreview(
             UUID accountId, ResourceCapeSelection selection) throws IOException {
-        requireCapeAccount(accountId);
-        ResourceCapeSnapshot snapshot = resourceCapeSnapshot;
-        ResourceCapeSnapshotEntry entry = snapshot.entries().get(selection.key());
-        if (!snapshot.accountId().equals(accountId)
-                || snapshot.generation() != selection.generation()
-                || bundledSkins.capeGeneration() != selection.generation()
-                || entry == null
-                || !entry.contentIdentity().equals(selection.contentIdentity())
-                || !entry.sourceSha256().equals(selection.sourceSha256())) {
-            return Optional.empty();
-        }
-        return Optional.of(entry.previewBytes());
+        return preparedCatalog.loadResourceCapePreview(accountId, selection);
     }
 
     @Override
     public com.naocraftlab.skins.core.model.PersonalCapeEntry materializeResourceCape(
             UUID accountId, ResourceCapeSelection selection)
             throws IOException, PngValidationException {
-        requireCapeAccount(accountId);
-        ResourceCapeSnapshot snapshot = resourceCapeSnapshot;
-        ResourceCapeSnapshotEntry entry = snapshot.entries().get(selection.key());
-        if (!snapshot.accountId().equals(accountId)
-                || snapshot.generation() != selection.generation()
-                || bundledSkins.capeGeneration() != selection.generation()
-                || entry == null
-                || !entry.contentIdentity().equals(selection.contentIdentity())
-                || !entry.sourceSha256().equals(selection.sourceSha256())
-                || entry.hasElytra() != selection.hasElytra()) {
-            throw new IOException("Resource-pack cape catalog changed; reopen the editor");
-        }
-        byte[] bytes = bundledSkins.loadCape(selection.collectionId(), selection.capeId());
-        if (!sha256(bytes).equals(entry.sourceSha256())) {
-            throw new IOException("Resource-pack cape source changed; reopen the editor");
-        }
-        PngValidator.CapePng projection = new PngValidator().projectCape(bytes);
-        if (!projection.renderSha256().equals(selection.contentIdentity())
-                || projection.hasElytra() != selection.hasElytra()) {
-            throw new IOException("Resource-pack cape identity changed; reopen the editor");
-        }
-        requireCapeAccount(accountId);
-        if (bundledSkins.capeGeneration() != selection.generation()
-                || resourceCapeSnapshot != snapshot) {
-            throw new IOException("Resource-pack cape catalog changed; reopen the editor");
-        }
-        com.naocraftlab.skins.core.model.PersonalCapeEntry imported =
-                storage.importCape(accountId, selection.displayName(), bytes);
-        if (!imported.renderSha256().equals(selection.contentIdentity())) {
-            throw new IOException("Resource-pack cape import changed identity");
-        }
-        return imported;
+        return preparedCatalog.materializeResourceCape(accountId, selection);
     }
 
     @Override
@@ -1412,6 +978,15 @@ public final class DefaultClientOperations implements ClientOperations {
         Objects.requireNonNull(request, "request");
         OperationContext context = pinCurrentSession();
         UUID accountId = resolveAccountId(context.identity());
+        if (request.frozenCatalogSelection().isPresent()) {
+            preparedCatalog.validateFrozenSelection(request.frozenCatalogSelection().orElseThrow(), request.variant());
+        }
+        com.naocraftlab.skins.core.service.AccountWriteGuard catalogGuard = current -> {
+            requireCapeAccount(accountId);
+            if (request.frozenCatalogSelection().isPresent()) {
+                preparedCatalog.validateFrozenSelection(request.frozenCatalogSelection().orElseThrow(), request.variant(), current);
+            }
+        };
         AccountState state = library.load(accountId);
         SkinReference persistedSkin = request.skin();
         Optional<byte[]> pngBytes = request.pngBytes();
@@ -1434,6 +1009,8 @@ public final class DefaultClientOperations implements ClientOperations {
                         saved.preset().id());
             }
             if (request.catalogOrigin().isPresent()) {
+                preparedCatalog.validateCatalogSave(accountId, request.catalogOrigin().orElseThrow(),
+                        request.variant(), pngBytes.orElseThrow());
                 SavedImportedPreset saved = library.savePresetWithImportedSkin(
                         accountId,
                         request.originalPresetId(),
@@ -1444,7 +1021,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         pngBytes.orElseThrow(),
                         request.catalogOrigin().orElseThrow(),
                         request.outerLayerVisibility(),
-                        request.capeId().orElse(null), request.offlineCape());
+                        request.capeId().orElse(null), request.offlineCape(), catalogGuard);
                 return finishEditorSave(
                         context,
                         request.originalPresetId(),
@@ -1489,7 +1066,7 @@ public final class DefaultClientOperations implements ClientOperations {
             Set<UUID> beforeIds = new HashSet<>();
             state.presets().forEach(preset -> beforeIds.add(preset.id()));
             AccountState saved = library.createPreset(
-                    accountId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId, request.offlineCape());
+                    accountId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId, request.offlineCape(), catalogGuard);
             UUID presetId = saved.presets().stream()
                     .map(AppearancePreset::id)
                     .filter(id -> !beforeIds.contains(id))
@@ -1503,7 +1080,7 @@ public final class DefaultClientOperations implements ClientOperations {
         }
         UUID presetId = request.originalPresetId().orElseThrow();
         library.updatePreset(
-                accountId, presetId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId, request.offlineCape());
+                accountId, presetId, request.name(), persistedSkin, request.outerLayerVisibility(), capeId, request.offlineCape(), catalogGuard);
         return finishEditorSave(context, presetId);
     }
 
@@ -3485,116 +3062,4 @@ public final class DefaultClientOperations implements ClientOperations {
         byte[] load(RemoteSkin skin) throws IOException;
     }
 
-    private record CatalogVariantKey(String collectionId, String skinId, SkinModel model) {
-        private CatalogVariantKey {
-            Objects.requireNonNull(collectionId, "collectionId");
-            Objects.requireNonNull(skinId, "skinId");
-            Objects.requireNonNull(model, "model");
-        }
-    }
-
-    private record CatalogDiscovery(
-            List<SkinCatalogSource.CollectionDescriptor> collections,
-            Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets,
-            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
-        private CatalogDiscovery {
-            collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
-            variantHashes = Map.copyOf(Objects.requireNonNull(variantHashes, "variantHashes"));
-            personalAssets = Map.copyOf(Objects.requireNonNull(personalAssets, "personalAssets"));
-            featureEvidence = Map.copyOf(Objects.requireNonNull(
-                    featureEvidence, "featureEvidence"));
-        }
-    }
-
-    private record CatalogDiscoveryCache(
-            UUID accountId,
-            List<PersonalSkinEntry> personalSkins,
-            long generation,
-            CatalogDiscovery discovery) {
-        private CatalogDiscoveryCache {
-            Objects.requireNonNull(accountId, "accountId");
-            personalSkins = List.copyOf(Objects.requireNonNull(personalSkins, "personalSkins"));
-            Objects.requireNonNull(discovery, "discovery");
-        }
-
-        private boolean matches(
-                UUID currentAccountId,
-                List<PersonalSkinEntry> currentPersonalSkins,
-                long currentGeneration) {
-            return generation == currentGeneration
-                    && accountId.equals(currentAccountId)
-                    && personalSkins.equals(currentPersonalSkins);
-        }
-    }
-
-    private record CatalogSnapshot(
-            UUID accountId,
-            Map<CatalogVariantKey, String> variantHashes,
-            Map<CatalogVariantKey, UUID> personalAssets,
-            Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> featureEvidence) {
-        private CatalogSnapshot {
-            Objects.requireNonNull(accountId, "accountId");
-            variantHashes = Map.copyOf(Objects.requireNonNull(variantHashes, "variantHashes"));
-            personalAssets = Map.copyOf(Objects.requireNonNull(personalAssets, "personalAssets"));
-            featureEvidence = Map.copyOf(Objects.requireNonNull(
-                    featureEvidence, "featureEvidence"));
-        }
-
-        private static CatalogSnapshot empty() {
-            return new CatalogSnapshot(
-                    new UUID(0L, 0L), Map.of(), Map.of(), Map.of());
-        }
-    }
-
-    private record ResourceCapeDiscovery(
-            long generation,
-            List<CapeCatalogSource.CollectionDescriptor> collections,
-            Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries,
-            Map<ResourceCapeKey, String> sourceHashes) {
-        private ResourceCapeDiscovery {
-            collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
-            entries = Map.copyOf(Objects.requireNonNull(entries, "entries"));
-            sourceHashes = Map.copyOf(Objects.requireNonNull(sourceHashes, "sourceHashes"));
-        }
-
-        private static ResourceCapeDiscovery empty() {
-            return new ResourceCapeDiscovery(Long.MIN_VALUE, List.of(), Map.of(), Map.of());
-        }
-    }
-
-    private record ResourceCapeSnapshot(
-            UUID accountId,
-            long generation,
-            Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries) {
-        private ResourceCapeSnapshot {
-            accountId = Objects.requireNonNull(accountId, "accountId");
-            entries = Map.copyOf(Objects.requireNonNull(entries, "entries"));
-        }
-
-        private static ResourceCapeSnapshot empty() {
-            return new ResourceCapeSnapshot(new UUID(0L, 0L), Long.MIN_VALUE, Map.of());
-        }
-    }
-
-    private record ResourceCapeSnapshotEntry(
-            String contentIdentity, String sourceSha256, boolean hasElytra,
-            byte[] bytes, byte[] previewBytes) {
-        private ResourceCapeSnapshotEntry {
-            Objects.requireNonNull(contentIdentity, "contentIdentity");
-            Objects.requireNonNull(sourceSha256, "sourceSha256");
-            bytes = Objects.requireNonNull(bytes, "bytes").clone();
-            previewBytes = Objects.requireNonNull(previewBytes, "previewBytes").clone();
-        }
-
-        @Override
-        public byte[] bytes() {
-            return bytes.clone();
-        }
-
-        @Override
-        public byte[] previewBytes() {
-            return previewBytes.clone();
-        }
-    }
 }

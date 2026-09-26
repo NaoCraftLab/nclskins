@@ -23,8 +23,15 @@ public interface CapeCatalogSource {
             Optional<CatalogText> descriptionText,
             Optional<CatalogText> authorsText,
             String contentIdentity,
-            RenderSupport renderSupport) {
+            RenderSupport renderSupport,
+            CatalogCollectionOrder provenance) {
+        public CapeDescriptor(String id, CatalogText nameText, Optional<CatalogText> descriptionText,
+                Optional<CatalogText> authorsText, String contentIdentity, RenderSupport renderSupport) {
+            this(id, nameText, descriptionText, authorsText, contentIdentity, renderSupport,
+                    CatalogCollectionOrder.unspecified());
+        }
         public CapeDescriptor {
+            Objects.requireNonNull(provenance, "provenance");
             id = stableId(id, "id");
             nameText = Objects.requireNonNull(nameText, "nameText");
             descriptionText = Objects.requireNonNull(descriptionText, "descriptionText");

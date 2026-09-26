@@ -51,6 +51,7 @@ public final class PresetEditorModel {
     private final PreviewInteractionModel preview;
     private final EditorTab selectedEditorTab;
     private final CapeCatalogModel capeCatalog;
+    private final Optional<CatalogMaterialization.FrozenCatalogSelection> frozenCatalogSelection;
 
     private PresetEditorModel(
             Optional<UUID> originalPresetId,
@@ -109,6 +110,30 @@ public final class PresetEditorModel {
             Optional<UiMessage> status,
             PreviewInteractionModel preview,
             EditorTab selectedEditorTab, CapeCatalogModel capeCatalog) {
+        this(originalPresetId, name, skin, initialVariant, variant, capeId, capeChoices, hasOwnedCapePreview,
+                png, catalogOrigin, catalogVariants, reusableCatalogVariants, busy, status, preview,
+                selectedEditorTab, capeCatalog, Optional.empty());
+    }
+
+    private PresetEditorModel(
+            Optional<UUID> originalPresetId,
+            String name,
+            SkinReference skin,
+            SkinVariant initialVariant,
+            SkinVariant variant,
+            Optional<String> capeId,
+            List<CapeChoice> capeChoices,
+            boolean hasOwnedCapePreview,
+            Optional<DraftPng> png,
+            Optional<CatalogOrigin> catalogOrigin,
+            Map<SkinVariant, DraftPng> catalogVariants,
+            Map<SkinVariant, SkinReference> reusableCatalogVariants,
+            boolean busy,
+            Optional<UiMessage> status,
+            PreviewInteractionModel preview,
+            EditorTab selectedEditorTab, CapeCatalogModel capeCatalog,
+            Optional<CatalogMaterialization.FrozenCatalogSelection> frozenCatalogSelection) {
+        this.frozenCatalogSelection = Objects.requireNonNull(frozenCatalogSelection);
         this.capeCatalog = capeCatalog;
         this.originalPresetId = Objects.requireNonNull(originalPresetId, "originalPresetId");
         this.name = Objects.requireNonNull(name, "name");
@@ -408,7 +433,7 @@ public final class PresetEditorModel {
     public PresetEditorModel withCapeCatalog(CapeCatalogModel value) {
         return new PresetEditorModel(originalPresetId, name, skin, initialVariant, variant,
                 value == null ? capeId : value.minecraft(), capeChoices, hasOwnedCapePreview, png, catalogOrigin,
-                catalogVariants, reusableCatalogVariants, busy, status, preview, selectedEditorTab, value);
+                catalogVariants, reusableCatalogVariants, busy, status, preview, selectedEditorTab, value, frozenCatalogSelection);
     }
 
     private Optional<String> previewCapeId() {
@@ -662,6 +687,12 @@ public final class PresetEditorModel {
         return copy(name, skin, variant, capeId, png, busy, Optional.empty(), preview);
     }
 
+    public PresetEditorModel withFrozenCatalogSelection(Optional<CatalogMaterialization.FrozenCatalogSelection> selection) {
+        return new PresetEditorModel(originalPresetId, name, skin, initialVariant, variant, capeId, capeChoices,
+                hasOwnedCapePreview, png, catalogOrigin, catalogVariants, reusableCatalogVariants, busy, status,
+                preview, selectedEditorTab, capeCatalog, selection);
+    }
+
     public ClientOperations.EditorSaveRequest saveRequest() {
         boolean reuseCatalogAsset = !reusableCatalogVariants.isEmpty();
         Optional<byte[]> bytesToPersist = reuseCatalogAsset
@@ -680,7 +711,8 @@ public final class PresetEditorModel {
                 preview.outerLayerVisibility(),
                 bytesToPersist,
                 catalogOrigin,
-                personalSkinName).withOfflineCape(capeCatalog == null ? null : capeCatalog.offline());
+                personalSkinName).withOfflineCape(capeCatalog == null ? null : capeCatalog.offline())
+                .withFrozenCatalogSelection(frozenCatalogSelection);
     }
 
     public EditorTab selectedEditorTab() {
@@ -695,7 +727,7 @@ public final class PresetEditorModel {
         return new PresetEditorModel(
                 originalPresetId, name, skin, initialVariant, variant, capeId, capeChoices,
                 hasOwnedCapePreview, png, catalogOrigin, catalogVariants, reusableCatalogVariants,
-                busy, status, preview, tab, capeCatalog == null ? null : capeCatalog.resetInspection());
+                busy, status, preview, tab, capeCatalog == null ? null : capeCatalog.resetInspection(), frozenCatalogSelection);
     }
 
     public ViewSpec present(int width, int height) {
@@ -1241,7 +1273,7 @@ public final class PresetEditorModel {
                 reusableCatalogVariants,
                 nextBusy,
                 nextStatus,
-                nextPreview, selectedEditorTab, capeCatalog);
+                nextPreview, selectedEditorTab, capeCatalog, frozenCatalogSelection);
     }
 
     private static SkinVariant variantFor(

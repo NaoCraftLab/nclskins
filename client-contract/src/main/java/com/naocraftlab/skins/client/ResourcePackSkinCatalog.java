@@ -112,7 +112,12 @@ public final class ResourcePackSkinCatalog {
                             CatalogText.skinName(id, entry.getKey()),
                             Optional.of(CatalogText.skinDescription(id, entry.getKey())),
                             Optional.of(CatalogText.skinAuthors(id, entry.getKey())),
-                            orderedModels(entry.getValue())))
+                            orderedModels(entry.getValue()),
+                            contributors.stream().filter(variant -> variant.skinId().equals(entry.getKey()))
+                                    .collect(java.util.stream.Collectors.toMap(Variant::model,
+                                            variant -> variant.menuRankKnown()
+                                                    ? CatalogCollectionOrder.resourcePack(variant.sourcePackId(), variant.menuRank())
+                                                    : CatalogCollectionOrder.unknownResourcePack(variant.sourcePackId())))))
                     .toList();
             return new CollectionDescriptor(
                     id,

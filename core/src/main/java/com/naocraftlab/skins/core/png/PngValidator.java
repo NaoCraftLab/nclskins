@@ -230,6 +230,34 @@ public final class PngValidator {
         }
     }
 
+    public String rawSkinPixelSha256(byte[] bytes) throws PngValidationException {
+        return rawPixelSha256(inspect(bytes, false, false).image());
+    }
+
+    public String rawCapePixelSha256(byte[] bytes) throws PngValidationException {
+        byte[] png = JpegCapeDecoder.hasSignature(bytes) ? JpegCapeDecoder.toPng(bytes, maxBytes) : bytes;
+        return rawPixelSha256(inspect(png, false, false, CapeAdmission.SOURCE).image());
+    }
+
+    private static String rawPixelSha256(BufferedImage image) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            ByteBuffer value = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.BIG_ENDIAN);
+            digest.update(value.putInt(image.getWidth()).array());
+            value.clear();
+            digest.update(value.putInt(image.getHeight()).array());
+            for (int y = 0; y < image.getHeight(); y++) {
+                for (int x = 0; x < image.getWidth(); x++) {
+                    value.clear();
+                    digest.update(value.putInt(image.getRGB(x, y)).array());
+                }
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
     public String pixelSha256(byte[] bytes) throws PngValidationException {
         return renderSha256(bytes);
     }

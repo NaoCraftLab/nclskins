@@ -55,6 +55,26 @@ class NclSkinsStorageTest {
     Path temporaryDirectory;
 
     @Test
+    void guardedAccountWriteRechecksAfterMutationWithoutPublishingStaleState() throws Exception {
+        NclSkinsStorage storage = storage();
+        UUID accountId = UUID.randomUUID();
+        AccountState before = storage.loadOrCreateAccount(accountId);
+        AtomicInteger guards = new AtomicInteger();
+        AtomicInteger mutations = new AtomicInteger();
+        assertThrows(java.io.IOException.class, () -> storage.updateAccount(accountId, current -> {
+            mutations.incrementAndGet();
+            return new AccountState(current.schemaVersion(), current.accountId(), current.skinAssets(),
+                    current.personalSkins(), current.presets(), current.updatedAt().plusSeconds(1), current.personalCapes());
+        }, current -> {
+            assertEquals(before, current);
+            if (guards.incrementAndGet() == 2) throw new java.io.IOException("source changed");
+        }));
+        assertEquals(2, guards.get());
+        assertEquals(1, mutations.get());
+        assertEquals(before, storage.loadOrCreateAccount(accountId));
+    }
+
+    @Test
     void initializesExactLayoutAndPreflightsItIdempotently() throws Exception {
         NclSkinsStorage storage = storage();
 

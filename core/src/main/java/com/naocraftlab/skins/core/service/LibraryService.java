@@ -149,6 +149,21 @@ public final class LibraryService {
             OuterLayerVisibility outerLayerVisibility,
             String capeId,
             com.naocraftlab.skins.core.model.LocalCapeReference offlineCape) throws IOException, PngValidationException {
+        return savePresetWithImportedSkin(accountId, originalPresetId, presetName, assetName, variant, source, pngBytes, catalogOrigin, outerLayerVisibility, capeId, offlineCape, current -> {});
+    }
+
+    public SavedImportedPreset savePresetWithImportedSkin(
+            UUID accountId,
+            Optional<UUID> originalPresetId,
+            String presetName,
+            String assetName,
+            SkinVariant variant,
+            SkinSource source,
+            byte[] pngBytes,
+            CatalogOrigin catalogOrigin,
+            OuterLayerVisibility outerLayerVisibility,
+            String capeId,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape, AccountWriteGuard guard) throws IOException, PngValidationException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(originalPresetId, "originalPresetId");
         Objects.requireNonNull(variant, "variant");
@@ -211,7 +226,7 @@ public final class LibraryService {
                     current.personalSkins(),
                     presets,
                     mutationTime, current.personalCapes());
-        });
+        }, guard);
         UUID presetId = originalPresetId.orElse(createdPresetId);
         return new SavedImportedPreset(
                 state,
@@ -421,6 +436,12 @@ public final class LibraryService {
     public BatchPersonalSkinPresetImport importPersonalSkinPresets(
             UUID accountId,
             List<PersonalSkinPresetImport> imports) throws IOException, PngValidationException {
+        return importPersonalSkinPresets(accountId, imports, current -> {});
+    }
+
+    public BatchPersonalSkinPresetImport importPersonalSkinPresets(
+            UUID accountId,
+            List<PersonalSkinPresetImport> imports, AccountWriteGuard guard) throws IOException, PngValidationException {
         Objects.requireNonNull(accountId, "accountId");
         List<PersonalSkinPresetImport> requested = List.copyOf(
                 Objects.requireNonNull(imports, "imports"));
@@ -544,7 +565,7 @@ public final class LibraryService {
                     List.copyOf(personalSkins),
                     List.copyOf(presets),
                     mutationTime, current.personalCapes());
-        });
+        }, guard);
         return new BatchPersonalSkinPresetImport(state, imported[0], alreadyPresent[0]);
     }
 
@@ -700,6 +721,16 @@ public final class LibraryService {
             OuterLayerVisibility outerLayerVisibility,
             String capeId,
             com.naocraftlab.skins.core.model.LocalCapeReference offlineCape) throws IOException {
+        return createPreset(accountId, name, skin, outerLayerVisibility, capeId, offlineCape, current -> {});
+    }
+
+    public AccountState createPreset(
+            UUID accountId,
+            String name,
+            SkinReference skin,
+            OuterLayerVisibility outerLayerVisibility,
+            String capeId,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape, AccountWriteGuard guard) throws IOException {
         Objects.requireNonNull(skin, "skin");
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
         Instant now = clock.instant();
@@ -708,7 +739,7 @@ public final class LibraryService {
             AppearancePreset preset = new AppearancePreset(
                     UUID.randomUUID(), name, skin, capeId, outerLayerVisibility, now, now).withOfflineCape(validCape(current, offlineCape));
             return copy(current, current.skinAssets(), appended(current.presets(), preset), now);
-        });
+        }, guard);
     }
 
 
@@ -769,6 +800,17 @@ public final class LibraryService {
             OuterLayerVisibility outerLayerVisibility,
             String capeId,
             com.naocraftlab.skins.core.model.LocalCapeReference offlineCape) throws IOException {
+        return updatePreset(accountId, presetId, name, skin, outerLayerVisibility, capeId, offlineCape, current -> {});
+    }
+
+    public AccountState updatePreset(
+            UUID accountId,
+            UUID presetId,
+            String name,
+            SkinReference skin,
+            OuterLayerVisibility outerLayerVisibility,
+            String capeId,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape, AccountWriteGuard guard) throws IOException {
         Objects.requireNonNull(skin, "skin");
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
         Instant now = clock.instant();
@@ -780,7 +822,7 @@ public final class LibraryService {
             presets.set(index, new AppearancePreset(
                     existing.id(), name, skin, capeId, outerLayerVisibility, existing.createdAt(), now).withOfflineCape(validCape(current, offlineCape)));
             return copy(current, current.skinAssets(), presets, now);
-        });
+        }, guard);
     }
 
 

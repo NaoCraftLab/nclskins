@@ -1939,6 +1939,30 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
+    void catalogPreservesModelTagsAndSourceOrderForEqualPixels() throws Exception {
+        byte[] valid = skinPng(0xFF557799);
+        var collections = ResourcePackSkinCatalog.build(List.of(
+                new ResourcePackSkinCatalog.Variant("event", "hero", SkinModel.CLASSIC, "pack", 0),
+                new ResourcePackSkinCatalog.Variant("event", "hero", SkinModel.SLIM, "pack", 0)));
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override public byte[] load(String collection, String skin, SkinModel model) {
+                return valid.clone();
+            }
+            @Override public List<SkinCatalogSource.CollectionDescriptor> collections() {
+                return collections;
+            }
+        };
+        var operations = new DefaultClientOperations(
+                tokens(), new StubProfileApi(), storage(), source, fixedClock());
+        var result = operations.catalogCollections();
+        assertEquals(collections, result);
+        assertEquals(List.of(SkinModel.CLASSIC, SkinModel.SLIM), result.get(0).skins().get(0).models());
+        assertEquals(2, operations.catalogFeatureEvidence().size());
+        assertArrayEquals(operations.loadCatalogSkin("event", "hero", SkinModel.CLASSIC),
+                operations.loadCatalogSkin("event", "hero", SkinModel.SLIM));
+    }
+
+    @Test
     void catalogDiscoveryReusesValidatedVariantsUntilResourceGenerationChanges()
             throws Exception {
         byte[] valid = skinPng(0xFF557799);
@@ -1971,9 +1995,121 @@ final class DefaultClientOperationsTest {
         operations.catalogCollections();
         assertEquals(1, loads.get());
 
+        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+                Optional.empty(), "Personal", SkinReference.accountDefault(), SkinVariant.CLASSIC, SkinVariant.CLASSIC,
+                Optional.empty(), Optional.of(valid), Optional.empty(), Optional.of("Personal")));
+        String personalHash = saved.account().personalSkins().get(0).sha256();
+        operations.renamePersonalSkin(personalHash, "Renamed");
+        assertEquals("Renamed", operations.catalogCollections().get(0).skins().get(0).name());
+        assertEquals(1, loads.get());
+
         generation.incrementAndGet();
         operations.catalogCollections();
         assertEquals(2, loads.get());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "false, before-load", "false, before-freeze", "true, before-load", "true, before-freeze",
+            "true, unchanged"
+    })
+    void freezeRetainsSelectedSourceIdentityThroughDurableSave(boolean unknownGeneration, String changedAt) throws Exception {
+        byte[] original = PreparedCatalogServiceTest.png(64, 32, 0);
+        byte[] replacement = PreparedCatalogServiceTest.withTextChunk(original);
+        assertFalse(java.util.Arrays.equals(original, replacement));
+        assertArrayEquals(new PngValidator().normalizeSkin(original), new PngValidator().normalizeSkin(replacement));
+        var bytes = new java.util.concurrent.atomic.AtomicReference<>(original);
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override public byte[] load(String collection, String skin, SkinModel model) { return bytes.get().clone(); }
+            @Override public List<CollectionDescriptor> collections() {
+                return ResourcePackSkinCatalog.build(List.of(new ResourcePackSkinCatalog.Variant(
+                        "event", "hero", SkinModel.CLASSIC, "pack", 0)));
+            }
+            @Override public long generation() { return unknownGeneration ? Long.MIN_VALUE : 1; }
+        };
+        NclSkinsStorage shared = storage();
+        var operations = new DefaultClientOperations(tokens(), new StubProfileApi(), shared, source, fixedClock());
+        operations.catalogCollections();
+        var before = shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
+        org.junit.jupiter.api.function.Executable save = () -> {
+            if (changedAt.equals("before-load")) bytes.set(replacement);
+            byte[] selected = operations.loadCatalogSkin("event", "hero", SkinModel.CLASSIC);
+            if (changedAt.equals("before-freeze")) bytes.set(replacement);
+            var frozen = operations.freezeCatalogSelection("event", "hero");
+            var request = new ClientOperations.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
+                    SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.of(selected),
+                    Optional.of(new CatalogOrigin("pack", "event", "hero"))).withFrozenCatalogSelection(frozen);
+            operations.saveEditor(request);
+        };
+        if (changedAt.equals("unchanged")) {
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(save);
+            assertEquals(1, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID).presets().size());
+        } else {
+            assertThrows(IOException.class, save);
+            assertEquals(before, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID));
+        }
+    }
+
+    @Test
+    void reloadDuringFreezeWithIdenticalPngCannotCreateDurablePreset() throws Exception {
+        byte[] valid = skinPng(0xFF557799);
+        var generation = new AtomicInteger(1);
+        var generationReads = new AtomicInteger();
+        var armed = new java.util.concurrent.atomic.AtomicBoolean();
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override public byte[] load(String collection, String skin, SkinModel model) { return valid.clone(); }
+            @Override public List<CollectionDescriptor> collections() {
+                return ResourcePackSkinCatalog.build(List.of(new ResourcePackSkinCatalog.Variant(
+                        "event", "hero", SkinModel.CLASSIC, "pack", 0)));
+            }
+            @Override public long generation() {
+                if (armed.get() && generationReads.incrementAndGet() == 2) generation.incrementAndGet();
+                return generation.get();
+            }
+        };
+        NclSkinsStorage shared = storage();
+        var operations = new DefaultClientOperations(tokens(), new StubProfileApi(), shared, source, fixedClock());
+        operations.catalogCollections();
+        operations.loadCatalogSkin("event", "hero", SkinModel.CLASSIC);
+        var before = shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
+        armed.set(true);
+        assertThrows(IOException.class, () -> {
+            var frozen = operations.freezeCatalogSelection("event", "hero");
+            var request = new ClientOperations.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
+                    SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.of(valid),
+                    Optional.of(new CatalogOrigin("pack", "event", "hero"))).withFrozenCatalogSelection(frozen);
+            operations.saveEditor(request);
+        });
+        assertEquals(2, generation.get());
+        assertEquals(before, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID));
+    }
+
+    @Test
+    void resourceSkinSaveRejectsChangeInsideDurableBoundary() throws Exception {
+        byte[] valid = skinPng(0xFF557799);
+        AtomicInteger generation = new AtomicInteger(1);
+        AtomicInteger loads = new AtomicInteger();
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override public byte[] load(String collection, String skin, SkinModel model) {
+                if (loads.incrementAndGet() == 4) generation.incrementAndGet();
+                return valid.clone();
+            }
+            @Override public List<CollectionDescriptor> collections() {
+                return ResourcePackSkinCatalog.build(List.of(new ResourcePackSkinCatalog.Variant(
+                        "event", "hero", SkinModel.CLASSIC, "pack", 0)));
+            }
+            @Override public long generation() { return generation.get(); }
+        };
+        NclSkinsStorage shared = storage();
+        var operations = new DefaultClientOperations(tokens(), new StubProfileApi(), shared, source, fixedClock());
+        operations.catalogCollections();
+        var frozen = operations.freezeCatalogSelection("event", "hero");
+        var request = new ClientOperations.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.of(valid),
+                Optional.of(new CatalogOrigin("pack", "event", "hero"))).withFrozenCatalogSelection(frozen);
+        assertThrows(IOException.class, () -> operations.saveEditor(request));
+        assertEquals(4, loads.get());
+        assertTrue(shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID).presets().isEmpty());
     }
 
     @Test

@@ -5534,6 +5534,28 @@ final class ClientRuntimeTest {
         }
 
         @Override
+        public Optional<FrozenCatalogSelection> freezeCatalogSelection(String collectionId, String skinId) throws Exception {
+            String hash = java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(catalogPng));
+            Map<SkinModel, String> hashes = new EnumMap<>(SkinModel.class);
+            Map<SkinModel, UUID> assets = new EnumMap<>(SkinModel.class);
+            List<SkinModel> models = catalogCollections().stream()
+                    .filter(collection -> collection.id().equals(collectionId))
+                    .flatMap(collection -> collection.skins().stream())
+                    .filter(skin -> skin.id().equals(skinId))
+                    .findFirst().orElseThrow().models();
+            for (SkinModel model : models) {
+                if (!failedCatalogModels.contains(model)) {
+                    Optional<UUID> reusable = reusableCatalogSkinAsset(collectionId, skinId, model);
+                    if (reusable.isPresent()) assets.put(model, reusable.orElseThrow());
+                    else hashes.put(model, hash);
+                }
+            }
+            return Optional.of(new FrozenCatalogSelection(account.accountId(), collectionId, skinId,
+                    0, hashes, assets));
+        }
+
+        @Override
         public byte[] loadCatalogSkin(String collectionId, String skinId, SkinModel model)
                 throws IOException {
             catalogPreviewCalls++;

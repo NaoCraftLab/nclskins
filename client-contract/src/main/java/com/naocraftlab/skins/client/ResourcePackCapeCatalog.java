@@ -126,7 +126,10 @@ public final class ResourcePackCapeCatalog {
                             Optional.of(CatalogText.capeDescription(id, variant.capeId())),
                             Optional.of(CatalogText.capeAuthors(id, variant.capeId())),
                             variant.contentIdentity(),
-                            CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA)).toList(),
+                            CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA,
+                            variant.menuRankKnown()
+                                    ? CatalogCollectionOrder.resourcePack(variant.sourcePackId(), variant.menuRank())
+                                    : CatalogCollectionOrder.unknownResourcePack(variant.sourcePackId()))).toList(),
                     collectionOrder(contributors));
         }
     }

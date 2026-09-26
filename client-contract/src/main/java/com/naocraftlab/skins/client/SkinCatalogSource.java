@@ -209,8 +209,14 @@ public interface SkinCatalogSource extends CapeCatalogSource {
             CatalogText nameText,
             Optional<CatalogText> descriptionText,
             Optional<CatalogText> authorsText,
-            List<SkinModel> models) {
+            List<SkinModel> models,
+            java.util.Map<SkinModel, CatalogCollectionOrder> provenance) {
+        public SkinDescriptor(String id, CatalogText nameText, Optional<CatalogText> descriptionText,
+                Optional<CatalogText> authorsText, List<SkinModel> models) {
+            this(id, nameText, descriptionText, authorsText, models, java.util.Map.of());
+        }
         public SkinDescriptor {
+            provenance = java.util.Map.copyOf(provenance);
             id = requireStableId(id, "id");
             nameText = requireNameText(nameText, "nameText");
             descriptionText = optionalCatalogText(descriptionText, "descriptionText");

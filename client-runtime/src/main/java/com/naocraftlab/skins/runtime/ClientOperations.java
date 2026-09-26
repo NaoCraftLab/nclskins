@@ -1,6 +1,5 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.SkinCatalogSource;
@@ -20,7 +19,6 @@ import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
-import com.naocraftlab.skins.core.provider.ProviderCape;
 import com.naocraftlab.skins.core.provider.ProviderObservation;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -34,10 +32,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 
-public interface ClientOperations extends AutoCloseable, CapeObservationPort {
+public interface ClientOperations extends AutoCloseable, CapeObservationPort, CatalogRead, CatalogMaterialization, ImportOperations {
 
     default Optional<byte[]> loadProviderTexture(ViewSpec.ProviderTexture texture) throws Exception {
         return Optional.empty();
@@ -96,52 +93,6 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(entryId, "entryId");
         return Optional.empty();
-    }
-
-    record ResourceCapeKey(String collectionId, String capeId) {
-        public ResourceCapeKey {
-            Objects.requireNonNull(collectionId, "collectionId");
-            Objects.requireNonNull(capeId, "capeId");
-        }
-    }
-
-    record ResourceCapeSelection(
-            String collectionId,
-            String capeId,
-            String displayName,
-            String contentIdentity,
-            String sourceSha256,
-            long generation,
-            boolean hasElytra) {
-        public ResourceCapeSelection {
-            Objects.requireNonNull(collectionId, "collectionId");
-            Objects.requireNonNull(capeId, "capeId");
-            Objects.requireNonNull(displayName, "displayName");
-            Objects.requireNonNull(contentIdentity, "contentIdentity");
-            Objects.requireNonNull(sourceSha256, "sourceSha256");
-            if (collectionId.isBlank() || capeId.isBlank() || displayName.isBlank()
-                    || !contentIdentity.matches("[0-9a-f]{64}")
-                    || !sourceSha256.matches("[0-9a-f]{64}")) {
-                throw new IllegalArgumentException("Invalid resource-pack cape selection");
-            }
-        }
-
-        public ResourceCapeKey key() {
-            return new ResourceCapeKey(collectionId, capeId);
-        }
-    }
-
-    record CapeEditorData(
-            AccountState account,
-            List<CapeCatalogSource.CollectionDescriptor> resourceCollections,
-            Map<ResourceCapeKey, String> sourceHashes,
-            long resourceGeneration) {
-        public CapeEditorData {
-            account = Objects.requireNonNull(account, "account");
-            resourceCollections = List.copyOf(Objects.requireNonNull(
-                    resourceCollections, "resourceCollections"));
-            sourceHashes = Map.copyOf(Objects.requireNonNull(sourceHashes, "sourceHashes"));
-        }
     }
 
     default AppearanceProviders loadProviders() throws Exception {
@@ -267,15 +218,6 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort {
     }
 
 
-    record CatalogVariant(String collectionId, String skinId, SkinVariant variant) {
-        public CatalogVariant {
-            Objects.requireNonNull(collectionId, "collectionId");
-            Objects.requireNonNull(skinId, "skinId");
-            Objects.requireNonNull(variant, "variant");
-        }
-    }
-
-
     default Optional<AccountUiPreferences> loadUiPreferences() throws Exception {
         return Optional.empty();
     }
@@ -375,112 +317,6 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort {
 
 
     default void warmOwnedCapeCache() throws Exception {}
-
-    record ExternalImportResult(
-            AccountState account,
-            int imported,
-            int alreadyPresent,
-            int skipped,
-            int warnings) {
-        public ExternalImportResult {
-            Objects.requireNonNull(account, "account");
-            if (imported < 0 || alreadyPresent < 0 || skipped < 0 || warnings < 0) {
-                throw new IllegalArgumentException("external import counters must not be negative");
-            }
-        }
-    }
-
-    record ExternalImportReview(
-            ExternalImportSource source,
-            List<ExternalImportCandidate> candidates,
-            int skipped,
-            int warnings) {
-        public ExternalImportReview {
-            Objects.requireNonNull(source, "source");
-            candidates = List.copyOf(Objects.requireNonNull(candidates, "candidates"));
-            if (candidates.isEmpty()) {
-                throw new IllegalArgumentException("external import review must not be empty");
-            }
-            if (candidates.stream().anyMatch(Objects::isNull)) {
-                throw new IllegalArgumentException("external import review contains null");
-            }
-            if (candidates.stream().map(ExternalImportCandidate::id).distinct().count()
-                    != candidates.size()) {
-                throw new IllegalArgumentException("external import candidate ids must be unique");
-            }
-            if (skipped < 0 || warnings < 0) {
-                throw new IllegalArgumentException("external import counters must not be negative");
-            }
-        }
-    }
-
-    record ExternalImportCandidate(
-            String id,
-            String displayName,
-            SkinVariant variant,
-            PersonalSkinSource source,
-            byte[] normalizedPng,
-            String sha256,
-            String capeId,
-            int sourceOrder,
-            boolean duplicate,
-            SkinFeatureEvidence featureEvidence) {
-        public ExternalImportCandidate {
-            id = Objects.requireNonNull(id, "id");
-            displayName = Objects.requireNonNull(displayName, "displayName");
-            Objects.requireNonNull(variant, "variant");
-            Objects.requireNonNull(source, "source");
-            normalizedPng = Objects.requireNonNull(normalizedPng, "normalizedPng").clone();
-            sha256 = Objects.requireNonNull(sha256, "sha256");
-            featureEvidence = Objects.requireNonNull(featureEvidence, "featureEvidence");
-            if (!id.matches("[a-z0-9][a-z0-9_-]{0,127}")) {
-                throw new IllegalArgumentException("external import candidate id is invalid");
-            }
-            if (displayName.isBlank() || displayName.length() > 128) {
-                throw new IllegalArgumentException("external import display name is invalid");
-            }
-            if (normalizedPng.length == 0) {
-                throw new IllegalArgumentException("external import PNG must not be empty");
-            }
-            if (!sha256.matches("[0-9a-f]{64}")) {
-                throw new IllegalArgumentException("external import SHA-256 is invalid");
-            }
-            if (capeId != null && (capeId.isBlank() || capeId.length() > 256)) {
-                throw new IllegalArgumentException("external import cape id is invalid");
-            }
-            if (sourceOrder < 0) {
-                throw new IllegalArgumentException("external import source order must not be negative");
-            }
-        }
-
-        public ExternalImportCandidate(
-                String id,
-                String displayName,
-                SkinVariant variant,
-                PersonalSkinSource source,
-                byte[] normalizedPng,
-                String sha256,
-                String capeId,
-                int sourceOrder,
-                boolean duplicate) {
-            this(
-                    id,
-                    displayName,
-                    variant,
-                    source,
-                    normalizedPng,
-                    sha256,
-                    capeId,
-                    sourceOrder,
-                    duplicate,
-                    SkinFeatureEvidence.ORDINARY);
-        }
-
-        @Override
-        public byte[] normalizedPng() {
-            return normalizedPng.clone();
-        }
-    }
 
     InitialData resetLibrary() throws Exception;
 
@@ -906,7 +742,22 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort {
             Optional<CatalogOrigin> catalogOrigin,
             Optional<String> personalSkinName,
             PersonalSkinSource personalSkinSource,
-            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape) {
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape,
+            Optional<FrozenCatalogSelection> frozenCatalogSelection) {
+        public EditorSaveRequest(Optional<UUID> originalPresetId, String name, SkinReference skin,
+                SkinVariant initialVariant, SkinVariant variant, Optional<String> capeId,
+                OuterLayerVisibility outerLayerVisibility, Optional<byte[]> pngBytes,
+                Optional<CatalogOrigin> catalogOrigin, Optional<String> personalSkinName,
+                PersonalSkinSource personalSkinSource, com.naocraftlab.skins.core.model.LocalCapeReference offlineCape) {
+            this(originalPresetId, name, skin, initialVariant, variant, capeId, outerLayerVisibility,
+                    pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, Optional.empty());
+        }
+
+        public EditorSaveRequest withFrozenCatalogSelection(Optional<FrozenCatalogSelection> frozen) {
+            return new EditorSaveRequest(originalPresetId, name, skin, initialVariant, variant, capeId,
+                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, frozen);
+        }
+
         public EditorSaveRequest(Optional<UUID> originalPresetId, String name, SkinReference skin,
                 SkinVariant initialVariant, SkinVariant variant, Optional<String> capeId,
                 OuterLayerVisibility outerLayerVisibility, Optional<byte[]> pngBytes,
@@ -918,7 +769,7 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort {
 
         public EditorSaveRequest withOfflineCape(com.naocraftlab.skins.core.model.LocalCapeReference value) {
             return new EditorSaveRequest(originalPresetId, name, skin, initialVariant, variant, capeId,
-                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, value);
+                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, value, frozenCatalogSelection);
         }
 
         public EditorSaveRequest(
@@ -998,6 +849,7 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort {
         }
 
         public EditorSaveRequest {
+            frozenCatalogSelection = Objects.requireNonNull(frozenCatalogSelection, "frozenCatalogSelection");
             originalPresetId = Objects.requireNonNull(originalPresetId, "originalPresetId");
             Objects.requireNonNull(name, "name");
             name = name.trim();
@@ -1036,19 +888,7 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort {
         }
     }
 
-    record ImportDraft(String name, SkinVariant variant, byte[] pngBytes, PersonalSkinSource source) {
-        public ImportDraft {
-            Objects.requireNonNull(name, "name");
-            Objects.requireNonNull(variant, "variant");
-            pngBytes = Objects.requireNonNull(pngBytes, "pngBytes").clone();
-            Objects.requireNonNull(source, "source");
-        }
 
-        @Override
-        public byte[] pngBytes() {
-            return pngBytes.clone();
-        }
-    }
 
     record EditorSave(
             AccountState account,

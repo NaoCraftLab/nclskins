@@ -382,8 +382,8 @@ final class ExternalImportAdaptersTest {
         PublicSkinImportService publicImports = new PublicSkinImportService(
                 new TextureCache(storage), (collection, skin, model) -> png);
         SkinCatalogSource resources = (collection, skin, model) -> png;
-        ExternalAppearanceImportService service = new ExternalAppearanceImportService(
-                library, publicImports, resources, new PngValidator(), List.of(adapter));
+        ExternalAppearanceImportService service = importService(
+                storage, library, publicImports, resources, new PngValidator(), List.of(adapter));
         OwnedCapeInventory capes = new OwnedCapeInventory(
                 OwnedCapeInventory.CURRENT_SCHEMA_VERSION,
                 ACCOUNT_ID,
@@ -459,8 +459,8 @@ final class ExternalImportAdaptersTest {
                         0)), List.of());
             }
         };
-        ExternalAppearanceImportService service = new ExternalAppearanceImportService(
-                library,
+        ExternalAppearanceImportService service = importService(
+                storage, library,
                 new PublicSkinImportService(
                         new TextureCache(storage), (collection, skin, model) -> catalogPng),
                 (collection, skin, model) -> catalogPng,
@@ -535,8 +535,8 @@ final class ExternalImportAdaptersTest {
                         0)), List.of());
             }
         };
-        ExternalAppearanceImportService service = new ExternalAppearanceImportService(
-                library,
+        ExternalAppearanceImportService service = importService(
+                storage, library,
                 new PublicSkinImportService(
                         new TextureCache(storage), (collection, skin, model) -> playerPng),
                 (collection, skin, model) -> playerPng,
@@ -574,21 +574,21 @@ final class ExternalImportAdaptersTest {
         Path game = home.resolve("instance/.minecraft");
         ExternalImportContext context = new ExternalImportContext(ACCOUNT_ID, "Player", game);
         assertEquals(List.of(game.toAbsolutePath().normalize()),
-                ExternalAppearanceImportService.expectedRoots(
+                ExternalImportSourceAdapter.expectedRoots(
                         ExternalImportSource.SKIN_SHUFFLE,
                         context,
                         "mac os x",
                         home,
                         Map.of()));
         assertEquals(List.of(game.toAbsolutePath().normalize()),
-                ExternalAppearanceImportService.expectedRoots(
+                ExternalImportSourceAdapter.expectedRoots(
                         ExternalImportSource.SKIN_SWAPPER_FAMILY,
                         context,
                         "mac os x",
                         home,
                         Map.of()));
         assertEquals(List.of(game.toAbsolutePath().normalize()),
-                ExternalAppearanceImportService.expectedRoots(
+                ExternalImportSourceAdapter.expectedRoots(
                         ExternalImportSource.QUICK_SKIN,
                         context,
                         "mac os x",
@@ -596,7 +596,7 @@ final class ExternalImportAdaptersTest {
                         Map.of()));
         assertEquals(
                 home.resolve("Library/Application Support/minecraft"),
-                ExternalAppearanceImportService.expectedRoots(
+                ExternalImportSourceAdapter.expectedRoots(
                         ExternalImportSource.MINECRAFT_LAUNCHER,
                         context,
                         "mac os x",
@@ -604,7 +604,7 @@ final class ExternalImportAdaptersTest {
                         Map.of()).get(0));
         assertEquals(
                 home.resolve("Library/Application Support/CurseForge"),
-                ExternalAppearanceImportService.expectedRoots(
+                ExternalImportSourceAdapter.expectedRoots(
                         ExternalImportSource.CURSEFORGE_APP,
                         context,
                         "mac os x",
@@ -612,7 +612,7 @@ final class ExternalImportAdaptersTest {
                         Map.of()).get(0));
         assertEquals(
                 home.resolve("Library/Application Support/ModrinthApp"),
-                ExternalAppearanceImportService.expectedRoots(
+                ExternalImportSourceAdapter.expectedRoots(
                         ExternalImportSource.MODRINTH_APP,
                         context,
                         "mac os x",
@@ -866,4 +866,13 @@ final class ExternalImportAdaptersTest {
             }
         }
     }
+    private static ExternalAppearanceImportService importService(
+            NclSkinsStorage storage, LibraryService library, PublicSkinImportService publicImports,
+            SkinCatalogSource sources, PngValidator validator, List<ExternalImportAdapter> adapters) {
+        var accounts = new LibraryCatalogAdapter(library, storage, () -> ACCOUNT_ID);
+        return new ExternalAppearanceImportService(
+                new ExternalImportSourceAdapter(publicImports, sources, validator, adapters),
+                new PreparedCatalogService(sources, accounts), new LibraryExternalImportAdapter(library, accounts));
+    }
+
 }

@@ -203,6 +203,12 @@ public final class NclSkinsStorage {
 
     @SuppressWarnings("try")
     public AccountState updateAccount(UUID accountId, UnaryOperator<AccountState> update) throws IOException {
+        return updateAccount(accountId, update, current -> {});
+    }
+
+    @SuppressWarnings("try")
+    public AccountState updateAccount(UUID accountId, UnaryOperator<AccountState> update,
+            com.naocraftlab.skins.core.service.AccountWriteGuard guard) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(update, "update");
         ensureInitialized();
@@ -212,10 +218,12 @@ public final class NclSkinsStorage {
             AccountState current = !Files.exists(statePath) && !Files.exists(backupPath)
                     ? AccountState.empty(accountId, clock.instant())
                     : loadAccountLocked(accountId);
+            Objects.requireNonNull(guard, "guard").verify(current);
             AccountState replacement = Objects.requireNonNull(update.apply(current), "update result");
             if (!replacement.accountId().equals(accountId)) {
                 throw new IllegalArgumentException("Account update changed the Minecraft UUID");
             }
+            guard.verify(current);
             saveAccountLocked(replacement);
             return replacement;
         }
@@ -763,6 +771,12 @@ public final class NclSkinsStorage {
 
     public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
             UUID accountId, String name, byte[] bytes) throws IOException, PngValidationException {
+        return importCape(accountId, name, bytes, current -> {});
+    }
+
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
+            UUID accountId, String name, byte[] bytes,
+            com.naocraftlab.skins.core.service.AccountWriteGuard guard) throws IOException, PngValidationException {
         PngValidator.CapePng png = pngValidator.projectImportedCape(bytes);
         String hash = sha256(png.bytes());
         Path asset = capeAssetPath(accountId, hash);
@@ -783,7 +797,7 @@ public final class NclSkinsStorage {
             java.util.List<com.naocraftlab.skins.core.model.PersonalCapeEntry> entries = new java.util.ArrayList<>(current.personalCapes());
             entries.add(selected[0]);
             return current.withPersonalCapes(entries);
-        });
+        }, guard);
         AtomicFileWriter.createImmutable(layout.textureCache().resolve(selected[0].texture().sha256() + ".png"),
                 readCapeAsset(accountId, selected[0].texture().sha256()));
         return selected[0];
