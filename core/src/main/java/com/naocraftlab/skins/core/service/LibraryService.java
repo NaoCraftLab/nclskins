@@ -13,8 +13,7 @@ import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
-import com.naocraftlab.skins.core.storage.NclSkinsStorage;
-import com.naocraftlab.skins.core.storage.StoredAsset;
+import com.naocraftlab.skins.core.service.AssetStorePort.Asset;
 
 import java.io.IOException;
 import java.time.Clock;
@@ -29,7 +28,8 @@ import java.util.UUID;
 
 
 public final class LibraryService {
-    private final NclSkinsStorage storage;
+    private final LibraryStatePort storage;
+    private final AssetStorePort assets;
     private final Clock clock;
     private com.naocraftlab.skins.core.model.LocalCapeReference findPresetUnchecked(UUID accountId, UUID presetId) throws IOException {
         return findPreset(load(accountId), presetId).offlineCape();
@@ -43,13 +43,32 @@ public final class LibraryService {
 
     private final PngValidator pngValidator = new PngValidator();
 
-    public LibraryService(NclSkinsStorage storage, Clock clock) {
+    public LibraryService(LibraryStatePort storage, AssetStorePort assets, Clock clock) {
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.assets = Objects.requireNonNull(assets, "assets");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     public AccountState load(UUID accountId) throws IOException {
         return storage.loadOrCreateAccount(accountId);
+    }
+
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
+            UUID accountId, String name, byte[] bytes) throws IOException, PngValidationException {
+        return storage.importCape(accountId, name, bytes, current -> {});
+    }
+
+    public AccountState renameCape(UUID accountId, UUID entryId, String name) throws IOException {
+        return storage.renameCape(accountId, entryId, name);
+    }
+
+    public LibraryStatePort.AccountAppearanceMutationResult deleteCape(UUID accountId, UUID entryId)
+            throws IOException {
+        return storage.deleteCape(accountId, entryId);
+    }
+
+    public AccountState discardCapeIfUnreferenced(UUID accountId, UUID entryId) throws IOException {
+        return storage.discardCapeIfUnreferenced(accountId, entryId);
     }
 
     public ImportedSkin importSkin(
@@ -72,7 +91,7 @@ public final class LibraryService {
         Objects.requireNonNull(variant, "variant");
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(catalogOrigin, "catalogOrigin");
-        StoredAsset stored = storage.storeAsset(pngBytes);
+        Asset stored = assets.storeAsset(pngBytes);
         Instant now = clock.instant();
         SkinAsset asset = new SkinAsset(
                 UUID.randomUUID(), name, stored.sha256(), variant, source, now, now, catalogOrigin);
@@ -172,13 +191,13 @@ public final class LibraryService {
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
         byte[] requiredPng = Objects.requireNonNull(pngBytes, "pngBytes");
         String renderSha256 = pngValidator.renderSha256(requiredPng);
-        StoredAsset stored = storeOrReusePersonalAsset(accountId, requiredPng, renderSha256);
-        StoredAsset[] selectedStored = {stored};
+        Asset stored = storeOrReusePersonalAsset(accountId, requiredPng, renderSha256);
+        Asset[] selectedStored = {stored};
         UUID assetId = UUID.randomUUID();
         UUID createdPresetId = UUID.randomUUID();
         Instant now = clock.instant();
         AccountState state = storage.updateAccount(accountId, current -> {
-            StoredAsset mutationStored = recheckPersonalAssetReuse(
+            Asset mutationStored = recheckPersonalAssetReuse(
                     current, renderSha256, selectedStored[0]);
             selectedStored[0] = mutationStored;
             int presetIndex = originalPresetId
@@ -282,14 +301,14 @@ public final class LibraryService {
         String displayName = requirePersonalSkinDisplayName(personalSkinDisplayName);
         byte[] requiredPng = Objects.requireNonNull(pngBytes, "pngBytes");
         String renderSha256 = pngValidator.renderSha256(requiredPng);
-        StoredAsset stored = storeOrReusePersonalAsset(accountId, requiredPng, renderSha256);
-        StoredAsset[] selectedStored = {stored};
+        Asset stored = storeOrReusePersonalAsset(accountId, requiredPng, renderSha256);
+        Asset[] selectedStored = {stored};
         UUID candidateAssetId = UUID.randomUUID();
         UUID createdPresetId = UUID.randomUUID();
         Instant now = clock.instant();
 
         AccountState state = storage.updateAccount(accountId, current -> {
-            StoredAsset mutationStored = recheckPersonalAssetReuse(
+            Asset mutationStored = recheckPersonalAssetReuse(
                     current, renderSha256, selectedStored[0]);
             selectedStored[0] = mutationStored;
             int presetIndex = originalPresetId
@@ -450,11 +469,11 @@ public final class LibraryService {
         }
 
         List<PreparedPersonalSkinPresetImport> prepared = new ArrayList<>(requested.size());
-        Map<String, StoredAsset> canonicalAssets = new java.util.LinkedHashMap<>();
+        Map<String, Asset> canonicalAssets = new java.util.LinkedHashMap<>();
         for (PersonalSkinPresetImport candidate : requested) {
             Objects.requireNonNull(candidate, "imports contains null");
             String renderSha256 = pngValidator.renderSha256(candidate.pngBytes());
-            StoredAsset stored = canonicalAssets.get(renderSha256);
+            Asset stored = canonicalAssets.get(renderSha256);
             if (stored == null) {
                 stored = storeOrReusePersonalAsset(
                         accountId, candidate.pngBytes(), renderSha256);
@@ -478,7 +497,7 @@ public final class LibraryService {
 
             for (PreparedPersonalSkinPresetImport item : prepared) {
                 PersonalSkinPresetImport candidate = item.candidate();
-                StoredAsset mutationStored = recheckPersonalAssetReuse(
+                Asset mutationStored = recheckPersonalAssetReuse(
                         current, item.renderSha256(), item.stored());
                 String sha256 = mutationStored.sha256();
                 PersonalSkinEntry existingEntry = personalSkins.stream()
@@ -829,13 +848,13 @@ public final class LibraryService {
     public PresetDeletion deletePreset(
             UUID accountId,
             UUID presetId,
-            NclSkinsStorage.AppearanceIntentFromAccount accountDefaultIntent) throws IOException {
+            LibraryStatePort.AppearanceIntentFromAccount accountDefaultIntent) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(presetId, "presetId");
         Objects.requireNonNull(accountDefaultIntent, "accountDefaultIntent");
         Instant now = clock.instant();
         boolean[] resetAppearance = {false};
-        NclSkinsStorage.AccountAppearanceMutationResult result =
+        LibraryStatePort.AccountAppearanceMutationResult result =
                 storage.mutateAccountAndAppearance(accountId, (current, appearance, nextRevision) -> {
                     List<AppearancePreset> presets = new ArrayList<>(current.presets());
                     int index = indexOfPreset(presets, presetId);
@@ -844,13 +863,13 @@ public final class LibraryService {
                     presets.remove(index);
                     AccountState deleted = copy(current, current.skinAssets(), presets, now);
                     if (!resetAppearance[0]) {
-                        return NclSkinsStorage.AccountAppearanceMutationPlan.accountOnly(
+                        return LibraryStatePort.AccountAppearanceMutationPlan.accountOnly(
                                 deleted, appearance);
                     }
                     AccountAppearanceState accountDefault = Objects.requireNonNull(
                             accountDefaultIntent.apply(current, appearance, nextRevision),
                             "account default intent");
-                    return NclSkinsStorage.AccountAppearanceMutationPlan.both(
+                    return LibraryStatePort.AccountAppearanceMutationPlan.both(
                             deleted, accountDefault);
                 });
         return new PresetDeletion(
@@ -870,7 +889,7 @@ public final class LibraryService {
     public ResolvedSkinAsset resolveSkin(AccountState state, UUID skinId)
             throws IOException, PngValidationException {
         SkinAsset asset = findSkin(state, skinId);
-        byte[] png = storage.readAsset(asset.sha256());
+        byte[] png = assets.readAsset(asset.sha256());
         return new ResolvedSkinAsset(asset.id(), asset.sha256(), asset.variant(), png);
     }
 
@@ -1053,31 +1072,30 @@ public final class LibraryService {
         return trimmed;
     }
 
-    private StoredAsset storeOrReusePersonalAsset(
+    private Asset storeOrReusePersonalAsset(
             UUID accountId, byte[] pngBytes, String incomingRenderSha256)
             throws IOException, PngValidationException {
         AccountState current = storage.loadOrCreateAccount(accountId);
-        Optional<StoredAsset> reusable = findReusablePersonalAsset(
+        Optional<Asset> reusable = findReusablePersonalAsset(
                 current, incomingRenderSha256);
-        return reusable.isPresent() ? reusable.orElseThrow() : storage.storeAsset(pngBytes);
+        return reusable.isPresent() ? reusable.orElseThrow() : assets.storeAsset(pngBytes);
     }
 
-    private StoredAsset recheckPersonalAssetReuse(
+    private Asset recheckPersonalAssetReuse(
             AccountState current,
             String incomingRenderSha256,
-            StoredAsset fallback) {
+            Asset fallback) {
         return findReusablePersonalAsset(current, incomingRenderSha256).orElse(fallback);
     }
 
-    private Optional<StoredAsset> findReusablePersonalAsset(
+    private Optional<Asset> findReusablePersonalAsset(
             AccountState current, String incomingRenderSha256) {
         for (PersonalSkinEntry entry : current.personalSkins()) {
             try {
-                byte[] existingPng = storage.readAsset(entry.sha256());
+                byte[] existingPng = assets.readAsset(entry.sha256());
                 if (incomingRenderSha256.equals(pngValidator.renderSha256(existingPng))) {
-                    return Optional.of(new StoredAsset(
+                    return Optional.of(new Asset(
                             entry.sha256(),
-                            storage.assetPath(entry.sha256()),
                             pngValidator.validate(existingPng),
                             true));
                 }
@@ -1147,7 +1165,7 @@ public final class LibraryService {
 
     private record PreparedPersonalSkinPresetImport(
             PersonalSkinPresetImport candidate,
-            StoredAsset stored,
+            Asset stored,
             String renderSha256) {
         private PreparedPersonalSkinPresetImport {
             Objects.requireNonNull(candidate, "candidate");

@@ -68,9 +68,9 @@ class PreparedCatalogServiceTest {
             }
         };
         var storage = new NclSkinsStorage(temporaryDirectory, new PngValidator(), Clock.systemUTC());
-        var library = new LibraryService(storage, Clock.systemUTC());
+        var library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), Clock.systemUTC());
         var service = new PreparedCatalogService(source,
-                new LibraryCatalogAdapter(library, storage, currentAccount::get));
+                new LibraryCatalogAdapter(library, new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), currentAccount::get));
         owner.set(service);
         var data = service.loadCapeEditorData(accountId);
         frozenAccount.set(library.load(accountId));
@@ -174,12 +174,12 @@ class PreparedCatalogServiceTest {
         var armed = new java.util.concurrent.atomic.AtomicBoolean();
         var clock = Clock.fixed(Instant.EPOCH, java.time.ZoneOffset.UTC);
         var storage = new NclSkinsStorage(temporaryDirectory, new PngValidator(), clock);
-        var library = new LibraryService(storage, clock);
+        var library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), clock);
         byte[] image = png(64, 64, 0);
         if (personal) library.savePresetWithPersonalSkin(original, Optional.empty(), "Existing", "Personal",
                 SkinVariant.CLASSIC, PersonalSkinSource.FILE, image, null);
         var service = new PreparedCatalogService(source(image, new AtomicInteger(1), new AtomicInteger()),
-                new LibraryCatalogAdapter(library, storage, () -> {
+                new LibraryCatalogAdapter(library, new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), () -> {
                     UUID result = current.get();
                     if (armed.compareAndSet(true, false)) current.set(replacement);
                     return result;

@@ -511,7 +511,7 @@ class NclSkinsStorageTest {
     @Test
     void serializesConcurrentAccountUpdatesWithoutLostWrites() throws Exception {
         NclSkinsStorage storage = storage();
-        LibraryService library = new LibraryService(storage, CLOCK);
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), CLOCK);
         UUID accountId = UUID.randomUUID();
         int updateCount = 16;
         var executor = Executors.newFixedThreadPool(6);

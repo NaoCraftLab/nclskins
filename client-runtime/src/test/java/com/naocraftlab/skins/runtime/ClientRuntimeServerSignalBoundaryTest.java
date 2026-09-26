@@ -564,7 +564,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                         account.accountId(), durable.intentRevision(), durable.syncStatus(),
                         durable.activePresetId(), localAppearance,
                         durable.outerLayerVisibility(), providers);
-                case "refreshProvidersWithObservation" -> new ClientOperations.ProviderRefresh(
+                case "refreshProvidersWithObservation" -> new ProviderOperations.ProviderRefresh(
                         new ClientOperations.DurableAppearance(account.accountId(), durable.intentRevision(),
                                 durable.syncStatus(), durable.activePresetId(), localAppearance,
                                 durable.outerLayerVisibility(), providers), confirmedMinecraft);
@@ -638,7 +638,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     : null);
         }
 
-        private ClientOperations.PresetUse selectPreset(UUID selectedPresetId) {
+        private LibraryEditorPort.PresetUse selectPreset(UUID selectedPresetId) {
             assertEquals(presetId, selectedPresetId);
             durable = new ClientOperations.DurableAppearance(
                     account.accountId(),
@@ -647,7 +647,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     Optional.of(presetId),
                     Optional.empty(),
                     Optional.empty(), providers);
-            return new ClientOperations.PresetUse(
+            return new LibraryEditorPort.PresetUse(
                     account,
                     session,
                     presetId,

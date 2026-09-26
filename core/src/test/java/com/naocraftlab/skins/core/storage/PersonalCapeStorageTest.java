@@ -135,7 +135,7 @@ class PersonalCapeStorageTest {
         padded.setRGB(127, 63, 0x00123456);
         assertEquals(first, storage.importCape(account, "Duplicate", png(padded)));
         assertTrue(first.texture().hasElytra());
-        var preset = new LibraryService(storage, java.time.Clock.systemUTC()).createPreset(
+        var preset = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), java.time.Clock.systemUTC()).createPreset(
                 account, "HD offline", SkinReference.accountDefault(), OuterLayerVisibility.allVisible(), null,
                 first.texture()).presets().get(0);
         Files.delete(input);
@@ -161,7 +161,7 @@ class PersonalCapeStorageTest {
         var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
         storage.initialize();
         storage.loadOrCreateAccount(account);
-        var library = new LibraryService(storage, java.time.Clock.systemUTC());
+        var library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), java.time.Clock.systemUTC());
         var entry = storage.importCape(account, "First", png());
         Path capeAsset = storage.capeAssetPath(account, entry.texture().sha256());
         var state = library.createPreset(account, "A", SkinReference.accountDefault(), OuterLayerVisibility.allVisible(), "owned", entry.texture());
@@ -195,7 +195,7 @@ class PersonalCapeStorageTest {
         var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
         storage.initialize();
         storage.loadOrCreateAccount(account);
-        var library = new LibraryService(storage, java.time.Clock.systemUTC());
+        var library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), java.time.Clock.systemUTC());
         var cape = storage.importCape(account, "Shared", png()).texture();
         var source = library.createPreset(
                 account, "Source", SkinReference.accountDefault(), OuterLayerVisibility.allVisible(), null, cape);
@@ -237,7 +237,7 @@ class PersonalCapeStorageTest {
         assertTrue(Files.isRegularFile(storage.capeAssetPath(account, unused.texture().sha256())));
 
         var used = storage.importCape(account, "Used", png());
-        var library = new LibraryService(storage, java.time.Clock.systemUTC());
+        var library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), java.time.Clock.systemUTC());
         library.createPreset(account, "Preset", SkinReference.accountDefault(),
                 OuterLayerVisibility.allVisible(), null, used.texture());
 
@@ -274,7 +274,7 @@ class PersonalCapeStorageTest {
     @Test void publishedSingleCapeReaderPreservesAvailableLocalCopyWithoutCreatingPersonalEntry() throws Exception {
         var storage = new NclSkinsStorage(root, new com.naocraftlab.skins.core.png.PngValidator(), java.time.Clock.systemUTC());
         storage.initialize(); storage.loadOrCreateAccount(account);
-        var library = new LibraryService(storage, java.time.Clock.systemUTC());
+        var library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), java.time.Clock.systemUTC());
         var saved = library.createPreset(account, "Published", SkinReference.accountDefault(), "owned");
         Path statePath = storage.layout().accountState(account);
         var published = com.google.gson.JsonParser.parseString(Files.readString(statePath)).getAsJsonObject();

@@ -348,7 +348,7 @@ final class ExternalImportAdaptersTest {
     void resolverConfirmsOwnedCapeAndBatchImportIsIdempotent(@TempDir Path root) throws Exception {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         NclSkinsStorage storage = new NclSkinsStorage(root.resolve("ncl"), new PngValidator(), clock);
-        LibraryService library = new LibraryService(storage, clock);
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), clock);
         byte[] png = skinPng(0xFF315B72);
         Path localUrlCache = Files.write(root.resolve("downloaded.png"), png);
         ExternalImportAdapter adapter = new ExternalImportAdapter() {
@@ -432,7 +432,7 @@ final class ExternalImportAdaptersTest {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         NclSkinsStorage storage = new NclSkinsStorage(
                 root.resolve("ncl"), new PngValidator(), clock);
-        LibraryService library = new LibraryService(storage, clock);
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), clock);
         byte[] catalogPng = skinPng(0xFF2468AC);
         byte[] curseForgePng = insertBeforeIend(
                 catalogPng, "tEXt", "Source\0CurseForge".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
@@ -490,7 +490,7 @@ final class ExternalImportAdaptersTest {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         NclSkinsStorage storage = new NclSkinsStorage(
                 root.resolve("ncl"), new PngValidator(), clock);
-        LibraryService library = new LibraryService(storage, clock);
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), clock);
         byte[] playerPng = legacySkinPng();
         byte[] quickPng = expandedLegacySkinPng(playerPng);
         assertNotEquals(
@@ -869,7 +869,7 @@ final class ExternalImportAdaptersTest {
     private static ExternalAppearanceImportService importService(
             NclSkinsStorage storage, LibraryService library, PublicSkinImportService publicImports,
             SkinCatalogSource sources, PngValidator validator, List<ExternalImportAdapter> adapters) {
-        var accounts = new LibraryCatalogAdapter(library, storage, () -> ACCOUNT_ID);
+        var accounts = new LibraryCatalogAdapter(library, new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), () -> ACCOUNT_ID);
         return new ExternalAppearanceImportService(
                 new ExternalImportSourceAdapter(publicImports, sources, validator, adapters),
                 new PreparedCatalogService(sources, accounts), new LibraryExternalImportAdapter(library, accounts));

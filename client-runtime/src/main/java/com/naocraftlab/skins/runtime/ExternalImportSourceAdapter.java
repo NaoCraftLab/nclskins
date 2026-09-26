@@ -154,12 +154,12 @@ final class ExternalImportSourceAdapter implements ExternalImportSourceAccess {
                 } catch (IOException | RuntimeException invalidCache) {
                 }
             }
-            ClientOperations.ImportDraft draft = publicImports.loadUrl(remote.url());
+            ImportOperations.ImportDraft draft = publicImports.loadUrl(remote.url());
             return normalized(
                     draft.pngBytes(), PersonalSkinSource.URL, Optional.of(draft.variant()));
         }
         if (locator instanceof SkinLocator.PublicPlayer player) {
-            ClientOperations.ImportDraft draft = publicImports.loadPlayer(player.nameOrUuid());
+            ImportOperations.ImportDraft draft = publicImports.loadPlayer(player.nameOrUuid());
             return normalized(
                     draft.pngBytes(), PersonalSkinSource.PLAYER_NAME, Optional.of(draft.variant()));
         }

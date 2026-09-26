@@ -316,7 +316,7 @@ class LibraryServiceTest {
     @Test
     void cleanLegacyReimportDoesNotReuseStoredRawBlobOrMutateOldPreset() throws Exception {
         NclSkinsStorage storage = storage();
-        LibraryService library = new LibraryService(storage, Clock.fixed(NOW, ZoneOffset.UTC));
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), Clock.fixed(NOW, ZoneOffset.UTC));
         PngValidator validator = new PngValidator();
         UUID accountId = UUID.randomUUID();
         byte[] rawLegacy = TestPng.create(64, 32);
@@ -710,7 +710,7 @@ class LibraryServiceTest {
 
     private LibraryService library() {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        return new LibraryService(storage(), clock);
+        return new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage()), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage()), clock);
     }
 
     private NclSkinsStorage storage() {

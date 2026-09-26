@@ -44,7 +44,7 @@ final class PublicSkinImportService {
         publicPlayers = new PublicPlayerSkinClient(Objects.requireNonNull(verifier, "verifier"));
     }
 
-    ClientOperations.ImportDraft loadPlayer(String playerNameOrUuid) throws Exception {
+    ImportOperations.ImportDraft loadPlayer(String playerNameOrUuid) throws Exception {
         PublicPlayerSkinClient players = publicPlayers;
         if (players == null) {
             throw new UnsupportedOperationException("Public player skin lookup is unavailable");
@@ -52,7 +52,7 @@ final class PublicSkinImportService {
         return loadResolvedPlayer(players.lookup(playerNameOrUuid));
     }
 
-    ClientOperations.ImportDraft loadResolvedPlayer(PublicPlayerSkinClient.Result result) throws Exception {
+    ImportOperations.ImportDraft loadResolvedPlayer(PublicPlayerSkinClient.Result result) throws Exception {
         Objects.requireNonNull(result, "result");
         NormalizedSkin skin;
         if (result.textureUri().isPresent()) {
@@ -75,7 +75,7 @@ final class PublicSkinImportService {
                 throw playerTextureFailure(failure);
             }
         }
-        return new ClientOperations.ImportDraft(
+        return new ImportOperations.ImportDraft(
                 result.canonicalName(), skin.detectedVariant(), skin.pngBytes(), PersonalSkinSource.PLAYER_NAME);
     }
 
@@ -97,7 +97,7 @@ final class PublicSkinImportService {
         return new PublicSkinImportException(code, "Public player skin texture was rejected.");
     }
 
-    ClientOperations.ImportDraft loadUrl(String url) throws Exception {
+    ImportOperations.ImportDraft loadUrl(String url) throws Exception {
         NormalizedSkin skin = remotePng.fetchSkin(url);
         String fallback = "Imported URL skin";
         String name = fallback;
@@ -113,7 +113,7 @@ final class PublicSkinImportService {
         } catch (IllegalArgumentException ignored) {
 
         }
-        return new ClientOperations.ImportDraft(
+        return new ImportOperations.ImportDraft(
                 name, skin.detectedVariant(), skin.pngBytes(), PersonalSkinSource.URL);
     }
 

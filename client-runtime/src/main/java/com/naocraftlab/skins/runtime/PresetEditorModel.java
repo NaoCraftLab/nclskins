@@ -693,7 +693,7 @@ public final class PresetEditorModel {
                 preview, selectedEditorTab, capeCatalog, selection);
     }
 
-    public ClientOperations.EditorSaveRequest saveRequest() {
+    public LibraryEditorPort.EditorSaveRequest saveRequest() {
         boolean reuseCatalogAsset = !reusableCatalogVariants.isEmpty();
         Optional<byte[]> bytesToPersist = reuseCatalogAsset
                 ? Optional.empty()
@@ -701,7 +701,7 @@ public final class PresetEditorModel {
         Optional<String> personalSkinName = bytesToPersist.isPresent() && catalogOrigin.isEmpty()
                 ? png.map(DraftPng::sourceName)
                 : Optional.empty();
-        return new ClientOperations.EditorSaveRequest(
+        return new LibraryEditorPort.EditorSaveRequest(
                 originalPresetId,
                 name,
                 skin,

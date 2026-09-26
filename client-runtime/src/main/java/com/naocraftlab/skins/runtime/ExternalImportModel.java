@@ -72,7 +72,7 @@ public record ExternalImportModel(
         return sources.get(source).manualRoot();
     }
 
-    public ExternalImportModel withReview(ClientOperations.ExternalImportReview value) {
+    public ExternalImportModel withReview(ImportOperations.ExternalImportReview value) {
         Objects.requireNonNull(value, "value");
         requireSource(value.source());
         return new ExternalImportModel(
@@ -103,7 +103,7 @@ public record ExternalImportModel(
         return withChangedReview(review.orElseThrow().withScrollOffset(scrollOffset));
     }
 
-    public Optional<ClientOperations.ExternalImportCandidate> candidate(String candidateId) {
+    public Optional<ImportOperations.ExternalImportCandidate> candidate(String candidateId) {
         return review.flatMap(value -> value.review().candidates().stream()
                 .filter(candidate -> candidate.id().equals(candidateId))
                 .findFirst());
@@ -216,7 +216,7 @@ public record ExternalImportModel(
     }
 
     public record ReviewState(
-            ClientOperations.ExternalImportReview review,
+            ImportOperations.ExternalImportReview review,
             Set<String> selectedIds,
             Set<Boolean> collapsedCollections,
             int scrollOffset) {
@@ -229,17 +229,17 @@ public record ExternalImportModel(
                 throw new IllegalArgumentException("review scroll offset must not be negative");
             }
             Set<String> candidateIds = review.candidates().stream()
-                    .map(ClientOperations.ExternalImportCandidate::id)
+                    .map(ImportOperations.ExternalImportCandidate::id)
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
             if (!candidateIds.containsAll(selectedIds)) {
                 throw new IllegalArgumentException("review selects an unknown candidate");
             }
         }
 
-        public static ReviewState open(ClientOperations.ExternalImportReview review) {
+        public static ReviewState open(ImportOperations.ExternalImportReview review) {
             Set<String> selected = review.candidates().stream()
                     .filter(candidate -> !candidate.duplicate())
-                    .map(ClientOperations.ExternalImportCandidate::id)
+                    .map(ImportOperations.ExternalImportCandidate::id)
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
             return new ReviewState(review, selected, Set.of(), 0);
         }
@@ -261,7 +261,7 @@ public record ExternalImportModel(
                 return new ReviewState(review, Set.of(), collapsedCollections, scrollOffset);
             }
             Set<String> all = review.candidates().stream()
-                    .map(ClientOperations.ExternalImportCandidate::id)
+                    .map(ImportOperations.ExternalImportCandidate::id)
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
             return new ReviewState(review, all, collapsedCollections, scrollOffset);
         }
@@ -302,15 +302,15 @@ public record ExternalImportModel(
                     review, selectedIds, collapsedCollections, Math.max(0, value));
         }
 
-        public List<ClientOperations.ExternalImportCandidate> candidates(boolean duplicates) {
+        public List<ImportOperations.ExternalImportCandidate> candidates(boolean duplicates) {
             return review.candidates().stream()
                     .filter(candidate -> candidate.duplicate() == duplicates)
                     .toList();
         }
 
-        public List<ClientOperations.ExternalImportCandidate> selectedCandidates() {
-            List<ClientOperations.ExternalImportCandidate> selected = new ArrayList<>();
-            for (ClientOperations.ExternalImportCandidate candidate : review.candidates()) {
+        public List<ImportOperations.ExternalImportCandidate> selectedCandidates() {
+            List<ImportOperations.ExternalImportCandidate> selected = new ArrayList<>();
+            for (ImportOperations.ExternalImportCandidate candidate : review.candidates()) {
                 if (selectedIds.contains(candidate.id())) {
                     selected.add(candidate);
                 }

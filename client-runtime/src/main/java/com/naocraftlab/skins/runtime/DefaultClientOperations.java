@@ -93,6 +93,7 @@ public final class DefaultClientOperations implements ClientOperations {
     private final GameSessionTokenSource tokenSource;
     private final ProfileApi profileApi;
     private final NclSkinsStorage storage;
+    private final UiPreferencesStorageAdapter uiPreferences;
     private final SkinCatalogSource bundledSkins;
     private final Clock clock;
     private final LibraryService library;
@@ -143,15 +144,18 @@ public final class DefaultClientOperations implements ClientOperations {
         this.tokenSource = Objects.requireNonNull(tokenSource, "tokenSource");
         this.profileApi = Objects.requireNonNull(profileApi, "profileApi");
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.uiPreferences = new UiPreferencesStorageAdapter(storage,
+                () -> resolveAccountId(pinCurrentSession().identity()));
         this.bundledSkins = Objects.requireNonNull(bundledSkins, "bundledSkins");
         this.officialSkinClassifier = new OfficialSkinClassifier(bundledSkins);
         this.clock = Objects.requireNonNull(clock, "clock");
-        this.library = new LibraryService(storage, clock);
+        var libraryStorage = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
+        this.library = new LibraryService(libraryStorage, libraryStorage, clock);
         this.sessionGate = new RemoteSessionGate();
         this.sessions = new SessionValidationService(profileApi, sessionGate);
         this.mutations = new AppearanceMutationService(profileApi, storage, sessionGate, sessions);
         this.textures = new TextureCache(storage);
-        CatalogAccountAccess catalogAccounts = new LibraryCatalogAdapter(library, storage,
+        CatalogAccountAccess catalogAccounts = new LibraryCatalogAdapter(library, libraryStorage, libraryStorage,
                 () -> resolveAccountId(pinCurrentSession().identity()));
         this.preparedCatalog = new PreparedCatalogService(bundledSkins, catalogAccounts);
         this.publicImports = new PublicSkinImportService(this.textures, this::loadCatalogSkin);
@@ -544,7 +548,7 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public Map<ClientOperations.CatalogVariant, SkinFeatureEvidence> catalogFeatureEvidence() {
+    public Map<CatalogRead.CatalogVariant, SkinFeatureEvidence> catalogFeatureEvidence() {
         return preparedCatalog.catalogFeatureEvidence();
     }
 
@@ -588,56 +592,47 @@ public final class DefaultClientOperations implements ClientOperations {
 
     @Override
     public Optional<AccountUiPreferences> loadUiPreferences() throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        return Optional.of(storage.loadUiPreferences(accountId).preferences());
+        return uiPreferences.loadUiPreferences();
     }
 
     @Override
     public void setSelectedProvidersTab(UUID accountId, AppearanceProviders.Component tab) throws IOException {
-        storage.setSelectedProvidersTab(accountId, tab);
+        uiPreferences.setSelectedProvidersTab(accountId, tab);
     }
 
     @Override
     public void setSelectedAddSourceTab(UUID accountId, AddSourceTab tab) throws IOException {
-        storage.setSelectedAddSourceTab(accountId, tab);
+        uiPreferences.setSelectedAddSourceTab(accountId, tab);
     }
 
     @Override
     public void setSelectedAddSourceTab(AddSourceTab tab) throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        storage.setSelectedAddSourceTab(accountId, Objects.requireNonNull(tab, "tab"));
+        uiPreferences.setSelectedAddSourceTab(tab);
     }
 
     @Override
     public void setCollapsedCapeCollections(UUID accountId, Set<String> values) throws IOException {
-        storage.setCollapsedCapeCollections(accountId, values);
+        uiPreferences.setCollapsedCapeCollections(accountId, values);
     }
 
     @Override
     public void setSelectedEditorTab(UUID accountId, EditorTab tab) throws IOException {
-        storage.setSelectedEditorTab(
-                Objects.requireNonNull(accountId, "accountId"),
-                Objects.requireNonNull(tab, "tab"));
+        uiPreferences.setSelectedEditorTab(accountId, tab);
     }
 
     @Override
     public void setCollectionCollapsed(String collectionId, boolean collapsed) throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        storage.setCollectionCollapsed(
-                accountId, Objects.requireNonNull(collectionId, "collectionId"), collapsed);
+        uiPreferences.setCollectionCollapsed(collectionId, collapsed);
     }
 
     @Override
     public void replaceCollapsedCollectionIds(Set<String> collectionIds) throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        storage.replaceCollapsedCollectionIds(
-                accountId, Objects.requireNonNull(collectionIds, "collectionIds"));
+        uiPreferences.replaceCollapsedCollectionIds(collectionIds);
     }
 
     @Override
     public void setPreferredSkinVariant(SkinVariant variant) throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        storage.setPreferredSkinVariant(accountId, Objects.requireNonNull(variant, "variant"));
+        uiPreferences.setPreferredSkinVariant(variant);
     }
 
     @Override
@@ -883,7 +878,7 @@ public final class DefaultClientOperations implements ClientOperations {
         }
         requireCapeAccount(accountId);
         String name = UntrustedDisplayName.fromFileName(fileName, fallbackName);
-        var entry = storage.importCape(accountId, name, bytes);
+        var entry = library.importCape(accountId, name, bytes);
         return entry;
     }
 
@@ -941,7 +936,7 @@ public final class DefaultClientOperations implements ClientOperations {
     public Optional<AccountState> discardCapeIfUnreferenced(UUID accountId, UUID entryId)
             throws IOException {
         requireCapeAccount(accountId);
-        return Optional.of(observeLocal(storage.discardCapeIfUnreferenced(accountId, entryId)));
+        return Optional.of(observeLocal(library.discardCapeIfUnreferenced(accountId, entryId)));
     }
 
     private void requireCapeAccount(UUID accountId) throws IOException {
@@ -951,25 +946,25 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public AccountState renameCape(UUID accountId, UUID entryId, String name) throws IOException {
         requireCapeAccount(accountId);
-        return observeLocal(storage.renameCape(accountId, entryId, name));
+        return observeLocal(library.renameCape(accountId, entryId, name));
     }
 
     @Override
     public CapeDeletion deleteCape(UUID accountId, UUID entryId) throws IOException, PngValidationException {
         requireCapeAccount(accountId);
-        storage.deleteCape(accountId, entryId);
+        library.deleteCape(accountId, entryId);
         return new CapeDeletion(observeLocal(library.load(accountId)), reloadProviders());
     }
 
     @Override
     public AccountState renameCape(UUID entryId, String name) throws IOException {
-        return observeLocal(storage.renameCape(resolveAccountId(pinCurrentSession().identity()), entryId, name));
+        return observeLocal(library.renameCape(resolveAccountId(pinCurrentSession().identity()), entryId, name));
     }
 
     @Override
     public CapeDeletion deleteCape(UUID entryId) throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        storage.deleteCape(accountId, entryId);
+        library.deleteCape(accountId, entryId);
         return new CapeDeletion(observeLocal(library.load(accountId)), reloadProviders());
     }
 
@@ -1118,10 +1113,10 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public Optional<byte[]> loadProviderTexture(ViewSpec.ProviderTexture texture) throws IOException, PngValidationException {
-        Objects.requireNonNull(texture, "texture");
-        return texture.skin() ? Optional.of(storage.readAsset(texture.cacheKey()))
-                : textures.readIfCached(texture.cacheKey());
+    public Optional<byte[]> loadProviderTexture(String cacheKey, boolean skin) throws IOException, PngValidationException {
+        Objects.requireNonNull(cacheKey, "cacheKey");
+        return skin ? Optional.of(storage.readAsset(cacheKey))
+                : textures.readIfCached(cacheKey);
     }
 
     @Override

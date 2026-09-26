@@ -159,7 +159,7 @@ class CatalogOriginPersistenceTest {
     }
 
     private LibraryService library() {
-        return new LibraryService(storage(), CLOCK);
+        return new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage()), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage()), CLOCK);
     }
 
     private NclSkinsStorage storage() {

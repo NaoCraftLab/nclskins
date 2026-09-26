@@ -149,8 +149,8 @@ public final class ExternalImportPresenter {
             int height,
             SkinExtensionEnvironment environment) {
         ExternalImportModel.ReviewState review = model.review().orElseThrow();
-        List<ClientOperations.ExternalImportCandidate> fresh = review.candidates(false);
-        List<ClientOperations.ExternalImportCandidate> duplicates = review.candidates(true);
+        List<ImportOperations.ExternalImportCandidate> fresh = review.candidates(false);
+        List<ImportOperations.ExternalImportCandidate> duplicates = review.candidates(true);
         List<CollectionGridLayout.Section> sections = new ArrayList<>();
         if (!fresh.isEmpty()) {
             sections.add(new CollectionGridLayout.Section(
@@ -259,8 +259,8 @@ public final class ExternalImportPresenter {
         Objects.requireNonNull(model, "model");
         ExternalImportModel.ReviewState review = model.review().orElseThrow();
         List<CollectionGridLayout.Section> sections = new ArrayList<>();
-        List<ClientOperations.ExternalImportCandidate> fresh = review.candidates(false);
-        List<ClientOperations.ExternalImportCandidate> duplicates = review.candidates(true);
+        List<ImportOperations.ExternalImportCandidate> fresh = review.candidates(false);
+        List<ImportOperations.ExternalImportCandidate> duplicates = review.candidates(true);
         if (!fresh.isEmpty()) {
             sections.add(new CollectionGridLayout.Section(
                     fresh.size(), review.collectionCollapsed(false)));
@@ -296,7 +296,7 @@ public final class ExternalImportPresenter {
 
     private static void addSection(
             boolean duplicateSection,
-            List<ClientOperations.ExternalImportCandidate> candidates,
+            List<ImportOperations.ExternalImportCandidate> candidates,
             ExternalImportModel.ReviewState review,
             CollectionGridLayout.Layout layout,
             boolean busy,
@@ -328,7 +328,7 @@ public final class ExternalImportPresenter {
         headerPresentation.widget().ifPresent(widgets::add);
         if (section.section().collapsed()) return;
         for (int index = 0; index < candidates.size(); index++) {
-            ClientOperations.ExternalImportCandidate candidate = candidates.get(index);
+            ImportOperations.ExternalImportCandidate candidate = candidates.get(index);
             Bounds card = section.card(index, layout.cardStartX(), contentTop, layout.cardWidth());
             String id = "external.review.card:" + candidate.id();
             navigationNodes.add(AppearanceCollections.navigation(

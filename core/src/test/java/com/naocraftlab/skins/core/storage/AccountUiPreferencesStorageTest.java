@@ -290,7 +290,7 @@ class AccountUiPreferencesStorageTest {
         Files.writeString(path, "{broken", StandardCharsets.UTF_8);
 
         AccountUiPreferencesResult recovered = storage.loadUiPreferences(accountId);
-        LibraryService library = new LibraryService(storage, CLOCK);
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), CLOCK);
         library.createPreset(accountId, "Still works", SkinReference.accountDefault(), null);
 
         assertEquals(AccountUiPreferences.defaults(accountId), recovered.preferences());

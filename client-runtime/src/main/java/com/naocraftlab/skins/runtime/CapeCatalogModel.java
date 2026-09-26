@@ -73,18 +73,18 @@ public record CapeCatalogModel(
             LocalCapeReference offline, Optional<String> minecraft,
             List<PresetEditorModel.CapeChoice> owned,
             List<CapeCatalogSource.CollectionDescriptor> resourceCollections,
-            Map<ClientOperations.ResourceCapeKey, String> sourceHashes,
+            Map<CatalogRead.ResourceCapeKey, String> sourceHashes,
             long resourceGeneration,
             TextResolver text) {
         Objects.requireNonNull(account, "account");
         Objects.requireNonNull(resourceCollections, "resourceCollections");
         Objects.requireNonNull(sourceHashes, "sourceHashes");
         List<Card> cards = new ArrayList<>();
-        Map<String, ClientOperations.ResourceCapeSelection> firstResourceByIdentity =
+        Map<String, CatalogRead.ResourceCapeSelection> firstResourceByIdentity =
                 new LinkedHashMap<>();
         for (CapeCatalogSource.CollectionDescriptor collection : resourceCollections) {
             for (CapeCatalogSource.CapeDescriptor cape : collection.capes()) {
-                String sourceHash = sourceHashes.get(new ClientOperations.ResourceCapeKey(
+                String sourceHash = sourceHashes.get(new CatalogRead.ResourceCapeKey(
                         collection.id(), cape.id()));
                 if (sourceHash == null) {
                     continue;
@@ -92,7 +92,7 @@ public record CapeCatalogModel(
                 String displayName = resolved(text, cape.nameText());
                 firstResourceByIdentity.putIfAbsent(
                         cape.contentIdentity(),
-                        new ClientOperations.ResourceCapeSelection(
+                        new CatalogRead.ResourceCapeSelection(
                                 collection.id(), cape.id(), displayName,
                                 cape.contentIdentity(), sourceHash, resourceGeneration,
                                 cape.renderSupport()
@@ -115,15 +115,15 @@ public record CapeCatalogModel(
             Optional<String> collectionInfo = metadata(
                     text, collection.descriptionText(), collection.authorsText());
             for (CapeCatalogSource.CapeDescriptor cape : collection.capes()) {
-                ClientOperations.ResourceCapeKey key = new ClientOperations.ResourceCapeKey(
+                CatalogRead.ResourceCapeKey key = new CatalogRead.ResourceCapeKey(
                         collection.id(), cape.id());
                 String sourceHash = sourceHashes.get(key);
                 if (sourceHash == null) {
                     continue;
                 }
                 String displayName = resolved(text, cape.nameText());
-                ClientOperations.ResourceCapeSelection resource =
-                        new ClientOperations.ResourceCapeSelection(
+                CatalogRead.ResourceCapeSelection resource =
+                        new CatalogRead.ResourceCapeSelection(
                                 collection.id(), cape.id(), displayName,
                                 cape.contentIdentity(), sourceHash, resourceGeneration,
                                 cape.renderSupport()
@@ -149,7 +149,7 @@ public record CapeCatalogModel(
                     .map(com.naocraftlab.skins.core.model.PersonalCapeEntry::renderSha256)
                     .findFirst()
                     .orElse(null);
-            ClientOperations.ResourceCapeSelection owner = firstResourceByIdentity.get(selectedIdentity);
+            CatalogRead.ResourceCapeSelection owner = firstResourceByIdentity.get(selectedIdentity);
             if (owner != null) {
                 remapped = cards.stream().filter(card -> owner.equals(card.resource()))
                         .findFirst().orElse(null);
@@ -445,7 +445,7 @@ public record CapeCatalogModel(
         if (inspected != null) {
             return !Boolean.FALSE.equals(inspected.hasElytra());
         }
-        Optional<ClientOperations.ResourceCapeSelection> selectedResource = selectedResource();
+        Optional<CatalogRead.ResourceCapeSelection> selectedResource = selectedResource();
         if (selectedResource.isPresent()) {
             return selectedResource.orElseThrow().hasElytra();
         }
@@ -488,7 +488,7 @@ public record CapeCatalogModel(
                 : minecraft.map(card.key()::equals).orElse(card.key().equals("none")));
     }
 
-    public Optional<ClientOperations.ResourceCapeSelection> selectedResource() {
+    public Optional<CatalogRead.ResourceCapeSelection> selectedResource() {
         if (offline == null || offline.entryId() != null) {
             return Optional.empty();
         }
@@ -498,7 +498,7 @@ public record CapeCatalogModel(
     }
 
     private Optional<Card> selectedResourceCard() {
-        Optional<ClientOperations.ResourceCapeSelection> selected = selectedResource();
+        Optional<CatalogRead.ResourceCapeSelection> selected = selectedResource();
         return selected.flatMap(resource -> cards.stream()
                 .filter(card -> resource.equals(card.resource())).findFirst());
     }
@@ -536,7 +536,7 @@ public record CapeCatalogModel(
             String key, BuiltinProvider provider, String collectionId,
             UiMessage collectionLabel, Optional<String> collectionInfo, UiMessage label,
             String name, Optional<String> info, LocalCapeReference local,
-            ClientOperations.ResourceCapeSelection resource, Boolean hasElytra,
+            CatalogRead.ResourceCapeSelection resource, Boolean hasElytra,
             boolean importCard) {
         public Card {
             Objects.requireNonNull(key, "key");
@@ -573,7 +573,7 @@ public record CapeCatalogModel(
 
         static Card resource(String key, String collectionId, String collectionName,
                 Optional<String> collectionInfo, String name, Optional<String> info,
-                ClientOperations.ResourceCapeSelection resource) {
+                CatalogRead.ResourceCapeSelection resource) {
             return new Card(key, BuiltinProvider.OFFLINE, collectionId,
                     UiMessage.literal(collectionName, UiMessage.Severity.INFO), collectionInfo,
                     UiMessage.literal(name, UiMessage.Severity.INFO), name, info, null, resource,

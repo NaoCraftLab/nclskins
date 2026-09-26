@@ -274,6 +274,30 @@ final class ClientRuntimeRegressionTest {
     }
 
     @Test
+    void editorSavePublishesAccountAndGallerySelectionTogetherAndCanReopenSavedDraft() {
+        StubOperations operations = new StubOperations();
+        ClientRuntime runtime = runtime(operations);
+        runtime.initialize();
+        UUID presetId = operations.account.presets().get(1).id();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        assertEquals(Optional.of(presetId), runtime.snapshot().selectedPresetId());
+        runtime.dispatchText("editor.name", "Saved through flow boundary");
+
+        runtime.dispatchWidget("editor.save");
+
+        ClientSnapshot saved = runtime.snapshot();
+        assertFalse(saved.busy());
+        assertTrue(saved.editor().isEmpty());
+        assertTrue(saved.addSource().isEmpty());
+        assertEquals(Optional.of(presetId), saved.selectedPresetId());
+        assertEquals("Saved through flow boundary", saved.account().orElseThrow().presets().stream()
+                .filter(preset -> preset.id().equals(presetId)).findFirst().orElseThrow().name());
+        assertEquals("gallery", runtime.view(854, 480, 0, 0).screenId());
+        runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        assertEquals("Saved through flow boundary", runtime.snapshot().editor().orElseThrow().name());
+    }
+
+    @Test
     void failedEditorSaveReleasesBusyPreservesDraftAndCanStillBeCancelled() {
         StubOperations operations = new StubOperations();
         operations.failEditorSave = true;

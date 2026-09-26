@@ -110,7 +110,7 @@ final class DefaultClientOperationsTest {
         assertEquals(1, api.profileGets.get());
         assertEquals(1, tokenRequests.get());
         var initial = operations.initialize();
-        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        var saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Local", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
         for (boolean pending : List.of(false, true)) {
@@ -209,7 +209,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
         var initial = operations.initialize();
-        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        var saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Pending", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
         operations.usePreset(saved.presetId());
@@ -241,7 +241,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Offline skin", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
         operations.usePreset(saved.presetId());
@@ -274,10 +274,10 @@ final class DefaultClientOperationsTest {
         Files.write(cache.cachePath(capeUri), png);
         operations.refreshProviders(AppearanceProviders.Component.CAPE);
         var custom = shared.importCape(TestFixtures.ACCOUNT_ID, "Personal", customCapePng());
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Cape choice", SkinReference.accountDefault(), SkinVariant.CLASSIC,
                 SkinVariant.CLASSIC, Optional.of("cape-owned"), Optional.empty()).withOfflineCape(custom.texture()));
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         String key = custom.texture().sha256();
         assertEquals(Optional.of(key), selected.localAppearance().orElseThrow().localCapeCacheKey());
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(), List.of(), Set.of());
@@ -291,7 +291,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, storage(), ignored -> png.clone(), fixedClock());
         assertEquals(Optional.of(key), reopened.initialize().localAppearance().orElseThrow().localCapeCacheKey());
         assertTrue(cache.readIfCached(key).isPresent());
-        ClientOperations.PresetUse selectedAgain = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selectedAgain = operations.usePreset(saved.presetId());
         assertEquals(Optional.of(key), selectedAgain.localAppearance().orElseThrow().localCapeCacheKey());
         assertNull(shared.loadAppearance(TestFixtures.ACCOUNT_ID).capeId());
         assertEquals(key, shared.loadAppearance(TestFixtures.ACCOUNT_ID).providers().cape().offline().value().textureCacheKey());
@@ -347,7 +347,7 @@ final class DefaultClientOperationsTest {
                 countingTokens, api, storage, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         operations.refreshProviders(AppearanceProviders.Component.CAPE);
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Settled",
                 SkinReference.accountDefault(),
@@ -367,7 +367,7 @@ final class DefaultClientOperationsTest {
         int capeActivationsBeforeSave = api.capeActivations.get();
         var localCape = storage.importCape(TestFixtures.ACCOUNT_ID, "Offline", customCapePng()).texture();
 
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Settled renamed",
                 SkinReference.accountDefault(),
@@ -409,12 +409,12 @@ final class DefaultClientOperationsTest {
                 countingTokens(tokens), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference reference = SkinReference.asset(initial.account().skinAssets().get(0).id());
-        ClientOperations.EditorSave first = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave first = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "First", reference, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-owned"), Optional.empty()));
         operations.applyPreset(first.presetId());
         var offlineCape = shared.importCape(TestFixtures.ACCOUNT_ID, "Offline", customCapePng()).texture();
-        ClientOperations.EditorSave second = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave second = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Second", reference, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-owned"), OuterLayerVisibility.noneVisible(),
                 Optional.empty(), Optional.empty(), Optional.empty()).withOfflineCape(offlineCape));
@@ -461,8 +461,8 @@ final class DefaultClientOperationsTest {
         restarted.applyPreset(second.presetId());
         assertEquals(getsBeforeActivationApply + 1, api.profileGets.get());
 
-        ClientOperations.PresetUse stale = restarted.usePreset(second.presetId());
-        ClientOperations.PresetUse latest = restarted.usePreset(second.presetId());
+        LibraryEditorPort.PresetUse stale = restarted.usePreset(second.presetId());
+        LibraryEditorPort.PresetUse latest = restarted.usePreset(second.presetId());
         assertEquals(AppearanceSyncStatus.OFFICIAL, latest.syncStatus());
         ClientOperations.ReconciliationKey staleKey = new ClientOperations.ReconciliationKey(
                 TestFixtures.ACCOUNT_ID, stale.intentRevision(),
@@ -486,11 +486,11 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference firstSkin = SkinReference.asset(initial.account().skinAssets().get(0).id());
-        var changed = new LibraryService(shared, fixedClock()).importSkin(
+        var changed = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), fixedClock()).importSkin(
                 TestFixtures.ACCOUNT_ID, "Changed", SkinVariant.CLASSIC,
                 SkinSource.IMPORTED, skinPng(0xFF785A37));
         SkinReference secondSkin = SkinReference.asset(changed.asset().id());
-        ClientOperations.EditorSave first = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave first = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "First", firstSkin, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-owned"), Optional.empty()));
         operations.applyPreset(first.presetId());
@@ -498,7 +498,7 @@ final class DefaultClientOperationsTest {
         int previousGets = api.profileGets.get();
         int previousUploads = api.skinUploads.get();
         int previousCapeActivations = api.capeActivations.get();
-        ClientOperations.EditorSave second = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave second = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Second", secondSkin, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-owned"), Optional.empty()));
 
@@ -523,14 +523,14 @@ final class DefaultClientOperationsTest {
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference reference = SkinReference.asset(initial.account().skinAssets().get(0).id());
-        ClientOperations.EditorSave first = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave first = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Classic", reference, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-owned"), Optional.empty()));
         operations.applyPreset(first.presetId());
         ProviderDelivery confirmedCape = operations.loadProviders().cape().minecraftDelivery();
         int uploads = api.skinUploads.get();
         int activations = api.capeActivations.get();
-        ClientOperations.EditorSave second = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave second = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Slim", reference, SkinVariant.SLIM, SkinVariant.SLIM,
                 Optional.of("cape-owned"), Optional.empty()));
 
@@ -555,14 +555,14 @@ final class DefaultClientOperationsTest {
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference reference = SkinReference.asset(initial.account().skinAssets().get(0).id());
-        ClientOperations.EditorSave first = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave first = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "First", reference, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-first"), Optional.empty()));
         operations.applyPreset(first.presetId());
         ProviderDelivery confirmedSkin = operations.loadProviders().skin().minecraftDelivery();
         int uploads = api.skinUploads.get();
         int activations = api.capeActivations.get();
-        ClientOperations.EditorSave second = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave second = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Second", reference, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-second"), Optional.empty()));
 
@@ -627,7 +627,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Partial", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.of("cape-owned"), Optional.empty()));
         operations.usePreset(saved.presetId());
@@ -661,7 +661,7 @@ final class DefaultClientOperationsTest {
     void settledActiveNoOpSavePreservesDeliveriesAndSkipsCheckpoint() throws Exception {
         SettledActiveFixture fixture = settledActiveFixture();
 
-        assertSettledLocalOnlySave(fixture, new ClientOperations.EditorSaveRequest(
+        assertSettledLocalOnlySave(fixture, new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(fixture.presetId()),
                 "Settled",
                 SkinReference.accountDefault(),
@@ -675,7 +675,7 @@ final class DefaultClientOperationsTest {
     void settledActiveNameOnlySavePreservesDeliveriesAndSkipsCheckpoint() throws Exception {
         SettledActiveFixture fixture = settledActiveFixture();
 
-        assertSettledLocalOnlySave(fixture, new ClientOperations.EditorSaveRequest(
+        assertSettledLocalOnlySave(fixture, new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(fixture.presetId()),
                 "Settled renamed",
                 SkinReference.accountDefault(),
@@ -689,7 +689,7 @@ final class DefaultClientOperationsTest {
     void settledActiveLayersOnlySavePreservesDeliveriesAndSkipsCheckpoint() throws Exception {
         SettledActiveFixture fixture = settledActiveFixture();
 
-        assertSettledLocalOnlySave(fixture, new ClientOperations.EditorSaveRequest(
+        assertSettledLocalOnlySave(fixture, new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(fixture.presetId()),
                 "Settled",
                 SkinReference.accountDefault(),
@@ -708,8 +708,8 @@ final class DefaultClientOperationsTest {
         var offlineCape = fixture.storage().importCape(
                 TestFixtures.ACCOUNT_ID, "Offline", customCapePng()).texture();
 
-        ClientOperations.EditorSave edited = fixture.operations().saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = fixture.operations().saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.of(fixture.presetId()),
                         "Settled",
                         SkinReference.accountDefault(),
@@ -739,7 +739,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Account default",
                 SkinReference.accountDefault(),
@@ -754,7 +754,7 @@ final class DefaultClientOperationsTest {
                 .appearance();
         var capeDelivery = settled.providers().cape().minecraftDelivery();
 
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Skin changed",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -784,7 +784,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Skin preset",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -809,7 +809,7 @@ final class DefaultClientOperationsTest {
                 List.of(),
                 Set.of());
 
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Skin preset reset",
                 SkinReference.accountDefault(),
@@ -842,7 +842,7 @@ final class DefaultClientOperationsTest {
         operations.initialize();
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Disabled cape",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -869,7 +869,7 @@ final class DefaultClientOperationsTest {
         int profileGets = api.profileGets.get();
         int skinUploads = api.skinUploads.get();
 
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Disabled cape changed",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -906,7 +906,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Cape preset",
                 SkinReference.accountDefault(),
@@ -919,7 +919,7 @@ final class DefaultClientOperationsTest {
                 .orElseThrow();
         int skinUploadsBeforeReset = api.skinUploads.get();
 
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Cape preset cleared",
                 SkinReference.accountDefault(),
@@ -957,7 +957,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Both A",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -971,7 +971,7 @@ final class DefaultClientOperationsTest {
         int uploadsBeforeEdit = api.skinUploads.get();
         int activationsBeforeEdit = api.capeActivations.get();
 
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Both B",
                 SkinReference.asset(initial.account().skinAssets().get(1).id()),
@@ -1006,7 +1006,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Confirmed cape",
                 SkinReference.accountDefault(),
@@ -1030,7 +1030,7 @@ final class DefaultClientOperationsTest {
         int capeActivationsBeforeEdit = api.capeActivations.get();
         int capeDeactivationsBeforeEdit = api.capeDeactivations.get();
 
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Skin changed",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -1058,7 +1058,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
         SkinAsset selectedSkin = initial.account().skinAssets().get(0);
-        ClientOperations.EditorSave saved = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Missing skin asset later",
                 SkinReference.asset(selectedSkin.id()),
@@ -1090,7 +1090,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         second.initialize();
         second.refreshProviders(AppearanceProviders.Component.CAPE);
-        ClientOperations.EditorSave edited = second.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = second.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Cape only",
                 SkinReference.asset(selectedSkin.id()),
@@ -1120,10 +1120,10 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData initial = operations.initialize();
         operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Offline choice", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         ClientOperations.DurableAppearance offline = operations.reconcileAppearance(
                 ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow().appearance();
         assertEquals(0, api.profileGets.get());
@@ -1174,7 +1174,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations onlineBeforeOffline = new DefaultClientOperations(
                 tokens(), onlineApi, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = onlineBeforeOffline.initialize();
-        ClientOperations.EditorSave confirmedA = onlineBeforeOffline.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave confirmedA = onlineBeforeOffline.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Online A",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -1182,14 +1182,14 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.PresetUse appliedA = onlineBeforeOffline.usePreset(confirmedA.presetId());
+        LibraryEditorPort.PresetUse appliedA = onlineBeforeOffline.usePreset(confirmedA.presetId());
         ClientOperations.ReconciliationResult confirmed = onlineBeforeOffline
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, confirmed.appearance().syncStatus());
         var observedA = confirmed.appearance().providers().skin().minecraft();
 
-        var importedB = new LibraryService(shared, fixedClock()).importSkin(
+        var importedB = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), fixedClock()).importSkin(
                 TestFixtures.ACCOUNT_ID, "Offline B", SkinVariant.SLIM, SkinSource.IMPORTED, nextSkin);
         AtomicInteger offlineTokenRequests = new AtomicInteger();
         GameSessionTokenSource offlineTokens = new GameSessionTokenSource() {
@@ -1207,7 +1207,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations offline = new DefaultClientOperations(
                 offlineTokens, onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
         offline.initialize();
-        ClientOperations.EditorSave saved = offline.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = offline.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Offline choice",
                 SkinReference.asset(importedB.asset().id()),
@@ -1216,7 +1216,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
 
-        ClientOperations.PresetUse selected = offline.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = offline.usePreset(saved.presetId());
         assertTrue(selected.remoteResult().isEmpty());
         assertTrue(selected.pendingOfficialSync());
         assertEquals(AppearanceSyncStatus.PENDING, selected.syncStatus());
@@ -1277,8 +1277,8 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData initial = operations.initialize();
         Files.createDirectory(storage.layout().accountAppearance(TestFixtures.ACCOUNT_ID));
 
-        ClientOperations.EditorSave saved = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Duplicate draft",
                         SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -1292,7 +1292,7 @@ final class DefaultClientOperationsTest {
         assertEquals(saved.presetId(), saved.account().presets().get(0).id());
         assertEquals(
                 saved.account().presets(),
-                new LibraryService(storage, fixedClock())
+                new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), fixedClock())
                         .load(TestFixtures.ACCOUNT_ID)
                         .presets());
     }
@@ -1307,7 +1307,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations first = new DefaultClientOperations(
                 tokens(accountId, "OriginalName"), firstApi, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
-        ClientOperations.EditorSave saved = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Exact UUID preset",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -1346,7 +1346,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations first = new DefaultClientOperations(
                 tokens(firstId, "SameName"), unavailable, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
-        ClientOperations.EditorSave saved = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Only first UUID",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -1387,7 +1387,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens, api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Same UUID",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -1419,7 +1419,7 @@ final class DefaultClientOperationsTest {
                 tokens(), readerApi, storage(), ignored -> skin.clone(), fixedClock());
         reader.initialize();
         ClientOperations.InitialData writerInitial = writer.initialize();
-        ClientOperations.EditorSave saved = writer.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = writer.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Shared selection",
                 SkinReference.asset(writerInitial.account().skinAssets().get(0).id()),
@@ -1456,7 +1456,7 @@ final class DefaultClientOperationsTest {
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
                 .orElseThrow();
         UUID officialPreset = initial.appearance().activePresetId().orElseThrow();
-        ClientOperations.EditorSave pendingB = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave pendingB = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Pending B",
                 SkinReference.asset(initial.account().skinAssets().get(1).id()),
@@ -1464,7 +1464,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.SLIM,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(pendingB.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(pendingB.presetId());
         assertNotEquals(officialPreset, selected.activePresetId());
         assertEquals(0, api.skinUploads.get());
         int profileGetsBeforeRefresh = api.profileGets.get();
@@ -1521,7 +1521,7 @@ final class DefaultClientOperationsTest {
                 new PngValidator().normalizeSkin(classic),
                 operations.loadSkinPreview(initial.account().skinAssets().get(0).id()));
 
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Local",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -1598,7 +1598,7 @@ final class DefaultClientOperationsTest {
                 MinecraftSkinCatalog.SOURCE_ID,
                 MinecraftSkinCatalog.COLLECTION_ID,
                 MinecraftSkinCatalog.STEVE_SKIN_ID);
-        ClientOperations.EditorSave saved = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Catalog Steve",
                 SkinReference.accountDefault(),
@@ -1644,8 +1644,8 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData initial = operations.initialize();
         int baselineAssets = initial.account().skinAssets().size();
 
-        ClientOperations.EditorSave classic = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave classic = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Classic preset",
                         SkinReference.accountDefault(),
@@ -1655,8 +1655,8 @@ final class DefaultClientOperationsTest {
                         Optional.of(png),
                         Optional.empty(),
                         Optional.of("first-file")));
-        ClientOperations.EditorSave slim = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave slim = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Slim preset",
                         SkinReference.accountDefault(),
@@ -1683,8 +1683,8 @@ final class DefaultClientOperationsTest {
                 .orElseThrow();
         assertArrayEquals(png, operations.loadCatalogSkin(personal.id(), hash, SkinModel.CLASSIC));
 
-        ClientOperations.EditorSave reused = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave reused = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Reused",
                         SkinReference.asset(reusable),
@@ -1706,8 +1706,8 @@ final class DefaultClientOperationsTest {
         assertFalse(operations.catalogCollections().stream()
                 .anyMatch(collection -> PersonalSkinCatalog.isCollection(collection.id())));
 
-        ClientOperations.EditorSave restored = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave restored = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Restored",
                         SkinReference.accountDefault(),
@@ -1733,8 +1733,8 @@ final class DefaultClientOperationsTest {
         operations.initialize();
         var localCape = shared.importCape(
                 TestFixtures.ACCOUNT_ID, "Saved cape", customCapePng()).texture();
-        ClientOperations.EditorSave source = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave source = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Source",
                         SkinReference.accountDefault(),
@@ -1748,8 +1748,8 @@ final class DefaultClientOperationsTest {
         int skinUploads = api.skinUploads.get();
         int capeActivations = api.capeActivations.get();
 
-        ClientOperations.EditorSave duplicate = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave duplicate = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Copy of Source",
                         SkinReference.accountDefault(),
@@ -1787,7 +1787,7 @@ final class DefaultClientOperationsTest {
     void storedLegacyEvidenceDiffersFromCleanImportAcrossAssetsAndPersonalCatalog()
             throws Exception {
         NclSkinsStorage shared = storage();
-        LibraryService library = new LibraryService(shared, fixedClock());
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), fixedClock());
         PngValidator validator = new PngValidator();
         byte[] rawLegacy = skinPng(64, 32, 0xFF285A7C);
         byte[] cleanImport = validator.projectImport(rawLegacy).pngBytes();
@@ -1995,7 +1995,7 @@ final class DefaultClientOperationsTest {
         operations.catalogCollections();
         assertEquals(1, loads.get());
 
-        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        var saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Personal", SkinReference.accountDefault(), SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.empty(), Optional.of(valid), Optional.empty(), Optional.of("Personal")));
         String personalHash = saved.account().personalSkins().get(0).sha256();
@@ -2036,7 +2036,7 @@ final class DefaultClientOperationsTest {
             byte[] selected = operations.loadCatalogSkin("event", "hero", SkinModel.CLASSIC);
             if (changedAt.equals("before-freeze")) bytes.set(replacement);
             var frozen = operations.freezeCatalogSelection("event", "hero");
-            var request = new ClientOperations.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
+            var request = new LibraryEditorPort.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
                     SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.of(selected),
                     Optional.of(new CatalogOrigin("pack", "event", "hero"))).withFrozenCatalogSelection(frozen);
             operations.saveEditor(request);
@@ -2075,7 +2075,7 @@ final class DefaultClientOperationsTest {
         armed.set(true);
         assertThrows(IOException.class, () -> {
             var frozen = operations.freezeCatalogSelection("event", "hero");
-            var request = new ClientOperations.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
+            var request = new LibraryEditorPort.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
                     SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.of(valid),
                     Optional.of(new CatalogOrigin("pack", "event", "hero"))).withFrozenCatalogSelection(frozen);
             operations.saveEditor(request);
@@ -2104,7 +2104,7 @@ final class DefaultClientOperationsTest {
         var operations = new DefaultClientOperations(tokens(), new StubProfileApi(), shared, source, fixedClock());
         operations.catalogCollections();
         var frozen = operations.freezeCatalogSelection("event", "hero");
-        var request = new ClientOperations.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
+        var request = new LibraryEditorPort.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.of(valid),
                 Optional.of(new CatalogOrigin("pack", "event", "hero"))).withFrozenCatalogSelection(frozen);
         assertThrows(IOException.class, () -> operations.saveEditor(request));
@@ -2653,8 +2653,8 @@ final class DefaultClientOperationsTest {
                 countingTokens, api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         UUID skinId = initial.account().skinAssets().get(0).id();
-        ClientOperations.EditorSave saved = operations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Remote mutation",
                         SkinReference.asset(skinId),
@@ -2680,7 +2680,7 @@ final class DefaultClientOperationsTest {
                 () -> operations.restorePreviousAppearance(legacySnapshot));
         assertThrows(IllegalStateException.class, () -> operations.retryCape("cape-owned"));
 
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         assertThrows(IllegalStateException.class, () -> operations.retryCape("cape-owned"));
 
         assertEquals(AppearanceSyncStatus.PENDING, selected.syncStatus());
@@ -2820,7 +2820,7 @@ final class DefaultClientOperationsTest {
         operations.warmSession();
         ClientOperations.InitialData warmedSeed = operations.warmedInitialData().orElseThrow();
         assertTrue(warmedSeed.account().presets().isEmpty());
-        LibraryService otherProcess = new LibraryService(storage, fixedClock());
+        LibraryService otherProcess = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), fixedClock());
         AccountState warmed = otherProcess.load(TestFixtures.ACCOUNT_ID);
         UUID classicId = warmed.skinAssets().stream()
                 .filter(asset -> asset.source() == SkinSource.VANILLA_DEFAULT)
@@ -2899,7 +2899,7 @@ final class DefaultClientOperationsTest {
         UUID presetId = firstOpen.appearance().activePresetId().orElseThrow();
         assertEquals(1, api.profileGets.get());
 
-        ClientOperations.PresetDelete deletion = firstClient.deletePreset(presetId);
+        LibraryEditorPort.PresetDelete deletion = firstClient.deletePreset(presetId);
 
         assertTrue(deletion.account().presets().isEmpty());
         assertTrue(deletion.remoteReset().isEmpty());
@@ -2935,7 +2935,7 @@ final class DefaultClientOperationsTest {
         assertTrue(operations.initialize().account().presets().isEmpty());
         assertEquals(0, api.profileGets.get());
 
-        LibraryService otherClient = new LibraryService(storage, fixedClock());
+        LibraryService otherClient = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), fixedClock());
         UUID classicId = initial.account().skinAssets().stream()
                 .filter(asset -> asset.source() == SkinSource.VANILLA_DEFAULT)
                 .findFirst()
@@ -2969,7 +2969,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave active = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave active = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Active",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -2977,7 +2977,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.EditorSave inactive = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave inactive = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Inactive",
                 SkinReference.asset(initial.account().skinAssets().get(1).id()),
@@ -2985,9 +2985,9 @@ final class DefaultClientOperationsTest {
                 SkinVariant.SLIM,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(active.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(active.presetId());
 
-        ClientOperations.PresetDelete deletion = operations.deletePreset(inactive.presetId());
+        LibraryEditorPort.PresetDelete deletion = operations.deletePreset(inactive.presetId());
 
         assertEquals(List.of(active.presetId()), deletion.account().presets().stream()
                 .map(preset -> preset.id())
@@ -3009,7 +3009,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave active = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave active = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Active",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3017,7 +3017,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.EditorSave inactive = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave inactive = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Inactive",
                 SkinReference.asset(initial.account().skinAssets().get(1).id()),
@@ -3031,7 +3031,7 @@ final class DefaultClientOperationsTest {
                 .deletePreset(active.presetId())
                 .appearance()
                 .orElseThrow();
-        ClientOperations.PresetDelete finalDeletion = operations.deletePreset(inactive.presetId());
+        LibraryEditorPort.PresetDelete finalDeletion = operations.deletePreset(inactive.presetId());
         ClientOperations.DurableAppearance finalDefault = finalDeletion.appearance().orElseThrow();
 
         assertTrue(finalDeletion.account().presets().isEmpty());
@@ -3052,7 +3052,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Final",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3078,7 +3078,7 @@ final class DefaultClientOperationsTest {
         assertNull(pendingDefault.skinSha256());
         Files.delete(blockedBackup);
 
-        ClientOperations.PresetDelete retry = operations.deletePreset(saved.presetId());
+        LibraryEditorPort.PresetDelete retry = operations.deletePreset(saved.presetId());
 
         assertTrue(retry.account().presets().isEmpty());
         assertTrue(retry.appearance().orElseThrow().intentRevision()
@@ -3095,7 +3095,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Final",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3117,7 +3117,7 @@ final class DefaultClientOperationsTest {
                 .toList());
         Files.delete(blockedAppearance);
 
-        ClientOperations.PresetDelete retry = operations.deletePreset(saved.presetId());
+        LibraryEditorPort.PresetDelete retry = operations.deletePreset(saved.presetId());
 
         assertTrue(retry.account().presets().isEmpty());
         assertTrue(retry.appearance().orElseThrow().activePresetId().isEmpty());
@@ -3132,7 +3132,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), new StubProfileApi(), storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave kept = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave kept = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Kept",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3140,7 +3140,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.EditorSave removed = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave removed = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Removed",
                 SkinReference.asset(initial.account().skinAssets().get(1).id()),
@@ -3148,7 +3148,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.SLIM,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(kept.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(kept.presetId());
         operations.deletePreset(removed.presetId());
 
         LibraryOperationException failure = assertThrows(
@@ -3168,7 +3168,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations first = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
-        ClientOperations.EditorSave kept = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave kept = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Kept",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3176,7 +3176,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.EditorSave raced = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave raced = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Raced",
                 SkinReference.asset(initial.account().skinAssets().get(1).id()),
@@ -3190,7 +3190,7 @@ final class DefaultClientOperationsTest {
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<ClientOperations.PresetDelete> deletion = executor.submit(() -> {
+            Future<LibraryEditorPort.PresetDelete> deletion = executor.submit(() -> {
                 start.await();
                 return first.deletePreset(raced.presetId());
             });
@@ -3247,7 +3247,7 @@ final class DefaultClientOperationsTest {
                 .orElseThrow();
         UUID presetId = initial.account().presets().get(0).id();
 
-        ClientOperations.PresetDelete deleted = operations.deletePreset(presetId);
+        LibraryEditorPort.PresetDelete deleted = operations.deletePreset(presetId);
 
         assertEquals(0, api.skinResets.get());
         assertTrue(deleted.account().presets().isEmpty());
@@ -3280,7 +3280,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations firstClient = new DefaultClientOperations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = firstClient.initialize();
-        ClientOperations.EditorSave preset = firstClient.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave preset = firstClient.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Active",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3342,7 +3342,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Default with cape",
                 SkinReference.accountDefault(),
@@ -3442,7 +3442,7 @@ final class DefaultClientOperationsTest {
                 ignored -> classic.clone(),
                 fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Offline",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3451,7 +3451,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
 
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult checkpoint = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
@@ -3525,7 +3525,7 @@ final class DefaultClientOperationsTest {
         assertEquals(1, tokenRequests.get());
         assertEquals(0, api.profileGets.get());
 
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Pending after missing token",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3581,8 +3581,8 @@ final class DefaultClientOperationsTest {
                     .orElseThrow());
             assertTrue(profileStarted.await(5, TimeUnit.SECONDS));
 
-            ClientOperations.EditorSave saved = operations.saveEditor(
-                    new ClientOperations.EditorSaveRequest(
+            LibraryEditorPort.EditorSave saved = operations.saveEditor(
+                    new LibraryEditorPort.EditorSaveRequest(
                             Optional.empty(),
                             "Concurrent local intent",
                             SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3590,7 +3590,7 @@ final class DefaultClientOperationsTest {
                             SkinVariant.CLASSIC,
                             Optional.empty(),
                             Optional.empty()));
-            ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+            LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
             releaseProfile.countDown();
 
             ClientOperations.ReconciliationResult observed = revisionZero.get();
@@ -3644,7 +3644,7 @@ final class DefaultClientOperationsTest {
                 ignored -> skin.clone(),
                 fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Intermittent token",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3679,7 +3679,7 @@ final class DefaultClientOperationsTest {
                 ignored -> desired.clone(),
                 fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Desired X",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3728,7 +3728,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Pending mismatch",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3773,7 +3773,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Pending network",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3813,7 +3813,7 @@ final class DefaultClientOperationsTest {
         operations.warmSession();
         assertEquals(1, api.profileGets.get());
 
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Reconnect pending",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC,
@@ -3839,7 +3839,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Expired session",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3881,7 +3881,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Denied mutation",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3924,7 +3924,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Unknown",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3942,7 +3942,7 @@ final class DefaultClientOperationsTest {
         int profileGetsAfterFailure = api.profileGets.get();
         int skinUploadsAfterFailure = api.skinUploads.get();
 
-        ClientOperations.EditorSave localEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave localEdit = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Unknown local edit",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3957,7 +3957,7 @@ final class DefaultClientOperationsTest {
         assertEquals(unknownCape,
                 localEdit.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
 
-        ClientOperations.EditorSave changedSibling = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave changedSibling = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Unknown cape edit",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -3990,7 +3990,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Explicit recovery",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4025,7 +4025,7 @@ final class DefaultClientOperationsTest {
         int profileGetsBeforeSave = fixture.api().profileGets.get();
         int uploadsBeforeSave = fixture.api().skinUploads.get();
 
-        ClientOperations.EditorSave edited = fixture.operations().saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = fixture.operations().saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(fixture.presetId()),
                 "Pending B local edit",
                 SkinReference.asset(fixture.skinB()),
@@ -4056,7 +4056,7 @@ final class DefaultClientOperationsTest {
         int profileGetsBeforeSave = fixture.api().profileGets.get();
         int uploadsBeforeSave = fixture.api().skinUploads.get();
 
-        ClientOperations.EditorSave edited = fixture.operations().saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = fixture.operations().saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(fixture.presetId()),
                 "Pending A local edit",
                 SkinReference.asset(fixture.skinA()),
@@ -4090,7 +4090,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Rate limited",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4118,7 +4118,7 @@ final class DefaultClientOperationsTest {
         assertEquals(1, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
 
-        ClientOperations.EditorSave latest = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave latest = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Latest", SkinReference.asset(initial.account().skinAssets().get(1).id()),
                 SkinVariant.SLIM, SkinVariant.SLIM, Optional.empty(), Optional.empty()));
         operations.applyPreset(latest.presetId());
@@ -4155,7 +4155,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Rate limited active",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4172,7 +4172,7 @@ final class DefaultClientOperationsTest {
         int uploadsAfterLimit = api.skinUploads.get();
 
         api.rateLimitRemaining = Optional.of(Duration.ofSeconds(60));
-        ClientOperations.EditorSave localEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave localEdit = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Rate limited local edit",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4180,7 +4180,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.EditorSave changed = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave changed = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Rate limited changed",
                 SkinReference.asset(initial.account().skinAssets().get(1).id()),
@@ -4188,7 +4188,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.SLIM,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.EditorSave latest = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave latest = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Rate limited latest",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4247,7 +4247,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Partial",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4255,7 +4255,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.of("cape-owned"),
                 Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult partial = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
@@ -4274,7 +4274,7 @@ final class DefaultClientOperationsTest {
         int profileGetsAfterPartial = api.profileGets.get();
         int skinUploadsAfterPartial = api.skinUploads.get();
         int capeActivationsAfterPartial = api.capeActivations.get();
-        ClientOperations.EditorSave localEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave localEdit = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Partial local edit",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4341,7 +4341,7 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData initial = operations.initialize();
         var offlineCape = storage.importCape(
                 TestFixtures.ACCOUNT_ID, "Keep offline cape", customCapePng()).texture();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Keep stale cape in preset",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4349,7 +4349,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.of("no-longer-owned"),
                 Optional.empty()).withOfflineCape(offlineCape));
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
@@ -4370,7 +4370,7 @@ final class DefaultClientOperationsTest {
         assertEquals(offlineCape.sha256(), normalized.providers().cape().offlineDesired().textureCacheKey());
         assertEquals(offlineCape.sha256(), normalized.providers().cape().offline().value().textureCacheKey());
         var normalizedDelivery = normalized.providers().cape().minecraftDelivery();
-        ClientOperations.EditorSave repeated = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave repeated = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Keep stale cape in preset again",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4404,7 +4404,7 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData initial = operations.initialize();
         var offlineCape = shared.importCape(
                 TestFixtures.ACCOUNT_ID, "Offline while unknown", customCapePng()).texture();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Unknown stale cape",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4453,7 +4453,7 @@ final class DefaultClientOperationsTest {
         assertEquals(capeDeactivationsBeforeRecovery, api.capeDeactivations.get());
 
         ProviderDelivery normalizedDelivery = recovered.appearance().providers().cape().minecraftDelivery();
-        ClientOperations.EditorSave repeated = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave repeated = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Unknown stale cape again",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4481,7 +4481,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Missing immutable asset",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4489,7 +4489,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         String hash = storage.loadAppearance(TestFixtures.ACCOUNT_ID).skinSha256();
         Files.delete(storage.assetPath(hash));
 
@@ -4513,7 +4513,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Settlement failure",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4548,7 +4548,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Official before retry",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4596,7 +4596,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations writer = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = writer.initialize();
-        ClientOperations.EditorSave saved = writer.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = writer.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Concurrent",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -4652,10 +4652,10 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave firstPreset = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave firstPreset = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "First", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
-        ClientOperations.EditorSave secondPreset = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave secondPreset = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Second", SkinReference.asset(initial.account().skinAssets().get(1).id()),
                 SkinVariant.SLIM, SkinVariant.SLIM, Optional.empty(), Optional.empty()));
         operations.usePreset(firstPreset.presetId());
@@ -4666,7 +4666,7 @@ final class DefaultClientOperationsTest {
                     .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
-            ClientOperations.PresetUse newer = operations.usePreset(secondPreset.presetId());
+            LibraryEditorPort.PresetUse newer = operations.usePreset(secondPreset.presetId());
             releaseMutation.countDown();
 
             ClientOperations.ReconciliationResult completed = firstAttempt.get();
@@ -4700,10 +4700,10 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinAsset selectedSkin = initial.account().skinAssets().get(0);
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Attempting", SkinReference.asset(selectedSkin.id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
@@ -4711,12 +4711,12 @@ final class DefaultClientOperationsTest {
                     .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
-            Future<ClientOperations.EditorSave> localSave = pool.submit(() -> operations.saveEditor(
-                    new ClientOperations.EditorSaveRequest(
+            Future<LibraryEditorPort.EditorSave> localSave = pool.submit(() -> operations.saveEditor(
+                    new LibraryEditorPort.EditorSaveRequest(
                             Optional.of(saved.presetId()), "Attempting local edit",
                             SkinReference.asset(selectedSkin.id()), SkinVariant.CLASSIC,
                             SkinVariant.CLASSIC, Optional.empty(), Optional.empty())));
-            ClientOperations.EditorSave edited = localSave.get(5, TimeUnit.SECONDS);
+            LibraryEditorPort.EditorSave edited = localSave.get(5, TimeUnit.SECONDS);
             assertEquals(AppearanceSyncStatus.ATTEMPTING,
                     edited.reappliedAppearance().orElseThrow().syncStatus());
             assertEquals(selected.intentRevision() + 1,
@@ -4770,7 +4770,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinAsset selectedSkin = initial.account().skinAssets().get(0);
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Attempting mismatch", SkinReference.asset(selectedSkin.id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
         operations.usePreset(saved.presetId());
@@ -4781,8 +4781,8 @@ final class DefaultClientOperationsTest {
                     .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
-            ClientOperations.EditorSave edited = pool.submit(() -> operations.saveEditor(
-                    new ClientOperations.EditorSaveRequest(
+            LibraryEditorPort.EditorSave edited = pool.submit(() -> operations.saveEditor(
+                    new LibraryEditorPort.EditorSaveRequest(
                             Optional.of(saved.presetId()), "Attempting mismatch local edit",
                             SkinReference.asset(selectedSkin.id()), SkinVariant.CLASSIC,
                             SkinVariant.CLASSIC, Optional.empty(), Optional.empty()))).get(5, TimeUnit.SECONDS);
@@ -4836,7 +4836,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         operations.refreshProviders(AppearanceProviders.Component.CAPE);
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Cape A", SkinReference.accountDefault(), SkinVariant.CLASSIC,
                 SkinVariant.CLASSIC, Optional.of("cape-a"), Optional.empty()));
         operations.usePreset(saved.presetId());
@@ -4846,7 +4846,7 @@ final class DefaultClientOperationsTest {
                 .appearance();
         assertEquals(AppearanceSyncStatus.OFFICIAL, settled.syncStatus());
 
-        ClientOperations.EditorSave firstEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave firstEdit = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()), "Cape B", SkinReference.accountDefault(), SkinVariant.CLASSIC,
                 SkinVariant.CLASSIC, Optional.of("cape-b"), Optional.empty()));
         assertEquals(ProviderDelivery.Status.CONFIRMED,
@@ -4857,7 +4857,7 @@ final class DefaultClientOperationsTest {
                     .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
-            ClientOperations.EditorSave secondEdit = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+            LibraryEditorPort.EditorSave secondEdit = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                     Optional.of(saved.presetId()), "Cape C", SkinReference.accountDefault(), SkinVariant.CLASSIC,
                     SkinVariant.CLASSIC, Optional.of("cape-c"), Optional.empty()));
             assertEquals(AppearanceSyncStatus.UNKNOWN,
@@ -4896,7 +4896,7 @@ final class DefaultClientOperationsTest {
                     .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
-            ClientOperations.EditorSave changed = fixture.saveNewSkin("Unknown sibling");
+            LibraryEditorPort.EditorSave changed = fixture.saveNewSkin("Unknown sibling");
             assertEquals(AppearanceSyncStatus.UNKNOWN,
                     changed.reappliedAppearance().orElseThrow().syncStatus());
             fixture.releaseMutation().countDown();
@@ -4969,7 +4969,7 @@ final class DefaultClientOperationsTest {
                     .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
-            ClientOperations.EditorSave changed = fixture.saveNewSkin("Disabled sibling");
+            LibraryEditorPort.EditorSave changed = fixture.saveNewSkin("Disabled sibling");
             assertEquals(AppearanceSyncStatus.UNKNOWN,
                     changed.reappliedAppearance().orElseThrow().syncStatus());
             fixture.releaseMutation().countDown();
@@ -5002,7 +5002,7 @@ final class DefaultClientOperationsTest {
             ClientOperations.DurableAppearance reenabled = fixture.operations().enableProvider(
                     AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
             long reactivated = reenabled.providers().cape().minecraftDelivery().activation();
-            ClientOperations.EditorSave changed = fixture.saveNewSkin("Reactivated sibling");
+            LibraryEditorPort.EditorSave changed = fixture.saveNewSkin("Reactivated sibling");
             assertEquals(AppearanceSyncStatus.UNKNOWN,
                     changed.reappliedAppearance().orElseThrow().syncStatus());
             fixture.releaseMutation().countDown();
@@ -5038,7 +5038,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations firstProcess = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = firstProcess.initialize();
-        ClientOperations.EditorSave saved = firstProcess.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = firstProcess.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Matching orphan",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -5046,7 +5046,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.PresetUse selected = firstProcess.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = firstProcess.usePreset(saved.presetId());
         shared.updateAppearance(TestFixtures.ACCOUNT_ID, current ->
                 new com.naocraftlab.skins.core.model.AccountAppearanceState(
                         current.schemaVersion(),
@@ -5086,10 +5086,10 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations firstProcess = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = firstProcess.initialize();
-        ClientOperations.EditorSave saved = firstProcess.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = firstProcess.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Crash", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
-        ClientOperations.PresetUse selected = firstProcess.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = firstProcess.usePreset(saved.presetId());
         shared.updateAppearance(TestFixtures.ACCOUNT_ID, current -> new com.naocraftlab.skins.core.model.AccountAppearanceState(
                 current.schemaVersion(), current.accountId(), current.intentRevision(), current.activePresetId(),
                 current.skinSha256(), current.skinVariant(), current.capeId(), current.outerLayerVisibility(),
@@ -5126,7 +5126,7 @@ final class DefaultClientOperationsTest {
         byte[] bundled = skinPng(0xFF0033AA);
         NclSkinsStorage storage = storage();
         storage.initialize();
-        var staleImport = new LibraryService(storage, fixedClock()).importSkin(
+        var staleImport = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), fixedClock()).importSkin(
                 TestFixtures.ACCOUNT_ID,
                 "Stale official",
                 SkinVariant.CLASSIC,
@@ -5183,7 +5183,7 @@ final class DefaultClientOperationsTest {
 
 
         tokens.atomicIdentity = accountB;
-        ClientOperations.PresetDelete deletion = operations.deletePreset(presetId);
+        LibraryEditorPort.PresetDelete deletion = operations.deletePreset(presetId);
 
         assertTrue(deletion.account().presets().isEmpty());
         assertTrue(deletion.remoteReset().isEmpty());
@@ -5207,7 +5207,7 @@ final class DefaultClientOperationsTest {
                 tokens, api, storage, ignored -> skinPng(0xFF556677), fixedClock());
 
         ClientOperations.InitialData initial = operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Pinned to A",
                 SkinReference.asset(initial.account().skinAssets().get(0).id()),
@@ -5242,8 +5242,8 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations accountAOperations = new DefaultClientOperations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData accountAInitial = accountAOperations.initialize();
-        ClientOperations.EditorSave accountAPreset = accountAOperations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave accountAPreset = accountAOperations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Account A",
                         SkinReference.asset(accountAInitial.account().skinAssets().get(0).id()),
@@ -5251,7 +5251,7 @@ final class DefaultClientOperationsTest {
                         SkinVariant.CLASSIC,
                         Optional.empty(),
                         Optional.empty()));
-        ClientOperations.PresetUse accountAIntent = accountAOperations.usePreset(accountAPreset.presetId());
+        LibraryEditorPort.PresetUse accountAIntent = accountAOperations.usePreset(accountAPreset.presetId());
 
         AtomicInteger tokenRequests = new AtomicInteger();
         GameSessionTokenSource accountBTokens = new GameSessionTokenSource() {
@@ -5269,8 +5269,8 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations accountBOperations = new DefaultClientOperations(
                 accountBTokens, api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData accountBInitial = accountBOperations.initialize();
-        ClientOperations.EditorSave accountBPreset = accountBOperations.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave accountBPreset = accountBOperations.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.empty(),
                         "Account B",
                         SkinReference.asset(accountBInitial.account().skinAssets().get(0).id()),
@@ -5278,7 +5278,7 @@ final class DefaultClientOperationsTest {
                         SkinVariant.CLASSIC,
                         Optional.empty(),
                         Optional.empty()));
-        ClientOperations.PresetUse accountBIntent = accountBOperations.usePreset(accountBPreset.presetId());
+        LibraryEditorPort.PresetUse accountBIntent = accountBOperations.usePreset(accountBPreset.presetId());
         assertEquals(accountAIntent.intentRevision(), accountBIntent.intentRevision());
 
         Optional<ClientOperations.ReconciliationResult> crossed = accountBOperations.reconcileAppearance(
@@ -5388,7 +5388,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
         UUID skinId = initial.account().skinAssets().get(0).id();
-        ClientOperations.EditorSave presetA = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave presetA = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Preset A",
                 SkinReference.asset(skinId),
@@ -5396,7 +5396,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.empty(),
                 Optional.empty()));
-        ClientOperations.EditorSave presetB = first.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave presetB = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Preset B",
                 SkinReference.asset(skinId),
@@ -5406,9 +5406,9 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
 
         first.usePreset(presetA.presetId());
-        ClientOperations.PresetUse switchedToB = second.usePreset(presetB.presetId());
-        ClientOperations.EditorSave inactiveEdit = first.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.PresetUse switchedToB = second.usePreset(presetB.presetId());
+        LibraryEditorPort.EditorSave inactiveEdit = first.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.of(presetA.presetId()),
                         "Preset A edited while inactive",
                         SkinReference.asset(skinId),
@@ -5422,9 +5422,9 @@ final class DefaultClientOperationsTest {
         assertEquals(Optional.of(presetB.presetId()), stillB.activePresetId());
         assertEquals(switchedToB.intentRevision(), stillB.intentRevision());
 
-        ClientOperations.PresetUse switchedBackToA = second.usePreset(presetA.presetId());
-        ClientOperations.EditorSave activeEdit = first.saveEditor(
-                new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.PresetUse switchedBackToA = second.usePreset(presetA.presetId());
+        LibraryEditorPort.EditorSave activeEdit = first.saveEditor(
+                new LibraryEditorPort.EditorSaveRequest(
                         Optional.of(presetA.presetId()),
                         "Preset A edited while active",
                         SkinReference.asset(skinId),
@@ -5465,7 +5465,7 @@ final class DefaultClientOperationsTest {
         operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
         UUID skinId = initial.account().skinAssets().get(0).id();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Cached-profile cape",
                 SkinReference.asset(skinId),
@@ -5473,7 +5473,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC,
                 Optional.of("cape-owned"),
                 Optional.empty()));
-        ClientOperations.PresetUse selected = operations.usePreset(saved.presetId());
+        LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         AtomicInteger remoteCalls = new AtomicInteger();
         DeterministicAppearanceAssetResolver resolver = new DeterministicAppearanceAssetResolver(
                 tokens(), storage, cache, Runnable::run, uri -> {
@@ -5491,7 +5491,7 @@ final class DefaultClientOperationsTest {
 
         Files.write(cache.cachePath(capeUri), cape);
         var custom = storage.importCape(TestFixtures.ACCOUNT_ID, "Personal", customCapePng());
-        ClientOperations.EditorSave edited = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave edited = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Cached-profile cape edited",
                 SkinReference.asset(skinId),
@@ -5612,7 +5612,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 countingTokens(tokenRequests), api, shared, ignored -> skinPng(0xFF315B72), fixedClock());
         operations.initialize();
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Settled",
                 SkinReference.accountDefault(),
@@ -5661,7 +5661,7 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData initial = operations.initialize();
         SkinAsset firstSkin = initial.account().skinAssets().get(0);
         SkinAsset replacementSkin = initial.account().skinAssets().get(1);
-        ClientOperations.EditorSave saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "In flight",
                 SkinReference.asset(firstSkin.id()),
@@ -5708,7 +5708,7 @@ final class DefaultClientOperationsTest {
                         .filter(asset -> !asset.id().equals(skinA.id()))
                         .findFirst()
                         .orElseThrow());
-        ClientOperations.EditorSave pending = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        LibraryEditorPort.EditorSave pending = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Pending B",
                 SkinReference.asset(skinB.id()),
@@ -5730,8 +5730,8 @@ final class DefaultClientOperationsTest {
 
     private void assertSettledLocalOnlySave(
             SettledActiveFixture fixture,
-            ClientOperations.EditorSaveRequest request) throws Exception {
-        ClientOperations.EditorSave edited = fixture.operations().saveEditor(request);
+            LibraryEditorPort.EditorSaveRequest request) throws Exception {
+        LibraryEditorPort.EditorSave edited = fixture.operations().saveEditor(request);
 
         assertEquals(AppearanceSyncStatus.OFFICIAL,
                 edited.reappliedAppearance().orElseThrow().syncStatus());
@@ -5744,7 +5744,7 @@ final class DefaultClientOperationsTest {
 
     private static void assertNoRemoteCheckpoint(
             SettledActiveFixture fixture,
-            ClientOperations.EditorSave edited) throws Exception {
+            LibraryEditorPort.EditorSave edited) throws Exception {
         ClientOperations.ReconciliationResult checkpoint = fixture.operations()
                 .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
                 .orElseThrow();
@@ -5763,7 +5763,7 @@ final class DefaultClientOperationsTest {
             byte[] png,
             String name,
             PersonalSkinSource source) throws Exception {
-        operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 name,
                 SkinReference.accountDefault(),
@@ -5909,9 +5909,9 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone());
         operations.retrySession();
-        var imported = new LibraryService(shared, fixedClock()).importSkin(TestFixtures.ACCOUNT_ID,
+        var imported = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), fixedClock()).importSkin(TestFixtures.ACCOUNT_ID,
                 "Manual", SkinVariant.SLIM, SkinSource.IMPORTED, assigned);
-        var saved = operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        var saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Manual default", SkinReference.asset(imported.asset().id()),
                 SkinVariant.SLIM, SkinVariant.SLIM, Optional.empty(), Optional.empty()));
         operations.usePreset(saved.presetId());
@@ -6089,8 +6089,8 @@ final class DefaultClientOperationsTest {
             SkinVariant replacementVariant,
             CountDownLatch mutationStarted,
             CountDownLatch releaseMutation) {
-        private ClientOperations.EditorSave saveNewSkin(String name) throws Exception {
-            return operations.saveEditor(new ClientOperations.EditorSaveRequest(
+        private LibraryEditorPort.EditorSave saveNewSkin(String name) throws Exception {
+            return operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                     Optional.of(presetId),
                     name,
                     SkinReference.asset(replacementSkin),
