@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
@@ -303,6 +304,12 @@ final class EditorTabRuntimeTest {
     }
 
     private static final class Operations implements TestCapeOperations {
+        @Override
+        public java.util.Optional<ReconciliationResult> reconcileAppearance(
+                Trigger trigger) {
+            return java.util.Optional.empty();
+        }
+
         private final AccountState account = TestFixtures.account(1);
         private final SessionValidation session;
         private AccountUiPreferences preferences;

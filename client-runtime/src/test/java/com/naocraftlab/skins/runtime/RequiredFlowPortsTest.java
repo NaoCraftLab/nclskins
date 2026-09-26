@@ -9,6 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class RequiredFlowPortsTest {
     @Test
     void compositionMustImplementSaveWarmupAndObservation() throws Exception {
+        assertTrue(Modifier.isAbstract(ClientOperations.class.getMethod(
+                "durableAppearance").getModifiers()));
+        assertTrue(Modifier.isAbstract(ClientOperations.class.getMethod(
+                "reconcileAppearance", com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger.class).getModifiers()));
         assertTrue(Modifier.isAbstract(LibraryEditorPort.class.getMethod(
                 "saveEditor", LibraryEditorPort.EditorSaveRequest.class).getModifiers()));
         assertTrue(Modifier.isAbstract(ClientOperations.class.getMethod(

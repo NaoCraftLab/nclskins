@@ -4,7 +4,6 @@ import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.GameSessionIdentityChangedException;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
-import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApiException;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -16,11 +15,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-
 public final class SessionValidationService {
-    private static final String OFFLINE_ACCESS_TOKEN_SENTINEL = "0";
 
-    private final ProfileApi api;
+    private final ProfileSessionPort api;
     private final RemoteSessionGate gate;
     private final Map<UUID, SessionValidation> validationCache = new HashMap<>();
     private final Map<UUID, RemoteProfile> lastVerifiedProfiles = new HashMap<>();
@@ -28,7 +25,7 @@ public final class SessionValidationService {
     private final Map<UUID, Boolean> unknownCapes = new HashMap<>();
     private final Set<UUID> managedAppearances = new HashSet<>();
 
-    public SessionValidationService(ProfileApi api, RemoteSessionGate gate) {
+    public SessionValidationService(ProfileSessionPort api, RemoteSessionGate gate) {
         this.api = Objects.requireNonNull(api, "api");
         this.gate = Objects.requireNonNull(gate, "gate");
     }
@@ -49,7 +46,6 @@ public final class SessionValidationService {
         return withFreshToken(tokenSource, identity, false);
     }
 
-
     public synchronized SessionValidation cachedStatus(
             GameSessionTokenSource.SessionIdentity identity) {
         Objects.requireNonNull(identity, "identity");
@@ -59,7 +55,6 @@ public final class SessionValidationService {
         SessionValidation cached = validationCache.get(identity.profileId());
         return cached == null ? unchecked(identity) : cached;
     }
-
 
     public synchronized boolean automaticCheckpointMayAcquireToken(
             GameSessionTokenSource.SessionIdentity identity) {
@@ -76,7 +71,6 @@ public final class SessionValidationService {
                 || cached.failureKind() == ApiFailureKind.RATE_LIMITED;
     }
 
-
     public SessionValidation retryTransientAtCheckpoint(
             GameSessionTokenSource tokenSource) {
         Objects.requireNonNull(tokenSource, "tokenSource");
@@ -89,7 +83,6 @@ public final class SessionValidationService {
             cached = validationCache.get(identity.profileId());
         }
         if (cached == null || cached.valid()) {
-
 
             return withFreshToken(tokenSource, identity, false);
         }
@@ -128,7 +121,6 @@ public final class SessionValidationService {
         return withFreshToken(tokenSource, identity, false);
     }
 
-
     public SessionValidation observeFreshAtCheckpoint(
             GameSessionTokenSource tokenSource) {
         Objects.requireNonNull(tokenSource, "tokenSource");
@@ -138,7 +130,6 @@ public final class SessionValidationService {
         }
         return withFreshToken(tokenSource, identity, false);
     }
-
 
     public SessionValidation manualRetry(GameSessionTokenSource tokenSource) {
         Objects.requireNonNull(tokenSource, "tokenSource");
@@ -158,12 +149,12 @@ public final class SessionValidationService {
     }
 
     SessionValidation validateScoped(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             String requiredCapeId) {
         final RemoteProfile profile;
         try {
-            profile = api.getProfile(accessToken);
+            profile = effects.getProfile();
         } catch (ProfileApiException exception) {
             return remember(apiFailure(identity, null, SessionCheckPhase.PROFILE, exception));
         }
@@ -176,16 +167,14 @@ public final class SessionValidationService {
             String requiredCapeId) {
         if (profile.id().equals(identity.profileId())) {
 
-
             acknowledgedSkins.remove(identity.profileId());
             unknownCapes.remove(identity.profileId());
         }
         return validateProfileSnapshot(identity, profile, requiredCapeId);
     }
 
-
     SessionValidation cachedOrValidateScoped(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             String requiredCapeId) {
         Objects.requireNonNull(identity, "identity");
@@ -198,7 +187,7 @@ public final class SessionValidationService {
             cached = validationCache.get(identity.profileId());
         }
         if (cached == null || !cached.valid() || cached.profile() == null) {
-            return validateScoped(accessToken, identity, requiredCapeId);
+            return validateScoped(effects, identity, requiredCapeId);
         }
         return validateProfileSnapshot(identity, cached.profile(), requiredCapeId);
     }
@@ -270,10 +259,7 @@ public final class SessionValidationService {
             GameSessionTokenSource.SessionIdentity identity,
             boolean manualRetry) {
         try {
-            SessionValidation result = tokenSource.withAccessToken(token ->
-                    token == null || token.isBlank() || OFFLINE_ACCESS_TOKEN_SENTINEL.equals(token)
-                            ? rememberTokenUnavailable(identity)
-                            : validateScoped(token, identity, null));
+            SessionValidation result = api.withSession(tokenSource, effects -> validateScoped(effects, identity, null));
             if (manualRetry && result.valid()) {
                 gate.clearAfterSuccessfulManualRetry(identity.profileId());
             }
@@ -286,7 +272,6 @@ public final class SessionValidationService {
             return rememberTokenSourceFailure(identity);
         }
     }
-
 
     public synchronized SessionValidation rememberTokenUnavailable(
             GameSessionTokenSource.SessionIdentity identity) {
@@ -302,7 +287,6 @@ public final class SessionValidationService {
                         context,
                         "The running Minecraft session has no access token.")));
     }
-
 
     public synchronized SessionValidation rememberTokenSourceFailure(
             GameSessionTokenSource.SessionIdentity identity) {
@@ -463,7 +447,6 @@ public final class SessionValidationService {
         };
     }
 
-
     public synchronized AppliedAppearance currentAppliedAppearance(RemoteProfile profile) {
         Objects.requireNonNull(profile, "profile");
         return currentAppliedAppearance(profile.id(), profile);
@@ -474,7 +457,6 @@ public final class SessionValidationService {
         return acknowledged == null ? profile.skinProjectionComplete()
                 : acknowledged.kind() != AcknowledgedSkinKind.UNKNOWN;
     }
-
 
     public synchronized Optional<AppliedAppearance> acknowledgedAppearance(
             GameSessionTokenSource.SessionIdentity identity) {

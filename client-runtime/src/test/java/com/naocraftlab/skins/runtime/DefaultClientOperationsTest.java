@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.EncodedTextureLimit;
 import com.naocraftlab.skins.client.ExpectedAppearance;
@@ -215,7 +216,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
         operations.warmSession();
         assertTrue(operations.warmedReconciliationRecommended());
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START).orElseThrow();
+        operations.reconcileAppearance(Trigger.PROCESS_START).orElseThrow();
         assertEquals(1, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
     }
@@ -245,13 +246,13 @@ final class DefaultClientOperationsTest {
                 Optional.empty(), "Offline skin", SkinReference.asset(initial.account().skinAssets().get(0).id()),
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
         operations.usePreset(saved.presetId());
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+        operations.reconcileAppearance(Trigger.LOCAL_INTENT);
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
                 List.of(new RemoteCape("observed-cape", RemoteAssetState.ACTIVE,
                         URI.create("https://textures.minecraft.net/texture/provider-observed-cape"), "Observed")), Set.of());
         operations.refreshProviders(AppearanceProviders.Component.CAPE);
         ClientOperations.DurableAppearance activated = operations.enableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
-        operations.reconcileAppearance(activated.reconciliationKey(), ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+        operations.reconcileAppearance(activated.reconciliationKey(), Trigger.LOCAL_INTENT);
         assertEquals(1, api.skinUploads.get());
         assertEquals(0, api.capeActivations.get());
         assertEquals(0, api.capeDeactivations.get());
@@ -357,7 +358,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.DurableAppearance settled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow()
                 .appearance();
         var deliveries = operations.loadProviders();
@@ -386,7 +387,7 @@ final class DefaultClientOperationsTest {
         assertEquals(deliveries.cape().minecraftDelivery(),
                 operations.loadProviders().cape().minecraftDelivery());
         ClientOperations.ReconciliationResult checkpoint = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, checkpoint.appearance().syncStatus());
         assertEquals(tokenRequestsBeforeSave, tokenRequests.get());
@@ -470,7 +471,7 @@ final class DefaultClientOperationsTest {
                 stale.providers().cape().minecraftDelivery().activation());
         int getsBeforeStale = api.profileGets.get();
         assertTrue(restarted.reconcileAppearance(staleKey,
-                ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY).isEmpty());
+                Trigger.EXPLICIT_RETRY).isEmpty());
         assertEquals(getsBeforeStale, api.profileGets.get());
     }
 
@@ -632,7 +633,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.of("cape-owned"), Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult partial = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow();
+                .reconcileAppearance(Trigger.LOCAL_INTENT).orElseThrow();
         assertEquals(AppearanceSyncStatus.PARTIAL, partial.appearance().syncStatus());
         ProviderDelivery confirmedSkin = partial.appearance().providers().skin().minecraftDelivery();
         assertEquals(ProviderDelivery.Status.CONFIRMED, confirmedSkin.status());
@@ -749,7 +750,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.DurableAppearance settled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow()
                 .appearance();
         var capeDelivery = settled.providers().cape().minecraftDelivery();
@@ -769,7 +770,7 @@ final class DefaultClientOperationsTest {
         assertEquals(ProviderDelivery.Status.CONFIRMED,
                 pending.providers().cape().minecraftDelivery().status());
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
         assertEquals(1, api.skinUploads.get());
@@ -793,7 +794,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         operations.usePreset(saved.presetId());
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+        operations.reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         ProviderDelivery capeDelivery = operations.loadProviders().cape().minecraftDelivery();
         int uploadsBeforeReset = api.skinUploads.get();
@@ -818,7 +819,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         ClientOperations.ReconciliationResult reset = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(ProviderDelivery.Status.PENDING,
@@ -915,7 +916,7 @@ final class DefaultClientOperationsTest {
                 Optional.of("cape-a"),
                 Optional.empty()));
         operations.usePreset(saved.presetId());
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+        operations.reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         int skinUploadsBeforeReset = api.skinUploads.get();
 
@@ -928,7 +929,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         ClientOperations.ReconciliationResult reset = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(ProviderDelivery.Status.CONFIRMED,
@@ -966,7 +967,7 @@ final class DefaultClientOperationsTest {
                 Optional.of("cape-a"),
                 Optional.empty()));
         operations.usePreset(saved.presetId());
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+        operations.reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         int uploadsBeforeEdit = api.skinUploads.get();
         int activationsBeforeEdit = api.capeActivations.get();
@@ -980,7 +981,7 @@ final class DefaultClientOperationsTest {
                 Optional.of("cape-b"),
                 Optional.empty()));
         ClientOperations.ReconciliationResult changed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.PENDING, edited.reappliedAppearance().orElseThrow().syncStatus());
@@ -1015,7 +1016,7 @@ final class DefaultClientOperationsTest {
                 Optional.of("cape-a"),
                 Optional.empty()));
         operations.usePreset(saved.presetId());
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+        operations.reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         api.profile = new RemoteProfile(
                 TestFixtures.ACCOUNT_ID,
@@ -1039,7 +1040,7 @@ final class DefaultClientOperationsTest {
                 Optional.of("cape-a"),
                 Optional.empty()));
         ClientOperations.ReconciliationResult changed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.PENDING, edited.reappliedAppearance().orElseThrow().syncStatus());
@@ -1067,7 +1068,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         first.usePreset(saved.presetId());
-        first.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START).orElseThrow();
+        first.reconcileAppearance(Trigger.PROCESS_START).orElseThrow();
         assertEquals(1, api.skinUploads.get());
         Files.delete(shared.assetPath(selectedSkin.sha256()));
 
@@ -1102,7 +1103,7 @@ final class DefaultClientOperationsTest {
         assertEquals(ProviderDelivery.Status.CONFIRMED,
                 edited.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery().status());
         ClientOperations.ReconciliationResult reconciled = second
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -1125,7 +1126,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty()));
         LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         ClientOperations.DurableAppearance offline = operations.reconcileAppearance(
-                ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow().appearance();
+                Trigger.LOCAL_INTENT).orElseThrow().appearance();
         assertEquals(0, api.profileGets.get());
         assertEquals(0, api.skinUploads.get());
         assertEquals(AppearanceSyncStatus.OFFICIAL, offline.syncStatus());
@@ -1136,9 +1137,9 @@ final class DefaultClientOperationsTest {
         assertEquals(AppearanceSyncStatus.PENDING, activated.syncStatus());
         assertEquals(0, api.profileGets.get());
         assertTrue(operations.reconcileAppearance(offline.reconciliationKey(),
-                ClientOperations.ReconciliationTrigger.LOCAL_INTENT).isEmpty());
+                Trigger.LOCAL_INTENT).isEmpty());
         ClientOperations.ReconciliationResult result = operations.reconcileAppearance(activated.reconciliationKey(),
-                ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow();
+                Trigger.LOCAL_INTENT).orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, result.appearance().syncStatus());
         assertEquals(1, api.skinUploads.get());
         assertEquals(0, api.capeActivations.get());
@@ -1184,7 +1185,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         LibraryEditorPort.PresetUse appliedA = onlineBeforeOffline.usePreset(confirmedA.presetId());
         ClientOperations.ReconciliationResult confirmed = onlineBeforeOffline
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, confirmed.appearance().syncStatus());
         var observedA = confirmed.appearance().providers().skin().minecraft();
@@ -1398,7 +1399,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -1453,7 +1454,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         ClientOperations.ReconciliationResult initial = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
         UUID officialPreset = initial.appearance().activePresetId().orElseThrow();
         LibraryEditorPort.EditorSave pendingB = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1475,7 +1476,7 @@ final class DefaultClientOperationsTest {
         assertTrue(refreshed.session().valid());
         assertEquals(profileGetsBeforeRefresh + 1, api.profileGets.get());
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
+                .reconcileAppearance(Trigger.SESSION_REFRESHED)
                 .orElseThrow();
 
         assertEquals(Optional.of(pendingB.presetId()), reconciled.appearance().activePresetId());
@@ -2894,7 +2895,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         firstClient.initialize();
         ClientOperations.ReconciliationResult firstOpen = firstClient
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         UUID presetId = firstOpen.appearance().activePresetId().orElseThrow();
         assertEquals(1, api.profileGets.get());
@@ -3243,7 +3244,7 @@ final class DefaultClientOperationsTest {
                 fixedClock());
         operations.initialize();
         ClientOperations.ReconciliationResult initial = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         UUID presetId = initial.account().presets().get(0).id();
 
@@ -3256,7 +3257,7 @@ final class DefaultClientOperationsTest {
                 deleted.appearance().orElseThrow().localAppearance().orElseThrow().localSkinSha256());
 
         ClientOperations.ReconciliationResult reset = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(MutationResult.APPLIED, reset.outcome().orElseThrow().result());
@@ -3312,7 +3313,7 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData reset = operations.resetLibrary();
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.PENDING, reset.syncStatus());
@@ -3353,7 +3354,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         PresetApplicationOutcome outcome = reconciled.outcome().orElseThrow();
 
@@ -3453,10 +3454,10 @@ final class DefaultClientOperationsTest {
 
         LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult checkpoint = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult automatic = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
 
         assertTrue(selected.localAppearance().isPresent());
@@ -3472,7 +3473,7 @@ final class DefaultClientOperationsTest {
 
         availableToken.set("restored-token");
         ClientOperations.ReconciliationResult explicit = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
+                .reconcileAppearance(Trigger.SESSION_REFRESHED)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, explicit.appearance().syncStatus());
@@ -3512,10 +3513,10 @@ final class DefaultClientOperationsTest {
         ClientOperations.InitialData initial = operations.initialize();
 
         ClientOperations.ReconciliationResult first = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult reopen = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(0, first.appearance().intentRevision());
@@ -3535,7 +3536,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult blockedIntent = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.PENDING, blockedIntent.appearance().syncStatus());
@@ -3545,7 +3546,7 @@ final class DefaultClientOperationsTest {
 
         availableToken.set("restored-token");
         ClientOperations.ReconciliationResult explicit = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
 
         assertTrue(explicit.session().valid());
@@ -3577,7 +3578,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<ClientOperations.ReconciliationResult> revisionZero = pool.submit(() -> operations
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                    .reconcileAppearance(Trigger.PROCESS_START)
                     .orElseThrow());
             assertTrue(profileStarted.await(5, TimeUnit.SECONDS));
 
@@ -3607,7 +3608,7 @@ final class DefaultClientOperationsTest {
 
         api.beforeProfileGet = null;
         ClientOperations.ReconciliationResult synchronizedIntent = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, synchronizedIntent.appearance().syncStatus());
@@ -3655,7 +3656,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -3690,7 +3691,7 @@ final class DefaultClientOperationsTest {
 
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult first = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, first.appearance().syncStatus());
         assertEquals(1, api.skinUploads.get());
@@ -3710,7 +3711,7 @@ final class DefaultClientOperationsTest {
 
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult reapplied = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reapplied.appearance().syncStatus());
@@ -3739,10 +3740,10 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult first = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult second = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.UNKNOWN, first.appearance().syncStatus());
@@ -3756,7 +3757,7 @@ final class DefaultClientOperationsTest {
         assertTrue(refreshed.session().valid());
         assertEquals(2, api.profileGets.get());
         ClientOperations.ReconciliationResult recovered = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED)
+                .reconcileAppearance(Trigger.SESSION_REFRESHED)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
@@ -3783,20 +3784,20 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult failed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PENDING, failed.appearance().syncStatus());
         api.profileFailure = null;
 
         ClientOperations.ReconciliationResult reconnect = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconnect.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
 
         ClientOperations.ReconciliationResult settled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, settled.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
@@ -3821,7 +3822,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -3850,10 +3851,10 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult first = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult automatic = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.UNKNOWN, first.appearance().syncStatus());
@@ -3863,7 +3864,7 @@ final class DefaultClientOperationsTest {
 
         api.profileFailure = null;
         ClientOperations.ReconciliationResult explicit = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, explicit.appearance().syncStatus());
@@ -3892,10 +3893,10 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult failed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         ClientOperations.ReconciliationResult automatic = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.UNKNOWN, failed.appearance().syncStatus());
@@ -3906,7 +3907,7 @@ final class DefaultClientOperationsTest {
 
         api.skinFailure = null;
         ClientOperations.ReconciliationResult explicit = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, explicit.appearance().syncStatus());
@@ -3934,7 +3935,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult failed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.UNKNOWN, failed.appearance().syncStatus());
         ProviderDelivery unknownSkin = failed.appearance().providers().skin().minecraftDelivery();
@@ -3973,7 +3974,7 @@ final class DefaultClientOperationsTest {
                 changedSibling.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery().status());
 
         ClientOperations.ReconciliationResult automatic = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.UNKNOWN, automatic.appearance().syncStatus());
         assertEquals(profileGetsAfterFailure, api.profileGets.get());
@@ -4000,7 +4001,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult failed = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.UNKNOWN, failed.appearance().syncStatus());
         api.skinFailure = null;
@@ -4042,7 +4043,7 @@ final class DefaultClientOperationsTest {
                 fixture.storage().loadAppearance(TestFixtures.ACCOUNT_ID).settledRevision());
 
         ClientOperations.ReconciliationResult reconciled = fixture.operations()
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -4068,7 +4069,7 @@ final class DefaultClientOperationsTest {
         assertEquals(AppearanceSyncStatus.PENDING,
                 edited.reappliedAppearance().orElseThrow().syncStatus());
         ClientOperations.ReconciliationResult reconciled = fixture.operations()
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, reconciled.appearance().syncStatus());
@@ -4101,7 +4102,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult limited = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PENDING, limited.appearance().syncStatus());
         assertEquals(ApiFailureKind.RATE_LIMITED, limited.outcome().orElseThrow().failureKind());
@@ -4131,7 +4132,7 @@ final class DefaultClientOperationsTest {
 
         api.rateLimitRemaining = Optional.empty();
         ClientOperations.ReconciliationResult afterCooldown = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED)
+                .reconcileAppearance(Trigger.RATE_LIMIT_EXPIRED)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, afterCooldown.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
@@ -4165,7 +4166,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult limited = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PENDING, limited.appearance().syncStatus());
         int profileGetsAfterLimit = api.profileGets.get();
@@ -4204,7 +4205,7 @@ final class DefaultClientOperationsTest {
                 latest.reappliedAppearance().orElseThrow().providers().skin().minecraftDelivery().intentRevision());
 
         ClientOperations.ReconciliationResult duringCooldown = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PENDING, duringCooldown.appearance().syncStatus());
         assertEquals(profileGetsAfterLimit, api.profileGets.get());
@@ -4213,7 +4214,7 @@ final class DefaultClientOperationsTest {
         api.skinFailure = null;
         api.rateLimitRemaining = Optional.empty();
         ClientOperations.ReconciliationResult recovered = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED)
+                .reconcileAppearance(Trigger.RATE_LIMIT_EXPIRED)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
         assertEquals(profileGetsAfterLimit + 1, api.profileGets.get());
@@ -4258,7 +4259,7 @@ final class DefaultClientOperationsTest {
         LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult partial = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.PARTIAL, partial.appearance().syncStatus());
@@ -4293,7 +4294,7 @@ final class DefaultClientOperationsTest {
 
         api.rateLimitRemaining = Optional.of(Duration.ofSeconds(60));
         ClientOperations.ReconciliationResult automatic = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.PARTIAL, automatic.appearance().syncStatus());
         assertEquals(localEdit.reappliedAppearance().orElseThrow().intentRevision(),
@@ -4319,7 +4320,7 @@ final class DefaultClientOperationsTest {
                 Set.of());
 
         ClientOperations.ReconciliationResult recovered = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED)
+                .reconcileAppearance(Trigger.RATE_LIMIT_EXPIRED)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
@@ -4352,7 +4353,7 @@ final class DefaultClientOperationsTest {
         LibraryEditorPort.PresetUse selected = operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult reconciled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
 
         assertEquals(selected.intentRevision() + 1, reconciled.appearance().intentRevision());
@@ -4434,7 +4435,7 @@ final class DefaultClientOperationsTest {
         int capeDeactivationsBeforeRecovery = api.capeDeactivations.get();
 
         ClientOperations.ReconciliationResult recovered = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, recovered.appearance().syncStatus());
@@ -4496,7 +4497,7 @@ final class DefaultClientOperationsTest {
         assertThrows(
                 IOException.class,
                 () -> operations.reconcileAppearance(
-                        ClientOperations.ReconciliationTrigger.LOCAL_INTENT));
+                        Trigger.LOCAL_INTENT));
 
         var durable = storage.loadAppearance(TestFixtures.ACCOUNT_ID);
         assertEquals(selected.intentRevision(), durable.intentRevision());
@@ -4535,7 +4536,7 @@ final class DefaultClientOperationsTest {
         RemoteMutationSettlementException failure = assertThrows(
                 RemoteMutationSettlementException.class,
                 () -> operations.reconcileAppearance(
-                        ClientOperations.ReconciliationTrigger.LOCAL_INTENT));
+                        Trigger.LOCAL_INTENT));
 
         assertEquals(RemoteAppearanceImpact.CONFIRMED_CHANGED, failure.remoteAppearanceImpact());
         assertEquals(1, api.skinUploads.get());
@@ -4558,10 +4559,21 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.ReconciliationResult official = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                .reconcileAppearance(Trigger.LOCAL_INTENT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, official.appearance().syncStatus());
         int getsBeforeRetry = api.profileGets.get();
+        int writesBeforeRetry = api.skinUploads.get();
+        for (var trigger : java.util.List.of(
+                Trigger.LOCAL_INTENT,
+                Trigger.PROCESS_START,
+                Trigger.RECONNECT)) {
+            var checkpoint = operations.reconcileAppearance(trigger).orElseThrow();
+            assertEquals(AppearanceSyncStatus.OFFICIAL, checkpoint.appearance().syncStatus());
+            assertTrue(checkpoint.outcome().isEmpty());
+            assertEquals(getsBeforeRetry, api.profileGets.get());
+            assertEquals(writesBeforeRetry, api.skinUploads.get());
+        }
         api.profileFailure = new ProfileApiException(
                 ApiFailureKind.SESSION_EXPIRED,
                 "expired",
@@ -4570,7 +4582,7 @@ final class DefaultClientOperationsTest {
                 false);
 
         ClientOperations.ReconciliationResult failedRetry = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
 
         assertEquals(AppearanceSyncStatus.OFFICIAL, failedRetry.appearance().syncStatus());
@@ -4579,7 +4591,7 @@ final class DefaultClientOperationsTest {
         api.profileFailure = null;
 
         ClientOperations.ReconciliationResult recovered = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
 
         assertTrue(recovered.session().valid());
@@ -4613,10 +4625,10 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<ClientOperations.ReconciliationResult> first = pool.submit(() -> writer
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                    .reconcileAppearance(Trigger.PROCESS_START)
                     .orElseThrow());
             Future<ClientOperations.ReconciliationResult> second = pool.submit(() -> contender
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                    .reconcileAppearance(Trigger.PROCESS_START)
                     .orElseThrow());
 
             firstResult = first.get();
@@ -4663,7 +4675,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<ClientOperations.ReconciliationResult> firstAttempt = pool.submit(() -> operations
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
             LibraryEditorPort.PresetUse newer = operations.usePreset(secondPreset.presetId());
@@ -4708,7 +4720,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> operations
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
             Future<LibraryEditorPort.EditorSave> localSave = pool.submit(() -> operations.saveEditor(
@@ -4739,7 +4751,7 @@ final class DefaultClientOperationsTest {
                     Set.of());
 
             ClientOperations.ReconciliationResult observed = operations
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                    .reconcileAppearance(Trigger.PROCESS_START)
                     .orElseThrow();
             assertEquals(AppearanceSyncStatus.OFFICIAL, observed.appearance().syncStatus());
             assertTrue(observed.outcome().isEmpty());
@@ -4778,7 +4790,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> operations
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
             LibraryEditorPort.EditorSave edited = pool.submit(() -> operations.saveEditor(
@@ -4793,7 +4805,7 @@ final class DefaultClientOperationsTest {
             assertEquals(AppearanceSyncStatus.ATTEMPTING, stale.appearance().syncStatus());
 
             ClientOperations.ReconciliationResult observed = operations
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                    .reconcileAppearance(Trigger.PROCESS_START)
                     .orElseThrow();
             assertEquals(AppearanceSyncStatus.UNKNOWN, observed.appearance().syncStatus());
             assertTrue(observed.outcome().isEmpty());
@@ -4841,7 +4853,7 @@ final class DefaultClientOperationsTest {
                 SkinVariant.CLASSIC, Optional.of("cape-a"), Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.DurableAppearance settled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow()
                 .appearance();
         assertEquals(AppearanceSyncStatus.OFFICIAL, settled.syncStatus());
@@ -4854,7 +4866,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> operations
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
             LibraryEditorPort.EditorSave secondEdit = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4893,7 +4905,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
             LibraryEditorPort.EditorSave changed = fixture.saveNewSkin("Unknown sibling");
@@ -4922,7 +4934,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
             fixture.storage().updateAppearance(TestFixtures.ACCOUNT_ID, current -> {
@@ -4966,7 +4978,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
             LibraryEditorPort.EditorSave changed = fixture.saveNewSkin("Disabled sibling");
@@ -4994,7 +5006,7 @@ final class DefaultClientOperationsTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             Future<ClientOperations.ReconciliationResult> mutation = pool.submit(() -> fixture.operations()
-                    .reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT)
+                    .reconcileAppearance(Trigger.LOCAL_INTENT)
                     .orElseThrow());
             assertTrue(fixture.mutationStarted().await(5, TimeUnit.SECONDS));
             fixture.operations().disableProvider(
@@ -5064,7 +5076,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations restarted = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.ReconciliationResult recovered = restarted
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(selected.intentRevision(), recovered.appearance().intentRevision());
@@ -5098,7 +5110,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations restarted = new DefaultClientOperations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.ReconciliationResult observed = restarted
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(selected.intentRevision(), observed.appearance().intentRevision());
         assertEquals(AppearanceSyncStatus.UNKNOWN, observed.appearance().syncStatus());
@@ -5106,14 +5118,14 @@ final class DefaultClientOperationsTest {
         assertEquals(0, api.skinUploads.get());
 
         ClientOperations.ReconciliationResult automatic = restarted
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.RECONNECT)
+                .reconcileAppearance(Trigger.RECONNECT)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.UNKNOWN, automatic.appearance().syncStatus());
         assertEquals(1, api.profileGets.get());
         assertEquals(0, api.skinUploads.get());
 
         ClientOperations.ReconciliationResult explicit = restarted
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY)
+                .reconcileAppearance(Trigger.EXPLICIT_RETRY)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, explicit.appearance().syncStatus());
         assertEquals(2, api.profileGets.get());
@@ -5174,13 +5186,12 @@ final class DefaultClientOperationsTest {
                 tokens, api, storage, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         UUID presetId = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow()
                 .account()
                 .presets()
                 .get(0)
                 .id();
-
 
         tokens.atomicIdentity = accountB;
         LibraryEditorPort.PresetDelete deletion = operations.deletePreset(presetId);
@@ -5218,7 +5229,7 @@ final class DefaultClientOperationsTest {
         operations.usePreset(saved.presetId());
 
         ClientOperations.ReconciliationResult blocked = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
 
         assertEquals(TestFixtures.ACCOUNT_ID, initial.account().accountId());
@@ -5284,11 +5295,11 @@ final class DefaultClientOperationsTest {
         Optional<ClientOperations.ReconciliationResult> crossed = accountBOperations.reconcileAppearance(
                 new ClientOperations.ReconciliationKey(
                         TestFixtures.ACCOUNT_ID, accountAIntent.intentRevision()),
-                ClientOperations.ReconciliationTrigger.PROCESS_START);
+                Trigger.PROCESS_START);
         Optional<ClientOperations.ReconciliationResult> stale = accountBOperations.reconcileAppearance(
                 new ClientOperations.ReconciliationKey(
                         accountB, accountBIntent.intentRevision() - 1),
-                ClientOperations.ReconciliationTrigger.PROCESS_START);
+                Trigger.PROCESS_START);
 
         assertTrue(crossed.isEmpty());
         assertTrue(stale.isEmpty());
@@ -5462,7 +5473,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = new DefaultClientOperations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+        operations.reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         UUID skinId = initial.account().skinAssets().get(0).id();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -5622,7 +5633,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         operations.usePreset(saved.presetId());
         ClientOperations.DurableAppearance settled = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow()
                 .appearance();
         assertEquals(AppearanceSyncStatus.OFFICIAL, settled.syncStatus());
@@ -5693,7 +5704,7 @@ final class DefaultClientOperationsTest {
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         ClientOperations.ReconciliationResult official = operations
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         ProviderSkin observed = official.appearance().providers().skin().desired();
         SkinAsset skinA = official.account().skinAssets().stream()
@@ -5746,7 +5757,7 @@ final class DefaultClientOperationsTest {
             SettledActiveFixture fixture,
             LibraryEditorPort.EditorSave edited) throws Exception {
         ClientOperations.ReconciliationResult checkpoint = fixture.operations()
-                .reconcileAppearance(ClientOperations.ReconciliationTrigger.PROCESS_START)
+                .reconcileAppearance(Trigger.PROCESS_START)
                 .orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, checkpoint.appearance().syncStatus());
         assertEquals(edited.reappliedAppearance().orElseThrow().intentRevision(),
@@ -5915,13 +5926,13 @@ final class DefaultClientOperationsTest {
                 Optional.empty(), "Manual default", SkinReference.asset(imported.asset().id()),
                 SkinVariant.SLIM, SkinVariant.SLIM, Optional.empty(), Optional.empty()));
         operations.usePreset(saved.presetId());
-        var applied = operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT).orElseThrow();
+        var applied = operations.reconcileAppearance(Trigger.LOCAL_INTENT).orElseThrow();
         assertEquals(AppearanceSyncStatus.OFFICIAL, applied.appearance().syncStatus());
         assertEquals(1, api.skinUploads.get());
         assertTrue(applied.appearance().providers().skin().minecraft().known());
         assertNull(applied.appearance().providers().skin().minecraft().value());
         assertNotNull(applied.appearance().providers().skin().offline().value());
-        operations.reconcileAppearance(ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+        operations.reconcileAppearance(Trigger.LOCAL_INTENT);
         assertEquals(1, api.skinUploads.get());
         assertEquals(0, api.skinResets.get());
     }

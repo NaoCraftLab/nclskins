@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
@@ -566,7 +567,7 @@ final class ClientRuntimeRegressionTest {
 
         assertEquals(1, operations.reconciliationCalls.get());
         assertEquals(
-                List.of(ClientOperations.ReconciliationTrigger.PROCESS_START),
+                List.of(Trigger.PROCESS_START),
                 operations.reconciliationTriggers);
         assertFalse(runtime.snapshot().syncInProgress());
     }
@@ -858,7 +859,7 @@ final class ClientRuntimeRegressionTest {
         private final AtomicInteger skinPreviewCalls = new AtomicInteger();
         private final AtomicInteger capePreviewCalls = new AtomicInteger();
         private final AtomicInteger reconciliationCalls = new AtomicInteger();
-        private final List<ReconciliationTrigger> reconciliationTriggers = new ArrayList<>();
+        private final List<Trigger> reconciliationTriggers = new ArrayList<>();
         private boolean failNextSkinPreview;
         private boolean failNextCapePreview;
         private boolean visibilityInResults;
@@ -892,7 +893,7 @@ final class ClientRuntimeRegressionTest {
 
         @Override
         public Optional<ReconciliationResult> reconcileAppearance(
-                ReconciliationTrigger trigger) {
+                Trigger trigger) {
             reconciliationCalls.incrementAndGet();
             reconciliationTriggers.add(trigger);
             return Optional.empty();

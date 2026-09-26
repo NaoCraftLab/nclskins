@@ -2,7 +2,6 @@ package com.naocraftlab.skins.core.service;
 
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.core.api.ApiFailureKind;
-import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileApiException;
 import com.naocraftlab.skins.core.model.AppearancePreset;
 import com.naocraftlab.skins.core.model.MutationResult;
@@ -11,41 +10,31 @@ import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteProfile;
 import com.naocraftlab.skins.core.model.RemoteSkin;
 import com.naocraftlab.skins.core.model.SkinReference;
-import com.naocraftlab.skins.core.storage.NclSkinsStorage;
-import com.naocraftlab.skins.core.storage.ProcessFileLock;
-import com.naocraftlab.skins.core.storage.TextureCache;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 
-
 public final class AppearanceMutationService {
-    private final ProfileApi api;
-    private final NclSkinsStorage storage;
-    private final TextureCache textureCache;
+    private final ProfileSessionPort api;
+    private final MutationGuard storage;
+    private final MutationTextureIdentity textureCache;
     private final RemoteSessionGate gate;
     private final SessionValidationService validationService;
 
-
     public AppearanceMutationService(
-            ProfileApi api,
-            NclSkinsStorage storage,
+            ProfileSessionPort api,
+            MutationGuard storage,
+            MutationTextureIdentity textureCache,
             RemoteSessionGate gate,
             SessionValidationService validationService) {
         this.api = Objects.requireNonNull(api, "api");
         this.storage = Objects.requireNonNull(storage, "storage");
-        this.textureCache = new TextureCache(storage);
+        this.textureCache = Objects.requireNonNull(textureCache, "textureCache");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.validationService = Objects.requireNonNull(validationService, "validationService");
     }
@@ -56,7 +45,6 @@ public final class AppearanceMutationService {
             PresetApplicationRequest request) {
         return applyPreset(tokenSource, request, () -> true);
     }
-
 
     @SuppressWarnings("try")
     public PresetApplicationOutcome applyPreset(
@@ -74,13 +62,12 @@ public final class AppearanceMutationService {
             return sessionExpired(ApplicationPhase.VALIDATION, null, null, null, false);
         }
 
-        try (ProcessFileLock ignored = storage.acquireRemoteMutationLock(identity.profileId())) {
+        try (MutationGuard.Lease ignored = storage.acquireRemoteMutationLock(identity.profileId())) {
             return applyPresetWhileLocked(tokenSource, request, stillCurrent);
         } catch (IOException exception) {
             return localFailure("The per-account mutation lock could not be acquired.");
         }
     }
-
 
     public PresetApplicationOutcome applyPresetWhileLocked(
             GameSessionTokenSource tokenSource,
@@ -88,7 +75,6 @@ public final class AppearanceMutationService {
             BooleanSupplier stillCurrent) {
         return applyPresetWhileLocked(tokenSource, request, stillCurrent, false);
     }
-
 
     public PresetApplicationOutcome applyPresetWhileLockedAfterSameTokenValidation(
             GameSessionTokenSource tokenSource,
@@ -124,13 +110,12 @@ public final class AppearanceMutationService {
             return unresolved;
         }
         try {
-            return tokenSource.withAccessToken(accessToken -> applyScoped(
-                    accessToken, identity, request, sameTokenProfileValidated, stillCurrent));
+            return api.withSession(tokenSource, effects -> applyScoped(
+                    effects, identity, request, sameTokenProfileValidated, stillCurrent));
         } catch (RuntimeException exception) {
             return credentialFailure("The running Minecraft session could not provide credentials.");
         }
     }
-
 
     @SuppressWarnings("try")
     public PresetApplicationOutcome retryCape(GameSessionTokenSource tokenSource, String capeId) {
@@ -145,11 +130,11 @@ public final class AppearanceMutationService {
         if (gate.remoteControlsBlocked(identity.profileId())) {
             return sessionExpired(ApplicationPhase.VALIDATION, null, null, null, false);
         }
-        try (ProcessFileLock ignored = storage.acquireRemoteMutationLock(identity.profileId())) {
+        try (MutationGuard.Lease ignored = storage.acquireRemoteMutationLock(identity.profileId())) {
             if (gate.remoteControlsBlocked(identity.profileId())) {
                 return sessionExpired(ApplicationPhase.VALIDATION, null, null, null, false);
             }
-            return tokenSource.withAccessToken(accessToken -> retryCapeScoped(accessToken, identity, capeId));
+            return api.withSession(tokenSource, effects -> retryCapeScoped(effects, identity, capeId));
         } catch (IOException exception) {
             return localFailure("The per-account mutation lock could not be acquired.");
         } catch (RuntimeException exception) {
@@ -157,14 +142,12 @@ public final class AppearanceMutationService {
         }
     }
 
-
     public PresetApplicationOutcome retryCapeWhileLocked(
             GameSessionTokenSource tokenSource,
             String capeId,
             BooleanSupplier stillCurrent) {
         return retryCapeWhileLocked(tokenSource, capeId, stillCurrent, false);
     }
-
 
     public PresetApplicationOutcome retryCapeWhileLockedAfterSameTokenValidation(
             GameSessionTokenSource tokenSource,
@@ -198,14 +181,13 @@ public final class AppearanceMutationService {
             return unresolved;
         }
         try {
-            return tokenSource.withAccessToken(accessToken ->
+            return api.withSession(tokenSource, effects ->
                     retryCapeScoped(
-                            accessToken, identity, capeId, sameTokenProfileValidated, stillCurrent));
+                            effects, identity, capeId, sameTokenProfileValidated, stillCurrent));
         } catch (RuntimeException exception) {
             return credentialFailure("The running Minecraft session could not provide credentials.");
         }
     }
-
 
     @SuppressWarnings("try")
     public PresetApplicationOutcome applySkinOnly(
@@ -213,7 +195,6 @@ public final class AppearanceMutationService {
             ResolvedSkinAsset resolvedSkin) {
         return applySkinOnly(tokenSource, resolvedSkin, false);
     }
-
 
     @SuppressWarnings("try")
     public PresetApplicationOutcome forceApplySkinOnly(
@@ -235,12 +216,12 @@ public final class AppearanceMutationService {
         if (gate.remoteControlsBlocked(identity.profileId())) {
             return sessionExpired(ApplicationPhase.VALIDATION, null, null, null, false);
         }
-        try (ProcessFileLock ignored = storage.acquireRemoteMutationLock(identity.profileId())) {
+        try (MutationGuard.Lease ignored = storage.acquireRemoteMutationLock(identity.profileId())) {
             if (gate.remoteControlsBlocked(identity.profileId())) {
                 return sessionExpired(ApplicationPhase.VALIDATION, null, null, null, false);
             }
-            return tokenSource.withAccessToken(accessToken ->
-                    applySkinOnlyScoped(accessToken, identity, resolvedSkin, forceMutation));
+            return api.withSession(tokenSource, effects ->
+                    applySkinOnlyScoped(effects, identity, resolvedSkin, forceMutation));
         } catch (IOException exception) {
             return localFailure("The per-account mutation lock could not be acquired.");
         } catch (RuntimeException exception) {
@@ -249,14 +230,14 @@ public final class AppearanceMutationService {
     }
 
     private PresetApplicationOutcome applyScoped(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             PresetApplicationRequest request) {
-        return applyScoped(accessToken, identity, request, false, () -> true);
+        return applyScoped(effects, identity, request, false, () -> true);
     }
 
     private PresetApplicationOutcome applyScoped(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             PresetApplicationRequest request,
             boolean sameTokenProfileValidated,
@@ -266,10 +247,9 @@ public final class AppearanceMutationService {
         }
         String requestedCape = request.writeCape() ? request.preset().capeId() : null;
 
-
         SessionValidation validation = sameTokenProfileValidated
-                ? validationService.cachedOrValidateScoped(accessToken, identity, requestedCape)
-                : validationService.validateScoped(accessToken, identity, requestedCape);
+                ? validationService.cachedOrValidateScoped(effects, identity, requestedCape)
+                : validationService.validateScoped(effects, identity, requestedCape);
         if (!validation.valid()) {
             return fromValidation(validation);
         }
@@ -283,7 +263,7 @@ public final class AppearanceMutationService {
         }
 
         SkinStep skinStep = request.writeSkin()
-                ? mutateSkin(accessToken, identity, request, before)
+                ? mutateSkin(effects, identity, request, before)
                 : SkinStep.applied(before, false);
         if (!skinStep.applied()) {
             return skinFailureOutcome(skinStep, before);
@@ -305,7 +285,7 @@ public final class AppearanceMutationService {
                     "A newer local appearance superseded this request.");
         }
         CapeStep capeStep = request.writeCape()
-                ? mutateCape(accessToken, identity, requestedCape, skinStep.profile())
+                ? mutateCape(effects, identity, requestedCape, skinStep.profile())
                 : CapeStep.applied(skinStep.profile(), false);
         if (!capeStep.applied()) {
             AppliedAppearance applied = skinStep.changed()
@@ -342,14 +322,14 @@ public final class AppearanceMutationService {
     }
 
     private PresetApplicationOutcome retryCapeScoped(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             String capeId) {
-        return retryCapeScoped(accessToken, identity, capeId, false, () -> true);
+        return retryCapeScoped(effects, identity, capeId, false, () -> true);
     }
 
     private PresetApplicationOutcome retryCapeScoped(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             String capeId,
             boolean sameTokenProfileValidated,
@@ -358,8 +338,8 @@ public final class AppearanceMutationService {
             return localFailure("A newer local appearance superseded this request.");
         }
         SessionValidation validation = sameTokenProfileValidated
-                ? validationService.cachedOrValidateScoped(accessToken, identity, capeId)
-                : validationService.validateScoped(accessToken, identity, capeId);
+                ? validationService.cachedOrValidateScoped(effects, identity, capeId)
+                : validationService.validateScoped(effects, identity, capeId);
         if (!validation.valid()) {
             return fromValidation(validation);
         }
@@ -370,7 +350,7 @@ public final class AppearanceMutationService {
         if (!stillCurrent.getAsBoolean()) {
             return localFailure("A newer local appearance superseded this request.");
         }
-        CapeStep capeStep = mutateCape(accessToken, identity, capeId, before);
+        CapeStep capeStep = mutateCape(effects, identity, capeId, before);
         if (!capeStep.applied()) {
             return capeFailureOutcome(capeStep, before, before, false, null);
         }
@@ -385,11 +365,11 @@ public final class AppearanceMutationService {
     }
 
     private PresetApplicationOutcome applySkinOnlyScoped(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             ResolvedSkinAsset resolvedSkin,
             boolean forceMutation) {
-        SessionValidation validation = validationService.validateScoped(accessToken, identity, null);
+        SessionValidation validation = validationService.validateScoped(effects, identity, null);
         if (!validation.valid()) {
             return fromValidation(validation);
         }
@@ -404,7 +384,7 @@ public final class AppearanceMutationService {
         AppearancePreset transientPreset = new AppearancePreset(
                 UUID.randomUUID(), "Save & Use", reference, null, now, now);
         SkinStep skinStep = mutateSkin(
-                accessToken,
+                effects,
                 identity,
                 new PresetApplicationRequest(transientPreset, resolvedSkin),
                 before,
@@ -426,15 +406,15 @@ public final class AppearanceMutationService {
     }
 
     private SkinStep mutateSkin(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             PresetApplicationRequest request,
             RemoteProfile before) {
-        return mutateSkin(accessToken, identity, request, before, false);
+        return mutateSkin(effects, identity, request, before, false);
     }
 
     private SkinStep mutateSkin(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             PresetApplicationRequest request,
             RemoteProfile before,
@@ -446,10 +426,10 @@ public final class AppearanceMutationService {
 
         try {
             if (accountDefault) {
-                api.resetSkin(accessToken);
+                effects.resetSkin();
             } else {
                 ResolvedSkinAsset resolved = request.resolvedSkin();
-                api.uploadSkin(accessToken, resolved.variant(), resolved.pngBytes());
+                effects.uploadSkin(resolved.variant(), resolved.pngBytes());
             }
         } catch (ProfileApiException exception) {
             if (exception.sessionExpired()) {
@@ -473,7 +453,7 @@ public final class AppearanceMutationService {
     }
 
     private CapeStep mutateCape(
-            String accessToken,
+            ProfileSessionPort.Effects effects,
             GameSessionTokenSource.SessionIdentity identity,
             String capeId,
             RemoteProfile skinProfile) {
@@ -482,9 +462,9 @@ public final class AppearanceMutationService {
         }
         try {
             if (capeId == null) {
-                api.deactivateCape(accessToken);
+                effects.deactivateCape();
             } else {
-                api.activateCape(accessToken, capeId);
+                effects.activateCape(capeId);
             }
         } catch (ProfileApiException exception) {
             if (exception.sessionExpired()) {
@@ -518,7 +498,6 @@ public final class AppearanceMutationService {
             return true;
         }
 
-
         if (validationService.hasAcknowledgedSkinState(profileId)) {
             return false;
         }
@@ -527,8 +506,7 @@ public final class AppearanceMutationService {
             return false;
         }
         try {
-            Path cached = textureCache.cachePath(active.textureUri());
-            if (!Files.isRegularFile(cached) || !requested.sha256().equals(sha256(cached))) {
+            if (!textureCache.cachedContentMatches(active.textureUri(), requested.sha256())) {
                 return false;
             }
             validationService.rememberAppliedSkin(profileId, requested);
@@ -722,24 +700,6 @@ public final class AppearanceMutationService {
             return Objects.requireNonNull(tokenSource.currentSession(), "currentSession");
         } catch (RuntimeException unavailableSession) {
             return null;
-        }
-    }
-
-    private static String sha256(Path path) throws IOException {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            try (InputStream input = Files.newInputStream(path)) {
-                byte[] buffer = new byte[16 * 1024];
-                int read;
-                while ((read = input.read(buffer)) >= 0) {
-                    if (read > 0) {
-                        digest.update(buffer, 0, read);
-                    }
-                }
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("JVM does not provide SHA-256", impossible);
         }
     }
 

@@ -11,8 +11,9 @@ import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderCape;
 import com.naocraftlab.skins.core.provider.ProviderObservation;
-import com.naocraftlab.skins.core.storage.NclSkinsStorage;
-import com.naocraftlab.skins.core.storage.TextureCache;
+import com.naocraftlab.skins.core.service.AccountAppearanceStore;
+import com.naocraftlab.skins.core.service.AssetStorePort;
+import com.naocraftlab.skins.core.service.ProviderTextureStore;
 
 import java.io.IOException;
 import java.net.URI;
@@ -42,15 +43,16 @@ public final class CapeProviderCoordinator implements AutoCloseable {
     private final RemoteCapeScheduler optifineSchedule = new RemoteCapeScheduler(BuiltinProvider.OPTIFINE);
     private final RemoteCapeScheduler skinMcSchedule = new RemoteCapeScheduler(BuiltinProvider.SKINMC);
     private final GameSessionTokenSource tokenSource;
-    private final NclSkinsStorage storage;
-    private final TextureCache textures;
+    private final AccountAppearanceStore storage;
+    private final AssetStorePort assets;
+    private final ProviderTextureStore textures;
     private final PlayerAppearanceSink<?> sink;
     private final OwnedCapeTextures nativeTextures;
     private final ClientExecutor clientExecutor;
     private final Executor worker;
     private final CapePreparationQueue preparations;
-    private final OptifineCapeReader reader;
-    private final SkinMcCapeReader skinMcReader;
+    private final CapeObservationReader reader;
+    private final CapeObservationReader skinMcReader;
     private final BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri;
     private final Map<UUID, CapeProjection.Identity> tracked = new HashMap<>();
     private final Map<CapeProjection.Identity, Observed> observed = new HashMap<>();
@@ -78,35 +80,13 @@ public final class CapeProviderCoordinator implements AutoCloseable {
     private ProjectionState publishedProjection;
     private volatile boolean closed;
 
-    public CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
-            TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
-            Executor worker, BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri) {
-        this(tokenSource, storage, textures, sink, clientExecutor, worker,
-                new OptifineCapeReader(), new SkinMcCapeReader(), officialCapeUri);
-    }
-
-    CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
-            TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
-            Executor worker, OptifineCapeReader reader) {
-        this(tokenSource, storage, textures, sink, clientExecutor, worker, reader,
-                new SkinMcCapeReader(),
-                (accountId, capeId) -> java.util.Optional.empty());
-    }
-
-    CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
-            TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
-            Executor worker, OptifineCapeReader reader,
-            BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri) {
-        this(tokenSource, storage, textures, sink, clientExecutor, worker, reader,
-                new SkinMcCapeReader(), officialCapeUri);
-    }
-
-    CapeProviderCoordinator(GameSessionTokenSource tokenSource, NclSkinsStorage storage,
-            TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
-            Executor worker, OptifineCapeReader reader, SkinMcCapeReader skinMcReader,
+    CapeProviderCoordinator(GameSessionTokenSource tokenSource, AccountAppearanceStore storage, AssetStorePort assets,
+            ProviderTextureStore textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
+            Executor worker, CapeObservationReader reader, CapeObservationReader skinMcReader,
             BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri) {
         this.tokenSource = Objects.requireNonNull(tokenSource, "tokenSource");
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.assets = Objects.requireNonNull(assets, "assets");
         this.textures = Objects.requireNonNull(textures, "textures");
         this.sink = Objects.requireNonNull(sink, "sink");
         this.nativeTextures = new OwnedCapeTextures(sink);
@@ -648,7 +628,7 @@ public final class CapeProviderCoordinator implements AutoCloseable {
         notifySneakySelf(ProviderObservation.unknown());
         if (selected == null) return;
         sneakyProcessor.prepare("asset:" + selected, () -> {
-            byte[] skin = storage.readAsset(selected);
+            byte[] skin = assets.readAsset(selected);
             PngValidator.CapePng cape = new SneakyCapeDecoder().decode(skin).orElse(null);
             String cacheKey = cape == null ? null : textures.storeObservedCape(cape);
             return new SneakyCapeProcessor.Prepared(cape, cacheKey);
@@ -817,14 +797,12 @@ public final class CapeProviderCoordinator implements AutoCloseable {
                     byte[] bytes = cape.textureCacheKey() == null ? null
                             : textures.readIfCached(cape.textureCacheKey()).orElse(null);
                     if (bytes == null && provider == BuiltinProvider.OFFLINE
-                            && cape.textureCacheKey() != null
-                            && java.nio.file.Files.isRegularFile(storage.capeAssetPath(
-                                    identity.profileId(), cape.textureCacheKey()))) {
-                        bytes = storage.readCapeAsset(identity.profileId(), cape.textureCacheKey());
+                            && cape.textureCacheKey() != null) {
+                        bytes = textures.readLocalCape(identity.profileId(), cape.textureCacheKey()).orElse(null);
                     }
                     if (bytes == null && provider == BuiltinProvider.MINECRAFT) {
                         java.util.Optional<URI> uri = officialCapeUri.apply(identity.profileId(), cape.id());
-                        if (uri.isPresent()) bytes = textures.read(textures.get(uri.orElseThrow()));
+                        if (uri.isPresent()) bytes = textures.load(uri.orElseThrow());
                     }
                     if (bytes == null) continue;
                     var png = new PngValidator().projectCanonicalCape(bytes);
@@ -1184,15 +1162,11 @@ public final class CapeProviderCoordinator implements AutoCloseable {
         private java.util.Optional<java.time.Duration> cooldownRemaining() { return CapeProviderCoordinator.this.cooldownRemaining(provider); }
         private long accountEpoch() { return provider == BuiltinProvider.OPTIFINE ? reader.accountEpoch() : skinMcReader.accountEpoch(); }
         private RemoteRead read(CapeProjection.Identity identity, long accountEpoch) {
-            if (provider == BuiltinProvider.OPTIFINE) {
-                var result = reader.read(identity.canonicalName(), accountEpoch);
-                return new RemoteRead(ReadKind.valueOf(result.kind().name()), result.cape(),
-                        result.failure() == OptifineCapeReader.Failure.RATE_LIMITED);
-            }
-            var result = skinMcReader.read(identity.profileId(), accountEpoch);
-            return new RemoteRead(ReadKind.valueOf(result.kind().name()), result.cape(),
-                    result.failure() == SkinMcCapeReader.Failure.RATE_LIMITED);
+            var result = (provider == BuiltinProvider.OPTIFINE ? reader : skinMcReader)
+                    .observe(identity.profileId(), identity.canonicalName(), accountEpoch);
+            return new RemoteRead(ReadKind.valueOf(result.kind().name()), result.cape(), result.rateLimited());
         }
+
         private Persisted persist(CapeProjection.Identity identity, Request request, RemoteRead result) {
             return persistRemoteSelf(provider, identity, request, result);
         }

@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
-public final class OptifineCapeReader {
+public final class OptifineCapeReader implements CapeObservationReader {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     private final Transport transport;
@@ -51,11 +51,11 @@ public final class OptifineCapeReader {
         return cooldown.remaining();
     }
 
-    long accountEpoch() {
+    public long accountEpoch() {
         return cooldownEpoch.get();
     }
 
-    synchronized void accountChanged() {
+    public synchronized void accountChanged() {
         cooldownEpoch.incrementAndGet();
     }
 
@@ -98,6 +98,12 @@ public final class OptifineCapeReader {
         } catch (IOException failed) {
             return Outcome.failure(Failure.NETWORK);
         }
+    }
+
+    public CapeObservationReader.Result observe(UUID account, String canonicalName, long epoch) {
+        var result = read(canonicalName, epoch);
+        return new CapeObservationReader.Result(CapeObservationReader.Kind.valueOf(result.kind().name()),
+                result.cape(), result.failure() == Failure.RATE_LIMITED);
     }
 
     public enum Failure {

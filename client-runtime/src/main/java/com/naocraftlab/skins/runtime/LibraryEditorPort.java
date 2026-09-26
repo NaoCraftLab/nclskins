@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.naocraftlab.skins.runtime.ClientOperations.DurableAppearance;
+import com.naocraftlab.skins.runtime.AccountReconciliationPort.DurableAppearance;
 import com.naocraftlab.skins.runtime.ClientOperations.RemoteResult;
 import com.naocraftlab.skins.runtime.CatalogMaterialization.FrozenCatalogSelection;
 

@@ -62,7 +62,7 @@ class CapeProviderCoordinatorTest {
                     skinMcStatus.get() == 200 ? fixture.image : new byte[0],
                     Map.of("Content-Type", List.of("image/png")));
         }, new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -109,7 +109,7 @@ class CapeProviderCoordinatorTest {
             return new OptifineCapeReader.Response(429, new byte[0],
                     Map.of("Retry-After", List.of("120")));
         }, new PngValidator(), clock);
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -156,7 +156,7 @@ class CapeProviderCoordinatorTest {
                     new byte[0], skinMcProfiles.size() == 1
                             ? Map.of("Retry-After", List.of("120")) : Map.of());
         }, new PngValidator(), clock);
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, optifine, skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -201,7 +201,7 @@ class CapeProviderCoordinatorTest {
             return new OptifineCapeReader.Response(read == 1 ? 429 : 404, new byte[0],
                     read == 1 ? Map.of("Retry-After", List.of("120")) : Map.of());
         }, new PngValidator(), clock);
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -233,7 +233,7 @@ class CapeProviderCoordinatorTest {
             return new OptifineCapeReader.Response(call == 1 ? 429 : 404, new byte[0],
                     call == 1 ? Map.of("Retry-After", List.of("120")) : Map.of());
         }, new PngValidator(), clock);
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -262,7 +262,7 @@ class CapeProviderCoordinatorTest {
             return new OptifineCapeReader.Response(200, fixture.image,
                     Map.of("Content-Type", List.of("image/png")));
         }, new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -288,7 +288,7 @@ class CapeProviderCoordinatorTest {
             return new OptifineCapeReader.Response(200, fixture.image,
                     Map.of("Content-Type", List.of("image/png")));
         }, new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 Runnable::run, fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -328,7 +328,7 @@ class CapeProviderCoordinatorTest {
                 new OptifineCapeReader.Response(200, fixture.image,
                         Map.of("Content-Type", List.of("image/png"))),
                 new PngValidator(), Clock.systemUTC());
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -366,7 +366,7 @@ class CapeProviderCoordinatorTest {
         fixture.status = 503;
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -388,7 +388,7 @@ class CapeProviderCoordinatorTest {
         fixture.status = 200;
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -439,7 +439,7 @@ class CapeProviderCoordinatorTest {
         assertTrue(fixture.storage.loadAppearance(self).providers().cape().optifine().known());
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.storage.updateAppearance(self, state -> state.withProviders(state.providers()
@@ -507,7 +507,7 @@ class CapeProviderCoordinatorTest {
 
             fixture.status = 503;
             ManualExecutor held = new ManualExecutor();
-            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                     fixture.reader());
             fixture.coordinator.start();
@@ -537,7 +537,7 @@ class CapeProviderCoordinatorTest {
             fixture.coordinator.close();
 
             ManualExecutor heldValid = new ManualExecutor();
-            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                     heldValid, fixture.reader());
             fixture.coordinator.start();
@@ -552,7 +552,7 @@ class CapeProviderCoordinatorTest {
             assertFalse(new PngValidator().projectCanonicalCape(substituted).renderSha256().equals(key));
             Files.write(new TextureCache(fixture.storage).cachePath(key), substituted);
             ManualExecutor heldTampered = new ManualExecutor();
-            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                     heldTampered, fixture.reader());
             fixture.coordinator.start();
@@ -566,7 +566,7 @@ class CapeProviderCoordinatorTest {
             Files.write(new TextureCache(fixture.storage).cachePath(key), new byte[] {1, 2, 3});
             ManualExecutor heldMalformed = new ManualExecutor();
             fixture.status = 503;
-            fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+            fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                     new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                     heldMalformed, fixture.reader());
             int previousCalls = fixture.calls.get();
@@ -588,7 +588,7 @@ class CapeProviderCoordinatorTest {
         fixture.image = detailedPng(92);
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -612,7 +612,7 @@ class CapeProviderCoordinatorTest {
         Fixture fixture = fixture();
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         UUID remote = UUID.randomUUID();
@@ -735,7 +735,7 @@ class CapeProviderCoordinatorTest {
             return new OptifineCapeReader.Response(404, new byte[0]);
         }, new PngValidator(), Clock.systemUTC());
         ManualExecutor held = new ManualExecutor();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
         fixture.coordinator.start();
@@ -787,7 +787,7 @@ class CapeProviderCoordinatorTest {
         fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(remote, "Remote"));
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -885,7 +885,7 @@ class CapeProviderCoordinatorTest {
         fixture.status = 200;
         CountingExecutor preparations = new CountingExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(),
                 preparations, fixture.reader());
         fixture.coordinator.start();
@@ -926,7 +926,7 @@ class CapeProviderCoordinatorTest {
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
         TextureCache cache = new TextureCache(fixture.storage);
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 cache, fixture.sink, new ImmediateClient(), held, fixture.reader());
         fixture.coordinator.start();
         UUID self = fixture.session.currentSession().profileId();
@@ -955,7 +955,7 @@ class CapeProviderCoordinatorTest {
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
         TextureCache cache = new TextureCache(fixture.storage);
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 cache, fixture.sink, new ImmediateClient(), held, fixture.reader());
         fixture.coordinator.start();
         while (!held.jobs.isEmpty()) held.runNext();
@@ -1023,7 +1023,7 @@ class CapeProviderCoordinatorTest {
         fixture.status = 200;
         ManualExecutor held = new ManualExecutor();
         fixture.coordinator.close();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();
@@ -1067,7 +1067,7 @@ class CapeProviderCoordinatorTest {
         fixture.status = 200;
         fixture.coordinator.start();
         CapeProviderCoordinator old = fixture.coordinator;
-        CapeProviderCoordinator next = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        CapeProviderCoordinator next = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), Runnable::run,
                 fixture.reader());
         next.start();
@@ -1090,7 +1090,7 @@ class CapeProviderCoordinatorTest {
                 .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
                 .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
         HoldExecutor worker = new HoldExecutor();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), worker,
                 fixture.reader());
         fixture.coordinator.start();
@@ -1142,7 +1142,7 @@ class CapeProviderCoordinatorTest {
                 .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
                 .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
         HoldExecutor worker = new HoldExecutor();
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), worker,
                 fixture.reader());
         fixture.coordinator.start();
@@ -1474,7 +1474,7 @@ class CapeProviderCoordinatorTest {
         Files.write(cache.cachePath(TextureCache.cacheKey(official)), png());
         fixture.coordinator.close();
         fixture.status = 200;
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 cache, fixture.sink, new ImmediateClient(), Runnable::run, fixture.reader(),
                 (accountId, capeId) -> accountId.equals(self) && capeId.equals("official")
                         ? Optional.of(official) : Optional.empty());
@@ -1493,7 +1493,7 @@ class CapeProviderCoordinatorTest {
         FakeSink sink = new FakeSink();
         Fixture fixture = new Fixture(session, storage, sink);
         fixture.image = png();
-        fixture.coordinator = new CapeProviderCoordinator(session, storage, new TextureCache(storage),
+        fixture.coordinator = CapeTestComposition.create(session, storage, new TextureCache(storage),
                 sink, new ImmediateClient(), Runnable::run, fixture.reader());
         return fixture;
     }
@@ -1506,7 +1506,7 @@ class CapeProviderCoordinatorTest {
         fixture.worker = held;
         UUID remote = UUID.randomUUID();
         fixture.sink.players.add(new PlayerAppearanceSink.TrackedCapePlayer(remote, "Remote"));
-        fixture.coordinator = new CapeProviderCoordinator(fixture.session, fixture.storage,
+        fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), held,
                 fixture.reader());
         fixture.coordinator.start();

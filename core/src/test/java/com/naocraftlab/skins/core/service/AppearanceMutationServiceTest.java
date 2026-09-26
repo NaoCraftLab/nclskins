@@ -442,9 +442,9 @@ class AppearanceMutationServiceTest {
 
     private Services services(ProfileApi api, RemoteSessionGate gate) {
         NclSkinsStorage storage = storage();
-        SessionValidationService sessions = new SessionValidationService(api, gate);
+        SessionValidationService sessions = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), gate);
         AppearanceMutationService mutations =
-                new AppearanceMutationService(api, storage, gate, sessions);
+                new AppearanceMutationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new com.naocraftlab.skins.core.storage.MutationStorageAdapter(storage), new com.naocraftlab.skins.core.storage.MutationStorageAdapter(storage), gate, sessions);
         return new Services(storage, sessions, mutations);
     }
 

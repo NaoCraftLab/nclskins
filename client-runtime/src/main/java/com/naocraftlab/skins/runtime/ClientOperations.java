@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface ClientOperations extends AutoCloseable, CapeObservationPort, CatalogRead, CatalogMaterialization, ImportOperations, LibraryEditorPort, UiPreferencesPort, ProviderOperations, ClientSessionView, PreviewAssetSource {
+public interface ClientOperations extends AccountReconciliationPort, AutoCloseable, CapeObservationPort, CatalogRead, CatalogMaterialization, ImportOperations, LibraryEditorPort, UiPreferencesPort, ProviderOperations, ClientSessionView, PreviewAssetSource {
 
     void verifyStorageAccess() throws Exception;
 
@@ -67,34 +67,6 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort, Ca
 
     InitialData resetLibrary() throws Exception;
 
-    default Optional<ReconciliationResult> reconcileAppearance(ReconciliationTrigger trigger)
-            throws Exception {
-        Objects.requireNonNull(trigger, "trigger");
-        return Optional.empty();
-    }
-
-    default Optional<ReconciliationResult> reconcileAppearance(
-            ReconciliationKey expected, ReconciliationTrigger trigger) throws Exception {
-        Objects.requireNonNull(expected, "expected");
-        Objects.requireNonNull(trigger, "trigger");
-        if (!reconciliationKey().filter(expected::equals).isPresent()) {
-            return Optional.empty();
-        }
-        return reconcileAppearance(trigger);
-    }
-
-    default Optional<ReconciliationKey> reconciliationKey() throws Exception {
-        UUID currentAccountId = sessionIdentity().profileId();
-        Optional<DurableAppearance> durable = durableAppearance();
-        if (durable.isPresent()
-                && !durable.orElseThrow().accountId().equals(currentAccountId)) {
-            return Optional.empty();
-        }
-        return Optional.of(durable
-                .map(DurableAppearance::reconciliationKey)
-                .orElseGet(() -> new ReconciliationKey(currentAccountId, 0)));
-    }
-
     RemoteResult retryCape(String capeId) throws Exception;
 
     RemoteResult restorePreviousAppearance(PresetApplicationOutcome outcome) throws Exception;
@@ -102,10 +74,6 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort, Ca
     InitialData retrySession() throws Exception;
 
     default Optional<AppliedAppearance> acknowledgedAppearance() {
-        return Optional.empty();
-    }
-
-    default Optional<DurableAppearance> durableAppearance() throws Exception {
         return Optional.empty();
     }
 
@@ -266,90 +234,6 @@ public interface ClientOperations extends AutoCloseable, CapeObservationPort, Ca
             }
             if (!ownedCapes.accountId().equals(account.accountId())) {
                 throw new IllegalArgumentException("Owned capes belong to another account");
-            }
-        }
-    }
-
-    enum ReconciliationTrigger {
-        LOCAL_INTENT,
-        PROCESS_START,
-        RECONNECT,
-        RATE_LIMIT_EXPIRED,
-        EXPLICIT_RETRY,
-        SESSION_REFRESHED
-    }
-
-    record ReconciliationKey(UUID accountId, long intentRevision, long skinActivation, long capeActivation) {
-        public ReconciliationKey(UUID accountId, long intentRevision) {
-            this(accountId, intentRevision, 0, 0);
-        }
-
-        public ReconciliationKey {
-            Objects.requireNonNull(accountId, "accountId");
-            if (intentRevision < 0) {
-                throw new IllegalArgumentException("intentRevision must not be negative");
-            }
-        }
-    }
-
-    record DurableAppearance(
-            UUID accountId,
-            long intentRevision,
-            AppearanceSyncStatus syncStatus,
-            Optional<UUID> activePresetId,
-            Optional<AppliedAppearance> localAppearance,
-            Optional<OuterLayerVisibility> outerLayerVisibility,
-            AppearanceProviders providers) {
-        public DurableAppearance(
-                UUID accountId,
-                long intentRevision,
-                AppearanceSyncStatus syncStatus,
-                Optional<UUID> activePresetId,
-                Optional<AppliedAppearance> localAppearance,
-                Optional<OuterLayerVisibility> outerLayerVisibility) {
-            this(
-                    accountId,
-                    intentRevision,
-                    syncStatus,
-                    activePresetId,
-                    localAppearance,
-                    outerLayerVisibility,
-                    AppearanceProviders.initial());
-        }
-
-        public DurableAppearance {
-            Objects.requireNonNull(providers, "providers");
-            Objects.requireNonNull(accountId, "accountId");
-            if (intentRevision < 0) {
-                throw new IllegalArgumentException("intentRevision must not be negative");
-            }
-            Objects.requireNonNull(syncStatus, "syncStatus");
-            activePresetId = Objects.requireNonNull(activePresetId, "activePresetId");
-            localAppearance = Objects.requireNonNull(localAppearance, "localAppearance");
-            outerLayerVisibility = Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
-        }
-
-        public ReconciliationKey reconciliationKey() {
-            return new ReconciliationKey(accountId, intentRevision,
-                    providers.skin().minecraftDelivery().activation(),
-                    providers.cape().minecraftDelivery().activation());
-        }
-    }
-
-    record ReconciliationResult(
-            AccountState account,
-            SessionValidation session,
-            Optional<UUID> currentOfficialSkinId,
-            DurableAppearance appearance,
-            Optional<PresetApplicationOutcome> outcome) {
-        public ReconciliationResult {
-            Objects.requireNonNull(account, "account");
-            Objects.requireNonNull(session, "session");
-            currentOfficialSkinId = Objects.requireNonNull(currentOfficialSkinId, "currentOfficialSkinId");
-            Objects.requireNonNull(appearance, "appearance");
-            outcome = Objects.requireNonNull(outcome, "outcome");
-            if (!account.accountId().equals(appearance.accountId())) {
-                throw new IllegalArgumentException("reconciliation appearance belongs to another account");
             }
         }
     }

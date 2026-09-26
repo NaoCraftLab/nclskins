@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.CapeCatalogSource;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
@@ -816,7 +817,7 @@ final class ClientRuntimeTest {
         TextureCache cache = new TextureCache(storage);
         var reader = new OptifineCapeReader((uri, timeout, maximum) ->
                 new OptifineCapeReader.Response(200, capeBytes), new PngValidator());
-        operations.optifineCoordinator = new CapeProviderCoordinator(tokens, storage, cache,
+        operations.optifineCoordinator = CapeTestComposition.create(tokens, storage, cache,
                 sink, CLIENT, jobs::add, reader);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
@@ -1077,7 +1078,7 @@ final class ClientRuntimeTest {
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
         runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".apply");
-        assertTrue(operations.reconciliationTriggers.contains(ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY));
+        assertTrue(operations.reconciliationTriggers.contains(Trigger.EXPLICIT_RETRY));
     }
 
     @Test
@@ -1836,7 +1837,7 @@ final class ClientRuntimeTest {
         assertEquals(Optional.of(secondPresetId), runtime.snapshot().activePresetId());
         assertEquals(2, operations.reconciliationKeys.get(operations.reconciliationKeys.size() - 1)
                 .intentRevision());
-        assertEquals(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED,
+        assertEquals(Trigger.SESSION_REFRESHED,
                 operations.reconciliationTriggers.get(operations.reconciliationTriggers.size() - 1));
     }
 
@@ -2031,7 +2032,7 @@ final class ClientRuntimeTest {
 
         assertFalse(runtime.snapshot().syncInProgress());
         assertEquals(
-                List.of(ClientOperations.ReconciliationTrigger.SESSION_REFRESHED),
+                List.of(Trigger.SESSION_REFRESHED),
                 operations.reconciliationTriggers);
     }
 
@@ -3968,7 +3969,7 @@ final class ClientRuntimeTest {
 
         reconciliation.runFirst();
         assertEquals(
-                List.of(ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED),
+                List.of(Trigger.RATE_LIMIT_EXPIRED),
                 operations.reconciliationTriggers);
         assertEquals(3, operations.reconciliationKeys.get(0).intentRevision());
         assertEquals(1, notifications.get());
@@ -3999,8 +4000,8 @@ final class ClientRuntimeTest {
         assertEquals(0, operations.retryCapeCalls);
         assertEquals(
                 List.of(
-                        ClientOperations.ReconciliationTrigger.LOCAL_INTENT,
-                        ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY),
+                        Trigger.LOCAL_INTENT,
+                        Trigger.EXPLICIT_RETRY),
                 operations.reconciliationTriggers);
         assertEquals(AppearanceSyncStatus.OFFICIAL, runtime.snapshot().syncStatus());
     }
@@ -4039,7 +4040,7 @@ final class ClientRuntimeTest {
 
         assertEquals(1, operations.reconciliationCalls);
         assertEquals(
-                List.of(ClientOperations.ReconciliationTrigger.LOCAL_INTENT),
+                List.of(Trigger.LOCAL_INTENT),
                 operations.reconciliationTriggers);
         assertEquals(
                 List.of(new ClientOperations.ReconciliationKey(
@@ -5381,7 +5382,7 @@ final class ClientRuntimeTest {
         private int retryCapeCalls;
         private int skinPreviewCalls;
         private String lastCapeId;
-        private final List<ReconciliationTrigger> reconciliationTriggers = new ArrayList<>();
+        private final List<Trigger> reconciliationTriggers = new ArrayList<>();
         private final List<ReconciliationKey> reconciliationKeys = new ArrayList<>();
         private String deleteWarning;
         private boolean removeFinalDespiteFailedReset;
@@ -5942,7 +5943,7 @@ final class ClientRuntimeTest {
         }
 
         @Override
-        public Optional<ReconciliationResult> reconcileAppearance(ReconciliationTrigger trigger) {
+        public Optional<ReconciliationResult> reconcileAppearance(Trigger trigger) {
             if (!reconciliationPrecondition.getAsBoolean()) {
                 reconciliationBeforePrecondition = true;
             }

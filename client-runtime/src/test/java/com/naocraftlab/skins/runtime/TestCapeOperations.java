@@ -38,6 +38,11 @@ import java.util.UUID;
 
 interface TestCapeOperations extends ClientOperations {
     @Override
+    default Optional<DurableAppearance> durableAppearance() throws Exception {
+        return Optional.empty();
+    }
+
+    @Override
     default Optional<FrozenCatalogSelection> freezeCatalogSelection(String collectionId, String skinId) throws Exception {
         throw new UnsupportedOperationException("This test fixture has no skin catalog");
     }

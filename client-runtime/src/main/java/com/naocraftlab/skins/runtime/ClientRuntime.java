@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
@@ -108,7 +109,7 @@ public final class ClientRuntime implements AutoCloseable {
                 reconcileAfterLocalRebind(
                         localRebind,
                         appearance.reconciliationKey(),
-                        ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                        Trigger.LOCAL_INTENT);
             }
         });
         centerGalleryIfActiveChanged(previousActivePresetId);
@@ -149,7 +150,7 @@ public final class ClientRuntime implements AutoCloseable {
                 reconcileAfterLocalRebind(
                         localRebind,
                         use.syncStatus() == AppearanceSyncStatus.UNKNOWN || use.syncStatus() == AppearanceSyncStatus.PARTIAL
-                                ? ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY : ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                                ? Trigger.EXPLICIT_RETRY : Trigger.LOCAL_INTENT);
             }
         }
     }
@@ -169,7 +170,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (automaticCheckpointEligible(appearance.syncStatus())) {
                 reconcileAfterLocalRebind(
                         localRebind,
-                        ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                        Trigger.LOCAL_INTENT);
             }
         });
     }
@@ -422,12 +423,12 @@ public final class ClientRuntime implements AutoCloseable {
         public void persistUiPreference(ThrowingSupplier<Void> operation) { ClientRuntime.this.persistUiPreference(operation); }
         public void reconcileAfterLocalRebind(
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
-            ClientOperations.ReconciliationTrigger trigger) { ClientRuntime.this.reconcileAfterLocalRebind(localRebind, trigger); }
+            Trigger trigger) { ClientRuntime.this.reconcileAfterLocalRebind(localRebind, trigger); }
         public boolean currentSessionOwns(ClientOperations.DurableAppearance appearance) { return ClientRuntime.this.currentSessionOwns(appearance); }
         public void reconcileAfterLocalRebind(
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
             ClientOperations.ReconciliationKey key,
-            ClientOperations.ReconciliationTrigger trigger) { ClientRuntime.this.reconcileAfterLocalRebind(localRebind, key, trigger); }
+            Trigger trigger) { ClientRuntime.this.reconcileAfterLocalRebind(localRebind, key, trigger); }
         public <T> void submit(
             UiMessage progress, ThrowingSupplier<T> operation, Consumer<T> completion) { ClientRuntime.this.submit(progress, operation, completion); }
         public <T> void submit(
@@ -463,7 +464,6 @@ public final class ClientRuntime implements AutoCloseable {
     private final FilePicker filePicker;
     private final Executor worker;
     private final ExecutorService ownedWorker;
-    private final Executor reconciliationWorker;
     private final ExecutorService ownedReconciliationWorker;
     private final Executor sessionWorker;
     private final ExecutorService ownedSessionWorker;
@@ -477,11 +477,7 @@ public final class ClientRuntime implements AutoCloseable {
 
     private final CopyOnWriteArrayList<Consumer<ClientSnapshot>> listeners = new CopyOnWriteArrayList<>();
     private final PreviewAssetLoader previewAssets;
-    private final Object reconciliationMonitor = new Object();
-    private final Map<ClientOperations.ReconciliationKey, ClientOperations.ReconciliationTrigger>
-            pendingReconciliations = new LinkedHashMap<>();
-    private ReconciliationRequest activeReconciliation;
-    private boolean reconciliationRunning;
+    private final AccountReconciliationCoordinator reconciliation;
     private final State state = new State();
     private Supplier<ClientConfiguration> configurationSource = ClientConfiguration::defaults;
     private SkinExtensionEnvironmentSource skinExtensionEnvironmentSource =
@@ -734,9 +730,10 @@ public final class ClientRuntime implements AutoCloseable {
         this.worker = Objects.requireNonNull(worker, "worker");
         this.previewAssets = new PreviewAssetLoader(clientExecutor, worker, diagnostics);
         this.ownedWorker = ownedWorker;
-        this.reconciliationWorker = Objects.requireNonNull(
-                reconciliationWorker, "reconciliationWorker");
         this.ownedReconciliationWorker = ownedReconciliationWorker;
+        this.reconciliation = new AccountReconciliationCoordinator(operations, reconciliationWorker,
+                this::onClient, this::acceptAppearanceReconciliation,
+                this::finishAppearanceReconciliation, this::diagnose);
         this.sessionWorker = Objects.requireNonNull(sessionWorker, "sessionWorker");
         this.ownedSessionWorker = ownedSessionWorker;
         this.textResolver = Objects.requireNonNull(textResolver, "textResolver");
@@ -1023,7 +1020,7 @@ public final class ClientRuntime implements AutoCloseable {
                                 reconcileAfterLocalRebind(
                                         localRebind,
                                         reconciliationKey(warmed.orElseThrow()),
-                                        ClientOperations.ReconciliationTrigger.PROCESS_START);
+                                        Trigger.PROCESS_START);
                             }
                         }
                     }));
@@ -1320,7 +1317,7 @@ public final class ClientRuntime implements AutoCloseable {
             currentReconciliationKey()
                     .filter(key -> key.accountId().equals(accountId))
                     .ifPresent(key -> requestAppearanceReconciliation(
-                            key, ClientOperations.ReconciliationTrigger.RATE_LIMIT_EXPIRED));
+                            key, Trigger.RATE_LIMIT_EXPIRED));
         }
         return true;
     }
@@ -1419,7 +1416,7 @@ public final class ClientRuntime implements AutoCloseable {
                                     if (checkpoint) {
                                         requestAppearanceReconciliation(
                                                 reconciliationKey(durable.orElseThrow()),
-                                                ClientOperations.ReconciliationTrigger.RECONNECT);
+                                                Trigger.RECONNECT);
                                     }
                                     if (refreshFailure == null && result != null) {
                                         publication.complete(result);
@@ -2292,7 +2289,7 @@ public final class ClientRuntime implements AutoCloseable {
                     if (operations.reconciliationRecommended(data)) {
                         reconcileAfterLocalRebind(
                                 localRebind,
-                                ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                                Trigger.LOCAL_INTENT);
                     }
                 });
     }
@@ -2339,11 +2336,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (ownedSessionWorker != null) {
                 ownedSessionWorker.shutdownNow();
             }
-            synchronized (reconciliationMonitor) {
-                pendingReconciliations.clear();
-                activeReconciliation = null;
-                reconciliationRunning = false;
-            }
+            reconciliation.close();
             diagnostics.close();
         });
     }
@@ -3089,7 +3082,7 @@ public final class ClientRuntime implements AutoCloseable {
 
     private void reconcileAfterLocalRebind(
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
-            ClientOperations.ReconciliationTrigger trigger) {
+            Trigger trigger) {
         currentReconciliationKey().ifPresent(key ->
                 reconcileAfterLocalRebind(localRebind, key, trigger));
     }
@@ -3116,7 +3109,7 @@ public final class ClientRuntime implements AutoCloseable {
     private void reconcileAfterLocalRebind(
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
             ClientOperations.ReconciliationKey key,
-            ClientOperations.ReconciliationTrigger trigger) {
+            Trigger trigger) {
         Objects.requireNonNull(localRebind, "localRebind").whenComplete(
                 (ignored, failure) -> onClient(() -> {
                     if (state.providers.minecraftEnabled() && operations.rateLimitRemaining().isPresent()) {
@@ -3129,115 +3122,22 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void requestAppearanceReconciliation(
-            ClientOperations.ReconciliationTrigger trigger) {
+            Trigger trigger) {
         currentReconciliationKey().ifPresent(key ->
                 requestAppearanceReconciliation(key, trigger));
     }
 
     private void requestAppearanceReconciliation(
             ClientOperations.ReconciliationKey key,
-            ClientOperations.ReconciliationTrigger trigger) {
-        Objects.requireNonNull(key, "key");
-        Objects.requireNonNull(trigger, "trigger");
-        if (disposed) {
-            return;
-        }
-        boolean start;
-        synchronized (reconciliationMonitor) {
-            ClientOperations.ReconciliationTrigger pending = pendingReconciliations.get(key);
-            if (pending != null) {
-                if (trigger.ordinal() > pending.ordinal()) {
-                    pendingReconciliations.put(key, trigger);
-                }
-            } else if (activeReconciliation == null
-                    || !activeReconciliation.key().equals(key)
-                    || trigger.ordinal() > activeReconciliation.trigger().ordinal()) {
-                pendingReconciliations.put(key, trigger);
-            }
-            start = !reconciliationRunning;
-            if (start) {
-                reconciliationRunning = true;
-            }
-        }
+            Trigger trigger) {
+        if (disposed) return;
         state.syncInProgress = true;
         publish();
-        if (start) {
-            CompletableFuture.runAsync(this::drainAppearanceReconciliation, reconciliationWorker);
-        }
-    }
-
-    private void drainAppearanceReconciliation() {
-        while (!disposed) {
-            ReconciliationRequest request;
-            synchronized (reconciliationMonitor) {
-                if (pendingReconciliations.isEmpty()) {
-                    reconciliationRunning = false;
-                    activeReconciliation = null;
-                    onClient(this::finishAppearanceReconciliation);
-                    return;
-                }
-                Map.Entry<ClientOperations.ReconciliationKey,
-                                ClientOperations.ReconciliationTrigger>
-                        pending = pendingReconciliations.entrySet().iterator().next();
-                request = new ReconciliationRequest(pending.getKey(), pending.getValue());
-                pendingReconciliations.remove(pending.getKey());
-                activeReconciliation = request;
-            }
-            Optional<ClientOperations.ReconciliationResult> result = Optional.empty();
-            Optional<ClientOperations.DurableAppearance> durableAfterFailure = Optional.empty();
-            Throwable failure = null;
-            try {
-                if (operations.reconciliationKey().filter(request.key()::equals).isPresent()) {
-                    result = Objects.requireNonNull(
-                            operations.reconcileAppearance(request.key(), request.trigger()),
-                            "reconciliation result");
-                }
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                failure = interrupted;
-            } catch (Exception unavailable) {
-                failure = unavailable;
-                if (durableSettlementMayHaveAdvanced(unavailable)) {
-                    try {
-                        durableAfterFailure = operations.durableAppearance()
-                                .filter(appearance -> appearance.accountId()
-                                        .equals(request.key().accountId()));
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        diagnose(
-                                DiagnosticEvent.CLIENT_RECONCILIATION_CLEANUP_FAILED,
-                                interrupted);
-                    } catch (Exception unavailableDurableState) {
-                        diagnose(
-                                DiagnosticEvent.CLIENT_RECONCILIATION_CLEANUP_FAILED,
-                                unavailableDurableState);
-                    }
-                }
-            }
-            if (failure != null) {
-                diagnose(DiagnosticEvent.CLIENT_RECONCILIATION_FAILED, failure);
-            }
-            Optional<ClientOperations.ReconciliationResult> completed = result;
-            Optional<ClientOperations.DurableAppearance> completedDurableAfterFailure =
-                    durableAfterFailure;
-            Throwable completedFailure = failure;
-            onClient(() -> acceptAppearanceReconciliation(
-                    request, completed, completedDurableAfterFailure, completedFailure));
-            synchronized (reconciliationMonitor) {
-                if (request.equals(activeReconciliation)) {
-                    activeReconciliation = null;
-                }
-            }
-        }
-        synchronized (reconciliationMonitor) {
-            pendingReconciliations.clear();
-            activeReconciliation = null;
-            reconciliationRunning = false;
-        }
+        reconciliation.request(key, trigger);
     }
 
     private void acceptAppearanceReconciliation(
-            ReconciliationRequest request,
+            AccountReconciliationCoordinator.Request request,
             Optional<ClientOperations.ReconciliationResult> result,
             Optional<ClientOperations.DurableAppearance> durableAfterFailure,
             Throwable failure) {
@@ -3317,7 +3217,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void acceptDurableAfterReconciliationFailure(
-            ReconciliationRequest request,
+            AccountReconciliationCoordinator.Request request,
             ClientOperations.DurableAppearance appearance,
             boolean currentExactAccount) {
         if (!currentExactAccount
@@ -3343,13 +3243,7 @@ public final class ClientRuntime implements AutoCloseable {
         if (disposed) {
             return;
         }
-        synchronized (reconciliationMonitor) {
-            if (reconciliationRunning
-                    || activeReconciliation != null
-                    || !pendingReconciliations.isEmpty()) {
-                return;
-            }
-        }
+        if (reconciliation.busy()) return;
         state.syncInProgress = false;
         publish();
     }
@@ -3367,7 +3261,7 @@ public final class ClientRuntime implements AutoCloseable {
                 return;
             }
             requestAppearanceReconciliation(
-                    ClientOperations.ReconciliationTrigger.EXPLICIT_RETRY);
+                    Trigger.EXPLICIT_RETRY);
         }
     }
 
@@ -3476,7 +3370,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (settlement.result().session().valid()) {
                 reconcileAfterLocalRebind(
                         localRebind,
-                        ClientOperations.ReconciliationTrigger.SESSION_REFRESHED);
+                        Trigger.SESSION_REFRESHED);
             }
         }
         clearSessionRetryFeedback(settlement.ticket());
@@ -3837,10 +3731,6 @@ public final class ClientRuntime implements AutoCloseable {
                         == com.naocraftlab.skins.core.service.RemoteAppearanceImpact.CONFIRMED_CHANGED;
     }
 
-    private static boolean durableSettlementMayHaveAdvanced(Throwable failure) {
-        return unwrap(failure) instanceof RemoteMutationSettlementException;
-    }
-
     private boolean current(long ticket) {
         return !disposed
                 && ticket == state.generation
@@ -4133,15 +4023,6 @@ public final class ClientRuntime implements AutoCloseable {
         return sha256.matches("[0-9a-f]{64}")
                 ? Optional.of(new PersonalCatalogAction(collectionId, sha256))
                 : Optional.empty();
-    }
-
-    private record ReconciliationRequest(
-            ClientOperations.ReconciliationKey key,
-            ClientOperations.ReconciliationTrigger trigger) {
-        private ReconciliationRequest {
-            Objects.requireNonNull(key, "key");
-            Objects.requireNonNull(trigger, "trigger");
-        }
     }
 
     private record SessionRetrySettlement(

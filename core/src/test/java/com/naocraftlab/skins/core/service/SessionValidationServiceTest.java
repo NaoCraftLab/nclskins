@@ -32,7 +32,7 @@ class SessionValidationServiceTest {
     void validatesMatchingProfileAndNeverPlacesTokenInResult() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidation result = new SessionValidationService(api, new RemoteSessionGate()).currentStatus(tokens);
+        SessionValidation result = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate()).currentStatus(tokens);
 
         assertEquals(SessionStatus.VALID, result.status());
         assertEquals(1, tokens.calls);
@@ -44,7 +44,7 @@ class SessionValidationServiceTest {
     void reusesProcessValidationAcrossScreenReopens() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
 
         assertTrue(service.currentStatus(tokens).valid());
         assertTrue(service.currentStatus(tokens).valid());
@@ -57,7 +57,7 @@ class SessionValidationServiceTest {
     void cachedStatusNeverRequestsTokenOrProfileWhenNoValidationExists() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
 
         SessionValidation cached = service.cachedStatus(tokens.currentSession());
 
@@ -73,7 +73,7 @@ class SessionValidationServiceTest {
         api.profileFailure = new ProfileApiException(
                 ApiFailureKind.NETWORK, "offline", null, null, false);
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         assertFalse(service.currentStatus(tokens).valid());
         api.profileFailure = null;
 
@@ -88,7 +88,7 @@ class SessionValidationServiceTest {
     void validCacheIsObservedFreshAtAutomaticCheckpoint() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         assertTrue(service.currentStatus(tokens).valid());
 
         SessionValidation checkpoint = service.retryTransientAtCheckpoint(tokens);
@@ -102,7 +102,7 @@ class SessionValidationServiceTest {
     void terminalUuidMismatchDoesNotRetryAtAutomaticCheckpoint() {
         StubApi api = new StubApi(profile(UUID.randomUUID()));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         assertEquals(SessionStatus.UUID_MISMATCH, service.currentStatus(tokens).status());
 
         SessionValidation repeated = service.retryTransientAtCheckpoint(tokens);
@@ -116,10 +116,10 @@ class SessionValidationServiceTest {
     void mutationPreflightReusesValidProfileSnapshot() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
 
         assertTrue(service.currentStatus(tokens).valid());
-        assertTrue(service.cachedOrValidateScoped(SECRET, tokens.currentSession(), null).valid());
+        assertTrue(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api).withSession(tokens, effects -> service.cachedOrValidateScoped(effects, tokens.currentSession(), null)).valid());
 
         assertEquals(1, api.profileCalls);
     }
@@ -128,10 +128,10 @@ class SessionValidationServiceTest {
     void cachedMutationValidationFetchesProfileOnlyWhenSnapshotIsMissing() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
 
-        assertTrue(service.cachedOrValidateScoped(SECRET, tokens.currentSession(), null).valid());
-        assertTrue(service.cachedOrValidateScoped(SECRET, tokens.currentSession(), null).valid());
+        assertTrue(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api).withSession(tokens, effects -> service.cachedOrValidateScoped(effects, tokens.currentSession(), null)).valid());
+        assertTrue(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api).withSession(tokens, effects -> service.cachedOrValidateScoped(effects, tokens.currentSession(), null)).valid());
 
         assertEquals(1, api.profileCalls);
     }
@@ -140,11 +140,11 @@ class SessionValidationServiceTest {
     void cachedMutationValidationChecksCapeOwnershipWithoutNetwork() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         service.rememberVerifiedProfile(tokens.currentSession(), profile(ID));
 
         SessionValidation result =
-                service.cachedOrValidateScoped(SECRET, tokens.currentSession(), "not-owned");
+                new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api).withSession(tokens, effects -> service.cachedOrValidateScoped(effects, tokens.currentSession(), "not-owned"));
 
         assertEquals(SessionStatus.PROFILE_RESTRICTED, result.status());
         assertEquals(0, api.profileCalls);
@@ -156,11 +156,11 @@ class SessionValidationServiceTest {
         RemoteProfile profile = profileWithCape(ID, "owned-cape");
         StubApi api = new StubApi(profile);
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         service.rememberVerifiedProfile(tokens.currentSession(), profile);
 
         SessionValidation result =
-                service.cachedOrValidateScoped(SECRET, tokens.currentSession(), "owned-cape");
+                new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api).withSession(tokens, effects -> service.cachedOrValidateScoped(effects, tokens.currentSession(), "owned-cape"));
 
         assertTrue(result.valid());
         assertEquals(0, api.profileCalls);
@@ -171,7 +171,7 @@ class SessionValidationServiceTest {
     void manualRetryForcesOnlyProfileRefresh() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
 
         assertTrue(service.currentStatus(tokens).valid());
         assertTrue(service.manualRetry(tokens).valid());
@@ -184,7 +184,7 @@ class SessionValidationServiceTest {
         RemoteProfile verified = profileWithCape(ID, "owned-cape");
         StubApi api = new StubApi(verified);
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         assertTrue(service.currentStatus(tokens).valid());
         service.rememberManagedAppearance(ID);
         assertTrue(service.acknowledgedAppearance(tokens.currentSession()).isPresent());
@@ -213,7 +213,7 @@ class SessionValidationServiceTest {
         };
 
         SessionValidation result =
-                new SessionValidationService(api, new RemoteSessionGate()).currentStatus(missing);
+                new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate()).currentStatus(missing);
 
         assertEquals(SessionStatus.OFFLINE_OR_INVALID, result.status());
         assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, result.failureKind());
@@ -226,7 +226,7 @@ class SessionValidationServiceTest {
     void tokenUnavailableRetriesOnceAtAnExplicitSessionCheckpoint() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens("0");
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, service.currentStatus(tokens).failureKind());
 
         tokens.token = SECRET;
@@ -242,8 +242,7 @@ class SessionValidationServiceTest {
     void sessionCheckpointDoesNotRetryUuidMismatchOrExpiredGate() {
         StubApi mismatchApi = new StubApi(profile(UUID.randomUUID()));
         StubTokens mismatchTokens = new StubTokens(SECRET);
-        SessionValidationService mismatch = new SessionValidationService(
-                mismatchApi, new RemoteSessionGate());
+        SessionValidationService mismatch = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(mismatchApi), new RemoteSessionGate());
         assertEquals(SessionStatus.UUID_MISMATCH, mismatch.currentStatus(mismatchTokens).status());
         assertEquals(SessionStatus.UUID_MISMATCH,
                 mismatch.retryTokenUnavailableAtCheckpoint(mismatchTokens).status());
@@ -254,8 +253,7 @@ class SessionValidationServiceTest {
         expiredApi.profileFailure = new ProfileApiException(
                 ApiFailureKind.SESSION_EXPIRED, "session expired", 401, null, false);
         StubTokens expiredTokens = new StubTokens(SECRET);
-        SessionValidationService expired = new SessionValidationService(
-                expiredApi, new RemoteSessionGate());
+        SessionValidationService expired = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(expiredApi), new RemoteSessionGate());
         assertEquals(SessionStatus.EXPIRED, expired.currentStatus(expiredTokens).status());
         assertEquals(SessionStatus.EXPIRED,
                 expired.retryTokenUnavailableAtCheckpoint(expiredTokens).status());
@@ -269,7 +267,7 @@ class SessionValidationServiceTest {
         StubTokens offline = new StubTokens("0");
 
         SessionValidation result =
-                new SessionValidationService(api, new RemoteSessionGate()).currentStatus(offline);
+                new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate()).currentStatus(offline);
 
         assertEquals(SessionStatus.OFFLINE_OR_INVALID, result.status());
         assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, result.failureKind());
@@ -282,7 +280,7 @@ class SessionValidationServiceTest {
     void reportsEmptyTokenAsOfflineInvalidWithoutEchoingIt() {
         StubApi api = new StubApi(profile(ID));
         StubTokens tokens = new StubTokens("");
-        SessionValidation result = new SessionValidationService(api, new RemoteSessionGate()).currentStatus(tokens);
+        SessionValidation result = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate()).currentStatus(tokens);
 
         assertEquals(SessionStatus.OFFLINE_OR_INVALID, result.status());
         assertEquals(ApiFailureKind.TOKEN_UNAVAILABLE, result.failureKind());
@@ -293,7 +291,7 @@ class SessionValidationServiceTest {
     @Test
     void reportsUuidMismatchAfterProfileLookup() {
         StubApi api = new StubApi(profile(UUID.randomUUID()));
-        SessionValidation result = new SessionValidationService(api, new RemoteSessionGate())
+        SessionValidation result = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate())
                 .currentStatus(new StubTokens(SECRET));
 
         assertEquals(SessionStatus.UUID_MISMATCH, result.status());
@@ -310,7 +308,7 @@ class SessionValidationServiceTest {
                 false);
         StubTokens tokens = new StubTokens(SECRET);
         RemoteSessionGate gate = new RemoteSessionGate();
-        SessionValidationService service = new SessionValidationService(api, gate);
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), gate);
 
         assertEquals(SessionStatus.EXPIRED, service.currentStatus(tokens).status());
         assertTrue(service.currentStatus(tokens).restartRequired());
@@ -332,7 +330,7 @@ class SessionValidationServiceTest {
                 null,
                 false);
 
-        SessionValidation result = new SessionValidationService(api, new RemoteSessionGate())
+        SessionValidation result = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate())
                 .currentStatus(new StubTokens(SECRET));
 
         assertFalse(result.valid());
@@ -359,7 +357,7 @@ class SessionValidationServiceTest {
                 false,
                 ResponseSchemaCode.PROFILE_ACTIONS);
 
-        SessionValidation result = new SessionValidationService(api, new RemoteSessionGate())
+        SessionValidation result = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate())
                 .currentStatus(new StubTokens(SECRET));
 
         SessionFailureContext context = result.failureContext();
@@ -386,7 +384,7 @@ class SessionValidationServiceTest {
                 Duration.ofSeconds(60),
                 false);
 
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         StubTokens tokens = new StubTokens(SECRET);
         SessionValidation result = service.currentStatus(tokens);
         SessionValidation repeatedOpen = service.currentStatus(tokens);
@@ -412,7 +410,7 @@ class SessionValidationServiceTest {
                 false);
         api.rateLimitRemaining = Optional.of(Duration.ofSeconds(60));
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         assertFalse(service.currentStatus(tokens).valid());
 
         assertFalse(service.retryTransientAtCheckpoint(tokens).valid());
@@ -431,7 +429,7 @@ class SessionValidationServiceTest {
         RemoteProfile verified = profile(ID);
         StubApi api = new StubApi(verified);
         RemoteSessionGate gate = new RemoteSessionGate();
-        SessionValidationService service = new SessionValidationService(api, gate);
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), gate);
         StubTokens tokens = new StubTokens(SECRET);
 
         service.rememberVerifiedProfile(tokens.currentSession(), verified);
@@ -448,7 +446,7 @@ class SessionValidationServiceTest {
     void reconnectAppearanceIsCacheOnlyAndRequiresAnAcknowledgedMutation() {
         RemoteProfile verified = profileWithCape(ID, "owned-cape");
         StubApi api = new StubApi(verified);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         StubTokens tokens = new StubTokens(SECRET);
 
         assertTrue(service.currentStatus(tokens).valid());
@@ -466,7 +464,7 @@ class SessionValidationServiceTest {
     @Test
     void reconnectAppearanceWaitsForManualResolutionOfAnUnknownMutation() {
         StubApi api = new StubApi(profile(ID));
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         StubTokens tokens = new StubTokens(SECRET);
         assertTrue(service.currentStatus(tokens).valid());
 
@@ -491,7 +489,7 @@ class SessionValidationServiceTest {
                         SkinVariant.SLIM, null)), profileWithCape(ID, "cape").capes(), Set.of());
         StubApi api = new StubApi(remote);
         StubTokens tokens = new StubTokens(SECRET);
-        SessionValidationService service = new SessionValidationService(api, new RemoteSessionGate());
+        SessionValidationService service = new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate());
         service.rememberAccountDefaultSkin(ID);
         assertTrue(service.currentAppliedAppearance(remote).usesAccountDefaultSkin());
         assertTrue(service.currentAppliedAppearance(remote).capeTexture().isPresent());
@@ -499,7 +497,7 @@ class SessionValidationServiceTest {
         assertTrue(service.observeFreshAtCheckpoint(tokens).valid());
 
         assertFalse(service.currentAppliedAppearance(remote).usesAccountDefaultSkin());
-        assertFalse(new SessionValidationService(api, new RemoteSessionGate())
+        assertFalse(new SessionValidationService(new com.naocraftlab.skins.core.api.ProfileSessionAdapter(api), new RemoteSessionGate())
                 .currentAppliedAppearance(remote).usesAccountDefaultSkin());
         assertEquals(1, api.profileCalls);
     }

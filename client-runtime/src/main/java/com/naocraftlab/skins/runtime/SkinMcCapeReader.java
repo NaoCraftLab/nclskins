@@ -21,7 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
-public final class SkinMcCapeReader {
+public final class SkinMcCapeReader implements CapeObservationReader {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration CHAIN_TIMEOUT = Duration.ofSeconds(20);
     static final int MAX_JSON_BYTES = 2048;
@@ -56,9 +56,9 @@ public final class SkinMcCapeReader {
 
     public Optional<Duration> cooldownRemaining() { return cooldown.remaining(); }
 
-    long accountEpoch() { return cooldownEpoch.get(); }
+    public long accountEpoch() { return cooldownEpoch.get(); }
 
-    synchronized void accountChanged() { cooldownEpoch.incrementAndGet(); }
+    public synchronized void accountChanged() { cooldownEpoch.incrementAndGet(); }
 
     private synchronized void observeCooldown(long epoch, OptifineCapeReader.Response response) {
         if (cooldownEpoch.get() == epoch) cooldown.observe(response.status(), response.headers());
@@ -234,6 +234,12 @@ public final class SkinMcCapeReader {
             PublicHttpsImageFetcher.Response response = fetcher.get(uri, timeout, maxBytes);
             return new OptifineCapeReader.Response(response.status(), response.bytes(), response.headers());
         }
+    }
+
+    public CapeObservationReader.Result observe(UUID account, String canonicalName, long epoch) {
+        var result = read(account, epoch);
+        return new CapeObservationReader.Result(CapeObservationReader.Kind.valueOf(result.kind().name()),
+                result.cape(), result.failure() == Failure.RATE_LIMITED);
     }
 
     public enum Failure {

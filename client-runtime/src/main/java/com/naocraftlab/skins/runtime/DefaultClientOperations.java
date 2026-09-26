@@ -1,5 +1,10 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
+import static com.naocraftlab.skins.runtime.AccountMutationExecutor.needsMinecraftDelivery;
+import com.naocraftlab.skins.runtime.AccountSessionAdapter.*;
+import static com.naocraftlab.skins.runtime.AccountDeliveryService.*;
+import com.naocraftlab.skins.runtime.AccountReconciliationEffects.ObservedAccount;
 import com.naocraftlab.skins.client.BundledSkinSource;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
@@ -58,10 +63,7 @@ import com.naocraftlab.skins.core.service.SavedPersonalSkinPreset;
 import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
 import com.naocraftlab.skins.core.service.SessionValidationService;
-import com.naocraftlab.skins.core.storage.AccountUiPreferencesResult;
-import com.naocraftlab.skins.core.storage.CachedTexture;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
-import com.naocraftlab.skins.core.storage.StorageInitialization;
 import com.naocraftlab.skins.core.storage.TextureCache;
 
 import java.io.IOException;
@@ -87,20 +89,26 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
-
 public final class DefaultClientOperations implements ClientOperations {
     private static final int MAX_BOOTSTRAP_CAS_ATTEMPTS = 3;
     private final GameSessionTokenSource tokenSource;
-    private final ProfileApi profileApi;
-    private final NclSkinsStorage storage;
-    private final UiPreferencesStorageAdapter uiPreferences;
+    private final com.naocraftlab.skins.core.service.ProfileSessionPort profileApi;
+    private final com.naocraftlab.skins.core.service.AccountAppearanceStore storage;
+    private final com.naocraftlab.skins.core.service.AccountBootstrapPort bootstrap;
+    private final com.naocraftlab.skins.core.service.AssetStorePort assets;
+    private final com.naocraftlab.skins.core.service.LibraryStatePort libraryState;
+    private final UiPreferencesPort uiPreferences;
+    private final LocalCapeImportSource capeImports;
     private final SkinCatalogSource bundledSkins;
     private final Clock clock;
+    private final AccountDeliveryService delivery;
+    private final AccountMutationExecutor accountMutations;
     private final LibraryService library;
     private final RemoteSessionGate sessionGate;
     private final SessionValidationService sessions;
     private final AppearanceMutationService mutations;
-    private final TextureCache textures;
+    private final com.naocraftlab.skins.core.service.ProviderTextureStore textures;
+    private final java.util.function.Function<Executor, DeterministicAppearanceAssetResolver> resolverFactory;
     private final PublicSkinImportService publicImports;
     private final ExternalAppearanceImportService externalImports;
     private final OfficialSkinTextureSource officialSkinTextures;
@@ -142,29 +150,37 @@ public final class DefaultClientOperations implements ClientOperations {
             Clock clock,
             OfficialSkinTextureSource officialSkinTextures) {
         this.tokenSource = Objects.requireNonNull(tokenSource, "tokenSource");
-        this.profileApi = Objects.requireNonNull(profileApi, "profileApi");
-        this.storage = Objects.requireNonNull(storage, "storage");
+        this.profileApi = new com.naocraftlab.skins.core.api.ProfileSessionAdapter(profileApi);
+        this.storage = new com.naocraftlab.skins.core.storage.AccountAppearanceStorageAdapter(storage);
+        this.bootstrap = new com.naocraftlab.skins.core.storage.AccountBootstrapAdapter(storage);
+        this.assets = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
+        this.libraryState = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
+        this.capeImports = new LocalCapeImportAdapter();
         this.uiPreferences = new UiPreferencesStorageAdapter(storage,
                 () -> resolveAccountId(pinCurrentSession().identity()));
         this.bundledSkins = Objects.requireNonNull(bundledSkins, "bundledSkins");
         this.officialSkinClassifier = new OfficialSkinClassifier(bundledSkins);
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.delivery = new AccountDeliveryService(this.storage, clock);
+        this.accountMutations = new AccountMutationExecutor(this.storage, this.assets, clock, delivery);
         var libraryStorage = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
         this.library = new LibraryService(libraryStorage, libraryStorage, clock);
         this.sessionGate = new RemoteSessionGate();
-        this.sessions = new SessionValidationService(profileApi, sessionGate);
-        this.mutations = new AppearanceMutationService(profileApi, storage, sessionGate, sessions);
-        this.textures = new TextureCache(storage);
+        this.sessions = new SessionValidationService(this.profileApi, sessionGate);
+        this.mutations = new AppearanceMutationService(this.profileApi, new com.naocraftlab.skins.core.storage.MutationStorageAdapter(storage), new com.naocraftlab.skins.core.storage.MutationStorageAdapter(storage), sessionGate, sessions);
+        TextureCache textureCache = new TextureCache(storage);
+        this.textures = new com.naocraftlab.skins.core.storage.ProviderTextureStorageAdapter(storage, textureCache);
+        this.resolverFactory = worker -> new DeterministicAppearanceAssetResolver(tokenSource, storage, textureCache, worker);
         CatalogAccountAccess catalogAccounts = new LibraryCatalogAdapter(library, libraryStorage, libraryStorage,
                 () -> resolveAccountId(pinCurrentSession().identity()));
         this.preparedCatalog = new PreparedCatalogService(bundledSkins, catalogAccounts);
-        this.publicImports = new PublicSkinImportService(this.textures, this::loadCatalogSkin);
+        this.publicImports = new PublicSkinImportService(textureCache, this::loadCatalogSkin);
         this.externalImports = new ExternalAppearanceImportService(
                 new ExternalImportSourceAdapter(this.publicImports, this.bundledSkins),
                 this.preparedCatalog, new LibraryExternalImportAdapter(this.library, catalogAccounts));
         this.officialSkinTextures = officialSkinTextures != null
                 ? officialSkinTextures
-                : skin -> this.textures.read(this.textures.get(skin));
+                : skin -> this.textures.load(skin.textureUri());
     }
 
     DefaultClientOperations(
@@ -215,8 +231,8 @@ public final class DefaultClientOperations implements ClientOperations {
             thread.setDaemon(true);
             return thread;
         });
-        optifineCapes = new CapeProviderCoordinator(tokenSource, storage, textures,
-                sink, clientExecutor, optifineWorker, this::verifiedOfficialCapeUri);
+        optifineCapes = new CapeProviderCoordinator(tokenSource, storage, assets, textures,
+                sink, clientExecutor, optifineWorker, new OptifineCapeReader(), new SkinMcCapeReader(), this::verifiedOfficialCapeUri);
         return this;
     }
 
@@ -305,14 +321,13 @@ public final class DefaultClientOperations implements ClientOperations {
                 .findFirst();
     }
 
-
     public DeterministicAppearanceAssetResolver deterministicAppearanceResolver(Executor worker) {
-        return new DeterministicAppearanceAssetResolver(tokenSource, storage, textures, worker);
+        return resolverFactory.apply(worker);
     }
 
     @Override
     public void verifyStorageAccess() throws IOException {
-        storage.initialize();
+        bootstrap.initialize();
     }
 
     @Override
@@ -387,7 +402,6 @@ public final class DefaultClientOperations implements ClientOperations {
             }
         }
 
-
         InitialData current = initializeFresh(
                 context, sessionClassification);
         if (preparedWarnings.isEmpty()) {
@@ -414,13 +428,13 @@ public final class DefaultClientOperations implements ClientOperations {
             OperationContext context, SessionClassification sessionClassification)
             throws IOException, PngValidationException {
         UUID accountId = context.identity().profileId();
-        StorageInitialization initialization = storage.initialize();
+        List<String> initialization = bootstrap.initialize();
         return initializeFreshLocked(context, initialization, sessionClassification);
     }
 
     private InitialData initializeFreshLocked(
             OperationContext context,
-            StorageInitialization initialization,
+            List<String> initialization,
             SessionClassification sessionClassification)
             throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(context.identity());
@@ -428,7 +442,6 @@ public final class DefaultClientOperations implements ClientOperations {
         boolean profileValidationResolved = false;
         for (int attempt = 0; attempt < MAX_BOOTSTRAP_CAS_ATTEMPTS; attempt++) {
             AccountState state = seedVanillaDefaults(library.load(accountId));
-
 
             state = library.load(accountId);
             SessionValidation validation;
@@ -443,7 +456,6 @@ public final class DefaultClientOperations implements ClientOperations {
                 profileValidationResolved = true;
             } else {
 
-
                 validation = sessions.cachedStatus(context.identity());
             }
             OfficialSkinSync official = syncCurrentOfficial(state, validation, sessionClassification != SessionClassification.CACHED);
@@ -456,9 +468,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         initialization, observedConfiguration);
             }
 
-
         }
-
 
         AccountState latest = seedVanillaDefaults(library.load(accountId));
         latest = library.load(accountId);
@@ -471,17 +481,16 @@ public final class DefaultClientOperations implements ClientOperations {
             UUID accountId,
             OfficialSkinSync official,
             SessionValidation validation,
-            StorageInitialization initialization, AppearanceProviders observedConfiguration) throws IOException, PngValidationException {
+            List<String> initialization, AppearanceProviders observedConfiguration) throws IOException, PngValidationException {
         Optional<UUID> activePreset = reconcileActivePreset(accountId, official.state(), validation);
         observeMinecraftProviders(accountId, validation, observedConfiguration, true, true);
         AccountAppearanceState appearance = storage.loadAppearance(accountId);
         Optional<AppliedAppearance> localAppearance = materializeLocalAppearance(
                 accountId, validation.sessionIdentity().profileId(), appearance, validation);
-        AccountUiPreferencesResult uiPreferences = storage.loadUiPreferences(accountId);
+        com.naocraftlab.skins.core.service.AccountBootstrapPort.Preferences uiPreferences = bootstrap.loadUiPreferences(accountId);
         List<String> warnings = new ArrayList<>(
-                initialization.warnings().stream().map(warning -> warning.message()).toList());
+                initialization);
         uiPreferences.warnings().stream()
-                .map(warning -> warning.message())
                 .filter(warning -> !warnings.contains(warning))
                 .forEach(warnings::add);
         OwnedCapeInventory ownedCapes = validation.valid() && validation.profile() != null
@@ -514,7 +523,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         cape.optionalAlias().map(DefaultClientOperations::normalizeCapeAlias).orElse(null),
                         cape.state(),
                         cachedCapeKey(cape, previous.find(cape.id())),
-                        previous.find(cape.id()).filter(entry -> Objects.equals(entry.textureCacheKey(), TextureCache.cacheKey(cape.textureUri())))
+                        previous.find(cape.id()).filter(entry -> Objects.equals(entry.textureCacheKey(), textures.cacheKey(cape.textureUri())))
                                 .map(OwnedCapeEntry::hasElytra).orElse(null)))
                 .toList();
         return storage.saveOwnedCapes(new OwnedCapeInventory(
@@ -527,7 +536,7 @@ public final class DefaultClientOperations implements ClientOperations {
     private String cachedCapeKey(RemoteCape cape, Optional<OwnedCapeEntry> previous) {
         try {
             if (textures.readIfCached(cape.textureUri()).isPresent()) {
-                return TextureCache.cacheKey(cape.textureUri());
+                return textures.cacheKey(cape.textureUri());
             }
         } catch (IOException | RuntimeException invalidCacheEntry) {
 
@@ -562,7 +571,7 @@ public final class DefaultClientOperations implements ClientOperations {
         for (SkinAsset asset : account.skinAssets()) {
             evidence.put(
                     asset.id(),
-                    validator.projectStoredRender(storage.readAsset(asset.sha256()))
+                    validator.projectStoredRender(assets.readAsset(asset.sha256()))
                             .featureEvidence());
         }
         return Map.copyOf(evidence);
@@ -591,47 +600,47 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public Optional<AccountUiPreferences> loadUiPreferences() throws IOException {
+    public Optional<AccountUiPreferences> loadUiPreferences() throws Exception {
         return uiPreferences.loadUiPreferences();
     }
 
     @Override
-    public void setSelectedProvidersTab(UUID accountId, AppearanceProviders.Component tab) throws IOException {
+    public void setSelectedProvidersTab(UUID accountId, AppearanceProviders.Component tab) throws Exception {
         uiPreferences.setSelectedProvidersTab(accountId, tab);
     }
 
     @Override
-    public void setSelectedAddSourceTab(UUID accountId, AddSourceTab tab) throws IOException {
+    public void setSelectedAddSourceTab(UUID accountId, AddSourceTab tab) throws Exception {
         uiPreferences.setSelectedAddSourceTab(accountId, tab);
     }
 
     @Override
-    public void setSelectedAddSourceTab(AddSourceTab tab) throws IOException {
+    public void setSelectedAddSourceTab(AddSourceTab tab) throws Exception {
         uiPreferences.setSelectedAddSourceTab(tab);
     }
 
     @Override
-    public void setCollapsedCapeCollections(UUID accountId, Set<String> values) throws IOException {
+    public void setCollapsedCapeCollections(UUID accountId, Set<String> values) throws Exception {
         uiPreferences.setCollapsedCapeCollections(accountId, values);
     }
 
     @Override
-    public void setSelectedEditorTab(UUID accountId, EditorTab tab) throws IOException {
+    public void setSelectedEditorTab(UUID accountId, EditorTab tab) throws Exception {
         uiPreferences.setSelectedEditorTab(accountId, tab);
     }
 
     @Override
-    public void setCollectionCollapsed(String collectionId, boolean collapsed) throws IOException {
+    public void setCollectionCollapsed(String collectionId, boolean collapsed) throws Exception {
         uiPreferences.setCollectionCollapsed(collectionId, collapsed);
     }
 
     @Override
-    public void replaceCollapsedCollectionIds(Set<String> collectionIds) throws IOException {
+    public void replaceCollapsedCollectionIds(Set<String> collectionIds) throws Exception {
         uiPreferences.replaceCollapsedCollectionIds(collectionIds);
     }
 
     @Override
-    public void setPreferredSkinVariant(SkinVariant variant) throws IOException {
+    public void setPreferredSkinVariant(SkinVariant variant) throws Exception {
         uiPreferences.setPreferredSkinVariant(variant);
     }
 
@@ -765,7 +774,6 @@ public final class DefaultClientOperations implements ClientOperations {
             return;
         }
 
-
         SessionValidation validation = sessions.cachedStatus(context.identity());
         if (!validation.valid() || validation.profile() == null) {
             return;
@@ -776,11 +784,11 @@ public final class DefaultClientOperations implements ClientOperations {
         Map<String, byte[]> previews = new HashMap<>();
         for (RemoteCape cape : profile.capes()) {
             try {
-                byte[] capeBytes = textures.read(textures.get(cape));
+                byte[] capeBytes = textures.load(cape.textureUri());
                 Boolean classified = storage.loadOwnedCapes(accountId).find(cape.id()).map(OwnedCapeEntry::hasElytra).orElse(null);
                 boolean hasElytra = classified != null ? classified
                         : new PngValidator().projectCanonicalCape(capeBytes).hasElytra();
-                String cacheKey = TextureCache.cacheKey(cape.textureUri());
+                String cacheKey = textures.cacheKey(cape.textureUri());
                 storage.updateOwnedCapes(accountId, current -> {
                     List<OwnedCapeEntry> updated = current.capes().stream()
                             .map(entry -> entry.id().equals(cape.id())
@@ -815,7 +823,7 @@ public final class DefaultClientOperations implements ClientOperations {
         SkinAsset previousOfficial = latestOfficialAsset(before).orElse(null);
         byte[] previousOfficialPng = previousOfficial == null
                 ? null
-                : storage.readAsset(previousOfficial.sha256());
+                : assets.readAsset(previousOfficial.sha256());
         AccountState state = seedVanillaDefaults(library.resetLibrary(accountId));
         if (previousOfficial != null) {
             state = ensureLibraryAsset(
@@ -829,7 +837,7 @@ public final class DefaultClientOperations implements ClientOperations {
         AccountAppearanceState appearance = recordAccountDefaultAppearance(
                 accountId, AppearanceSyncStatus.PENDING);
         SessionValidation validation = sessions.cachedStatus(context.identity());
-        AccountUiPreferencesResult preferences = storage.loadUiPreferences(accountId);
+        com.naocraftlab.skins.core.service.AccountBootstrapPort.Preferences preferences = bootstrap.loadUiPreferences(accountId);
         OwnedCapeInventory ownedCapes = storage.loadOwnedCapes(accountId);
         AccountState latest = observeLocal(library.load(accountId));
         return new InitialData(
@@ -840,7 +848,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 materializeLocalAppearance(
                         accountId, context.identity().profileId(), appearance, validation),
                 true,
-                preferences.warnings().stream().map(warning -> warning.message()).toList(),
+                preferences.warnings(),
                 preferences.preferences(),
                 appearance.optionalOuterLayerVisibility(),
                 ownedCapes,
@@ -856,26 +864,9 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(UUID accountId, java.nio.file.Path path, String fallbackName) throws IOException, PngValidationException {
         requireCapeAccount(accountId);
-        String fileName = path.getFileName() == null ? "" : path.getFileName().toString();
-        String lowerName = fileName.toLowerCase(java.util.Locale.ROOT);
-        boolean jpegFile = lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg");
-        if (!jpegFile && !lowerName.endsWith(".png")) {
-            throw new PngValidationException(PngValidationException.Reason.BAD_SIGNATURE,
-                    "Unsupported cape file extension");
-        }
-        byte[] bytes;
-        try (var input = java.nio.file.Files.newInputStream(path)) {
-            bytes = input.readNBytes(com.naocraftlab.skins.core.png.PngValidator.DEFAULT_MAX_BYTES + 1);
-        }
-        if (bytes.length > PngValidator.DEFAULT_MAX_BYTES) {
-            throw new PngValidationException(PngValidationException.Reason.OVERSIZED,
-                    "Cape file exceeds the encoded texture limit");
-        }
-        boolean jpegBytes = bytes.length >= 2 && (bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xd8;
-        if (jpegFile != jpegBytes) {
-            throw new PngValidationException(PngValidationException.Reason.BAD_SIGNATURE,
-                    "Cape file format does not match its extension");
-        }
+        LocalCapeImportSource.Source source = capeImports.read(path);
+        String fileName = source.fileName();
+        byte[] bytes = source.bytes();
         requireCapeAccount(accountId);
         String name = UntrustedDisplayName.fromFileName(fileName, fallbackName);
         var entry = library.importCape(accountId, name, bytes);
@@ -1094,7 +1085,7 @@ public final class DefaultClientOperations implements ClientOperations {
         UUID accountId = resolveAccountId(context.identity());
         OwnedCapeInventory inventory = storage.loadOwnedCapes(accountId);
         SessionValidation selectionValidation = sessions.cachedStatus(context.identity());
-        NclSkinsStorage.ActivePresetAppearanceIntentUpdate updated =
+        com.naocraftlab.skins.core.service.AccountAppearanceStore.ActivePresetAppearanceIntentUpdate updated =
                 storage.updateAppearanceIntentIfPresetActive(
                         accountId,
                         presetId,
@@ -1115,7 +1106,7 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public Optional<byte[]> loadProviderTexture(String cacheKey, boolean skin) throws IOException, PngValidationException {
         Objects.requireNonNull(cacheKey, "cacheKey");
-        return skin ? Optional.of(storage.readAsset(cacheKey))
+        return skin ? Optional.of(assets.readAsset(cacheKey))
                 : textures.readIfCached(cacheKey);
     }
 
@@ -1221,12 +1212,12 @@ public final class DefaultClientOperations implements ClientOperations {
             }
             AccountAppearanceState updated = current.withProviders(providers);
             if (current.syncStatus() == AppearanceSyncStatus.ATTEMPTING && !sameActivation(updated, current)) {
-                return copyAppearanceStatus(updated, AppearanceSyncStatus.UNKNOWN, current.settledRevision());
+                return delivery.copyAppearanceStatus(updated, AppearanceSyncStatus.UNKNOWN, current.settledRevision());
             }
             if (enablesMinecraft && current.hasIntent()
                     && current.syncStatus() != AppearanceSyncStatus.UNKNOWN
                     && current.syncStatus() != AppearanceSyncStatus.PARTIAL) {
-                return copyAppearanceStatus(updated, AppearanceSyncStatus.PENDING, current.settledRevision());
+                return delivery.copyAppearanceStatus(updated, AppearanceSyncStatus.PENDING, current.settledRevision());
             }
             return updated;
         });
@@ -1321,34 +1312,6 @@ public final class DefaultClientOperations implements ClientOperations {
         return unknown ? AppearanceSyncStatus.UNKNOWN : AppearanceSyncStatus.PENDING;
     }
 
-    private static AppearanceSyncStatus activeEditStatus(
-            AccountAppearanceState current, AppearanceProviders revised) {
-        boolean assignedMinecraft = assignedMinecraft(current.intentRevision() + 1, revised);
-        if (!assignedMinecraft) {
-            return current.syncStatus();
-        }
-        if (hasMinecraftDeliveryStatus(revised, ProviderDelivery.Status.UNKNOWN)) {
-            return AppearanceSyncStatus.UNKNOWN;
-        }
-        if (hasMinecraftDeliveryStatus(revised, ProviderDelivery.Status.ATTEMPTING)) {
-            return AppearanceSyncStatus.ATTEMPTING;
-        }
-        return AppearanceSyncStatus.PENDING;
-    }
-
-    private static boolean assignedMinecraft(long revision, AppearanceProviders providers) {
-        return providers.skin().minecraftDelivery().intentRevision() == revision
-                || providers.cape().minecraftDelivery().intentRevision() == revision;
-    }
-
-    private static boolean hasMinecraftDeliveryStatus(
-            AppearanceProviders providers, ProviderDelivery.Status status) {
-        return providers.skin().enabled(BuiltinProvider.MINECRAFT)
-                        && providers.skin().minecraftDelivery().status() == status
-                || providers.cape().enabled(BuiltinProvider.MINECRAFT)
-                        && providers.cape().minecraftDelivery().status() == status;
-    }
-
     private static ProviderCape localProviderCape(com.naocraftlab.skins.core.model.LocalCapeReference cape) {
         return cape == null ? null : new ProviderCape(cape.entryId() == null ? cape.sha256() : cape.entryId().toString(), cape.sha256(), cape.hasElytra());
     }
@@ -1385,8 +1348,8 @@ public final class DefaultClientOperations implements ClientOperations {
                 selected.account().accountId(), selected.intentRevision(),
                 selected.providers().skin().minecraftDelivery().activation(),
                 selected.providers().cape().minecraftDelivery().activation());
-        ReconciliationTrigger trigger = selected.syncStatus() == AppearanceSyncStatus.OFFICIAL
-                ? ReconciliationTrigger.LOCAL_INTENT : ReconciliationTrigger.EXPLICIT_RETRY;
+        Trigger trigger = selected.syncStatus() == AppearanceSyncStatus.OFFICIAL
+                ? Trigger.LOCAL_INTENT : Trigger.EXPLICIT_RETRY;
         ReconciliationResult reconciled = reconcileAppearance(key, trigger)
                 .orElseThrow(() -> new IllegalStateException(
                         "Minecraft session or local appearance changed before reconciliation"));
@@ -1400,9 +1363,9 @@ public final class DefaultClientOperations implements ClientOperations {
         UUID selectedPresetId = Objects.requireNonNull(presetId, "presetId");
         OwnedCapeInventory inventory = storage.loadOwnedCapes(accountId);
         SessionValidation selectionValidation = sessions.cachedStatus(context.identity());
-        NclSkinsStorage.AccountAppearanceMutationResult selected =
-                storage.mutateAccountAndAppearance(accountId, (account, current, revision) ->
-                        NclSkinsStorage.AccountAppearanceMutationPlan.appearanceOnly(
+        com.naocraftlab.skins.core.service.LibraryStatePort.AccountAppearanceMutationResult selected =
+                libraryState.mutateAccountAndAppearance(accountId, (account, current, revision) ->
+                        com.naocraftlab.skins.core.service.LibraryStatePort.AccountAppearanceMutationPlan.appearanceOnly(
                                 account,
                                 pendingAppearanceForPreset(
                                         accountId, account, selectedPresetId, revision, current, inventory, selectionValidation)));
@@ -1425,7 +1388,7 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public Optional<ReconciliationResult> reconcileAppearance(ReconciliationTrigger trigger)
+    public Optional<ReconciliationResult> reconcileAppearance(Trigger trigger)
             throws IOException, PngValidationException {
         Objects.requireNonNull(trigger, "trigger");
         OperationContext context = pinCurrentSession();
@@ -1434,7 +1397,7 @@ public final class DefaultClientOperations implements ClientOperations {
 
     @Override
     public Optional<ReconciliationResult> reconcileAppearance(
-            ReconciliationKey expected, ReconciliationTrigger trigger)
+            ReconciliationKey expected, Trigger trigger)
             throws IOException, PngValidationException {
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(trigger, "trigger");
@@ -1446,165 +1409,52 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @SuppressWarnings("try")
-    private Optional<ReconciliationResult> reconcileAppearance(
-            OperationContext context,
-            ReconciliationKey expected,
-            ReconciliationTrigger trigger) throws IOException, PngValidationException {
+    private Optional<ReconciliationResult> reconcileAppearance(OperationContext context,
+            ReconciliationKey expected, Trigger trigger) throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(context.identity());
-        storage.initialize();
+        bootstrap.initialize();
         try (var ignored = storage.acquireRemoteMutationLock(accountId)) {
-            AccountAppearanceState checkpointAppearance = storage.loadAppearance(accountId);
-            if (expected != null
-                    && (!expected.accountId().equals(accountId)
-                            || checkpointAppearance.intentRevision() != expected.intentRevision()
-                            || checkpointAppearance.providers().skin().minecraftDelivery().activation()
-                                    != expected.skinActivation()
-                            || checkpointAppearance.providers().cape().minecraftDelivery().activation()
-                                    != expected.capeActivation())) {
-                return Optional.empty();
-            }
-            if (!checkpointAppearance.providers().minecraftEnabled()) {
-                AccountAppearanceState local = checkpointAppearance.hasIntent()
-                        ? settleAppearance(accountId, checkpointAppearance.intentRevision(),
-                                checkpointAppearance.syncStatus(), AppearanceSyncStatus.OFFICIAL)
-                        : checkpointAppearance;
-                return Optional.of(reconciliationResult(context, local,
-                        sessions.cachedStatus(context.identity()), observedAccount(accountId), Optional.empty()));
-            }
-            boolean explicitRecovery = trigger == ReconciliationTrigger.RATE_LIMIT_EXPIRED
-                    || trigger == ReconciliationTrigger.EXPLICIT_RETRY
-                    || trigger == ReconciliationTrigger.SESSION_REFRESHED;
+            return new AccountReconciliationExecutor().execute(new ReconciliationEffectsAdapter(context), expected, trigger);
+        }
+    }
 
-
-            if (profileApi.rateLimitRemaining().isPresent()) {
-                SessionValidation cached = sessions.cachedStatus(context.identity());
-                return Optional.of(reconciliationResult(
-                        context,
-                        checkpointAppearance,
-                        cached,
-                        observedAccount(accountId),
-                        Optional.empty()));
-            }
-            boolean reconnectAfterUnavailableToken = trigger == ReconciliationTrigger.RECONNECT
-                    && sessions.cachedStatus(context.identity()).failureKind()
-                            == ApiFailureKind.TOKEN_UNAVAILABLE;
-            if (!explicitRecovery
-                    && !reconnectAfterUnavailableToken
-                    && !sessions.automaticCheckpointMayAcquireToken(context.identity())) {
-                SessionValidation cached = sessions.cachedStatus(context.identity());
-                AccountAppearanceState blocked = checkpointAppearance;
-                boolean identityMismatch = cached.status()
-                        == com.naocraftlab.skins.core.service.SessionStatus.UUID_MISMATCH;
-                if (blocked.hasIntent()
-                        && (blocked.syncStatus() == AppearanceSyncStatus.ATTEMPTING
-                                || identityMismatch
-                                        && blocked.syncStatus() == AppearanceSyncStatus.PENDING)) {
-                    blocked = settleAppearance(
-                            accountId,
-                            blocked.intentRevision(),
-                            blocked.syncStatus(),
-                            AppearanceSyncStatus.UNKNOWN);
-                }
-                return Optional.of(reconciliationResult(
-                        context,
-                        blocked,
-                        cached,
-                        observedAccount(accountId),
-                        Optional.empty()));
-            }
-            if (!explicitRecovery
-                    && checkpointAppearance.hasIntent()
-                    && (checkpointAppearance.syncStatus() == AppearanceSyncStatus.OFFICIAL
-                            || checkpointAppearance.syncStatus() == AppearanceSyncStatus.PARTIAL
-                            || checkpointAppearance.syncStatus() == AppearanceSyncStatus.UNKNOWN)) {
-                SessionValidation cached = sessions.cachedStatus(context.identity());
-                return Optional.of(reconciliationResult(
-                        context,
-                        checkpointAppearance,
-                        cached,
-                        observedAccount(accountId),
-                        Optional.empty()));
-            }
-            return withRequestScopedToken(
-                    context,
-                    accountId,
-                    checkpointAppearance,
-                    scopedContext -> {
-
-
-            SessionValidation explicitValidation = explicitRecovery
-                    ? checkpointValidation(
-                    scopedContext, trigger, checkpointAppearance.syncStatus())
-                    : null;
-            if (checkpointAppearance.hasIntent()
-                    && (checkpointAppearance.syncStatus() == AppearanceSyncStatus.OFFICIAL
-                            || !explicitRecovery
-                                    && (checkpointAppearance.syncStatus() == AppearanceSyncStatus.PARTIAL
-                                            || checkpointAppearance.syncStatus()
-                                                    == AppearanceSyncStatus.UNKNOWN))) {
-                SessionValidation cached = explicitValidation == null
-                        ? sessions.cachedStatus(context.identity())
-                        : explicitValidation;
-                return Optional.of(reconciliationResult(
-                        context,
-                        checkpointAppearance,
-                        cached,
-                        observedAccount(accountId),
-                        Optional.empty()));
-            }
-            SessionValidation validation = explicitValidation == null
-                    ? checkpointValidation(
-                            scopedContext, trigger, checkpointAppearance.syncStatus())
-                    : explicitValidation;
-            ObservedAccount observed = observeCheckpointAccount(accountId, validation, checkpointAppearance.providers());
-            AccountAppearanceState appearance = storage.loadAppearance(accountId);
-
-
-            if (!sameDelivery(appearance, checkpointAppearance)) {
-                return Optional.of(reconciliationResult(
-                        context, appearance, validation, observed, Optional.empty()));
-            }
-            if (!appearance.hasIntent()) {
-                return Optional.of(reconciliationResult(
-                        context, appearance, validation, observed, Optional.empty()));
-            }
-
-            if (appearance.syncStatus() == AppearanceSyncStatus.ATTEMPTING) {
-                AppearanceSyncStatus recovered = validation.valid()
-                                && validation.profile() != null
-                                && compareAppearance(appearance, validation.profile())
-                                        == AppearanceComparison.MATCH
-                        ? AppearanceSyncStatus.OFFICIAL
-                        : AppearanceSyncStatus.UNKNOWN;
-                AccountAppearanceState settled = settleAppearance(
-                        accountId, appearance.intentRevision(), AppearanceSyncStatus.ATTEMPTING, recovered);
-                return Optional.of(reconciliationResult(
-                        context, settled, validation, observed, Optional.empty()));
-            }
-
-            if (!validation.valid() || validation.profile() == null) {
-                if (appearance.syncStatus() == AppearanceSyncStatus.PENDING
-                        && !allowsAutomaticCheckpointRetry(validation.failureKind())) {
-                    appearance = settleAppearance(
-                            accountId,
-                            appearance.intentRevision(),
-                            AppearanceSyncStatus.PENDING,
-                            AppearanceSyncStatus.UNKNOWN);
-                }
-                return Optional.of(reconciliationResult(
-                        context, appearance, validation, observed, Optional.empty()));
-            }
-
-            if (appearance.providers().cape().enabled(BuiltinProvider.MINECRAFT)
-                    && appearance.capeId() != null
-                    && appearance.syncStatus() != AppearanceSyncStatus.OFFICIAL
-                    && !validation.profile().ownsCape(appearance.capeId())) {
-                long previousRevision = appearance.intentRevision();
-                AppearanceSyncStatus previousStatus = appearance.syncStatus();
-                NclSkinsStorage.AppearanceIntentUpdate effective = storage.updateAppearanceIntentIfCurrent(
+    private final class ReconciliationEffectsAdapter implements AccountReconciliationEffects, AccountMutationEffects {
+        private final OperationContext context;
+        private final UUID accountId;
+        private ReconciliationEffectsAdapter(OperationContext context) {
+            this.context = context;
+            this.accountId = context.identity().profileId();
+        }
+        public AccountAppearanceState load() throws IOException { return storage.loadAppearance(accountId); }
+        public SessionValidation cached() { return sessions.cachedStatus(context.identity()); }
+        public boolean automaticAllowed() { return sessions.automaticCheckpointMayAcquireToken(context.identity()); }
+        public boolean cooldown() { return profileApi.rateLimitRemaining().isPresent(); }
+        public boolean startupObserved() { return accountId.equals(startupObservedAccount); }
+        public SessionValidation validate(com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Validation mode) {
+            return switch (mode) {
+                case MANUAL -> sessions.manualRetry(context.tokens());
+                case TOKEN_UNAVAILABLE -> sessions.retryTokenUnavailableAtCheckpoint(context.tokens());
+                case FRESH -> sessions.observeFreshAtCheckpoint(context.tokens());
+                case CACHED -> cached();
+                case TRANSIENT -> sessions.retryTransientAtCheckpoint(context.tokens());
+            };
+        }
+        public Optional<ReconciliationResult> withSession(AccountAppearanceState checkpoint, Scoped operation)
+                throws IOException, PngValidationException {
+            return withRequestScopedToken(context, accountId, checkpoint,
+                    scoped -> operation.execute(new ReconciliationEffectsAdapter(scoped)));
+        }
+        public ObservedAccount observe(SessionValidation validation, AppearanceProviders expected) throws IOException, PngValidationException {
+            return observeCheckpointAccount(accountId, validation, expected);
+        }
+        public ObservedAccount observed() throws IOException { return observedAccount(accountId); }
+        public com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Observation compare(
+                AccountAppearanceState state, SessionValidation validation) { return comparison(state, validation.profile()); }
+        public com.naocraftlab.skins.core.service.AccountAppearanceStore.AppearanceIntentUpdate normalizeCape(AccountAppearanceState appearance) throws IOException {
+                return storage.updateAppearanceIntentIfCurrent(
                         accountId,
-                        previousRevision,
-                        previousStatus,
+                        appearance.intentRevision(),
+                        appearance.syncStatus(),
                         (current, revision) -> {
                             AppearanceProviders normalized = current.providers().revise(
                                     revision,
@@ -1626,99 +1476,43 @@ public final class DefaultClientOperations implements ClientOperations {
                                             ? revision : current.settledRevision(),
                                     clock.instant(), normalized);
                         });
-                appearance = effective.state();
-                if (!effective.updated()) {
-                    return Optional.of(reconciliationResult(
-                            context, appearance, validation, observed, Optional.empty()));
-                }
-            }
-
-            if (appearance.syncStatus() == AppearanceSyncStatus.UNKNOWN) {
-                if (!explicitRecovery) {
-                    return Optional.of(reconciliationResult(
-                            context, appearance, validation, observed, Optional.empty()));
-                }
-                AppearanceComparison comparison = compareAppearance(
-                        appearance, validation.profile());
-                if (comparison == AppearanceComparison.MATCH) {
-                    AccountAppearanceState settled = settleAppearance(
-                            accountId,
-                            appearance.intentRevision(),
-                            AppearanceSyncStatus.UNKNOWN,
-                            AppearanceSyncStatus.OFFICIAL);
-                    return Optional.of(reconciliationResult(
-                            context, settled, validation, observed, Optional.empty()));
-                }
-                if (comparison != AppearanceComparison.DIFFERENT) {
-                    return Optional.of(reconciliationResult(
-                            context, appearance, validation, observed, Optional.empty()));
-                }
-                return Optional.of(applyFullIntent(
-                        accountId,
-                        scopedContext,
-                        appearance,
-                        AppearanceSyncStatus.UNKNOWN,
-                        validation));
-            }
-
-            if (appearance.syncStatus() == AppearanceSyncStatus.PARTIAL) {
-                if (!explicitRecovery) {
-                    return Optional.of(reconciliationResult(
-                            context, appearance, validation, observed, Optional.empty()));
-                }
-                Optional<ActiveAppearance> actual = deliveryAppearance(validation.profile());
-                if (actual.isEmpty()) {
-                    return Optional.of(reconciliationResult(
-                            context, appearance, validation, observed, Optional.empty()));
-                }
-                if (appearanceMatches(appearance, actual.orElseThrow())) {
-                    AccountAppearanceState settled = settleAppearance(
-                            accountId,
-                            appearance.intentRevision(),
-                            AppearanceSyncStatus.PARTIAL,
-                            AppearanceSyncStatus.OFFICIAL);
-                    return Optional.of(reconciliationResult(
-                            context, settled, validation, observed, Optional.empty()));
-                }
-                if (!skinMatches(appearance, actual.orElseThrow())) {
-                    return Optional.of(reconciliationResult(
-                            context, appearance, validation, observed, Optional.empty()));
-                }
-                return Optional.of(applyCapeRecovery(
-                        accountId, scopedContext, appearance, validation));
-            }
-
-            if (appearance.syncStatus() != AppearanceSyncStatus.PENDING) {
-                return Optional.of(reconciliationResult(
-                        context, appearance, validation, observed, Optional.empty()));
-            }
-
-            Optional<ActiveAppearance> actual = deliveryAppearance(validation.profile());
-            if (actual.isPresent()) {
-                ActiveAppearance observedAppearance = actual.orElseThrow();
-                if (appearanceMatches(appearance, observedAppearance)) {
-                    AccountAppearanceState settled = settleAppearance(
-                            accountId,
-                            appearance.intentRevision(),
-                            AppearanceSyncStatus.PENDING,
-                            AppearanceSyncStatus.OFFICIAL);
-                    return Optional.of(reconciliationResult(
-                            context, settled, validation, observed, Optional.empty()));
-                }
-                if (skinMatches(appearance, observedAppearance)) {
-                    return Optional.of(applyPendingCapeDelta(
-                            accountId, scopedContext, appearance, validation));
-                }
-            }
-
-            return Optional.of(applyFullIntent(
-                    accountId,
-                    scopedContext,
-                    appearance,
-                    AppearanceSyncStatus.PENDING,
-                    validation));
-                    });
         }
+        public AccountAppearanceState settle(AccountAppearanceState expected, AppearanceSyncStatus status) throws IOException {
+            return delivery.settleAppearance(accountId, expected.intentRevision(), expected.syncStatus(), status);
+        }
+        public ReconciliationResult full(AccountAppearanceState state, SessionValidation validation) throws IOException, PngValidationException {
+            return accountMutations.applyFullIntent(accountId, this, state, state.syncStatus(), validation);
+        }
+        public ReconciliationResult cape(AccountAppearanceState state, SessionValidation validation) throws IOException {
+            return state.syncStatus() == AppearanceSyncStatus.PARTIAL
+                    ? accountMutations.applyCapeRecovery(accountId, this, state, validation)
+                    : accountMutations.applyPendingCapeDelta(accountId, this, state, validation);
+        }
+        public PresetApplicationOutcome apply(PresetApplicationRequest request, java.util.function.BooleanSupplier current) {
+            return mutations.applyPresetWhileLockedAfterSameTokenValidation(context.tokens(), request, current);
+        }
+        public PresetApplicationOutcome retryCape(String capeId, java.util.function.BooleanSupplier current) {
+            return mutations.retryCapeWhileLockedAfterSameTokenValidation(context.tokens(), capeId, current);
+        }
+        public ReconciliationResult result(AccountAppearanceState state, SessionValidation validation) throws IOException {
+            return result(state, validation, observed());
+        }
+        public ReconciliationResult afterMutation(AccountAppearanceState state, PresetApplicationOutcome outcome, AppearanceProviders expected) {
+            return reconciliationAfterMutation(accountId, context, state, outcome, expected);
+        }
+        public ReconciliationResult result(AccountAppearanceState state, SessionValidation validation, ObservedAccount observed) throws IOException {
+            return reconciliationResult(context, state, validation, observed, Optional.empty());
+        }
+    }
+
+    private com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Observation comparison(
+            AccountAppearanceState appearance, RemoteProfile profile) {
+        var actual = deliveryAppearance(profile);
+        if (actual.isEmpty()) return com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Observation.UNRESOLVED;
+        if (appearanceMatches(appearance, actual.orElseThrow())) return com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Observation.MATCH;
+        return skinMatches(appearance, actual.orElseThrow())
+                ? com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Observation.SKIN_MATCH
+                : com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Observation.DIFFERENT;
     }
 
     private Optional<ReconciliationResult> withRequestScopedToken(
@@ -1747,163 +1541,24 @@ public final class DefaultClientOperations implements ClientOperations {
             throw callbackFailure.original();
         } catch (GameSessionIdentityChangedException identityChanged) {
             SessionValidation validation = sessions.rememberIdentityMismatch(context.identity());
-            AccountAppearanceState appearance = storage.loadAppearance(accountId);
-            if (appearance.intentRevision() == checkpointAppearance.intentRevision()
-                    && (appearance.syncStatus() == AppearanceSyncStatus.PENDING
-                            || appearance.syncStatus() == AppearanceSyncStatus.ATTEMPTING)) {
-                appearance = settleAppearance(
-                        accountId,
-                        appearance.intentRevision(),
-                        appearance.syncStatus(),
-                        AppearanceSyncStatus.UNKNOWN);
-            }
-            return Optional.of(reconciliationResult(
-                    context,
-                    appearance,
-                    validation,
-                    observedAccount(accountId),
-                    Optional.empty()));
+            return sessionFailureResult(context, accountId, checkpointAppearance, validation,
+                    com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.SessionFailure.IDENTITY_CHANGED);
         } catch (GameSessionTokenUnavailableException unavailableToken) {
-            return tokenUnavailableBeforeRequest(context, accountId, checkpointAppearance);
+            return sessionFailureResult(context, accountId, checkpointAppearance,
+                    sessions.rememberTokenUnavailable(context.identity()),
+                    com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.SessionFailure.TOKEN_UNAVAILABLE);
         } catch (RuntimeException unavailableToken) {
-            SessionValidation validation = sessions.rememberTokenSourceFailure(context.identity());
-            AccountAppearanceState appearance = storage.loadAppearance(accountId);
-            if (appearance.intentRevision() == checkpointAppearance.intentRevision()
-                    && appearance.syncStatus() == AppearanceSyncStatus.ATTEMPTING) {
-                appearance = settleAppearance(
-                        accountId,
-                        appearance.intentRevision(),
-                        appearance.syncStatus(),
-                        AppearanceSyncStatus.UNKNOWN);
-            }
-            return Optional.of(reconciliationResult(
-                    context,
-                    appearance,
-                    validation,
-                    observedAccount(accountId),
-                    Optional.empty()));
+            return sessionFailureResult(context, accountId, checkpointAppearance,
+                    sessions.rememberTokenSourceFailure(context.identity()),
+                    com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.SessionFailure.SOURCE_FAILED);
         }
     }
 
-    private Optional<ReconciliationResult> tokenUnavailableBeforeRequest(
-            OperationContext context,
-            UUID accountId,
-            AccountAppearanceState checkpointAppearance) throws IOException {
-        SessionValidation validation = sessions.rememberTokenUnavailable(context.identity());
-        AccountAppearanceState appearance = storage.loadAppearance(accountId);
-        if (appearance.intentRevision() == checkpointAppearance.intentRevision()
-                && appearance.syncStatus() == AppearanceSyncStatus.ATTEMPTING) {
-            appearance = settleAppearance(
-                    accountId,
-                    appearance.intentRevision(),
-                    AppearanceSyncStatus.ATTEMPTING,
-                    AppearanceSyncStatus.UNKNOWN);
-        }
-        return Optional.of(reconciliationResult(
-                context,
-                appearance,
-                validation,
-                observedAccount(accountId),
-                Optional.empty()));
-    }
-
-    private ReconciliationResult applyFullIntent(
-            UUID accountId,
-            OperationContext context,
-            AccountAppearanceState appearance,
-            AppearanceSyncStatus expectedStatus,
-            SessionValidation validation) throws IOException, PngValidationException {
-        long revision = appearance.intentRevision();
-
-
-        PresetApplicationRequest request = requestFromAppearance(appearance);
-        AccountAppearanceState claimed = claimAppearance(
-                accountId, appearance, expectedStatus, request.writeSkin(), request.writeCape());
-        if (claimed.intentRevision() != revision
-                || claimed.syncStatus() != AppearanceSyncStatus.ATTEMPTING) {
-            return reconciliationResult(
-                    context,
-                    claimed,
-                    validation,
-                    observedAccount(accountId),
-                    Optional.empty());
-        }
-        PresetApplicationOutcome outcome = mutations.applyPresetWhileLockedAfterSameTokenValidation(
-                context.tokens(),
-                request,
-                () -> appearanceStillCurrent(accountId, appearance));
-        AccountAppearanceState settled = settleAfterMutation(
-                accountId,
-                claimed,
-                AppearanceSyncStatus.ATTEMPTING,
-                settlementStatus(outcome),
-                outcome);
-        return reconciliationAfterMutation(accountId, context, settled, outcome, appearance.providers());
-    }
-
-    private ReconciliationResult applyCapeRecovery(
-            UUID accountId,
-            OperationContext context,
-            AccountAppearanceState appearance,
-            SessionValidation validation) throws IOException {
-        long revision = appearance.intentRevision();
-        AccountAppearanceState claimed = claimAppearance(
-                accountId, appearance, AppearanceSyncStatus.PARTIAL, false, true);
-        if (claimed.intentRevision() != revision
-                || claimed.syncStatus() != AppearanceSyncStatus.ATTEMPTING) {
-            return reconciliationResult(
-                    context,
-                    claimed,
-                    validation,
-                    observedAccount(accountId),
-                    Optional.empty());
-        }
-        PresetApplicationOutcome outcome = mutations.retryCapeWhileLockedAfterSameTokenValidation(
-                context.tokens(),
-                claimed.capeId(),
-                () -> appearanceStillCurrent(accountId, appearance));
-        AppearanceSyncStatus status = switch (outcome.result()) {
-            case APPLIED -> AppearanceSyncStatus.OFFICIAL;
-            case UNKNOWN -> AppearanceSyncStatus.UNKNOWN;
-            case PARTIAL, FAILED, SESSION_EXPIRED -> AppearanceSyncStatus.PARTIAL;
-        };
-        AccountAppearanceState settled = settleAfterMutation(
-                accountId,
-                claimed,
-                AppearanceSyncStatus.ATTEMPTING,
-                status,
-                outcome);
-        return reconciliationAfterMutation(accountId, context, settled, outcome, appearance.providers());
-    }
-
-    private ReconciliationResult applyPendingCapeDelta(
-            UUID accountId,
-            OperationContext context,
-            AccountAppearanceState appearance,
-            SessionValidation validation) throws IOException {
-        long revision = appearance.intentRevision();
-        AccountAppearanceState claimed = claimAppearance(
-                accountId, appearance, AppearanceSyncStatus.PENDING, false, true);
-        if (claimed.intentRevision() != revision
-                || claimed.syncStatus() != AppearanceSyncStatus.ATTEMPTING) {
-            return reconciliationResult(
-                    context,
-                    claimed,
-                    validation,
-                    observedAccount(accountId),
-                    Optional.empty());
-        }
-        PresetApplicationOutcome outcome = mutations.retryCapeWhileLockedAfterSameTokenValidation(
-                context.tokens(),
-                claimed.capeId(),
-                () -> appearanceStillCurrent(accountId, appearance));
-        AccountAppearanceState settled = settleAfterMutation(
-                accountId,
-                claimed,
-                AppearanceSyncStatus.ATTEMPTING,
-                settlementStatus(outcome),
-                outcome);
-        return reconciliationAfterMutation(accountId, context, settled, outcome, appearance.providers());
+    private Optional<ReconciliationResult> sessionFailureResult(OperationContext context, UUID accountId,
+            AccountAppearanceState checkpoint, SessionValidation validation,
+            com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.SessionFailure failure) throws IOException {
+        AccountAppearanceState appearance = delivery.afterSessionFailure(accountId, checkpoint.intentRevision(), failure);
+        return Optional.of(reconciliationResult(context, appearance, validation, observedAccount(accountId), Optional.empty()));
     }
 
     private ReconciliationResult reconciliationAfterMutation(
@@ -1930,38 +1585,13 @@ public final class DefaultClientOperations implements ClientOperations {
         GameSessionTokenSource.SessionIdentity identity = Objects.requireNonNull(
                 tokenSource.currentSession(), "current session");
         UUID accountId = identity.profileId();
-        storage.initialize();
+        bootstrap.initialize();
         AccountAppearanceState appearance = storage.loadAppearance(accountId);
         if (!appearance.hasIntent()) {
             return Optional.empty();
         }
         return Optional.of(durableAppearance(
                 accountId, identity, appearance, sessions.cachedStatus(identity)));
-    }
-
-    private SessionValidation checkpointValidation(
-            OperationContext context,
-            ReconciliationTrigger trigger,
-            AppearanceSyncStatus status) {
-        return switch (trigger) {
-            case RATE_LIMIT_EXPIRED, EXPLICIT_RETRY -> sessions.manualRetry(context.tokens());
-            case SESSION_REFRESHED -> sessions.retryTokenUnavailableAtCheckpoint(context.tokens());
-            case RECONNECT -> {
-                if (status == AppearanceSyncStatus.ATTEMPTING) {
-                    yield sessions.observeFreshAtCheckpoint(context.tokens());
-                }
-                if (sessions.cachedStatus(context.identity()).failureKind() == ApiFailureKind.TOKEN_UNAVAILABLE) {
-                    yield sessions.retryTokenUnavailableAtCheckpoint(context.tokens());
-                }
-                yield sessions.retryTransientAtCheckpoint(context.tokens());
-            }
-            case PROCESS_START -> context.identity().profileId().equals(startupObservedAccount)
-                    ? sessions.cachedStatus(context.identity())
-                    : sessions.retryTransientAtCheckpoint(context.tokens());
-            default -> status == AppearanceSyncStatus.ATTEMPTING
-                    ? sessions.observeFreshAtCheckpoint(context.tokens())
-                    : sessions.retryTransientAtCheckpoint(context.tokens());
-        };
     }
 
     private ReconciliationResult reconciliationResult(
@@ -2056,110 +1686,6 @@ public final class DefaultClientOperations implements ClientOperations {
                 appearance.optionalOuterLayerVisibility(), appearance.providers());
     }
 
-    private AccountAppearanceState claimAppearance(
-            UUID accountId,
-            AccountAppearanceState expected,
-            AppearanceSyncStatus expectedStatus,
-            boolean claimSkin,
-            boolean claimCape) throws IOException {
-        return storage.updateAppearance(accountId, current -> {
-            if (!sameDelivery(current, expected)
-                    || current.syncStatus() != expectedStatus) {
-                return current;
-            }
-            return withAppearanceStatus(
-                    current,
-                    AppearanceSyncStatus.ATTEMPTING,
-                    current.settledRevision(),
-                    new AppearanceProviders(
-                            claimDelivery(current.providers().skin(), claimSkin),
-                            claimDelivery(current.providers().cape(), claimCape)));
-        });
-    }
-
-    private static <T> ProviderChannel<T> claimDelivery(
-            ProviderChannel<T> channel, boolean selected) {
-        if (!selected
-                || !channel.enabled(BuiltinProvider.MINECRAFT)
-                || channel.minecraftDelivery().status() == ProviderDelivery.Status.UNKNOWN) {
-            return channel;
-        }
-        return channel.settle(
-                channel.minecraftDelivery(), ProviderDelivery.Status.ATTEMPTING, null);
-    }
-
-    private PresetApplicationRequest requestFromAppearance(AccountAppearanceState appearance)
-            throws IOException, PngValidationException {
-        boolean writeSkin = needsMinecraftDelivery(appearance.providers().skin());
-        boolean writeCape = needsMinecraftDelivery(appearance.providers().cape());
-        ResolvedSkinAsset resolved = null;
-        SkinReference skin = SkinReference.accountDefault();
-        if (writeSkin && appearance.skinSha256() != null) {
-            UUID assetId = UUID.randomUUID();
-            resolved = new ResolvedSkinAsset(
-                    assetId,
-                    appearance.skinSha256(),
-                    appearance.skinVariant(),
-                    storage.readAsset(appearance.skinSha256()));
-            skin = SkinReference.asset(assetId);
-        }
-        Instant now = clock.instant();
-        UUID presetId = appearance.activePresetId() == null
-                ? UUID.randomUUID()
-                : appearance.activePresetId();
-        AppearancePreset preset = new AppearancePreset(
-                presetId,
-                "Durable appearance",
-                skin,
-                appearance.capeId(),
-                appearance.outerLayerVisibility(),
-                now,
-                now);
-        return new PresetApplicationRequest(preset, resolved,
-                writeSkin,
-                writeCape);
-    }
-
-    private static AppearanceSyncStatus settlementStatus(PresetApplicationOutcome outcome) {
-        return switch (outcome.result()) {
-            case APPLIED -> AppearanceSyncStatus.OFFICIAL;
-            case PARTIAL -> AppearanceSyncStatus.PARTIAL;
-            case UNKNOWN -> AppearanceSyncStatus.UNKNOWN;
-            case FAILED -> allowsAutomaticMutationRetry(outcome)
-                    ? AppearanceSyncStatus.PENDING
-                    : AppearanceSyncStatus.UNKNOWN;
-            case SESSION_EXPIRED -> AppearanceSyncStatus.UNKNOWN;
-        };
-    }
-
-    private static boolean allowsAutomaticCheckpointRetry(ApiFailureKind failureKind) {
-        return failureKind == ApiFailureKind.TOKEN_UNAVAILABLE
-                || failureKind == ApiFailureKind.NETWORK
-                || failureKind == ApiFailureKind.SERVER_ERROR
-                || failureKind == ApiFailureKind.RATE_LIMITED;
-    }
-
-    private static boolean allowsAutomaticMutationRetry(PresetApplicationOutcome outcome) {
-        ApiFailureKind failureKind = outcome.failureKind();
-        return allowsAutomaticCheckpointRetry(failureKind);
-    }
-
-    private AppearanceComparison compareAppearance(
-            AccountAppearanceState expected, RemoteProfile profile) {
-        Optional<ActiveAppearance> actual = deliveryAppearance(profile);
-        if (actual.isEmpty()) {
-            return AppearanceComparison.UNRESOLVED;
-        }
-        return appearanceMatches(expected, actual.orElseThrow())
-                ? AppearanceComparison.MATCH
-                : AppearanceComparison.DIFFERENT;
-    }
-
-    private static boolean needsMinecraftDelivery(ProviderChannel<?> channel) {
-        return channel.enabled(BuiltinProvider.MINECRAFT)
-                && channel.minecraftDelivery().status() != ProviderDelivery.Status.CONFIRMED;
-    }
-
     private static boolean appearanceMatches(
             AccountAppearanceState expected, ActiveAppearance actual) {
         return (!needsMinecraftDelivery(expected.providers().cape())
@@ -2177,36 +1703,11 @@ public final class DefaultClientOperations implements ClientOperations {
                                 && expected.skinVariant() == actual.variant());
     }
 
-    private boolean appearanceStillCurrent(UUID accountId, AccountAppearanceState expected) {
-        try {
-            AccountAppearanceState current = storage.loadAppearance(accountId);
-            return sameDelivery(current, expected)
-                    && current.syncStatus() == AppearanceSyncStatus.ATTEMPTING;
-        } catch (IOException unavailableState) {
-            return false;
-        }
-    }
-
-    private static boolean sameDelivery(AccountAppearanceState current, AccountAppearanceState expected) {
-        return current.intentRevision() == expected.intentRevision() && sameActivation(current, expected);
-    }
-
-    private static boolean sameActivation(AccountAppearanceState current, AccountAppearanceState expected) {
-        return current.providers().skin().minecraftDelivery().activation()
-                            == expected.providers().skin().minecraftDelivery().activation()
-                    && current.providers().cape().minecraftDelivery().activation()
-                            == expected.providers().cape().minecraftDelivery().activation()
-                    && current.providers().skin().enabled(BuiltinProvider.MINECRAFT)
-                            == expected.providers().skin().enabled(BuiltinProvider.MINECRAFT)
-                    && current.providers().cape().enabled(BuiltinProvider.MINECRAFT)
-                            == expected.providers().cape().enabled(BuiltinProvider.MINECRAFT);
-    }
-
     @Override
     public RemoteResult retryCape(String capeId) throws IOException, PngValidationException {
         OperationContext context = pinCurrentSession();
         UUID accountId = resolveAccountId(context.identity());
-        storage.initialize();
+        bootstrap.initialize();
         AccountAppearanceState appearance = storage.loadAppearance(accountId);
         if (!appearance.hasIntent()
                 || appearance.syncStatus() != AppearanceSyncStatus.PARTIAL
@@ -2218,7 +1719,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 appearance.providers().skin().minecraftDelivery().activation(),
                 appearance.providers().cape().minecraftDelivery().activation());
         ReconciliationResult reconciled = reconcileAppearance(
-                        context, key, ReconciliationTrigger.EXPLICIT_RETRY)
+                        context, key, Trigger.EXPLICIT_RETRY)
                 .orElseThrow(() -> new IllegalStateException(
                         "Local appearance changed before cape recovery"));
         return legacyRemoteResult(reconciled, "Cape recovery completed without a remote mutation.");
@@ -2237,7 +1738,7 @@ public final class DefaultClientOperations implements ClientOperations {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
         AccountState state = library.load(accountId);
         SkinAsset asset = library.findSkin(state, Objects.requireNonNull(skinId, "skinId"));
-        return storage.readAsset(asset.sha256());
+        return assets.readAsset(asset.sha256());
     }
 
     @Override
@@ -2250,8 +1751,7 @@ public final class DefaultClientOperations implements ClientOperations {
                     .filter(candidate -> candidate.id().equals(capeId))
                     .findFirst();
             if (cape.isPresent()) {
-                CachedTexture cached = textures.get(cape.orElseThrow());
-                return Optional.of(textures.read(cached));
+                return Optional.of(textures.load(cape.orElseThrow().textureUri()));
             }
         }
         UUID accountId = resolveAccountId(context.identity());
@@ -2269,7 +1769,6 @@ public final class DefaultClientOperations implements ClientOperations {
 
     @Override
     public InitialData retrySession() throws IOException, PngValidationException {
-
 
         return initializeFresh(
                 pinCurrentSession(), SessionClassification.MANUAL_RETRY);
@@ -2411,7 +1910,6 @@ public final class DefaultClientOperations implements ClientOperations {
         }
     }
 
-
     private InitialPresetBootstrap createInitialPresetFromOfficialSkin(
             OfficialSkinSync official, SessionValidation validation) throws IOException {
         AccountState state = official.state();
@@ -2463,7 +1961,6 @@ public final class DefaultClientOperations implements ClientOperations {
         Optional<UUID> durablePreset = durable.optionalActivePresetId()
                 .filter(id -> state.presets().stream().anyMatch(preset -> preset.id().equals(id)));
         if (durable.hasIntent()) {
-
 
             return durablePreset;
         }
@@ -2565,138 +2062,6 @@ public final class DefaultClientOperations implements ClientOperations {
                 clock.instant(), providers.select(revision, null, null));
     }
 
-    private AccountAppearanceState settleAppearance(
-            UUID accountId,
-            long revision,
-            AppearanceSyncStatus expectedStatus,
-            AppearanceSyncStatus status) throws IOException {
-        return storage.updateAppearance(accountId, current -> {
-            if (current.intentRevision() != revision || current.syncStatus() != expectedStatus) {
-                return current;
-            }
-            long settled = status == AppearanceSyncStatus.OFFICIAL
-                    ? revision
-                    : current.settledRevision();
-            return copyAppearanceStatus(current, status, settled);
-        });
-    }
-
-    private AccountAppearanceState settleAfterMutation(
-            UUID accountId,
-            AccountAppearanceState expected,
-            AppearanceSyncStatus expectedStatus,
-            AppearanceSyncStatus status,
-            PresetApplicationOutcome outcome) throws IOException {
-        try {
-            return storage.updateAppearance(accountId, current -> {
-                if (!sameDelivery(current, expected) || current.syncStatus() != expectedStatus) {
-                    if (current.intentRevision() > expected.intentRevision()
-                            && sameActivation(current, expected)
-                            && current.syncStatus() == AppearanceSyncStatus.UNKNOWN
-                            && (outcome.result() == MutationResult.APPLIED || outcome.result() == MutationResult.PARTIAL)) {
-                        AppearanceProviders providers = new AppearanceProviders(
-                                resumeSupersedingDelivery(
-                                        current.providers().skin(), expected.providers().skin()),
-                                resumeSupersedingDelivery(
-                                        current.providers().cape(), expected.providers().cape()));
-                        if (providers.equals(current.providers())) {
-                            return current;
-                        }
-                        return withAppearanceStatus(
-                                current,
-                                supersedingRecoveryStatus(current, providers),
-                                current.settledRevision(),
-                                providers);
-                    }
-                    return current;
-                }
-                return copyAppearanceStatus(current, status,
-                        status == AppearanceSyncStatus.OFFICIAL
-                                ? current.intentRevision() : current.settledRevision());
-            });
-        } catch (IOException | RuntimeException localFailure) {
-
-
-            throw new RemoteMutationSettlementException(outcome.remoteAppearanceImpact());
-        }
-    }
-
-    private static <T> ProviderChannel<T> resumeSupersedingDelivery(
-            ProviderChannel<T> current, ProviderChannel<T> previous) {
-        ProviderDelivery delivery = current.minecraftDelivery();
-        ProviderDelivery previousDelivery = previous.minecraftDelivery();
-        if (!current.enabled(BuiltinProvider.MINECRAFT)
-                || !previous.enabled(BuiltinProvider.MINECRAFT)
-                || delivery.status() != ProviderDelivery.Status.UNKNOWN
-                || previousDelivery.status() != ProviderDelivery.Status.ATTEMPTING
-                || delivery.activation() != previousDelivery.activation()
-                || delivery.intentRevision() <= previousDelivery.intentRevision()) {
-            return current;
-        }
-        return current.settle(delivery, ProviderDelivery.Status.PENDING, null);
-    }
-
-    private static AppearanceSyncStatus supersedingRecoveryStatus(
-            AccountAppearanceState current, AppearanceProviders providers) {
-        if (hasMinecraftDeliveryStatus(providers, ProviderDelivery.Status.UNKNOWN)) {
-            return AppearanceSyncStatus.UNKNOWN;
-        }
-        if (hasMinecraftDeliveryStatus(providers, ProviderDelivery.Status.ATTEMPTING)) {
-            return AppearanceSyncStatus.ATTEMPTING;
-        }
-        if (hasMinecraftDeliveryStatus(providers, ProviderDelivery.Status.PENDING)) {
-            return AppearanceSyncStatus.PENDING;
-        }
-        return current.syncStatus();
-    }
-
-    private AccountAppearanceState copyAppearanceStatus(
-            AccountAppearanceState current,
-            AppearanceSyncStatus status,
-            long settledRevision) {
-        return withAppearanceStatus(current, status, settledRevision, new AppearanceProviders(
-                deliveryStatus(current.providers().skin(), status, true),
-                deliveryStatus(current.providers().cape(), status, false)));
-    }
-
-    private AccountAppearanceState withAppearanceStatus(
-            AccountAppearanceState current,
-            AppearanceSyncStatus status,
-            long settledRevision,
-            AppearanceProviders providers) {
-        return new AccountAppearanceState(
-                current.schemaVersion(),
-                current.accountId(),
-                current.intentRevision(),
-                current.activePresetId(),
-                current.skinSha256(),
-                current.skinVariant(),
-                current.capeId(),
-                current.outerLayerVisibility(),
-                status,
-                settledRevision,
-                clock.instant(),
-                providers);
-    }
-
-    private static <T> ProviderChannel<T> deliveryStatus(
-            ProviderChannel<T> channel, AppearanceSyncStatus status, boolean skin) {
-        if (!channel.enabled(BuiltinProvider.MINECRAFT)
-                || channel.minecraftDelivery().status() == ProviderDelivery.Status.CONFIRMED) {
-            return channel;
-        }
-        ProviderDelivery.Status delivery = switch (status) {
-            case ATTEMPTING -> ProviderDelivery.Status.ATTEMPTING;
-            case OFFICIAL -> ProviderDelivery.Status.CONFIRMED;
-            case UNKNOWN -> ProviderDelivery.Status.UNKNOWN;
-            case PARTIAL -> skin ? ProviderDelivery.Status.CONFIRMED : ProviderDelivery.Status.PENDING;
-            case PENDING -> channel.minecraftDelivery().status() == ProviderDelivery.Status.UNKNOWN
-                    ? ProviderDelivery.Status.UNKNOWN : ProviderDelivery.Status.PENDING;
-            case LOCAL_ONLY -> ProviderDelivery.Status.IDLE;
-        };
-        return channel.settle(channel.minecraftDelivery(), delivery, channel.desired());
-    }
-
     private Optional<AppliedAppearance> materializeLocalAppearance(
             UUID accountId,
             UUID runningProfileId,
@@ -2737,7 +2102,7 @@ public final class DefaultClientOperations implements ClientOperations {
                     .findFirst();
             if (verifiedTexture.isPresent()
                     && textures.readIfCached(verifiedTexture.orElseThrow()).isPresent()) {
-                return Optional.of(TextureCache.cacheKey(verifiedTexture.orElseThrow()));
+                return Optional.of(textures.cacheKey(verifiedTexture.orElseThrow()));
             }
         } catch (IOException | RuntimeException unavailableCache) {
             return Optional.empty();
@@ -2778,7 +2143,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 byte[] bytes;
                 SkinVariant variant = applied.skinVariant().orElseThrow();
                 if (applied.localSkinSha256().isPresent()) {
-                    bytes = storage.readAsset(applied.localSkinSha256().orElseThrow());
+                    bytes = assets.readAsset(applied.localSkinSha256().orElseThrow());
                 } else {
                     RemoteSkin active = profile.activeSkin().orElseThrow();
                     if (applied.skinTexture().filter(active.textureUri()::equals).isEmpty()) {
@@ -2888,22 +2253,6 @@ public final class DefaultClientOperations implements ClientOperations {
     private record InitialPresetBootstrap(
             OfficialSkinSync official, boolean revisionMatched) {}
 
-    private record ObservedAccount(
-            AccountState account, Optional<UUID> currentOfficialSkinId) {
-        private ObservedAccount {
-            Objects.requireNonNull(account, "account");
-            currentOfficialSkinId = Objects.requireNonNull(
-                    currentOfficialSkinId, "currentOfficialSkinId");
-        }
-    }
-
-    private enum AppearanceComparison {
-        MATCH,
-        DIFFERENT,
-        UNRESOLVED
-    }
-
-
     private record LibraryObservation(
             Instant updatedAt, boolean presetsEmpty, boolean emptyProfileValidated) {
         private static LibraryObservation from(
@@ -2926,98 +2275,6 @@ public final class DefaultClientOperations implements ClientOperations {
     private interface ScopedReconciliation {
         Optional<ReconciliationResult> execute(OperationContext scopedContext)
                 throws IOException, PngValidationException;
-    }
-
-    @FunctionalInterface
-    private interface ScopedTokenRequest<T> {
-        T execute(GameSessionTokenSource scopedTokens);
-    }
-
-    private static final class ScopedCheckedFailure extends RuntimeException {
-        private static final long serialVersionUID = 1L;
-
-        private ScopedCheckedFailure(Exception cause) {
-            super(cause);
-        }
-    }
-
-    private static final class ScopedCallbackRuntimeFailure extends RuntimeException {
-        private static final long serialVersionUID = 1L;
-        private final RuntimeException original;
-
-        private ScopedCallbackRuntimeFailure(RuntimeException original) {
-            super(null, null, false, false);
-            this.original = Objects.requireNonNull(original, "original");
-        }
-
-        private RuntimeException original() {
-            return original;
-        }
-    }
-
-    private static final class PinnedTokenSource implements GameSessionTokenSource {
-        private final GameSessionTokenSource delegate;
-        private final SessionIdentity identity;
-
-        private PinnedTokenSource(GameSessionTokenSource delegate, SessionIdentity identity) {
-            this.delegate = Objects.requireNonNull(delegate, "delegate");
-            this.identity = Objects.requireNonNull(identity, "identity");
-        }
-
-        @Override
-        public SessionIdentity currentSession() {
-            return identity;
-        }
-
-        @Override
-        public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) throws E {
-            Objects.requireNonNull(request, "request");
-            return delegate.withSession((current, accessToken) -> {
-                if (!identity.profileId().equals(current.profileId())) {
-                    throw new GameSessionIdentityChangedException();
-                }
-                return request.execute(accessToken);
-            });
-        }
-
-        private <T> T withRequestToken(ScopedTokenRequest<T> request) {
-            Objects.requireNonNull(request, "request");
-            return delegate.withSession((current, accessToken) -> {
-                if (!identity.profileId().equals(current.profileId())) {
-                    throw new GameSessionIdentityChangedException();
-                }
-                GameSessionTokenSource scoped = new RequestScopedTokenSource(
-                        identity, accessToken);
-                try {
-                    return request.execute(scoped);
-                } catch (ScopedCheckedFailure checkedFailure) {
-                    throw checkedFailure;
-                } catch (RuntimeException callbackFailure) {
-                    throw new ScopedCallbackRuntimeFailure(callbackFailure);
-                }
-            });
-        }
-    }
-
-
-    private static final class RequestScopedTokenSource implements GameSessionTokenSource {
-        private final SessionIdentity identity;
-        private final String accessToken;
-
-        private RequestScopedTokenSource(SessionIdentity identity, String accessToken) {
-            this.identity = Objects.requireNonNull(identity, "identity");
-            this.accessToken = Objects.requireNonNull(accessToken, "accessToken");
-        }
-
-        @Override
-        public SessionIdentity currentSession() {
-            return identity;
-        }
-
-        @Override
-        public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) throws E {
-            return Objects.requireNonNull(request, "request").execute(accessToken);
-        }
     }
 
     private record ActiveAppearance(

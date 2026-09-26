@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.OuterLayerVisibilityController;
@@ -307,7 +308,7 @@ final class ProviderFlow {
                     }
                     if (verb.equals("remove") && state.providerPreviewSources.get(component) == provider) state.providerPreviewSources.remove(component);
                     if (verb.equals("row")) context.reconcileAfterLocalRebind(
-                            providerRebind, ClientOperations.ReconciliationTrigger.LOCAL_INTENT);
+                            providerRebind, Trigger.LOCAL_INTENT);
                 });
             }
         }
@@ -608,12 +609,12 @@ final class ProviderFlow {
         void persistUiPreference(ThrowingSupplier<Void> operation);
         void reconcileAfterLocalRebind(
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
-            ClientOperations.ReconciliationTrigger trigger);
+            Trigger trigger);
         boolean currentSessionOwns(ClientOperations.DurableAppearance appearance);
         void reconcileAfterLocalRebind(
             CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
             ClientOperations.ReconciliationKey key,
-            ClientOperations.ReconciliationTrigger trigger);
+            Trigger trigger);
         <T> void submit(
             UiMessage progress, ThrowingSupplier<T> operation, Consumer<T> completion);
         <T> void submit(

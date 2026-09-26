@@ -6,7 +6,7 @@ import com.naocraftlab.skins.core.provider.ProviderObservation;
 
 import java.util.UUID;
 
-import com.naocraftlab.skins.runtime.ClientOperations.DurableAppearance;
+import com.naocraftlab.skins.runtime.AccountReconciliationPort.DurableAppearance;
 
 public interface ProviderOperations {
     AppearanceProviders loadProviders() throws Exception;
