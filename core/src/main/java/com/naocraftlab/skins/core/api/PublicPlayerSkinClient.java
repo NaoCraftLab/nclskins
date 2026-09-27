@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.core.api;
 
+import com.naocraftlab.skins.core.importing.PublicProfileLookup;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -24,7 +25,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 
-public final class PublicPlayerSkinClient {
+public final class PublicPlayerSkinClient implements PublicProfileLookup {
     private static final URI LOOKUP = URI.create("https://api.minecraftservices.com");
     private static final URI SESSION = URI.create("https://sessionserver.mojang.com");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
@@ -71,7 +72,8 @@ public final class PublicPlayerSkinClient {
         this.rateLimitGate = new RateLimitGate(Objects.requireNonNull(clock, "clock"));
     }
 
-    public Result lookup(String input) throws PublicSkinImportException {
+    @Override
+    public Observation lookup(String input) throws PublicSkinImportException {
         String identifier = Objects.requireNonNull(input, "input").trim();
         rejectDuringRateLimitCooldown();
         String compactId;
@@ -117,7 +119,7 @@ public final class PublicPlayerSkinClient {
         return defaultResult(profileId, canonicalName);
     }
 
-    private Result parseTextures(UUID expectedId, String canonicalName, String payload)
+    private Observation parseTextures(UUID expectedId, String canonicalName, String payload)
             throws PublicSkinImportException {
         try {
             byte[] decoded = Base64.getDecoder().decode(payload);
@@ -152,7 +154,7 @@ public final class PublicPlayerSkinClient {
             if (metadata != null && "slim".equals(optionalString(metadata, "model").orElse(null))) {
                 variant = SkinVariant.SLIM;
             }
-            return new Result(expectedId, canonicalName, Optional.of(toHttps(uri)), variant, Optional.empty());
+            return new Observation(canonicalName, Optional.of(new VerifiedPublicTexture(toHttps(uri))), variant, Optional.empty());
         } catch (IllegalArgumentException | IllegalStateException exception) {
             throw failure(PublicSkinImportException.Code.PROFILE_REJECTED, "Public profile payload was rejected.");
         }
@@ -230,10 +232,9 @@ public final class PublicPlayerSkinClient {
         return "https".equalsIgnoreCase(uri.getScheme()) ? uri : URI.create("https://" + uri.getRawAuthority() + uri.getRawPath());
     }
 
-    private static Result defaultResult(UUID profileId, String canonicalName) {
+    private static Observation defaultResult(UUID profileId, String canonicalName) {
         var selected = com.naocraftlab.skins.core.model.AccountDefaultSkin.forProfile(profileId);
-        return new Result(
-                profileId,
+        return new Observation(
                 canonicalName,
                 Optional.empty(),
                 selected.variant(),
@@ -244,21 +245,15 @@ public final class PublicPlayerSkinClient {
         return new PublicSkinImportException(code, message);
     }
 
-    public record Result(
-            UUID profileId,
-            String canonicalName,
-            Optional<URI> textureUri,
-            SkinVariant variant,
-            Optional<String> defaultSkinId) {
-        public Result {
-            Objects.requireNonNull(profileId, "profileId");
-            Objects.requireNonNull(canonicalName, "canonicalName");
-            textureUri = Objects.requireNonNull(textureUri, "textureUri");
-            Objects.requireNonNull(variant, "variant");
-            defaultSkinId = Objects.requireNonNull(defaultSkinId, "defaultSkinId");
-            if (textureUri.isPresent() == defaultSkinId.isPresent()) {
-                throw new IllegalArgumentException("result must be custom or default");
-            }
+    static final class VerifiedPublicTexture implements PublicProfileLookup.VerifiedTexture {
+        private final URI uri;
+
+        private VerifiedPublicTexture(URI uri) {
+            this.uri = uri;
+        }
+
+        URI uri() {
+            return uri;
         }
     }
 }

@@ -1,69 +1,46 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.MinecraftSkinCatalog;
-import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinModel;
-import com.naocraftlab.skins.core.api.PublicPlayerSkinClient;
 import com.naocraftlab.skins.core.api.PublicSkinImportException;
-import com.naocraftlab.skins.core.api.SafeRemotePngFetcher;
 import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.NormalizedSkin;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
-import com.naocraftlab.skins.core.storage.TextureCache;
-import com.naocraftlab.skins.core.storage.TextureCacheException;
+import com.naocraftlab.skins.core.importing.PublicProfileLookup;
+import com.naocraftlab.skins.core.importing.PublicSkinImageSource;
 
+import java.util.Optional;
 import java.util.Locale;
 import java.util.Objects;
 
 
-public final class PublicSkinImportService {
-    private final TextureCache textures;
+public final class PublicSkinImportService implements PublicSkinImports {
+    private final Optional<PublicProfileLookup> players;
+    private final PublicSkinImageSource images;
     private final CatalogVariantLoader catalog;
-    private final SafeRemotePngFetcher remotePng;
-    private final PngValidator pngValidator;
-    private PublicPlayerSkinClient publicPlayers;
+    private final PngValidator pngValidator = new PngValidator();
 
-    public PublicSkinImportService(TextureCache textures, CatalogVariantLoader catalog) {
-        this(textures, catalog, new SafeRemotePngFetcher(), new PngValidator());
-    }
-
-    PublicSkinImportService(
-            TextureCache textures,
-            CatalogVariantLoader catalog,
-            SafeRemotePngFetcher remotePng,
-            PngValidator pngValidator) {
-        this.textures = Objects.requireNonNull(textures, "textures");
+    public PublicSkinImportService(Optional<PublicProfileLookup> players, PublicSkinImageSource images,
+            CatalogVariantLoader catalog) {
+        this.players = Objects.requireNonNull(players, "players");
+        this.images = Objects.requireNonNull(images, "images");
         this.catalog = Objects.requireNonNull(catalog, "catalog");
-        this.remotePng = Objects.requireNonNull(remotePng, "remotePng");
-        this.pngValidator = Objects.requireNonNull(pngValidator, "pngValidator");
     }
 
-    public void enablePlayerLookup(SignedTextureVerifier verifier) {
-        publicPlayers = new PublicPlayerSkinClient(Objects.requireNonNull(verifier, "verifier"));
+    @Override
+    public ImportOperations.ImportDraft loadPlayer(String playerNameOrUuid) throws Exception {
+        PublicProfileLookup lookup = players.orElseThrow(() ->
+                new UnsupportedOperationException("Public player skin lookup is unavailable"));
+        return loadResolvedPlayer(lookup.lookup(playerNameOrUuid));
     }
 
-    ImportOperations.ImportDraft loadPlayer(String playerNameOrUuid) throws Exception {
-        PublicPlayerSkinClient players = publicPlayers;
-        if (players == null) {
-            throw new UnsupportedOperationException("Public player skin lookup is unavailable");
-        }
-        return loadResolvedPlayer(players.lookup(playerNameOrUuid));
-    }
-
-    ImportOperations.ImportDraft loadResolvedPlayer(PublicPlayerSkinClient.Result result) throws Exception {
+    private ImportOperations.ImportDraft loadResolvedPlayer(PublicProfileLookup.Observation result) throws Exception {
         Objects.requireNonNull(result, "result");
         NormalizedSkin skin;
-        if (result.textureUri().isPresent()) {
-            try {
-                skin = pngValidator.normalizeSkinWithVariant(
-                        textures.get(result.textureUri().orElseThrow()).path());
-            } catch (TextureCacheException failure) {
-                throw playerTextureFailure(failure);
-            } catch (PngValidationException failure) {
-                throw playerTextureFailure(failure);
-            }
+        if (result.texture().isPresent()) {
+            skin = images.loadVerified(result.texture().orElseThrow());
         } else {
             try {
                 byte[] png = catalog.load(
@@ -79,16 +56,6 @@ public final class PublicSkinImportService {
                 result.canonicalName(), skin.detectedVariant(), skin.pngBytes(), PersonalSkinSource.PLAYER_NAME);
     }
 
-    static PublicSkinImportException playerTextureFailure(TextureCacheException failure) {
-        Objects.requireNonNull(failure, "failure");
-        PublicSkinImportException.Code code = switch (failure.code()) {
-            case NETWORK_FAILURE, HTTP_FAILURE -> PublicSkinImportException.Code.NETWORK_FAILURE;
-            case OVERSIZED -> PublicSkinImportException.Code.OVERSIZED;
-            case HOST_NOT_ALLOWLISTED, REDIRECT_REJECTED, INVALID_TEXTURE -> PublicSkinImportException.Code.PROFILE_REJECTED;
-        };
-        return new PublicSkinImportException(code, "Public player skin texture was rejected.");
-    }
-
     static PublicSkinImportException playerTextureFailure(PngValidationException failure) {
         Objects.requireNonNull(failure, "failure");
         PublicSkinImportException.Code code = failure.reason() == PngValidationException.Reason.OVERSIZED
@@ -97,8 +64,9 @@ public final class PublicSkinImportService {
         return new PublicSkinImportException(code, "Public player skin texture was rejected.");
     }
 
-    ImportOperations.ImportDraft loadUrl(String url) throws Exception {
-        NormalizedSkin skin = remotePng.fetchSkin(url);
+    @Override
+    public ImportOperations.ImportDraft loadUrl(String url) throws Exception {
+        NormalizedSkin skin = images.loadUntrusted(url);
         String fallback = "Imported URL skin";
         String name = fallback;
         try {

@@ -27,13 +27,13 @@ import java.util.Optional;
 import static com.naocraftlab.skins.runtime.ExternalImportSourceAccess.*;
 
 public final class ExternalImportSourceAdapter implements ExternalImportSourceAccess {
-    private final PublicSkinImportService publicImports;
+    private final PublicSkinImports publicImports;
     private final SkinCatalogSource resources;
     private final PngValidator pngValidator;
     private final Map<ExternalImportSource, ExternalImportAdapter> adapters;
 
     public ExternalImportSourceAdapter(
-            PublicSkinImportService publicImports,
+            PublicSkinImports publicImports,
             SkinCatalogSource resources) {
         this(publicImports, resources, new PngValidator(), List.of(
                 new MinecraftLauncherImportAdapter(),
@@ -46,7 +46,7 @@ public final class ExternalImportSourceAdapter implements ExternalImportSourceAc
     }
 
     ExternalImportSourceAdapter(
-            PublicSkinImportService publicImports,
+            PublicSkinImports publicImports,
             SkinCatalogSource resources,
             PngValidator pngValidator,
             List<ExternalImportAdapter> adapters) {

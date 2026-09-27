@@ -22,6 +22,7 @@ import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.LibraryService;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.TextureCache;
+import com.naocraftlab.skins.core.api.PublicSkinImageAdapter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -51,6 +52,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.CRC32;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -59,6 +61,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ExternalImportAdaptersTest {
     private static final UUID ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000123");
     private static final Instant NOW = Instant.parse("2026-08-06T00:00:00Z");
+
+    @Test
+    void publicLocatorsUseInjectedInputContractWithoutExternalIo() throws Exception {
+        byte[] png = skinPng(0xff336699);
+        var calls = new java.util.ArrayList<String>();
+        PublicSkinImports imports = new PublicSkinImports() {
+            @Override public ImportOperations.ImportDraft loadPlayer(String query) {
+                calls.add(query);
+                return new ImportOperations.ImportDraft("Canonical", SkinVariant.SLIM, png, PersonalSkinSource.PLAYER_NAME);
+            }
+            @Override public ImportOperations.ImportDraft loadUrl(String url) {
+                calls.add(url);
+                return new ImportOperations.ImportDraft("URL", SkinVariant.SLIM, png, PersonalSkinSource.URL);
+            }
+        };
+        var adapter = new ExternalImportSourceAdapter(imports,
+                (collection, skin, model) -> { throw new AssertionError(); }, new PngValidator(), List.of());
+        var player = adapter.resolve(new ExternalAppearanceRecord("player", "Player", Optional.empty(),
+                new SkinLocator.PublicPlayer("Player"), Optional.empty(), 0));
+        var url = adapter.resolve(new ExternalAppearanceRecord("url", "URL", Optional.empty(),
+                new SkinLocator.PublicUrl("https://example.com/skin.png", Optional.empty()), Optional.empty(), 1));
+        assertEquals(List.of("Player", "https://example.com/skin.png"), calls);
+        assertEquals(SkinVariant.SLIM, player.variant());
+        assertEquals(SkinVariant.SLIM, url.variant());
+        assertArrayEquals(new PngValidator().projectImport(png).pngBytes(), player.pngBytes());
+        assertArrayEquals(player.pngBytes(), url.pngBytes());
+        assertEquals(PersonalSkinSource.PLAYER_NAME, player.source());
+        assertEquals(PersonalSkinSource.URL, url.source());
+    }
 
     @Test
     void launcherPrefersCurrentEmbeddedLibrary(@TempDir Path root) throws Exception {
@@ -380,7 +411,7 @@ final class ExternalImportAdaptersTest {
             }
         };
         PublicSkinImportService publicImports = new PublicSkinImportService(
-                new TextureCache(storage), (collection, skin, model) -> png);
+                Optional.empty(), new PublicSkinImageAdapter(new TextureCache(storage)), (collection, skin, model) -> png);
         SkinCatalogSource resources = (collection, skin, model) -> png;
         ExternalAppearanceImportService service = importService(
                 storage, library, publicImports, resources, new PngValidator(), List.of(adapter));
@@ -462,7 +493,7 @@ final class ExternalImportAdaptersTest {
         ExternalAppearanceImportService service = importService(
                 storage, library,
                 new PublicSkinImportService(
-                        new TextureCache(storage), (collection, skin, model) -> catalogPng),
+                        Optional.empty(), new PublicSkinImageAdapter(new TextureCache(storage)), (collection, skin, model) -> catalogPng),
                 (collection, skin, model) -> catalogPng,
                 new PngValidator(),
                 List.of(adapter));
@@ -538,7 +569,7 @@ final class ExternalImportAdaptersTest {
         ExternalAppearanceImportService service = importService(
                 storage, library,
                 new PublicSkinImportService(
-                        new TextureCache(storage), (collection, skin, model) -> playerPng),
+                        Optional.empty(), new PublicSkinImageAdapter(new TextureCache(storage)), (collection, skin, model) -> playerPng),
                 (collection, skin, model) -> playerPng,
                 new PngValidator(),
                 List.of(adapter));
@@ -867,7 +898,7 @@ final class ExternalImportAdaptersTest {
         }
     }
     private static ExternalAppearanceImportService importService(
-            NclSkinsStorage storage, LibraryService library, PublicSkinImportService publicImports,
+            NclSkinsStorage storage, LibraryService library, PublicSkinImports publicImports,
             SkinCatalogSource sources, PngValidator validator, List<ExternalImportAdapter> adapters) {
         var accounts = new LibraryCatalogAdapter(library, new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), () -> ACCOUNT_ID);
         return new ExternalAppearanceImportService(

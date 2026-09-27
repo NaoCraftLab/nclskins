@@ -96,7 +96,7 @@ public final class DefaultClientOperations implements ClientOperations {
     private final SessionValidationService sessions;
     private final AppearanceMutationService mutations;
     private final com.naocraftlab.skins.core.service.ProviderTextureStore textures;
-    private final PublicSkinImportService publicImports;
+    private final PublicSkinImports publicImports;
     private final ExternalAppearanceImportService externalImports;
     private final OfficialSkinTextureSource officialSkinTextures;
     private final OfficialSkinClassifier officialSkinClassifier;
@@ -129,7 +129,7 @@ public final class DefaultClientOperations implements ClientOperations {
             AppearanceMutationService mutations,
             com.naocraftlab.skins.core.service.ProviderTextureStore textures,
             PreparedCatalogService preparedCatalog,
-            PublicSkinImportService publicImports,
+            PublicSkinImports publicImports,
             ExternalAppearanceImportService externalImports,
             OfficialSkinTextureSource officialSkinTextures,
             OfficialSkinClassifier officialSkinClassifier,

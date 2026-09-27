@@ -2,10 +2,7 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.SkinCatalogSource;
-import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.*;
-import com.naocraftlab.skins.core.storage.NclSkinsStorage;
-import com.naocraftlab.skins.core.storage.TextureCache;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,8 +35,7 @@ final class DefaultClientOperationsInjectionTest {
         var library = new LibraryService(state, assets, clock);
         SkinCatalogSource sources = (collection, skin, model) -> { throw new AssertionError("catalog accessed"); };
         var prepared = new PreparedCatalogService(sources, unused(CatalogAccountAccess.class));
-        var imports = new PublicSkinImportService(new TextureCache(new NclSkinsStorage(
-                directory.resolve("unused"), new PngValidator(), clock)), prepared::loadCatalogSkin);
+        var imports = unused(PublicSkinImports.class);
         var external = new ExternalAppearanceImportService(unused(ExternalImportSourceAccess.class), prepared,
                 unused(ExternalImportCommit.class));
         var delivery = new AccountDeliveryService(appearances, clock);

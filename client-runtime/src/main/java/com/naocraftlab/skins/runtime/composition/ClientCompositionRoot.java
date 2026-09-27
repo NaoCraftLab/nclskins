@@ -2,6 +2,9 @@ package com.naocraftlab.skins.runtime.composition;
 
 import com.naocraftlab.skins.client.*;
 import com.naocraftlab.skins.core.api.MinecraftProfileApi;
+import com.naocraftlab.skins.core.api.PublicPlayerSkinClient;
+import com.naocraftlab.skins.core.api.PublicSkinImageAdapter;
+import com.naocraftlab.skins.core.importing.PublicProfileLookup;
 import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileSessionAdapter;
 import com.naocraftlab.skins.core.config.ClientConfiguration;
@@ -54,8 +57,8 @@ public final class ClientCompositionRoot {
             Clock clock = Clock.systemUTC();
             NclSkinsStorage storage = new NclSkinsStorage(dataRoot, new PngValidator(), clock);
             OperationsGraph graph = operations(capabilities.session(), new MinecraftProfileApi(),
-                    storage, capabilities.resourcePackAccess(), clock, null);
-            graph.publicImports().enablePlayerLookup(capabilities.signedTextureVerification());
+                    storage, capabilities.resourcePackAccess(), clock, null,
+                    Optional.of(new PublicPlayerSkinClient(capabilities.signedTextureVerification())));
             Worker capes = resources.worker(workers, "nclskins-public-cape");
             CapeProviderCoordinator coordinator = new CapeProviderCoordinator(capabilities.session(),
                     graph.appearances(), graph.assets(), graph.textures(), capabilities.appearanceInstall(),
@@ -63,10 +66,12 @@ public final class ClientCompositionRoot {
                     new SkinMcCapeReader(), graph.operations()::verifiedOfficialCapeUri);
             resources.add(coordinator::close);
             graph.operations().attachCapeProviders(coordinator, capes.ownedExecutor());
+            SignedProfileResolver<AcknowledgedAppearanceAssets> resolver =
+                    new DeterministicAppearanceAssetResolver(capabilities.session(), storage,
+                            graph.textureCache(), worker.executor());
             AppearanceRefreshCoordinator<AcknowledgedAppearanceAssets> refresh =
                     new AppearanceRefreshCoordinator<>(capabilities.clientExecutor(),
-                            new DeterministicAppearanceAssetResolver(capabilities.session(), storage,
-                                    graph.textureCache(), worker.executor()),
+                            resolver,
                             capabilities.appearanceInstall(), diagnostics);
             resources.add(refresh::close);
             ClientRuntime runtime = new ClientRuntime(graph.operations(), capabilities.clientExecutor(),
@@ -87,6 +92,13 @@ public final class ClientCompositionRoot {
     public static OperationsGraph operations(GameSessionTokenSource tokens, ProfileApi api,
             NclSkinsStorage storage, SkinCatalogSource catalog, Clock clock,
             DefaultClientOperations.OfficialSkinTextureSource officialTextures) {
+        return operations(tokens, api, storage, catalog, clock, officialTextures, Optional.empty());
+    }
+
+    private static OperationsGraph operations(GameSessionTokenSource tokens, ProfileApi api,
+            NclSkinsStorage storage, SkinCatalogSource catalog, Clock clock,
+            DefaultClientOperations.OfficialSkinTextureSource officialTextures,
+            Optional<PublicProfileLookup> players) {
         var profile = new ProfileSessionAdapter(api);
         var appearances = new AccountAppearanceStorageAdapter(storage);
         var bootstrap = new AccountBootstrapAdapter(storage);
@@ -103,7 +115,8 @@ public final class ClientCompositionRoot {
         var preferences = new UiPreferencesStorageAdapter(storage, current);
         var accounts = new LibraryCatalogAdapter(library, assets, assets, current);
         var prepared = new PreparedCatalogService(catalog, accounts);
-        var imports = new PublicSkinImportService(textureCache, prepared::loadCatalogSkin);
+        var imports = new PublicSkinImportService(players, new PublicSkinImageAdapter(textureCache),
+                prepared::loadCatalogSkin);
         var external = new ExternalAppearanceImportService(new ExternalImportSourceAdapter(imports, catalog),
                 prepared, new LibraryExternalImportAdapter(library, accounts));
         var delivery = new AccountDeliveryService(appearances, clock);
@@ -113,12 +126,11 @@ public final class ClientCompositionRoot {
                 officialTextures != null ? officialTextures : skin -> textures.load(skin.textureUri()),
                 new OfficialSkinClassifier(catalog), delivery,
                 new AccountMutationExecutor(appearances, assets, clock, delivery));
-        return new OperationsGraph(operations, appearances, assets, textures, textureCache, imports);
+        return new OperationsGraph(operations, appearances, assets, textures, textureCache);
     }
 
     public record OperationsGraph(DefaultClientOperations operations, AccountAppearanceStore appearances,
-            AssetStorePort assets, ProviderTextureStore textures, TextureCache textureCache,
-            PublicSkinImportService publicImports) {}
+            AssetStorePort assets, ProviderTextureStore textures, TextureCache textureCache) {}
 
     private static Worker newWorker(String name) {
         if (name.equals("nclskins-public-cape")) {
