@@ -11,10 +11,10 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.UUID;
 
-final class AccountDeliveryService {
+public final class AccountDeliveryService {
     private final AccountAppearanceStore storage;
     private final Clock clock;
-    AccountDeliveryService(AccountAppearanceStore storage, Clock clock) {
+    public AccountDeliveryService(AccountAppearanceStore storage, Clock clock) {
         this.storage = java.util.Objects.requireNonNull(storage);
         this.clock = java.util.Objects.requireNonNull(clock);
     }

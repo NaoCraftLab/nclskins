@@ -80,7 +80,7 @@ public final class CapeProviderCoordinator implements AutoCloseable {
     private ProjectionState publishedProjection;
     private volatile boolean closed;
 
-    CapeProviderCoordinator(GameSessionTokenSource tokenSource, AccountAppearanceStore storage, AssetStorePort assets,
+    public CapeProviderCoordinator(GameSessionTokenSource tokenSource, AccountAppearanceStore storage, AssetStorePort assets,
             ProviderTextureStore textures, PlayerAppearanceSink<?> sink, ClientExecutor clientExecutor,
             Executor worker, CapeObservationReader reader, CapeObservationReader skinMcReader,
             BiFunction<UUID, String, java.util.Optional<URI>> officialCapeUri) {

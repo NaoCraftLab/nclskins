@@ -12,7 +12,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 
-interface ExternalImportSourceAccess {
+public interface ExternalImportSourceAccess {
     ExternalImportProbe probe(ExternalImportSource source, Optional<Path> selectedRoot, ExternalImportContext context);
     ExternalImportBatch discover(ExternalImportSource source, Optional<Path> selectedRoot, ExternalImportContext context) throws Exception;
     Resolution resolve(ExternalAppearanceRecord record) throws Exception;

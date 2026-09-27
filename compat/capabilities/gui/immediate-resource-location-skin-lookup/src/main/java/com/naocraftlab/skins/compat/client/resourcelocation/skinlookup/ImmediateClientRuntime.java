@@ -54,7 +54,7 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
             throw new IllegalStateException("NCL Skins client is terminally closed");
         }
         if (application == null) {
-            application = new ClientApplicationHost<>(
+            application = com.naocraftlab.skins.runtime.composition.ClientCompositionRoot.createApplication(
                     provision.capabilities(),
                     TextResolver.withCatalogTranslations(
                             TextResolver.withLayout(message -> resolve(message).getString(),

@@ -32,7 +32,7 @@ final class NclSkinsExtractionClientRuntime {
                 throw new IllegalStateException("NCL Skins client is not initialized");
             }
             ensureProvision();
-            application = new ClientApplicationHost<>(
+            application = com.naocraftlab.skins.runtime.composition.ClientCompositionRoot.createApplication(
                     provision.capabilities(),
                     TextResolver.withCatalogTranslations(
                             TextResolver.withLayout(MinecraftClientComponents::resolveString,

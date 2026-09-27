@@ -6,7 +6,7 @@ import com.naocraftlab.skins.core.png.PngValidationException;
 import java.io.IOException;
 import java.util.UUID;
 
-interface CatalogAccountAccess {
+public interface CatalogAccountAccess {
     UUID currentAccountId() throws IOException;
     AccountState load(UUID accountId) throws IOException;
     byte[] readAsset(String hash) throws IOException, PngValidationException;

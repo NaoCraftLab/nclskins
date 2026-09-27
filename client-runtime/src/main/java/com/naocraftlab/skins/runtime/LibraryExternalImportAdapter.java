@@ -5,10 +5,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-final class LibraryExternalImportAdapter implements ExternalImportCommit {
+public final class LibraryExternalImportAdapter implements ExternalImportCommit {
     private final LibraryService library;
     private final CatalogAccountAccess accounts;
-    LibraryExternalImportAdapter(LibraryService library, CatalogAccountAccess accounts) {
+    public LibraryExternalImportAdapter(LibraryService library, CatalogAccountAccess accounts) {
         this.library = Objects.requireNonNull(library);
         this.accounts = Objects.requireNonNull(accounts);
     }

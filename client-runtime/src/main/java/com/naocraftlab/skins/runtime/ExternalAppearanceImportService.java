@@ -20,13 +20,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-final class ExternalAppearanceImportService {
+public final class ExternalAppearanceImportService {
     private final ExternalImportSourceAccess sources;
     private final PreparedCatalogService catalogs;
     private final ExternalImportCommit commits;
     private final PngValidator pngValidator = new PngValidator();
 
-    ExternalAppearanceImportService(ExternalImportSourceAccess sources, PreparedCatalogService catalogs,
+    public ExternalAppearanceImportService(ExternalImportSourceAccess sources, PreparedCatalogService catalogs,
             ExternalImportCommit commits) {
         this.sources = Objects.requireNonNull(sources, "sources");
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");

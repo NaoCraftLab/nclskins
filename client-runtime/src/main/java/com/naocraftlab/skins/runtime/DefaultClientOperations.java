@@ -5,19 +5,12 @@ import static com.naocraftlab.skins.runtime.AccountMutationExecutor.needsMinecra
 import com.naocraftlab.skins.runtime.AccountSessionAdapter.*;
 import static com.naocraftlab.skins.runtime.AccountDeliveryService.*;
 import com.naocraftlab.skins.runtime.AccountReconciliationEffects.ObservedAccount;
-import com.naocraftlab.skins.client.BundledSkinSource;
-import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.GameSessionIdentityChangedException;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
-import com.naocraftlab.skins.client.PlayerAppearanceSink;
-import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
-import com.naocraftlab.skins.core.api.ApiFailureKind;
-import com.naocraftlab.skins.core.api.MinecraftProfileApi;
-import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.importing.ExternalImportContext;
 import com.naocraftlab.skins.core.importing.ExternalImportProbe;
@@ -45,7 +38,6 @@ import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderCape;
 import com.naocraftlab.skins.core.provider.ProviderObservation;
-import com.naocraftlab.skins.core.provider.ProviderChannel;
 import com.naocraftlab.skins.core.provider.ProviderDelivery;
 import com.naocraftlab.skins.core.provider.ProviderSkin;
 import com.naocraftlab.skins.core.service.AppearanceMutationService;
@@ -63,8 +55,6 @@ import com.naocraftlab.skins.core.service.SavedPersonalSkinPreset;
 import com.naocraftlab.skins.core.service.SessionStatus;
 import com.naocraftlab.skins.core.service.SessionValidation;
 import com.naocraftlab.skins.core.service.SessionValidationService;
-import com.naocraftlab.skins.core.storage.NclSkinsStorage;
-import com.naocraftlab.skins.core.storage.TextureCache;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -84,9 +74,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public final class DefaultClientOperations implements ClientOperations {
@@ -108,7 +96,6 @@ public final class DefaultClientOperations implements ClientOperations {
     private final SessionValidationService sessions;
     private final AppearanceMutationService mutations;
     private final com.naocraftlab.skins.core.service.ProviderTextureStore textures;
-    private final java.util.function.Function<Executor, DeterministicAppearanceAssetResolver> resolverFactory;
     private final PublicSkinImportService publicImports;
     private final ExternalAppearanceImportService externalImports;
     private final OfficialSkinTextureSource officialSkinTextures;
@@ -116,6 +103,7 @@ public final class DefaultClientOperations implements ClientOperations {
     private volatile ResolvedOfficialSkin resolvedOfficialSkin;
     private volatile CapeProviderCoordinator optifineCapes;
     private volatile ExecutorService optifineWorker;
+    private boolean capeProvidersClosed;
 
     private final Map<UUID, LibraryObservation> libraryObservations = new ConcurrentHashMap<>();
 
@@ -126,114 +114,55 @@ public final class DefaultClientOperations implements ClientOperations {
 
     public DefaultClientOperations(
             GameSessionTokenSource tokenSource,
-            ProfileApi profileApi,
-            NclSkinsStorage storage,
-            SkinCatalogSource bundledSkins,
-            Clock clock) {
-        this(tokenSource, profileApi, storage, bundledSkins, clock, null);
-    }
-
-    public DefaultClientOperations(
-            GameSessionTokenSource tokenSource,
-            ProfileApi profileApi,
-            NclSkinsStorage storage,
-            BundledSkinSource bundledSkins,
-            Clock clock) {
-        this(tokenSource, profileApi, storage, (SkinCatalogSource) bundledSkins, clock);
-    }
-
-    DefaultClientOperations(
-            GameSessionTokenSource tokenSource,
-            ProfileApi profileApi,
-            NclSkinsStorage storage,
+            com.naocraftlab.skins.core.service.ProfileSessionPort profileApi,
+            com.naocraftlab.skins.core.service.AccountAppearanceStore storage,
+            com.naocraftlab.skins.core.service.AccountBootstrapPort bootstrap,
+            com.naocraftlab.skins.core.service.AssetStorePort assets,
+            com.naocraftlab.skins.core.service.LibraryStatePort libraryState,
+            UiPreferencesPort uiPreferences,
+            LocalCapeImportSource capeImports,
             SkinCatalogSource bundledSkins,
             Clock clock,
-            OfficialSkinTextureSource officialSkinTextures) {
+            LibraryService library,
+            RemoteSessionGate sessionGate,
+            SessionValidationService sessions,
+            AppearanceMutationService mutations,
+            com.naocraftlab.skins.core.service.ProviderTextureStore textures,
+            PreparedCatalogService preparedCatalog,
+            PublicSkinImportService publicImports,
+            ExternalAppearanceImportService externalImports,
+            OfficialSkinTextureSource officialSkinTextures,
+            OfficialSkinClassifier officialSkinClassifier,
+            AccountDeliveryService delivery,
+            AccountMutationExecutor accountMutations) {
         this.tokenSource = Objects.requireNonNull(tokenSource, "tokenSource");
-        this.profileApi = new com.naocraftlab.skins.core.api.ProfileSessionAdapter(profileApi);
-        this.storage = new com.naocraftlab.skins.core.storage.AccountAppearanceStorageAdapter(storage);
-        this.bootstrap = new com.naocraftlab.skins.core.storage.AccountBootstrapAdapter(storage);
-        this.assets = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
-        this.libraryState = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
-        this.capeImports = new LocalCapeImportAdapter();
-        this.uiPreferences = new UiPreferencesStorageAdapter(storage,
-                () -> resolveAccountId(pinCurrentSession().identity()));
+        this.profileApi = Objects.requireNonNull(profileApi, "profileApi");
+        this.storage = Objects.requireNonNull(storage, "storage");
+        this.bootstrap = Objects.requireNonNull(bootstrap, "bootstrap");
+        this.assets = Objects.requireNonNull(assets, "assets");
+        this.libraryState = Objects.requireNonNull(libraryState, "libraryState");
+        this.uiPreferences = Objects.requireNonNull(uiPreferences, "uiPreferences");
+        this.capeImports = Objects.requireNonNull(capeImports, "capeImports");
         this.bundledSkins = Objects.requireNonNull(bundledSkins, "bundledSkins");
-        this.officialSkinClassifier = new OfficialSkinClassifier(bundledSkins);
         this.clock = Objects.requireNonNull(clock, "clock");
-        this.delivery = new AccountDeliveryService(this.storage, clock);
-        this.accountMutations = new AccountMutationExecutor(this.storage, this.assets, clock, delivery);
-        var libraryStorage = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
-        this.library = new LibraryService(libraryStorage, libraryStorage, clock);
-        this.sessionGate = new RemoteSessionGate();
-        this.sessions = new SessionValidationService(this.profileApi, sessionGate);
-        this.mutations = new AppearanceMutationService(this.profileApi, new com.naocraftlab.skins.core.storage.MutationStorageAdapter(storage), new com.naocraftlab.skins.core.storage.MutationStorageAdapter(storage), sessionGate, sessions);
-        TextureCache textureCache = new TextureCache(storage);
-        this.textures = new com.naocraftlab.skins.core.storage.ProviderTextureStorageAdapter(storage, textureCache);
-        this.resolverFactory = worker -> new DeterministicAppearanceAssetResolver(tokenSource, storage, textureCache, worker);
-        CatalogAccountAccess catalogAccounts = new LibraryCatalogAdapter(library, libraryStorage, libraryStorage,
-                () -> resolveAccountId(pinCurrentSession().identity()));
-        this.preparedCatalog = new PreparedCatalogService(bundledSkins, catalogAccounts);
-        this.publicImports = new PublicSkinImportService(textureCache, this::loadCatalogSkin);
-        this.externalImports = new ExternalAppearanceImportService(
-                new ExternalImportSourceAdapter(this.publicImports, this.bundledSkins),
-                this.preparedCatalog, new LibraryExternalImportAdapter(this.library, catalogAccounts));
-        this.officialSkinTextures = officialSkinTextures != null
-                ? officialSkinTextures
-                : skin -> this.textures.load(skin.textureUri());
+        this.library = Objects.requireNonNull(library, "library");
+        this.sessionGate = Objects.requireNonNull(sessionGate, "sessionGate");
+        this.sessions = Objects.requireNonNull(sessions, "sessions");
+        this.mutations = Objects.requireNonNull(mutations, "mutations");
+        this.textures = Objects.requireNonNull(textures, "textures");
+        this.preparedCatalog = Objects.requireNonNull(preparedCatalog, "preparedCatalog");
+        this.publicImports = Objects.requireNonNull(publicImports, "publicImports");
+        this.externalImports = Objects.requireNonNull(externalImports, "externalImports");
+        this.officialSkinTextures = Objects.requireNonNull(officialSkinTextures, "officialSkinTextures");
+        this.officialSkinClassifier = Objects.requireNonNull(officialSkinClassifier, "officialSkinClassifier");
+        this.delivery = Objects.requireNonNull(delivery, "delivery");
+        this.accountMutations = Objects.requireNonNull(accountMutations, "accountMutations");
     }
 
-    DefaultClientOperations(
-            GameSessionTokenSource tokenSource,
-            ProfileApi profileApi,
-            NclSkinsStorage storage,
-            BundledSkinSource bundledSkins,
-            Clock clock,
-            OfficialSkinTextureSource officialSkinTextures) {
-        this(
-                tokenSource,
-                profileApi,
-                storage,
-                (SkinCatalogSource) bundledSkins,
-                clock,
-                officialSkinTextures);
-    }
-
-    public static DefaultClientOperations createDefault(
-            GameSessionTokenSource tokenSource,
-            SkinCatalogSource bundledSkins,
-            Path dataRoot) {
-        return new DefaultClientOperations(
-                tokenSource,
-                new MinecraftProfileApi(),
-                new NclSkinsStorage(
-                        Objects.requireNonNull(dataRoot, "dataRoot"),
-                        new PngValidator(),
-                        Clock.systemUTC()),
-                bundledSkins,
-                Clock.systemUTC());
-    }
-
-    DefaultClientOperations enablePublicImports(SignedTextureVerifier verifier) {
-        publicImports.enablePlayerLookup(Objects.requireNonNull(verifier, "verifier"));
-        return this;
-    }
-
-    public DefaultClientOperations attachOptifineCapes(PlayerAppearanceSink<?> sink,
-            ClientExecutor clientExecutor) {
-        if (optifineCapes != null) {
-            throw new IllegalStateException("OptiFine cape coordinator already attached");
-        }
-        AtomicInteger threadIndex = new AtomicInteger();
-        optifineWorker = new java.util.concurrent.ThreadPoolExecutor(4, 4, 0L,
-                java.util.concurrent.TimeUnit.MILLISECONDS, new java.util.concurrent.ArrayBlockingQueue<>(32), action -> {
-            Thread thread = new Thread(action, "nclskins-public-cape-" + threadIndex.incrementAndGet());
-            thread.setDaemon(true);
-            return thread;
-        });
-        optifineCapes = new CapeProviderCoordinator(tokenSource, storage, assets, textures,
-                sink, clientExecutor, optifineWorker, new OptifineCapeReader(), new SkinMcCapeReader(), this::verifiedOfficialCapeUri);
-        return this;
+    public void attachCapeProviders(CapeProviderCoordinator coordinator, ExecutorService ownedWorker) {
+        if (capeProvidersClosed || optifineCapes != null) throw new IllegalStateException("Cape providers already attached or closed");
+        optifineCapes = Objects.requireNonNull(coordinator, "coordinator");
+        optifineWorker = ownedWorker;
     }
 
     private CapeProviderCoordinator capeCoordinator() {
@@ -304,12 +233,17 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public void closeOptiFineCapes() {
-        if (optifineCapes != null) optifineCapes.close();
-        if (optifineWorker != null) optifineWorker.shutdownNow();
+    public synchronized void closeOptiFineCapes() {
+        if (capeProvidersClosed) return;
+        capeProvidersClosed = true;
+        try {
+            if (optifineCapes != null) optifineCapes.close();
+        } finally {
+            if (optifineWorker != null) optifineWorker.shutdownNow();
+        }
     }
 
-    private Optional<java.net.URI> verifiedOfficialCapeUri(UUID accountId, String capeId) {
+    public Optional<java.net.URI> verifiedOfficialCapeUri(UUID accountId, String capeId) {
         GameSessionTokenSource.SessionIdentity identity = tokenSource.currentSession();
         if (!accountId.equals(identity.profileId())) return Optional.empty();
         SessionValidation validation = sessions.cachedStatus(identity);
@@ -319,10 +253,6 @@ public final class DefaultClientOperations implements ClientOperations {
                 .filter(cape -> cape.id().equals(capeId))
                 .map(RemoteCape::textureUri)
                 .findFirst();
-    }
-
-    public DeterministicAppearanceAssetResolver deterministicAppearanceResolver(Executor worker) {
-        return resolverFactory.apply(worker);
     }
 
     @Override
@@ -2310,7 +2240,7 @@ public final class DefaultClientOperations implements ClientOperations {
             String capeId) {}
 
     @FunctionalInterface
-    interface OfficialSkinTextureSource {
+    public interface OfficialSkinTextureSource {
         byte[] load(RemoteSkin skin) throws IOException;
     }
 

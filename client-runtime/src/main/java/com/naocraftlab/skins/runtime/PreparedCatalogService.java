@@ -29,7 +29,7 @@ import java.util.Optional;
 import java.util.UUID;
 import static com.naocraftlab.skins.runtime.CatalogRead.*;
 
-final class PreparedCatalogService implements CatalogRead, CatalogMaterialization {
+public final class PreparedCatalogService implements CatalogRead, CatalogMaterialization {
     private final SkinCatalogSource bundledSkins;
     private final CatalogAccountAccess accounts;
     private volatile PreparedResources preparedResources = new PreparedResources(null, ResourceCapeDiscovery.empty());
@@ -40,7 +40,7 @@ final class PreparedCatalogService implements CatalogRead, CatalogMaterializatio
 
     private volatile CapeView capeView = CapeView.empty();
 
-    PreparedCatalogService(SkinCatalogSource sources, CatalogAccountAccess accounts) {
+    public PreparedCatalogService(SkinCatalogSource sources, CatalogAccountAccess accounts) {
         this.bundledSkins = Objects.requireNonNull(sources, "sources");
         this.accounts = Objects.requireNonNull(accounts, "accounts");
     }

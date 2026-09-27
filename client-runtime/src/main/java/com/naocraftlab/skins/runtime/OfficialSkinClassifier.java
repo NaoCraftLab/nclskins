@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-final class OfficialSkinClassifier {
+public final class OfficialSkinClassifier {
     enum Result { DEFAULT, CUSTOM, UNKNOWN }
 
     private final SkinCatalogSource source;
@@ -21,7 +21,7 @@ final class OfficialSkinClassifier {
     private final Map<AccountDefaultSkin, String> references = new HashMap<>();
     private long generation = Long.MIN_VALUE;
 
-    OfficialSkinClassifier(SkinCatalogSource source) {
+    public OfficialSkinClassifier(SkinCatalogSource source) {
         this.source = Objects.requireNonNull(source, "source");
     }
 

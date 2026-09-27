@@ -26,13 +26,13 @@ import java.util.Objects;
 import java.util.Optional;
 import static com.naocraftlab.skins.runtime.ExternalImportSourceAccess.*;
 
-final class ExternalImportSourceAdapter implements ExternalImportSourceAccess {
+public final class ExternalImportSourceAdapter implements ExternalImportSourceAccess {
     private final PublicSkinImportService publicImports;
     private final SkinCatalogSource resources;
     private final PngValidator pngValidator;
     private final Map<ExternalImportSource, ExternalImportAdapter> adapters;
 
-    ExternalImportSourceAdapter(
+    public ExternalImportSourceAdapter(
             PublicSkinImportService publicImports,
             SkinCatalogSource resources) {
         this(publicImports, resources, new PngValidator(), List.of(

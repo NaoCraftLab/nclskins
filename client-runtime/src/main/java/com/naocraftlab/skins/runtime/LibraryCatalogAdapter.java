@@ -10,13 +10,13 @@ import java.io.IOException;
 import java.util.Objects;
 import java.util.UUID;
 
-final class LibraryCatalogAdapter implements CatalogAccountAccess {
+public final class LibraryCatalogAdapter implements CatalogAccountAccess {
     private final LibraryService library;
     private final LibraryStatePort storage;
     private final AssetStorePort assets;
     private final CurrentAccount current;
 
-    LibraryCatalogAdapter(LibraryService library, LibraryStatePort storage, AssetStorePort assets, CurrentAccount current) {
+    public LibraryCatalogAdapter(LibraryService library, LibraryStatePort storage, AssetStorePort assets, CurrentAccount current) {
         this.library = Objects.requireNonNull(library, "library");
         this.storage = Objects.requireNonNull(storage, "storage");
         this.assets = Objects.requireNonNull(assets, "assets");
@@ -38,5 +38,5 @@ final class LibraryCatalogAdapter implements CatalogAccountAccess {
         if (!accountId.equals(currentAccountId())) throw new IOException("Account changed");
     }
 
-    @FunctionalInterface interface CurrentAccount { UUID get() throws IOException; }
+    @FunctionalInterface public interface CurrentAccount { UUID get() throws IOException; }
 }

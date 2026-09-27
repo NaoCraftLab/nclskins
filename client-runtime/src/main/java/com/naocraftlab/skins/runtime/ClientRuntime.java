@@ -8,12 +8,10 @@ import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.OuterLayerVisibilityController;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
-import com.naocraftlab.skins.client.PlayerAppearanceSink;
 import com.naocraftlab.skins.client.PreviewPreferences;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.ScreenDestination;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
-import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinExtensionEnvironmentSource;
 import com.naocraftlab.skins.client.SkinModel;
@@ -74,7 +72,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -705,7 +702,7 @@ public final class ClientRuntime implements AutoCloseable {
                 diagnostics);
     }
 
-    private ClientRuntime(
+    public ClientRuntime(
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
@@ -809,56 +806,7 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    public static ClientRuntime createDefaultWithDeterministicAppearance(
-            GameSessionTokenSource tokenSource,
-            SkinCatalogSource bundledSkins,
-            Path dataRoot,
-            CurrentPlayerAppearanceSource currentAppearanceSource,
-            ClientExecutor clientExecutor,
-            FilePicker filePicker,
-            TextResolver textResolver,
-            SignedTextureVerifier signedTextureVerifier,
-            PlayerAppearanceSink<AcknowledgedAppearanceAssets> sink,
-            OuterLayerVisibilityController outerLayerVisibilityController,
-            ServerAppearanceRefreshNotifier serverAppearanceRefreshNotifier,
-            DiagnosticSink diagnostics) {
-        ExecutorService worker = newWorker("nclskins-client-runtime");
-        ExecutorService reconciliationWorker = newWorker("nclskins-appearance-reconciliation");
-        ExecutorService sessionWorker = newWorker("nclskins-session-activity");
-        DefaultClientOperations operations = DefaultClientOperations
-                .createDefault(tokenSource, bundledSkins, dataRoot)
-                .enablePublicImports(signedTextureVerifier)
-                .attachOptifineCapes(sink, clientExecutor);
-        AppearanceRefreshCoordinator<AcknowledgedAppearanceAssets> refresh =
-                new AppearanceRefreshCoordinator<>(
-                        clientExecutor,
-                        operations.deterministicAppearanceResolver(worker),
-                        sink,
-                        diagnostics);
-        ClientRuntime runtime = new ClientRuntime(
-                operations,
-                clientExecutor,
-                filePicker,
-                worker,
-                worker,
-                reconciliationWorker,
-                reconciliationWorker,
-                sessionWorker,
-                sessionWorker,
-                textResolver,
-                Optional.of(Objects.requireNonNull(currentAppearanceSource, "currentAppearanceSource")),
-                Optional.of(refresh),
-                Optional.of(Objects.requireNonNull(
-                        outerLayerVisibilityController, "outerLayerVisibilityController")),
-                Optional.of(Objects.requireNonNull(
-                        serverAppearanceRefreshNotifier, "serverAppearanceRefreshNotifier")),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
-                Objects.requireNonNull(diagnostics, "diagnostics"));
-        runtime.providerFlow.useOptiFineAccountLink(new OptiFineAccountLink(tokenSource, sessionWorker));
-        return runtime;
-    }
-
-    ClientRuntime useOptiFineAccountLink(OptiFineAccountLink link) {
+    public ClientRuntime useOptiFineAccountLink(OptiFineAccountLink link) {
         providerFlow.useOptiFineAccountLink(link);
         return this;
     }
@@ -3994,15 +3942,6 @@ public final class ClientRuntime implements AutoCloseable {
             }
         }
         return Set.copyOf(ids);
-    }
-
-    private static ExecutorService newWorker(String threadName) {
-        Objects.requireNonNull(threadName, "threadName");
-        return Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, threadName);
-            thread.setDaemon(true);
-            return thread;
-        });
     }
 
     @FunctionalInterface

@@ -10,12 +10,8 @@ import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
 import com.naocraftlab.skins.client.SignedTextureVerifier;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinExtensionEnvironmentSource;
-import com.naocraftlab.skins.core.config.ClientConfiguration;
-import com.naocraftlab.skins.diagnostics.DiagnosticSink;
 
-import java.nio.file.Path;
 import java.util.Objects;
-import java.util.function.Supplier;
 
 
 public record ClientCapabilitySet(
@@ -66,31 +62,4 @@ public record ClientCapabilitySet(
                 SkinExtensionEnvironmentSource.unknown());
     }
 
-    public ClientRuntime createRuntime(
-            TextResolver textResolver, Path dataRoot, DiagnosticSink diagnostics) {
-        return createRuntime(
-                textResolver, dataRoot, ClientConfiguration::defaults, diagnostics);
-    }
-
-    public ClientRuntime createRuntime(
-            TextResolver textResolver,
-            Path dataRoot,
-            Supplier<ClientConfiguration> configurationSource,
-            DiagnosticSink diagnostics) {
-        return ClientRuntime.createDefaultWithDeterministicAppearance(
-                session,
-                resourcePackAccess,
-                Objects.requireNonNull(dataRoot, "dataRoot"),
-                currentAppearance,
-                clientExecutor,
-                nativeFileDialog,
-                Objects.requireNonNull(textResolver, "textResolver"),
-                signedTextureVerification,
-                appearanceInstall,
-                modelParts,
-                serverSignal,
-                Objects.requireNonNull(diagnostics, "diagnostics"))
-                .useConfigurationSource(configurationSource)
-                .useSkinExtensionEnvironmentSource(skinExtensionEnvironment);
-    }
 }

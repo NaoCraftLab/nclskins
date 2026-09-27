@@ -96,13 +96,14 @@ final class DefaultClientOperationsTest {
     void allScreenEntriesReadLocallyAfterOneStartupCheckAndKeepExplicitRefresh() throws Exception {
         AtomicInteger tokenRequests = new AtomicInteger();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        var graph = TestClientGraph.create(
                 countingTokens(tokenRequests), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
+        DefaultClientOperations operations = graph.operations();
         ClientExecutor client = new ClientExecutor() {
             @Override public boolean isClientThread() { return true; }
             @Override public void execute(Runnable action) { action.run(); }
         };
-        operations.attachOptifineCapes(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
+        graph.attachProviders(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
         ClientRuntime runtime = new ClientRuntime(operations, client,
                 () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
                 Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
@@ -190,7 +191,7 @@ final class DefaultClientOperationsTest {
         AtomicInteger requests = new AtomicInteger();
         StubProfileApi api = new StubProfileApi();
         api.profileFailure = new ProfileApiException(ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens(requests), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
         operations.warmSession();
         assertFalse(operations.warmedReconciliationRecommended());
@@ -207,7 +208,7 @@ final class DefaultClientOperationsTest {
     @Test
     void startupPendingDeliveryReusesItsSingleFreshProfileCheck() throws Exception {
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
         var initial = operations.initialize();
         var saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -225,7 +226,7 @@ final class DefaultClientOperationsTest {
     void startupWithMinecraftDisabledDoesNotAcquireCredentials() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens(requests), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
         operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
@@ -239,7 +240,7 @@ final class DefaultClientOperationsTest {
     void enablingSkinDoesNotRewriteAnAlreadyConfirmedCapeDestination() throws Exception {
         byte[] skin = skinPng(0xFF41677A);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
+        DefaultClientOperations operations = TestClientGraph.operations(tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -267,7 +268,7 @@ final class DefaultClientOperationsTest {
         URI capeUri = URI.create("https://textures.minecraft.net/texture/provider-cape-fixture");
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
                 List.of(new RemoteCape("cape-owned", RemoteAssetState.INACTIVE, capeUri, "Cape")), Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> png.clone(), fixedClock());
         operations.initialize();
         com.naocraftlab.skins.core.storage.TextureCache cache =
@@ -288,7 +289,7 @@ final class DefaultClientOperationsTest {
         assertEquals(key, refreshed.providers().cape().offline().value().textureCacheKey());
         assertEquals(Optional.of(key), refreshed.localAppearance().orElseThrow().localCapeCacheKey());
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
-        DefaultClientOperations reopened = new DefaultClientOperations(
+        DefaultClientOperations reopened = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> png.clone(), fixedClock());
         assertEquals(Optional.of(key), reopened.initialize().localAppearance().orElseThrow().localCapeCacheKey());
         assertTrue(cache.readIfCached(key).isPresent());
@@ -303,7 +304,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF315B72);
         NclSkinsStorage shared = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         ClientOperations.DurableAppearance refreshed = operations.refreshProviders(AppearanceProviders.Component.CAPE);
@@ -344,7 +345,7 @@ final class DefaultClientOperationsTest {
             }
         };
         NclSkinsStorage storage = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens, api, storage, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         operations.refreshProviders(AppearanceProviders.Component.CAPE);
@@ -406,7 +407,7 @@ final class DefaultClientOperationsTest {
                         URI.create("https://textures.minecraft.net/texture/active-cape"), "Owned cape")), Set.of());
         AtomicInteger tokens = new AtomicInteger();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens(tokens), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference reference = SkinReference.asset(initial.account().skinAssets().get(0).id());
@@ -419,7 +420,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(), "Second", reference, SkinVariant.CLASSIC, SkinVariant.CLASSIC,
                 Optional.of("cape-owned"), OuterLayerVisibility.noneVisible(),
                 Optional.empty(), Optional.empty(), Optional.empty()).withOfflineCape(offlineCape));
-        DefaultClientOperations restarted = new DefaultClientOperations(
+        DefaultClientOperations restarted = TestClientGraph.operations(
                 countingTokens(tokens), api, shared, ignored -> skin.clone(), fixedClock());
         restarted.initialize();
         long previousRevision = shared.loadAppearance(TestFixtures.ACCOUNT_ID).intentRevision();
@@ -483,7 +484,7 @@ final class DefaultClientOperationsTest {
                 List.of(new RemoteCape("cape-owned", RemoteAssetState.ACTIVE,
                         URI.create("https://textures.minecraft.net/texture/active-cape"), "Owned cape")), Set.of());
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference firstSkin = SkinReference.asset(initial.account().skinAssets().get(0).id());
@@ -520,7 +521,7 @@ final class DefaultClientOperationsTest {
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
                 List.of(new RemoteCape("cape-owned", RemoteAssetState.ACTIVE,
                         URI.create("https://textures.minecraft.net/texture/active-cape"), "Owned cape")), Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference reference = SkinReference.asset(initial.account().skinAssets().get(0).id());
@@ -552,7 +553,7 @@ final class DefaultClientOperationsTest {
                         URI.create("https://textures.minecraft.net/texture/first-cape"), "First cape"),
                 new RemoteCape("cape-second", RemoteAssetState.INACTIVE,
                         URI.create("https://textures.minecraft.net/texture/second-cape"), "Second cape")), Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinReference reference = SkinReference.asset(initial.account().skinAssets().get(0).id());
@@ -625,7 +626,7 @@ final class DefaultClientOperationsTest {
         api.capeFailure = new ProfileApiException(
                 ApiFailureKind.RATE_LIMITED, "cape rate limited", 429, Duration.ofSeconds(60), false);
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -737,7 +738,7 @@ final class DefaultClientOperationsTest {
     void activeSaveWithSkinChangeAssignsOnlySkinDelivery() throws Exception {
         byte[] skin = skinPng(0xFF315B72);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -782,7 +783,7 @@ final class DefaultClientOperationsTest {
     void activeSaveSkinToAccountDefaultResetsOnlySkin() throws Exception {
         byte[] skin = skinPng(0xFF315B72);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -838,7 +839,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF315B72);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
@@ -904,7 +905,7 @@ final class DefaultClientOperationsTest {
                         URI.create("https://textures.minecraft.net/texture/cape-a"),
                         "Cape A")),
                 Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -955,7 +956,7 @@ final class DefaultClientOperationsTest {
                         new RemoteCape("cape-b", RemoteAssetState.INACTIVE,
                                 URI.create("https://textures.minecraft.net/texture/cape-b"), "Cape B")),
                 Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1004,7 +1005,7 @@ final class DefaultClientOperationsTest {
                         new RemoteCape("cape-b", RemoteAssetState.INACTIVE,
                                 URI.create("https://textures.minecraft.net/texture/cape-b"), "Cape B")),
                 Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1055,7 +1056,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF315B72);
         NclSkinsStorage shared = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations first = new DefaultClientOperations(
+        DefaultClientOperations first = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
         SkinAsset selectedSkin = initial.account().skinAssets().get(0);
@@ -1087,7 +1088,7 @@ final class DefaultClientOperationsTest {
                         URI.create("https://textures.minecraft.net/texture/cape-owned"),
                         "Owned cape")),
                 Set.of());
-        DefaultClientOperations second = new DefaultClientOperations(
+        DefaultClientOperations second = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         second.initialize();
         second.refreshProviders(AppearanceProviders.Component.CAPE);
@@ -1116,7 +1117,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF315B72);
         NclSkinsStorage shared = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         operations.disableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
@@ -1150,14 +1151,14 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF315B72);
         NclSkinsStorage shared = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         operations.moveProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT, -1);
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE);
         AppearanceProviders expected = operations.loadProviders();
-        DefaultClientOperations reopened = new DefaultClientOperations(
+        DefaultClientOperations reopened = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         assertEquals(expected, reopened.loadProviders());
         assertEquals(expected, reopened.reloadProviders().providers());
@@ -1172,7 +1173,7 @@ final class DefaultClientOperationsTest {
         byte[] nextSkin = skinPng(0xFF426C83);
         NclSkinsStorage shared = storage();
         StubProfileApi onlineApi = new StubProfileApi();
-        DefaultClientOperations onlineBeforeOffline = new DefaultClientOperations(
+        DefaultClientOperations onlineBeforeOffline = TestClientGraph.operations(
                 tokens(), onlineApi, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = onlineBeforeOffline.initialize();
         LibraryEditorPort.EditorSave confirmedA = onlineBeforeOffline.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1205,7 +1206,7 @@ final class DefaultClientOperationsTest {
                 throw new GameSessionTokenUnavailableException();
             }
         };
-        DefaultClientOperations offline = new DefaultClientOperations(
+        DefaultClientOperations offline = TestClientGraph.operations(
                 offlineTokens, onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
         offline.initialize();
         LibraryEditorPort.EditorSave saved = offline.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1234,20 +1235,21 @@ final class DefaultClientOperationsTest {
                 .map(preset -> preset.id())
                 .findFirst());
 
-        DefaultClientOperations anotherOffline = new DefaultClientOperations(
+        DefaultClientOperations anotherOffline = TestClientGraph.operations(
                 offlineTokens, onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
         ClientOperations.InitialData reopenedOffline = anotherOffline.initialize();
         assertEquals(Optional.of(saved.presetId()), reopenedOffline.activePresetId());
         assertTrue(reopenedOffline.pendingOfficialSync());
         assertTrue(reopenedOffline.localAppearance().isPresent());
 
-        DefaultClientOperations online = new DefaultClientOperations(
+        var graph = TestClientGraph.create(
                 tokens(), onlineApi, shared, ignored -> nextSkin.clone(), fixedClock());
+        DefaultClientOperations online = graph.operations();
         ClientExecutor client = new ClientExecutor() {
             @Override public boolean isClientThread() { return true; }
             @Override public void execute(Runnable action) { action.run(); }
         };
-        online.attachOptifineCapes(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
+        graph.attachProviders(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
         ClientRuntime runtime = new ClientRuntime(online, client,
                 () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
                 Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
@@ -1269,7 +1271,7 @@ final class DefaultClientOperationsTest {
     void newInactivePresetSaveHasNoFallibleAppearanceFollowUp() throws Exception {
         byte[] skin = skinPng(0xFF315C73);
         NclSkinsStorage storage = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(),
                 new StubProfileApi(),
                 storage,
@@ -1305,7 +1307,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi firstApi = new StubProfileApi();
         firstApi.profileFailure = new ProfileApiException(
                 ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations first = new DefaultClientOperations(
+        DefaultClientOperations first = TestClientGraph.operations(
                 tokens(accountId, "OriginalName"), firstApi, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
         LibraryEditorPort.EditorSave saved = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1321,7 +1323,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi renamedApi = new StubProfileApi();
         renamedApi.profileFailure = new ProfileApiException(
                 ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations renamed = new DefaultClientOperations(
+        DefaultClientOperations renamed = TestClientGraph.operations(
                 tokens(accountId, "CompletelyDifferentName"),
                 renamedApi,
                 storage(),
@@ -1344,7 +1346,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi unavailable = new StubProfileApi();
         unavailable.profileFailure = new ProfileApiException(
                 ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations first = new DefaultClientOperations(
+        DefaultClientOperations first = TestClientGraph.operations(
                 tokens(firstId, "SameName"), unavailable, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
         LibraryEditorPort.EditorSave saved = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1360,7 +1362,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi secondUnavailable = new StubProfileApi();
         secondUnavailable.profileFailure = new ProfileApiException(
                 ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations second = new DefaultClientOperations(
+        DefaultClientOperations second = TestClientGraph.operations(
                 tokens(secondId, "SameName"),
                 secondUnavailable,
                 storage(),
@@ -1385,7 +1387,7 @@ final class DefaultClientOperationsTest {
         tokens.atomicIdentity = new GameSessionTokenSource.SessionIdentity(
                 TestFixtures.ACCOUNT_ID, "RenamedAccount");
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens, api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -1414,9 +1416,9 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF425D78);
         StubProfileApi writerApi = new StubProfileApi();
         StubProfileApi readerApi = new StubProfileApi();
-        DefaultClientOperations writer = new DefaultClientOperations(
+        DefaultClientOperations writer = TestClientGraph.operations(
                 tokens(), writerApi, storage(), ignored -> skin.clone(), fixedClock());
-        DefaultClientOperations reader = new DefaultClientOperations(
+        DefaultClientOperations reader = TestClientGraph.operations(
                 tokens(), readerApi, storage(), ignored -> skin.clone(), fixedClock());
         reader.initialize();
         ClientOperations.InitialData writerInitial = writer.initialize();
@@ -1450,7 +1452,7 @@ final class DefaultClientOperationsTest {
         NclSkinsStorage shared = storage();
         shared.initialize();
         Files.write(new com.naocraftlab.skins.core.storage.TextureCache(shared).cachePath(officialUri), skin);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         ClientOperations.ReconciliationResult initial = operations
@@ -1503,7 +1505,7 @@ final class DefaultClientOperationsTest {
                 return request.execute("scoped-token");
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        var graph = TestClientGraph.create(
                 tokens,
                 api,
                 new NclSkinsStorage(
@@ -1512,6 +1514,7 @@ final class DefaultClientOperationsTest {
                         Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC)),
                 bundled,
                 Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
+        DefaultClientOperations operations = graph.operations();
 
         ClientOperations.InitialData initial = operations.initialize();
         assertEquals(2, initial.account().skinAssets().size());
@@ -1539,7 +1542,7 @@ final class DefaultClientOperationsTest {
         assertEquals(1, api.profileGets.get());
         assertEquals(1, api.skinUploads.get());
         var appliedAppearance = applied.outcome().optionalAppliedAppearance().orElseThrow();
-        var resolvedLocal = operations.deterministicAppearanceResolver(Runnable::run)
+        var resolvedLocal = graph.resolver(Runnable::run)
                 .resolve(new ExpectedAppearance(
                         appliedAppearance.profileId(),
                         appliedAppearance.skinTexture(),
@@ -1574,7 +1577,7 @@ final class DefaultClientOperationsTest {
         SkinCatalogSource catalog = (collectionId, skinId, model) ->
                 model == SkinModel.SLIM ? slim.clone() : classic.clone();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations first = new DefaultClientOperations(
+        DefaultClientOperations first = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), shared, catalog, fixedClock());
 
         ClientOperations.InitialData initial = first.initialize();
@@ -1620,7 +1623,7 @@ final class DefaultClientOperationsTest {
                         .orElseThrow()
                         .catalogOrigin());
 
-        DefaultClientOperations second = new DefaultClientOperations(
+        DefaultClientOperations second = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), shared, catalog, fixedClock());
         ClientOperations.InitialData reopened = second.initialize();
         assertEquals(AddSourceTab.CATALOG, reopened.uiPreferences().selectedAddSourceTab());
@@ -1640,7 +1643,7 @@ final class DefaultClientOperationsTest {
             throws Exception {
         byte[] png = skinPng(0xFF285A7C);
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), shared, ignored -> png.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         int baselineAssets = initial.account().skinAssets().size();
@@ -1729,7 +1732,7 @@ final class DefaultClientOperationsTest {
     void duplicateSaveRoundTripsOfflineCapeWithoutChangingActiveAppearance() throws Exception {
         NclSkinsStorage shared = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skinPng(0xFF315B72), fixedClock());
         operations.initialize();
         var localCape = shared.importCape(
@@ -1814,7 +1817,7 @@ final class DefaultClientOperationsTest {
         var clean = library.createPresetFromPersonalSkin(
                 TestFixtures.ACCOUNT_ID, "Clean", "Clean import", SkinVariant.CLASSIC,
                 PersonalSkinSource.FILE, cleanImport, null);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), shared, ignored -> cleanImport.clone(), fixedClock());
         operations.initialize();
 
@@ -1845,7 +1848,7 @@ final class DefaultClientOperationsTest {
             throws Exception {
         byte[] localPng = skinPng(0xFF285A7C);
         byte[] playerPng = skinPng(0xFF7C5A28);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), ignored -> localPng.clone(), fixedClock());
         operations.initialize();
 
@@ -1894,7 +1897,7 @@ final class DefaultClientOperationsTest {
             }
             throw new IOException("variant missing");
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), partial, fixedClock());
 
         var collection = operations.catalogCollections().get(0);
@@ -1924,7 +1927,7 @@ final class DefaultClientOperationsTest {
                 return snapshot.get();
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), reloadable, fixedClock());
 
         assertEquals("alpha", operations.catalogCollections().get(0).id());
@@ -1953,7 +1956,7 @@ final class DefaultClientOperationsTest {
                 return collections;
             }
         };
-        var operations = new DefaultClientOperations(
+        var operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), source, fixedClock());
         var result = operations.catalogCollections();
         assertEquals(collections, result);
@@ -1989,7 +1992,7 @@ final class DefaultClientOperationsTest {
                 return generation.get();
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), source, fixedClock());
 
         operations.catalogCollections();
@@ -2029,7 +2032,7 @@ final class DefaultClientOperationsTest {
             @Override public long generation() { return unknownGeneration ? Long.MIN_VALUE : 1; }
         };
         NclSkinsStorage shared = storage();
-        var operations = new DefaultClientOperations(tokens(), new StubProfileApi(), shared, source, fixedClock());
+        var operations = TestClientGraph.operations(tokens(), new StubProfileApi(), shared, source, fixedClock());
         operations.catalogCollections();
         var before = shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
         org.junit.jupiter.api.function.Executable save = () -> {
@@ -2069,7 +2072,7 @@ final class DefaultClientOperationsTest {
             }
         };
         NclSkinsStorage shared = storage();
-        var operations = new DefaultClientOperations(tokens(), new StubProfileApi(), shared, source, fixedClock());
+        var operations = TestClientGraph.operations(tokens(), new StubProfileApi(), shared, source, fixedClock());
         operations.catalogCollections();
         operations.loadCatalogSkin("event", "hero", SkinModel.CLASSIC);
         var before = shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
@@ -2102,7 +2105,7 @@ final class DefaultClientOperationsTest {
             @Override public long generation() { return generation.get(); }
         };
         NclSkinsStorage shared = storage();
-        var operations = new DefaultClientOperations(tokens(), new StubProfileApi(), shared, source, fixedClock());
+        var operations = TestClientGraph.operations(tokens(), new StubProfileApi(), shared, source, fixedClock());
         operations.catalogCollections();
         var frozen = operations.freezeCatalogSelection("event", "hero");
         var request = new LibraryEditorPort.EditorSaveRequest(Optional.empty(), "Hero", SkinReference.accountDefault(),
@@ -2156,7 +2159,7 @@ final class DefaultClientOperationsTest {
             }
         };
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), shared, source, fixedClock());
         operations.warmResourceCapeCatalog(generation.get());
         assertEquals(3, capeLoads.get());
@@ -2250,7 +2253,7 @@ final class DefaultClientOperationsTest {
             @Override public long capeGeneration() { return generation.get(); }
         };
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), shared, source, fixedClock());
         var data = operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
         assertEquals(4, data.resourceCollections().get(0).capes().size());
@@ -2285,7 +2288,7 @@ final class DefaultClientOperationsTest {
         packActive.set(false);
         generation.incrementAndGet();
         NclSkinsStorage reopened = storage();
-        DefaultClientOperations afterRestart = new DefaultClientOperations(
+        DefaultClientOperations afterRestart = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), reopened, source, fixedClock());
         var withoutPack = afterRestart.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
         var account = reopened.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
@@ -2340,7 +2343,7 @@ final class DefaultClientOperationsTest {
             @Override public long capeGeneration() { return generation.get(); }
         };
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), shared, source, fixedClock());
         var data = operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
         assertEquals(List.of("hero"), data.resourceCollections().get(0).capes().stream()
@@ -2378,7 +2381,7 @@ final class DefaultClientOperationsTest {
         Path wrongJpeg = Files.write(temporaryDirectory.resolve("wrong.jpg"), png);
         Path wrongPng = Files.write(temporaryDirectory.resolve("wrong.png"), encoded.toByteArray());
         Path jpeg = Files.write(temporaryDirectory.resolve("cape.jpeg"), encoded.toByteArray());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(),
                 (collection, id, model) -> png, fixedClock());
         assertThrows(PngValidationException.class, () -> operations.importCape(
@@ -2396,7 +2399,7 @@ final class DefaultClientOperationsTest {
             file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1L);
         }
         byte[] png = customCapePng();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(),
                 (collection, id, model) -> png, fixedClock());
         PngValidationException failure = assertThrows(PngValidationException.class,
@@ -2439,7 +2442,7 @@ final class DefaultClientOperationsTest {
             };
             NclSkinsStorage shared = new NclSkinsStorage(temporaryDirectory.resolve(change),
                     new PngValidator(), fixedClock());
-            DefaultClientOperations operations = new DefaultClientOperations(
+            DefaultClientOperations operations = TestClientGraph.operations(
                     session, new StubProfileApi(), shared, source, fixedClock());
             instance.set(operations);
             var data = operations.loadCapeEditorData(account);
@@ -2499,7 +2502,7 @@ final class DefaultClientOperationsTest {
                 return generation.get();
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), source, fixedClock());
         operations.initialize();
         operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
@@ -2552,7 +2555,7 @@ final class DefaultClientOperationsTest {
                 return Long.MIN_VALUE;
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), source, fixedClock());
         operations.initialize();
 
@@ -2583,7 +2586,7 @@ final class DefaultClientOperationsTest {
                 return collections;
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), source, fixedClock());
 
         assertEquals(
@@ -2614,7 +2617,7 @@ final class DefaultClientOperationsTest {
                 return collections;
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), source, fixedClock());
 
         operations.catalogCollections();
@@ -2650,7 +2653,7 @@ final class DefaultClientOperationsTest {
                 return request.execute("must-not-be-requested");
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens, api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         UUID skinId = initial.account().skinAssets().get(0).id();
@@ -2697,7 +2700,7 @@ final class DefaultClientOperationsTest {
     void galleryInitializationReusesStartupSessionWithoutFreshProfileRequest()
             throws Exception {
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
 
         operations.warmSession();
@@ -2724,7 +2727,7 @@ final class DefaultClientOperationsTest {
                 throw new GameSessionTokenUnavailableException();
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 offlineTokens, api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
 
         ClientOperations.InitialData initialized = operations.retrySession();
@@ -2740,7 +2743,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi api = new StubProfileApi();
         api.profileFailure = new ProfileApiException(
                 ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skinPng(0xFF224488), fixedClock());
 
         ClientOperations.InitialData initialized = operations.retrySession();
@@ -2764,7 +2767,7 @@ final class DefaultClientOperationsTest {
         Path cachedSkin = new com.naocraftlab.skins.core.storage.TextureCache(storage)
                 .cachePath(skinUri);
         Files.write(cachedSkin, classic);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(),
                 api,
                 storage,
@@ -2811,7 +2814,7 @@ final class DefaultClientOperationsTest {
         byte[] classic = skinPng(0xFF224488);
         NclSkinsStorage storage = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(),
                 api,
                 storage,
@@ -2845,7 +2848,7 @@ final class DefaultClientOperationsTest {
 
     @Test
     void warmedInitialDataDoesNotWaitForStartupWarmupMonitor() throws Exception {
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(),
                 new StubProfileApi(),
                 storage(),
@@ -2891,7 +2894,7 @@ final class DefaultClientOperationsTest {
         Files.write(
                 new com.naocraftlab.skins.core.storage.TextureCache(storage).cachePath(skinUri),
                 skin);
-        DefaultClientOperations firstClient = new DefaultClientOperations(
+        DefaultClientOperations firstClient = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         firstClient.initialize();
         ClientOperations.ReconciliationResult firstOpen = firstClient
@@ -2911,7 +2914,7 @@ final class DefaultClientOperationsTest {
                 localDefault.localAppearance().orElseThrow().localSkinSha256());
         assertEquals(0, api.skinResets.get());
 
-        DefaultClientOperations reopenedClient = new DefaultClientOperations(
+        DefaultClientOperations reopenedClient = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData reopened = reopenedClient.initialize();
         assertTrue(reopened.account().presets().isEmpty());
@@ -2928,7 +2931,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF386A5B);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage storage = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         assertTrue(initial.account().presets().isEmpty());
@@ -2948,7 +2951,7 @@ final class DefaultClientOperationsTest {
                 SkinReference.asset(classicId),
                 null);
         UUID transientPreset = created.presets().get(0).id();
-        DefaultClientOperations otherOperations = new DefaultClientOperations(
+        DefaultClientOperations otherOperations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         AccountState externallyEmpty = otherOperations.deletePreset(transientPreset).account();
         assertTrue(externallyEmpty.presets().isEmpty());
@@ -2967,7 +2970,7 @@ final class DefaultClientOperationsTest {
     void inactiveDeleteIsPurelyLocalAndDoesNotReplaceTheActiveIntent() throws Exception {
         byte[] skin = skinPng(0xFF274F68);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave active = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3007,7 +3010,7 @@ final class DefaultClientOperationsTest {
     void deletingLastInactivePresetPublishesAFreshAccountDefaultIntent() throws Exception {
         byte[] skin = skinPng(0xFF284F69);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave active = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3050,7 +3053,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF2A4F6B);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3093,7 +3096,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF2C4F6D);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3130,7 +3133,7 @@ final class DefaultClientOperationsTest {
     @Test
     void deletedPresetCannotPublishANewAppearanceIntent() throws Exception {
         byte[] skin = skinPng(0xFF294F6A);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), new StubProfileApi(), storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave kept = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3166,7 +3169,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF2B4F6C);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations first = new DefaultClientOperations(
+        DefaultClientOperations first = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
         LibraryEditorPort.EditorSave kept = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3186,7 +3189,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         first.usePreset(kept.presetId());
-        DefaultClientOperations second = new DefaultClientOperations(
+        DefaultClientOperations second = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -3236,7 +3239,7 @@ final class DefaultClientOperationsTest {
         NclSkinsStorage storage = storage();
         storage.initialize();
         Files.write(new com.naocraftlab.skins.core.storage.TextureCache(storage).cachePath(skinUri), classic);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(),
                 api,
                 storage,
@@ -3278,7 +3281,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF315A79);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage storage = storage();
-        DefaultClientOperations firstClient = new DefaultClientOperations(
+        DefaultClientOperations firstClient = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = firstClient.initialize();
         LibraryEditorPort.EditorSave preset = firstClient.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3292,7 +3295,7 @@ final class DefaultClientOperationsTest {
         firstClient.usePreset(preset.presetId());
         firstClient.deletePreset(preset.presetId());
 
-        DefaultClientOperations secondClient = new DefaultClientOperations(
+        DefaultClientOperations secondClient = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData reopened = secondClient.initialize();
 
@@ -3307,7 +3310,7 @@ final class DefaultClientOperationsTest {
     void freshAccountDefaultProfileSettlesResetIntentWithoutAnyMutation() throws Exception {
         byte[] skin = skinPng(0xFF4A6278);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         operations.initialize();
         ClientOperations.InitialData reset = operations.resetLibrary();
@@ -3340,7 +3343,7 @@ final class DefaultClientOperationsTest {
                 List.of(new RemoteCape(
                         "cape-owned", RemoteAssetState.INACTIVE, capeUri, "Owned cape")),
                 Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3401,7 +3404,7 @@ final class DefaultClientOperationsTest {
                 return request.execute("scoped-token");
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens, api, storage, ignored -> skin.clone(), fixedClock());
         operations.initialize();
 
@@ -3436,7 +3439,7 @@ final class DefaultClientOperationsTest {
                 return request.execute(token);
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 missingToken,
                 api,
                 storage(),
@@ -3504,7 +3507,7 @@ final class DefaultClientOperationsTest {
                 return request.execute(token);
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 missingToken,
                 api,
                 storage(),
@@ -3571,7 +3574,7 @@ final class DefaultClientOperationsTest {
                 throw new AssertionError(interrupted);
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
 
@@ -3638,7 +3641,7 @@ final class DefaultClientOperationsTest {
                 return request.execute("scoped-token");
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 intermittentToken,
                 api,
                 storage(),
@@ -3673,7 +3676,7 @@ final class DefaultClientOperationsTest {
         byte[] changedElsewhere = skinPng(0xFF795347);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage storage = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(),
                 api,
                 storage,
@@ -3726,7 +3729,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF7A4C91);
         StubProfileApi api = new StubProfileApi();
         api.profile = new RemoteProfile(UUID.randomUUID(), "Other", List.of(), List.of(), Set.of());
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3771,7 +3774,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi api = new StubProfileApi();
         api.profileFailure = new ProfileApiException(
                 ApiFailureKind.NETWORK, "offline", null, null, false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3808,7 +3811,7 @@ final class DefaultClientOperationsTest {
     void reconnectWithPendingIntentRefreshesAnEarlierValidProfile() throws Exception {
         byte[] skin = skinPng(0xFF6688AA);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         operations.warmSession();
@@ -3837,7 +3840,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi api = new StubProfileApi();
         api.profileFailure = new ProfileApiException(
                 ApiFailureKind.SESSION_EXPIRED, "expired", 401, null, false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3879,7 +3882,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi api = new StubProfileApi();
         api.skinFailure = new ProfileApiException(
                 ApiFailureKind.FORBIDDEN, "denied", 403, null, false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3922,7 +3925,7 @@ final class DefaultClientOperationsTest {
         api.skinFailure = new ProfileApiException(
                 ApiFailureKind.FORBIDDEN, "denied", 403, null, false);
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -3988,7 +3991,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi api = new StubProfileApi();
         api.skinFailure = new ProfileApiException(
                 ApiFailureKind.FORBIDDEN, "denied", 403, null, false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4088,7 +4091,7 @@ final class DefaultClientOperationsTest {
                 429,
                 Duration.ofSeconds(60),
                 false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4153,7 +4156,7 @@ final class DefaultClientOperationsTest {
                 429,
                 Duration.ofSeconds(60),
                 false);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4245,7 +4248,7 @@ final class DefaultClientOperationsTest {
         Files.write(
                 new com.naocraftlab.skins.core.storage.TextureCache(storage).cachePath(skinUri),
                 skin);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4337,7 +4340,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF416785);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage storage = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         var offlineCape = storage.importCape(
@@ -4385,7 +4388,7 @@ final class DefaultClientOperationsTest {
                 repeated.reappliedAppearance().orElseThrow().syncStatus());
         assertEquals(normalizedDelivery,
                 repeated.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
-        DefaultClientOperations restarted = new DefaultClientOperations(
+        DefaultClientOperations restarted = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         assertNull(restarted.loadProviders().cape().desired());
         assertEquals(offlineCape.sha256(), restarted.loadProviders().cape().offlineDesired().textureCacheKey());
@@ -4400,7 +4403,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF416785);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         var offlineCape = shared.importCape(
@@ -4467,7 +4470,7 @@ final class DefaultClientOperationsTest {
         assertEquals(normalizedDelivery,
                 repeated.reappliedAppearance().orElseThrow().providers().cape().minecraftDelivery());
 
-        DefaultClientOperations restarted = new DefaultClientOperations(
+        DefaultClientOperations restarted = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         assertNull(restarted.loadProviders().cape().desired());
         assertEquals(offlineCape.sha256(),
@@ -4479,7 +4482,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF385F79);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage storage = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4511,7 +4514,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF42627F);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage storage = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4546,7 +4549,7 @@ final class DefaultClientOperationsTest {
     void explicitRetryRefreshesSessionEvenWhenDurableAppearanceIsOfficial() throws Exception {
         byte[] skin = skinPng(0xFF4B6984);
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4605,7 +4608,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF3A5876);
         NclSkinsStorage shared = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations writer = new DefaultClientOperations(
+        DefaultClientOperations writer = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = writer.initialize();
         LibraryEditorPort.EditorSave saved = writer.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4617,7 +4620,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         writer.usePreset(saved.presetId());
-        DefaultClientOperations contender = new DefaultClientOperations(
+        DefaultClientOperations contender = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
 
         ClientOperations.ReconciliationResult firstResult;
@@ -4661,7 +4664,7 @@ final class DefaultClientOperationsTest {
                 throw new AssertionError(interrupted);
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         LibraryEditorPort.EditorSave firstPreset = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -4708,7 +4711,7 @@ final class DefaultClientOperationsTest {
                 throw new AssertionError(interrupted);
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinAsset selectedSkin = initial.account().skinAssets().get(0);
@@ -4778,7 +4781,7 @@ final class DefaultClientOperationsTest {
                 throw new AssertionError(interrupted);
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinAsset selectedSkin = initial.account().skinAssets().get(0);
@@ -4844,7 +4847,7 @@ final class DefaultClientOperationsTest {
                 throw new AssertionError(interrupted);
             }
         };
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         operations.refreshProviders(AppearanceProviders.Component.CAPE);
@@ -5047,7 +5050,7 @@ final class DefaultClientOperationsTest {
                 skin);
         StubProfileApi api = new StubProfileApi();
         api.profile = profileWithActiveAppearance(skinUri, null);
-        DefaultClientOperations firstProcess = new DefaultClientOperations(
+        DefaultClientOperations firstProcess = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = firstProcess.initialize();
         LibraryEditorPort.EditorSave saved = firstProcess.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -5073,7 +5076,7 @@ final class DefaultClientOperationsTest {
                         current.settledRevision(),
                         current.updatedAt()));
 
-        DefaultClientOperations restarted = new DefaultClientOperations(
+        DefaultClientOperations restarted = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.ReconciliationResult recovered = restarted
                 .reconcileAppearance(Trigger.PROCESS_START)
@@ -5095,7 +5098,7 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF526E8A);
         NclSkinsStorage shared = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations firstProcess = new DefaultClientOperations(
+        DefaultClientOperations firstProcess = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = firstProcess.initialize();
         LibraryEditorPort.EditorSave saved = firstProcess.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -5107,7 +5110,7 @@ final class DefaultClientOperationsTest {
                 current.skinSha256(), current.skinVariant(), current.capeId(), current.outerLayerVisibility(),
                 AppearanceSyncStatus.ATTEMPTING, current.settledRevision(), current.updatedAt()));
 
-        DefaultClientOperations restarted = new DefaultClientOperations(
+        DefaultClientOperations restarted = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.ReconciliationResult observed = restarted
                 .reconcileAppearance(Trigger.PROCESS_START)
@@ -5148,7 +5151,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi api = new StubProfileApi();
         api.profile = profileWithActiveAppearance(
                 URI.create("https://textures.minecraft.net/texture/new-unavailable-skin"), null);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(),
                 api,
                 storage,
@@ -5182,7 +5185,7 @@ final class DefaultClientOperationsTest {
         NclSkinsStorage storage = storage();
         storage.initialize();
         Files.write(new com.naocraftlab.skins.core.storage.TextureCache(storage).cachePath(skinUri), skin);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens, api, storage, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         UUID presetId = operations
@@ -5214,7 +5217,7 @@ final class DefaultClientOperationsTest {
         tokens.atomicIdentity = accountB;
         NclSkinsStorage storage = storage();
         StubProfileApi api = new StubProfileApi();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens, api, storage, ignored -> skinPng(0xFF556677), fixedClock());
 
         ClientOperations.InitialData initial = operations.initialize();
@@ -5250,7 +5253,7 @@ final class DefaultClientOperationsTest {
         NclSkinsStorage storage = storage();
         StubProfileApi api = new StubProfileApi();
 
-        DefaultClientOperations accountAOperations = new DefaultClientOperations(
+        DefaultClientOperations accountAOperations = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData accountAInitial = accountAOperations.initialize();
         LibraryEditorPort.EditorSave accountAPreset = accountAOperations.saveEditor(
@@ -5277,7 +5280,7 @@ final class DefaultClientOperationsTest {
                 return request.execute("must-not-be-requested");
             }
         };
-        DefaultClientOperations accountBOperations = new DefaultClientOperations(
+        DefaultClientOperations accountBOperations = TestClientGraph.operations(
                 accountBTokens, api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData accountBInitial = accountBOperations.initialize();
         LibraryEditorPort.EditorSave accountBPreset = accountBOperations.saveEditor(
@@ -5326,12 +5329,13 @@ final class DefaultClientOperationsTest {
                 temporaryDirectory,
                 new PngValidator(),
                 Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
-        DefaultClientOperations operations = new DefaultClientOperations(
+        var graph = TestClientGraph.create(
                 tokens,
                 api,
                 storage,
                 bundled,
                 Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
+        DefaultClientOperations operations = graph.operations();
         storage.initialize();
 
         URI skinUri = URI.create("https://textures.minecraft.net/texture/runtime-skin");
@@ -5343,7 +5347,7 @@ final class DefaultClientOperationsTest {
         Files.write(capePath, slim);
 
         DeterministicAppearanceAssetResolver resolver =
-                operations.deterministicAppearanceResolver(Runnable::run);
+                graph.resolver(Runnable::run);
         var remote = resolver.resolve(new ExpectedAppearance(
                         TestFixtures.ACCOUNT_ID,
                         Optional.of(skinUri),
@@ -5393,9 +5397,9 @@ final class DefaultClientOperationsTest {
         byte[] skin = skinPng(0xFF315A72);
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations first = new DefaultClientOperations(
+        DefaultClientOperations first = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
-        DefaultClientOperations second = new DefaultClientOperations(
+        DefaultClientOperations second = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = first.initialize();
         UUID skinId = initial.account().skinAssets().get(0).id();
@@ -5470,7 +5474,7 @@ final class DefaultClientOperationsTest {
                 Set.of());
         NclSkinsStorage storage = storage();
         var cache = new com.naocraftlab.skins.core.storage.TextureCache(storage);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         operations.reconcileAppearance(Trigger.PROCESS_START)
@@ -5620,7 +5624,7 @@ final class DefaultClientOperationsTest {
                 Set.of());
         AtomicInteger tokenRequests = new AtomicInteger();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens(tokenRequests), api, shared, ignored -> skinPng(0xFF315B72), fixedClock());
         operations.initialize();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
@@ -5667,7 +5671,7 @@ final class DefaultClientOperationsTest {
             }
         };
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         ClientOperations.InitialData initial = operations.initialize();
         SkinAsset firstSkin = initial.account().skinAssets().get(0);
@@ -5700,7 +5704,7 @@ final class DefaultClientOperationsTest {
         NclSkinsStorage shared = storage();
         shared.initialize();
         Files.write(new com.naocraftlab.skins.core.storage.TextureCache(shared).cachePath(officialUri), skin);
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
         ClientOperations.ReconciliationResult official = operations
@@ -5831,7 +5835,7 @@ final class DefaultClientOperationsTest {
         api.profile = profileWithActiveAppearance(skinUri, capeUri);
         NclSkinsStorage shared = storage();
         SkinCatalogSource source = (collection, name, model) -> assigned.clone();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, source, fixedClock(), ignored -> custom.clone());
         var initial = operations.retrySession();
         assertEquals(1, initial.account().presets().size());
@@ -5840,7 +5844,7 @@ final class DefaultClientOperationsTest {
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player",
                 List.of(new RemoteSkin("default", RemoteAssetState.ACTIVE, skinUri, SkinVariant.SLIM, null)),
                 api.profile.capes(), Set.of());
-        DefaultClientOperations restarted = new DefaultClientOperations(
+        DefaultClientOperations restarted = TestClientGraph.operations(
                 tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone());
         var refreshed = restarted.refreshProviders(AppearanceProviders.Component.SKIN);
         assertTrue(refreshed.providers().skin().minecraft().known());
@@ -5850,7 +5854,7 @@ final class DefaultClientOperationsTest {
         assertEquals(offline.value().sha256(), refreshed.localAppearance().orElseThrow().localSkinSha256().orElseThrow());
         assertEquals("cape-active", refreshed.providers().cape().minecraft().value().id());
         assertEquals(1, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID).presets().size());
-        var again = new DefaultClientOperations(tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone())
+        var again = TestClientGraph.operations(tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone())
                 .retrySession();
         assertEquals(offline.value().sha256(), again.localAppearance().orElseThrow().localSkinSha256().orElseThrow());
         assertEquals(0, api.skinUploads.get());
@@ -5862,7 +5866,7 @@ final class DefaultClientOperationsTest {
     void providerRefreshReportsOnlyItsAcceptedMinecraftRead() throws Exception {
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skinPng(0xff123456), fixedClock());
         operations.retrySession();
         var sharedCape = new com.naocraftlab.skins.core.provider.ProviderCape(
@@ -5893,7 +5897,7 @@ final class DefaultClientOperationsTest {
                 List.of(new RemoteSkin("default", RemoteAssetState.ACTIVE, skinUri, SkinVariant.SLIM, null)),
                 List.of(), Set.of());
         NclSkinsStorage shared = storage();
-        DefaultClientOperations operations = new DefaultClientOperations(tokens(), api, shared,
+        DefaultClientOperations operations = TestClientGraph.operations(tokens(), api, shared,
                 (collection, name, model) -> assigned.clone(), fixedClock(), ignored -> assigned.clone());
         var initial = operations.retrySession();
         assertTrue(initial.account().presets().isEmpty());
@@ -5917,7 +5921,7 @@ final class DefaultClientOperationsTest {
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
         SkinCatalogSource source = (collection, name, model) -> assigned.clone();
-        DefaultClientOperations operations = new DefaultClientOperations(
+        DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone());
         operations.retrySession();
         var imported = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared), fixedClock()).importSkin(TestFixtures.ACCOUNT_ID,

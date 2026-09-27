@@ -11,12 +11,12 @@ import java.util.UUID;
 import static com.naocraftlab.skins.runtime.AccountDeliveryService.*;
 import static com.naocraftlab.skins.runtime.AccountReconciliationPort.*;
 
-final class AccountMutationExecutor {
+public final class AccountMutationExecutor {
     private final AccountAppearanceStore storage;
     private final AssetStorePort assets;
     private final Clock clock;
     private final AccountDeliveryService delivery;
-    AccountMutationExecutor(AccountAppearanceStore storage, AssetStorePort assets, Clock clock, AccountDeliveryService delivery) {
+    public AccountMutationExecutor(AccountAppearanceStore storage, AssetStorePort assets, Clock clock, AccountDeliveryService delivery) {
         this.storage = java.util.Objects.requireNonNull(storage);
         this.assets = java.util.Objects.requireNonNull(assets);
         this.clock = java.util.Objects.requireNonNull(clock);

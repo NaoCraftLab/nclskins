@@ -5,7 +5,7 @@ import com.naocraftlab.skins.core.png.PngValidator;
 import java.io.IOException;
 import java.nio.file.Path;
 
-final class LocalCapeImportAdapter implements LocalCapeImportSource {
+public final class LocalCapeImportAdapter implements LocalCapeImportSource {
     public Source read(Path path) throws IOException, PngValidationException {
         String fileName = path.getFileName() == null ? "" : path.getFileName().toString();
         String lowerName = fileName.toLowerCase(java.util.Locale.ROOT);

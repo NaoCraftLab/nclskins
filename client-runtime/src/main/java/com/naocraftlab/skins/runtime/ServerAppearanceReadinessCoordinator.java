@@ -52,7 +52,7 @@ public final class ServerAppearanceReadinessCoordinator implements AutoCloseable
 
 
     @FunctionalInterface
-    interface DelayScheduler {
+    public interface DelayScheduler {
         Cancellable schedule(Duration delay, Runnable action);
 
         static DelayScheduler system() {

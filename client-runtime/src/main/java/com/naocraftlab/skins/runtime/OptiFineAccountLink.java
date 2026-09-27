@@ -20,7 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 
-final class OptiFineAccountLink {
+public final class OptiFineAccountLink {
     enum Outcome { READY, AUTH_REQUIRED, FAILED, CANCELLED, EXPIRED }
 
     record Result(Outcome outcome) {
@@ -48,7 +48,7 @@ final class OptiFineAccountLink {
     private URI ready;
     private String readyName;
 
-    OptiFineAccountLink(GameSessionTokenSource sessions, Executor worker) {
+    public OptiFineAccountLink(GameSessionTokenSource sessions, Executor worker) {
         this(sessions, worker, httpTransport(), new SecureRandom(), Clock.systemUTC());
     }
 

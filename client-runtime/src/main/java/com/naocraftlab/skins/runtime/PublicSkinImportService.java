@@ -18,14 +18,14 @@ import java.util.Locale;
 import java.util.Objects;
 
 
-final class PublicSkinImportService {
+public final class PublicSkinImportService {
     private final TextureCache textures;
     private final CatalogVariantLoader catalog;
     private final SafeRemotePngFetcher remotePng;
     private final PngValidator pngValidator;
     private PublicPlayerSkinClient publicPlayers;
 
-    PublicSkinImportService(TextureCache textures, CatalogVariantLoader catalog) {
+    public PublicSkinImportService(TextureCache textures, CatalogVariantLoader catalog) {
         this(textures, catalog, new SafeRemotePngFetcher(), new PngValidator());
     }
 
@@ -40,7 +40,7 @@ final class PublicSkinImportService {
         this.pngValidator = Objects.requireNonNull(pngValidator, "pngValidator");
     }
 
-    void enablePlayerLookup(SignedTextureVerifier verifier) {
+    public void enablePlayerLookup(SignedTextureVerifier verifier) {
         publicPlayers = new PublicPlayerSkinClient(Objects.requireNonNull(verifier, "verifier"));
     }
 
@@ -118,7 +118,7 @@ final class PublicSkinImportService {
     }
 
     @FunctionalInterface
-    interface CatalogVariantLoader {
+    public interface CatalogVariantLoader {
         byte[] load(String collectionId, String skinId, SkinModel model) throws Exception;
     }
 }

@@ -23,7 +23,7 @@ public final class DeterministicAppearanceAssetResolver
     private final Executor worker;
     private final RemoteTextureSource remoteTextures;
 
-    DeterministicAppearanceAssetResolver(
+    public DeterministicAppearanceAssetResolver(
             GameSessionTokenSource tokenSource,
             NclSkinsStorage storage,
             TextureCache textures,

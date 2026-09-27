@@ -12,11 +12,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-final class UiPreferencesStorageAdapter implements UiPreferencesPort {
+public final class UiPreferencesStorageAdapter implements UiPreferencesPort {
     private final NclSkinsStorage storage;
     private final LibraryCatalogAdapter.CurrentAccount currentAccount;
 
-    UiPreferencesStorageAdapter(NclSkinsStorage storage, LibraryCatalogAdapter.CurrentAccount currentAccount) {
+    public UiPreferencesStorageAdapter(NclSkinsStorage storage, LibraryCatalogAdapter.CurrentAccount currentAccount) {
         this.storage = Objects.requireNonNull(storage, "storage");
         this.currentAccount = Objects.requireNonNull(currentAccount, "currentAccount");
     }

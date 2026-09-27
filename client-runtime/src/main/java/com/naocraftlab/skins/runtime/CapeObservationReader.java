@@ -5,7 +5,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
-interface CapeObservationReader {
+public interface CapeObservationReader {
     Optional<Duration> cooldownRemaining();
     long accountEpoch();
     void accountChanged();
