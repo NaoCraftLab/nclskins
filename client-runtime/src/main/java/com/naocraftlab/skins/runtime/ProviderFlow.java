@@ -34,7 +34,7 @@ final class ProviderFlow {
     private final State state = new State();
     private final Context context;
     private CompletableFuture<Void> providerConfigurationWrite = CompletableFuture.completedFuture(null);
-    private OptiFineAccountLink optiFineAccountLink;
+    private OptiFineAccountLinkUseCases optiFineAccountLink;
     private boolean optiFineLinkClaimed;
     private UiMessage optiFineLinkFeedback;
     private long optiFineLinkAttempt;
@@ -295,7 +295,7 @@ final class ProviderFlow {
                     case "down" -> context.providerOperations().moveProvider(accountId, component, provider, 1);
                     default -> throw new IllegalArgumentException("Unknown provider action");
                 }, appearance -> {
-                    CompletableFuture<AppearanceRefreshCoordinator.Result> providerRebind =
+                    CompletableFuture<AppearanceRefresh.Result> providerRebind =
                             acceptProviderChange(appearance);
                     context.capeObservations().optiFineConfigurationChanged();
                     state.providerAdding = false;
@@ -325,7 +325,7 @@ final class ProviderFlow {
         optiFineAccountLink.begin(accountId).whenComplete((result, failure) -> context.onClient(() -> {
             if (context.disposed() || attempt != optiFineLinkAttempt || !liveOptiFineLinkView()
                     || !accountId.equals(context.account().accountId())) return;
-            OptiFineAccountLink.Outcome outcome = failure == null ? result.outcome() : OptiFineAccountLink.Outcome.FAILED;
+            OptiFineAccountLinkUseCases.Outcome outcome = failure == null ? result.outcome() : OptiFineAccountLinkUseCases.Outcome.FAILED;
             optiFineLinkFeedback = switch (outcome) {
                 case READY, CANCELLED -> null;
                 case AUTH_REQUIRED -> UiMessage.error("nclskins.providers.link_auth_required");
@@ -366,7 +366,7 @@ final class ProviderFlow {
         context.acceptProviderSnapshot(appearance);
     }
 
-    CompletableFuture<AppearanceRefreshCoordinator.Result> acceptProviderChange(
+    CompletableFuture<AppearanceRefresh.Result> acceptProviderChange(
             ClientOperations.DurableAppearance appearance) {
         return context.acceptProviderChange(appearance);
     }
@@ -449,7 +449,7 @@ final class ProviderFlow {
                     && !sameCapeContent(oldSkinMc.value(), skinmc.value());
         }
         if (changed) {
-            context.serverAppearanceReadiness().ifPresent(ServerAppearanceReadinessCoordinator::start);
+            context.serverAppearanceReadiness().ifPresent(ServerAppearanceReadiness::start);
         }
     }
 
@@ -561,7 +561,7 @@ final class ProviderFlow {
                 ? mouseY - scrollbar.thumb().y() : scrollbar.thumb().height() / 2.0;
     }
 
-    void useOptiFineAccountLink(OptiFineAccountLink link) {
+    void useOptiFineAccountLink(OptiFineAccountLinkUseCases link) {
         optiFineAccountLink = Objects.requireNonNull(link, "link");
     }
 
@@ -597,7 +597,7 @@ final class ProviderFlow {
         boolean disposed();
         long intentRevision();
         Executor worker();
-        Optional<ServerAppearanceReadinessCoordinator> serverAppearanceReadiness();
+        Optional<ServerAppearanceReadiness> serverAppearanceReadiness();
         Optional<OuterLayerVisibilityController> outerLayerVisibilityController();
         ClientSnapshot snapshot();
         TextResolver textResolver();
@@ -608,11 +608,11 @@ final class ProviderFlow {
         boolean currentSessionOwns(ClientOperations.InitialData data);
         void persistUiPreference(ThrowingSupplier<Void> operation);
         void reconcileAfterLocalRebind(
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
+            CompletableFuture<AppearanceRefresh.Result> localRebind,
             Trigger trigger);
         boolean currentSessionOwns(ClientOperations.DurableAppearance appearance);
         void reconcileAfterLocalRebind(
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
+            CompletableFuture<AppearanceRefresh.Result> localRebind,
             ClientOperations.ReconciliationKey key,
             Trigger trigger);
         <T> void submit(
@@ -639,7 +639,7 @@ final class ProviderFlow {
         void returnToGallery();
         void editProvider(ProviderFlow.EditRequest request);
         void acceptProviderSnapshot(ClientOperations.DurableAppearance appearance);
-        CompletableFuture<AppearanceRefreshCoordinator.Result> acceptProviderChange(ClientOperations.DurableAppearance appearance);
+        CompletableFuture<AppearanceRefresh.Result> acceptProviderChange(ClientOperations.DurableAppearance appearance);
     }
 
     private static final class State {

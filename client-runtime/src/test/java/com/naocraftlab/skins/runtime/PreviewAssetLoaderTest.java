@@ -26,7 +26,7 @@ final class PreviewAssetLoaderTest {
     void coalescesAndReturnsIndependentBytesWithoutOwningWorker() {
         var loader = new PreviewAssetLoader(client, worker, DiagnosticSinks.discarding());
         var loads = new AtomicInteger();
-        PreviewAssetLoader.Source source = () -> {
+        PreviewAssets.Source source = () -> {
             loads.incrementAndGet();
             return Optional.of(new byte[]{7});
         };

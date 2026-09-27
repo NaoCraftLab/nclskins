@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-public interface ImportOperations {
+public interface ImportOperations extends LocalSkinImportSource {
     ImportDraft loadPlayerSkin(String playerNameOrUuid) throws Exception;
     ImportDraft loadUrlSkin(String url) throws Exception;
     ExternalImportProbe probeExternalSource(ExternalImportSource source, Optional<Path> selectedRoot) throws Exception;

@@ -671,7 +671,7 @@ final class SemanticVerifier {
             }
         }
         if (implementation == 'modmenu-static-catalog') {
-            ['implements ModMenuApi', 'getUpdateChecker()', 'UpdateCatalogClient.create()',
+            ['implements ModMenuApi', 'getUpdateChecker()', 'UpdateCompositionRoot.create()',
              '.orElse(null)'].each { String marker ->
                 if (!compact.contains(marker)) {
                     errors.add("${implementation}: modern Mod Menu leaf lacks '${marker}'")

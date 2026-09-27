@@ -98,7 +98,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.providers = appearance.providers();
             state.intentRevision = appearance.intentRevision();
             state.syncStatus = appearance.syncStatus();
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+            CompletableFuture<AppearanceRefresh.Result> localRebind =
                     refreshLocalAppearance(appearance.localAppearance());
             appearance.outerLayerVisibility()
                     .ifPresent(this::applyDurableOuterLayerVisibility);
@@ -132,7 +132,7 @@ public final class ClientRuntime implements AutoCloseable {
         state.providers = use.providers();
         state.intentRevision = use.intentRevision();
         state.syncStatus = use.syncStatus();
-        CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+        CompletableFuture<AppearanceRefresh.Result> localRebind =
                 refreshLocalAppearance(use.localAppearance());
         use.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
         if (use.remoteResult().isPresent()) {
@@ -160,7 +160,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.providers = appearance.providers();
             state.intentRevision = appearance.intentRevision();
             state.syncStatus = appearance.syncStatus();
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+            CompletableFuture<AppearanceRefresh.Result> localRebind =
                     refreshLocalAppearance(appearance.localAppearance());
             appearance.outerLayerVisibility()
                     .ifPresent(this::applyDurableOuterLayerVisibility);
@@ -301,7 +301,7 @@ public final class ClientRuntime implements AutoCloseable {
         public void onClient(Runnable action) { ClientRuntime.this.onClient(action); }
         public SkinVariant preferredSkinVariant() { return ClientRuntime.this.preferredSkinVariant(); }
         public UiMessage fileImportFailure(Throwable failure) { return ClientRuntime.fileImportFailure(failure); }
-        public NormalizedSkin readPng(Path path) { return ClientRuntime.readPng(path); }
+        public NormalizedSkin readPng(Path path) { return ClientRuntime.this.readPng(path); }
         public Throwable unwrap(Throwable failure) { return ClientRuntime.unwrap(failure); }
         public ScreenOperationTicket beginScreenOperation() { return ClientRuntime.this.beginScreenOperation(); }
         public ScreenOperationTicket captureScreenOperation() { return new ScreenOperationTicket(state.generation); }
@@ -337,7 +337,7 @@ public final class ClientRuntime implements AutoCloseable {
         public PreviewRenderer.CapeMode preferredCapeMode() { return preferredCapeMode; }
         public FilePicker filePicker() { return filePicker; }
         public int viewportWidth() { return viewportWidth; }
-        public PreviewAssetLoader previewAssets() { return previewAssets; }
+        public PreviewAssets previewAssets() { return previewAssets; }
         public ViewChromeMetrics viewChromeMetrics() { return viewChromeMetrics; }
         public ClientSnapshot snapshot() { return snapshot; }
         public boolean addSourceRoot() { return ClientRuntime.this.addSourceRoot(); }
@@ -372,7 +372,7 @@ public final class ClientRuntime implements AutoCloseable {
         public void publish() { ClientRuntime.this.publish(); }
         public void onClient(Runnable action) { ClientRuntime.this.onClient(action); }
         public UiMessage fileImportFailure(Throwable failure) { return ClientRuntime.fileImportFailure(failure); }
-        public NormalizedSkin readPng(Path path) { return ClientRuntime.readPng(path); }
+        public NormalizedSkin readPng(Path path) { return ClientRuntime.this.readPng(path); }
         public String publicImportFailureKey(Throwable failure, boolean player) { return ClientRuntime.publicImportFailureKey(failure, player); }
         public Throwable unwrap(Throwable failure) { return ClientRuntime.unwrap(failure); }
         public Optional<PersonalCatalogAction> personalCatalogAction(
@@ -408,7 +408,7 @@ public final class ClientRuntime implements AutoCloseable {
         public boolean disposed() { return disposed; }
         public long intentRevision() { return state.intentRevision; }
         public Executor worker() { return worker; }
-        public Optional<ServerAppearanceReadinessCoordinator> serverAppearanceReadiness() { return serverAppearanceReadiness; }
+        public Optional<ServerAppearanceReadiness> serverAppearanceReadiness() { return serverAppearanceReadiness; }
         public Optional<OuterLayerVisibilityController> outerLayerVisibilityController() { return outerLayerVisibilityController; }
         public ClientSnapshot snapshot() { return snapshot; }
         public TextResolver textResolver() { return textResolver; }
@@ -419,11 +419,11 @@ public final class ClientRuntime implements AutoCloseable {
         public boolean currentSessionOwns(ClientOperations.InitialData data) { return ClientRuntime.this.currentSessionOwns(data); }
         public void persistUiPreference(ThrowingSupplier<Void> operation) { ClientRuntime.this.persistUiPreference(operation); }
         public void reconcileAfterLocalRebind(
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
+            CompletableFuture<AppearanceRefresh.Result> localRebind,
             Trigger trigger) { ClientRuntime.this.reconcileAfterLocalRebind(localRebind, trigger); }
         public boolean currentSessionOwns(ClientOperations.DurableAppearance appearance) { return ClientRuntime.this.currentSessionOwns(appearance); }
         public void reconcileAfterLocalRebind(
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
+            CompletableFuture<AppearanceRefresh.Result> localRebind,
             ClientOperations.ReconciliationKey key,
             Trigger trigger) { ClientRuntime.this.reconcileAfterLocalRebind(localRebind, key, trigger); }
         public <T> void submit(
@@ -450,7 +450,7 @@ public final class ClientRuntime implements AutoCloseable {
         public void returnToGallery() { state.providersOpen = false; }
         public void editProvider(ProviderFlow.EditRequest request) { ClientRuntime.this.editProvider(request); }
         public void acceptProviderSnapshot(ClientOperations.DurableAppearance appearance) { ClientRuntime.this.acceptProviderSnapshot(appearance); }
-        public CompletableFuture<AppearanceRefreshCoordinator.Result> acceptProviderChange(ClientOperations.DurableAppearance appearance) { return ClientRuntime.this.acceptProviderChange(appearance); }
+        public CompletableFuture<AppearanceRefresh.Result> acceptProviderChange(ClientOperations.DurableAppearance appearance) { return ClientRuntime.this.acceptProviderChange(appearance); }
     });
 
     private final ClientOperations operations;
@@ -468,13 +468,13 @@ public final class ClientRuntime implements AutoCloseable {
     private SelfCapeInputs publishedSelfCapeInputs;
     private final TextResolver textResolver;
     private final Optional<CurrentPlayerAppearanceSource> currentAppearanceSource;
-    private final Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh;
+    private final Optional<? extends AppearanceRefresh> appearanceRefresh;
     private final Optional<OuterLayerVisibilityController> outerLayerVisibilityController;
-    private final Optional<ServerAppearanceReadinessCoordinator> serverAppearanceReadiness;
+    private final Optional<ServerAppearanceReadiness> serverAppearanceReadiness;
 
     private final CopyOnWriteArrayList<Consumer<ClientSnapshot>> listeners = new CopyOnWriteArrayList<>();
-    private final PreviewAssetLoader previewAssets;
-    private final AccountReconciliationCoordinator reconciliation;
+    private final PreviewAssets previewAssets;
+    private final AccountReconciliation reconciliation;
     private final State state = new State();
     private Supplier<ClientConfiguration> configurationSource = ClientConfiguration::defaults;
     private SkinExtensionEnvironmentSource skinExtensionEnvironmentSource =
@@ -511,14 +511,16 @@ public final class ClientRuntime implements AutoCloseable {
     private boolean capeCatalogReloadPending;
 
     public ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
             Executor worker,
             TextResolver textResolver,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             DiagnosticSink diagnostics) {
         this(
+                services,
                 operations,
                 clientExecutor,
                 filePicker,
@@ -533,20 +535,22 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 Optional.empty(),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                ServerAppearanceReadiness.DelayScheduler.system(),
                 diagnostics);
     }
 
     public ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
             Executor worker,
             TextResolver textResolver,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
             DiagnosticSink diagnostics) {
         this(
+                services,
                 operations,
                 clientExecutor,
                 filePicker,
@@ -561,21 +565,23 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 serverAppearanceRefreshNotifier,
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                ServerAppearanceReadiness.DelayScheduler.system(),
                 diagnostics);
     }
 
     ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
             Executor worker,
             TextResolver textResolver,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(
+                services,
                 operations,
                 clientExecutor,
                 filePicker,
@@ -595,17 +601,19 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
             Executor worker,
             Executor reconciliationWorker,
             TextResolver textResolver,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(
+                services,
                 operations,
                 clientExecutor,
                 filePicker,
@@ -625,6 +633,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
@@ -632,11 +641,12 @@ public final class ClientRuntime implements AutoCloseable {
             Executor reconciliationWorker,
             Executor sessionWorker,
             TextResolver textResolver,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(
+                services,
                 operations,
                 clientExecutor,
                 filePicker,
@@ -656,34 +666,37 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
             Executor worker,
             TextResolver textResolver,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
-        this(operations, clientExecutor, filePicker, worker, textResolver, Optional.empty(),
+        this(services, operations, clientExecutor, filePicker, worker, textResolver, Optional.empty(),
                 appearanceRefresh, outerLayerVisibilityController, serverAppearanceRefreshNotifier,
                 readinessScheduler, diagnostics);
     }
 
     ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
             Executor worker,
             TextResolver textResolver,
             Optional<CurrentPlayerAppearanceSource> currentAppearanceSource,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(
+                services,
                 operations,
                 clientExecutor,
                 filePicker,
@@ -703,6 +716,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     public ClientRuntime(
+            RuntimeServices services,
             ClientOperations operations,
             ClientExecutor clientExecutor,
             FilePicker filePicker,
@@ -714,10 +728,10 @@ public final class ClientRuntime implements AutoCloseable {
             ExecutorService ownedSessionWorker,
             TextResolver textResolver,
             Optional<CurrentPlayerAppearanceSource> currentAppearanceSource,
-            Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
+            Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadinessCoordinator.DelayScheduler readinessScheduler,
+            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this.operations = Objects.requireNonNull(operations, "operations");
         this.capeObservations = operations;
@@ -725,10 +739,10 @@ public final class ClientRuntime implements AutoCloseable {
         this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
         this.filePicker = Objects.requireNonNull(filePicker, "filePicker");
         this.worker = Objects.requireNonNull(worker, "worker");
-        this.previewAssets = new PreviewAssetLoader(clientExecutor, worker, diagnostics);
+        this.previewAssets = services.previewAssets(clientExecutor, worker, diagnostics);
         this.ownedWorker = ownedWorker;
         this.ownedReconciliationWorker = ownedReconciliationWorker;
-        this.reconciliation = new AccountReconciliationCoordinator(operations, reconciliationWorker,
+        this.reconciliation = services.reconciliation(operations, reconciliationWorker,
                 this::onClient, this::acceptAppearanceReconciliation,
                 this::finishAppearanceReconciliation, this::diagnose);
         this.sessionWorker = Objects.requireNonNull(sessionWorker, "sessionWorker");
@@ -741,7 +755,7 @@ public final class ClientRuntime implements AutoCloseable {
                 outerLayerVisibilityController, "outerLayerVisibilityController");
         this.serverAppearanceReadiness = Objects.requireNonNull(
                         serverAppearanceRefreshNotifier, "serverAppearanceRefreshNotifier")
-                .map(ServerAppearanceReadinessCoordinator::new);
+                .map(services::readiness);
         Objects.requireNonNull(readinessScheduler, "readinessScheduler");
         capeObservations.onCapeObservation(observation -> onClient(() -> {
             switch (observation.provider()) {
@@ -806,7 +820,7 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    public ClientRuntime useOptiFineAccountLink(OptiFineAccountLink link) {
+    public ClientRuntime useOptiFineAccountLink(OptiFineAccountLinkUseCases link) {
         providerFlow.useOptiFineAccountLink(link);
         return this;
     }
@@ -961,7 +975,7 @@ public final class ClientRuntime implements AutoCloseable {
                             warmed.ifPresent(this::acceptProviderSnapshot);
                             if (warmed.isPresent()) capeObservations.startOptiFineCapes();
                             visibility.ifPresent(this::applyDurableOuterLayerVisibility);
-                            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+                            CompletableFuture<AppearanceRefresh.Result> localRebind =
                                     refreshLocalAppearance(warmed
                                             .flatMap(ClientOperations.DurableAppearance::localAppearance));
                             if (operations.warmedReconciliationRecommended() && warmed.isPresent()) {
@@ -1311,11 +1325,11 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
-    public CompletableFuture<AppearanceRefreshCoordinator.Result> afterReconnect() {
-        CompletableFuture<AppearanceRefreshCoordinator.Result> publication = new CompletableFuture<>();
+    public CompletableFuture<AppearanceRefresh.Result> afterReconnect() {
+        CompletableFuture<AppearanceRefresh.Result> publication = new CompletableFuture<>();
         onClient(() -> {
             if (disposed) {
-                publication.complete(AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                publication.complete(AppearanceRefresh.Result.NOT_APPLICABLE);
                 return;
             }
             CompletableFuture.supplyAsync(() -> {
@@ -1327,17 +1341,17 @@ public final class ClientRuntime implements AutoCloseable {
                     }, worker)
                     .whenComplete((durable, failure) -> onClient(() -> {
                         if (disposed) {
-                            publication.complete(AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                            publication.complete(AppearanceRefresh.Result.NOT_APPLICABLE);
                             return;
                         }
                         if (failure != null || durable == null) {
                             diagnose(DiagnosticEvent.CLIENT_RECONNECT_FAILED, failure);
-                            publication.complete(AppearanceRefreshCoordinator.Result.DEFERRED);
+                            publication.complete(AppearanceRefresh.Result.DEFERRED);
                             return;
                         }
                         if (durable.isPresent()
                                 && durable.filter(this::currentSessionOwns).isEmpty()) {
-                            publication.complete(AppearanceRefreshCoordinator.Result.DEFERRED);
+                            publication.complete(AppearanceRefresh.Result.DEFERRED);
                             return;
                         }
                         durable.ifPresent(this::acceptProviderSnapshot);
@@ -1349,16 +1363,16 @@ public final class ClientRuntime implements AutoCloseable {
                                 .ifPresent(this::applyDurableOuterLayerVisibility);
                         Optional<AppliedAppearance> local = durable
                                 .flatMap(ClientOperations.DurableAppearance::localAppearance);
-                        CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+                        CompletableFuture<AppearanceRefresh.Result> localRebind =
                                 appearanceRefresh.isPresent() && local.isPresent()
                                         ? appearanceRefresh.orElseThrow()
                                                 .afterReconnect(local.orElseThrow(), ignored -> {})
                                         : CompletableFuture.completedFuture(
-                                                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                                                AppearanceRefresh.Result.NOT_APPLICABLE);
                         localRebind.whenComplete((result, refreshFailure) -> onClient(() -> {
                                     if (disposed) {
                                         publication.complete(
-                                                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                                                AppearanceRefresh.Result.NOT_APPLICABLE);
                                         return;
                                     }
                                     if (checkpoint) {
@@ -1373,7 +1387,7 @@ public final class ClientRuntime implements AutoCloseable {
                                                 DiagnosticEvent.CLIENT_RECONNECT_FAILED,
                                                 refreshFailure);
                                         publication.complete(
-                                                AppearanceRefreshCoordinator.Result.DEFERRED);
+                                                AppearanceRefresh.Result.DEFERRED);
                                     }
                                 }));
                     }));
@@ -2232,7 +2246,7 @@ public final class ClientRuntime implements AutoCloseable {
                 UiMessage.info("nclskins.status.loading"),
                 operations::resetLibrary,
                 data -> {
-                    CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+                    CompletableFuture<AppearanceRefresh.Result> localRebind =
                             acceptInitialData(data, false);
                     if (operations.reconciliationRecommended(data)) {
                         reconcileAfterLocalRebind(
@@ -2267,8 +2281,8 @@ public final class ClientRuntime implements AutoCloseable {
             clearSessionRetryFeedback();
             editorFlow.closeDraft();
             catalogImportFlow.leaveForSavedPreset();
-            appearanceRefresh.ifPresent(AppearanceRefreshCoordinator::close);
-            serverAppearanceReadiness.ifPresent(ServerAppearanceReadinessCoordinator::close);
+            appearanceRefresh.ifPresent(AppearanceRefresh::close);
+            serverAppearanceReadiness.ifPresent(ServerAppearanceReadiness::close);
             capeObservations.closeOptiFineCapes();
             operations.close();
             previewAssets.close();
@@ -2329,7 +2343,7 @@ public final class ClientRuntime implements AutoCloseable {
                 });
     }
 
-    private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptSessionActivityData(
+    private CompletableFuture<AppearanceRefresh.Result> acceptSessionActivityData(
             ClientOperations.InitialData data, long baselineGeneration) {
         if (state.generation == baselineGeneration && !sameLocalInitialData(data)) {
             return acceptInitialData(data, false);
@@ -2345,7 +2359,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.status = sessionMessage(data.session());
         }
         return CompletableFuture.completedFuture(
-                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                AppearanceRefresh.Result.NOT_APPLICABLE);
     }
 
     private boolean sameLocalInitialData(ClientOperations.InitialData data) {
@@ -2364,7 +2378,7 @@ public final class ClientRuntime implements AutoCloseable {
                 && Objects.equals(state.ownedCapes, data.ownedCapes());
     }
 
-    private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptInitialData(
+    private CompletableFuture<AppearanceRefresh.Result> acceptInitialData(
             ClientOperations.InitialData data, boolean initialized) {
         boolean gameChanged = !state.readyData || state.account == null
                 || !state.account.accountId().equals(data.account().accountId())
@@ -2416,10 +2430,10 @@ public final class ClientRuntime implements AutoCloseable {
         } else {
             state.status = sessionMessage(data.session());
         }
-        CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+        CompletableFuture<AppearanceRefresh.Result> localRebind =
                 gameChanged ? refreshLocalAppearance(data.localAppearance())
                         : CompletableFuture.completedFuture(
-                                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                                AppearanceRefresh.Result.NOT_APPLICABLE);
         data.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
         if (initialized || data.ownedCapes().capes().isEmpty()) {
             return localRebind;
@@ -2538,10 +2552,10 @@ public final class ClientRuntime implements AutoCloseable {
         publish();
     }
 
-    private CompletableFuture<AppearanceRefreshCoordinator.Result> acceptProviderChange(
+    private CompletableFuture<AppearanceRefresh.Result> acceptProviderChange(
             ClientOperations.DurableAppearance appearance) {
         if (!currentSessionOwns(appearance)) return CompletableFuture.completedFuture(
-                AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                AppearanceRefresh.Result.NOT_APPLICABLE);
         boolean gameChanged = providerFlow.providerChainChanged(state.providers.skin(), appearance.providers().skin())
                 || providerFlow.providerChainChanged(state.providers.cape(), appearance.providers().cape());
         boolean localChanged = !Objects.equals(state.localAppearance,
@@ -2552,9 +2566,9 @@ public final class ClientRuntime implements AutoCloseable {
         state.providers = appearance.providers();
         state.intentRevision = appearance.intentRevision();
         state.syncStatus = appearance.syncStatus();
-        CompletableFuture<AppearanceRefreshCoordinator.Result> rebind = gameChanged || localChanged
+        CompletableFuture<AppearanceRefresh.Result> rebind = gameChanged || localChanged
                 ? refreshLocalAppearance(appearance.localAppearance())
-                : CompletableFuture.completedFuture(AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                : CompletableFuture.completedFuture(AppearanceRefresh.Result.NOT_APPLICABLE);
         observeRateLimit();
         publish();
         return rebind;
@@ -3013,12 +3027,12 @@ public final class ClientRuntime implements AutoCloseable {
                 || status == AppearanceSyncStatus.ATTEMPTING;
     }
 
-    private CompletableFuture<AppearanceRefreshCoordinator.Result> refreshLocalAppearance(
+    private CompletableFuture<AppearanceRefresh.Result> refreshLocalAppearance(
             Optional<AppliedAppearance> appearance) {
         state.localAppearance = appearance.orElse(null);
         if (appearanceRefresh.isEmpty() || appearance.isEmpty()) {
             return CompletableFuture.completedFuture(
-                    AppearanceRefreshCoordinator.Result.NOT_APPLICABLE);
+                    AppearanceRefresh.Result.NOT_APPLICABLE);
         }
         return appearanceRefresh.orElseThrow()
                 .afterReconnect(appearance.orElseThrow(), ignored -> {});
@@ -3029,7 +3043,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void reconcileAfterLocalRebind(
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
+            CompletableFuture<AppearanceRefresh.Result> localRebind,
             Trigger trigger) {
         currentReconciliationKey().ifPresent(key ->
                 reconcileAfterLocalRebind(localRebind, key, trigger));
@@ -3055,7 +3069,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void reconcileAfterLocalRebind(
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind,
+            CompletableFuture<AppearanceRefresh.Result> localRebind,
             ClientOperations.ReconciliationKey key,
             Trigger trigger) {
         Objects.requireNonNull(localRebind, "localRebind").whenComplete(
@@ -3085,7 +3099,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void acceptAppearanceReconciliation(
-            AccountReconciliationCoordinator.Request request,
+            AccountReconciliation.Request request,
             Optional<ClientOperations.ReconciliationResult> result,
             Optional<ClientOperations.DurableAppearance> durableAfterFailure,
             Throwable failure) {
@@ -3165,7 +3179,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void acceptDurableAfterReconciliationFailure(
-            AccountReconciliationCoordinator.Request request,
+            AccountReconciliation.Request request,
             ClientOperations.DurableAppearance appearance,
             boolean currentExactAccount) {
         if (!currentExactAccount
@@ -3313,7 +3327,7 @@ public final class ClientRuntime implements AutoCloseable {
             state.rateLimited = state.providers.minecraftEnabled() && operations.rateLimited();
             state.status = operationFailure(settlement.failure());
         } else {
-            CompletableFuture<AppearanceRefreshCoordinator.Result> localRebind =
+            CompletableFuture<AppearanceRefresh.Result> localRebind =
                     acceptSessionActivityData(settlement.result(), baselineGeneration);
             if (settlement.result().session().valid()) {
                 reconcileAfterLocalRebind(
@@ -3393,7 +3407,7 @@ public final class ClientRuntime implements AutoCloseable {
             clearActivePreset();
         }
         appearanceRefresh.ifPresent(refresh -> refresh.afterMutation(outcome, refreshResult -> {
-            if (refreshResult == AppearanceRefreshCoordinator.Result.DEFERRED
+            if (refreshResult == AppearanceRefresh.Result.DEFERRED
                     && state.lastMutation == outcome
                     && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED
                     && !state.status.literal()) {
@@ -3833,9 +3847,9 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
-    private static NormalizedSkin readPng(Path path) {
+    private NormalizedSkin readPng(Path path) {
         try {
-            return new PngValidator().projectStandardImport(path);
+            return operations.loadLocalSkin(path);
         } catch (IOException | PngValidationException failure) {
             throw new CompletionException(failure);
         }

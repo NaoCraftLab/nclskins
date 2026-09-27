@@ -82,10 +82,10 @@ final class OfficialSessionProfileClientTest {
                 "[{\"name\":\"textures\",\"value\":\"value-secret\","
                         + "\"signature\":\"signature-secret\"}]"));
 
-        OfficialSessionProfileClient.Result result = client().fetch(identity);
+        SessionProfileSource.Result result = client().fetch(identity);
 
-        assertEquals(OfficialSessionProfileClient.Result.Status.RESOLVED, result.status());
-        OfficialSessionProfileClient.FetchedProfile profile = result.profile().orElseThrow();
+        assertEquals(SessionProfileSource.Result.Status.RESOLVED, result.status());
+        SessionProfileSource.FetchedProfile profile = result.profile().orElseThrow();
         SignedTexturesProperty textures = profile.textures().orElseThrow();
         assertEquals("value-secret", textures.value());
         assertEquals("signature-secret", textures.signature());
@@ -107,10 +107,10 @@ final class OfficialSessionProfileClientTest {
                 "[{\"name\":\"textures\",\"value\":\"value-secret\","
                         + "\"signature\":\"signature-secret\"}]"));
 
-        OfficialSessionProfileClient.Result result =
+        SessionProfileSource.Result result =
                 client().fetchAsync(identity).toCompletableFuture().join();
 
-        assertEquals(OfficialSessionProfileClient.Result.Status.RESOLVED, result.status());
+        assertEquals(SessionProfileSource.Result.Status.RESOLVED, result.status());
         assertFalse(result.toString().contains("value-secret"));
     }
 
@@ -209,7 +209,7 @@ final class OfficialSessionProfileClientTest {
         }) {
             respondJson(200, invalid);
             assertEquals(
-                    OfficialSessionProfileClient.Result.Status.REJECTED,
+                    SessionProfileSource.Result.Status.REJECTED,
                     client().fetch(identity).status());
         }
 
@@ -219,7 +219,7 @@ final class OfficialSessionProfileClientTest {
                 new byte[] {(byte) 0xc3, (byte) 0x28},
                 Map.of("Content-Type", "application/json")));
         assertEquals(
-                OfficialSessionProfileClient.Result.Status.REJECTED,
+                SessionProfileSource.Result.Status.REJECTED,
                 client().fetch(identity).status());
     }
 
@@ -228,13 +228,13 @@ final class OfficialSessionProfileClientTest {
         for (int status : new int[] {408, 500, 503, 599}) {
             respond(status, Map.of(), new byte[0]);
             assertEquals(
-                    OfficialSessionProfileClient.Result.Status.TRANSIENT_FAILURE,
+                    SessionProfileSource.Result.Status.TRANSIENT_FAILURE,
                     client().fetch(identity).status());
         }
         for (int status : new int[] {204, 400, 401, 403, 404}) {
             respond(status, Map.of(), new byte[0]);
             assertEquals(
-                    OfficialSessionProfileClient.Result.Status.REJECTED,
+                    SessionProfileSource.Result.Status.REJECTED,
                     client().fetch(identity).status());
         }
 
@@ -248,7 +248,7 @@ final class OfficialSessionProfileClientTest {
                 Map.of("Location", endpoint().resolve("../../../../redirect-target").toString()),
                 new byte[0]);
         assertEquals(
-                OfficialSessionProfileClient.Result.Status.REJECTED,
+                SessionProfileSource.Result.Status.REJECTED,
                 client().fetch(identity).status());
         assertEquals(0, followed.get());
     }
@@ -282,9 +282,9 @@ final class OfficialSessionProfileClientTest {
         byte[] oversized = "x".repeat(65).getBytes(StandardCharsets.UTF_8);
         respond(200, Map.of("Content-Type", "application/json"), oversized);
 
-        OfficialSessionProfileClient.Result result = client(64, Duration.ofSeconds(2)).fetch(identity);
+        SessionProfileSource.Result result = client(64, Duration.ofSeconds(2)).fetch(identity);
 
-        assertEquals(OfficialSessionProfileClient.Result.Status.REJECTED, result.status());
+        assertEquals(SessionProfileSource.Result.Status.REJECTED, result.status());
         assertFalse(result.toString().contains("xxxx"));
     }
 
@@ -303,11 +303,11 @@ final class OfficialSessionProfileClientTest {
             exchange.close();
         });
 
-        OfficialSessionProfileClient.Result result =
+        SessionProfileSource.Result result =
                 client(1_024, Duration.ofMillis(50)).fetch(identity);
 
         assertEquals(
-                OfficialSessionProfileClient.Result.Status.TRANSIENT_FAILURE,
+                SessionProfileSource.Result.Status.TRANSIENT_FAILURE,
                 result.status());
         assertFalse(result.toString().contains(undashedId));
     }

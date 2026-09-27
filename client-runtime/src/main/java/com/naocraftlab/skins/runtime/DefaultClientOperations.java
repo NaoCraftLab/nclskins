@@ -87,6 +87,7 @@ public final class DefaultClientOperations implements ClientOperations {
     private final com.naocraftlab.skins.core.service.LibraryStatePort libraryState;
     private final UiPreferencesPort uiPreferences;
     private final LocalCapeImportSource capeImports;
+    private final LocalSkinImportSource skinImports;
     private final SkinCatalogSource bundledSkins;
     private final Clock clock;
     private final AccountDeliveryService delivery;
@@ -121,6 +122,7 @@ public final class DefaultClientOperations implements ClientOperations {
             com.naocraftlab.skins.core.service.LibraryStatePort libraryState,
             UiPreferencesPort uiPreferences,
             LocalCapeImportSource capeImports,
+            LocalSkinImportSource skinImports,
             SkinCatalogSource bundledSkins,
             Clock clock,
             LibraryService library,
@@ -142,6 +144,7 @@ public final class DefaultClientOperations implements ClientOperations {
         this.assets = Objects.requireNonNull(assets, "assets");
         this.libraryState = Objects.requireNonNull(libraryState, "libraryState");
         this.uiPreferences = Objects.requireNonNull(uiPreferences, "uiPreferences");
+        this.skinImports = Objects.requireNonNull(skinImports, "skinImports");
         this.capeImports = Objects.requireNonNull(capeImports, "capeImports");
         this.bundledSkins = Objects.requireNonNull(bundledSkins, "bundledSkins");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -157,6 +160,11 @@ public final class DefaultClientOperations implements ClientOperations {
         this.officialSkinClassifier = Objects.requireNonNull(officialSkinClassifier, "officialSkinClassifier");
         this.delivery = Objects.requireNonNull(delivery, "delivery");
         this.accountMutations = Objects.requireNonNull(accountMutations, "accountMutations");
+    }
+
+    @Override
+    public com.naocraftlab.skins.core.png.NormalizedSkin loadLocalSkin(Path path) throws IOException, PngValidationException {
+        return skinImports.loadLocalSkin(path);
     }
 
     public void attachCapeProviders(CapeProviderCoordinator coordinator, ExecutorService ownedWorker) {

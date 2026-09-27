@@ -589,3 +589,12 @@ publishing {
         }
     }
 }
+
+def architectureGate = tasks.register('verifyArchitecture', nclskinsVerifyArchitectureTaskType) {
+    def productionSets = sourceSets.findAll { it.name in ['main', 'client'] }
+    productionSets.each { production ->
+        classRoots.from(production.output.classesDirs)
+        dependsOn tasks.named(production.classesTaskName)
+    }
+}
+tasks.named('check').configure { dependsOn architectureGate }

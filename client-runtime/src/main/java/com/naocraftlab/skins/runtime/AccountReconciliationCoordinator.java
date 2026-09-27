@@ -12,7 +12,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import static com.naocraftlab.skins.runtime.AccountReconciliationPort.*;
 
-final class AccountReconciliationCoordinator implements AutoCloseable {
+final class AccountReconciliationCoordinator implements AccountReconciliation {
     private final AccountReconciliationPort operations;
     private final Executor worker;
     private final Consumer<Runnable> client;
@@ -35,7 +35,7 @@ final class AccountReconciliationCoordinator implements AutoCloseable {
         this.diagnose = Objects.requireNonNull(diagnose);
     }
 
-    void request(ReconciliationKey key, Trigger trigger) {
+    public void request(ReconciliationKey key, Trigger trigger) {
         Objects.requireNonNull(key);
         Objects.requireNonNull(trigger);
         boolean start;
@@ -54,7 +54,7 @@ final class AccountReconciliationCoordinator implements AutoCloseable {
         if (start) CompletableFuture.runAsync(this::drain, worker);
     }
 
-    synchronized boolean busy() {
+    public synchronized boolean busy() {
         return running || active != null || !pending.isEmpty();
     }
 
@@ -125,11 +125,4 @@ final class AccountReconciliationCoordinator implements AutoCloseable {
         running = false;
     }
 
-    record Request(ReconciliationKey key, Trigger trigger) {}
-
-    @FunctionalInterface
-    interface Completion {
-        void accept(Request request, Optional<ReconciliationResult> result,
-                Optional<DurableAppearance> durableAfterFailure, Throwable failure);
-    }
 }

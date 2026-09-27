@@ -30,7 +30,7 @@ final class ClientCompositionRootTest {
             return new ClientCompositionRoot.Worker(worker, true);
         });
         AtomicInteger nativeCloses = new AtomicInteger();
-        ClientApplicationHost<Object> host = new ClientApplicationHost<>(runtime, nativeCloses::incrementAndGet);
+        ClientApplicationHost<Object> host = new ClientApplicationHost<>(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), runtime, nativeCloses::incrementAndGet);
         assertSame(runtime, host.runtime());
         assertSame(host.runtime(), host.runtime());
         assertEquals(ClientSnapshot.Lifecycle.NEW, runtime.snapshot().lifecycle());

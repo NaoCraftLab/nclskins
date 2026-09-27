@@ -286,7 +286,7 @@ final class EditorTabRuntimeTest {
     }
 
     private static ClientRuntime runtime(Operations operations, Executor worker) {
-        return new ClientRuntime(
+        return new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -304,6 +304,13 @@ final class EditorTabRuntimeTest {
     }
 
     private static final class Operations implements TestCapeOperations {
+        @Override
+        public com.naocraftlab.skins.core.png.NormalizedSkin loadLocalSkin(java.nio.file.Path path)
+                throws java.io.IOException, com.naocraftlab.skins.core.png.PngValidationException {
+            return new com.naocraftlab.skins.core.png.PngFileReader(
+                    new com.naocraftlab.skins.core.png.PngValidator()).projectStandardImport(path);
+        }
+
         @Override
         public java.util.Optional<ReconciliationResult> reconcileAppearance(
                 Trigger trigger) {

@@ -1,12 +1,10 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
-import java.time.Duration;
 import java.util.Objects;
 import java.util.OptionalLong;
 
-
-public final class ServerAppearanceReadinessCoordinator implements AutoCloseable {
+public final class ServerAppearanceReadinessCoordinator implements ServerAppearanceReadiness {
     private final ServerAppearanceRefreshNotifier notifier;
     private boolean closed;
 
@@ -42,27 +40,6 @@ public final class ServerAppearanceReadinessCoordinator implements AutoCloseable
     @Override
     public void close() {
         closed = true;
-    }
-
-    public enum StartResult {
-        STARTED,
-        UNAVAILABLE,
-        CLOSED
-    }
-
-
-    @FunctionalInterface
-    public interface DelayScheduler {
-        Cancellable schedule(Duration delay, Runnable action);
-
-        static DelayScheduler system() {
-            return (delay, action) -> () -> {};
-        }
-    }
-
-    @FunctionalInterface
-    interface Cancellable {
-        void cancel();
     }
 
 }

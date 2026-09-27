@@ -1,14 +1,10 @@
 package com.naocraftlab.skins.runtime;
 
-import com.google.gson.JsonObject;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
@@ -20,19 +16,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 
-public final class OptiFineAccountLink {
-    enum Outcome { READY, AUTH_REQUIRED, FAILED, CANCELLED, EXPIRED }
-
-    record Result(Outcome outcome) {
-        Result { Objects.requireNonNull(outcome, "outcome"); }
-    }
+public final class OptiFineAccountLink implements OptiFineAccountLinkUseCases {
 
     @FunctionalInterface
-    interface JoinTransport {
+    public interface JoinTransport {
         void join(UUID profileId, String accessToken, String serverId) throws IOException, InterruptedException;
     }
 
-    private static final URI JOIN_ENDPOINT = URI.create("https://sessionserver.mojang.com/session/minecraft/join");
     private static final Duration LIFETIME = Duration.ofSeconds(120);
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_]{1,64}");
 
@@ -48,8 +38,8 @@ public final class OptiFineAccountLink {
     private URI ready;
     private String readyName;
 
-    public OptiFineAccountLink(GameSessionTokenSource sessions, Executor worker) {
-        this(sessions, worker, httpTransport(), new SecureRandom(), Clock.systemUTC());
+    public OptiFineAccountLink(GameSessionTokenSource sessions, Executor worker, JoinTransport joinTransport) {
+        this(sessions, worker, joinTransport, new SecureRandom(), Clock.systemUTC());
     }
 
     OptiFineAccountLink(GameSessionTokenSource sessions, Executor worker, JoinTransport joinTransport,
@@ -61,19 +51,19 @@ public final class OptiFineAccountLink {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
-    synchronized boolean preparing() {
+    public synchronized boolean preparing() {
         return preparing;
     }
 
-    synchronized boolean ready() {
+    public synchronized boolean ready() {
         return ready != null && !expired();
     }
 
-    synchronized boolean expired() {
+    public synchronized boolean expired() {
         return deadline != null && !clock.instant().isBefore(deadline);
     }
 
-    synchronized URI readyUri(UUID expectedAccount) {
+    public synchronized URI readyUri(UUID expectedAccount) {
         if (ready == null || expired() || !Objects.equals(accountId, expectedAccount)) return null;
         try {
             GameSessionTokenSource.SessionIdentity current = sessions.currentSession();
@@ -84,7 +74,7 @@ public final class OptiFineAccountLink {
         }
     }
 
-    synchronized void cancel() {
+    public synchronized void cancel() {
         generation++;
         accountId = null;
         deadline = null;
@@ -93,7 +83,7 @@ public final class OptiFineAccountLink {
         readyName = null;
     }
 
-    synchronized CompletableFuture<Result> begin(UUID account) {
+    public synchronized CompletableFuture<Result> begin(UUID account) {
         Objects.requireNonNull(account, "account");
         if (preparing) return CompletableFuture.completedFuture(new Result(Outcome.CANCELLED));
         cancel();
@@ -166,25 +156,6 @@ public final class OptiFineAccountLink {
         } catch (RuntimeException unavailable) {
             return false;
         }
-    }
-
-    private static JoinTransport httpTransport() {
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
-                .followRedirects(HttpClient.Redirect.NEVER).build();
-        return (profileId, accessToken, serverId) -> {
-            JsonObject body = new JsonObject();
-            body.addProperty("accessToken", accessToken);
-            body.addProperty("selectedProfile", compact(profileId));
-            body.addProperty("serverId", serverId);
-            HttpRequest request = HttpRequest.newBuilder(JOIN_ENDPOINT)
-                    .timeout(Duration.ofSeconds(10))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                    .build();
-            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
-            if (response.statusCode() != 204) throw new IOException("join rejected");
-        };
     }
 
     private static String compact(UUID value) {

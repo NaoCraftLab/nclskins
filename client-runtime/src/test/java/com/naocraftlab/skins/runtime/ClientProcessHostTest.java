@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.naocraftlab.skins.runtime.AppearanceRefreshCoordinator.Result;
+import com.naocraftlab.skins.runtime.AppearanceRefresh.Result;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -87,7 +87,7 @@ final class ClientProcessHostTest {
 
     private static final class Connection {}
 
-    private static final class FakeProcess implements ClientProcessHost.Process {
+    private static final class FakeProcess implements ClientProcess.Process {
         private final List<String> events;
         private boolean open = true;
         private Result reconnectResult = Result.UPDATED;

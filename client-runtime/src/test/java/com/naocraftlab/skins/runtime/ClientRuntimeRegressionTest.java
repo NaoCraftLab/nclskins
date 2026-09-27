@@ -369,7 +369,7 @@ final class ClientRuntimeRegressionTest {
                 ignored -> CompletableFuture.completedFuture(Optional.empty()),
                 ignored -> PlayerAppearanceSink.ApplyResult.DEFERRED,
                 DiagnosticSinks.discarding());
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -624,9 +624,9 @@ final class ClientRuntimeRegressionTest {
             return new CurrentPlayerAppearanceSource.PlayerAppearance(
                     skin, SkinModel.SLIM, Optional.of(stale));
         };
-        try (var runtime = new ClientRuntime(operations, CLIENT, CANCELLED_PICKER, Runnable::run,
+        try (var runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), operations, CLIENT, CANCELLED_PICKER, Runnable::run,
                 TEXT, Optional.of(source), Optional.empty(), Optional.of(visibility), Optional.empty(),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system(), DiagnosticSinks.discarding())) {
+                ServerAppearanceReadiness.DelayScheduler.system(), DiagnosticSinks.discarding())) {
             var optifine = new CapeProjection.Candidate("nclskins:optifine", null, false);
             var skinmc = new CapeProjection.Candidate("nclskins:skinmc", "nclskins:skinmc", true);
             TestCapeProjection.publish(new CapeProjection.Snapshot(
@@ -727,9 +727,9 @@ final class ClientRuntimeRegressionTest {
     private static ClientRuntime menuRuntime(ClientExecutor client,
             Optional<CurrentPlayerAppearanceSource> source,
             Optional<OuterLayerVisibilityController> visibility) {
-        return new ClientRuntime(new StubOperations(), client, CANCELLED_PICKER, Runnable::run,
+        return new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), new StubOperations(), client, CANCELLED_PICKER, Runnable::run,
                 TEXT, source, Optional.empty(), visibility, Optional.empty(),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system(), DiagnosticSinks.discarding());
+                ServerAppearanceReadiness.DelayScheduler.system(), DiagnosticSinks.discarding());
     }
 
     private static CurrentPlayerAppearanceSource.PlayerAppearance menuPlayerAppearance() {
@@ -761,7 +761,7 @@ final class ClientRuntimeRegressionTest {
         operations.visibilityInResults = true;
         TestVisibility visibility = new TestVisibility();
         List<OuterLayerVisibility> applied = visibility.applied;
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -771,7 +771,7 @@ final class ClientRuntimeRegressionTest {
                 Optional.empty(),
                 Optional.of(visibility),
                 Optional.empty(),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                ServerAppearanceReadiness.DelayScheduler.system(),
                 DiagnosticSinks.discarding());
 
         runtime.initialize();
@@ -812,7 +812,7 @@ final class ClientRuntimeRegressionTest {
     }
 
     private static ClientRuntime runtime(StubOperations operations, Executor worker) {
-        return new ClientRuntime(
+        return new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -822,7 +822,7 @@ final class ClientRuntimeRegressionTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                ServerAppearanceReadinessCoordinator.DelayScheduler.system(),
+                ServerAppearanceReadiness.DelayScheduler.system(),
                 DiagnosticSinks.discarding());
     }
 
@@ -844,6 +844,13 @@ final class ClientRuntimeRegressionTest {
     }
 
     private static final class StubOperations implements TestCapeOperations {
+        @Override
+        public com.naocraftlab.skins.core.png.NormalizedSkin loadLocalSkin(java.nio.file.Path path)
+                throws java.io.IOException, com.naocraftlab.skins.core.png.PngValidationException {
+            return new com.naocraftlab.skins.core.png.PngFileReader(
+                    new com.naocraftlab.skins.core.png.PngValidator()).projectStandardImport(path);
+        }
+
         private final SessionValidation session = TestFixtures.validSession();
         private AccountState account = TestFixtures.account(2);
         private AppearanceProviders providers = AppearanceProviders.initial();

@@ -15,7 +15,7 @@ final class ServerAppearanceReadinessCoordinatorTest {
                 new ServerAppearanceReadinessCoordinator(notifier);
 
         assertEquals(
-                ServerAppearanceReadinessCoordinator.StartResult.STARTED,
+                ServerAppearanceReadiness.StartResult.STARTED,
                 coordinator.start());
         assertEquals(1, notifier.notifications.get());
     }
@@ -28,12 +28,12 @@ final class ServerAppearanceReadinessCoordinatorTest {
                 new ServerAppearanceReadinessCoordinator(notifier);
 
         assertEquals(
-                ServerAppearanceReadinessCoordinator.StartResult.UNAVAILABLE,
+                ServerAppearanceReadiness.StartResult.UNAVAILABLE,
                 coordinator.start());
         notifier.connection = OptionalLong.of(2L);
         coordinator.close();
         assertEquals(
-                ServerAppearanceReadinessCoordinator.StartResult.CLOSED,
+                ServerAppearanceReadiness.StartResult.CLOSED,
                 coordinator.start());
         assertEquals(0, notifier.notifications.get());
     }

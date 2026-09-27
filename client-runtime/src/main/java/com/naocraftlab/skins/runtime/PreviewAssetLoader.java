@@ -11,7 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
-final class PreviewAssetLoader implements AutoCloseable {
+final class PreviewAssetLoader implements PreviewAssets {
     private final ClientExecutor clientExecutor;
     private final Executor worker;
     private final DiagnosticSink diagnostics;
@@ -26,9 +26,9 @@ final class PreviewAssetLoader implements AutoCloseable {
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
-    long catalogEpoch() { return catalogPreviewEpoch; }
+    public long catalogEpoch() { return catalogPreviewEpoch; }
 
-    void installWarmed(Map<String, byte[]> warmed, boolean replaceResources) {
+    public void installWarmed(Map<String, byte[]> warmed, boolean replaceResources) {
         if (disposed) return;
         if (replaceResources) previewBytes.keySet().removeIf(key -> key.startsWith("resource:cape:"));
         warmed.forEach((key, bytes) -> previewBytes.put(key, bytes.clone()));
@@ -52,10 +52,7 @@ final class PreviewAssetLoader implements AutoCloseable {
                 () -> DiagnosticDetails.failure(failure));
     }
 
-    @FunctionalInterface
-    interface Source { Optional<byte[]> get() throws Exception; }
-
-    CompletableFuture<Optional<byte[]>> requestPreview(
+    public CompletableFuture<Optional<byte[]>> requestPreview(
             String key, Source source) {
         if (disposed) throw new IllegalStateException("Preview loader is closed");
         byte[] cached = previewBytes.get(key);
@@ -108,7 +105,7 @@ final class PreviewAssetLoader implements AutoCloseable {
         return shared.thenApply(bytes -> bytes.map(byte[]::clone));
     }
 
-    void invalidateCatalogPreviews() {
+    public void invalidateCatalogPreviews() {
         catalogPreviewEpoch++;
         previewBytes.keySet().removeIf(key -> key.startsWith("catalog:"));
     }
@@ -118,7 +115,7 @@ final class PreviewAssetLoader implements AutoCloseable {
                 && !key.startsWith("catalog:" + catalogPreviewEpoch + ":");
     }
 
-    CompletableFuture<Optional<byte[]>> publishPreview(Optional<byte[]> bytes) {
+    public CompletableFuture<Optional<byte[]>> publishPreview(Optional<byte[]> bytes) {
         CompletableFuture<Optional<byte[]>> publication = new CompletableFuture<>();
         onClient(() -> publication.complete(bytes.map(byte[]::clone)));
         return publication;

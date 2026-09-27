@@ -1,21 +1,8 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.runtime.AppearanceRefreshCoordinator.Result;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 
-
-public final class ClientProcessHost<C> implements AutoCloseable {
-    public interface Process extends AutoCloseable {
-        void warmSession();
-
-        void tick();
-
-        CompletableFuture<Result> afterReconnect();
-
-        @Override
-        void close();
-    }
+public final class ClientProcessHost<C> implements ClientProcess<C> {
 
     private final Process process;
     private final AppearanceReconnectTracker<C> reconnects = new AppearanceReconnectTracker<>();
@@ -25,41 +12,10 @@ public final class ClientProcessHost<C> implements AutoCloseable {
         this.process = Objects.requireNonNull(process, "process");
     }
 
-    public ClientProcessHost(ClientRuntime runtime, Runnable closeNativeResources) {
-        Objects.requireNonNull(runtime, "runtime");
-        Objects.requireNonNull(closeNativeResources, "closeNativeResources");
-        this.process = new Process() {
-            @Override
-            public void warmSession() {
-                runtime.warmSession();
-            }
-
-            @Override
-            public void tick() {
-                runtime.tick();
-            }
-
-            @Override
-            public CompletableFuture<Result> afterReconnect() {
-                return runtime.afterReconnect();
-            }
-
-            @Override
-            public void close() {
-                try {
-                    runtime.close();
-                } finally {
-                    closeNativeResources.run();
-                }
-            }
-        };
-    }
-
     public void warmSession() {
         ensureOpen();
         process.warmSession();
     }
-
 
     public void tick(
             C connection,

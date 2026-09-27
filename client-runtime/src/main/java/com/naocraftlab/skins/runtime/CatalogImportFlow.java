@@ -1184,7 +1184,7 @@ final class CatalogImportFlow {
         PreviewRenderer.CapeMode preferredCapeMode();
         FilePicker filePicker();
         int viewportWidth();
-        PreviewAssetLoader previewAssets();
+        PreviewAssets previewAssets();
         ViewChromeMetrics viewChromeMetrics();
         ClientSnapshot snapshot();
         boolean addSourceRoot();

@@ -17,8 +17,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
-
-public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
+public final class AppearanceRefreshCoordinator<P> implements AppearanceRefresh {
     private final ClientExecutor clientExecutor;
     private final SignedProfileResolver<P> resolver;
     private final PlayerAppearanceSink<P> sink;
@@ -203,10 +202,4 @@ public final class AppearanceRefreshCoordinator<P> implements AutoCloseable {
                 () -> DiagnosticDetails.failure(failure));
     }
 
-    public enum Result {
-        UPDATED,
-        DEFERRED,
-        SUPERSEDED,
-        NOT_APPLICABLE
-    }
 }

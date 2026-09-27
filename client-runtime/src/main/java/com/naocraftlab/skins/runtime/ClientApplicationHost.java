@@ -1,16 +1,39 @@
 package com.naocraftlab.skins.runtime;
 
-
 import java.util.Objects;
-
 
 public final class ClientApplicationHost<C> implements AutoCloseable {
     private final ClientRuntime runtime;
-    private final ClientProcessHost<C> process;
+    private final ClientProcess<C> process;
 
-    public ClientApplicationHost(ClientRuntime runtime, Runnable closeNativeResources) {
+    public ClientApplicationHost(RuntimeServices services, ClientRuntime runtime, Runnable closeNativeResources) {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
-        process = new ClientProcessHost<>(runtime, closeNativeResources);
+        Objects.requireNonNull(closeNativeResources, "closeNativeResources");
+        process = services.process(new ClientProcess.Process() {
+            @Override
+            public void warmSession() {
+                runtime.warmSession();
+            }
+
+            @Override
+            public void tick() {
+                runtime.tick();
+            }
+
+            @Override
+            public java.util.concurrent.CompletableFuture<AppearanceRefresh.Result> afterReconnect() {
+                return runtime.afterReconnect();
+            }
+
+            @Override
+            public void close() {
+                try {
+                    runtime.close();
+                } finally {
+                    closeNativeResources.run();
+                }
+            }
+        });
     }
 
     public ClientRuntime runtime() {

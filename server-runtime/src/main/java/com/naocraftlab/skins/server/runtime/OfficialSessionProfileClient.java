@@ -32,8 +32,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-
-public final class OfficialSessionProfileClient {
+public final class OfficialSessionProfileClient implements SessionProfileSource {
     private static final URI PRODUCTION_ENDPOINT = URI.create(
             "https://sessionserver.mojang.com/session/minecraft/profile/");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
@@ -76,7 +75,6 @@ public final class OfficialSessionProfileClient {
         this.maxResponseBytes = maxResponseBytes;
     }
 
-
     public CompletionStage<Result> fetchAsync(ServerPlayerIdentity expectedIdentity) {
         Objects.requireNonNull(expectedIdentity, "expectedIdentity");
         HttpRequest request = HttpRequest.newBuilder(profileUri(expectedIdentity))
@@ -109,7 +107,6 @@ public final class OfficialSessionProfileClient {
         });
         return result;
     }
-
 
     public Result fetch(ServerPlayerIdentity expectedIdentity) {
         CompletionStage<Result> stage = fetchAsync(expectedIdentity);
@@ -173,7 +170,6 @@ public final class OfficialSessionProfileClient {
             return Result.rejected();
         }
     }
-
 
     private static Optional<SignedTexturesProperty> parseTextures(JsonObject object) {
         JsonElement propertiesElement = object.get("properties");
@@ -291,89 +287,6 @@ public final class OfficialSessionProfileClient {
             return Long.MAX_VALUE;
         }
     }
-
-
-    public static final class FetchedProfile {
-        private final ServerPlayerIdentity identity;
-        private final Optional<SignedTexturesProperty> textures;
-
-        private FetchedProfile(
-                ServerPlayerIdentity identity,
-                Optional<SignedTexturesProperty> textures) {
-            this.identity = Objects.requireNonNull(identity, "identity");
-            this.textures = Objects.requireNonNull(textures, "textures");
-        }
-
-        public ServerPlayerIdentity identity() {
-            return identity;
-        }
-
-        public Optional<SignedTexturesProperty> textures() {
-            return textures;
-        }
-
-        @Override
-        public String toString() {
-            return "FetchedProfile[redacted]";
-        }
-    }
-
-
-    public static final class Result {
-        private final Status status;
-        private final FetchedProfile profile;
-        private final Duration retryAfter;
-
-        private Result(Status status, FetchedProfile profile, Duration retryAfter) {
-            this.status = Objects.requireNonNull(status, "status");
-            this.profile = profile;
-            this.retryAfter = retryAfter;
-        }
-
-        private static Result resolved(FetchedProfile profile) {
-            return new Result(Status.RESOLVED, Objects.requireNonNull(profile, "profile"), null);
-        }
-
-        private static Result transientFailure() {
-            return new Result(Status.TRANSIENT_FAILURE, null, null);
-        }
-
-        private static Result throttled(Duration retryAfter) {
-            return new Result(
-                    Status.THROTTLED,
-                    null,
-                    Objects.requireNonNull(retryAfter, "retryAfter"));
-        }
-
-        private static Result rejected() {
-            return new Result(Status.REJECTED, null, null);
-        }
-
-        public Status status() {
-            return status;
-        }
-
-        public Optional<FetchedProfile> profile() {
-            return Optional.ofNullable(profile);
-        }
-
-        public Optional<Duration> retryAfter() {
-            return Optional.ofNullable(retryAfter);
-        }
-
-        @Override
-        public String toString() {
-            return "OfficialSessionProfileResult[status=" + status + ']';
-        }
-
-        public enum Status {
-            RESOLVED,
-            TRANSIENT_FAILURE,
-            THROTTLED,
-            REJECTED
-        }
-    }
-
 
     private static final class BoundedBodySubscriber
             implements HttpResponse.BodySubscriber<byte[]> {

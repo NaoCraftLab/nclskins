@@ -35,25 +35,25 @@ final class AppearanceRefreshCoordinatorTest {
         AppearanceRefreshCoordinator<String> coordinator =
                 new AppearanceRefreshCoordinator<>(
                         client, resolver, sink, DiagnosticSinks.discarding());
-        List<AppearanceRefreshCoordinator.Result> published = new ArrayList<>();
+        List<AppearanceRefresh.Result> published = new ArrayList<>();
 
         AppliedAppearance first = AppliedAppearance.localSkin(
                 TestFixtures.ACCOUNT_ID, "1".repeat(64), SkinVariant.CLASSIC, Optional.empty());
         AppliedAppearance second = AppliedAppearance.localSkin(
                 TestFixtures.ACCOUNT_ID, "2".repeat(64), SkinVariant.SLIM, Optional.empty());
-        CompletableFuture<AppearanceRefreshCoordinator.Result> old =
+        CompletableFuture<AppearanceRefresh.Result> old =
                 coordinator.afterReconnect(first, published::add);
-        CompletableFuture<AppearanceRefreshCoordinator.Result> current =
+        CompletableFuture<AppearanceRefresh.Result> current =
                 coordinator.afterReconnect(second, published::add);
 
         resolutions.get(0).complete(Optional.of(resolved(first, "old")));
         resolutions.get(1).complete(Optional.of(resolved(second, "new")));
 
-        assertEquals(AppearanceRefreshCoordinator.Result.SUPERSEDED, old.join());
-        assertEquals(AppearanceRefreshCoordinator.Result.UPDATED, current.join());
+        assertEquals(AppearanceRefresh.Result.SUPERSEDED, old.join());
+        assertEquals(AppearanceRefresh.Result.UPDATED, current.join());
         assertEquals(List.of(
-                AppearanceRefreshCoordinator.Result.SUPERSEDED,
-                AppearanceRefreshCoordinator.Result.UPDATED), published);
+                AppearanceRefresh.Result.SUPERSEDED,
+                AppearanceRefresh.Result.UPDATED), published);
         assertEquals(1, sink.installs.get());
         assertEquals(0, sink.invalidations.get());
         assertTrue(client.executions.get() >= 4);
@@ -72,7 +72,7 @@ final class AppearanceRefreshCoordinatorTest {
                 TestFixtures.ACCOUNT_ID, Optional.empty());
 
         assertEquals(
-                AppearanceRefreshCoordinator.Result.UPDATED,
+                AppearanceRefresh.Result.UPDATED,
                 coordinator.afterReconnect(appearance, ignored -> {}).join());
         assertEquals(0, sink.installs.get());
         assertEquals(1, sink.resets.get());
@@ -93,7 +93,7 @@ final class AppearanceRefreshCoordinatorTest {
                 DiagnosticSinks.discarding());
 
         assertEquals(
-                AppearanceRefreshCoordinator.Result.DEFERRED,
+                AppearanceRefresh.Result.DEFERRED,
                 coordinator.afterReconnect(appearance, ignored -> {}).join());
         assertEquals(1, sink.installs.get());
         assertEquals(1, sink.invalidations.get());
@@ -121,7 +121,7 @@ final class AppearanceRefreshCoordinatorTest {
                 TestFixtures.ACCOUNT_ID, "4".repeat(64), SkinVariant.SLIM, Optional.empty());
 
         assertEquals(
-                AppearanceRefreshCoordinator.Result.UPDATED,
+                AppearanceRefresh.Result.UPDATED,
                 coordinator.afterReconnect(appearance, ignored -> {}).join());
         assertEquals(1, sink.reattachments.get());
         assertEquals(0, resolutions.get());

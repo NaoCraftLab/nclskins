@@ -41,7 +41,7 @@ final class DefaultClientOperationsInjectionTest {
         var delivery = new AccountDeliveryService(appearances, clock);
         var operations = new DefaultClientOperations(unused(GameSessionTokenSource.class), profile,
                 appearances, bootstrap, assets, state, unused(UiPreferencesPort.class),
-                unused(LocalCapeImportSource.class), sources, clock, library, gate, sessions,
+                unused(LocalCapeImportSource.class), path -> { throw new java.io.IOException("fixture-local-read"); }, sources, clock, library, gate, sessions,
                 new AppearanceMutationService(profile, mutationStore, unused(MutationTextureIdentity.class), gate, sessions),
                 unused(ProviderTextureStore.class), prepared, imports, external,
                 skin -> { throw new AssertionError("official texture accessed"); },
@@ -50,6 +50,8 @@ final class DefaultClientOperationsInjectionTest {
         assertEquals(0, calls.get());
         operations.verifyStorageAccess();
         assertEquals(1, calls.get());
+        assertEquals("fixture-local-read", org.junit.jupiter.api.Assertions.assertThrows(
+                java.io.IOException.class, () -> operations.loadLocalSkin(directory.resolve("unused"))).getMessage());
         assertFalse(Files.exists(directory.resolve("unused")));
     }
 

@@ -40,7 +40,7 @@ public final class ClientCompositionRoot {
             Supplier<ClientConfiguration> configurationSource, DiagnosticSink diagnostics,
             Runnable closeNativeResources) {
         Objects.requireNonNull(closeNativeResources, "closeNativeResources");
-        return new ClientApplicationHost<>(createRuntime(capabilities, textResolver, dataRoot,
+        return new ClientApplicationHost<>(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), createRuntime(capabilities, textResolver, dataRoot,
                 configurationSource, diagnostics), closeNativeResources);
     }
 
@@ -84,14 +84,14 @@ public final class ClientCompositionRoot {
                             resolver,
                             capabilities.appearanceInstall(), diagnostics);
             resources.add(refresh::close);
-            ClientRuntime runtime = new ClientRuntime(graph.operations(), capabilities.clientExecutor(),
+            ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), graph.operations(), capabilities.clientExecutor(),
                     capabilities.nativeFileDialog(), worker.executor(), worker.ownedExecutor(),
                     reconciliation.executor(), reconciliation.ownedExecutor(),
                     session.executor(), session.ownedExecutor(), textResolver,
                     Optional.of(capabilities.currentAppearance()), Optional.of(refresh),
                     Optional.of(capabilities.modelParts()), Optional.of(capabilities.serverSignal()),
-                    ServerAppearanceReadinessCoordinator.DelayScheduler.system(), diagnostics);
-            runtime.useOptiFineAccountLink(new OptiFineAccountLink(capabilities.session(), session.executor()));
+                    ServerAppearanceReadiness.DelayScheduler.system(), diagnostics);
+            runtime.useOptiFineAccountLink(new OptiFineAccountLink(capabilities.session(), session.executor(), com.naocraftlab.skins.runtime.MojangSessionJoinTransport.create()));
             runtime.useConfigurationSource(configurationSource);
             runtime.useSkinExtensionEnvironmentSource(capabilities.skinExtensionEnvironment());
             resources.transfer();
@@ -131,7 +131,7 @@ public final class ClientCompositionRoot {
                 prepared, new LibraryExternalImportAdapter(library, accounts));
         var delivery = new AccountDeliveryService(appearances, clock);
         var operations = new DefaultClientOperations(tokens, profile, appearances, bootstrap, assets, assets,
-                preferences, new LocalCapeImportAdapter(), catalog, clock, library, gate, sessions, mutations,
+                preferences, new LocalCapeImportAdapter(), new com.naocraftlab.skins.core.png.PngFileReader(new PngValidator())::projectStandardImport, catalog, clock, library, gate, sessions, mutations,
                 textures, prepared, imports, external,
                 officialTextures != null ? officialTextures : skin -> textures.load(skin.textureUri()),
                 new OfficialSkinClassifier(catalog), delivery,

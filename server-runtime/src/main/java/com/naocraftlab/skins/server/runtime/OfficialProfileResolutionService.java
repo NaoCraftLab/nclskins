@@ -11,13 +11,12 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-
 public final class OfficialProfileResolutionService implements OfficialProfileResolver {
-    private final OfficialSessionProfileClient profileClient;
+    private final SessionProfileSource profileClient;
     private final OfficialTextureSignatureVerifier signatureVerifier;
 
     public OfficialProfileResolutionService(
-            OfficialSessionProfileClient profileClient,
+            SessionProfileSource profileClient,
             OfficialTextureSignatureVerifier signatureVerifier) {
         this.profileClient = Objects.requireNonNull(profileClient, "profileClient");
         this.signatureVerifier = Objects.requireNonNull(signatureVerifier, "signatureVerifier");
@@ -26,7 +25,7 @@ public final class OfficialProfileResolutionService implements OfficialProfileRe
     @Override
     public CompletionStage<Resolution> resolve(ConnectionSnapshot expectedConnection) {
         Objects.requireNonNull(expectedConnection, "expectedConnection");
-        CompletableFuture<OfficialSessionProfileClient.Result> upstream = profileClient
+        CompletableFuture<SessionProfileSource.Result> upstream = profileClient
                 .fetchAsync(expectedConnection.identity())
                 .toCompletableFuture();
         CompletableFuture<Resolution> result = new CompletableFuture<>();
@@ -51,7 +50,7 @@ public final class OfficialProfileResolutionService implements OfficialProfileRe
 
     private Resolution map(
             ConnectionSnapshot expectedConnection,
-            OfficialSessionProfileClient.Result result) {
+            SessionProfileSource.Result result) {
         return switch (result.status()) {
             case TRANSIENT_FAILURE -> Resolution.transientFailure();
             case THROTTLED -> Resolution.throttled(result.retryAfter().orElseThrow());
@@ -62,7 +61,7 @@ public final class OfficialProfileResolutionService implements OfficialProfileRe
 
     private Resolution resolveFetched(
             ConnectionSnapshot expectedConnection,
-            OfficialSessionProfileClient.FetchedProfile fetched) {
+            SessionProfileSource.FetchedProfile fetched) {
         if (!expectedConnection.identity().equals(fetched.identity())) {
             return Resolution.rejected();
         }
@@ -83,7 +82,6 @@ public final class OfficialProfileResolutionService implements OfficialProfileRe
             return Resolution.rejected();
         }
         TextureAppearance verifiedAppearance = appearance.orElseThrow();
-
 
         Optional<SignedTexturesProperty> canonicalTextures =
                 verifiedAppearance.isAccountDefault() ? Optional.empty() : textures;

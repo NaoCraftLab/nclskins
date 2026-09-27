@@ -776,3 +776,16 @@ tasks.register('preflightGithubRelease', PublishGithubReleaseTask) {
         bundleDirectory.set(layout.buildDirectory.dir('missing-release-bundle'))
     }
 }
+
+subprojects {
+    plugins.withId('java') {
+        def architectureGate = tasks.register('verifyArchitecture', com.naocraftlab.skins.buildlogic.VerifyArchitectureTask) {
+            classRoots.from(sourceSets.main.output.classesDirs)
+            dependsOn tasks.named('classes')
+        }
+        tasks.named('check').configure { dependsOn architectureGate }
+    }
+}
+tasks.register('verifyArchitecture') {
+    dependsOn subprojects.collect { it.tasks.named('verifyArchitecture') }
+}

@@ -31,11 +31,6 @@ public final class UpdateCatalogClient {
         this.selector = Objects.requireNonNull(selector, "selector");
     }
 
-    public static UpdateCatalogClient create() {
-        return new UpdateCatalogClient(
-                new JdkUpdateHttpBoundary(), new UpdateCatalogParser(), new UpdateSelector());
-    }
-
     public Optional<UpdateCandidate> check(
             String targetId,
             String currentVersion,

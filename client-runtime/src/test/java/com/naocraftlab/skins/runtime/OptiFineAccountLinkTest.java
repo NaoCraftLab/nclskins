@@ -32,10 +32,10 @@ class OptiFineAccountLinkTest {
         var first = link.begin(ACCOUNT);
         assertTrue(link.preparing());
         assertNull(link.readyUri(ACCOUNT));
-        assertEquals(OptiFineAccountLink.Outcome.CANCELLED, link.begin(ACCOUNT).join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.CANCELLED, link.begin(ACCOUNT).join().outcome());
         assertEquals(1, queue.size());
         queue.remove(0).run();
-        assertEquals(OptiFineAccountLink.Outcome.READY, first.join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.READY, first.join().outcome());
         assertEquals(1, calls.size());
         assertEquals("https://optifine.net/capeChange?u=0123456789abcdef0123456789abcdef&n=Player_1&s=" + calls.get(0),
                 link.readyUri(ACCOUNT).toString());
@@ -53,7 +53,7 @@ class OptiFineAccountLinkTest {
         }, new SecureRandom(), new MutableClock());
         var first = link.begin(ACCOUNT);
         queue.remove(0).run();
-        assertEquals(OptiFineAccountLink.Outcome.FAILED, first.join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.FAILED, first.join().outcome());
         assertNull(link.readyUri(ACCOUNT));
         assertFalse(link.preparing());
         link.begin(ACCOUNT);
@@ -69,7 +69,7 @@ class OptiFineAccountLinkTest {
                 new SecureRandom(), new MutableClock());
         var attempt = link.begin(ACCOUNT);
         queue.remove(0).run();
-        assertEquals(OptiFineAccountLink.Outcome.AUTH_REQUIRED, attempt.join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.AUTH_REQUIRED, attempt.join().outcome());
         assertNull(link.readyUri(ACCOUNT));
     }
 
@@ -81,13 +81,13 @@ class OptiFineAccountLinkTest {
         }, new SecureRandom(), new MutableClock());
         var first = link.begin(ACCOUNT);
         queue.remove(0).run();
-        assertEquals(OptiFineAccountLink.Outcome.AUTH_REQUIRED, first.join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.AUTH_REQUIRED, first.join().outcome());
         assertNull(link.readyUri(ACCOUNT));
         session.identity = new GameSessionTokenSource.SessionIdentity(ACCOUNT, "Player_1");
         var second = link.begin(ACCOUNT);
         link.cancel();
         queue.remove(0).run();
-        assertEquals(OptiFineAccountLink.Outcome.CANCELLED, second.join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.CANCELLED, second.join().outcome());
     }
 
     @Test void deadlineStartsAtClickAndInvalidatesPreparedLink() {
@@ -98,11 +98,11 @@ class OptiFineAccountLinkTest {
         var first = link.begin(ACCOUNT);
         clock.now = clock.now.plusSeconds(121);
         queue.remove(0).run();
-        assertEquals(OptiFineAccountLink.Outcome.EXPIRED, first.join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.EXPIRED, first.join().outcome());
         assertNull(link.readyUri(ACCOUNT));
         var second = link.begin(ACCOUNT);
         queue.remove(0).run();
-        assertEquals(OptiFineAccountLink.Outcome.READY, second.join().outcome());
+        assertEquals(OptiFineAccountLinkUseCases.Outcome.READY, second.join().outcome());
         clock.now = clock.now.plusSeconds(121);
         assertNull(link.readyUri(ACCOUNT));
     }

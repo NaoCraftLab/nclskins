@@ -13,8 +13,6 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
@@ -23,7 +21,6 @@ import java.util.Objects;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
-
 
 public final class PngValidator {
     public static final int DEFAULT_MAX_BYTES = EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES;
@@ -59,13 +56,6 @@ public final class PngValidator {
         return maxBytes;
     }
 
-    public PngInfo validate(Path path) throws IOException, PngValidationException {
-        Objects.requireNonNull(path, "path");
-        try (InputStream input = Files.newInputStream(path)) {
-            return validate(input);
-        }
-    }
-
     public PngInfo validate(InputStream input) throws IOException, PngValidationException {
         Objects.requireNonNull(input, "input");
         byte[] bytes = input.readNBytes(maxBytes + 1);
@@ -78,7 +68,6 @@ public final class PngValidator {
     public PngInfo validate(byte[] bytes) throws PngValidationException {
         return inspect(bytes, false, false).info();
     }
-
 
     public CapePng projectCape(byte[] bytes) throws PngValidationException {
         return projectCape(bytes, CapeAdmission.SOURCE);
@@ -422,29 +411,9 @@ public final class PngValidator {
         return (argb >>> 24) == 0 ? 0 : argb;
     }
 
-    public byte[] normalizeSkin(Path path) throws IOException, PngValidationException {
-        return projectImport(path).pngBytes();
-    }
-
-    public NormalizedSkin normalizeSkinWithVariant(Path path)
-            throws IOException, PngValidationException {
-        return projectImport(path);
-    }
-
-    public NormalizedSkin projectStandardImport(Path path) throws IOException, PngValidationException {
-        Objects.requireNonNull(path, "path");
-        try (InputStream input = Files.newInputStream(path)) {
-            SkinProjection projection = project(readBounded(input), true, false);
-            return new NormalizedSkin(projection.pngBytes(), projection.detectedVariant(), featureAnalyzer.analyze(projection.image()));
-        }
-    }
-
-    public NormalizedSkin projectImport(Path path)
-            throws IOException, PngValidationException {
-        Objects.requireNonNull(path, "path");
-        try (InputStream input = Files.newInputStream(path)) {
-            return projectImport(readBounded(input));
-        }
+    public NormalizedSkin projectStandardImport(InputStream input) throws IOException, PngValidationException {
+        SkinProjection projection = project(readBounded(Objects.requireNonNull(input, "input")), true, false);
+        return new NormalizedSkin(projection.pngBytes(), projection.detectedVariant(), featureAnalyzer.analyze(projection.image()));
     }
 
     public byte[] normalizeSkin(InputStream input) throws IOException, PngValidationException {
@@ -611,7 +580,6 @@ public final class PngValidator {
                     if (!stripPostIendBytes) {
                         throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG has trailing bytes");
                     }
-
 
                     buffer.position(buffer.limit());
                 }

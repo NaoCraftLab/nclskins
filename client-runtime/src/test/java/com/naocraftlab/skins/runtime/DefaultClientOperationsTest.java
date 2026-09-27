@@ -104,7 +104,7 @@ final class DefaultClientOperationsTest {
             @Override public void execute(Runnable action) { action.run(); }
         };
         graph.attachProviders(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
-        ClientRuntime runtime = new ClientRuntime(operations, client,
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), operations, client,
                 () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
                 Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
         runtime.warmSession();
@@ -1250,7 +1250,7 @@ final class DefaultClientOperationsTest {
             @Override public void execute(Runnable action) { action.run(); }
         };
         graph.attachProviders(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
-        ClientRuntime runtime = new ClientRuntime(online, client,
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), online, client,
                 () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()),
                 Runnable::run, UiMessage::key, Optional.empty(), DiagnosticSinks.discarding());
         runtime.warmSession();
@@ -5571,7 +5571,7 @@ final class DefaultClientOperationsTest {
                         directClient, resolver, sink, DiagnosticSinks.discarding());
 
         assertEquals(
-                AppearanceRefreshCoordinator.Result.UPDATED,
+                AppearanceRefresh.Result.UPDATED,
                 coordinator.afterReconnect(reset, ignored -> {}).join());
         var resolved = installed.get();
         assertTrue(resolved.platformProfile().skin().isEmpty());

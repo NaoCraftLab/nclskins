@@ -31,7 +31,7 @@ public final class PublicSkinImageAdapter implements PublicSkinImageSource {
                     "Public player skin texture was rejected.");
         }
         try {
-            return validator.normalizeSkinWithVariant(textures.get(verified.uri()).path());
+            return new com.naocraftlab.skins.core.png.PngFileReader(validator).normalizeSkinWithVariant(textures.get(verified.uri()).path());
         } catch (TextureCacheException failure) {
             throw playerTextureFailure(failure);
         } catch (PngValidationException failure) {

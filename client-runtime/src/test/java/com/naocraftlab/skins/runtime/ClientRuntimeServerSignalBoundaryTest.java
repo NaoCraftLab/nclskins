@@ -114,7 +114,6 @@ final class ClientRuntimeServerSignalBoundaryTest {
         runtime.initialize();
         runtime.dispatchWidget(applyWidget(scenario.presetId));
 
-
         assertEquals(AppearanceSyncStatus.OFFICIAL, runtime.snapshot().syncStatus());
         assertEquals(1, scenario.reconciliationCalls);
         assertEquals(0, notifier.notifications);
@@ -416,7 +415,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
                     attachments.incrementAndGet();
                     return PlayerAppearanceSink.ApplyResult.UPDATED;
                 }, DiagnosticSinks.discarding());
-        ClientRuntime runtime = new ClientRuntime(scenario.operations, CLIENT, CANCELLED_PICKER,
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), scenario.operations, CLIENT, CANCELLED_PICKER,
                 Runnable::run, TEXT, Optional.of(refresh), Optional.empty(),
                 DiagnosticSinks.discarding());
         runtime.initialize();
@@ -458,7 +457,7 @@ final class ClientRuntimeServerSignalBoundaryTest {
     }
 
     private static ClientRuntime runtime(SignalScenario scenario, TestNotifier notifier) {
-        return new ClientRuntime(
+        return new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 scenario.operations,
                 CLIENT,
                 CANCELLED_PICKER,

@@ -1746,7 +1746,7 @@ final class ClientRuntimeTest {
         operations.localFirst = true;
         operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
         QueuedExecutor sessionWorker = new QueuedExecutor();
-        ClientRuntime runtime = new ClientRuntime(operations, CLIENT, CANCELLED_PICKER,
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), operations, CLIENT, CANCELLED_PICKER,
                 Runnable::run, Runnable::run, sessionWorker, TEXT, Optional.empty(), Optional.empty(),
                 IMMEDIATE_READINESS_SCHEDULER, DiagnosticSinks.discarding());
         for (int attempt = 0; attempt < 5; attempt++) {
@@ -1779,7 +1779,7 @@ final class ClientRuntimeTest {
         operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
         operations.localFirst = true;
         QueuedExecutor sessionWorker = new QueuedExecutor();
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -1847,7 +1847,7 @@ final class ClientRuntimeTest {
         operations.account = TestFixtures.account(1);
         operations.retryInitialDataOverride = operations.initial();
         QueuedExecutor sessionWorker = new QueuedExecutor();
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -3911,7 +3911,7 @@ final class ClientRuntimeTest {
         operations.rateLimitRemaining = Duration.ofSeconds(60);
         QueuedExecutor reconciliation = new QueuedExecutor();
         AtomicInteger notifications = new AtomicInteger();
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -4012,7 +4012,7 @@ final class ClientRuntimeTest {
         operations.account = TestFixtures.account(2);
         operations.localFirst = true;
         QueuedExecutor reconciliation = new QueuedExecutor();
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -4222,7 +4222,7 @@ final class ClientRuntimeTest {
         QueuedExecutor worker = new QueuedExecutor();
         TrackingClientExecutor client = new TrackingClientExecutor();
         AtomicInteger notifications = new AtomicInteger();
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 client,
                 CANCELLED_PICKER,
@@ -4282,7 +4282,7 @@ final class ClientRuntimeTest {
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.of(coordinator));
 
         assertEquals(
-                AppearanceRefreshCoordinator.Result.UPDATED,
+                AppearanceRefresh.Result.UPDATED,
                 runtime.afterReconnect().join());
         assertEquals(1, resolves.get());
         assertEquals(0, operations.retrySessionCalls);
@@ -4330,7 +4330,7 @@ final class ClientRuntimeTest {
                 DiagnosticSinks.discarding());
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.of(refresh));
 
-        assertEquals(AppearanceRefreshCoordinator.Result.UPDATED, runtime.afterReconnect().join());
+        assertEquals(AppearanceRefresh.Result.UPDATED, runtime.afterReconnect().join());
 
         assertTrue(rebound.get());
         assertEquals(1, operations.reconciliationCalls);
@@ -4363,7 +4363,7 @@ final class ClientRuntimeTest {
                 },
                 ignored -> PlayerAppearanceSink.ApplyResult.UPDATED,
                 DiagnosticSinks.discarding());
-        ClientRuntime runtime = new ClientRuntime(
+        ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 client,
                 CANCELLED_PICKER,
@@ -4376,7 +4376,7 @@ final class ClientRuntimeTest {
                 IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
 
-        CompletableFuture<AppearanceRefreshCoordinator.Result> reconnect =
+        CompletableFuture<AppearanceRefresh.Result> reconnect =
                 runtime.afterReconnect();
         client.runFirst();
         worker.runFirst();
@@ -4397,7 +4397,7 @@ final class ClientRuntimeTest {
                 Optional.empty()));
         client.runFirst();
 
-        assertEquals(AppearanceRefreshCoordinator.Result.DEFERRED, reconnect.join());
+        assertEquals(AppearanceRefresh.Result.DEFERRED, reconnect.join());
         assertEquals(0, worker.size());
         assertEquals(0, localResolves.get());
         assertEquals(0, operations.reconciliationCalls);
@@ -4428,7 +4428,7 @@ final class ClientRuntimeTest {
                 ignored -> PlayerAppearanceSink.ApplyResult.DEFERRED,
                 DiagnosticSinks.discarding());
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.of(refresh));
-        ClientProcessHost<Object> host = new ClientProcessHost<>(runtime, () -> {});
+        ClientApplicationHost<Object> host = new ClientApplicationHost<>(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), runtime, () -> {});
         Object connection = new Object();
 
         for (int tick = 0; tick < 200; tick++) {
@@ -5078,7 +5078,7 @@ final class ClientRuntimeTest {
     }
 
     private static ClientRuntime runtime(FakeOperations operations, FilePicker picker) {
-        return new ClientRuntime(
+        return new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 picker,
@@ -5095,7 +5095,7 @@ final class ClientRuntimeTest {
             Executor worker,
             Optional<AppearanceRefreshCoordinator<?>> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier) {
-        return new ClientRuntime(
+        return new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(),
                 operations,
                 CLIENT,
                 CANCELLED_PICKER,
@@ -5109,7 +5109,7 @@ final class ClientRuntimeTest {
                 DiagnosticSinks.discarding());
     }
 
-    private static final ServerAppearanceReadinessCoordinator.DelayScheduler
+    private static final ServerAppearanceReadiness.DelayScheduler
             IMMEDIATE_READINESS_SCHEDULER = (delay, action) -> {
                 action.run();
                 return () -> {};
@@ -5237,6 +5237,13 @@ final class ClientRuntimeTest {
     }
 
     private static final class FakeOperations implements TestCapeOperations {
+        @Override
+        public com.naocraftlab.skins.core.png.NormalizedSkin loadLocalSkin(java.nio.file.Path path)
+                throws java.io.IOException, com.naocraftlab.skins.core.png.PngValidationException {
+            return new com.naocraftlab.skins.core.png.PngFileReader(
+                    new com.naocraftlab.skins.core.png.PngValidator()).projectStandardImport(path);
+        }
+
         private Exception capeImportFailure;
         private UUID capeImportAccount;
         private List<CapeCatalogSource.CollectionDescriptor> resourceCapeCollections = List.of();

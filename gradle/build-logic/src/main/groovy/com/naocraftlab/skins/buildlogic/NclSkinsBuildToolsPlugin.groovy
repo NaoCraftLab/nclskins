@@ -34,6 +34,7 @@ final class NclSkinsBuildToolsPlugin implements Plugin<Project> {
                     'com.mojang:authlib:9.0.75'
             ].each { String coordinate -> project.dependencies.add(runtime.name, coordinate) }
         }
+        project.extensions.extraProperties.set('nclskinsVerifyArchitectureTaskType', VerifyArchitectureTask)
         project.extensions.extraProperties.set('nclskinsCatalogTools', CatalogTools)
         project.extensions.extraProperties.set('nclskinsNativeModelTests', NativeModelTests)
         project.extensions.extraProperties.set('nclskinsMetadataRenderer', MetadataRenderer)
