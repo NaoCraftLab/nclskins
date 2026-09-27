@@ -626,7 +626,7 @@ final class ClientRuntimeRegressionTest {
         };
         try (var runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), operations, CLIENT, CANCELLED_PICKER, Runnable::run,
                 TEXT, Optional.of(source), Optional.empty(), Optional.of(visibility), Optional.empty(),
-                ServerAppearanceReadiness.DelayScheduler.system(), DiagnosticSinks.discarding())) {
+                DiagnosticSinks.discarding())) {
             var optifine = new CapeProjection.Candidate("nclskins:optifine", null, false);
             var skinmc = new CapeProjection.Candidate("nclskins:skinmc", "nclskins:skinmc", true);
             TestCapeProjection.publish(new CapeProjection.Snapshot(
@@ -729,7 +729,7 @@ final class ClientRuntimeRegressionTest {
             Optional<OuterLayerVisibilityController> visibility) {
         return new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), new StubOperations(), client, CANCELLED_PICKER, Runnable::run,
                 TEXT, source, Optional.empty(), visibility, Optional.empty(),
-                ServerAppearanceReadiness.DelayScheduler.system(), DiagnosticSinks.discarding());
+                DiagnosticSinks.discarding());
     }
 
     private static CurrentPlayerAppearanceSource.PlayerAppearance menuPlayerAppearance() {
@@ -771,7 +771,6 @@ final class ClientRuntimeRegressionTest {
                 Optional.empty(),
                 Optional.of(visibility),
                 Optional.empty(),
-                ServerAppearanceReadiness.DelayScheduler.system(),
                 DiagnosticSinks.discarding());
 
         runtime.initialize();
@@ -822,7 +821,6 @@ final class ClientRuntimeRegressionTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                ServerAppearanceReadiness.DelayScheduler.system(),
                 DiagnosticSinks.discarding());
     }
 

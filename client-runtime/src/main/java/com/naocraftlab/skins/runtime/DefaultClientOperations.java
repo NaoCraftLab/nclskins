@@ -73,7 +73,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 
@@ -105,8 +104,6 @@ public final class DefaultClientOperations implements ClientOperations {
     private volatile CapeProviderCoordinator optifineCapes;
     private volatile ExecutorService optifineWorker;
     private boolean capeProvidersClosed;
-
-    private final Map<UUID, LibraryObservation> libraryObservations = new ConcurrentHashMap<>();
 
     private final PreparedCatalogService preparedCatalog;
 
@@ -287,13 +284,6 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public synchronized AppearanceSyncStatus warmedAppearanceSyncStatus() {
-        return preparedInitialData == null
-                ? AppearanceSyncStatus.LOCAL_ONLY
-                : preparedInitialData.syncStatus();
-    }
-
-    @Override
     public synchronized boolean warmedReconciliationRecommended() {
         return preparedInitialData != null && reconciliationRecommended(preparedInitialData);
     }
@@ -448,7 +438,6 @@ public final class DefaultClientOperations implements ClientOperations {
                 ownedCapes,
                 appearance.intentRevision(),
                 appearance.syncStatus(), appearance.providers());
-        observeProfileValidated(result.account());
         return result;
     }
 
@@ -586,13 +575,13 @@ public final class DefaultClientOperations implements ClientOperations {
     public AccountState importSkin(String name, SkinVariant variant, byte[] normalizedPng)
             throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        return observeLocal(library.importSkin(
-                                accountId,
-                                normalizeName(name, "Imported skin"),
-                                Objects.requireNonNull(variant, "variant"),
-                                SkinSource.IMPORTED,
-                                Objects.requireNonNull(normalizedPng, "normalizedPng"))
-                        .state());
+        return library.importSkin(
+                        accountId,
+                        normalizeName(name, "Imported skin"),
+                        Objects.requireNonNull(variant, "variant"),
+                        SkinSource.IMPORTED,
+                        Objects.requireNonNull(normalizedPng, "normalizedPng"))
+                .state();
     }
 
     @Override
@@ -646,7 +635,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 skipped,
                 warnings);
         preparedCatalog.invalidatePersonalView();
-        AccountState observed = observeLocal(result.state());
+        AccountState observed = result.state();
         return new ExternalImportResult(
                 observed,
                 result.imported(),
@@ -658,33 +647,33 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public AccountState renameSkin(UUID skinId, String newName) throws IOException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        return observeLocal(library.renameSkin(
-                accountId, skinId, normalizeName(newName, "Imported skin")));
+        return library.renameSkin(
+                accountId, skinId, normalizeName(newName, "Imported skin"));
     }
 
     @Override
     public AccountState changeSkinVariant(UUID skinId, SkinVariant variant) throws IOException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        return observeLocal(library.changeSkinVariant(accountId, skinId, variant));
+        return library.changeSkinVariant(accountId, skinId, variant);
     }
 
     @Override
     public AccountState duplicateSkin(UUID skinId, String newName) throws IOException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        return observeLocal(library.duplicateSkin(
-                accountId, skinId, normalizeName(newName, "Skin copy")));
+        return library.duplicateSkin(
+                accountId, skinId, normalizeName(newName, "Skin copy"));
     }
 
     @Override
     public AccountState deleteSkin(UUID skinId) throws IOException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        return observeLocal(library.deleteSkin(accountId, skinId));
+        return library.deleteSkin(accountId, skinId);
     }
 
     @Override
     public AccountState removePersonalSkin(String sha256) throws IOException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
-        return observeLocal(library.hidePersonalSkin(accountId, sha256));
+        return library.hidePersonalSkin(accountId, sha256);
     }
 
     @Override
@@ -695,7 +684,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 sha256,
                 normalizeName(newName, "Imported skin"));
         preparedCatalog.invalidatePersonalView();
-        return observeLocal(renamed);
+        return renamed;
     }
 
     @Override
@@ -777,7 +766,7 @@ public final class DefaultClientOperations implements ClientOperations {
         SessionValidation validation = sessions.cachedStatus(context.identity());
         com.naocraftlab.skins.core.service.AccountBootstrapPort.Preferences preferences = bootstrap.loadUiPreferences(accountId);
         OwnedCapeInventory ownedCapes = storage.loadOwnedCapes(accountId);
-        AccountState latest = observeLocal(library.load(accountId));
+        AccountState latest = library.load(accountId);
         return new InitialData(
                 latest,
                 validation,
@@ -865,7 +854,7 @@ public final class DefaultClientOperations implements ClientOperations {
     public Optional<AccountState> discardCapeIfUnreferenced(UUID accountId, UUID entryId)
             throws IOException {
         requireCapeAccount(accountId);
-        return Optional.of(observeLocal(library.discardCapeIfUnreferenced(accountId, entryId)));
+        return Optional.of(library.discardCapeIfUnreferenced(accountId, entryId));
     }
 
     private void requireCapeAccount(UUID accountId) throws IOException {
@@ -875,26 +864,26 @@ public final class DefaultClientOperations implements ClientOperations {
     @Override
     public AccountState renameCape(UUID accountId, UUID entryId, String name) throws IOException {
         requireCapeAccount(accountId);
-        return observeLocal(library.renameCape(accountId, entryId, name));
+        return library.renameCape(accountId, entryId, name);
     }
 
     @Override
     public CapeDeletion deleteCape(UUID accountId, UUID entryId) throws IOException, PngValidationException {
         requireCapeAccount(accountId);
         library.deleteCape(accountId, entryId);
-        return new CapeDeletion(observeLocal(library.load(accountId)), reloadProviders());
+        return new CapeDeletion(library.load(accountId), reloadProviders());
     }
 
     @Override
     public AccountState renameCape(UUID entryId, String name) throws IOException {
-        return observeLocal(library.renameCape(resolveAccountId(pinCurrentSession().identity()), entryId, name));
+        return library.renameCape(resolveAccountId(pinCurrentSession().identity()), entryId, name);
     }
 
     @Override
     public CapeDeletion deleteCape(UUID entryId) throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(pinCurrentSession().identity());
         library.deleteCape(accountId, entryId);
-        return new CapeDeletion(observeLocal(library.load(accountId)), reloadProviders());
+        return new CapeDeletion(library.load(accountId), reloadProviders());
     }
 
     @Override
@@ -1014,7 +1003,7 @@ public final class DefaultClientOperations implements ClientOperations {
             AccountState saved,
             UUID presetId) throws IOException {
         if (originalPresetId.isEmpty()) {
-            return new EditorSave(observeLocal(saved), presetId);
+            return new EditorSave(saved, presetId);
         }
         return finishEditorSave(context, presetId);
     }
@@ -1029,7 +1018,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         presetId,
                         (account, current, revision) -> revisedAppearanceForPreset(
                                 accountId, account, presetId, revision, current, inventory, selectionValidation));
-        AccountState latest = observeLocal(updated.account());
+        AccountState latest = updated.account();
         if (!updated.updated()) {
             return new EditorSave(latest, presetId);
         }
@@ -1269,7 +1258,7 @@ public final class DefaultClientOperations implements ClientOperations {
                 Objects.requireNonNull(presetId, "presetId"),
                 (ignoredAccount, current, revision) -> accountDefaultAppearance(
                         accountId, revision, AppearanceSyncStatus.PENDING, current.providers()));
-        AccountState deleted = observeLocal(deletion.state());
+        AccountState deleted = deletion.state();
         if (!deletion.resetsAppearance()) {
             return PresetDelete.local(deleted);
         }
@@ -1307,7 +1296,7 @@ public final class DefaultClientOperations implements ClientOperations {
                                 account,
                                 pendingAppearanceForPreset(
                                         accountId, account, selectedPresetId, revision, current, inventory, selectionValidation)));
-        AccountState state = observeLocal(selected.account());
+        AccountState state = selected.account();
         AccountAppearanceState appearance = selected.appearance();
         SessionValidation validation = sessions.cachedStatus(context.identity());
         Optional<AppliedAppearance> local = materializeLocalAppearance(
@@ -1561,9 +1550,6 @@ public final class DefaultClientOperations implements ClientOperations {
         if (validation.valid() && validation.profile() != null) {
             publishOwnedCapeInventory(accountId, validation.profile());
             observeMinecraftProviders(accountId, validation, expected, true, true);
-            observeProfileValidated(observed);
-        } else {
-            observeLocal(observed);
         }
         return new ObservedAccount(
                 observed, latestOfficialAsset(observed).map(SkinAsset::id));
@@ -1779,7 +1765,6 @@ public final class DefaultClientOperations implements ClientOperations {
                     official.state(),
                     validation,
                     Optional.ofNullable(official.currentOfficialSkinId()));
-            observeLocal(result.account());
             return result;
         } catch (IOException | RuntimeException localFailure) {
             throw new RemoteMutationSettlementException(outcome.remoteAppearanceImpact());
@@ -2150,16 +2135,6 @@ public final class DefaultClientOperations implements ClientOperations {
                 .max(Comparator.comparing(SkinAsset::updatedAt));
     }
 
-    private AccountState observeLocal(AccountState state) {
-        libraryObservations.put(state.accountId(), LibraryObservation.from(state, false));
-        return state;
-    }
-
-    private AccountState observeProfileValidated(AccountState state) {
-        libraryObservations.put(state.accountId(), LibraryObservation.from(state, true));
-        return state;
-    }
-
     private OperationContext pinCurrentSession() {
         GameSessionTokenSource.SessionIdentity identity = Objects.requireNonNull(
                 tokenSource.currentSession(), "current session");
@@ -2190,20 +2165,6 @@ public final class DefaultClientOperations implements ClientOperations {
 
     private record InitialPresetBootstrap(
             OfficialSkinSync official, boolean revisionMatched) {}
-
-    private record LibraryObservation(
-            Instant updatedAt, boolean presetsEmpty, boolean emptyProfileValidated) {
-        private static LibraryObservation from(
-                AccountState state, boolean profileValidated) {
-            boolean empty = state.presets().isEmpty();
-            return new LibraryObservation(state.updatedAt(), empty, empty && profileValidated);
-        }
-
-        private boolean matches(AccountState state) {
-            return updatedAt.equals(state.updatedAt())
-                    && presetsEmpty == state.presets().isEmpty();
-        }
-    }
 
     private record OperationContext(
             GameSessionTokenSource.SessionIdentity identity,

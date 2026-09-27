@@ -694,10 +694,6 @@ public final class AddSourceModel {
         return result.isEmpty() ? Optional.empty() : Optional.of(result.toString());
     }
 
-    public AddSourceModel renamedPersonalSkin(String sha256, String displayName) {
-        return renamedPersonalSkin(null, sha256, displayName);
-    }
-
     public AddSourceModel renamedPersonalSkin(
             String collectionId, String sha256, String displayName) {
         List<SkinCatalogSource.CollectionDescriptor> renamed = collections.stream().map(collection -> {

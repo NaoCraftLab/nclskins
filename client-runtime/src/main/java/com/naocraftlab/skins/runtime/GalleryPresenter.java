@@ -425,11 +425,6 @@ public final class GalleryPresenter {
     }
 
     public int offsetFromScrollbar(
-            ClientSnapshot snapshot, int width, int height, double desiredThumbLeft) {
-        return offsetFromScrollbar(snapshot, width, height, "", desiredThumbLeft);
-    }
-
-    public int offsetFromScrollbar(
             ClientSnapshot snapshot,
             int width,
             int height,

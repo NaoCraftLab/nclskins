@@ -90,7 +90,7 @@ public final class ClientCompositionRoot {
                     session.executor(), session.ownedExecutor(), textResolver,
                     Optional.of(capabilities.currentAppearance()), Optional.of(refresh),
                     Optional.of(capabilities.modelParts()), Optional.of(capabilities.serverSignal()),
-                    ServerAppearanceReadiness.DelayScheduler.system(), diagnostics);
+                    diagnostics);
             runtime.useOptiFineAccountLink(new OptiFineAccountLink(capabilities.session(), session.executor(), com.naocraftlab.skins.runtime.MojangSessionJoinTransport.create()));
             runtime.useConfigurationSource(configurationSource);
             runtime.useSkinExtensionEnvironmentSource(capabilities.skinExtensionEnvironment());

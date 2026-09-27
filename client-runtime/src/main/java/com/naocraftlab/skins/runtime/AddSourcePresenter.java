@@ -302,12 +302,6 @@ public final class AddSourcePresenter {
     }
 
     public int offsetFromScrollbar(
-            AddSourceModel model, int width, int height, double desiredThumbTop) {
-        return offsetFromScrollbar(
-                model, width, height, desiredThumbTop, ViewChromeMetrics.STANDARD);
-    }
-
-    public int offsetFromScrollbar(
             AddSourceModel model,
             int width,
             int height,

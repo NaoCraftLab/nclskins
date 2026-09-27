@@ -1748,7 +1748,7 @@ final class ClientRuntimeTest {
         QueuedExecutor sessionWorker = new QueuedExecutor();
         ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), operations, CLIENT, CANCELLED_PICKER,
                 Runnable::run, Runnable::run, sessionWorker, TEXT, Optional.empty(), Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER, DiagnosticSinks.discarding());
+                DiagnosticSinks.discarding());
         for (int attempt = 0; attempt < 5; attempt++) {
             runtime.reopen();
             assertFalse(runtime.snapshot().busy());
@@ -1789,7 +1789,6 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
         runtime.initialize();
 
@@ -1857,7 +1856,6 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
         operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
         runtime.initialize();
@@ -3921,7 +3919,6 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.of(notifications::incrementAndGet),
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
         runtime.initialize();
         runtime.tick();
@@ -4022,7 +4019,6 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
         runtime.initialize();
         UUID first = operations.account.presets().get(0).id();
@@ -4235,7 +4231,6 @@ final class ClientRuntimeTest {
                     assertTrue(client.isClientThread());
                     notifications.incrementAndGet();
                 }),
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
 
         runtime.initialize();
@@ -4373,7 +4368,6 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.of(refresh),
                 Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
 
         CompletableFuture<AppearanceRefresh.Result> reconnect =
@@ -5086,7 +5080,6 @@ final class ClientRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
     }
 
@@ -5105,15 +5098,8 @@ final class ClientRuntimeTest {
                 TEXT,
                 appearanceRefresh,
                 serverAppearanceRefreshNotifier,
-                IMMEDIATE_READINESS_SCHEDULER,
                 DiagnosticSinks.discarding());
     }
-
-    private static final ServerAppearanceReadiness.DelayScheduler
-            IMMEDIATE_READINESS_SCHEDULER = (delay, action) -> {
-                action.run();
-                return () -> {};
-            };
 
     private static byte[] skinPng() {
         return skinPng(0xFFFF00FF);

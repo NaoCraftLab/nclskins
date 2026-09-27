@@ -27,10 +27,6 @@ public interface ClientOperations extends AccountReconciliationPort, AutoCloseab
         return Optional.empty();
     }
 
-    default AppearanceSyncStatus warmedAppearanceSyncStatus() {
-        return AppearanceSyncStatus.LOCAL_ONLY;
-    }
-
     default boolean warmedReconciliationRecommended() {
         return false;
     }

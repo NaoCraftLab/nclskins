@@ -359,10 +359,6 @@ public interface LibraryEditorPort {
                     account, Optional.empty(), List.of(), Optional.of(appearance));
         }
 
-        public static PresetDelete withRemoteReset(RemoteResult result) {
-            return withRemoteReset(result, List.of());
-        }
-
         public static PresetDelete withRemoteReset(
                 RemoteResult result, List<String> cleanupWarnings) {
             Objects.requireNonNull(result, "result");

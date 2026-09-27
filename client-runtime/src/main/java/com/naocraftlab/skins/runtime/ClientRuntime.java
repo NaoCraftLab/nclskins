@@ -535,7 +535,6 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 Optional.empty(),
-                ServerAppearanceReadiness.DelayScheduler.system(),
                 diagnostics);
     }
 
@@ -565,38 +564,6 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 serverAppearanceRefreshNotifier,
-                ServerAppearanceReadiness.DelayScheduler.system(),
-                diagnostics);
-    }
-
-    ClientRuntime(
-            RuntimeServices services,
-            ClientOperations operations,
-            ClientExecutor clientExecutor,
-            FilePicker filePicker,
-            Executor worker,
-            TextResolver textResolver,
-            Optional<? extends AppearanceRefresh> appearanceRefresh,
-            Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
-            DiagnosticSink diagnostics) {
-        this(
-                services,
-                operations,
-                clientExecutor,
-                filePicker,
-                worker,
-                null,
-                worker,
-                null,
-                worker,
-                null,
-                textResolver,
-                Optional.empty(),
-                appearanceRefresh,
-                Optional.empty(),
-                serverAppearanceRefreshNotifier,
-                readinessScheduler,
                 diagnostics);
     }
 
@@ -610,7 +577,6 @@ public final class ClientRuntime implements AutoCloseable {
             TextResolver textResolver,
             Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(
                 services,
@@ -628,7 +594,6 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 serverAppearanceRefreshNotifier,
-                readinessScheduler,
                 diagnostics);
     }
 
@@ -643,7 +608,6 @@ public final class ClientRuntime implements AutoCloseable {
             TextResolver textResolver,
             Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(
                 services,
@@ -661,7 +625,6 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 Optional.empty(),
                 serverAppearanceRefreshNotifier,
-                readinessScheduler,
                 diagnostics);
     }
 
@@ -675,11 +638,10 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(services, operations, clientExecutor, filePicker, worker, textResolver, Optional.empty(),
                 appearanceRefresh, outerLayerVisibilityController, serverAppearanceRefreshNotifier,
-                readinessScheduler, diagnostics);
+                diagnostics);
     }
 
     ClientRuntime(
@@ -693,7 +655,6 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this(
                 services,
@@ -711,7 +672,6 @@ public final class ClientRuntime implements AutoCloseable {
                 appearanceRefresh,
                 outerLayerVisibilityController,
                 serverAppearanceRefreshNotifier,
-                readinessScheduler,
                 diagnostics);
     }
 
@@ -731,7 +691,6 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<? extends AppearanceRefresh> appearanceRefresh,
             Optional<OuterLayerVisibilityController> outerLayerVisibilityController,
             Optional<ServerAppearanceRefreshNotifier> serverAppearanceRefreshNotifier,
-            ServerAppearanceReadiness.DelayScheduler readinessScheduler,
             DiagnosticSink diagnostics) {
         this.operations = Objects.requireNonNull(operations, "operations");
         this.capeObservations = operations;
@@ -756,7 +715,6 @@ public final class ClientRuntime implements AutoCloseable {
         this.serverAppearanceReadiness = Objects.requireNonNull(
                         serverAppearanceRefreshNotifier, "serverAppearanceRefreshNotifier")
                 .map(services::readiness);
-        Objects.requireNonNull(readinessScheduler, "readinessScheduler");
         capeObservations.onCapeObservation(observation -> onClient(() -> {
             switch (observation.provider()) {
                 case OPTIFINE -> acceptOptiFineObservation(observation);
@@ -2776,14 +2734,6 @@ public final class ClientRuntime implements AutoCloseable {
         catalogImportFlow.chooseExternalImportFolder(source);
     }
 
-    private void finishExternalDirectoryPicker(
-            long ticket,
-            ExternalImportSource source,
-            Path ignored,
-            Throwable failure) {
-        catalogImportFlow.finishExternalDirectoryPicker(new ScreenOperationTicket(ticket), source, ignored, failure);
-    }
-
     private void toggleExternalCandidate(String candidateId) {
         catalogImportFlow.toggleExternalCandidate(candidateId);
     }
@@ -2833,10 +2783,6 @@ public final class ClientRuntime implements AutoCloseable {
             String sourceName,
             boolean useSuggestedPresetName) {
         return catalogImportFlow.openImportedDraft(draft, sourceName, useSuggestedPresetName);
-    }
-
-    private void finishAddSourcePicker(long ticket, byte[] ignored, Throwable failure) {
-        catalogImportFlow.finishAddSourcePicker(new ScreenOperationTicket(ticket), ignored, failure);
     }
 
     private void requestPersonalSkinDeletion(
@@ -2953,10 +2899,6 @@ public final class ClientRuntime implements AutoCloseable {
 
     private void chooseEditorPng() {
         editorFlow.chooseEditorPng();
-    }
-
-    private void finishEditorPicker(long ticket, byte[] ignored, Throwable failure) {
-        editorFlow.finishEditorPicker(new ScreenOperationTicket(ticket), ignored, failure);
     }
 
     private void saveEditor() {

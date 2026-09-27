@@ -296,10 +296,6 @@ final class EditorTabRuntimeTest {
                 TEXT,
                 Optional.empty(),
                 Optional.empty(),
-                (delay, action) -> {
-                    action.run();
-                    return () -> {};
-                },
                 DiagnosticSinks.discarding());
     }
 
