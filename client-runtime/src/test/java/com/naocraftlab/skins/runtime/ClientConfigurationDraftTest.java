@@ -32,7 +32,7 @@ final class ClientConfigurationDraftTest {
         draft.setPauseMenuPreview(MenuPreviewPlacement.OFF);
         assertEquals(original, service.client());
         assertEquals(original, configurationService().client());
-        service.saveClient(draft.value());
+        service.save(ServerConfigurationAccess.REMOTE_SERVER, draft.value(), Optional.empty());
         assertEquals(MenuPreviewPlacement.LEFT, service.client().menuPreview().titleScreen());
         assertEquals(MenuPreviewPlacement.OFF, configurationService().client().menuPreview().pauseMenu());
         var cancelled = new ClientConfigurationDraft(service.client(), new QueueDirectoryPicker());
@@ -41,7 +41,7 @@ final class ClientConfigurationDraftTest {
         draft.setTitleScreenPreview(ClientConfiguration.defaults().menuPreview().titleScreen());
         assertEquals(MenuPreviewPlacement.OFF, draft.value().menuPreview().pauseMenu());
         assertEquals(MenuPreviewPlacement.LEFT, service.client().menuPreview().titleScreen());
-        service.saveClient(draft.value());
+        service.save(ServerConfigurationAccess.REMOTE_SERVER, draft.value(), Optional.empty());
         assertEquals(MenuPreviewPlacement.RIGHT, service.client().menuPreview().titleScreen());
     }
 
@@ -100,6 +100,42 @@ final class ClientConfigurationDraftTest {
         assertEquals(true, draft.value().compatibility().hideIncompatibleGalleryLooks());
     }
 
+    @Test
+    void clientWriteFailureDoesNotPublishOrStartServerWrite() throws Exception {
+        var service = configurationService();
+        var original = service.client();
+        Path clientFile = temporaryDirectory.resolve(Json5ConfigurationRepository.CLIENT_FILE_NAME);
+        Files.delete(clientFile);
+        Files.createDirectory(clientFile);
+        Files.writeString(clientFile.resolve("block"), "test");
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> {
+            service.save(ServerConfigurationAccess.BEFORE_SERVER_START,
+                    original.withTitleScreenPreview(MenuPreviewPlacement.LEFT),
+                    Optional.of(com.naocraftlab.skins.core.config.ServerConfiguration.defaults()));
+        });
+        assertEquals(original, service.client());
+        org.junit.jupiter.api.Assertions.assertFalse(Files.exists(
+                temporaryDirectory.resolve(Json5ConfigurationRepository.SERVER_FILE_NAME)));
+    }
+
+    @Test
+    void serverWriteFailureKeepsClientPublishedAndStartupRootUntilRestart() throws Exception {
+        var service = configurationService();
+        Path startup = service.activeDataRoot();
+        var changed = service.client().withDataDirectory(temporaryDirectory.resolve("next").toString());
+        Path serverFile = temporaryDirectory.resolve(Json5ConfigurationRepository.SERVER_FILE_NAME);
+        Files.createDirectory(serverFile);
+        Files.writeString(serverFile.resolve("block"), "test");
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> {
+            service.save(ServerConfigurationAccess.BEFORE_SERVER_START, changed,
+                    Optional.of(com.naocraftlab.skins.core.config.ServerConfiguration.defaults()));
+        });
+        assertEquals(changed, service.client());
+        assertEquals(startup, service.activeDataRoot());
+        assertEquals(changed, configurationService().client());
+        assertEquals(temporaryDirectory.resolve("next"), configurationService().activeDataRoot());
+    }
+
     private ClientConfigurationService configurationService() {
         var descriptions = new ConfigurationDescriptions(java.util.Map.ofEntries(
                 java.util.Map.entry(ConfigurationDescriptions.CLIENT_TITLE_SCREEN, "Test description"),
@@ -112,8 +148,11 @@ final class ClientConfigurationDraftTest {
                 java.util.Map.entry(ConfigurationDescriptions.SERVER_MAX_CONCURRENT, "Test description"),
                 java.util.Map.entry(ConfigurationDescriptions.SERVER_LOOKUP_RATE, "Test description"),
                 java.util.Map.entry(ConfigurationDescriptions.SERVER_LOOKUP_BURST, "Test description")));
-        return new ClientConfigurationService(temporaryDirectory,
+        var store = new com.naocraftlab.skins.runtime.configuration.Json5ConfigurationStore(
                 new Json5ConfigurationRepository(temporaryDirectory, descriptions));
+        var initial = store.loadClient();
+        Path defaultRoot = temporaryDirectory.resolve("default");
+        return new ClientConfigurationService(store, initial, initial.dataRoot(defaultRoot), defaultRoot);
     }
 
     private static final class QueueDirectoryPicker implements FilePicker {

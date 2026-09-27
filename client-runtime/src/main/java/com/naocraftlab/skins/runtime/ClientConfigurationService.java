@@ -1,59 +1,53 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.core.config.ClientConfiguration;
-import com.naocraftlab.skins.core.config.Json5ConfigurationRepository;
 import com.naocraftlab.skins.core.config.ServerConfiguration;
-import com.naocraftlab.skins.core.storage.NclSkinsStorage;
-
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
 
-
-public final class ClientConfigurationService {
-    private final Path configurationDirectory;
-    private final Json5ConfigurationRepository repository;
+public final class ClientConfigurationService implements ConfigurationUseCases {
+    private final ConfigurationStore store;
     private final Path activeDataRoot;
+    private final Path defaultDataRoot;
     private volatile ClientConfiguration client;
 
-    public ClientConfigurationService(Path configurationDirectory) {
-        this(
-                configurationDirectory,
-                Json5ConfigurationRepository.bundled(configurationDirectory));
+    public ClientConfigurationService(ConfigurationStore store, ClientConfiguration initial,
+            Path activeDataRoot, Path defaultDataRoot) {
+        this.store = Objects.requireNonNull(store, "store");
+        this.client = Objects.requireNonNull(initial, "initial");
+        this.activeDataRoot = Objects.requireNonNull(activeDataRoot, "activeDataRoot");
+        this.defaultDataRoot = Objects.requireNonNull(defaultDataRoot, "defaultDataRoot");
     }
 
-    ClientConfigurationService(
-            Path configurationDirectory,
-            Json5ConfigurationRepository repository) {
-        this.configurationDirectory = Objects.requireNonNull(
-                configurationDirectory, "configurationDirectory").toAbsolutePath().normalize();
-        this.repository = Objects.requireNonNull(repository, "repository");
-        client = repository.loadClient();
-        activeDataRoot = client.dataRoot(NclSkinsStorage.defaultRoot());
-    }
-
-    public Path configurationDirectory() {
-        return configurationDirectory;
-    }
-
+    @Override
     public ClientConfiguration client() {
         return client;
     }
 
+    @Override
     public Path activeDataRoot() {
         return activeDataRoot;
     }
 
-    public synchronized void saveClient(ClientConfiguration configuration) {
+    @Override
+    public synchronized ConfigurationSession openSession(ServerConfigurationAccess access) {
+        Objects.requireNonNull(access, "access");
+        return new ConfigurationSession(client,
+                access.visible() ? Optional.of(store.loadServer()) : Optional.empty(),
+                access, activeDataRoot, defaultDataRoot);
+    }
+
+    @Override
+    public synchronized void save(ServerConfigurationAccess access, ClientConfiguration configuration,
+            Optional<ServerConfiguration> server) {
+        Objects.requireNonNull(access, "access");
+        Objects.requireNonNull(server, "server");
         ClientConfiguration checked = Objects.requireNonNull(configuration, "configuration");
-        repository.saveClient(checked);
+        store.saveClient(checked);
         client = checked;
-    }
-
-    public ServerConfiguration loadServer() {
-        return repository.loadServer();
-    }
-
-    public void saveServer(ServerConfiguration configuration) {
-        repository.saveServer(Objects.requireNonNull(configuration, "configuration"));
+        if (access.visible()) {
+            server.ifPresent(store::saveServer);
+        }
     }
 }

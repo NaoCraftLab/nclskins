@@ -2,7 +2,8 @@ package com.naocraftlab.skins.compat.config;
 
 import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.naocraftlab.skins.client.FilePicker;
-import com.naocraftlab.skins.runtime.ClientConfigurationService;
+import com.naocraftlab.skins.runtime.ConfigurationUseCases;
+import com.naocraftlab.skins.runtime.composition.ClientCompositionRoot;
 import com.naocraftlab.skins.runtime.ServerConfigurationAccess;
 import it.unimi.dsi.fastutil.booleans.BooleanConsumer;
 import java.net.URI;
@@ -18,7 +19,8 @@ import net.minecraft.client.gui.screens.TitleScreen;
 public final class MinecraftConfigurationBridge {
     private static final String YACL_URL = "https://modrinth.com/mod/yacl";
 
-    private static ClientConfigurationService service;
+    private static ConfigurationUseCases service;
+    private static Path configurationDirectory;
     private static FilePicker filePicker;
     private static Consumer<Screen> screenSetter;
     private static Consumer<URI> linkOpener;
@@ -26,7 +28,7 @@ public final class MinecraftConfigurationBridge {
 
     private MinecraftConfigurationBridge() {}
 
-    public static synchronized ClientConfigurationService initialize(
+    public static synchronized ConfigurationUseCases initialize(
             Path configurationDirectory,
             FilePicker nativeFileDialog,
             Consumer<Screen> nativeScreenSetter,
@@ -40,11 +42,12 @@ public final class MinecraftConfigurationBridge {
         Consumer<URI> requestedLinkOpener = Objects.requireNonNull(
                 nativeLinkOpener, "nativeLinkOpener");
         if (service == null) {
-            service = new ClientConfigurationService(requested);
+            service = ClientCompositionRoot.createConfiguration(requested);
+            MinecraftConfigurationBridge.configurationDirectory = requested;
             filePicker = requestedPicker;
             screenSetter = requestedScreenSetter;
             linkOpener = requestedLinkOpener;
-        } else if (!service.configurationDirectory().equals(requested)) {
+        } else if (!MinecraftConfigurationBridge.configurationDirectory.equals(requested)) {
             throw new IllegalStateException("NCL Skins client config directory changed during startup");
         } else if (filePicker != requestedPicker) {
             throw new IllegalStateException("NCL Skins native file picker changed during startup");
@@ -61,7 +64,7 @@ public final class MinecraftConfigurationBridge {
         screenFactory = nativeFactory;
     }
 
-    public static synchronized ClientConfigurationService service() {
+    public static synchronized ConfigurationUseCases service() {
         if (service == null) {
             throw new IllegalStateException("NCL Skins client configuration is not initialized");
         }
@@ -81,7 +84,7 @@ public final class MinecraftConfigurationBridge {
 
     public static Screen createScreen(Screen parent) {
         Objects.requireNonNull(parent, "parent");
-        ClientConfigurationService current = service();
+        ConfigurationUseCases current = service();
         ConfigurationScreenFactory factory = screenFactory;
         if (factory == null) {
             return missingYaclScreen(parent);

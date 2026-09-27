@@ -8,6 +8,8 @@ import com.naocraftlab.skins.core.importing.PublicProfileLookup;
 import com.naocraftlab.skins.core.api.ProfileApi;
 import com.naocraftlab.skins.core.api.ProfileSessionAdapter;
 import com.naocraftlab.skins.core.config.ClientConfiguration;
+import com.naocraftlab.skins.core.config.Json5ConfigurationRepository;
+import com.naocraftlab.skins.runtime.configuration.Json5ConfigurationStore;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.service.*;
 import com.naocraftlab.skins.core.storage.*;
@@ -24,6 +26,14 @@ import java.util.function.Supplier;
 
 public final class ClientCompositionRoot {
     private ClientCompositionRoot() {}
+
+    public static ConfigurationUseCases createConfiguration(Path configurationDirectory) {
+        ConfigurationStore store = new Json5ConfigurationStore(
+                Json5ConfigurationRepository.bundled(configurationDirectory));
+        ClientConfiguration initial = store.loadClient();
+        Path defaultRoot = NclSkinsStorage.defaultRoot();
+        return new ClientConfigurationService(store, initial, initial.dataRoot(defaultRoot), defaultRoot);
+    }
 
     public static <C> ClientApplicationHost<C> createApplication(
             ClientCapabilitySet capabilities, TextResolver textResolver, Path dataRoot,

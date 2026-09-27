@@ -4,9 +4,10 @@ import com.naocraftlab.skins.core.config.MenuPreviewPlacement;
 import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.core.config.ClientConfiguration;
 import com.naocraftlab.skins.core.config.ServerConfiguration;
-import com.naocraftlab.skins.core.storage.NclSkinsStorage;
+import java.nio.file.Path;
+import java.util.Optional;
 import com.naocraftlab.skins.runtime.ClientConfigurationDraft;
-import com.naocraftlab.skins.runtime.ClientConfigurationService;
+import com.naocraftlab.skins.runtime.ConfigurationUseCases;
 import com.naocraftlab.skins.runtime.ConfigurationActionRunner;
 import com.naocraftlab.skins.runtime.ServerConfigurationAccess;
 import dev.isxander.yacl3.api.ButtonOption;
@@ -31,33 +32,28 @@ public final class YaclConfigurationScreenFactory {
 
     public static Screen create(
             Screen parent,
-            ClientConfigurationService service,
+            ConfigurationUseCases service,
             FilePicker nativeFileDialog,
             ServerConfigurationAccess serverAccess) {
         Objects.requireNonNull(parent, "parent");
-        ClientConfigurationService checkedService = Objects.requireNonNull(service, "service");
+        ConfigurationUseCases checkedService = Objects.requireNonNull(service, "service");
         ServerConfigurationAccess checkedServerAccess = Objects.requireNonNull(
                 serverAccess, "serverAccess");
+        var session = checkedService.openSession(checkedServerAccess);
         ClientConfigurationDraft clientDraft = new ClientConfigurationDraft(
-                checkedService.client(),
+                session.client(),
                 Objects.requireNonNull(nativeFileDialog, "nativeFileDialog"));
-        AtomicReference<ServerConfiguration> serverDraft = checkedServerAccess.visible()
-                ? new AtomicReference<>(checkedService.loadServer())
-                : null;
+        AtomicReference<ServerConfiguration> serverDraft = session.server().map(AtomicReference::new).orElse(null);
 
         YetAnotherConfigLib.Builder builder = YetAnotherConfigLib.createBuilder()
                 .title(Component.translatable("nclskins.config.title"))
-                .category(clientCategory(clientDraft))
-                .save(() -> {
-                    checkedService.saveClient(clientDraft.value());
-                    if (serverDraft != null) {
-                        checkedService.saveServer(serverDraft.get());
-                    }
-        });
+                .category(clientCategory(clientDraft, session.defaultDataRoot()))
+                .save(() -> checkedService.save(session.serverAccess(), clientDraft.value(),
+                        serverDraft == null ? Optional.empty() : Optional.of(serverDraft.get())));
         if (serverDraft != null) {
             builder.category(serverCategory(
                     serverDraft,
-                    checkedServerAccess.restartRequired()));
+                    session.serverAccess().restartRequired()));
         }
         return builder.build().generateScreen(parent);
     }
@@ -86,7 +82,7 @@ public final class YaclConfigurationScreenFactory {
     }
 
     private static ConfigCategory clientCategory(
-            ClientConfigurationDraft draft) {
+            ClientConfigurationDraft draft, Path defaultDataRoot) {
         ClientConfiguration defaults = ClientConfiguration.defaults();
         Option<MenuPreviewPlacement> titleScreen = Option.<MenuPreviewPlacement>createBuilder()
                 .name(Component.translatable(
@@ -143,7 +139,7 @@ public final class YaclConfigurationScreenFactory {
                         draft::setDataDirectory)
                 .customController(option -> new FolderPickerController(
                         option,
-                        NclSkinsStorage.defaultRoot(),
+                        defaultDataRoot,
                         draft))
                 .flag(OptionFlag.GAME_RESTART)
                 .build();
