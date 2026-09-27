@@ -46,11 +46,6 @@ public final class OuterLayerVisibility {
         return visibleParts.containsAll(parts);
     }
 
-    public boolean anyVisible(Collection<OuterLayerPart> parts) {
-        Objects.requireNonNull(parts, "parts");
-        return parts.stream().anyMatch(visibleParts::contains);
-    }
-
     public OuterLayerVisibility with(OuterLayerPart part, boolean visible) {
         return withAll(Set.of(Objects.requireNonNull(part, "part")), visible);
     }

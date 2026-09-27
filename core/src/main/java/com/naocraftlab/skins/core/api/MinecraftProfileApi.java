@@ -583,22 +583,6 @@ public final class MinecraftProfileApi implements ProfileApi {
         return UUID.fromString(dashed);
     }
 
-    private static JsonArray requiredArray(JsonObject object, String member) {
-        JsonElement value = object.get(member);
-        if (value == null || !value.isJsonArray()) {
-            throw new JsonParseException("Missing array");
-        }
-        return value.getAsJsonArray();
-    }
-
-    private static String requiredString(JsonObject object, String member) {
-        JsonElement value = object.get(member);
-        if (value == null || value.isJsonNull() || !value.isJsonPrimitive()) {
-            throw new JsonParseException("Missing string");
-        }
-        return value.getAsString();
-    }
-
     private static String requiredProfileString(JsonObject object, String member) {
         JsonElement value = object.get(member);
         if (value == null
@@ -619,11 +603,6 @@ public final class MinecraftProfileApi implements ProfileApi {
             return null;
         }
         return value.getAsString();
-    }
-
-    private static String optionalString(JsonObject object, String member) {
-        JsonElement value = object.get(member);
-        return value == null || value.isJsonNull() ? null : value.getAsString();
     }
 
     private static boolean sameAuthorityAndScheme(URI expected, URI actual) {

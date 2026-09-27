@@ -49,10 +49,6 @@ public record PresetApplicationOutcome(
                 userMessage);
     }
 
-    public Optional<RemoteProfile> optionalBeforeProfile() {
-        return Optional.ofNullable(beforeProfile);
-    }
-
     public Optional<AppliedAppearance> optionalAppliedAppearance() {
         return Optional.ofNullable(appliedAppearance);
     }

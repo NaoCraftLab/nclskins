@@ -73,10 +73,6 @@ public final class Json5ConfigurationRepository {
         return writeClient(Objects.requireNonNull(configuration, "configuration"));
     }
 
-    public String canonicalServer(ServerConfiguration configuration) {
-        return serverRepository().canonical(configuration);
-    }
-
     private ServerConfigurationRepository serverRepository() {
         return new ServerConfigurationRepository(configurationDirectory, descriptions::get);
     }

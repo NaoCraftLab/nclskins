@@ -555,7 +555,6 @@ public record ViewSpec(
 
         CAPE_CARD,
 
-        CATALOG_DELETE,
         PROVIDER_ACTION
     }
 
@@ -1103,20 +1102,6 @@ public record ViewSpec(
                     maxLength,
                     selectAllOnFocusAcquire,
                     submitActionId);
-        }
-
-        public static Widget catalogDelete(
-                String id, Bounds bounds, UiMessage accessibleLabel, boolean enabled) {
-            return new Widget(
-                    id,
-                    WidgetKind.CATALOG_DELETE,
-                    bounds,
-                    accessibleLabel,
-                    Optional.empty(),
-                    Optional.empty(),
-                    enabled,
-                    true,
-                    0);
         }
     }
 

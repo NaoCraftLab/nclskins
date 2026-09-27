@@ -1501,16 +1501,6 @@ public final class NclSkinsScreen extends Screen {
                 case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {
                     renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());
                 }
-                case CATALOG_DELETE -> {
-                    int background = isHoveredOrFocused() ? 0xCC7A3030 : 0x99302020;
-                    graphics.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), background);
-                    graphics.drawCenteredString(
-                            font,
-                            Component.literal("×"),
-                            getX() + getWidth() / 2,
-                            getY() + (getHeight() - font.lineHeight) / 2,
-                            active ? 0xFFFFFFFF : 0xFF777777);
-                }
                 case CATALOG_CARD, SELECTABLE_CARD, CAPE_CARD, PROVIDER_ACTION -> {
                 }
                 case COLLECTION_HEADER -> renderCollectionHeader(graphics, font);

@@ -881,17 +881,6 @@ public final class NclSkinsStorage {
         }
     }
 
-    public AccountState selectOfflineCape(UUID accountId, UUID presetId,
-            com.naocraftlab.skins.core.model.LocalCapeReference selection) throws IOException {
-        return updateAccount(accountId, current -> {
-            var valid = selection == null || selection.entryId() == null || current.personalCapes().stream()
-                    .anyMatch(entry -> entry.texture().equals(selection)) ? selection : null;
-            return new AccountState(current.schemaVersion(), current.accountId(), current.skinAssets(), current.personalSkins(),
-                    current.presets().stream().map(preset -> preset.id().equals(presetId) ? preset.withOfflineCape(valid) : preset).toList(),
-                    current.updatedAt().plusNanos(1), current.personalCapes());
-        });
-    }
-
     public AccountAppearanceMutationResult deleteCape(UUID accountId, UUID entryId) throws IOException {
         return mutateAccountAndAppearance(accountId, (account, appearance, revision) -> {
             var entry = account.personalCapes().stream().filter(value -> value.texture().entryId().equals(entryId)).findFirst();

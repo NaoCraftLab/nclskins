@@ -359,22 +359,6 @@ public final class ServerAppearanceRefreshCoordinator implements AutoCloseable {
         applyPostCommit(action);
     }
 
-    private void scheduleCycleAt(Cycle cycle, long dueAt) {
-        PostCommit action;
-        synchronized (lock) {
-            if (!isCurrentLocked(cycle)) {
-                return;
-            }
-            long now = nanoTime.getAsLong();
-            if (isExpiredLocked(cycle, now)) {
-                action = terminalActionLocked(cycle, RefreshResult.EXPIRED);
-            } else {
-                action = PostCommit.scheduleAt(reserveScheduleLocked(cycle), dueAt);
-            }
-        }
-        applyPostCommit(action);
-    }
-
     private ScheduleReservation reserveScheduleLocked(Cycle cycle) {
         PendingSchedule token = new PendingSchedule();
         Cancellable previous = cycle.schedule;

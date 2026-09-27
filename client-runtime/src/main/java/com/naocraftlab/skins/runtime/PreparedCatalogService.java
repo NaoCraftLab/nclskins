@@ -524,10 +524,6 @@ final class PreparedCatalogService implements CatalogRead, CatalogMaterializatio
         return discovered;
     }
 
-    synchronized PreparedCatalogSnapshot preparedCapes() {
-        return frozenResourceCapeDiscovery(bundledSkins.capeGeneration()).prepared();
-    }
-
     private static String resourceCapePreviewKey(
             long generation, ResourceCapeKey key, String sourceSha256) {
         return "resource:cape:" + generation + ":" + key.collectionId() + ":"

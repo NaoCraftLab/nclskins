@@ -384,14 +384,6 @@ public final class NclSkinsScreen extends Screen {
                         () -> dispatchNativeWidget(spec.id(), false));
                 header.active = spec.enabled();
                 widget = header;
-            } else if (spec.kind() == ViewSpec.WidgetKind.CATALOG_DELETE) {
-                CatalogDeleteWidget delete = new CatalogDeleteWidget(
-                        font,
-                        bounds,
-                        MinecraftClientComponents.resolve(spec.label()),
-                        () -> dispatchNativeWidget(spec.id(), false));
-                delete.active = spec.enabled();
-                widget = delete;
             } else if (spec.kind() == ViewSpec.WidgetKind.ICON_BUTTON
                     || spec.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
                     || spec.kind() == ViewSpec.WidgetKind.TAB_BUTTON) {
@@ -1313,7 +1305,7 @@ public final class NclSkinsScreen extends Screen {
         Optional<ViewSpec.Widget> pointerOwner = pointerOwnerAt(view, event.x(), event.y());
         Optional<ViewSpec.Widget> priorityAction = pointerOwner.filter(widget ->
                 widget.kind() == ViewSpec.WidgetKind.INFO_BUTTON
-                        || (widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE || widget.kind() == ViewSpec.WidgetKind.PROVIDER_ACTION));
+                        || widget.kind() == ViewSpec.WidgetKind.PROVIDER_ACTION);
         if (priorityAction.isPresent()) {
             ViewSpec.Widget action = priorityAction.orElseThrow();
             if (ExtractionInputAdapter.isPrimaryPointer(event) && action.enabled()) {
@@ -1507,15 +1499,6 @@ public final class NclSkinsScreen extends Screen {
     private static boolean capturesPointer(ViewSpec view, double mouseX, double mouseY) {
         PointerRouting.Hit hit = PointerRouting.hit(view, mouseX, mouseY);
         return hit.scrollbar() || hit.preview("editor.preview");
-    }
-
-    private static boolean isVerticalScrollSurface(ViewSpec view, double mouseX, double mouseY) {
-        return view.scrollbar()
-                .filter(scrollbar -> scrollbar.orientation() == ViewSpec.Scrollbar.Orientation.VERTICAL)
-                .map(ViewSpec.Scrollbar::track)
-                .filter(track -> mouseX >= 0.0 && mouseX < view.width())
-                .filter(track -> mouseY >= track.y() && mouseY < track.bottom())
-                .isPresent();
     }
 
     private void syncPreviewAssets(ViewSpec view) {
@@ -1992,40 +1975,6 @@ public final class NclSkinsScreen extends Screen {
             graphics.fill(x + 1, bottom - 2, right - 1, bottom - 1, CatalogCardStyle.FOCUS_FRAME_COLOR);
             graphics.fill(x + 1, y + 2, x + 2, bottom - 2, CatalogCardStyle.FOCUS_FRAME_COLOR);
             graphics.fill(right - 2, y + 2, right - 1, bottom - 2, CatalogCardStyle.FOCUS_FRAME_COLOR);
-        }
-    }
-
-    private static final class CatalogDeleteWidget extends AbstractButton {
-        private final Font font;
-        private final Runnable onPress;
-
-        private CatalogDeleteWidget(Font font, Bounds bounds, Component message, Runnable onPress) {
-            super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
-            this.font = Objects.requireNonNull(font, "font");
-            this.onPress = Objects.requireNonNull(onPress, "onPress");
-        }
-
-        @Override
-        public void onPress(InputWithModifiers input) {
-            onPress.run();
-        }
-
-        @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-            int background = isHoveredOrFocused() ? 0xCC7A3030 : 0x99302020;
-            graphics.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), background);
-            graphics.centeredText(
-                    font,
-                    Component.literal("×"),
-                    getX() + getWidth() / 2,
-                    getY() + (getHeight() - font.lineHeight) / 2,
-                    active ? 0xFFFFFFFF : 0xFF777777);
-        }
-
-        @Override
-        public void updateWidgetNarration(NarrationElementOutput output) {
-            defaultButtonNarrationText(output);
         }
     }
 

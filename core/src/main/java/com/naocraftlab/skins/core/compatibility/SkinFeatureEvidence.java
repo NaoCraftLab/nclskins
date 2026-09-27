@@ -19,8 +19,4 @@ public record SkinFeatureEvidence(
             throw new IllegalArgumentException("potentialConflicts must not contain duplicates");
         }
     }
-
-    public boolean isOrdinary() {
-        return supportedFeatures.isEmpty() && potentialConflicts.isEmpty();
-    }
 }

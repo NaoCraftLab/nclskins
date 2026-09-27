@@ -1216,17 +1216,6 @@ public final class PresetEditorModel {
             double position,
             Optional<ViewSpec.Scrollbar> scrollbar) {}
 
-    private UiMessage selectedCapeLabel() {
-        CapeChoice selected = capeChoices.stream()
-                .filter(choice -> choice.id().equals(capeId))
-                .findFirst()
-                .orElse(new CapeChoice(capeId, capeId
-                        .map(PresetEditorModel::shortId)
-                        .map(value -> UiMessage.literal(value, UiMessage.Severity.INFO))
-                        .orElseGet(() -> UiMessage.info("nclskins.editor.no_cape"))));
-        return selected.label();
-    }
-
     private static Optional<String> catalogInfo(CatalogOrigin origin) {
         StringBuilder info = new StringBuilder();
         origin.description().ifPresent(info::append);

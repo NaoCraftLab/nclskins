@@ -2486,7 +2486,7 @@ final class BuildLogicTest {
         assertTrue(submission.contains('spec.hint()'))
         String submissionIndicator = submission.substring(
                 submission.indexOf('case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {'),
-                submission.indexOf('case CATALOG_DELETE -> {'))
+                submission.indexOf('case CATALOG_CARD, SELECTABLE_CARD, CAPE_CARD, PROVIDER_ACTION -> {'))
         assertTrue(submissionIndicator.contains(
                 'renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());'))
         assertFalse(submissionIndicator.contains('renderDefaultSprite('))

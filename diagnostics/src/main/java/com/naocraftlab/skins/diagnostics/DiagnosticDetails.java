@@ -62,11 +62,6 @@ public final class DiagnosticDetails {
                 SanitizedFailure.from(failure));
     }
 
-    public static DiagnosticDetails attemptFailure(int attempt, Throwable failure) {
-        return new DiagnosticDetails(
-                null, null, attempt, null, SanitizedFailure.from(failure));
-    }
-
     public static DiagnosticDetails count(long count) {
         return new DiagnosticDetails(null, count, null, null, null);
     }

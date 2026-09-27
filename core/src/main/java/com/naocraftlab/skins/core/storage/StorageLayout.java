@@ -72,16 +72,8 @@ public record StorageLayout(
         return root.resolve("intent-sequence-v1");
     }
 
-    public Path intentSequenceLock() {
-        return locks.resolve("intent-sequence.lock");
-    }
-
     public Path identityRegistry() {
         return root.resolve("identities-v1.json");
-    }
-
-    public Path identityRegistryLock() {
-        return locks.resolve("identities.lock");
     }
 
     public Path assetLock(String sha256) {

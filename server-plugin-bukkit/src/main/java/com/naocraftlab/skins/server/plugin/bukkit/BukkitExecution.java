@@ -9,11 +9,9 @@ import java.util.concurrent.CompletableFuture;
 
 final class BukkitExecution {
     private final BukkitExecutionStrategy strategy;
-    private final boolean regionized;
 
     BukkitExecution(Plugin plugin, boolean regionized) {
         Plugin checkedPlugin = Objects.requireNonNull(plugin, "plugin");
-        this.regionized = regionized;
         strategy = regionized
                 ? new FoliaExecutionStrategy(checkedPlugin)
                 : new ClassicBukkitExecutionStrategy(checkedPlugin);
@@ -27,10 +25,6 @@ final class BukkitExecution {
 
     void nextTick(Player player, Runnable action) {
         strategy.nextTick(player, action);
-    }
-
-    boolean isRegionized() {
-        return regionized;
     }
 
 }

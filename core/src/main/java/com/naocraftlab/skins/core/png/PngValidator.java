@@ -384,23 +384,6 @@ public final class PngValidator {
         }
     }
 
-    private static boolean isExpandedLegacyLayout(BufferedImage image) {
-        if (image.getWidth() != 64 || image.getHeight() != 64) {
-            return false;
-        }
-        BufferedImage expected = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        mirrorLegacyLimb(image, expected, 0, 16, 16, 48);
-        mirrorLegacyLimb(image, expected, 40, 16, 32, 48);
-        for (int y = 32; y < 64; y++) {
-            for (int x = 0; x < 64; x++) {
-                if (visibleArgb(image.getRGB(x, y)) != visibleArgb(expected.getRGB(x, y))) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
     private static void mirrorLegacyLimb(
             BufferedImage source,
             BufferedImage target,

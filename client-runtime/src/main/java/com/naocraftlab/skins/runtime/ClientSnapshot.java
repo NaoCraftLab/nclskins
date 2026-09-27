@@ -413,16 +413,6 @@ public record ClientSnapshot(
                 skinExtensionEnvironment);
     }
 
-    public SkinCompatibility catalogCompatibility(
-            String collectionId, String skinId, com.naocraftlab.skins.core.model.SkinVariant variant) {
-        String key = Objects.requireNonNull(collectionId, "collectionId")
-                + ':' + Objects.requireNonNull(skinId, "skinId")
-                + ':' + Objects.requireNonNull(variant, "variant").name();
-        return new SkinCompatibilityEvaluator().evaluate(
-                catalogEvidence.getOrDefault(key, SkinFeatureEvidence.ORDINARY),
-                skinExtensionEnvironment);
-    }
-
     public record RateLimitProgress(Duration remaining, Duration total, double fraction) {
         public RateLimitProgress {
             Objects.requireNonNull(remaining, "remaining");

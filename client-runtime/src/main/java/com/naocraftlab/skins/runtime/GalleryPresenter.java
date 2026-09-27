@@ -703,10 +703,6 @@ public final class GalleryPresenter {
                         ? Optional.of(UiMessage.info("nclskins.recovery.retry_cape")) : Optional.empty();
     }
 
-    private static boolean rateLimitWaiting(ClientSnapshot snapshot) {
-        return snapshot.rateLimited() || snapshot.rateLimitProgress().isPresent();
-    }
-
     private static boolean rateLimitedPending(ClientSnapshot snapshot) {
         if (snapshot.rateLimitProgress().isEmpty()) {
             return false;

@@ -14,8 +14,4 @@ public final class PersonalSkinCatalog {
         return COLLECTION_ID.equals(collectionId)
                 || OTHER_PLAYERS_COLLECTION_ID.equals(collectionId);
     }
-
-    public static boolean isOtherPlayersCollection(String collectionId) {
-        return OTHER_PLAYERS_COLLECTION_ID.equals(collectionId);
-    }
 }

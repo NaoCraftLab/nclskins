@@ -358,7 +358,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         Optional<ViewSpec.Widget> pointerOwner = pointerOwnerAt(clickView, mouseX, mouseY);
         Optional<ViewSpec.Widget> priorityAction = pointerOwner.filter(widget ->
                 widget.kind() == ViewSpec.WidgetKind.INFO_BUTTON
-                        || (widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE || widget.kind() == ViewSpec.WidgetKind.PROVIDER_ACTION));
+                        || widget.kind() == ViewSpec.WidgetKind.PROVIDER_ACTION);
         if (priorityAction.isPresent()) {
             ViewSpec.Widget action = priorityAction.orElseThrow();
             if (button == 0 && action.enabled()) {
@@ -728,15 +728,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     bounds.height(),
                     resolve(widget.label()),
                     widget.collectionHeaderHasTrailingInfo());
-        }
-        if ((widget.kind() == ViewSpec.WidgetKind.CATALOG_DELETE || widget.kind() == ViewSpec.WidgetKind.PROVIDER_ACTION)) {
-            return new CatalogDeleteWidget(
-                    widget.id(),
-                    bounds.x(),
-                    bounds.y(),
-                    bounds.width(),
-                    bounds.height(),
-                    resolve(widget.label()));
         }
         if (widget.kind() == ViewSpec.WidgetKind.ICON_BUTTON
                 || widget.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
@@ -1251,45 +1242,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             if (isFocused() && !widgetId.startsWith("providers.row.")) {
                 drawCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
-        }
-
-        @Override
-        protected void updateWidgetNarration(NarrationElementOutput output) {
-            defaultButtonNarrationText(output);
-        }
-    }
-
-
-    private final class CatalogDeleteWidget extends AbstractButton {
-        private final String widgetId;
-
-        private CatalogDeleteWidget(
-                String widgetId,
-                int x,
-                int y,
-                int width,
-                int height,
-                Component message) {
-            super(x, y, width, height, message);
-            this.widgetId = Objects.requireNonNull(widgetId, "widgetId");
-        }
-
-        @Override
-        public void onPress() {
-            dispatchNativeWidget(widgetId, hasShiftDown());
-        }
-
-        @Override
-        protected void renderWidget(
-                GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-            int background = isHoveredOrFocused() ? 0xCC7A3030 : 0x99302020;
-            graphics.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), background);
-            graphics.drawCenteredString(
-                    font,
-                    Component.literal("×"),
-                    getX() + getWidth() / 2,
-                    getY() + (getHeight() - font.lineHeight) / 2,
-                    active ? 0xFFFFFFFF : 0xFF777777);
         }
 
         @Override
@@ -1912,16 +1864,6 @@ public abstract class NclSkinsImmediateScreen extends Screen {
 
     private static boolean isPointerSurface(ViewSpec view, double mouseX, double mouseY) {
         return PointerRouting.hit(view, mouseX, mouseY).anyInteractiveSurface();
-    }
-
-    private static boolean isVerticalScrollSurface(
-            ViewSpec view, double mouseX, double mouseY) {
-        return view.scrollbar()
-                .filter(scrollbar -> scrollbar.orientation() == ViewSpec.Scrollbar.Orientation.VERTICAL)
-                .map(ViewSpec.Scrollbar::track)
-                .filter(track -> mouseX >= 0.0 && mouseX < view.width())
-                .filter(track -> mouseY >= track.y() && mouseY < track.bottom())
-                .isPresent();
     }
 
     private record WidgetShape(
