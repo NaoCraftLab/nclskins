@@ -72,7 +72,7 @@ public final class ProvidersPresenter {
         boolean showFeedback = linkFeedback != null && component == AppearanceProviders.Component.CAPE;
         int feedbackHeight = showFeedback ? Math.max(12, textResolver.wrappedHeight(linkFeedback, contentWidth)) : 0;
         int feedbackY = height - 37 - feedbackHeight;
-        int viewportBottom = showFeedback ? feedbackY - 4 : height - 37;
+        int viewportBottom = showFeedback ? feedbackY - 4 : height - 33;
         Bounds rowViewport = new Bounds(x, 65, contentWidth, Math.max(1, viewportBottom - 65));
         Map<BuiltinProvider, Duration> visibleCooldowns = component == AppearanceProviders.Component.CAPE
                 ? capeProviderCooldowns : Map.of();

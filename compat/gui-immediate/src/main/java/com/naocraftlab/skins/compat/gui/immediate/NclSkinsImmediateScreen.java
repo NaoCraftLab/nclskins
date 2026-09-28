@@ -854,9 +854,11 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     int sh = crop.height();
                     float u = crop.u();
                     float v = crop.v();
-                    graphics.blit(ResourceLocation.tryParse(loaded.location()), b.x(), b.y(), b.width(), b.height(), u, v, sw, sh, w, h);
-                    if (texture.skin() && texture.overlay()) graphics.blit(ResourceLocation.tryParse(loaded.location()), b.x(), b.y(), b.width(), b.height(), w * 40 / 64.0F, v, sw, sh, w, h);
-                    renderProviderArrows(graphics, view, decoration, mouseX, mouseY);
+                    renderClipped(graphics, view, decoration.id(), () -> {
+                        graphics.blit(ResourceLocation.tryParse(loaded.location()), b.x(), b.y(), b.width(), b.height(), u, v, sw, sh, w, h);
+                        if (texture.skin() && texture.overlay()) graphics.blit(ResourceLocation.tryParse(loaded.location()), b.x(), b.y(), b.width(), b.height(), w * 40 / 64.0F, v, sw, sh, w, h);
+                        renderProviderArrows(graphics, view, decoration, mouseX, mouseY);
+                    });
                     continue;
                 }
             }
@@ -893,7 +895,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
                 }
             });
-            renderProviderArrows(graphics, view, decoration, mouseX, mouseY);
+            renderClipped(graphics, view, decoration.id(), () ->
+                    renderProviderArrows(graphics, view, decoration, mouseX, mouseY));
         }
     }
 

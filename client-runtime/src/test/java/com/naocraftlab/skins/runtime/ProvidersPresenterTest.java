@@ -14,6 +14,55 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProvidersPresenterTest {
+    @Test void providerRowsKeepExistingInputAndFooterBehaviorAtShortHeight() {
+        var providers = AppearanceProviders.initial();
+        var view = new ProvidersPresenter().present(providers, AppearanceProviders.Component.SKIN,
+                false, false, PreviewInteractionModel.editor(100, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 200, 100, null, null, java.util.Optional.empty(),
+                false, null, 999, UiMessage::key);
+        var rows = view.scrollSurface("providers.rows").orElseThrow();
+        assertEquals(rows.maximumPixels(), rows.offsetPixels());
+        assertEquals(rows.viewport(), view.clipFor("providers.row.MINECRAFT.icon").orElseThrow());
+        assertEquals("providers.row.MINECRAFT", ViewNavigationPolicy.target(view,
+                "providers.row.OFFLINE", ViewSpec.NavigationCommand.DOWN).orElseThrow().id());
+        assertFalse(view.widget("providers.up.OFFLINE").orElseThrow().enabled());
+        assertFalse(view.widget("providers.down.MINECRAFT").orElseThrow().enabled());
+        assertTrue(view.widget("providers.back").orElseThrow().bounds().y()
+                >= view.panels().stream().filter(panel -> panel.id().equals("footer"))
+                .findFirst().orElseThrow().bounds().y());
+    }
+
+    @Test void ordinaryProviderViewportAndTexturedRowsMeetFooterInBothTabs() {
+        var providers = AppearanceProviders.initial().select(1,
+                new ProviderSkin("a".repeat(64), SkinVariant.CLASSIC),
+                new ProviderCape("cape", "b".repeat(64)));
+        var presenter = new ProvidersPresenter();
+        for (var component : AppearanceProviders.Component.values()) {
+            for (int height : new int[]{150, 191}) {
+                var view = presenter.present(providers, component, false, false,
+                        PreviewInteractionModel.editor(height, PreviewRenderer.CapeMode.CAPE),
+                        SkinVariant.CLASSIC, 200, height, null, null, java.util.Optional.empty(),
+                        false, null, 999, UiMessage::key);
+                var viewport = view.scrollSurface("providers.rows").orElseThrow().viewport();
+                var footer = view.panels().stream().filter(panel -> panel.id().equals("footer"))
+                        .findFirst().orElseThrow().bounds();
+                assertEquals(footer.y(), viewport.bottom());
+                assertEquals(viewport, view.clipFor("providers.row.OFFLINE.icon").orElseThrow());
+                assertEquals(viewport, view.clipFor("providers.up.OFFLINE").orElseThrow());
+                assertEquals(viewport, view.clipFor("providers.down.OFFLINE").orElseThrow());
+                assertTrue(view.iconDecorations().stream().filter(icon ->
+                        icon.ownerWidgetId().equals("providers.row.OFFLINE"))
+                        .findFirst().orElseThrow().providerTexture().isPresent());
+                var rows = view.scrollSurface("providers.rows").orElseThrow();
+                assertEquals(rows.maximumPixels(), rows.offsetPixels());
+                if (rows.maximumPixels() > 0) {
+                    assertEquals(viewport.bottom(), view.widget("providers.row.MINECRAFT")
+                            .orElseThrow().bounds().bottom());
+                }
+            }
+        }
+    }
+
     @Test void sneakyGlobeAndCapeInspectionStayAvailableWithoutWritableProviders() {
         var providers = AppearanceProviders.initial()
                 .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
@@ -181,7 +230,8 @@ final class ProvidersPresenterTest {
         var rows = first.scrollSurface("providers.rows").orElseThrow();
         assertEquals(ViewSpec.Text.Layout.WRAP, text.layout());
         assertEquals(36, text.bounds().height());
-        assertTrue(rows.viewport().bottom() < text.bounds().y());
+        assertEquals(text.bounds().y() - 4, rows.viewport().bottom());
+        assertEquals(rows.viewport(), first.clipFor("providers.row.OPTIFINE.icon").orElseThrow());
         assertTrue(text.bounds().bottom() < first.widget("providers.back").orElseThrow().bounds().y());
         assertTrue(rows.maximumPixels() > 0);
         assertTrue(first.clipRegions().stream().anyMatch(region -> region.id().equals("providers.rows")

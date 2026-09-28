@@ -664,9 +664,11 @@ public final class NclSkinsScreen extends Screen {
                     int sh = crop.height();
                     float u = crop.u();
                     float v = crop.v();
-                    graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(loaded.location()), b.x(), b.y(), u, v, b.width(), b.height(), sw, sh, w, h, -1);
-                    if (texture.skin() && texture.overlay()) graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(loaded.location()), b.x(), b.y(), w * 40 / 64.0F, v, b.width(), b.height(), sw, sh, w, h, -1);
-                    renderProviderArrows(graphics, current, decoration, mouseX, mouseY);
+                    clipped(graphics, current, decoration.id(), () -> {
+                        graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(loaded.location()), b.x(), b.y(), u, v, b.width(), b.height(), sw, sh, w, h, -1);
+                        if (texture.skin() && texture.overlay()) graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(loaded.location()), b.x(), b.y(), w * 40 / 64.0F, v, b.width(), b.height(), sw, sh, w, h, -1);
+                        renderProviderArrows(graphics, current, decoration, mouseX, mouseY);
+                    });
                     continue;
                 }
             }
@@ -700,7 +702,8 @@ public final class NclSkinsScreen extends Screen {
                     textureWidth,
                     textureHeight,
                     color));
-            renderProviderArrows(graphics, current, decoration, mouseX, mouseY);
+            clipped(graphics, current, decoration.id(), () ->
+                    renderProviderArrows(graphics, current, decoration, mouseX, mouseY));
         }
     }
 
