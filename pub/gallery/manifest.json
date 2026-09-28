@@ -88,6 +88,14 @@
       "title": "Keep changing your look offline",
       "description": "Create and apply looks locally. Syncing with your Minecraft profile can wait until your game session is available again",
       "alt": "The skin providers tab showing different skins for Offline and Minecraft, with the local skin displayed in the player preview"
+    },
+    {
+      "file": "12-cape-providers.png",
+      "order": 12,
+      "featured": false,
+      "title": "Capes from different sources",
+      "description": "Use OptiFine, SkinMC, and Sneaky Capes alongside official and offline capes, set source priorities, and check their capabilities at a glance",
+      "alt": "The cape providers tab with OptiFine, SkinMC, Sneaky Capes, Minecraft, and Offline, capability icons, and a player preview"
     }
   ]
 }

@@ -54,17 +54,47 @@ class PreAlphaSkinCaptureVerifierTest {
 
     @Test
     void nativeImageDuckInterfaceMustLinkFromAnotherPackage() {
-        assertTrue(PreAlphaSkinCaptureVerifier.publicDuckLinks(duckFixture(Opcodes.ACC_PUBLIC)))
-        assertFalse(PreAlphaSkinCaptureVerifier.publicDuckLinks(duckFixture(0)))
+        assertTrue(PreAlphaSkinCaptureVerifier.publicDuckLinks(duckFixture()))
+        assertFalse(PreAlphaSkinCaptureVerifier.publicDuckLinks(duckFixture(visibility: 0)))
     }
 
-    private static byte[] duckFixture(int visibility) {
+    @Test
+    void publicDuckLinkageDoesNotDependOnTheVerifierJvmClassfileVersion() {
+        [Opcodes.V17, Opcodes.V21, Opcodes.V25].each { int version ->
+            assertTrue(PreAlphaSkinCaptureVerifier.publicDuckLinks(duckFixture(version: version)))
+            assertFalse(PreAlphaSkinCaptureVerifier.publicDuckLinks(duckFixture(visibility: 0, version: version)))
+        }
+    }
+
+    @Test
+    void duckContractRejectsWrongKindMissingMethodsAndInaccessibleSignatures() {
+        [
+                [kind: Opcodes.ACC_ABSTRACT],
+                [remember: false],
+                [takeDescriptor: '()[B'],
+                [methodAccess: Opcodes.ACC_PRIVATE | Opcodes.ACC_ABSTRACT],
+                [methodAccess: Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC],
+                [methodAccess: Opcodes.ACC_PUBLIC]
+        ].each { Map options ->
+            assertFalse(PreAlphaSkinCaptureVerifier.publicDuckLinks(duckFixture(options)))
+        }
+    }
+
+    private static byte[] duckFixture(Map options = [:]) {
+        int visibility = options.get('visibility', Opcodes.ACC_PUBLIC)
+        int version = options.get('version', Opcodes.V17)
+        int kind = options.get('kind', Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT)
+        int methodAccess = options.get('methodAccess', Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT)
         ClassWriter writer = new ClassWriter(0)
-        writer.visit(Opcodes.V17, visibility | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT,
+        writer.visit(version, visibility | kind,
                 'com/naocraftlab/skins/compat/client/identifier/SneakyUnmodifiedSkinPixels',
                 null, 'java/lang/Object', null)
-        writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
-                'nclskins$takeUnmodifiedSkinPixels', '()[I', null, null).visitEnd()
+        if (options.get('remember', true)) {
+            writer.visitMethod(methodAccess,
+                    'nclskins$rememberUnmodifiedSkinPixels', '([I)V', null, null).visitEnd()
+        }
+        writer.visitMethod(methodAccess,
+                'nclskins$takeUnmodifiedSkinPixels', options.get('takeDescriptor', '()[I'), null, null).visitEnd()
         writer.visitEnd()
         writer.toByteArray()
     }

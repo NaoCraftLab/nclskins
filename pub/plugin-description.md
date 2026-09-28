@@ -2,13 +2,15 @@
 
 <a href="https://modrinth.com/mod/nclskins"><img src="https://img.shields.io/static/v1?label=Modrinth&amp;message=NCL%20Skins&amp;color=1bd96a&amp;logo=modrinth&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins on Modrinth" /></a> <a href="https://www.curseforge.com/minecraft/mc-mods/nclskins"> <img src="https://img.shields.io/static/v1?label=CurseForge&amp;message=NCL%20Skins&amp;color=fb4e44&amp;logo=curseforge&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins on CurseForge" /> </a>
 
-NCL Skins Plugin is the optional server companion for NCL Skins. After Minecraft confirms an official skin or cape change, the plugin updates that player's appearance for everyone else on the server without requiring the player to disconnect and rejoin.
+NCL Skins Plugin is the server companion for the NCL Skins client mod, letting other players see appearance changes without reconnecting. It supports official Minecraft skin and cape updates, as well as changes from other providers used by the player, including OptiFine and SkinMC, even when their Minecraft profile has not changed.
 
-NCL Skins must be installed on the client of the player changing their appearance. Other players will see the update in the world and player list even if they do not have the mod installed.
+The player changing their appearance needs NCL Skins. Official skin and cape updates are visible to other players in the world and player list even without the mod. To receive updates from other providers, viewers also need NCL Skins: each player sees the result according to their own enabled providers and priorities.
+
+After changing your cape on the provider’s website, click **Refresh** in the mod so other NCL Skins players can see the new cape without reconnecting. Local capes from files and resource packs remain visible only to their owner.
 
 ## 🛡️ Security and stability at high player counts
 
-The plugin only accepts a request from the currently connected player with a verified identity, rechecks that player's official Minecraft profile, and publishes only the verified skin or cape from that profile. Concurrent requests, their average rate, and short bursts are limited. Repeated requests from one player are combined so that only the latest relevant change is applied.
+The plugin only accepts requests from a currently connected player with a verified identity. For official appearance updates, it rechecks the Minecraft profile and uses only the verified skin or cape from that profile. For updates from other providers, NCL Skins clients fetch fresh data from their own enabled sources. Concurrent requests, their average rate, and short bursts are limited. Repeated requests from one player are combined so that only the latest relevant change is applied.
 
 When many players need to receive an appearance update, the work is spread across server ticks instead of running all at once. A failed refresh for one viewer does not block the others, while stale requests and requests from disconnected players are safely removed from the queue.
 
@@ -18,7 +20,7 @@ One universal JAR contains separate entrypoints for Bukkit-family servers, Veloc
 
 - On a standalone server, install the JAR in the `plugins` folder
 - On a proxy network, install the same JAR on the proxy and every backend server
-- The plugin does not change skins by itself or poll profiles continuously. A refresh starts only after NCL Skins confirms a change
+- The plugin does not change skins by itself or poll profiles continuously. Updates are triggered by the NCL Skins client mod, including after refreshing provider data
 - Without the plugin, the official appearance change will still succeed, but other players may need to reconnect, or the changed player may need to be reloaded by the server
 
 ## 🛠️ Compatibility

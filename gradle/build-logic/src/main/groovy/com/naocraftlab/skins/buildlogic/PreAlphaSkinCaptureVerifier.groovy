@@ -3,38 +3,35 @@ package com.naocraftlab.skins.buildlogic
 import org.objectweb.asm.AnnotationVisitor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassVisitor
-import org.objectweb.asm.ClassWriter
 import org.objectweb.asm.MethodVisitor
 import org.objectweb.asm.Opcodes
 
 final class PreAlphaSkinCaptureVerifier {
     static boolean publicDuckLinks(byte[] interfaceBytes) {
         ClassReader reader = new ClassReader(interfaceBytes)
-        String interfaceName = reader.className
-        String probeName = 'com/naocraftlab/skins/linkage/NativeImageDuckProbe'
-        ClassWriter writer = new ClassWriter(0)
-        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
-                probeName, null, 'java/lang/Object', [interfaceName] as String[])
-        writer.visitEnd()
-        byte[] probeBytes = writer.toByteArray()
-        ClassLoader loader = new ClassLoader(PreAlphaSkinCaptureVerifier.class.classLoader) {
+        int requiredType = Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT
+        int forbiddenType = Opcodes.ACC_FINAL | Opcodes.ACC_ANNOTATION | Opcodes.ACC_ENUM
+        if ((reader.access & requiredType) != requiredType || (reader.access & forbiddenType) != 0
+                || reader.superName != 'java/lang/Object' || reader.interfaces.length != 0) return false
+        Map<String, String> requiredMethods = [
+                'nclskins$rememberUnmodifiedSkinPixels': '([I)V',
+                'nclskins$takeUnmodifiedSkinPixels': '()[I'
+        ]
+        Set<String> found = [] as Set<String>
+        boolean[] valid = [true] as boolean[]
+        reader.accept(new ClassVisitor(Opcodes.ASM9) {
             @Override
-            protected Class<?> findClass(String name) throws ClassNotFoundException {
-                if (name == interfaceName.replace('/', '.')) {
-                    return defineClass(name, interfaceBytes, 0, interfaceBytes.length)
-                }
-                if (name == probeName.replace('/', '.')) {
-                    return defineClass(name, probeBytes, 0, probeBytes.length)
-                }
-                throw new ClassNotFoundException(name)
+            MethodVisitor visitMethod(int access, String name, String descriptor,
+                                      String signature, String[] exceptions) {
+                int required = Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT
+                int forbidden = Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED | Opcodes.ACC_STATIC
+                        | Opcodes.ACC_FINAL | Opcodes.ACC_NATIVE
+                if (requiredMethods[name] != descriptor || (access & required) != required
+                        || (access & forbidden) != 0 || !found.add(name)) valid[0] = false
+                null
             }
-        }
-        try {
-            Class<?> probe = loader.loadClass(probeName.replace('/', '.'))
-            return probe.interfaces.length == 1 && probe.interfaces[0].name == interfaceName.replace('/', '.')
-        } catch (LinkageError | ClassNotFoundException rejected) {
-            return false
-        }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
+        valid[0] && found == requiredMethods.keySet()
     }
 
     static boolean injectedAtHead(byte[] bytes, String handler, String targetMethod) {

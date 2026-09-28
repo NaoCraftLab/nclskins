@@ -1,4 +1,11 @@
-## 1.2.0.1-beta.1
+## 1.2.0.1
+
+### Changed
+
+- **Appearance updates across providers**
+    - Share appearance changes from your providers, including OptiFine and SkinMC, with other NCL Skins players even when your Minecraft skin and cape have not changed
+    - After changing your cape on the provider's website, click `Refresh` in the mod so other players can see the change without reconnecting
+    - Each player sees the result according to their own enabled providers and priorities
 
 ## 1.0.0.3
 

@@ -29,6 +29,8 @@ The built-in Catalog includes the standard Minecraft characters and optional col
 
 Import your own capes from files, give them names, and save them in your looks. Browse capes from active resource packs, including the bundled Mojang cape collections. Once you save a cape in a look, it stays available even if you disable its resource pack.
 
+Cape imports and resource packs support PNGs at 46×22, 64×32, 92×44, and 128×64, as well as 64×32 JPEGs.
+
 Search the cape catalog by name and filter capes by whether they include an elytra texture. The grid adjusts to fit your window.
 
 Custom capes and resource pack capes are visible only to you and do not replace the official cape on your Minecraft profile. Installing the server mod or plugin does not make these capes visible to other players.
@@ -37,11 +39,21 @@ Custom capes and resource pack capes are visible only to you and do not replace 
 
 Choose where your skins and capes come from. Configure **Offline** and **Minecraft** separately for each: enable the providers you want, change their priority, and mix your local appearance with the skin or cape from your Minecraft profile.
 
+For capes, **OptiFine**, **SkinMC**, and **Sneaky Capes** are also available. Enable the sources you want and set their priority relative to official and offline capes.
+
+Use OptiFine and SkinMC capes for yourself and other players without installing separate mods. You can still use OptiFine alongside NCL Skins. Open the service’s website from **Providers** to manage your cape. After changing it on the website, click **Refresh** to see the result and notify other NCL Skins players when the server supports appearance updates.
+
+Sneaky Capes lets you use a cape embedded in a skin without a separate mod. Open the Sneaky Capes web editor from **Providers** to create a skin with an embedded cape.
+
+Capability icons show which providers accept a look’s skin or cape, limit your choices to their own catalog, or let other users of the service see your appearance.
+
 Turning off Minecraft for both skins and capes hides Minecraft profile skins and capes for you and other players from your view. These settings only affect what you see.
 
 ## ✨ Check skin compatibility
 
 The mod recognizes extra skin features for Ears, Fresh Moves, and Just Expressions and shows in advance how each skin will work in your current setup. Compatibility badges appear in the Catalog, **My looks**, the editor, and before import.
+
+The mod also recognizes Sneaky Capes skins and warns about conflicts with Fresh Moves and Just Expressions.
 
 If an active mod or resource pack uses the skin's pixels in a conflicting way, NCL Skins explains the cause. You can also hide incompatible skins separately in the Catalog and **My looks** in Settings.
 
@@ -49,9 +61,9 @@ With My Totem Doll set to `Holding Player`, your totem’s texture updates as so
 
 ## 🌐 Client and server use
 
-On the client side, only the player changing their appearance needs the mod. Without a server-side component, the official skin or cape change will still succeed, but other players may need to reconnect, or the changed player may need to be reloaded by the server, before the result becomes visible.
+For official skin or cape changes, only the player changing their appearance needs the mod. Without a server-side component, the change will still be saved to their Minecraft profile, but other players may need to reconnect, or the changed player may need to be reloaded by the server, before the result becomes visible.
 
-To show confirmed appearance changes to everyone else without reconnecting, install the matching version of NCL Skins on a modded server or [NCL Skins Plugin](https://www.curseforge.com/minecraft/bukkit-plugins/nclskins-plugin) on a supported server and proxy, if one is used. The server sends the refreshed skin and cape to every player, including players who do not use the mod.
+To let other players see changes without reconnecting, install a compatible version of NCL Skins on a modded server or [NCL Skins Plugin](https://www.curseforge.com/minecraft/bukkit-plugins/nclskins-plugin) on a supported server and proxy, if one is used. Official skin and cape updates are visible to everyone, including players without the mod. Players with NCL Skins also receive updates from other providers, including OptiFine and SkinMC, even when your Minecraft profile has not changed. Each player sees the result according to their own enabled providers and priorities.
 
 ## 📴 Local-first and offline support
 
@@ -97,7 +109,7 @@ nclskins.<collection-id>.skin.<skin-id>.description
 nclskins.<collection-id>.skin.<skin-id>.authors
 ```
 
-For cape collections, place static 64×32 PNG files at the path below. No separate manifest is needed. Animated capes and other image sizes are not supported. If the cape includes an elytra texture, it must be part of the same PNG.
+For cape collections, place static PNG or JPEG files in the supported sizes at the path below, using the appropriate file extension. No separate manifest is needed. Animated capes are not supported. If the cape includes an elytra texture, it must be part of the same image.
 
 ```text
 <pack-root>/assets/<collection-id>/textures/entity/cape/<cape-id>.png

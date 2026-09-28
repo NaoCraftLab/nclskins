@@ -1,4 +1,25 @@
-## 1.2.0-beta.1
+## 1.2.0
+
+⚠️ Heads up! The mod will automatically update its stored data. Older versions of the mod will no longer be able to use it.
+
+### Added
+
+- **OptiFine and SkinMC capes**
+    - Enable capes from these services for yourself and other players directly in NCL Skins, without installing separate mods (you can still use OptiFine alongside NCL Skins)
+    - Set their priority relative to official and offline capes, preview the result, and open the service's account page from `Providers`
+    - After changing your cape on the website, click `Refresh` to see the new design and notify other NCL Skins players when the server supports appearance updates
+- **Sneaky Capes**
+    - Use capes embedded in Sneaky Capes skins without installing a separate mod
+    - Open the Sneaky Capes web editor from `Providers` and choose the cape's priority among your other sources
+    - Check Sneaky Capes markers, along with warnings about conflicts with Fresh Moves and Just Expressions, before choosing a skin
+- **Provider capability indicators**
+    - See at a glance which providers accept a look's skin or cape, limit your choices to their own catalog, or let other users of the service see your appearance
+
+### Changed
+
+- **More cape formats**
+    - Import PNGs at 46×22, 64×32, 92×44, and 128×64, as well as 64×32 JPEGs
+    - Use these formats in resource pack collections too, preserving HD cape detail and PNG transparency
 
 ## 1.1.0
 
