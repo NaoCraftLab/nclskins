@@ -11,6 +11,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ViewHostPolicyTest {
     @Test
+    void providerRowOwnershipIncludesEveryActionAndCapabilityWithoutSubstringCollisions() {
+        for (String kind : List.of("row", "up", "down", "edit", "remove", "account")) {
+            assertTrue(ViewHostPolicy.belongsToProviderRow(
+                    "providers." + kind + ".MINECRAFT", "MINECRAFT"), kind);
+            assertFalse(ViewHostPolicy.belongsToProviderRow(
+                    "providers." + kind + ".OFFLINE", "MINECRAFT"), kind);
+        }
+        for (String capability : List.of("write", "limited_write", "distribution")) {
+            String id = "providers.capability.MINECRAFT." + capability;
+            assertTrue(ViewHostPolicy.belongsToProviderRow(id, "MINECRAFT"), id);
+            assertFalse(ViewHostPolicy.belongsToProviderRow(id, "OFFLINE"), id);
+        }
+        boolean capabilityFocused = ViewHostPolicy.belongsToProviderRow(
+                "providers.capability.MINECRAFT.write", "MINECRAFT");
+        assertEquals(0xFFFFFFFF, ProviderRowStyle.frameColor(false, capabilityFocused, true));
+        assertTrue(ProviderRowStyle.showControls(false, capabilityFocused, true));
+
+        for (String unrelated : List.of("other.edit.MINECRAFT", "providers.refresh",
+                "providers.row.MINECRAFT_extra", "providers.capability.MINECRAFT",
+                "providers.capability.MINECRAFT.",
+                "providers.capability.MINECRAFT.write.extra",
+                "providers.capability.NOT_MINECRAFT.write",
+                "providers.account.MINECRAFT.extra")) {
+            assertFalse(ViewHostPolicy.belongsToProviderRow(unrelated, "MINECRAFT"), unrelated);
+        }
+        assertFalse(ViewHostPolicy.belongsToProviderRow(null, "MINECRAFT"));
+        assertFalse(ViewHostPolicy.belongsToProviderRow("providers.row.MINECRAFT", null));
+        assertFalse(ViewHostPolicy.belongsToProviderRow("providers.row.MINECRAFT", ""));
+        assertFalse(ViewHostPolicy.belongsToProviderRow("providers.row.MINECRAFT", "MINECRAFT.write"));
+    }
+
+    @Test
     void lastVisibleClippedWidgetOwnsOverlappingPointer() {
         ViewSpec.Widget lower = widget("lower", new Bounds(0, 0, 20, 20));
         ViewSpec.Widget upper = widget("upper", new Bounds(5, 5, 20, 20));
@@ -21,6 +53,59 @@ final class ViewHostPolicyTest {
         assertEquals("lower", ViewHostPolicy.pointerOwnerAt(view, 7, 7).orElseThrow().id());
         assertEquals("upper", ViewHostPolicy.pointerOwnerAt(view, 12, 12).orElseThrow().id());
         assertFalse(ViewHostPolicy.pointerInsideClip(view, "upper", 7, 7));
+    }
+
+    @Test
+    void passiveIndicatorTooltipEligibilityUsesVisibleIntersection() {
+        ViewSpec.Widget top = ViewSpec.Widget.passiveIndicator("top", new Bounds(10, 5, 20, 20),
+                UiMessage.info("title"), UiMessage.info("description"), GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE);
+        ViewSpec.Widget bottom = ViewSpec.Widget.passiveIndicator("bottom", new Bounds(10, 24, 20, 20),
+                UiMessage.info("title"), UiMessage.info("description"), GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE);
+        ViewSpec.Widget hidden = ViewSpec.Widget.passiveIndicator("hidden", new Bounds(10, 45, 20, 20),
+                UiMessage.info("title"), UiMessage.info("description"), GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE);
+        ViewSpec view = view(List.of(top, bottom, hidden), List.of(new ViewSpec.ClipRegion(
+                "list", new Bounds(0, 10, 40, 30), List.of("top", "bottom", "hidden"))));
+        assertTrue(ViewHostPolicy.visibleIntersection(view, top.id()));
+        assertTrue(ViewHostPolicy.visibleIntersection(view, bottom.id()));
+        assertFalse(ViewHostPolicy.visibleIntersection(view, hidden.id()));
+        assertTrue(ViewHostPolicy.pointerOwnerAt(view, 15, 8).isEmpty());
+        assertEquals(bottom, ViewHostPolicy.pointerOwnerAt(view, 15, 35).orElseThrow());
+        assertTrue(ViewHostPolicy.pointerOwnerAt(view, 15, 45).isEmpty());
+    }
+
+    @Test
+    void passiveTooltipKeepsExactSemanticLinesForHoverAndFocus() {
+        UiMessage title = UiMessage.info("capability.title");
+        UiMessage description = UiMessage.info("capability.full.description");
+        ViewSpec.Widget capability = ViewSpec.Widget.passiveIndicator(
+                "capability", new Bounds(10, 5, 20, 20), title, description,
+                GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE);
+        ViewSpec.Widget compatibility = ViewSpec.Widget.compatibilityIndicator(
+                "compatibility", new Bounds(10, 25, 20, 20),
+                UiMessage.info("compatibility.title"), GuiIcon.STATUS_COMPATIBILITY_EXTENDED);
+        ViewSpec view = view(List.of(capability, compatibility), List.of(
+                new ViewSpec.ClipRegion("list", new Bounds(0, 10, 40, 30),
+                        List.of("capability", "compatibility"))));
+
+        ViewHostPolicy.PassiveIndicatorTooltip hovered = ViewHostPolicy.passiveIndicatorTooltip(
+                view, 15, 15, "compatibility").orElseThrow();
+        assertEquals(List.of(title, description), hovered.lines());
+        assertTrue(hovered.hovered());
+        assertEquals(15, hovered.x(15));
+        assertEquals(15, hovered.y(15));
+
+        ViewHostPolicy.PassiveIndicatorTooltip focused = ViewHostPolicy.passiveIndicatorTooltip(
+                view, 90, 90, "capability").orElseThrow();
+        assertEquals(List.of(title, description), focused.lines());
+        assertFalse(focused.hovered());
+        assertEquals(20, focused.x(90));
+        assertEquals(15, focused.y(90));
+
+        assertEquals(List.of(compatibility.label()), ViewHostPolicy.passiveIndicatorTooltip(
+                view, 15, 35, null).orElseThrow().lines());
+        assertTrue(ViewHostPolicy.passiveIndicatorTooltip(view, 15, 6, null).isEmpty());
+        assertTrue(ViewHostPolicy.passiveIndicatorTooltip(view, 90, 90, null).isEmpty());
+        assertTrue(ViewHostPolicy.passiveIndicatorTooltip(view, 90, 90, "missing").isEmpty());
     }
 
     @Test

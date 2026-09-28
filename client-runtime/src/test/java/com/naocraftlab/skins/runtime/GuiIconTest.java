@@ -58,7 +58,10 @@ final class GuiIconTest {
                 Map.entry("appearance/outer_layer/legs/left_off", 16),
                 Map.entry("appearance/outer_layer/legs/right_off", 16),
                 Map.entry("status/compatibility/extended", 16),
-                Map.entry("status/compatibility/incompatible", 16));
+                Map.entry("status/compatibility/incompatible", 16),
+                Map.entry("status/provider_capability/write", 16),
+                Map.entry("status/provider_capability/limited_write", 16),
+                Map.entry("status/provider_capability/distribution", 16));
 
         Map<String, Integer> actual = java.util.Arrays.stream(GuiIcon.values())
                 .collect(Collectors.toUnmodifiableMap(GuiIcon::semanticPath, GuiIcon::baseCanvas));

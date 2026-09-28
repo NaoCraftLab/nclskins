@@ -6,6 +6,36 @@ import java.util.Optional;
 
 
 public final class ViewHostPolicy {
+    private static final List<String> PROVIDER_ROW_WIDGET_KINDS =
+            List.of("row", "up", "down", "edit", "remove", "account");
+
+    public static boolean belongsToProviderRow(String elementId, String provider) {
+        if (elementId == null || provider == null || provider.isEmpty()
+                || provider.indexOf('.') >= 0) {
+            return false;
+        }
+        for (String kind : PROVIDER_ROW_WIDGET_KINDS) {
+            if (elementId.equals("providers." + kind + "." + provider)) {
+                return true;
+            }
+        }
+        String capabilityPrefix = "providers.capability." + provider + ".";
+        if (!elementId.startsWith(capabilityPrefix)) {
+            return false;
+        }
+        String capability = elementId.substring(capabilityPrefix.length());
+        return !capability.isEmpty() && capability.indexOf('.') < 0;
+    }
+
+    public static boolean visibleIntersection(ViewSpec view, String elementId) {
+        ViewSpec.Widget widget = view.widget(elementId).orElseThrow();
+        return view.clipFor(elementId).map(clip ->
+                widget.bounds().x() < clip.right()
+                        && widget.bounds().right() > clip.x()
+                        && widget.bounds().y() < clip.bottom()
+                        && widget.bounds().bottom() > clip.y()).orElse(true);
+    }
+
     public static boolean pointerInsideClip(
             ViewSpec view, String elementId, double pointerX, double pointerY) {
         Objects.requireNonNull(view, "view");
@@ -27,6 +57,42 @@ public final class ViewHostPolicy {
             }
         }
         return Optional.ofNullable(owner);
+    }
+
+    public static Optional<PassiveIndicatorTooltip> passiveIndicatorTooltip(
+            ViewSpec view, double pointerX, double pointerY, String focusedWidgetId) {
+        Objects.requireNonNull(view, "view");
+        Optional<ViewSpec.Widget> hovered = pointerOwnerAt(view, pointerX, pointerY)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR)
+                .filter(ViewSpec.Widget::enabled)
+                .filter(widget -> visibleIntersection(view, widget.id()));
+        if (hovered.isPresent()) {
+            return hovered.map(widget -> new PassiveIndicatorTooltip(widget, true));
+        }
+        return Optional.ofNullable(focusedWidgetId)
+                .flatMap(view::widget)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR)
+                .filter(ViewSpec.Widget::visible)
+                .filter(ViewSpec.Widget::enabled)
+                .filter(widget -> visibleIntersection(view, widget.id()))
+                .map(widget -> new PassiveIndicatorTooltip(widget, false));
+    }
+
+    public record PassiveIndicatorTooltip(ViewSpec.Widget widget, boolean hovered) {
+        public List<UiMessage> lines() {
+            UiMessage title = widget.label();
+            return widget.hint().filter(description -> !description.equals(title))
+                    .map(description -> List.of(title, description))
+                    .orElseGet(() -> List.of(title));
+        }
+
+        public int x(double pointerX) {
+            return hovered ? (int) pointerX : widget.bounds().x() + widget.bounds().width() / 2;
+        }
+
+        public int y(double pointerY) {
+            return hovered ? (int) pointerY : widget.bounds().y() + widget.bounds().height() / 2;
+        }
     }
 
     public static Optional<String> inlineCapePointerActionAt(

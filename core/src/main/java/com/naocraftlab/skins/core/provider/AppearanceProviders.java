@@ -45,8 +45,8 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
     }
 
     public boolean galleryAvailable() {
-        return skin.order().stream().anyMatch(BuiltinProvider::writable)
-                && cape.order().stream().anyMatch(BuiltinProvider::writable);
+        return skin.order().stream().anyMatch(provider -> provider.canWrite(Component.SKIN))
+                && cape.order().stream().anyMatch(provider -> provider.canWrite(Component.CAPE));
     }
 
     public boolean minecraftEnabled() {

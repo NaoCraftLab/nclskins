@@ -55,6 +55,7 @@ import net.minecraft.client.gui.components.tabs.TabManager;
 import net.minecraft.client.gui.components.tabs.TabNavigationBar;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -231,6 +232,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     renderText(graphics, view, text, mouseX, mouseY));
         }
         renderPreciseTooltip(graphics, view, mouseX, mouseY);
+        renderPassiveIndicatorTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
     }
 
@@ -668,11 +670,13 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     nativeWidget.setTooltip(Tooltip.create(resolve(
                             widget.hint().orElse(widget.label()))));
                 }
-                if (widget.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
-                    ((CompatibilityIndicatorWidget) nativeWidget).setIcon(
-                            modIcon(widget));
-                    nativeWidget.setTooltip(Tooltip.create(resolve(
-                            widget.hint().orElse(widget.label()))));
+                if (widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR) {
+                    PassiveIndicatorWidget indicator = (PassiveIndicatorWidget) nativeWidget;
+                    indicator.setIcon(modIcon(widget));
+                    indicator.setNarrationDescription(widget.hint()
+                            .filter(hint -> !hint.equals(widget.label()))
+                            .map(this::resolve));
+                    nativeWidget.setTooltip(null);
                 }
                 if (nativeWidget instanceof EditBox editBox) {
                     String value = widget.value().orElse("");
@@ -761,16 +765,16 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     widget.hint().orElse(widget.label()))));
             return button;
         }
-        if (widget.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
-            CompatibilityIndicatorWidget button = new CompatibilityIndicatorWidget(
+        if (widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR) {
+            PassiveIndicatorWidget button = new PassiveIndicatorWidget(
                     bounds.x(),
                     bounds.y(),
                     bounds.width(),
                     bounds.height(),
                     resolve(widget.label()),
-                    modIcon(widget));
-            button.setTooltip(Tooltip.create(resolve(
-                    widget.hint().orElse(widget.label()))));
+                    modIcon(widget),
+                    widget.hint().filter(hint -> !hint.equals(widget.label()))
+                            .map(this::resolve));
             return button;
         }
         if (widget.kind() == ViewSpec.WidgetKind.BUTTON) {
@@ -903,8 +907,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     private void renderProviderArrows(GuiGraphics graphics, ViewSpec view, ViewSpec.IconDecoration decoration, int mouseX, int mouseY) {
         if (!decoration.ownerWidgetId().startsWith("providers.row.")) return;
         String provider = decoration.ownerWidgetId().substring("providers.row.".length());
-        boolean focused = nativeWidgets.entrySet().stream().anyMatch(entry -> entry.getKey().startsWith("providers.")
-                && entry.getKey().endsWith("." + provider) && entry.getValue().isFocused());
+        boolean focused = nativeWidgets.entrySet().stream().anyMatch(entry ->
+                ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)
+                        && entry.getValue().isFocused());
         boolean active = ProviderRowStyle.showControls(view.widget(decoration.ownerWidgetId())
                 .filter(row -> row.bounds().contains(mouseX, mouseY)).isPresent(), focused, keyboardNavigation);
         if (!active) return;
@@ -939,7 +944,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             if (widget.id().startsWith("providers.row.")) {
                 String provider = widget.id().substring("providers.row.".length());
                 boolean rowFocused = focused || nativeWidgets.entrySet().stream().anyMatch(entry ->
-                        entry.getKey().startsWith("providers.") && entry.getKey().endsWith("." + provider)
+                        ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)
                                 && entry.getValue().isFocused());
                 int frameColor = ProviderRowStyle.frameColor(CatalogCardStyle.selectionSelected(widget), rowFocused, keyboardNavigation);
                 if (frameColor != 0) {
@@ -1054,22 +1059,29 @@ public abstract class NclSkinsImmediateScreen extends Screen {
     }
 
 
-    private final class CompatibilityIndicatorWidget extends AbstractButton {
+    private final class PassiveIndicatorWidget extends AbstractButton {
         private GuiIcon icon;
+        private Optional<Component> narrationDescription;
 
-        private CompatibilityIndicatorWidget(
+        private PassiveIndicatorWidget(
                 int x,
                 int y,
                 int width,
                 int height,
                 Component message,
-                GuiIcon icon) {
+                GuiIcon icon,
+                Optional<Component> narrationDescription) {
             super(x, y, width, height, message);
             this.icon = Objects.requireNonNull(icon, "icon");
+            this.narrationDescription = Objects.requireNonNull(narrationDescription, "narrationDescription");
         }
 
         private void setIcon(GuiIcon icon) {
             this.icon = Objects.requireNonNull(icon, "icon");
+        }
+
+        private void setNarrationDescription(Optional<Component> description) {
+            this.narrationDescription = Objects.requireNonNull(description, "description");
         }
 
         @Override
@@ -1080,8 +1092,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         @Override
         protected void renderWidget(
                 GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-            renderActionIcon(
-                    graphics, getX(), getY(), getWidth(), getHeight(), icon, active);
+            renderActionIcon(graphics, getX(), getY(), getWidth(), getHeight(), icon,
+                    active, isHovered || (keyboardNavigation && isFocused()) ? 1.0F : 0.65F);
             if (isHoveredOrFocused()) {
                 drawCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
@@ -1090,6 +1102,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         @Override
         protected void updateWidgetNarration(NarrationElementOutput output) {
             defaultButtonNarrationText(output);
+            narrationDescription.ifPresent(description ->
+                    output.add(NarratedElementType.HINT, description));
         }
     }
 
@@ -1102,6 +1116,18 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             int height,
             WidgetIcon icon,
             boolean active) {
+        renderActionIcon(graphics, x, y, width, height, icon, active, 1.0F);
+    }
+
+    private void renderActionIcon(
+            GuiGraphics graphics,
+            int x,
+            int y,
+            int width,
+            int height,
+            WidgetIcon icon,
+            boolean active,
+            float opacity) {
         if (icon instanceof NativeGuiIcon nativeIcon) {
             int size = 18;
             capabilities.renderNativeIcon(
@@ -1119,7 +1145,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         int iconX = x + (width - size) / 2;
         int iconY = y + (height - size) / 2;
         float tint = active ? 1.0F : 0.5F;
-        graphics.setColor(tint, tint, tint, 1.0F);
+        graphics.setColor(tint, tint, tint, opacity);
         try {
             graphics.blit(
                     iconTexture(modIcon),
@@ -1607,6 +1633,16 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     font, tooltipLines(resolve(region.tooltip())), mouseX, mouseY);
             return;
         }
+    }
+
+    private void renderPassiveIndicatorTooltip(
+            GuiGraphics graphics, ViewSpec view, int mouseX, int mouseY) {
+        ViewHostPolicy.passiveIndicatorTooltip(
+                view, mouseX, mouseY, currentFocusedWidgetId()).ifPresent(target ->
+                graphics.renderTooltip(font,
+                        target.lines().stream().flatMap(line ->
+                                font.split(resolve(line), 128).stream()).toList(),
+                        target.x(mouseX), target.y(mouseY)));
     }
 
     private static List<net.minecraft.util.FormattedCharSequence> tooltipLines(

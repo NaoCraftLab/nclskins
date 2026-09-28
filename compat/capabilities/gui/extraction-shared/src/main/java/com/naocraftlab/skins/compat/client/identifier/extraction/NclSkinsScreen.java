@@ -58,6 +58,7 @@ import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.components.tabs.TabManager;
 import net.minecraft.client.gui.components.tabs.TabNavigationBar;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.InputWithModifiers;
 import net.minecraft.client.input.CharacterEvent;
@@ -414,15 +415,15 @@ public final class NclSkinsScreen extends Screen {
                 infoButton.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
                 widget = infoButton;
-            } else if (spec.kind() == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
-                widget = new CompatibilityIndicatorWidget(
+            } else if (spec.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR) {
+                widget = new PassiveIndicatorWidget(
                         bounds,
                         MinecraftClientComponents.resolve(spec.label()),
                         spec.icon().orElseThrow(() ->
-                                new IllegalArgumentException("Missing icon for " + spec.id())));
+                                new IllegalArgumentException("Missing icon for " + spec.id())),
+                        spec.hint().filter(hint -> !hint.equals(spec.label()))
+                                .map(MinecraftClientComponents::resolve));
                 widget.active = spec.enabled();
-                widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
-                        spec.hint().orElse(spec.label()))));
             } else {
                 if (spec.kind() != ViewSpec.WidgetKind.BUTTON) {
                     throw new IllegalArgumentException("Unsupported widget kind: " + spec.kind());
@@ -515,12 +516,14 @@ public final class NclSkinsScreen extends Screen {
                 widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
                         spec.hint().orElse(spec.label()))));
             }
-            if (widget instanceof CompatibilityIndicatorWidget indicator) {
+            if (widget instanceof PassiveIndicatorWidget indicator) {
                 widget.setMessage(MinecraftClientComponents.resolve(spec.label()));
                 indicator.setIcon(spec.icon().orElseThrow(() ->
                         new IllegalArgumentException("Missing icon for " + spec.id())));
-                widget.setTooltip(Tooltip.create(MinecraftClientComponents.resolve(
-                        spec.hint().orElse(spec.label()))));
+                indicator.setNarrationDescription(spec.hint()
+                        .filter(hint -> !hint.equals(spec.label()))
+                        .map(MinecraftClientComponents::resolve));
+                widget.setTooltip(null);
             }
             if (widget instanceof InfoButtonWidget) {
                 widget.setMessage(MinecraftClientComponents.resolve(spec.label()));
@@ -676,6 +679,7 @@ public final class NclSkinsScreen extends Screen {
         renderTabHighlights(graphics, view, mouseX, mouseY);
         drawTexts(graphics, view, mouseX, mouseY);
         drawPreciseTooltip(graphics, view, mouseX, mouseY);
+        drawPassiveIndicatorTooltip(graphics, view, mouseX, mouseY);
         runtime.acknowledgeViewRendered(view);
     }
 
@@ -783,8 +787,9 @@ public final class NclSkinsScreen extends Screen {
     private void renderProviderArrows(GuiGraphicsExtractor graphics, ViewSpec view, ViewSpec.IconDecoration decoration, int mouseX, int mouseY) {
         if (!decoration.ownerWidgetId().startsWith("providers.row.")) return;
         String provider = decoration.ownerWidgetId().substring("providers.row.".length());
-        boolean focused = nativeWidgets.entrySet().stream().anyMatch(entry -> entry.getKey().startsWith("providers.")
-                && entry.getKey().endsWith("." + provider) && entry.getValue().isFocused());
+        boolean focused = nativeWidgets.entrySet().stream().anyMatch(entry ->
+                ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)
+                        && entry.getValue().isFocused());
         boolean active = ProviderRowStyle.showControls(view.widget(decoration.ownerWidgetId())
                 .filter(row -> row.bounds().contains(mouseX, mouseY)).isPresent(), focused, keyboardNavigation);
         if (!active) return;
@@ -821,7 +826,7 @@ public final class NclSkinsScreen extends Screen {
             if (widget.id().startsWith("providers.row.")) {
                 String provider = widget.id().substring("providers.row.".length());
                 boolean rowFocused = focused || nativeWidgets.entrySet().stream().anyMatch(entry ->
-                        entry.getKey().startsWith("providers.") && entry.getKey().endsWith("." + provider)
+                        ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)
                                 && entry.getValue().isFocused());
                 int frameColor = ProviderRowStyle.frameColor(CatalogCardStyle.selectionSelected(widget), rowFocused, keyboardNavigation);
                 if (frameColor != 0) {
@@ -1074,6 +1079,16 @@ public final class NclSkinsScreen extends Screen {
                     mouseY);
             return;
         }
+    }
+
+    private void drawPassiveIndicatorTooltip(
+            GuiGraphicsExtractor graphics, ViewSpec view, int mouseX, int mouseY) {
+        ViewHostPolicy.passiveIndicatorTooltip(
+                view, mouseX, mouseY, currentFocusedWidgetId()).ifPresent(target ->
+                graphics.setTooltipForNextFrame(
+                        target.lines().stream().flatMap(line ->
+                                font.split(MinecraftClientComponents.resolve(line), 128).stream()).toList(),
+                        target.x(mouseX), target.y(mouseY)));
     }
 
     private static List<net.minecraft.util.FormattedCharSequence> tooltipLines(
@@ -1805,16 +1820,23 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private static final class CompatibilityIndicatorWidget extends AbstractButton {
+    private final class PassiveIndicatorWidget extends AbstractButton {
         private WidgetIcon icon;
+        private Optional<Component> narrationDescription;
 
-        private CompatibilityIndicatorWidget(Bounds bounds, Component message, WidgetIcon icon) {
+        private PassiveIndicatorWidget(Bounds bounds, Component message, WidgetIcon icon,
+                Optional<Component> narrationDescription) {
             super(bounds.x(), bounds.y(), bounds.width(), bounds.height(), message);
             this.icon = Objects.requireNonNull(icon, "icon");
+            this.narrationDescription = Objects.requireNonNull(narrationDescription, "narrationDescription");
         }
 
         private void setIcon(WidgetIcon icon) {
             this.icon = Objects.requireNonNull(icon, "icon");
+        }
+
+        private void setNarrationDescription(Optional<Component> description) {
+            this.narrationDescription = Objects.requireNonNull(description, "description");
         }
 
         @Override
@@ -1825,7 +1847,8 @@ public final class NclSkinsScreen extends Screen {
         @Override
         protected void extractContents(
                 GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-            extractActionIcon(graphics, getX(), getY(), getWidth(), getHeight(), icon);
+            extractActionIcon(graphics, getX(), getY(), getWidth(), getHeight(), icon,
+                    (isHovered || (keyboardNavigation && isFocused()) ? 0xFF : 0xA6) << 24 | 0x00FFFFFF);
             if (isHoveredOrFocused()) {
                 extractCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
@@ -1834,6 +1857,8 @@ public final class NclSkinsScreen extends Screen {
         @Override
         public void updateWidgetNarration(NarrationElementOutput output) {
             defaultButtonNarrationText(output);
+            narrationDescription.ifPresent(description ->
+                    output.add(NarratedElementType.HINT, description));
         }
     }
 
@@ -1844,6 +1869,17 @@ public final class NclSkinsScreen extends Screen {
             int width,
             int height,
             WidgetIcon icon) {
+        extractActionIcon(graphics, x, y, width, height, icon, -1);
+    }
+
+    private static void extractActionIcon(
+            GuiGraphicsExtractor graphics,
+            int x,
+            int y,
+            int width,
+            int height,
+            WidgetIcon icon,
+            int color) {
         if (icon instanceof NativeGuiIcon nativeIcon) {
             graphics.blitSprite(
                     RenderPipelines.GUI_TEXTURED,
@@ -1867,7 +1903,8 @@ public final class NclSkinsScreen extends Screen {
                 size,
                 size,
                 size,
-                size);
+                size,
+                color);
     }
 
     private static final class TransparentButtonWidget extends AbstractButton {

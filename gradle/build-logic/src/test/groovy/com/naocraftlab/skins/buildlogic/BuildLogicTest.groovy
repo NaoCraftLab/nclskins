@@ -452,7 +452,7 @@ final class BuildLogicTest {
                 sourceIcons[relative.substring(0, relative.length() - '.bbmodel'.length()) + '.png'] = path.toFile()
             }
         }
-        assertEquals(39, sourceIcons.size())
+        assertEquals(42, sourceIcons.size())
         assertEquals(ArtifactVerifier.REQUIRED_GUI_ICONS, sourceIcons.keySet())
         sourceIcons.each { String name, File source ->
             assertNotNull(ImageIO.read(new ByteArrayInputStream(BlockbenchPng.decode(source))), name)
@@ -2480,47 +2480,115 @@ final class BuildLogicTest {
         String backgroundKinds = cardStyle.substring(
                 cardStyle.indexOf('public static boolean backgroundBehindContent('),
                 cardStyle.indexOf('public static int backgroundBehindContentColor('))
-        assertFalse(backgroundKinds.contains('COMPATIBILITY_INDICATOR'))
+        assertFalse(backgroundKinds.contains('PASSIVE_INDICATOR'))
 
         String immediateIndicator = immediate.substring(
-                immediate.indexOf('private final class CompatibilityIndicatorWidget'),
+                immediate.indexOf('private final class PassiveIndicatorWidget'),
                 immediate.indexOf('private void renderActionIcon'))
         assertTrue(immediateIndicator.contains('renderActionIcon('))
+        assertTrue(immediateIndicator.contains('isHovered || (keyboardNavigation && isFocused()) ? 1.0F : 0.65F'))
         assertTrue(immediateIndicator.contains('isHoveredOrFocused()'))
         assertTrue(immediateIndicator.contains('drawCardFocusFrame('))
         assertFalse(immediateIndicator.contains('super.renderWidget('))
         String immediateIconButton = immediate.substring(
                 immediate.indexOf('private final class IconButtonWidget'),
-                immediate.indexOf('private final class CompatibilityIndicatorWidget'))
+                immediate.indexOf('private final class PassiveIndicatorWidget'))
         assertTrue(immediateIconButton.contains('if (!iconOnly)'))
         assertTrue(immediateIconButton.contains('if (iconOnly && isHoveredOrFocused())'))
         assertTrue(immediateIconButton.contains('dispatchNativeWidget(widgetId, hasShiftDown())'))
         assertTrue(immediate.count('renderActionIcon(') >= 3)
         assertTrue(submission.contains('spec.hint()'))
         String submissionIndicator = submission.substring(
-                submission.indexOf('case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {'),
+                submission.indexOf('case ICON_ONLY_BUTTON -> {'),
                 submission.indexOf('case CATALOG_CARD, SELECTABLE_CARD, CAPE_CARD, PROVIDER_ACTION -> {'))
         assertTrue(submissionIndicator.contains(
                 'renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());'))
+        assertTrue(submissionIndicator.contains('case PASSIVE_INDICATOR -> renderWidgetIcon('))
+        assertTrue(submissionIndicator.contains('(isHovered || (keyboardNavigation && isFocused()) ? 0xFF : 0xA6)'))
         assertFalse(submissionIndicator.contains('renderDefaultSprite('))
         assertTrue(submission.contains('boolean iconOnlyFrame = kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON'))
         assertTrue(submission.contains('if ((iconOnlyFrame && isHoveredOrFocused())'))
-        assertTrue(submission.contains('spec.kind() != ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR'))
+        assertTrue(submission.contains('spec.kind() != ViewSpec.WidgetKind.PASSIVE_INDICATOR'))
         extraction.each { String source ->
             String iconButton = source.substring(
                     source.indexOf('private final class IconButtonWidget'),
-                    source.indexOf('private static final class CompatibilityIndicatorWidget'))
+                    source.indexOf('private final class PassiveIndicatorWidget'))
             assertTrue(iconButton.contains('if (!iconOnly)'))
             assertTrue(iconButton.contains('if (iconOnly && isHoveredOrFocused())'))
             assertTrue(iconButton.contains('onPress.accept(input)'))
             String indicator = source.substring(
-                    source.indexOf('private static final class CompatibilityIndicatorWidget'),
+                    source.indexOf('private final class PassiveIndicatorWidget'),
                     source.indexOf('private static void extractActionIcon'))
             assertTrue(indicator.contains('extractActionIcon('))
+            assertTrue(indicator.contains('(isHovered || (keyboardNavigation && isFocused()) ? 0xFF : 0xA6)'))
             assertTrue(indicator.contains('isHoveredOrFocused()'))
             assertTrue(indicator.contains('extractCardFocusFrame('))
             assertFalse(indicator.contains('extractDefaultSprite('))
             assertTrue(source.count('extractActionIcon(') >= 3)
+        }
+    }
+
+    @Test
+    void passiveIndicatorsNarrateDescriptionsAndKeepNativeFontWrappedVisualTooltips() {
+        Map<String, String> hosts = [
+                immediate: 'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java',
+                submission: 'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
+                extraction: 'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
+        ]
+        hosts.each { String family, String path ->
+            String source = new File(repository, path).text
+            String methodName = family == 'extraction'
+                    ? 'drawPassiveIndicatorTooltip' : 'renderPassiveIndicatorTooltip'
+            String renderer = source.substring(source.indexOf('private void ' + methodName + '('),
+                    source.indexOf('private ', source.indexOf('private void ' + methodName + '(') + 1))
+            assertTrue(source.contains(methodName + '(graphics, '), family)
+            assertTrue(renderer.contains('ViewHostPolicy.passiveIndicatorTooltip('), family)
+            assertTrue(renderer.contains('target.lines().stream()'), family)
+            assertTrue(renderer.contains('font.split('), family)
+            assertTrue(renderer.contains(', 128)'), family)
+            assertTrue(source.contains('NarratedElementType.HINT'), family)
+            assertTrue(source.contains('output.add(NarratedElementType.HINT, description)'), family)
+            assertTrue(source.contains('filter(hint -> !hint.equals('), family)
+            assertTrue(source.contains('defaultButtonNarrationText(output)'), family)
+            assertFalse(renderer.contains('Tooltip.create('), family)
+            assertFalse(source.contains('Tooltip.create(indicatorTooltip('), family)
+            assertFalse(source.contains('private static Component indicatorTooltip('), family)
+            assertFalse(source.contains('private Component indicatorTooltip('), family)
+            assertTrue(source.contains('setTooltip(null)'), family)
+            if (family == 'immediate') {
+                assertTrue(renderer.contains('graphics.renderTooltip(font,'), family)
+            } else if (family == 'submission') {
+                assertTrue(renderer.contains('graphics.setTooltipForNextFrame(font,'), family)
+            } else {
+                assertTrue(renderer.contains('graphics.setTooltipForNextFrame('), family)
+            }
+        }
+    }
+
+    @Test
+    void providerRowFrameAndKeyboardArrowsShareDescendantOwnershipInEveryNativeHost() {
+        Map<String, List<String>> hosts = [
+                immediate: [
+                        'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java',
+                        'private void renderCardBackgrounds'],
+                submission: [
+                        'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java',
+                        'private boolean renderCardBackgrounds'],
+                extraction: [
+                        'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java',
+                        'private boolean drawCardBackgrounds']
+        ]
+        hosts.each { String family, List<String> spec ->
+            String source = new File(repository, spec[0]).text
+            String frame = source.substring(source.indexOf(spec[1] + '('))
+            frame = frame.substring(0, frame.indexOf('\n    private '))
+            String arrows = source.substring(source.indexOf('private void renderProviderArrows('))
+            arrows = arrows.substring(0, arrows.indexOf('\n    private '))
+            assertTrue(frame.contains('ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)'), family)
+            assertTrue(frame.contains('ProviderRowStyle.frameColor('), family)
+            assertTrue(arrows.contains('ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)'), family)
+            assertTrue(arrows.contains('ProviderRowStyle.showControls('), family)
+            assertFalse(source.contains('endsWith("." + provider)'), family)
         }
     }
 

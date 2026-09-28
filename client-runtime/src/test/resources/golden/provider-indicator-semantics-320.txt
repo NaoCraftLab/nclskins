@@ -1,0 +1,4 @@
+providers.capability.OFFLINE.write|206,79,20,20|key:nclskins.providers.capability.write.title:INFO|key:nclskins.providers.capability.write.skin.description:INFO|clip=168,65,144,142|activate=-|right=providers.edit.OFFLINE
+providers.capability.MINECRAFT.write|206,119,20,20|key:nclskins.providers.capability.write.title:INFO|key:nclskins.providers.capability.write.skin.description:INFO|clip=168,65,144,142|activate=-|right=providers.capability.MINECRAFT.distribution
+providers.capability.MINECRAFT.distribution|226,119,20,20|key:nclskins.providers.capability.distribution.title:INFO|key:nclskins.providers.capability.distribution.skin.description:INFO|clip=168,65,144,142|activate=-|right=providers.edit.MINECRAFT
+progress|providers.row.MINECRAFT|202|139|2|0.5

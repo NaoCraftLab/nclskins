@@ -545,7 +545,7 @@ public record ViewSpec(
         TAB_BUTTON,
 
         INFO_BUTTON,
-        COMPATIBILITY_INDICATOR,
+        PASSIVE_INDICATOR,
         TEXT_FIELD,
         COLLECTION_HEADER,
 
@@ -656,7 +656,7 @@ public record ViewSpec(
                 Widget widget, int documentOrder, int tabOrder) {
             Objects.requireNonNull(widget, "widget");
             Optional<String> activation = switch (widget.kind()) {
-                case COMPATIBILITY_INDICATOR, INFO_BUTTON, TEXT_FIELD -> Optional.empty();
+                case PASSIVE_INDICATOR, INFO_BUTTON, TEXT_FIELD -> Optional.empty();
                 default -> Optional.of(widget.id());
             };
             return new NavigationNode(
@@ -1006,13 +1006,22 @@ public record ViewSpec(
                 Bounds bounds,
                 UiMessage accessibleLabel,
                 GuiIcon icon) {
+            return passiveIndicator(id, bounds, accessibleLabel, accessibleLabel, icon);
+        }
+
+        public static Widget passiveIndicator(
+                String id,
+                Bounds bounds,
+                UiMessage accessibleLabel,
+                UiMessage description,
+                GuiIcon icon) {
             return new Widget(
                     id,
-                    WidgetKind.COMPATIBILITY_INDICATOR,
+                    WidgetKind.PASSIVE_INDICATOR,
                     bounds,
                     accessibleLabel,
                     Optional.empty(),
-                    Optional.of(accessibleLabel),
+                    Optional.of(description),
                     true,
                     true,
                     0,

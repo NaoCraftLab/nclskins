@@ -79,7 +79,7 @@ final class CatalogCardStyleTest {
                 CatalogCardStyle.backgroundBehindContentColor(selectedImport, true));
         assertFalse(CatalogCardStyle.backgroundBehindContent(ViewSpec.WidgetKind.BUTTON));
         assertFalse(CatalogCardStyle.backgroundBehindContent(
-                ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR));
+                ViewSpec.WidgetKind.PASSIVE_INDICATOR));
     }
 
     @Test
@@ -113,7 +113,7 @@ final class CatalogCardStyleTest {
         assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.SELECTABLE_CARD));
         assertTrue(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.CAPE_CARD));
         assertTrue(CatalogCardStyle.focusFrameSupported(
-                ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR));
+                ViewSpec.WidgetKind.PASSIVE_INDICATOR));
         assertFalse(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.BUTTON));
         assertFalse(CatalogCardStyle.focusFrameSupported(ViewSpec.WidgetKind.TEXT_FIELD));
     }

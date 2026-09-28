@@ -1,20 +1,29 @@
 package com.naocraftlab.skins.core.provider;
 
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
+
 public enum BuiltinProvider {
-    OFFLINE(true, true, true),
-    MINECRAFT(true, true, true),
-    OPTIFINE(false, true, false),
-    SKINMC(false, true, false),
-    SNEAKY(false, true, false);
+    OFFLINE(true, true, capabilities(ProviderCapability.WRITE), capabilities(ProviderCapability.WRITE)),
+    MINECRAFT(true, true,
+            capabilities(ProviderCapability.WRITE, ProviderCapability.DISTRIBUTION),
+            capabilities(ProviderCapability.LIMITED_WRITE, ProviderCapability.DISTRIBUTION)),
+    OPTIFINE(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION)),
+    SKINMC(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION)),
+    SNEAKY(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION));
 
     private final boolean skin;
     private final boolean cape;
-    private final boolean writable;
+    private final Set<ProviderCapability> skinCapabilities;
+    private final Set<ProviderCapability> capeCapabilities;
 
-    BuiltinProvider(boolean skin, boolean cape, boolean writable) {
+    BuiltinProvider(boolean skin, boolean cape, Set<ProviderCapability> skinCapabilities,
+            Set<ProviderCapability> capeCapabilities) {
         this.skin = skin;
         this.cape = cape;
-        this.writable = writable;
+        this.skinCapabilities = skinCapabilities;
+        this.capeCapabilities = capeCapabilities;
     }
 
     public boolean supportsSkin() {
@@ -25,7 +34,22 @@ public enum BuiltinProvider {
         return cape;
     }
 
-    public boolean writable() {
-        return writable;
+    public Set<ProviderCapability> capabilities(AppearanceProviders.Component component) {
+        return switch (component) {
+            case SKIN -> skinCapabilities;
+            case CAPE -> capeCapabilities;
+        };
+    }
+
+    public boolean canWrite(AppearanceProviders.Component component) {
+        Set<ProviderCapability> capabilities = capabilities(component);
+        return capabilities.contains(ProviderCapability.WRITE)
+                || capabilities.contains(ProviderCapability.LIMITED_WRITE);
+    }
+
+    private static Set<ProviderCapability> capabilities(ProviderCapability first,
+            ProviderCapability... rest) {
+        EnumSet<ProviderCapability> values = EnumSet.of(first, rest);
+        return Collections.unmodifiableSet(values);
     }
 }

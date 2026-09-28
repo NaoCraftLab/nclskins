@@ -45,7 +45,8 @@ final class ArtifactVerifier {
         'appearance/outer_layer/body/only_right_arm.png', 'appearance/outer_layer/legs/all_on.png',
         'appearance/outer_layer/legs/all_off.png', 'appearance/outer_layer/legs/left_off.png',
         'appearance/outer_layer/legs/right_off.png', 'status/compatibility/extended.png',
-        'status/compatibility/incompatible.png'
+        'status/compatibility/incompatible.png', 'status/provider_capability/write.png',
+        'status/provider_capability/limited_write.png', 'status/provider_capability/distribution.png'
     ] as Set).asImmutable()
     static final Map<String, Map> FORGE_REFMAPS = [
         'forge-1.20.1': [

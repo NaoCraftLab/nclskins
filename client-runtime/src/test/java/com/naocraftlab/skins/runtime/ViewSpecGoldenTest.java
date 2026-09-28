@@ -42,6 +42,35 @@ final class ViewSpecGoldenTest {
     }
 
     @Test
+    void providerIndicatorNavigationClipAndCooldownMatchGolden() {
+        var providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial();
+        var progress = Optional.of(new ClientSnapshot.RateLimitProgress(
+                Duration.ofSeconds(30), Duration.ofSeconds(60), 0.5));
+        var view = new ProvidersPresenter().present(providers,
+                com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN,
+                false, false, PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 320, 240, null, null, progress);
+        StringBuilder actual = new StringBuilder();
+        for (var widget : view.widgets()) {
+            if (widget.kind() != ViewSpec.WidgetKind.PASSIVE_INDICATOR) continue;
+            actual.append(widget.id()).append('|').append(bounds(widget.bounds()))
+                    .append('|').append(message(widget.label()))
+                    .append('|').append(message(widget.hint().orElseThrow()))
+                    .append("|clip=").append(bounds(view.clipFor(widget.id()).orElseThrow()))
+                    .append("|activate=").append(ViewNavigationPolicy.activationAction(view, widget.id()).orElse("-"))
+                    .append("|right=").append(ViewNavigationPolicy.target(view, widget.id(),
+                            ViewSpec.NavigationCommand.RIGHT).map(ViewSpec.NavigationNode::id).orElse("-"))
+                    .append('\n');
+        }
+        var bar = view.progressDecorations().get(0);
+        var row = view.widget(bar.ownerWidgetId()).orElseThrow().bounds();
+        actual.append("progress|").append(bar.ownerWidgetId()).append('|')
+                .append(bar.startX(row)).append('|').append(bar.bottomY(row))
+                .append('|').append(bar.height()).append('|').append(bar.fraction());
+        assertEquals(golden("provider-indicator-semantics-320.txt"), actual.toString().stripTrailing());
+    }
+
+    @Test
     void providerChooserAtSmallHeightMatchesGolden() {
         var providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial()
                 .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,

@@ -47,7 +47,10 @@ public enum GuiIcon implements WidgetIcon {
     PROVIDER_CAPE_NO_VALUE("provider/cape/no_value", 32),
 
     STATUS_COMPATIBILITY_EXTENDED("status/compatibility/extended", 16),
-    STATUS_COMPATIBILITY_INCOMPATIBLE("status/compatibility/incompatible", 16);
+    STATUS_COMPATIBILITY_INCOMPATIBLE("status/compatibility/incompatible", 16),
+    STATUS_PROVIDER_CAPABILITY_WRITE("status/provider_capability/write", 16),
+    STATUS_PROVIDER_CAPABILITY_LIMITED_WRITE("status/provider_capability/limited_write", 16),
+    STATUS_PROVIDER_CAPABILITY_DISTRIBUTION("status/provider_capability/distribution", 16);
 
     public static final String RESOURCE_PREFIX = "textures/gui/icons/";
 

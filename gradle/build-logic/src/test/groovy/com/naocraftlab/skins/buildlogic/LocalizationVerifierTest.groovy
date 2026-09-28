@@ -59,7 +59,7 @@ final class LocalizationVerifierTest {
         File directory = new File(repository,
                 'compat/resources/canonical/src/main/resources/assets/nclskins/lang')
         Map baseline = CatalogTools.loadJson(new File(directory, 'en_us.json'))
-        assertEquals(297, baseline.size())
+        assertEquals(306, baseline.size())
         assertEquals('NCL Skins', baseline['key.category.nclskins.main'])
         assertTrue(LocalizationVerifier.productionKeys(repository).containsAll([
                 'key.category.nclskins.main', 'key.nclskins.open_gallery',
@@ -76,6 +76,26 @@ final class LocalizationVerifierTest {
             List<String> errors = []
             LocalizationVerifier.validateLanguage(locale, language, baseline, true, errors)
             assertEquals([], errors, locale)
+        }
+
+        Map<String, List<String>> limitedWriteDescriptions = [
+                en_us: ["Saves the active look's skin provided by the provider's catalog",
+                        "Saves the active look's cape provided by the provider's catalog"],
+                ru_ru: ['Сохраняет скин активного образа, предоставленный каталогом провайдера',
+                        'Сохраняет плащ активного образа, предоставленный каталогом провайдера'],
+                de_de: ['Speichert den Skin des aktiven Looks aus dem Katalog des Anbieters',
+                        'Speichert den Umhang des aktiven Looks aus dem Katalog des Anbieters'],
+                pt_br: ['Salva a skin da aparência ativa fornecida pelo catálogo do provedor',
+                        'Salva a capa da aparência ativa fornecida pelo catálogo do provedor'],
+                es_mx: ['Guarda la skin del aspecto activo proporcionada por el catálogo del proveedor',
+                        'Guarda la capa del aspecto activo proporcionada por el catálogo del proveedor'],
+                es_es: ['Guarda la skin del aspecto activo proporcionada por el catálogo del proveedor',
+                        'Guarda la capa del aspecto activo proporcionada por el catálogo del proveedor']
+        ]
+        limitedWriteDescriptions.each { String locale, List<String> descriptions ->
+            Map language = CatalogTools.loadJson(new File(directory, "${locale}.json"))
+            assertEquals(descriptions[0], language['nclskins.providers.capability.limited_write.skin.description'])
+            assertEquals(descriptions[1], language['nclskins.providers.capability.limited_write.cape.description'])
         }
 
         Map missing = new LinkedHashMap(baseline)

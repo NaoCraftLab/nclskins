@@ -51,7 +51,7 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC, "Preset", Optional.empty());
         String indicatorId = "gallery.preset." + active + ".compatibility";
         ViewSpec.Widget indicator = view.widget(indicatorId).orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR, indicator.kind());
+        assertEquals(ViewSpec.WidgetKind.PASSIVE_INDICATOR, indicator.kind());
         assertEquals(Optional.of(indicator.label()), indicator.hint());
         assertTrue(view.navigationNode(indicatorId).isPresent());
         assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), indicator.icon());

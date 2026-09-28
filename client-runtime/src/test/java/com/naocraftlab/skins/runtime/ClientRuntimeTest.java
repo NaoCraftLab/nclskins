@@ -252,7 +252,7 @@ final class ClientRuntimeTest {
     @Test
     void skinProviderGalleryDoneAndEscapeReturnToSkinProviders() {
         for (BuiltinProvider provider : BuiltinProvider.values()) {
-            if (!provider.supportsSkin() || !provider.writable()) continue;
+            if (!provider.supportsSkin() || !provider.canWrite(AppearanceProviders.Component.SKIN)) continue;
             for (String exit : List.of("done", "escape")) {
                 FakeOperations operations = new FakeOperations();
                 operations.account = TestFixtures.account(1);
@@ -538,7 +538,7 @@ final class ClientRuntimeTest {
     @Test
     void capeProviderEditorReturnsToCapeProvidersWithoutChangingOrdinaryEditorReturn() {
         for (String exit : List.of("save", "cancel", "escape")) for (var provider : BuiltinProvider.values()) {
-            if (!provider.writable()) continue;
+            if (!provider.canWrite(AppearanceProviders.Component.CAPE)) continue;
             FakeOperations operations = new FakeOperations();
             operations.account = TestFixtures.account(2);
             UUID active = operations.account.presets().get(1).id();
@@ -601,7 +601,7 @@ final class ClientRuntimeTest {
     @Test
     void providerEditOpensGalleryOrActiveCapeDraftWithoutApplying() {
         for (var provider : BuiltinProvider.values()) for (int activeIndex = 0; activeIndex < 2; activeIndex++) {
-            if (!provider.writable()) continue;
+            if (!provider.canWrite(AppearanceProviders.Component.CAPE)) continue;
             FakeOperations operations = new FakeOperations();
             operations.account = TestFixtures.account(2);
             var active = operations.account.presets().get(activeIndex);

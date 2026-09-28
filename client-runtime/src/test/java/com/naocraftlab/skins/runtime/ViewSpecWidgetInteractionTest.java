@@ -73,4 +73,15 @@ final class ViewSpecWidgetInteractionTest {
         assertEquals(Optional.of(NativeGuiIcon.ACCEPT), widget.icon());
         assertTrue(widget.icon().orElseThrow() instanceof NativeGuiIcon);
     }
+
+    @Test
+    void semanticIndicatorHasSeparateTitleAndDescriptionWithoutActivation() {
+        ViewSpec.Widget indicator = ViewSpec.Widget.passiveIndicator("capability",
+                new Bounds(4, 8, 20, 20), UiMessage.info("title"),
+                UiMessage.info("description"), GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE);
+        assertEquals(ViewSpec.WidgetKind.PASSIVE_INDICATOR, indicator.kind());
+        assertEquals("title", indicator.label().key());
+        assertEquals("description", indicator.hint().orElseThrow().key());
+        assertEquals(Optional.empty(), ViewSpec.NavigationNode.control(indicator, 0, 0).activationActionId());
+    }
 }

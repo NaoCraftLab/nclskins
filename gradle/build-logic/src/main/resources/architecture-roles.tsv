@@ -325,6 +325,7 @@ com/naocraftlab/skins/core/png/SneakyCapeDecoder	domain	shared	common	internal
 com/naocraftlab/skins/core/png/StoredSkinProjection	domain	shared	common	internal
 com/naocraftlab/skins/core/provider/AppearanceProviders	domain	shared	common	internal
 com/naocraftlab/skins/core/provider/BuiltinProvider	domain	shared	common	internal
+com/naocraftlab/skins/core/provider/ProviderCapability	domain	shared	common	internal
 com/naocraftlab/skins/core/provider/ProviderCape	domain	shared	common	internal
 com/naocraftlab/skins/core/provider/ProviderChannel	domain	shared	common	internal
 com/naocraftlab/skins/core/provider/ProviderDelivery	domain	shared	common	internal

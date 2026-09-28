@@ -138,7 +138,7 @@ final class AddSourceModelPresenterTest {
         ViewSpec hiddenView = presenter.present(hidden, false, 854, 480);
         String sparkleId = "add.catalog.skin:mixed:dual.compatibility";
         assertEquals(
-                ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR,
+                ViewSpec.WidgetKind.PASSIVE_INDICATOR,
                 hiddenView.widget(sparkleId).orElseThrow().kind());
         assertTrue(hiddenView.widget(sparkleId).orElseThrow().enabled());
         assertEquals(

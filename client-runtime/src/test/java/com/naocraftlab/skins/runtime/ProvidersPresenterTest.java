@@ -135,7 +135,7 @@ final class ProvidersPresenterTest {
             for (var provider : BuiltinProvider.values()) {
                 if (component == AppearanceProviders.Component.SKIN && !provider.supportsSkin()
                         || component == AppearanceProviders.Component.CAPE && !provider.supportsCape()) continue;
-                if (!provider.writable()) continue;
+                if (!provider.canWrite(component)) continue;
                 String id = "providers.edit." + provider;
                 var edit = view.widget(id).orElseThrow();
                 assertEquals(GuiIcon.ACTION_EDIT, edit.icon().orElseThrow());
@@ -198,8 +198,10 @@ final class ProvidersPresenterTest {
         assertEquals(row.bounds().right() - 28, account.bounds().right());
         assertTrue(empty.clipRegions().stream().anyMatch(region ->
                 region.id().equals("providers.rows") && region.matches(account.id())));
-        assertEquals("providers.account.SKINMC", ViewNavigationPolicy.target(empty,
+        assertEquals("providers.capability.SKINMC.distribution", ViewNavigationPolicy.target(empty,
                 "providers.up.SKINMC", ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
+        assertEquals("providers.account.SKINMC", ViewNavigationPolicy.target(empty,
+                "providers.capability.SKINMC.distribution", ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
         assertTrue(empty.iconDecorations().stream().filter(icon ->
                 icon.ownerWidgetId().equals(row.id())).findFirst().orElseThrow()
                 .providerTexture().isEmpty());
@@ -316,6 +318,82 @@ final class ProvidersPresenterTest {
         }
     }
 
+    @Test void providerIndicatorsFollowTheDomainMatrixAndChooserHasNone() {
+        var providers = AppearanceProviders.initial()
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        var presenter = new ProvidersPresenter();
+        var transform = PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE);
+        var skin = presenter.present(providers, AppearanceProviders.Component.SKIN, false, false,
+                transform, SkinVariant.CLASSIC, 854, 480);
+        assertEquals(java.util.List.of("providers.capability.OFFLINE.write",
+                        "providers.capability.MINECRAFT.write", "providers.capability.MINECRAFT.distribution"),
+                capabilityIds(skin));
+        var cape = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                transform, SkinVariant.CLASSIC, 854, 480);
+        assertEquals(java.util.List.of("providers.capability.OFFLINE.write",
+                        "providers.capability.MINECRAFT.limited_write", "providers.capability.MINECRAFT.distribution",
+                        "providers.capability.OPTIFINE.distribution", "providers.capability.SKINMC.distribution",
+                        "providers.capability.SNEAKY.distribution"), capabilityIds(cape));
+        var first = cape.widget("providers.capability.MINECRAFT.limited_write").orElseThrow();
+        var second = cape.widget("providers.capability.MINECRAFT.distribution").orElseThrow();
+        var row = cape.widget("providers.row.MINECRAFT").orElseThrow();
+        assertEquals(row.bounds().x() + 38, first.bounds().x());
+        assertEquals(row.bounds().y() + 14, first.bounds().y());
+        assertEquals("nclskins.providers.capability.limited_write.cape.description",
+                first.hint().orElseThrow().key());
+        assertEquals(first.bounds().right(), second.bounds().x());
+        assertEquals(20, first.bounds().width());
+        assertEquals(20, first.bounds().height());
+        assertEquals(cape.scrollSurface("providers.rows").orElseThrow().viewport(),
+                cape.clipFor(first.id()).orElseThrow());
+        assertTrue(ViewNavigationPolicy.activationAction(cape, first.id()).isEmpty());
+        assertEquals(java.util.List.of(), capabilityIds(presenter.presentChooser(providers,
+                AppearanceProviders.Component.CAPE, false, 854, 480, 0)));
+    }
+
+    @Test void providerNameMarqueeUsesOnlyItsClippedNameBounds() {
+        var view = new ProvidersPresenter().present(AppearanceProviders.initial(),
+                AppearanceProviders.Component.SKIN, false, false,
+                PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 320, 240);
+        var name = view.texts().stream().filter(text -> text.id().equals("providers.row.OFFLINE.name"))
+                .findFirst().orElseThrow();
+        assertEquals(name.bounds(), name.marqueeActivation().orElseThrow().hoverBounds());
+        assertEquals(view.scrollSurface("providers.rows").orElseThrow().viewport(),
+                view.clipFor(name.id()).orElseThrow());
+        assertTrue(MarqueeRouting.active(view, name,
+                name.bounds().x(), name.bounds().y(), ignored -> false));
+        assertFalse(MarqueeRouting.active(view, name,
+                name.bounds().right(), name.bounds().y(), ignored -> false));
+    }
+
+    @Test void narrowRowsMoveActionsBelowTheFixedCapabilityHeader() {
+        var providers = AppearanceProviders.initial();
+        var presenter = new ProvidersPresenter();
+        var progress = java.util.Optional.of(new ClientSnapshot.RateLimitProgress(
+                java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(60), 0.5));
+        var view = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(191, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                200, 191, null, null, progress, false, null, 0, UiMessage::key,
+                java.util.Map.of(BuiltinProvider.MINECRAFT, java.time.Duration.ofSeconds(8)));
+        var row = view.widget("providers.row.MINECRAFT").orElseThrow().bounds();
+        var indicator = view.widget("providers.capability.MINECRAFT.distribution").orElseThrow().bounds();
+        var edit = view.widget("providers.edit.MINECRAFT").orElseThrow().bounds();
+        var explanation = view.texts().stream().filter(text -> text.id().equals("providers.row.MINECRAFT.cooldown"))
+                .findFirst().orElseThrow().bounds();
+        assertEquals(row.y() + 34, indicator.bottom());
+        assertTrue(edit.y() >= explanation.bottom());
+        assertTrue(edit.y() >= indicator.bottom());
+        assertEquals(row.y() + 34, view.progressDecorations().get(0).bottomY(row));
+    }
+
+    private static java.util.List<String> capabilityIds(ViewSpec view) {
+        return view.widgets().stream().filter(widget -> widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR)
+                .map(ViewSpec.Widget::id).toList();
+    }
+
     @Test void publicCapeCooldownsUseSeparateWrappedRowsAndDoNotAlterMinecraftProgress() {
         var providers = AppearanceProviders.initial()
                 .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
@@ -351,11 +429,14 @@ final class ProvidersPresenterTest {
         var view = view(AppearanceProviders.initial(), "", false);
         assertEquals("providers.row.MINECRAFT", ViewNavigationPolicy.target(view, "providers.row.OFFLINE", ViewSpec.NavigationCommand.DOWN).orElseThrow().id());
         assertEquals("providers.down.OFFLINE", ViewNavigationPolicy.target(view, "providers.row.OFFLINE", ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
-        assertEquals("providers.edit.OFFLINE", ViewNavigationPolicy.target(view, "providers.down.OFFLINE", ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
+        assertEquals("providers.capability.OFFLINE.write", ViewNavigationPolicy.target(view, "providers.down.OFFLINE", ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
+        assertEquals("providers.edit.OFFLINE", ViewNavigationPolicy.target(view, "providers.capability.OFFLINE.write", ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
         assertEquals("providers.edit.OFFLINE", ViewNavigationPolicy.target(view, "providers.remove.OFFLINE", ViewSpec.NavigationCommand.LEFT).orElseThrow().id());
         assertEquals("providers.row.MINECRAFT", ViewNavigationPolicy.target(view, "providers.remove.OFFLINE", ViewSpec.NavigationCommand.DOWN).orElseThrow().id());
         assertEquals("providers.up.MINECRAFT", ViewNavigationPolicy.target(view, "providers.row.MINECRAFT", ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
-        assertEquals("providers.edit.MINECRAFT", ViewNavigationPolicy.target(view, "providers.up.MINECRAFT", ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
+        assertEquals("providers.capability.MINECRAFT.write", ViewNavigationPolicy.target(view, "providers.up.MINECRAFT", ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
+        assertEquals("providers.capability.MINECRAFT.distribution", ViewNavigationPolicy.target(view, "providers.capability.MINECRAFT.write", ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
+        assertEquals("providers.edit.MINECRAFT", ViewNavigationPolicy.target(view, "providers.capability.MINECRAFT.distribution", ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
         var delete = view.widget("providers.remove.OFFLINE").orElseThrow();
         var row = view.widget("providers.row.OFFLINE").orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, delete.kind());

@@ -56,6 +56,7 @@ import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.components.tabs.TabManager;
 import net.minecraft.client.gui.components.tabs.TabNavigationBar;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.InputWithModifiers;
 import net.minecraft.client.input.CharacterEvent;
@@ -376,10 +377,14 @@ public final class NclSkinsScreen extends Screen {
                 VerticalTabStyle.isSelected(spec) || CatalogCardStyle.selectionSelected(spec),
                 !spec.visible(),
                 input -> {
-                    if (spec.kind() != ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR) {
+                    if (spec.kind() != ViewSpec.WidgetKind.PASSIVE_INDICATOR) {
                         dispatchNativeWidget(spec.id(), input.hasShiftDown());
                     }
                 });
+        if (spec.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR) {
+            button.update(spec);
+            return button;
+        }
         spec.hint()
                 .or(() -> spec.kind() == ViewSpec.WidgetKind.ICON_BUTTON
                                 || spec.kind() == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
@@ -409,6 +414,9 @@ public final class NclSkinsScreen extends Screen {
             widget.setY(bounds.y());
             if (widget instanceof ActionButton button) {
                 button.update(spec);
+                if (spec.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR) {
+                    button.setTooltip(null);
+                }
             }
             if (widget instanceof EditBox edit) {
                 edit.setEditable(spec.enabled());
@@ -533,6 +541,7 @@ public final class NclSkinsScreen extends Screen {
         renderTabHighlights(graphics, current, mouseX, mouseY);
         renderTexts(graphics, current, mouseX, mouseY);
         renderTooltips(graphics, current, mouseX, mouseY);
+        renderPassiveIndicatorTooltip(graphics, current, mouseX, mouseY);
         runtime.acknowledgeViewRendered(current);
     }
 
@@ -552,7 +561,7 @@ public final class NclSkinsScreen extends Screen {
             if (widget.id().startsWith("providers.row.")) {
                 String provider = widget.id().substring("providers.row.".length());
                 boolean rowFocused = focused || widgets.entrySet().stream().anyMatch(entry ->
-                        entry.getKey().startsWith("providers.") && entry.getKey().endsWith("." + provider)
+                        ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)
                                 && entry.getValue().isFocused());
                 int frameColor = ProviderRowStyle.frameColor(CatalogCardStyle.selectionSelected(widget), rowFocused, keyboardNavigation);
                 if (frameColor != 0) {
@@ -710,8 +719,9 @@ public final class NclSkinsScreen extends Screen {
     private void renderProviderArrows(GuiGraphics graphics, ViewSpec view, ViewSpec.IconDecoration decoration, int mouseX, int mouseY) {
         if (!decoration.ownerWidgetId().startsWith("providers.row.")) return;
         String provider = decoration.ownerWidgetId().substring("providers.row.".length());
-        boolean focused = widgets.entrySet().stream().anyMatch(entry -> entry.getKey().startsWith("providers.")
-                && entry.getKey().endsWith("." + provider) && entry.getValue().isFocused());
+        boolean focused = widgets.entrySet().stream().anyMatch(entry ->
+                ViewHostPolicy.belongsToProviderRow(entry.getKey(), provider)
+                        && entry.getValue().isFocused());
         boolean active = ProviderRowStyle.showControls(view.widget(decoration.ownerWidgetId())
                 .filter(row -> row.bounds().contains(mouseX, mouseY)).isPresent(), focused, keyboardNavigation);
         if (!active) return;
@@ -950,6 +960,16 @@ public final class NclSkinsScreen extends Screen {
                 .findFirst()
                 .ifPresent(region -> graphics.setTooltipForNextFrame(
                         font, SubmissionComponents.resolve(region.tooltip()), x, y));
+    }
+
+    private void renderPassiveIndicatorTooltip(
+            GuiGraphics graphics, ViewSpec current, int mouseX, int mouseY) {
+        ViewHostPolicy.passiveIndicatorTooltip(
+                current, mouseX, mouseY, focusedWidgetId()).ifPresent(target ->
+                graphics.setTooltipForNextFrame(font,
+                        target.lines().stream().flatMap(line ->
+                                font.split(SubmissionComponents.resolve(line), 128).stream()).toList(),
+                        target.x(mouseX), target.y(mouseY)));
     }
 
     private void synchronizePreviewAssets(ViewSpec current) {
@@ -1446,6 +1466,7 @@ public final class NclSkinsScreen extends Screen {
         private boolean trailingInfo;
         private boolean selected;
         private final boolean transparent;
+        private Optional<Component> narrationDescription = Optional.empty();
 
         private ActionButton(
                 String widgetId, Bounds bounds,
@@ -1470,6 +1491,10 @@ public final class NclSkinsScreen extends Screen {
             icon = spec.icon();
             trailingInfo = spec.collectionHeaderHasTrailingInfo();
             selected = VerticalTabStyle.isSelected(spec) || CatalogCardStyle.selectionSelected(spec);
+            narrationDescription = kind == ViewSpec.WidgetKind.PASSIVE_INDICATOR
+                    ? spec.hint().filter(hint -> !hint.equals(spec.label()))
+                            .map(SubmissionComponents::resolve)
+                    : Optional.empty();
         }
 
         @Override
@@ -1501,16 +1526,19 @@ public final class NclSkinsScreen extends Screen {
                         getY() + Math.max(0, (getHeight() - font.lineHeight) / 2),
                         InfoButtonStyle.labelColor(active, isHoveredOrFocused()));
                 case TAB_BUTTON -> renderVerticalTab(graphics);
-                case ICON_ONLY_BUTTON, COMPATIBILITY_INDICATOR -> {
+                case ICON_ONLY_BUTTON -> {
                     renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());
                 }
+                case PASSIVE_INDICATOR -> renderWidgetIcon(graphics, icon.orElseThrow(),
+                        getX(), getY(), getWidth(), getHeight(),
+                        (isHovered || (keyboardNavigation && isFocused()) ? 0xFF : 0xA6) << 24 | 0x00FFFFFF);
                 case CATALOG_CARD, SELECTABLE_CARD, CAPE_CARD, PROVIDER_ACTION -> {
                 }
                 case COLLECTION_HEADER -> renderCollectionHeader(graphics, font);
                 case TEXT_FIELD -> throw new IllegalStateException("Text field uses EditBox");
             }
             boolean iconOnlyFrame = kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON
-                    || kind == ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR;
+                    || kind == ViewSpec.WidgetKind.PASSIVE_INDICATOR;
             if ((iconOnlyFrame && isHoveredOrFocused())
                     || (!iconOnlyFrame
                             && isFocused()
@@ -1552,6 +1580,12 @@ public final class NclSkinsScreen extends Screen {
 
         private void renderWidgetIcon(
                 GuiGraphics graphics, WidgetIcon widgetIcon, int x, int y, int width, int height) {
+            renderWidgetIcon(graphics, widgetIcon, x, y, width, height, -1);
+        }
+
+        private void renderWidgetIcon(
+                GuiGraphics graphics, WidgetIcon widgetIcon, int x, int y, int width, int height,
+                int color) {
             if (widgetIcon instanceof NativeGuiIcon nativeIcon) {
                 graphics.blitSprite(
                         RenderPipelines.GUI_TEXTURED,
@@ -1575,7 +1609,8 @@ public final class NclSkinsScreen extends Screen {
                     size,
                     size,
                     size,
-                    size);
+                    size,
+                    color);
         }
 
         private void renderCollectionHeader(GuiGraphics graphics, net.minecraft.client.gui.Font font) {
@@ -1610,6 +1645,8 @@ public final class NclSkinsScreen extends Screen {
         @Override
         public void updateWidgetNarration(NarrationElementOutput output) {
             defaultButtonNarrationText(output);
+            narrationDescription.ifPresent(description ->
+                    output.add(NarratedElementType.HINT, description));
         }
     }
 

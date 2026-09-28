@@ -174,7 +174,7 @@ final class ClientRuntimeRegressionTest {
 
         assertEquals(1, operations.skinPreviewCalls.get());
         ViewSpec.Widget indicator = editor.widget("editor.compatibility").orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.COMPATIBILITY_INDICATOR, indicator.kind());
+        assertEquals(ViewSpec.WidgetKind.PASSIVE_INDICATOR, indicator.kind());
         assertTrue(indicator.enabled());
         assertEquals(Optional.of(indicator.label()), indicator.hint());
         assertEquals("nclskins.compatibility.tooltip.1", indicator.label().key());

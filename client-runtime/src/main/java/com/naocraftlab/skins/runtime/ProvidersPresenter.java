@@ -8,6 +8,7 @@ import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderCape;
 import com.naocraftlab.skins.core.provider.ProviderChannel;
+import com.naocraftlab.skins.core.provider.ProviderCapability;
 import com.naocraftlab.skins.core.provider.ProviderSkin;
 
 import java.nio.charset.StandardCharsets;
@@ -77,7 +78,7 @@ public final class ProvidersPresenter {
         Map<BuiltinProvider, Duration> visibleCooldowns = component == AppearanceProviders.Component.CAPE
                 ? capeProviderCooldowns : Map.of();
         int rowContentHeight = Math.max(0, order.stream().mapToInt(provider ->
-                rowHeight(provider, visibleCooldowns, textResolver, contentWidth)).sum() - 4);
+                rowHeight(provider, component, visibleCooldowns, textResolver, contentWidth)).sum() - 4);
         int maximum = Math.max(0, rowContentHeight - rowViewport.height());
         int offset = (int) Math.round(Math.max(0, Math.min(maximum, desiredOffset)));
         var widgets = new ArrayList<ViewSpec.Widget>();
@@ -114,16 +115,23 @@ public final class ProvidersPresenter {
             UiMessage name = providerName(provider);
             String id = "providers.row." + provider.name();
             UiMessage providerCooldown = cooldownMessage(visibleCooldowns.get(provider));
-            int rowHeight = rowHeight(provider, visibleCooldowns, textResolver, contentWidth);
+            int rowHeight = rowHeight(provider, component, visibleCooldowns, textResolver, contentWidth);
+            boolean actionsBelow = actionsBelow(provider, component, contentWidth);
+            int actionY = y + (actionsBelow ? rowHeight - 28 : 8);
             widgets.add(ViewSpec.Widget.selectableCard(id, new Bounds(x, y, contentWidth, rowHeight - 4), name, provider == selected, !busy));
             Object value = component == AppearanceProviders.Component.SKIN
                     ? providers.skin().observation(provider).value()
                     : providers.cape().observation(provider).value();
             icons.add(icon(id, new Bounds(x + 2, y + 2, 32, 32), value, overlay, component));
-            texts.add(new ViewSpec.Text(id + ".name", new Bounds(x + 38, y + 4, Math.max(1, contentWidth - (providers.galleryAvailable() ? 90 : 66)), 10), name, ViewSpec.Text.Alignment.LEFT));
+            Bounds nameBounds = new Bounds(x + 38, y + 4,
+                    Math.max(1, contentWidth - (providers.galleryAvailable() ? 90 : 66)), 10);
+            texts.add(new ViewSpec.Text(id + ".name", nameBounds, name,
+                    ViewSpec.Text.Alignment.LEFT,
+                    Optional.of(new ViewSpec.MarqueeActivation(nameBounds, List.of(id)))));
             if (providerCooldown != null) {
                 texts.add(new ViewSpec.Text(id + ".cooldown",
-                        new Bounds(x + 2, y + 36, Math.max(1, contentWidth - 4), rowHeight - 40),
+                        new Bounds(x + 2, y + 36, Math.max(1, contentWidth - 4),
+                                rowHeight - (actionsBelow ? 64 : 40)),
                         providerCooldown, ViewSpec.Text.Alignment.LEFT, ViewSpec.Text.Layout.WRAP));
             }
             for (int action = 0; action < 2; action++) {
@@ -133,19 +141,29 @@ public final class ProvidersPresenter {
                         UiMessage.info(action == 0 ? "nclskins.providers.up" : "nclskins.providers.down"), Optional.empty(), Optional.empty(),
                         !busy && (action == 0 ? order.indexOf(provider) > 0 : order.indexOf(provider) < order.size() - 1), true, 0));
             }
+            int capabilityIndex = 0;
+            for (ProviderCapability capability : ProviderCapability.values()) {
+                if (!provider.capabilities(component).contains(capability)) continue;
+                String capabilityName = capability.name().toLowerCase(java.util.Locale.ROOT);
+                widgets.add(ViewSpec.Widget.passiveIndicator("providers.capability." + provider.name() + "." + capabilityName,
+                        new Bounds(x + 38 + capabilityIndex * 20, y + 14, 20, 20),
+                        capabilityTitle(capability), capabilityDescription(capability, component),
+                        capabilityIcon(capability)));
+                capabilityIndex++;
+            }
             if ((provider == BuiltinProvider.OPTIFINE || provider == BuiltinProvider.SKINMC
                     || provider == BuiltinProvider.SNEAKY)
                     && component == AppearanceProviders.Component.CAPE) {
                 widgets.add(ViewSpec.Widget.iconButton("providers.account." + provider.name(),
-                        new Bounds(x + contentWidth - 48, y + 8, 20, 20),
+                        new Bounds(x + contentWidth - 48, actionY, 20, 20),
                         UiMessage.info(provider == BuiltinProvider.SNEAKY
                                 ? "nclskins.providers.open_sneaky_editor"
                                 : "nclskins.providers.open_account"), GuiIcon.ACTION_OPEN_ACCOUNT,
                         !busy && (provider != BuiltinProvider.OPTIFINE || !linkPreparing)));
-            } else if (provider.writable() && providers.galleryAvailable()) widgets.add(ViewSpec.Widget.iconButton("providers.edit." + provider.name(),
-                    new Bounds(x + contentWidth - 48, y + 8, 20, 20), UiMessage.info("nclskins.providers.edit"), GuiIcon.ACTION_EDIT, !busy));
+            } else if (provider.canWrite(component) && providers.galleryAvailable()) widgets.add(ViewSpec.Widget.iconButton("providers.edit." + provider.name(),
+                    new Bounds(x + contentWidth - 48, actionY, 20, 20), UiMessage.info("nclskins.providers.edit"), GuiIcon.ACTION_EDIT, !busy));
             widgets.add(ViewSpec.Widget.iconButton("providers.remove." + provider.name(),
-                    new Bounds(x + contentWidth - 24, y + 8, 20, 20), UiMessage.info("nclskins.providers.remove"), GuiIcon.ACTION_REMOVE, !busy));
+                    new Bounds(x + contentWidth - 24, actionY, 20, 20), UiMessage.info("nclskins.providers.remove"), GuiIcon.ACTION_REMOVE, !busy));
             y += rowHeight;
         }
         if (showFeedback) {
@@ -174,18 +192,23 @@ public final class ProvidersPresenter {
                 int index = tabs.widgets().indexOf(widget);
                 navigation.add(tabs.navigation(index, navigation.size(), tabOrder));
                 if (tabs.group().tabs().get(index).selected()) tabOrder++;
-            } else if (widget.id().matches("providers\\.(row|up|down|edit|remove|account)\\..+")) {
-                String provider = widget.id().substring(widget.id().lastIndexOf('.') + 1);
+            } else if (widget.id().matches("providers\\.(row|up|down|edit|remove|account|capability)\\..+")) {
+                String provider = widget.id().startsWith("providers.capability.")
+                        ? widget.id().split("\\.")[2]
+                        : widget.id().substring(widget.id().lastIndexOf('.') + 1);
                 Bounds row = widgets.stream().filter(w -> w.id().equals("providers.row." + provider)).findFirst().orElseThrow().bounds();
                 navigation.add(new ViewSpec.NavigationNode(widget.id(), row, Optional.of("providers.rows"), navigation.size(),
-                        tabOrder++, widget.enabled(), ViewSpec.NavigationPattern.COMPOSITE_LIST, Optional.of(widget.id())));
+                        tabOrder++, widget.enabled(), ViewSpec.NavigationPattern.COMPOSITE_LIST,
+                        widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR
+                                ? Optional.empty() : Optional.of(widget.id())));
             } else {
                 navigation.add(ViewSpec.NavigationNode.control(widget, navigation.size(), tabOrder++));
             }
         }
         List<ViewSpec.ProgressDecoration> progress = order.contains(BuiltinProvider.MINECRAFT)
                 ? cooldown.map(value -> List.of(new ViewSpec.ProgressDecoration("providers.minecraft.cooldown",
-                        "providers.row.MINECRAFT", value.fraction(), 0xFF5A8FCB, 2, 33, 2))).orElse(List.of()) : List.of();
+                        "providers.row.MINECRAFT", value.fraction(), 0xFF5A8FCB, 2, 33,
+                        rowHeight(BuiltinProvider.MINECRAFT, component, visibleCooldowns, textResolver, contentWidth) - 38))).orElse(List.of()) : List.of();
         Optional<ViewSpec.Scrollbar> scrollbar = Optional.empty();
         if (maximum > 0) {
             Bounds track = new Bounds(width - 6, rowViewport.y(), 6, rowViewport.height());
@@ -199,7 +222,8 @@ public final class ProvidersPresenter {
                 panels, texts, widgets, List.of(preview), scrollbar, List.of(tabs.group()), Optional.empty(),
                 List.of(new ViewSpec.ClipRegion("providers.rows", rowViewport,
                         List.of("providers.row.", "providers.up.", "providers.down.",
-                                "providers.edit.", "providers.remove.", "providers.account."))),
+                                "providers.edit.", "providers.remove.", "providers.account.",
+                                "providers.capability."))),
                 List.of(), icons, List.of(new ViewSpec.ScrollSurface("providers.rows", rowViewport,
                         ViewSpec.Scrollbar.Orientation.VERTICAL, offset, maximum)), List.of(), progress, navigation);
     }
@@ -256,11 +280,18 @@ public final class ProvidersPresenter {
         return Math.min(200, Math.max(1, width - 32));
     }
 
-    private static int rowHeight(BuiltinProvider provider, Map<BuiltinProvider, Duration> cooldowns,
+    private static int rowHeight(BuiltinProvider provider, AppearanceProviders.Component component,
+            Map<BuiltinProvider, Duration> cooldowns,
             TextResolver textResolver, int contentWidth) {
         UiMessage message = cooldownMessage(cooldowns.get(provider));
-        return message == null ? 40 : 40 + Math.max(10,
-                textResolver.wrappedHeight(message, Math.max(1, contentWidth - 4)));
+        return 40 + (message == null ? 0 : Math.max(10,
+                textResolver.wrappedHeight(message, Math.max(1, contentWidth - 4))))
+                + (actionsBelow(provider, component, contentWidth) ? 24 : 0);
+    }
+
+    private static boolean actionsBelow(BuiltinProvider provider, AppearanceProviders.Component component,
+            int contentWidth) {
+        return 38 + provider.capabilities(component).size() * 20 > contentWidth - 48;
     }
 
     private static UiMessage cooldownMessage(Duration remaining) {
@@ -282,6 +313,38 @@ public final class ProvidersPresenter {
             case SKINMC -> UiMessage.info("nclskins.providers.skinmc");
             case SNEAKY -> UiMessage.info("nclskins.providers.sneaky");
         };
+    }
+
+    private static GuiIcon capabilityIcon(ProviderCapability capability) {
+        return switch (capability) {
+            case WRITE -> GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE;
+            case LIMITED_WRITE -> GuiIcon.STATUS_PROVIDER_CAPABILITY_LIMITED_WRITE;
+            case DISTRIBUTION -> GuiIcon.STATUS_PROVIDER_CAPABILITY_DISTRIBUTION;
+        };
+    }
+
+    private static UiMessage capabilityTitle(ProviderCapability capability) {
+        return switch (capability) {
+            case WRITE -> UiMessage.info("nclskins.providers.capability.write.title");
+            case LIMITED_WRITE -> UiMessage.info("nclskins.providers.capability.limited_write.title");
+            case DISTRIBUTION -> UiMessage.info("nclskins.providers.capability.distribution.title");
+        };
+    }
+
+    private static UiMessage capabilityDescription(
+            ProviderCapability capability, AppearanceProviders.Component component) {
+        return UiMessage.info(switch (component) {
+            case SKIN -> switch (capability) {
+                case WRITE -> "nclskins.providers.capability.write.skin.description";
+                case LIMITED_WRITE -> "nclskins.providers.capability.limited_write.skin.description";
+                case DISTRIBUTION -> "nclskins.providers.capability.distribution.skin.description";
+            };
+            case CAPE -> switch (capability) {
+                case WRITE -> "nclskins.providers.capability.write.cape.description";
+                case LIMITED_WRITE -> "nclskins.providers.capability.limited_write.cape.description";
+                case DISTRIBUTION -> "nclskins.providers.capability.distribution.cape.description";
+            };
+        });
     }
 
     private static GuiIcon noValueIcon(AppearanceProviders.Component component) {
