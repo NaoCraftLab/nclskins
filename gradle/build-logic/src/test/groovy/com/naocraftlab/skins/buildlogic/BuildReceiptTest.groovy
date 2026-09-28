@@ -112,6 +112,32 @@ class BuildReceiptTest {
         assertNotEquals(initial, BuildReceipt.treeHash(cache))
     }
 
+    @Test void acceptsNewDependenciesAndSealsTheFinalCache() {
+        Map catalog = fixture()
+        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', dependencyCache: [existing: 'original']])
+        Map after = BuildReceipt.snapshot(root, catalog,
+                [jdk: 'one', dependencyCache: [existing: 'original', downloaded: 'new']])
+        BuildReceipt.publish(root, catalog, before, after, 'fullCheck')
+        assertTrue(BuildReceipt.status(root, catalog, after).reusable)
+        assertFalse(BuildReceipt.status(root, catalog, before).reusable)
+    }
+
+    @Test void rejectsCacheMutationDeletionAndToolchainChangesDuringDownloads() {
+        Map catalog = fixture()
+        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', dependencyCache: [existing: 'original']])
+        [
+                [jdk: 'one', dependencyCache: [existing: 'changed', downloaded: 'new']],
+                [jdk: 'one', dependencyCache: [downloaded: 'new']],
+                [jdk: 'two', dependencyCache: [existing: 'original', downloaded: 'new']]
+        ].each { Map environment ->
+            assertThrows(IllegalStateException) {
+                BuildReceipt.publish(root, catalog, before,
+                        BuildReceipt.snapshot(root, catalog, environment), 'fullCheck')
+            }
+            assertFalse(BuildReceipt.location(root).exists())
+        }
+    }
+
     @Test void requiresCurrentCompatibilityReportWhenCatalogDeclaresIt() {
         Map catalog = fixture()
         catalog.targets[0].compatibility = [minecraftVersions: ['example'], loaderVersions: [example: 'loader']]

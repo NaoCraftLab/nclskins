@@ -30,7 +30,7 @@ class ReceiptEnvironment {
                     .get().metadata.installationPath.asFile.canonicalPath)
         }
         [systemProperties: start.systemPropertiesArgs.sort(), gradle: project.gradle.gradleVersion, gradleHome: project.gradle.gradleHomeDir.canonicalPath,
-         dependencyCache: BuildReceipt.treeHash(new File(userHome, 'caches/modules-2/files-2.1')),
+         dependencyCache: BuildReceipt.treeContents(new File(userHome, 'caches/modules-2/files-2.1')),
          gradleLibraries: BuildReceipt.treeHash(new File(project.gradle.gradleHomeDir, 'lib')),
          os: System.getProperty('os.name'), arch: System.getProperty('os.arch'),
          toolchains: homes.collect { new File(it).canonicalFile }.unique().sort { it.path }

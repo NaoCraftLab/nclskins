@@ -8,7 +8,7 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
 class BuildReceipt {
-    static final int SCHEMA = 1
+    static final int SCHEMA = 2
     static final Set<String> DOCUMENTS = ['README.md', 'CHANGELOG.md', 'PLUGIN_CHANGELOG.md'] as Set
 
     static File location(File root) {
@@ -87,9 +87,20 @@ class BuildReceipt {
     }
 
     static void publish(File root, Map catalog, Map before, Map after, String level) {
-        if (before != after) throw new IllegalStateException('Build inputs changed during verification')
+        Map expected = new LinkedHashMap(before)
+        Map beforeEnvironment = before.environment as Map
+        Map afterEnvironment = after.environment as Map
+        if (beforeEnvironment?.dependencyCache instanceof Map && afterEnvironment?.dependencyCache instanceof Map) {
+            Map previousCache = beforeEnvironment.dependencyCache as Map
+            Map currentCache = afterEnvironment.dependencyCache as Map
+            if (!previousCache.every { path, digest -> currentCache[path] == digest }) {
+                throw new IllegalStateException('Existing dependency cache files changed during verification')
+            }
+            expected.environment = beforeEnvironment + [dependencyCache: currentCache]
+        }
+        if (expected != after) throw new IllegalStateException('Build inputs changed during verification')
         if (!(level in ['fullCheck', 'incremental', 'clean'])) throw new IllegalArgumentException('Invalid verification level')
-        Map record = new LinkedHashMap(before)
+        Map record = new LinkedHashMap(after)
         record.verificationLevel = level
         record.artifacts = artifacts(root, catalog)
         File destination = location(root)
@@ -103,14 +114,22 @@ class BuildReceipt {
         }
     }
 
-    static String treeHash(File directory) {
-        MessageDigest digest = MessageDigest.getInstance('SHA-256')
+    static Map<String, String> treeContents(File directory) {
+        Map<String, String> contents = new TreeMap<>()
         List<File> files = []
         if (directory.isDirectory()) directory.eachFileRecurse { if (it.isFile()) files.add(it) }
-        files.sort { it.path }.each { File file ->
-            digest.update(directory.toPath().relativize(file.toPath()).toString().getBytes('UTF-8'))
+        files.each { File file ->
+            contents[directory.toPath().relativize(file.toPath()).toString()] = hash(file)
+        }
+        contents
+    }
+
+    static String treeHash(File directory) {
+        MessageDigest digest = MessageDigest.getInstance('SHA-256')
+        treeContents(directory).each { String path, String fileHash ->
+            digest.update(path.getBytes('UTF-8'))
             digest.update((byte) 0)
-            digest.update(hash(file).getBytes('UTF-8'))
+            digest.update(fileHash.getBytes('UTF-8'))
             digest.update((byte) 0)
         }
         digest.digest().encodeHex().toString()
