@@ -1,3 +1,10 @@
+## 1.2.1
+
+### Added
+
+- **More Minecraft capes**
+    - Added Hero, Twisted, and Aurora to the built-in `Minecraft Events and Promotions` collection
+
 ## 1.2.0
 
 ⚠️ Heads up! The mod will automatically update its stored data. Older versions of the mod will no longer be able to use it.

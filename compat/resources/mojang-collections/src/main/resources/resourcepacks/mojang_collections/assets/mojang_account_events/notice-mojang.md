@@ -2,7 +2,13 @@
 
 - Copyright owner and author attribution: Mojang Studios
 - Official source: Minecraft texture CDN (`https://textures.minecraft.net`)
-- Retrieved: 2026-09-03
+- Retrieved: 2026-09-03 (existing assets); 2026-09-29 (Hero, Twisted, Aurora)
+
+Publication references for the additions retrieved on 2026-09-29:
+
+- `assets/mojang_account_events/textures/entity/cape/hero.png`: https://www.minecraft.net/en-us/article/minecraft-dungeons-ii-capes-promos
+- `assets/mojang_account_events/textures/entity/cape/twisted.png`: https://www.minecraft.net/en-us/article/minecraft-dungeons-ii-capes-promos
+- `assets/mojang_account_events/textures/entity/cape/aurora.png`: https://www.minecraft.net/en-us/redeem
 
 Included PNG SHA-256 values and official source references:
 
@@ -28,6 +34,9 @@ textures/entity/cape/yearn.png                 2be4829b0f2949f58feec51e57d51610f
 textures/entity/cape/copper.png                5e6f3193e74cd16cdd6637d9bae5484e3a37ff2a14c2d157c659a07810b1bdca  cdn:5e6f3193e74cd16cdd6637d9bae5484e3a37ff2a14c2d157c659a07810b1bdca
 textures/entity/cape/zombie_horse.png          6259c7c50e185461155432bfd712d149064acbdeeafa8e7f5e1a521d52987796  cdn:a3f6e4f14801f3ea55e3d95b9b4ef3b5e8802d947f669de93d6ec4b9354a436b
 textures/entity/cape/builder.png               762a585b73ae556214e4f7e1fb0c4e9b0ddf6ecf98dcfbd078816235e1756714  cdn:2c579968c64c1719740fd8c2a451461879b238002574fce48f7d1a7c36a1c7d4
+textures/entity/cape/hero.png                   36c98d675068807a423e25444336ef118aae9d4983b57ff9de236b1737ef8d1e  cdn:bb384a1079b9a6f2811520c7991b6e8150d02e5a96457e44509e30822f72f38e
+textures/entity/cape/twisted.png                e47990cfcf9009d4ad1356375134a4a42bc16188c1f392511856d62628f9c891  cdn:24aafc451aa2cc34ddc7265211678585c0ef4da4d32edb75ecec1bd8b5408381
+textures/entity/cape/aurora.png                 a91edf44989b415a12dc0599e7fbb2e07295ad82d351ec601249bb63668709a3  cdn:7c418dfbd37412a55e9f1425c9807a591ad10cf71b1edb576a587be9114c277f
 ```
 
 Each `cdn:` reference expands to `https://textures.minecraft.net/texture/<id>`. The sources contain

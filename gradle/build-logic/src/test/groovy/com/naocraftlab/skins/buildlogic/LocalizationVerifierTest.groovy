@@ -161,7 +161,7 @@ final class LocalizationVerifierTest {
                 'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
                         'mojang_collections/assets/nclskins/lang')
         Set<String> expected = LocalizationVerifier.collectionKeys(repository)
-        assertEquals(127, expected.size())
+        assertEquals(133, expected.size())
         LocalizationVerifier.sourceLocales(catalog).each { String locale ->
             Set<String> actual = CatalogTools.loadJson(
                     new File(directory, "${locale}.json")).keySet() as Set
@@ -228,10 +228,10 @@ final class LocalizationVerifierTest {
         assertFalse(new File(pack, 'assets/nclskins/collections.json').exists())
         assertEquals(false, provenance.releaseApproved)
         assertNull(provenance.approvedAssetSetSha256)
-        assertEquals(28, provenance.entries.size())
+        assertEquals(31, provenance.entries.size())
         assertEquals([
                 mojang_account_ownership: 4,
-                mojang_account_events: 21,
+                mojang_account_events: 24,
                 mojang_global_events: 3
         ], provenance.entries.countBy { it.collectionId })
         assertTrue(provenance.entries.every { it.owner == 'Mojang Studios' })

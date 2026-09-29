@@ -5,6 +5,9 @@ with the Minecraft collections identified by their namespaces. Minecraft, the Mi
 Minecraft brand, and the included artwork belong to Mojang Studios and/or Microsoft. These PNG
 files are not licensed under the GNU GPL by NaoCraftLab.
 
+This pack includes Hero, Twisted, and Aurora cape originals from the Minecraft texture CDN;
+the collection notice records their exact source URLs and checksums.
+
 The collection-specific `notice-mojang.md` files record factual provenance and checksums. These
 notices do not grant redistribution rights or replace the Minecraft EULA or Usage Guidelines.
 

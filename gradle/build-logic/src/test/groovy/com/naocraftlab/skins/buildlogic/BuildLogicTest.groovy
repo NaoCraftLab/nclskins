@@ -3095,8 +3095,8 @@ final class BuildLogicTest {
             stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }
                     .forEach { pngs.add(it) }
         }
-        assertEquals(63, pngs.size())
-        assertEquals(63, pngs.count { it.toString().contains(File.separator + 'assets' + File.separator) })
+        assertEquals(66, pngs.size())
+        assertEquals(66, pngs.count { it.toString().contains(File.separator + 'assets' + File.separator) })
         assertEquals([], pngs.findAll { !it.toString().contains(File.separator + 'assets' + File.separator) })
 
         assertEquals([], nestedPackIconErrors(repository, catalog, canonical))
