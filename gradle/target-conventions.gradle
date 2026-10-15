@@ -340,6 +340,10 @@ def generateTargetMetadata = tasks.register('generateTargetMetadata', nclskinsGe
     delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
     delegate.versionFile.set(repositoryRoot.file('gradle/version.properties'))
     delegate.targetId.set(currentTargetId)
+    delegate.requiredServerPluginVersion.set(
+            providers.environmentVariable('NCLSKINS_SERVER_PLUGIN_BASELINE').orElse('').map {
+                nclskinsMetadataRenderer.effectiveRequiredServerPluginVersion(configuredVersion, it)
+            })
     delegate.outputDirectory.set(generatedMetadataDirectory)
 }
 

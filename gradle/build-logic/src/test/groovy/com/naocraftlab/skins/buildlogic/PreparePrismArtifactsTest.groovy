@@ -17,6 +17,7 @@ class PreparePrismArtifactsTest {
         @Internal boolean mutateInputs = false
         @Override void buildFreshArtifacts() {
             builds++
+            assertFalse(BuildReceipt.location(repositoryDirectory.get().asFile).exists())
             if (failBuild) throw new IllegalStateException('fixture build failed')
             if (mutateInputs) new File(repositoryDirectory.get().asFile, 'source').text = 'changed'
         }
@@ -37,20 +38,36 @@ class PreparePrismArtifactsTest {
         RecordingPrepare task = project.tasks.create('prepareFixture', RecordingPrepare)
         task.repositoryDirectory.set(root)
         task.catalogFile.set(catalogFile)
-        task.snapshotProvider = { BuildReceipt.snapshot(root, catalog, [:]) }
+        String baseline = '1.4.0'
+        task.snapshotProvider = { BuildReceipt.snapshot(root, catalog, [requiredServerPluginVersion: baseline]) }
         Map initial = task.snapshotProvider.call()
         BuildReceipt.publish(root, catalog, initial, initial, 'fullCheck')
         task.buildTargets()
         assertEquals(0, task.builds)
         assertEquals('fullCheck', BuildReceipt.status(root, catalog, initial).receipt.verificationLevel)
-        task.forceBuild = true
+        baseline = '1.5.0-beta.2'
+        assertFalse(BuildReceipt.status(root, catalog, task.snapshotProvider.call()).reusable)
         task.buildTargets()
         assertEquals(1, task.builds)
-        assertEquals('incremental', BuildReceipt.status(root, catalog, initial).receipt.verificationLevel)
-        task.cleanBuild = true
+        Map changed = task.snapshotProvider.call()
+        assertEquals('incremental', BuildReceipt.status(root, catalog, changed).receipt.verificationLevel)
+        task.buildTargets()
+        assertEquals(1, task.builds)
+        Map legacy = new groovy.json.JsonSlurper().parse(BuildReceipt.location(root)) as Map
+        legacy.environment.remove('requiredServerPluginVersion')
+        BuildReceipt.location(root).text = JsonOutput.toJson(legacy)
+        assertFalse(BuildReceipt.status(root, catalog, changed).reusable)
         task.buildTargets()
         assertEquals(2, task.builds)
-        assertEquals('clean', BuildReceipt.status(root, catalog, initial).receipt.verificationLevel)
+        assertEquals('1.5.0-beta.2', BuildReceipt.status(root, catalog, changed).receipt.environment.requiredServerPluginVersion)
+        task.forceBuild = true
+        task.buildTargets()
+        assertEquals(3, task.builds)
+        assertEquals('incremental', BuildReceipt.status(root, catalog, changed).receipt.verificationLevel)
+        task.cleanBuild = true
+        task.buildTargets()
+        assertEquals(4, task.builds)
+        assertEquals('clean', BuildReceipt.status(root, catalog, changed).receipt.verificationLevel)
         task.failBuild = true
         assertThrows(IllegalStateException) { task.buildTargets() }
         assertFalse(BuildReceipt.location(root).exists())

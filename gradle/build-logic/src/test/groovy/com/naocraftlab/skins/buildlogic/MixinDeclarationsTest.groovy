@@ -35,7 +35,8 @@ final class MixinDeclarationsTest {
                 Map catalog = CatalogTools.loadCatalog(repository)
                 Map target = catalog.targets.find { it.id == id } as Map
                 if (duplicate) target.metadata.mixins.add(target.metadata.mixins.last())
-                Map<String, String> resources = MetadataRenderer.render(catalog, target, '1.1.0-beta.1')
+                Map<String, String> resources = MetadataRenderer.render(
+                        catalog, target, '1.1.0-beta.1', '1.1.0-beta.1')
                 resources['META-INF/MANIFEST.MF'] = "Manifest-Version: 1.0\nAutomatic-Module-Name: ${target.artifact.automaticModuleName}\nMixinConfigs: ${((target.metadata.serverMixins ?: []) + target.metadata.mixins).join(',')}\n"
                 File jar = temporary.resolve("${id}-${duplicate}.jar").toFile()
                 new ZipOutputStream(new FileOutputStream(jar)).withCloseable { zip ->

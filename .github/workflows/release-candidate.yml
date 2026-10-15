@@ -52,6 +52,22 @@ jobs:
           NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
           NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
         run: ./gradlew validateRelease -PreleaseTag="$VERSION" --no-daemon --console=plain
+      - name: Align provisional server plugin baseline
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          state="build/release/$VERSION/server-plugin-release-state.json"
+          baseline="$(jq -er --arg version "$VERSION" --arg source "$GITHUB_SHA" '
+            select(type == "object") |
+            select(.schemaVersion == 1 and .sealed == true and
+                   .currentVersion == $version and .sourceCommit == $source) |
+            .activeVersion | select(type == "string") |
+            select(length > 0 and (test("[[:space:]]") | not))' "$state")"
+          printf 'NCLSKINS_SERVER_PLUGIN_BASELINE=%s\n' "$baseline" >> "$GITHUB_ENV"
+          printf '## Provisional server-plugin baseline\n\nVersion: %s\nSource: %s\nState: %s\nActive baseline: %s\n' \
+            "$VERSION" "$GITHUB_SHA" "$state" "$baseline" >> "$GITHUB_STEP_SUMMARY"
       - name: Run shared release checks from source
         env:
           NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}

@@ -3,13 +3,14 @@ package com.naocraftlab.skins.buildlogic
 import groovy.json.JsonOutput
 
 final class MetadataRenderer {
-    static Map<String, String> render(Map catalog, Map target, String modVersion) {
+    static Map<String, String> render(Map catalog, Map target, String modVersion,
+                                      String requiredServerPluginVersion) {
         String loader = target.loader.id
         Map<String, String> resources = LoaderBackend.require(loader)
                 .metadata(catalog, target, modVersion)
         resources['resourcepacks/mojang_collections/pack.mcmeta'] = mojangPack(target)
         resources['nclskins-server-compatibility.json'] = serverCompatibility(
-                catalog, effectiveRequiredServerPluginVersion(modVersion))
+                catalog, requiredServerPluginVersion)
         Set expected = ((target.metadata.files as List) +
                 'nclskins-server-compatibility.json') as Set
         if (resources.keySet() as Set != expected) {
@@ -27,8 +28,8 @@ final class MetadataRenderer {
         ])
     }
 
-    static String effectiveRequiredServerPluginVersion(String modVersion) {
-        String requested = System.getenv('NCLSKINS_SERVER_PLUGIN_BASELINE')?.trim()
+    static String effectiveRequiredServerPluginVersion(String modVersion, String requested) {
+        requested = requested?.trim()
         if (requested == null || requested.isBlank()) return modVersion
         if (!CatalogTools.VERSION_PATTERN.matcher(requested).matches()) {
             throw new IllegalArgumentException(

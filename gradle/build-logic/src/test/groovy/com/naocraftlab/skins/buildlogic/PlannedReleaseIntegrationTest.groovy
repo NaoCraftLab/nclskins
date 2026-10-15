@@ -20,6 +20,31 @@ final class PlannedReleaseIntegrationTest {
     }
 
     @Test
+    void taggedAncestorStateSurvivesAssemblyAndResumeButOtherStateSourceIsRejected() {
+        verifyPlan(false, false, true)
+    }
+
+    @Test
+    void freshProductionBaselineMustMatchPinnedState() {
+        verifyPlan(false, false, false, 'asset')
+    }
+
+    @Test
+    void freshSourcesBaselineMustMatchPinnedState() {
+        verifyPlan(false, false, false, 'sourcesAsset')
+    }
+
+    @Test
+    void componentReceiptRemainsBoundToExactPlanWhenBaselineMatches() {
+        verifyPlan(false, false, false, 'planDigest')
+    }
+
+    @Test
+    void recoveredArchivesKeepOlderBaselineBytesThroughAssemblyAndBundleReadback() {
+        verifyPlan(false, false, false, null, true)
+    }
+
+    @Test
     void planNewPluginBuildPreservesModsAndReplacesOnlyOldPlugin() {
         verifyPlan(true)
     }
@@ -31,7 +56,9 @@ final class PlannedReleaseIntegrationTest {
 
     @Test
     void compatibilityBuildPreservesBaselineButNewProtocolKeepsOldFunctionalVersion() {
-        File fixture = Files.createTempDirectory('plugin-baseline-integration-').toFile()
+        File fixture = Files.createTempDirectory(
+                new File(System.getenv('TMPDIR') ?: System.getProperty('java.io.tmpdir')).toPath(),
+                'plugin-baseline-integration-').toFile()
         try {
             File source = fixtureRepository(new File(fixture, 'source'), false, false)
             new File(source, 'gradle/version.properties').text = 'modVersion=1.1.0-beta.1\n'
@@ -50,10 +77,21 @@ final class PlannedReleaseIntegrationTest {
         } finally { fixture.deleteDir() }
     }
 
-    private void verifyPlan(boolean replacePlugin, boolean fresh = false) {
-        File fixture = Files.createTempDirectory('planned-release-integration-').toFile()
+    private void verifyPlan(boolean replacePlugin, boolean fresh = false, boolean ancestor = false,
+                            String wrong = null, boolean recoveredOld = false) {
+        File fixture = Files.createTempDirectory(
+                new File(System.getenv('TMPDIR') ?: System.getProperty('java.io.tmpdir')).toPath(),
+                'planned-release-integration-').toFile()
         try {
             File source = fixtureRepository(new File(fixture, 'source'), fresh, replacePlugin)
+            String unrelatedCommit = null
+            if (ancestor) {
+                new File(source, 'fixture-history.txt').text = 'U\n'
+                commitFixture(source, 'Intermediate U')
+                unrelatedCommit = ReleaseSelection.git(source, ['rev-parse', 'HEAD']).trim()
+                new File(source, 'fixture-history.txt').text = 'S\n'
+                commitFixture(source, 'Checkout S')
+            }
             def project = ProjectBuilder.builder().withProjectDir(fixture).build()
             FixturePlatforms platform = project.tasks.create('preflightReleasePlatforms', FixturePlatforms)
             platform.filesDirectory = new File(fixture, 'remote-files')
@@ -72,6 +110,7 @@ final class PlannedReleaseIntegrationTest {
                 pluginVersion.text = originalVersion
             }
             platform.baseline = ServerPluginReleaseState.compute(source, CatalogTools.loadCatalog(source), platform.version).activeVersion
+            platform.recoveredBaseline = recoveredOld ? '0.9.0' : platform.baseline
             FixtureGithub github = project.tasks.create('preflightGithubRelease', FixtureGithub)
             github.platform = platform
             github.commit = ReleaseSelection.git(source, ['rev-parse', "refs/tags/${platform.version}^{commit}"]).trim()
@@ -85,6 +124,30 @@ final class PlannedReleaseIntegrationTest {
             planner.outputDirectory.set(planDirectory)
             planner.planRelease()
             Map plan = ReleasePlan.load(new File(planDirectory, 'release-plan.json'))
+            ReleasePlan.requireCheckout(source, plan)
+            if (ancestor) {
+                assertNotEquals(plan.tagCommit, plan.sourceCommit)
+                assertEquals(plan.tagCommit, plan.serverState.sourceCommit)
+                assertEquals('1.0.0', plan.serverState.activeVersion)
+                assertNotEquals(unrelatedCommit, plan.tagCommit)
+                assertNotEquals(unrelatedCommit, plan.sourceCommit)
+                ReleaseSelection.git(source, ['merge-base', '--is-ancestor', plan.tagCommit, plan.sourceCommit])
+                Map invalid = CatalogTools.materialize(plan) as Map
+                invalid.remove('digest')
+                invalid.serverState.sourceCommit = unrelatedCommit
+                File invalidFile = new File(planDirectory, 'wrong-state-source.json')
+                invalidFile.text = CatalogTools.json(ReleasePlan.seal(invalid))
+                println "W2 ancestor T=${plan.tagCommit}, S=${plan.sourceCommit}, U=${unrelatedCommit}; plan=${plan.digest}"
+                assertEquals('Invalid release plan server plugin state',
+                        assertThrows(IllegalStateException) { ReleasePlan.load(invalidFile) }.message)
+                Map wrongSource = new LinkedHashMap(plan) + [sourceCommit: unrelatedCommit]
+                assertTrue(assertThrows(IllegalStateException) {
+                    ReleasePlan.requireCheckout(source, wrongSource)
+                }.message.contains('another source commit or version'))
+                assertThrows(IllegalStateException) {
+                    ReleasePlan.requireCheckout(source, new LinkedHashMap(plan) + [version: '1.0.1'])
+                }
+            }
             if (fresh) {
                 assertEquals(CatalogTools.releaseTargets(CatalogTools.loadCatalog(source))*.id, plan.buildTargetIds)
                 assertEquals(12, plan.buildTargetIds.size())
@@ -118,7 +181,8 @@ final class PlannedReleaseIntegrationTest {
                         CatalogTools.selectTarget(CatalogTools.loadCatalog(source), component.id.toString()).path
                 ['asset', 'sourcesAsset'].each { String key ->
                     File destination = new File(source, "${componentPath}/build/libs/${component[key].file}")
-                    FixturePlatforms.writeJar(destination, destination.name, platform.baseline)
+                    FixturePlatforms.writeJar(destination, destination.name,
+                            component.id == 'neoforge-26.3' && key == wrong ? '1.9.0' : platform.baseline)
                 }
                 ExportReleaseComponentTask exporter = project.tasks.create(
                         "export-${component.id}", ExportReleaseComponentTask)
@@ -127,15 +191,41 @@ final class PlannedReleaseIntegrationTest {
                 exporter.componentId.set(component.id.toString())
                 exporter.outputDirectory.set(new File(planDirectory, 'assets'))
                 exporter.exportComponent()
+                if (wrong == 'planDigest' && component.id == 'neoforge-26.3') {
+                    File receiptFile = new File(planDirectory, 'assets/neoforge-26.3.receipt.json')
+                    Map receipt = CatalogTools.materialize(new groovy.json.JsonSlurper().parse(receiptFile)) as Map
+                    receipt.planDigest = '0' * 64
+                    receiptFile.text = CatalogTools.json(receipt)
+                }
             }
             AssemblePlannedReleaseTask assembly = project.tasks.create('assembleFixture', AssemblePlannedReleaseTask)
             assembly.repositoryDirectory.set(source)
             assembly.planFile.set(new File(planDirectory, 'release-plan.json'))
             assembly.componentDirectory.set(new File(planDirectory, 'assets'))
             assembly.releaseRoot.set(new File(fixture, 'release'))
+            if (wrong != null) {
+                String message = assertThrows(IllegalStateException) { assembly.assemble() }.message
+                if (wrong == 'planDigest') assertEquals('Component receipt belongs to another plan or commit', message)
+                else {
+                    assertTrue(message.contains('requires server plugin 1.9.0, expected active 1.0.0'), message)
+                    assertEquals(wrong == 'sourcesAsset', message.contains('-sources.jar'))
+                }
+                return
+            }
             assembly.assemble()
             File bundle = new File(fixture, "release/${platform.version}")
+            Map bundleBytes = BuildReceipt.treeContents(bundle)
             Map manifest = PublicationSupport.loadManifest(bundle)
+            assertEquals(bundleBytes, BuildReceipt.treeContents(bundle))
+            if (recoveredOld) {
+                Map preserved = manifest.targets.find { it.preserve }
+                assertNotNull(preserved)
+                ['asset', 'sourcesAsset'].each { String key ->
+                    File file = new File(bundle, 'assets/' + preserved[key].file)
+                    AssembleReleaseTask.requireServerPluginBaseline(file, '0.9.0')
+                    assertEquals(preserved[key].sha256, ReleaseBundle.sha256(file))
+                }
+            }
             assertEquals(fresh ? 0 : replacePlugin ? 11 : 12, manifest.preservedTargetIds.size())
             assertEquals(12, manifest.targets.size())
             Map inventory = platform.fetchAll(manifest, PublishPlatformsTask.publicationTargets(manifest), 'fixture', 'fixture')
@@ -174,10 +264,19 @@ final class PlannedReleaseIntegrationTest {
             }
             assembly.assemble()
             assertEquals(manifest, PublicationSupport.loadManifest(bundle))
+            manifest.assets.each { Map asset ->
+                assertEquals(asset.sha256, ReleaseBundle.sha256(new File(bundle, 'assets/' + asset.file)))
+            }
             File tamper = new File(bundle, 'assets/' + manifest.targets.first().asset.file)
             Files.writeString(tamper.toPath(), 'tampered')
             assertThrows(IllegalStateException) { PublicationSupport.loadManifest(bundle) }
         } finally { fixture.deleteDir() }
+    }
+
+    private static void commitFixture(File source, String message) {
+        ReleaseSelection.git(source, ['add', 'fixture-history.txt'])
+        ReleaseSelection.git(source, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                                      '-c', 'commit.gpgsign=false', 'commit', '-qm', message])
     }
 
     private File fixtureRepository(File source, boolean fresh, boolean replacePlugin) {
@@ -230,6 +329,7 @@ final class PlannedReleaseIntegrationTest {
         String version
         boolean replacePlugin
         String baseline
+        String recoveredBaseline
         boolean fresh
         File repository
         List<Map> components = []
@@ -257,7 +357,7 @@ final class PlannedReleaseIntegrationTest {
                 ['asset', 'sourcesAsset'].each { String field ->
                     Map expected = target[field] as Map
                     File file = new File(filesDirectory, expected.file.toString())
-                    if (!file.exists()) writeJar(file, file.name, baseline)
+                    if (!file.exists()) writeJar(file, file.name, recoveredBaseline)
                     target[field] = AssembleReleaseTask.assetMetadata(file, expected.kind.toString(), expected.target?.toString())
                 }
                 if (target.id == 'server-plugin' && target.versionNumber == version) {
@@ -322,10 +422,10 @@ final class PlannedReleaseIntegrationTest {
             Map catalog = CatalogTools.loadCatalog(platform.repository)
             CatalogTools.releaseTargets(catalog).findAll { it.id != 'neoforge-26.3' }.each { Map target ->
                 FixturePlatforms.writeJar(new File(platform.filesDirectory, AssembleReleaseTask.artifactName(target, platform.version)),
-                        AssembleReleaseTask.artifactName(target, platform.version), platform.baseline)
+                        AssembleReleaseTask.artifactName(target, platform.version), platform.recoveredBaseline)
             }
             String plugin = "nclskins-plugin-${platform.version}.jar"
-            FixturePlatforms.writeJar(new File(platform.filesDirectory, plugin), plugin, platform.baseline)
+            FixturePlatforms.writeJar(new File(platform.filesDirectory, plugin), plugin, platform.recoveredBaseline)
             release()
         }
         Map release() {

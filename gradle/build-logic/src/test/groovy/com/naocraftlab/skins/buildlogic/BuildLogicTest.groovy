@@ -1395,10 +1395,10 @@ final class BuildLogicTest {
     @Test
     void metadataMatchesEveryLoaderContract() {
         String version = CatalogTools.loadVersion(repository)
-        String requiredServerPluginVersion =
-                MetadataRenderer.effectiveRequiredServerPluginVersion(version)
+        String requiredServerPluginVersion = '1.4.0'
         catalog.targets.each { Map target ->
-            Map<String, String> resources = MetadataRenderer.render(catalog, target, version)
+            Map<String, String> resources = MetadataRenderer.render(
+                    catalog, target, version, requiredServerPluginVersion)
             assertEquals(((target.metadata.files as List) +
                     'nclskins-server-compatibility.json') as Set,
                     resources.keySet() as Set, target.id.toString())

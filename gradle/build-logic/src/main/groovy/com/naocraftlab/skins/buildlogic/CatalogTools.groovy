@@ -1000,7 +1000,10 @@ final class CatalogTools {
                     }
                 }
                 classes.findAll { String name, List<String> owners -> owners.size() > 1 }.each { String name, List<String> owners -> errors.add("${target.id}: duplicate class source ${name} in ${owners}") }
-                MetadataRenderer.render(catalog, target, loadVersion(repositoryRoot))
+                String modVersion = loadVersion(repositoryRoot)
+                MetadataRenderer.render(catalog, target, modVersion,
+                        MetadataRenderer.effectiveRequiredServerPluginVersion(
+                                modVersion, System.getenv('NCLSKINS_SERVER_PLUGIN_BASELINE')))
             } catch (IllegalArgumentException error) {
                 errors.add("${target.id}: ${error.message}")
             } catch (Exception error) {

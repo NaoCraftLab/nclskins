@@ -45,6 +45,7 @@ class BuildReceipt {
     }
 
     static Map snapshot(File root, Map catalog, Map environment) {
+        requireBaseline(environment)
         [schemaVersion: SCHEMA, checkout: root.canonicalPath,
          modVersion: CatalogTools.loadVersion(root), targets: catalog.targets.collect { it.id.toString() }.sort(),
          inputsFingerprint: fingerprint(root), environment: environment]
@@ -69,6 +70,8 @@ class BuildReceipt {
         try {
             def record = new JsonSlurper().parse(receipt)
             if (!(record instanceof Map)) return [reusable: false, reason: 'invalid-receipt']
+            requireBaseline(current.environment as Map)
+            requireBaseline(record.environment as Map)
             for (String key : current.keySet()) {
                 if (record[key] != current[key]) return [reusable: false, reason: 'mismatch-' + key]
             }
@@ -87,6 +90,8 @@ class BuildReceipt {
     }
 
     static void publish(File root, Map catalog, Map before, Map after, String level) {
+        requireBaseline(before.environment as Map)
+        requireBaseline(after.environment as Map)
         Map expected = new LinkedHashMap(before)
         Map beforeEnvironment = before.environment as Map
         Map afterEnvironment = after.environment as Map
@@ -111,6 +116,14 @@ class BuildReceipt {
             Files.move(temporary, destination.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } finally {
             Files.deleteIfExists(temporary)
+        }
+    }
+
+    private static void requireBaseline(Map environment) {
+        Object baseline = environment?.requiredServerPluginVersion
+        if (!(baseline instanceof String) || baseline != baseline.trim() ||
+                !CatalogTools.VERSION_PATTERN.matcher(baseline).matches()) {
+            throw new IllegalStateException('Receipt environment requires normalized requiredServerPluginVersion')
         }
     }
 

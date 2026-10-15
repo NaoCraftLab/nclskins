@@ -21,6 +21,9 @@ abstract class GenerateMetadataTask extends DefaultTask {
     @Input
     abstract Property<String> getTargetId()
 
+    @Input
+    abstract Property<String> getRequiredServerPluginVersion()
+
     @OutputDirectory
     abstract DirectoryProperty getOutputDirectory()
 
@@ -29,11 +32,14 @@ abstract class GenerateMetadataTask extends DefaultTask {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
         String version = CatalogTools.loadVersion(versionFile.get().asFile.toPath())
         Map target = CatalogTools.selectTarget(catalog, targetId.get())
+        String baseline = MetadataRenderer.effectiveRequiredServerPluginVersion(
+                version, requiredServerPluginVersion.get())
+        Map<String, String> resources = MetadataRenderer.render(catalog, target, version, baseline)
         File output = outputDirectory.get().asFile
         if (output.exists()) {
             Files.walk(output.toPath()).sorted(Comparator.reverseOrder()).withCloseable { stream -> stream.forEach { Files.delete(it) } }
         }
-        MetadataRenderer.render(catalog, target, version).each { String path, String content ->
+        resources.each { String path, String content ->
             File destination = new File(output, path)
             destination.parentFile.mkdirs()
             destination.setText(content, 'UTF-8')

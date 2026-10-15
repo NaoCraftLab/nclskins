@@ -549,7 +549,9 @@ final class ArtifactVerifier {
             ZipEntry entry = archive.getEntry(path)
             if (entry == null) { errors.add("${target.id}: missing ${path}"); return }
             String text = new String(read(archive, path), StandardCharsets.UTF_8)
-            String expectedText = MetadataRenderer.render(catalog, target, version)[path]
+            String expectedText = MetadataRenderer.render(catalog, target, version,
+                    MetadataRenderer.effectiveRequiredServerPluginVersion(
+                            version, System.getenv('NCLSKINS_SERVER_PLUGIN_BASELINE')))[path]
             if (text != expectedText) errors.add("${target.id}: ${path} differs from catalog-generated metadata")
             if (loader == 'neoforge') {
                 CatalogTools.validateMixinDeclarations(

@@ -22,6 +22,8 @@ class ReceiptEnvironment {
                     it in ['JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'GRADLE_OPTS'] }) {
             throw new IllegalStateException('Unsupported build settings for reusable Prism evidence: ' + [projectProperties: start.projectProperties.keySet(), systemProperties: start.systemPropertiesArgs.keySet(), initScripts: start.initScripts.size(), excludedTasks: start.excludedTaskNames, refresh: start.refreshDependencies, offline: start.offline, externalInit: externalInit])
         }
+        String baseline = MetadataRenderer.effectiveRequiredServerPluginVersion(
+                CatalogTools.loadVersion(project.rootDir), System.getenv('NCLSKINS_SERVER_PLUGIN_BASELINE'))
         Set<String> homes = [System.getProperty('java.home')] as Set
         catalog.targets.each { homes.add(TargetRuntime.resolveJavaHome(it.java.buildJdk as int)) }
         JavaToolchainService toolchains = project.subprojects.first().extensions.getByType(JavaToolchainService)
@@ -29,7 +31,8 @@ class ReceiptEnvironment {
             homes.add(toolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(version)) }
                     .get().metadata.installationPath.asFile.canonicalPath)
         }
-        [systemProperties: start.systemPropertiesArgs.sort(), gradle: project.gradle.gradleVersion, gradleHome: project.gradle.gradleHomeDir.canonicalPath,
+        [requiredServerPluginVersion: baseline,
+         systemProperties: start.systemPropertiesArgs.sort(), gradle: project.gradle.gradleVersion, gradleHome: project.gradle.gradleHomeDir.canonicalPath,
          dependencyCache: BuildReceipt.treeContents(new File(userHome, 'caches/modules-2/files-2.1')),
          gradleLibraries: BuildReceipt.treeHash(new File(project.gradle.gradleHomeDir, 'lib')),
          os: System.getProperty('os.name'), arch: System.getProperty('os.arch'),

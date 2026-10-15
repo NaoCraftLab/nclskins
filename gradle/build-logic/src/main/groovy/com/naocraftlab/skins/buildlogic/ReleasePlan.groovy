@@ -7,9 +7,17 @@ final class ReleasePlan {
         Map plan = CatalogTools.materialize(new JsonSlurper().parse(file)) as Map
         String digest = plan.remove('digest')?.toString()
         if (plan.schemaVersion != 1 || digest != CatalogTools.sha256(CatalogTools.json(plan).getBytes('UTF-8')) ||
+                !(plan.version instanceof String) || !CatalogTools.VERSION_PATTERN.matcher(plan.version as String).matches() ||
                 !(plan.sourceCommit ==~ /[0-9a-f]{40}/) || !(plan.tagCommit ==~ /[0-9a-f]{40}/) ||
                 !(plan.components instanceof List) || !(plan.buildTargetIds instanceof List)) {
             throw new IllegalStateException('Invalid or modified release plan')
+        }
+        Map state = plan.serverState instanceof Map ? plan.serverState as Map : [:]
+        Object active = state.activeVersion
+        if (state.schemaVersion != 1 || state.sealed != true ||
+                state.currentVersion != plan.version || state.sourceCommit != plan.tagCommit ||
+                !(active instanceof String) || !CatalogTools.VERSION_PATTERN.matcher(active as String).matches()) {
+            throw new IllegalStateException('Invalid release plan server plugin state')
         }
         plan.digest = digest
         plan

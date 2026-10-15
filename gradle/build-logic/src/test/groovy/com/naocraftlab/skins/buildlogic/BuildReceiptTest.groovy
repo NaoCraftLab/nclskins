@@ -20,20 +20,48 @@ class BuildReceiptTest {
         [targets: [[id: 'example', path: 'target', artifact: [file: 'mod.jar']]]]
     }
 
+    @Test void requiresNormalizedBaselineAtSnapshotPublishAndStatusBoundaries() {
+        Map catalog = fixture()
+        Map valid = BuildReceipt.snapshot(root, catalog, [requiredServerPluginVersion: '1.4.0'])
+        BuildReceipt.publish(root, catalog, valid, valid, 'fullCheck')
+        assertTrue(BuildReceipt.status(root, catalog, valid).reusable)
+        assertEquals(2, BuildReceipt.status(root, catalog, valid).receipt.schemaVersion)
+        [[:], [requiredServerPluginVersion: null], [requiredServerPluginVersion: ''],
+         [requiredServerPluginVersion: ' 1.4.0 '], [requiredServerPluginVersion: 'v1.4.0'],
+         [requiredServerPluginVersion: '1.4.0.1'], [requiredServerPluginVersion: 140]].each { Map environment ->
+            assertFalse(BuildReceipt.status(root, catalog, valid + [environment: environment]).reusable)
+        }
+        Map missing = valid + [environment: [:]]
+        Map record = new groovy.json.JsonSlurper().parse(BuildReceipt.location(root)) as Map
+        record.environment = [:]
+        BuildReceipt.location(root).text = JsonOutput.toJson(record)
+        assertFalse(BuildReceipt.status(root, catalog, missing).reusable)
+        BuildReceipt.invalidate(root)
+        [[:], [requiredServerPluginVersion: null], [requiredServerPluginVersion: ''],
+         [requiredServerPluginVersion: ' 1.4.0 '], [requiredServerPluginVersion: 'v1.4.0'],
+         [requiredServerPluginVersion: '1.4.0.1'], [requiredServerPluginVersion: 140]].each { Map environment ->
+            assertThrows(IllegalStateException) { BuildReceipt.snapshot(root, catalog, environment) }
+            Map invalid = valid + [environment: environment]
+            assertThrows(IllegalStateException) { BuildReceipt.publish(root, catalog, invalid, invalid, 'fullCheck') }
+            assertThrows(IllegalStateException) { BuildReceipt.publish(root, catalog, valid, invalid, 'fullCheck') }
+            assertFalse(BuildReceipt.location(root).exists())
+        }
+    }
+
     @Test void reusesReceiptAndIgnoresOnlyApprovedRootDocuments() {
         Map catalog = fixture()
-        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one'])
+        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', requiredServerPluginVersion: '1.4.0'])
         BuildReceipt.publish(root, catalog, before, before, 'fullCheck')
         assertTrue(BuildReceipt.status(root, catalog, before).reusable)
         BuildReceipt.DOCUMENTS.each { new File(root, it).text = 'new documentation' }
-        assertEquals(before, BuildReceipt.snapshot(root, catalog, [jdk: 'one']))
+        assertEquals(before, BuildReceipt.snapshot(root, catalog, [jdk: 'one', requiredServerPluginVersion: '1.4.0']))
         new File(root, 'unknown.txt').text = 'new input'
-        assertFalse(BuildReceipt.status(root, catalog, BuildReceipt.snapshot(root, catalog, [jdk: 'one'])).reusable)
+        assertFalse(BuildReceipt.status(root, catalog, BuildReceipt.snapshot(root, catalog, [jdk: 'one', requiredServerPluginVersion: '1.4.0'])).reusable)
     }
 
     @Test void rejectsChangedInputsToolchainsArtifactsAndIncompleteTargets() {
         Map catalog = fixture()
-        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one'])
+        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', requiredServerPluginVersion: '1.4.0'])
         BuildReceipt.publish(root, catalog, before, before, 'incremental')
         assertEquals('incremental', BuildReceipt.status(root, catalog, before).receipt.verificationLevel)
         ['source.java', 'gradle/targets.json', 'gradle/wrapper.properties', 'resource.json'].each { String path ->
@@ -41,11 +69,11 @@ class BuildReceiptTest {
             boolean existed = file.exists()
             String old = existed ? file.text : ''
             file.text = 'changed'
-            assertFalse(BuildReceipt.status(root, catalog, BuildReceipt.snapshot(root, catalog, [jdk: 'one'])).reusable)
+            assertFalse(BuildReceipt.status(root, catalog, BuildReceipt.snapshot(root, catalog, [jdk: 'one', requiredServerPluginVersion: '1.4.0'])).reusable)
             if (existed) file.text = old
             else file.delete()
         }
-        assertFalse(BuildReceipt.status(root, catalog, before + [environment: [jdk: 'two']]).reusable)
+        assertFalse(BuildReceipt.status(root, catalog, before + [environment: [jdk: 'two', requiredServerPluginVersion: '1.4.0']]).reusable)
         assertFalse(BuildReceipt.status(root, catalog, before + [checkout: '/other']).reusable)
         assertFalse(BuildReceipt.status(root, catalog, before + [targets: []]).reusable)
         new File(root, 'target/build/libs/mod.jar').text = 'tampered'
@@ -54,7 +82,7 @@ class BuildReceiptTest {
 
     @Test void rejectsMissingCorruptAndMidBuildMutation() {
         Map catalog = fixture()
-        Map before = BuildReceipt.snapshot(root, catalog, [:])
+        Map before = BuildReceipt.snapshot(root, catalog, [requiredServerPluginVersion: '1.4.0'])
         assertFalse(BuildReceipt.status(root, catalog, before).reusable)
         BuildReceipt.location(root).parentFile.mkdirs()
         BuildReceipt.location(root).text = '{bad'
@@ -62,7 +90,7 @@ class BuildReceiptTest {
         BuildReceipt.invalidate(root)
         new File(root, 'source.java').text = 'changed while building'
         assertThrows(IllegalStateException) {
-            BuildReceipt.publish(root, catalog, before, BuildReceipt.snapshot(root, catalog, [:]), 'fullCheck')
+            BuildReceipt.publish(root, catalog, before, BuildReceipt.snapshot(root, catalog, [requiredServerPluginVersion: '1.4.0']), 'fullCheck')
         }
         assertFalse(BuildReceipt.location(root).exists())
     }
@@ -114,9 +142,9 @@ class BuildReceiptTest {
 
     @Test void acceptsNewDependenciesAndSealsTheFinalCache() {
         Map catalog = fixture()
-        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', dependencyCache: [existing: 'original']])
+        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', requiredServerPluginVersion: '1.4.0', dependencyCache: [existing: 'original']])
         Map after = BuildReceipt.snapshot(root, catalog,
-                [jdk: 'one', dependencyCache: [existing: 'original', downloaded: 'new']])
+                [jdk: 'one', requiredServerPluginVersion: '1.4.0', dependencyCache: [existing: 'original', downloaded: 'new']])
         BuildReceipt.publish(root, catalog, before, after, 'fullCheck')
         assertTrue(BuildReceipt.status(root, catalog, after).reusable)
         assertFalse(BuildReceipt.status(root, catalog, before).reusable)
@@ -124,11 +152,11 @@ class BuildReceiptTest {
 
     @Test void rejectsCacheMutationDeletionAndToolchainChangesDuringDownloads() {
         Map catalog = fixture()
-        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', dependencyCache: [existing: 'original']])
+        Map before = BuildReceipt.snapshot(root, catalog, [jdk: 'one', requiredServerPluginVersion: '1.4.0', dependencyCache: [existing: 'original']])
         [
-                [jdk: 'one', dependencyCache: [existing: 'changed', downloaded: 'new']],
-                [jdk: 'one', dependencyCache: [downloaded: 'new']],
-                [jdk: 'two', dependencyCache: [existing: 'original', downloaded: 'new']]
+                [jdk: 'one', requiredServerPluginVersion: '1.4.0', dependencyCache: [existing: 'changed', downloaded: 'new']],
+                [jdk: 'one', requiredServerPluginVersion: '1.4.0', dependencyCache: [downloaded: 'new']],
+                [jdk: 'two', requiredServerPluginVersion: '1.4.0', dependencyCache: [existing: 'original', downloaded: 'new']]
         ].each { Map environment ->
             assertThrows(IllegalStateException) {
                 BuildReceipt.publish(root, catalog, before,
@@ -141,7 +169,7 @@ class BuildReceiptTest {
     @Test void requiresCurrentCompatibilityReportWhenCatalogDeclaresIt() {
         Map catalog = fixture()
         catalog.targets[0].compatibility = [minecraftVersions: ['example'], loaderVersions: [example: 'loader']]
-        Map initial = BuildReceipt.snapshot(root, catalog, [:])
+        Map initial = BuildReceipt.snapshot(root, catalog, [requiredServerPluginVersion: '1.4.0'])
         assertThrows(IllegalStateException) { BuildReceipt.publish(root, catalog, initial, initial, 'incremental') }
         File artifact = new File(root, 'target/build/libs/mod.jar')
         File report = new File(root, 'build/compatibility-runs/example/verification.json')

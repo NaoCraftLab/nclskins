@@ -88,12 +88,14 @@ jobs:
           else
             ./gradlew planRelease -PreleaseTag="$VERSION" --no-daemon --console=plain
             plan=build/release-plan/release-plan.json
+            baseline="$(jq -er '.serverState.activeVersion | select(type == "string") |
+              select(length > 0 and (test("[[:space:]]") | not))' "$plan")"
             printf 'digest=%s\n' "$(jq -r '.digest' "$plan")" >> "$GITHUB_OUTPUT"
             source="$(jq -r '.sourceCommit' "$plan")"
             matrix="$(jq -c '{include: [.components[] | select(.build) | {id: .id}]}' "$plan")"
             printf 'source=%s\nresumed=false\nmatrix=%s\nbuild=%s\nbaseline=%s\n' \
               "$source" "$matrix" "$(jq '.include | length > 0' <<< "$matrix")" \
-              "$(jq -r '.serverState.activeVersion' "$plan")" >> "$GITHUB_OUTPUT"
+              "$baseline" >> "$GITHUB_OUTPUT"
           fi
           printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -137,6 +139,7 @@ jobs:
           java-version: '25'
       - run: ./gradlew checkRelease --no-daemon --console=plain
         env:
+          NCLSKINS_SERVER_PLUGIN_BASELINE: ${{ needs.plan.outputs.baseline }}
           NCLSKINS_JAVA17: ${{ steps.checks-java17.outputs.path }}
           NCLSKINS_JAVA25: ${{ steps.checks-java.outputs.path }}
 

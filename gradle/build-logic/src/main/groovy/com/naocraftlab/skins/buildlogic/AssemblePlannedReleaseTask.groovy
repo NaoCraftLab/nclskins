@@ -49,7 +49,7 @@ abstract class AssemblePlannedReleaseTask extends DefaultTask {
                 if (component.build && !(receipt.assets as List).any { it == actual }) {
                     throw new IllegalStateException('Component bytes differ from verified build receipt')
                 }
-                if (component.build && key == 'asset' && component.id != 'server-plugin') {
+                if (component.build && component.id != 'server-plugin') {
                     AssembleReleaseTask.requireServerPluginBaseline(file, plan.serverState.activeVersion.toString())
                 }
                 File destination = new File(assetsDirectory, file.name)
