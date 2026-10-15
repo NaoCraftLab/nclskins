@@ -58,55 +58,61 @@ final class LocalizationVerifier {
             en_us: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market', 'Striding Hero',
                     'The Garden Awakens', 'Chase the Skies', 'The Copper Age', 'Mounts of Mayhem',
                     'Tiny Takeover', 'Chaos Cubed', 'Common Minecraft Capes',
-                    'Minecraft Events and Promotions', 'Temporary Minecraft Capes'],
+                    'Minecraft Events and Promotions', 'Temporary Minecraft Capes', 'Camp Out Community Challenge'],
             ru_ru: ['MINECON Earth 2017', 'Строители и Биомы: Фермерский рынок', 'Шагающий герой',
                     'Пробуждение сада', 'В погоне за небесами', 'Медный век', 'Скакуны хаоса',
                     'Нашествие крошек', 'Хаос в кубе', 'Обычные плащи Minecraft',
-                    'События и акции Minecraft', 'Временные плащи Minecraft'],
+                    'События и акции Minecraft', 'Временные плащи Minecraft', 'Camp Out Community Challenge'],
             de_de: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Striding Hero', 'Der Garten erwacht', 'Jagd auf den Himmel',
                     'Das Kupferzeitalter', 'Reittiere des Chaos', 'Tiny Takeover',
                     'Chaos Cubed', 'Gewöhnliche Minecraft-Umhänge',
-                    'Minecraft-Events und -Aktionen', 'Temporäre Minecraft-Umhänge'],
+                    'Minecraft-Events und -Aktionen', 'Temporäre Minecraft-Umhänge', 'Camp Out Community Challenge'],
             pt_br: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Striding Hero', 'O Despertar do Jardim', 'Persiga os Céus',
                     'A Era do Cobre', 'Montarias do Caos', 'Tiny Takeover',
                     'Caos ao Cubo', 'Capas comuns do Minecraft',
-                    'Eventos e promoções do Minecraft', 'Capas temporárias do Minecraft'],
+                    'Eventos e promoções do Minecraft', 'Capas temporárias do Minecraft', 'Camp Out Community Challenge'],
             es_mx: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Héroe caminante', 'El jardín despierta', 'Persigue los Cielos',
                     'La Edad del Cobre',
                     'Monturas del Caos', 'Bebés al poder', 'Caos al cubo',
                     'Capas comunes de Minecraft', 'Eventos y promociones de Minecraft',
-                    'Capas temporales de Minecraft'],
+                    'Capas temporales de Minecraft', 'Camp Out Community Challenge'],
             es_es: ['MINECON Earth 2017', 'Builders & Biomes: Farmer’s Market',
                     'Héroe caminante', 'El jardín despierta', 'Persigue los Cielos',
                     'La Era del Cobre',
                     'Monturas del Caos', 'Bebés al poder', 'Caos al cubo',
                     'Capas comunes de Minecraft', 'Eventos y promociones de Minecraft',
-                    'Capas temporales de Minecraft']
+                    'Capas temporales de Minecraft', 'Camp Out Community Challenge']
     ].asImmutable()
     private static final Map<String, Map<String, String>> EXPECTED_COLLECTION_DESCRIPTIONS = [
+            en_us: [the_camp_out: 'Two skins released for Camp Out Community Challenge.'],
             ru_ru: [
                     builders_and_biomes: 'Девять скинов к дополнению «Строители и Биомы: Фермерский рынок» для Minecraft.',
-                    tiny_takeover: 'Два скина, выпущенных для испытаний «Нашествие крошек».'
+                    tiny_takeover: 'Два скина, выпущенных для испытаний «Нашествие крошек».',
+                    the_camp_out: 'Два скина, выпущенных для Camp Out Community Challenge.'
             ],
             de_de: [
                     builders_and_biomes: 'Neun Skins wurden für die Minecraft-Erweiterung „Builders & Biomes: Farmer’s Market“ veröffentlicht.',
                     chase_the_skies: 'Zwei Skins wurden für die Herausforderungen von „Jagd auf den Himmel“ veröffentlicht.',
                     mounts_of_mayhem: 'Ein Skin wurde für die Herausforderungen des Drops „Reittiere des Chaos“ veröffentlicht.',
                     tiny_takeover: 'Zwei Skins wurden für die Herausforderungen von „Tiny Takeover“ veröffentlicht.',
-                    chaos_cubed: 'Drei Skins wurden für das Event „Chaos Cubed“ veröffentlicht.'
+                    chaos_cubed: 'Drei Skins wurden für das Event „Chaos Cubed“ veröffentlicht.',
+                    the_camp_out: 'Zwei Skins zur Camp Out Community Challenge.'
             ],
             pt_br: [
                     builders_and_biomes: 'Nove skins foram lançadas para a expansão “Builders & Biomes: Farmer’s Market” de Minecraft.',
-                    tiny_takeover: 'Duas skins foram lançadas nos desafios de “Tiny Takeover”.'
+                    tiny_takeover: 'Duas skins foram lançadas nos desafios de “Tiny Takeover”.',
+                    the_camp_out: 'Duas skins lançadas para o evento Camp Out Community Challenge.'
             ],
             es_mx: [
-                    builders_and_biomes: 'Nueve skins publicadas para la expansión «Builders & Biomes: Farmer’s Market» de Minecraft.'
+                    builders_and_biomes: 'Nueve skins publicadas para la expansión «Builders & Biomes: Farmer’s Market» de Minecraft.',
+                    the_camp_out: 'Dos skins publicadas para Camp Out Community Challenge.'
             ],
             es_es: [
-                    builders_and_biomes: 'Nueve skins publicadas para la expansión «Builders & Biomes: Farmer’s Market» de Minecraft.'
+                    builders_and_biomes: 'Nueve skins publicadas para la expansión «Builders & Biomes: Farmer’s Market» de Minecraft.',
+                    the_camp_out: 'Dos skins publicadas para Camp Out Community Challenge.'
             ]
     ].asImmutable()
     private static final Map<String, String> EXPECTED_BUILDERS_CREDIT = [
@@ -121,29 +127,35 @@ final class LocalizationVerifier {
             'minecon_earth_2017', 'builders_and_biomes', 'striding_hero',
             'the_garden_awakens', 'chase_the_skies', 'the_copper_age',
             'mounts_of_mayhem', 'tiny_takeover', 'chaos_cubed',
-            'account_ownership', 'account_events', 'global_events'
+            'account_ownership', 'account_events', 'global_events', 'the_camp_out'
     ].asImmutable()
     private static final Map<String, Map<String, String>> EXPECTED_ENTITY_SKIN_NAMES = [
+            en_us: [big_foot: 'Big Foot', mushroom_forager: 'Mushroom Forager'],
             ru_ru: [stray: 'Зимогор', strider: 'Лавомерка', villager_1: 'Крестьянин 1',
                     wither_skeleton: 'Визер-скелет', creaking: 'Скрипун',
                     zombie_horse_onesie: 'Кигуруми лошади-зомби',
-                    baby_bee_fan: 'Фанат пчёлок', baby_axolotl_fan: 'Фанат аксолотликов'],
+                    baby_bee_fan: 'Фанат пчёлок', baby_axolotl_fan: 'Фанат аксолотликов',
+                    big_foot: 'Снежный человек', mushroom_forager: 'Грибник'],
             de_de: [stray: 'Eiswanderer', strider: 'Schreiter', villager_1: 'Dorfbewohner 1',
                     wither_skeleton: 'Wither-Skelett', creaking: 'Knarz',
                     zombie_horse_onesie: 'Zombiepferd-Kostüm',
-                    baby_bee_fan: 'Babybienen-Fan', baby_axolotl_fan: 'Babyaxolotl-Fan'],
+                    baby_bee_fan: 'Babybienen-Fan', baby_axolotl_fan: 'Babyaxolotl-Fan',
+                    big_foot: 'Bigfoot', mushroom_forager: 'Pilzsammler'],
             pt_br: [stray: 'Errante', strider: 'Lavagante', villager_1: 'Aldeão 1',
                     wither_skeleton: 'Esqueleto Wither', creaking: 'Rangente',
                     zombie_horse_onesie: 'Macacão de cavalo-zumbi',
-                    baby_bee_fan: 'Fã de abelhinha', baby_axolotl_fan: 'Fã de axolotinho'],
+                    baby_bee_fan: 'Fã de abelhinha', baby_axolotl_fan: 'Fã de axolotinho',
+                    big_foot: 'Pé-grande', mushroom_forager: 'Coletor de cogumelos'],
             es_es: [stray: 'Errante', strider: 'Lavagante', villager_1: 'Aldeano 1',
                     wither_skeleton: 'Esqueleto del Wither', creaking: 'Crepitante',
                     zombie_horse_onesie: 'Pijama de caballo zombi',
-                    baby_bee_fan: 'Fan de la abejita', baby_axolotl_fan: 'Fan del ajolotito'],
+                    baby_bee_fan: 'Fan de la abejita', baby_axolotl_fan: 'Fan del ajolotito',
+                    big_foot: 'Pie Grande', mushroom_forager: 'Recolector de setas'],
             es_mx: [stray: 'Errante', strider: 'Strider', villager_1: 'Aldeano 1',
                     wither_skeleton: 'Esqueleto del Wither', creaking: 'Crepitante',
                     zombie_horse_onesie: 'Mameluco de caballo zombi',
-                    baby_bee_fan: 'Fan de la abejita', baby_axolotl_fan: 'Fan del ajolotito']
+                    baby_bee_fan: 'Fan de la abejita', baby_axolotl_fan: 'Fan del ajolotito',
+                    big_foot: 'Pie Grande', mushroom_forager: 'Recolector de hongos']
     ].asImmutable()
     private static final List<String> LAYER_KEYS = [
             'outer_head_on', 'outer_head_off', 'outer_body_all_on', 'outer_body_all_off',
@@ -440,7 +452,7 @@ final class LocalizationVerifier {
                 errors.add("mojang-collections ${locale}: ${skinId} must use its reviewed natural name")
             }
         }
-        ['account_ownership', 'account_events', 'global_events'].each {
+        ['account_ownership', 'account_events', 'global_events', 'the_camp_out'].each {
             String key = "nclskins.mojang_${it}.authors"
             if (language[key] != 'Mojang Studios') {
                 errors.add("mojang-collections ${locale}: ${key} must credit Mojang Studios")

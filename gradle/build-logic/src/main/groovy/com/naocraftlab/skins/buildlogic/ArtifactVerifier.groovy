@@ -798,8 +798,46 @@ final class ArtifactVerifier {
                     collections.toPath().relativize(path).getName(1).toString()) }
         }
         Map provenance = new JsonSlurper().parse(provenanceFile) as Map
-        if (collectionIds.size() != 12) {
-            errors.add("${target.id}: Mojang resource paths must define 12 unique collections")
+        if (collectionIds.size() != 13) {
+            errors.add("${target.id}: Mojang resource paths must define 13 unique collections")
+        }
+        Map<String, String> campOutHashes = [
+                'assets/mojang_the_camp_out/textures/entity/player/slim/big_foot.png':
+                        '72d5dcde3bb9fc775b4ed72911564b760c2865be383c8ded6d38e258b85efb39',
+                'assets/mojang_the_camp_out/textures/entity/player/wide/mushroom_forager.png':
+                        'd34d94e146925c8a79e319279df2b31407e853eaf475a4e51d044b093fbf0852'
+        ]
+        Set<String> campOutSourcePaths = []
+        Path campOut = new File(collections, 'assets/mojang_the_camp_out').toPath()
+        if (Files.isDirectory(campOut)) {
+            Files.walk(campOut).withCloseable { stream ->
+                stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }.forEach {
+                    campOutSourcePaths.add(collections.toPath().relativize(it).toString().replace('\\', '/'))
+                }
+            }
+        }
+        Set<String> campOutArchivePaths = names.findAll {
+            it.startsWith(COLLECTIONS + 'assets/mojang_the_camp_out/') && it.endsWith('.png')
+        }.collect { it.substring(COLLECTIONS.length()) } as Set
+        if (campOutSourcePaths != campOutHashes.keySet() || campOutArchivePaths != campOutHashes.keySet()) {
+            errors.add("${target.id}: Camp Out original path inventory differs")
+        }
+        String campOutNotice = new File(collections, 'assets/mojang_the_camp_out/notice-mojang.md')
+                .with { it.isFile() ? it.getText('UTF-8') : '' }
+        campOutHashes.each { String path, String hash ->
+            File source = new File(collections, path)
+            if (!source.isFile() || sha256(source) != hash) {
+                errors.add("${target.id}: Camp Out original source hash differs for ${path}")
+            }
+            String archivePath = COLLECTIONS + path
+            if (archive.getEntry(archivePath) == null ||
+                    HexFormat.of().formatHex(MessageDigest.getInstance('SHA-256').digest(read(archive, archivePath))) != hash) {
+                errors.add("${target.id}: Camp Out original artifact hash differs for ${path}")
+            }
+            if (!campOutNotice.contains(path.substring('assets/mojang_the_camp_out/'.length())) ||
+                    !campOutNotice.contains(hash)) {
+                errors.add("${target.id}: Camp Out notice differs from original identity for ${path}")
+            }
         }
         if (provenance.schemaVersion != 1 || provenance.releaseApproved != false ||
                 provenance.approvedAssetSetSha256 != null ||

@@ -1,3 +1,10 @@
+## 1.2.2
+
+### Added
+
+- **Camp Out skins**
+    - Added the `Camp Out Community Challenge` collection with the Big Foot and Mushroom Forager skins
+
 ## 1.2.1
 
 ### Added

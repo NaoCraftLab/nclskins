@@ -7,6 +7,9 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 import static org.junit.jupiter.api.Assertions.*
 
@@ -161,7 +164,7 @@ final class LocalizationVerifierTest {
                 'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
                         'mojang_collections/assets/nclskins/lang')
         Set<String> expected = LocalizationVerifier.collectionKeys(repository)
-        assertEquals(133, expected.size())
+        assertEquals(138, expected.size())
         LocalizationVerifier.sourceLocales(catalog).each { String locale ->
             Set<String> actual = CatalogTools.loadJson(
                     new File(directory, "${locale}.json")).keySet() as Set
@@ -216,14 +219,14 @@ final class LocalizationVerifierTest {
         Map provenance = new JsonSlurper().parse(
                 new File(repository, 'gradle/asset-provenance/mojang-capes.json')) as Map
 
-        assertEquals(12, collections.size())
+        assertEquals(13, collections.size())
         assertEquals([
                 'mojang_minecon_earth_2017', 'mojang_builders_and_biomes',
                 'mojang_striding_hero', 'mojang_the_garden_awakens',
                 'mojang_chase_the_skies', 'mojang_the_copper_age',
                 'mojang_mounts_of_mayhem', 'mojang_tiny_takeover',
                 'mojang_chaos_cubed', 'mojang_account_ownership',
-                'mojang_account_events', 'mojang_global_events'
+                'mojang_account_events', 'mojang_global_events', 'mojang_the_camp_out'
         ] as Set, collections)
         assertFalse(new File(pack, 'assets/nclskins/collections.json').exists())
         assertEquals(false, provenance.releaseApproved)
@@ -260,7 +263,7 @@ final class LocalizationVerifierTest {
             assertTrue(notice.contains("textures/entity/cape/${entry.capeId}.png"))
             assertTrue(notice.contains(entry.sha256.toString()))
         }
-        assertEquals(12, Files.walk(pack.toPath()).withCloseable { stream ->
+        assertEquals(13, Files.walk(pack.toPath()).withCloseable { stream ->
             stream.filter { it.fileName.toString() == 'notice-mojang.md' }.count()
         })
         assertFalse(new File(pack, 'assets/nclskins/cape-provenance.json').exists())
@@ -358,6 +361,117 @@ final class LocalizationVerifierTest {
                 'ru_ru', russianMutant, baseline, errors)
         assertTrue(errors.any { it.contains('descriptive author credit must be localized') })
         assertTrue(errors.any { it.contains('baby_bee_fan must use its reviewed natural name') })
+    }
+
+    @Test
+    void campOutUsesAllExactApprovedValuesAndRejectsWordingMutations() {
+        File directory = new File(repository,
+                'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
+                        'mojang_collections/assets/nclskins/lang')
+        Map expected = [
+                en_us: ['Two skins released for Camp Out Community Challenge.', 'Big Foot', 'Mushroom Forager'],
+                ru_ru: ['Два скина, выпущенных для Camp Out Community Challenge.', 'Снежный человек', 'Грибник'],
+                de_de: ['Zwei Skins zur Camp Out Community Challenge.', 'Bigfoot', 'Pilzsammler'],
+                pt_br: ['Duas skins lançadas para o evento Camp Out Community Challenge.', 'Pé-grande', 'Coletor de cogumelos'],
+                es_mx: ['Dos skins publicadas para Camp Out Community Challenge.', 'Pie Grande', 'Recolector de hongos'],
+                es_es: ['Dos skins publicadas para Camp Out Community Challenge.', 'Pie Grande', 'Recolector de setas']
+        ]
+        Map baseline = CatalogTools.loadJson(new File(directory, 'en_us.json'))
+        LocalizationVerifier.sourceLocales(catalog).each { String locale ->
+            Map language = CatalogTools.loadJson(new File(directory, "${locale}.json"))
+            Map wording = [
+                    'nclskins.mojang_the_camp_out.name': 'Camp Out Community Challenge',
+                    'nclskins.mojang_the_camp_out.description': expected[locale][0],
+                    'nclskins.mojang_the_camp_out.authors': 'Mojang Studios',
+                    'nclskins.mojang_the_camp_out.skin.big_foot.name': expected[locale][1],
+                    'nclskins.mojang_the_camp_out.skin.mushroom_forager.name': expected[locale][2]
+            ]
+            wording.each { String key, String value ->
+                assertEquals(value, language[key], "${locale} ${key}")
+                Map mutant = new LinkedHashMap(language)
+                mutant[key] = 'Wrong approved value'
+                List<String> errors = []
+                LocalizationVerifier.validateCollectionSemantics(locale, mutant, baseline, errors)
+                assertFalse(errors.isEmpty(), "${locale} ${key}")
+            }
+            Map missing = new LinkedHashMap(language)
+            missing.remove('nclskins.mojang_the_camp_out.skin.big_foot.name')
+            List<String> errors = []
+            LocalizationVerifier.validateLanguage(locale, missing, baseline, false, errors)
+            assertTrue(errors.any { it.contains('missing key nclskins.mojang_the_camp_out.skin.big_foot.name') })
+            Map orphan = new LinkedHashMap(language)
+            orphan['nclskins.mojang_the_camp_out.skin.big_foot.description'] = 'Orphan'
+            errors.clear()
+            LocalizationVerifier.validateLanguage(locale, orphan, baseline, false, errors)
+            assertTrue(errors.any { it.contains('extra key nclskins.mojang_the_camp_out.skin.big_foot.description') })
+        }
+    }
+
+    @Test
+    void campOutOriginalPathsHashesAndNoticeAreCheckedOnDisposableSources(@TempDir Path temp) {
+        String packPath = 'compat/resources/mojang-collections/src/main/resources/resourcepacks/mojang_collections'
+        Path originalPack = new File(repository, packPath).toPath()
+        Map<String, String> hashes = [
+                'assets/mojang_the_camp_out/textures/entity/player/slim/big_foot.png':
+                        '72d5dcde3bb9fc775b4ed72911564b760c2865be383c8ded6d38e258b85efb39',
+                'assets/mojang_the_camp_out/textures/entity/player/wide/mushroom_forager.png':
+                        'd34d94e146925c8a79e319279df2b31407e853eaf475a4e51d044b093fbf0852'
+        ]
+        hashes.each { String path, String hash ->
+            assertEquals(hash, HexFormat.of().formatHex(MessageDigest.getInstance('SHA-256')
+                    .digest(originalPack.resolve(path).toFile().bytes)))
+        }
+        ['positive', 'extra-variant', 'extra-png', 'missing-png', 'wrong-hash', 'missing-notice'].each { String mutation ->
+            Path fixture = temp.resolve(mutation)
+            Path pack = fixture.resolve(packPath)
+            Files.walk(originalPack).withCloseable { stream ->
+                stream.filter { Files.isRegularFile(it) }.forEach { Path path ->
+                    Path destination = pack.resolve(originalPack.relativize(path))
+                    Files.createDirectories(destination.parent)
+                    Files.copy(path, destination)
+                }
+            }
+            Path provenance = fixture.resolve('gradle/asset-provenance/mojang-capes.json')
+            Files.createDirectories(provenance.parent)
+            Files.copy(new File(repository, 'gradle/asset-provenance/mojang-capes.json').toPath(), provenance)
+            Path bigFoot = pack.resolve(hashes.keySet().first())
+            switch (mutation) {
+                case 'extra-variant':
+                    Path wide = pack.resolve('assets/mojang_the_camp_out/textures/entity/player/wide/big_foot.png')
+                    Files.copy(bigFoot, wide)
+                    break
+                case 'extra-png':
+                    Files.copy(bigFoot, bigFoot.parent.resolve('extra.png'))
+                    break
+                case 'missing-png':
+                    Files.delete(bigFoot)
+                    break
+                case 'wrong-hash':
+                    Files.write(bigFoot, pack.resolve(hashes.keySet().last()).toFile().bytes)
+                    break
+                case 'missing-notice':
+                    Files.delete(pack.resolve('assets/mojang_the_camp_out/notice-mojang.md'))
+                    break
+            }
+            Path jar = fixture.resolve('resources.zip')
+            new ZipOutputStream(Files.newOutputStream(jar)).withCloseable { zip ->
+                Files.walk(pack).withCloseable { stream ->
+                    stream.filter { Files.isRegularFile(it) }.forEach { Path path ->
+                        zip.putNextEntry(new ZipEntry(ArtifactVerifier.COLLECTIONS + pack.relativize(path).toString().replace('\\', '/')))
+                        zip.write(Files.readAllBytes(path))
+                        zip.closeEntry()
+                    }
+                }
+            }
+            List<String> errors = []
+            new ZipFile(jar.toFile()).withCloseable { archive ->
+                ArtifactVerifier.verifyMojangCollectionProvenance(fixture.toFile(), pack.toFile(), archive,
+                        [id: 'fixture'], archive.entries().collect { it.name }, errors)
+            }
+            if (mutation == 'positive') assertEquals([], errors)
+            else if (mutation == 'missing-notice') assertTrue(errors.any { it.contains('notice inventory differs') }, errors.toString())
+            else assertTrue(errors.any { it.contains('Camp Out') }, "${mutation}: ${errors}")
+        }
     }
 
     private static Map cloneMap(Map value) {
