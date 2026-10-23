@@ -1543,10 +1543,10 @@ final class CatalogTools {
         Map dependencies = catalog.publicationDependencies instanceof Map
                 ? catalog.publicationDependencies as Map : [:]
         Set<String> expectedIds = [
-                'fabric_api', 'yet_another_config_lib_v3', 'sqlite_jdbc'
+                'fabric_api', 'yet_another_config_lib_v3', 'sqlite_jdbc', 'cpm_fabric', 'cpm_forge'
         ] as Set
         if ((dependencies.keySet() as Set) != expectedIds) {
-            errors.add('publicationDependencies must declare Fabric API, YACL, and SQLite JDBC')
+            errors.add('publicationDependencies must declare Fabric API, YACL, SQLite JDBC, and loader-specific CPM projects')
             return
         }
         Set<String> loaderIds = LoaderBackend.ids()
@@ -1583,10 +1583,16 @@ final class CatalogTools {
         if (fabric.type != 'required' || (fabric.loaders as Set) != ['fabric'] as Set) {
             errors.add('Fabric API must be required only for Fabric')
         }
-        ['yet_another_config_lib_v3', 'sqlite_jdbc'].each { String id ->
+        Map<String, Set<String>> optionalLoaders = [
+                yet_another_config_lib_v3: loaderIds,
+                sqlite_jdbc: loaderIds,
+                cpm_fabric: ['fabric'] as Set,
+                cpm_forge: ['forge', 'neoforge'] as Set
+        ]
+        optionalLoaders.each { String id, Set<String> expectedLoaders ->
             Map declaration = dependencies[id] as Map
-            if (declaration.type != 'optional' || (declaration.loaders as Set) != loaderIds) {
-                errors.add("${id} must be optional for every loader")
+            if (declaration.type != 'optional' || (declaration.loaders as Set) != expectedLoaders) {
+                errors.add("${id} must be optional for ${expectedLoaders}")
             }
         }
     }

@@ -78,6 +78,17 @@ jobs:
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=1" > "$inventory"
           [[ "$(jq -er 'type == "array" and length <= 100' "$inventory")" == 'true' ]]
+          if [[ "$(jq -r 'length' "$inventory")" == '100' ]]; then
+            overflow="$RUNNER_TEMP/nclskins-releases-overflow.json"
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=2" > "$overflow"
+            [[ "$(jq -er 'type == "array" and length == 0' "$overflow")" == 'true' ]] || {
+              echo '::error::release inventory exceeds 100; refusing a truncated update catalog.'
+              exit 1
+            }
+          fi
 
       - name: Generate deterministic Pages artifact
         shell: bash

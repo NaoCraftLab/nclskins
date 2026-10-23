@@ -41,8 +41,14 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
     inputs.files(
             file('../../gradle/version.properties'),
+            file('../../gradle/plugin-version.properties'),
+            file('../../gradle/targets.json'),
+            file('../../build.gradle'),
             file('../../CHANGELOG.md'),
-            file('../../PLUGIN_CHANGELOG.md'))
+            file('../../PLUGIN_CHANGELOG.md'),
+            file('../../.github/workflows/release.yml'),
+            file('../../.github/workflows/release-candidate.yml'),
+            file('../../.github/workflows/publish-update-catalog.yml'))
             .withPropertyName('rootReleaseFiles')
             .withPathSensitivity(PathSensitivity.RELATIVE)
 }
