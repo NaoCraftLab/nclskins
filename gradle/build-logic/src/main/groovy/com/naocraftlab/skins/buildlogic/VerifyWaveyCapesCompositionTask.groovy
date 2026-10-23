@@ -153,6 +153,49 @@ abstract class VerifyWaveyCapesCompositionTask extends DefaultTask {
         if (primary != null) throw primary
     }
 
+    protected void completeCombinedBatch(Map receipt, Closure save, Map expected) {
+        List<Map> commands = receipt.commands.findAll { it.name == expected.name }
+        if (commands.size() != 1) throw new GradleException('Combined batch requires exactly one owned process receipt')
+        List<Map> cases = CombinedBatchResults.verify(expected, commands[0])
+        receipt.combinedBatch = [state: 'PASS', command: expected.name, manifest: expected.manifest.absolutePath,
+                                 manifestSha256: expected.manifestSha256, log: expected.log.absolutePath,
+                                 logSha256: commands[0].sha256, pid: commands[0].pid, parentPid: commands[0].parentPid,
+                                 caseCount: cases.size(), cases: cases]
+        save()
+    }
+
+    static List<Map> isolatedCombinedCases(File work) {
+        List<Map> cases = []
+        Closure add = { String name, List args, int exit ->
+            cases.add([name: name, args: [new File(work, name).absolutePath] + args.collect { it.toString() }, expectedExit: exit])
+        }
+        ['world', 'worldless'].each { scope ->
+            ['foreign-first', 'foreign-last'].each { order ->
+                ['SMOOTH', 'BLOCKY'].each { style ->
+                    ['normal', 'ACCUMULATE', 'DEPTH_BOUNDS', 'TRANSMITTANCE'].each { stage ->
+                        List states = stage in ['normal', 'ACCUMULATE']
+                                ? ['live', 'stale-before', 'stale-after', 'retire-build', 'retire-draw', 'own-exception', 'foreign-exception', 'draw-exception']
+                                : ['live', 'stale-after']
+                        states.each { status ->
+                            String name = "combined-${scope}-${status}-${order}-${stage}-${style}"
+                            add(name, [scope, status, order, stage, style], 0)
+                            if (status.endsWith('-exception'))
+                                add(name + '-fresh-consumer-control', [scope, 'live', order, stage, style], 0)
+                        }
+                    }
+                }
+            }
+        }
+        ['no-support', 'wrong-material'].each { mutation ->
+            ['SMOOTH', 'BLOCKY'].each { style ->
+                String name = "combined-sensitivity-${mutation}-${style}"
+                add(name, ['world', mutation, 'foreign-first', 'normal', style], 1)
+                add(name + '-fresh-consumer-control', ['world', 'live', 'foreign-first', 'normal', style], 0)
+            }
+        }
+        cases
+    }
+
     @TaskAction
     void verifyComposition() {
         String kind = mode.get()
@@ -275,28 +318,25 @@ abstract class VerifyWaveyCapesCompositionTask extends DefaultTask {
                 scenario('immediate-unmarked-abort', 'ImmediateCapeProbe', [new File(work, 'unmarked-abort-data'), 'world', 'geometry-abort'],
                         ['-Dnclskins.wavey.noSupport=true'], 0, 'IMMEDIATE_COMPOSITION_PASS')
             } else if (kind == 'combined') {
+                scenario('combined-batch-native-contract', 'CombinedCapeBatchContractProbe',
+                        [new File(work, 'combined-batch-contract-data')], [], 0, 'COMBINED_BATCH_NATIVE_CONTRACT_PASS')
                 ['world', 'worldless'].each { scope ->
-                    ['foreign-first', 'foreign-last'].each { order ->
-                        ['SMOOTH', 'BLOCKY'].each { style ->
-                            ['normal', 'ACCUMULATE', 'DEPTH_BOUNDS', 'TRANSMITTANCE'].each { stage ->
-                                List states = stage in ['normal', 'ACCUMULATE']
-                                        ? ['live', 'stale-before', 'stale-after', 'retire-build', 'retire-draw', 'own-exception', 'foreign-exception', 'draw-exception']
-                                        : ['live', 'stale-after']
-                                states.each { status ->
-                                    String name = "combined-${scope}-${status}-${order}-${stage}-${style}"
-                                    scenario(name, 'CombinedCapeProbe', [new File(work, name), scope, status, order, stage, style], [], 0, 'COMBINED_COMPOSITION_PASS')
-                                }
-                            }
-                        }
-                    }
-                }
-                ['no-support', 'wrong-material'].each { mutation ->
                     ['SMOOTH', 'BLOCKY'].each { style ->
-                        String name = "combined-sensitivity-${mutation}-${style}"
-                        scenario(name, 'CombinedCapeProbe', [new File(work, name), 'world', mutation, 'foreign-first', 'normal', style],
-                                [], 1, 'COMBINED_INTEGRATION_MISSING')
+                        String name = "cold-combined-${scope}-${style}"
+                        scenario(name, 'CombinedCapeProbe', [new File(work, name), scope, 'live', 'foreign-first', 'normal', style], [], 0, 'COMBINED_COMPOSITION_PASS')
                     }
                 }
+                List<Map> cases = isolatedCombinedCases(work)
+                File manifest = new File(work, 'combined-cases.tsv')
+                manifest.setText(cases.collect { ([it.name, it.expectedExit.toString()] + it.args).join('\t') }.join('\n') + '\n', 'UTF-8')
+                String name = 'combined-matrix-batch'
+                List<String> argv = (java + ['-cp', runtimeClasspath, prefix + 'CombinedCapeBatchProbe', manifest.absolutePath]).collect { it.toString() }
+                Map expected = [name: name, cases: cases, manifest: manifest,
+                                manifestSha256: VerifyWaveyCapesCompositionTask.sha256(manifest),
+                                log: new File(work, name + '.log'), argv: argv]
+                String summary = ['COMBINED_BATCH_COMPLETE', cases.size(), cases.count { it.expectedExit == 0 }, cases.count { it.expectedExit == 1 }].join('\t')
+                run(name, argv, 0, summary)
+                completeCombinedBatch(receipt, save, expected)
             } else if (kind == 'prepared') {
                 ['live', 'replace-before', 'replace-after', 'registry-close-before', 'registry-close-after',
                  'owner-close-before', 'owner-close-after', 'retire-during'].each { String state ->

@@ -11,11 +11,17 @@ class WaveyCapesIsolatedPreviewTest {
 
     abstract static class AssemblyRecorder extends VerifyWaveyCapesCompositionTask {
         final List<Map> observed = []
+        List<Map> plannedBatchCases = []
+
+        @Override
+        protected void completeCombinedBatch(Map receipt, Closure save, Map expected) {
+            plannedBatchCases = expected.cases
+        }
 
         @Override
         void runCompositionProcess(File work, Map receipt, Closure save, String name, List command, int expected, String marker) {
             List<String> argv = command.collect { it.toString() }
-            observed.add([name: name, argv: argv])
+            observed.add([name: name, argv: argv, expectedExit: expected, marker: marker])
         }
     }
 
@@ -68,7 +74,7 @@ class WaveyCapesIsolatedPreviewTest {
         } else {
             assertNull(named('preview-publication'))
             assertEquals(outputs(mode == 'combined' ? ['state', 'transformed', 'geometry', 'bound', 'fixtures'] :
-                    ['transformed', 'bound', 'fixtures']) + [index], roots(commands.find { it.argv.any { it.endsWith('.CombinedCapeProbe') || it.endsWith('.CapeLifetimeProbe') || it.endsWith('.BufferedCapeProbe') } }))
+                    ['transformed', 'bound', 'fixtures']) + [index], roots(commands.find { it.argv.any { it.endsWith(mode == 'combined' ? '.CombinedCapeBatchProbe' : '.CapeLifetimeProbe') || it.endsWith('.BufferedCapeProbe') } }))
             assertEquals(outputs(['preview-raw', 'publication-raw', 'bound', 'fixtures']) + [index], roots(named('weave-missing-publication')))
         }
         List<File> nativeInputs = outputs(mode == 'combined' ? ['transformed', 'publication-raw', 'geometry', 'bound', 'fixtures'] :
@@ -84,6 +90,98 @@ class WaveyCapesIsolatedPreviewTest {
             ['extraction-publication-SMOOTH', 'extraction-publication-BLOCKY', 'extraction-baked-public'].each { name ->
                 assertEquals(outputs(['publication-woven', 'preview-raw']) + nativeInputs, roots(named(name)))
             }
+        }
+    }
+
+    @Test
+    void combinedCanonicalActionUsesOneBatchAndRetainsColdNativeControls() {
+        def project = ProjectBuilder.builder().withProjectDir(temporary).build()
+        def task = project.tasks.create('combinedAssembly', AssemblyRecorder)
+        File resources = new File(temporary, 'resources'); resources.mkdirs()
+        File index = new File(temporary, 'combined-owner-index.jar')
+        new java.util.zip.ZipOutputStream(new FileOutputStream(index)).withCloseable { zip ->
+            ['dev/tr7zw/waveycapes/render/CapeNodeCollector.class',
+             'net/minecraft/client/renderer/rendertype/RenderType.class'].each { entry ->
+                zip.putNextEntry(new java.util.zip.ZipEntry(entry)); zip.closeEntry()
+            }
+        }
+        File home = new File(System.getProperty('java.home'))
+        task.mode.set('combined'); task.submissionPreview.set(false); task.targetId.set('combined-assembly-unit')
+        task.javaRelease.set(17); task.serviceResources.set(resources)
+        task.compilerExecutable.set(new File(home, 'bin/javac')); task.javaExecutable.set(new File(home, 'bin/java'))
+        task.executableClasspath.from(index)
+        task.workDirectory.set(new File(temporary, 'assembled'))
+        task.verifyComposition()
+        List<Map> batches = task.observed.findAll { it.argv.any { it.endsWith('.CombinedCapeBatchProbe') } }
+        assertEquals(1, batches.size(), 'The complete combined matrix must share one bounded sequential batch')
+        List<Map> cold = task.observed.findAll { it.argv.any { it.endsWith('.CombinedCapeProbe') } }
+        assertEquals(4, cold.size(), 'World/worldless and both styles retain separate cold JVM controls')
+        assertTrue(cold.every { it.expectedExit == 0 && it.marker == 'COMBINED_COMPOSITION_PASS' })
+        assertEquals(['world', 'worldless'] as Set, cold.collect { it.argv[-5] }.toSet())
+        assertEquals(['SMOOTH', 'BLOCKY'] as Set, cold.collect { it.argv[-1] }.toSet())
+        assertTrue(cold.every { it.argv[-4..-2] == ['live', 'foreign-first', 'normal'] })
+        File work = task.workDirectory.get().asFile
+        Map batch = batches[0]
+        assertEquals([new File(System.getProperty('java.home'), 'bin/java').absolutePath, '-Xmx512m',
+                      '-Djava.awt.headless=true', '--add-opens', 'java.base/java.lang=ALL-UNNAMED'], batch.argv.take(5))
+        List<String> roots = batch.argv[batch.argv.indexOf('-cp') + 1].split(java.util.regex.Pattern.quote(File.pathSeparator)).toList()
+        assertEquals(['state', 'transformed', 'geometry', 'bound', 'fixtures'].collect { new File(work, it).absolutePath } + [index.absolutePath], roots)
+        Map contract = task.observed.find { it.name == 'combined-batch-native-contract' }
+        assertNotNull(contract)
+        assertTrue(contract.argv.contains('com.naocraftlab.skins.buildlogic.probe.wavey.CombinedCapeBatchContractProbe'))
+        assertEquals(roots, contract.argv[contract.argv.indexOf('-cp') + 1].split(java.util.regex.Pattern.quote(File.pathSeparator)).toList())
+        assertEquals('COMBINED_BATCH_NATIVE_CONTRACT_PASS', contract.marker)
+        assertEquals(0, contract.expectedExit)
+        assertTrue(task.observed.indexOf(contract) < task.observed.indexOf(batch))
+        ['bind-combined-terminals', 'bind-combined-geometry', 'weave', 'weave-combined-state', 'weave-publication'].each { name ->
+            assertTrue(task.observed.indexOf(task.observed.find { it.name == name }) < task.observed.indexOf(batch))
+        }
+        List<Map> originals = []
+        ['world', 'worldless'].each { scope ->
+            ['foreign-first', 'foreign-last'].each { order ->
+                ['SMOOTH', 'BLOCKY'].each { style ->
+                    ['normal', 'ACCUMULATE', 'DEPTH_BOUNDS', 'TRANSMITTANCE'].each { stage ->
+                        List<String> statuses = stage in ['normal', 'ACCUMULATE']
+                                ? ['live', 'stale-before', 'stale-after', 'retire-build', 'retire-draw', 'own-exception', 'foreign-exception', 'draw-exception']
+                                : ['live', 'stale-after']
+                        statuses.each { status -> originals.add([name: "combined-${scope}-${status}-${order}-${stage}-${style}".toString(),
+                                                                 expectedExit: 0, args: [scope, status, order, stage, style]]) }
+                    }
+                }
+            }
+        }
+        ['no-support', 'wrong-material'].each { mutation ->
+            ['SMOOTH', 'BLOCKY'].each { style ->
+                originals.add([name: "combined-sensitivity-${mutation}-${style}".toString(), expectedExit: 1,
+                               args: ['world', mutation, 'foreign-first', 'normal', style]])
+            }
+        }
+        List<Map> cases = task.plannedBatchCases
+        assertEquals(216, cases.size())
+        assertEquals(216, cases*.name.toSet().size())
+        assertEquals(216, cases.collect { it.args[0] }.toSet().size())
+        assertEquals(originals, cases.findAll { !it.name.endsWith('-fresh-consumer-control') }.collect {
+            [name: it.name, expectedExit: it.expectedExit, args: it.args.drop(1)]
+        })
+        int continuations = 0
+        cases.eachWithIndex { row, i ->
+            assertEquals(new File(work, row.name).absolutePath, row.args[0])
+            if (!row.name.endsWith('-fresh-consumer-control') && (row.expectedExit == 1 || row.args[2].endsWith('-exception'))) {
+                Map fresh = cases[i + 1]
+                assertEquals(row.name + '-fresh-consumer-control', fresh.name)
+                assertEquals([row.args[1], 'live'] + row.args.drop(3), fresh.args.drop(1))
+                assertEquals(0, fresh.expectedExit)
+                continuations++
+            }
+        }
+        assertEquals(52, continuations)
+        assertEquals(cases.collect { ([it.name, it.expectedExit.toString()] + it.args).join('\t') }, new File(batch.argv.last()).readLines('UTF-8'))
+        assertEquals('COMBINED_BATCH_COMPLETE\t216\t212\t4', batch.marker)
+        assertEquals(0, batch.expectedExit)
+        ['missing-world-publication', 'wrong-world-raw', 'missing-extraction-publication'].each { name ->
+            Map command = task.observed.find { it.name == name }
+            assertNotNull(command)
+            assertEquals(1, command.expectedExit)
         }
     }
 

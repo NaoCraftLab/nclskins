@@ -156,6 +156,7 @@ if (prepared || buffered || combined || immediate != null) {
         if (prepared) probeSources.from(fileTree(probes) { include '**/*.java' })
         else if (combined) {
             probeSources.from(fileTree('../../../gradle/build-logic/src/waveyCombinedComposition/java') { include '**/*.java' })
+            probeSources.from(file('../../../gradle/build-logic/src/waveyLoaderComposition/game/java/com/naocraftlab/skins/buildlogic/probe/wavey/CaseLifecycle.java'))
             probeSources.from(fileTree(probes) {
                 include '**/WaveyProducerFixture.java', '**/CapeSink.java', '**/CapeRegistry.java', '**/HeadlessCapeClient.java'
             })
