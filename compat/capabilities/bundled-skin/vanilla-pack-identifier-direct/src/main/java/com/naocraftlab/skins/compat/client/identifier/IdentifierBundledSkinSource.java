@@ -8,7 +8,9 @@ import com.naocraftlab.skins.client.ResourcePackSkinCatalog;
 import com.naocraftlab.skins.client.ResourcePackCapeCatalog;
 import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.client.SkinModel;
+import com.naocraftlab.skins.client.SkinExtensionResourceDetector;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.PngFileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -63,6 +65,13 @@ public final class IdentifierBundledSkinSource implements SkinCatalogSource {
     }
 
     @Override
+    public InputStream openCape(String collectionId, String capeId) throws IOException {
+        Identifier location = Identifier.parse(selectedCapeResource(collectionId, capeId));
+        return Minecraft.getInstance().getResourceManager().getResource(location)
+                .orElseThrow(() -> new IOException("Catalog cape resource is unavailable")).open();
+    }
+
+    @Override
     public java.util.Optional<byte[]> findResource(String identifier) throws IOException {
         final Identifier location;
         try {
@@ -77,7 +86,7 @@ public final class IdentifierBundledSkinSource implements SkinCatalogSource {
             return java.util.Optional.empty();
         }
         try (InputStream input = resource.orElseThrow().open()) {
-            return java.util.Optional.of(readBounded(input));
+            return readModel(input);
         }
     }
 
@@ -152,13 +161,17 @@ public final class IdentifierBundledSkinSource implements SkinCatalogSource {
     }
 
     private static byte[] readBounded(InputStream input) throws IOException {
-        byte[] png = input.readNBytes(PngValidator.DEFAULT_MAX_BYTES + 1);
-        if (png.length > PngValidator.DEFAULT_MAX_BYTES) {
-            throw new IOException("Bundled vanilla player texture is oversized");
+        try {
+            return new PngFileReader(new PngValidator()).projectStandardImport(input).pngBytes();
+        } catch (com.naocraftlab.skins.core.png.PngValidationException invalid) {
+            throw new IOException("Catalog skin PNG is invalid", invalid);
         }
-        if (png.length == 0) {
-            throw new IOException("Catalog skin PNG is empty");
-        }
-        return SkinCatalogSource.ownedCopy(png);
+    }
+
+    private static java.util.Optional<byte[]> readModel(InputStream input) throws IOException {
+        byte[] bytes = input.readNBytes(SkinExtensionResourceDetector.MAX_MODEL_BYTES + 1);
+        if (bytes.length == 0) throw new IOException("Resource model is empty");
+        if (bytes.length > SkinExtensionResourceDetector.MAX_MODEL_BYTES) return java.util.Optional.empty();
+        return java.util.Optional.of(bytes);
     }
 }

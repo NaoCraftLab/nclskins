@@ -7,26 +7,29 @@ import java.util.concurrent.CompletableFuture;
 import net.minecraft.client.renderer.texture.SkinTextureDownloader;
 import net.minecraft.core.ClientAsset;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 
 @Mixin(SkinTextureDownloader.class)
 abstract class SkinTextureDownloaderProviderMixin {
-    @Inject(method = "registerTextureInManager", at = @At("HEAD"),
+    @WrapMethod(method = "registerTextureInManager(Lnet/minecraft/core/ClientAsset$Texture;Lcom/mojang/blaze3d/platform/NativeImage;)Ljava/util/concurrent/CompletableFuture;",
             require = 1, expect = 1, allow = 1)
-    private void nclskins$captureSkinPixels(ClientAsset.Texture texture, NativeImage image,
-            CallbackInfoReturnable<CompletableFuture<ClientAsset.Texture>> ci) {
+    private CompletableFuture<ClientAsset.Texture> nclskins$captureSkinPixels(ClientAsset.Texture texture, NativeImage image,
+            Operation<CompletableFuture<ClientAsset.Texture>> original) {
         if (image != null) {
             int[] argb = ((SneakyUnmodifiedSkinPixels) (Object) image).nclskins$takeUnmodifiedSkinPixels();
             if (argb != null) CapeProjection.skinTextureReady(texture.texturePath().toString(), argb, texture);
         }
+        return original.call(texture, image);
     }
 
-    @Inject(method = "processLegacySkin", at = @At("HEAD"),
-            require = 1, expect = 1, allow = 1)
-    private static void nclskins$rememberUnmodifiedSkinPixels(NativeImage image, String url,
-            CallbackInfoReturnable<NativeImage> ci) {
+    @WrapMethod(method = "processLegacySkin(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/lang/String;)Lcom/mojang/blaze3d/platform/NativeImage;")
+    private static NativeImage nclskins$raw(NativeImage image, String url, Operation<NativeImage> original) {
+        nclskins$rememberUnmodifiedSkinPixels(image);
+        return original.call(image, url);
+    }
+
+    private static void nclskins$rememberUnmodifiedSkinPixels(NativeImage image) {
         if (image != null && image.getWidth() == 64 && image.getHeight() == 64) {
             int[] argb = new int[64 * 64];
             for (int y = 0; y < 64; y++) {

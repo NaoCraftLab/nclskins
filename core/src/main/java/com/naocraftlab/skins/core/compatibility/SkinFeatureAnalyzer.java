@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.core.compatibility;
 
+import com.naocraftlab.skins.core.png.CpmCarrierReader;
 import com.naocraftlab.skins.core.png.SneakyCapeDecoder;
 
 import java.awt.image.BufferedImage;
@@ -41,13 +42,19 @@ public final class SkinFeatureAnalyzer {
         List<SkinConflictReason> conflicts = new ArrayList<>();
 
         analyzeEars(image, features, conflicts);
-        if (SNEAKY.hasMarker(image)) {
+        CpmCarrierReader.Result cpm = new CpmCarrierReader().read(image);
+        if (cpm.status() == CpmCarrierReader.Status.VALID) {
+            features.add(SkinFeature.CUSTOMIZABLE_PLAYER_MODELS);
+        } else if (cpm.status() == CpmCarrierReader.Status.MALFORMED) {
+            conflicts.add(SkinConflictReason.MALFORMED_CPM_DATA);
+        }
+        boolean sneaky = SNEAKY.hasMarker(image);
+        if (sneaky) {
             features.add(SkinFeature.SNEAKY_CAPES);
             conflicts.add(SkinConflictReason.SNEAKY_FRESH_MOVES_OVERLAP);
             conflicts.add(SkinConflictReason.SNEAKY_JUST_EXPRESSIONS_OVERLAP);
-        } else {
-            analyzeExpressive(image, features, conflicts);
         }
+        analyzeExpressive(image, cpm, sneaky, features, conflicts);
         return new SkinFeatureEvidence(features, conflicts);
     }
 
@@ -171,19 +178,33 @@ public final class SkinFeatureAnalyzer {
 
     private static void analyzeExpressive(
             BufferedImage image,
+            CpmCarrierReader.Result cpm,
+            boolean sneaky,
             List<SkinFeature> features,
             List<SkinConflictReason> conflicts) {
         int completeLayouts = 0;
+        boolean overlaps = false;
         for (int[] layout : EXPRESSIVE_PROFILE_LAYOUTS) {
             if (opaqueRectangle(image, layout)) {
                 completeLayouts++;
+                for (int y = layout[1]; y < layout[1] + layout[3]; y++) {
+                    for (int x = layout[0]; x < layout[0] + layout[2]; x++) {
+                        overlaps |= cpm.channelMask(x, y) != 0;
+                    }
+                }
             }
         }
         if (completeLayouts == 1) {
+            if (sneaky || cpm.status() == CpmCarrierReader.Status.VALID && overlaps) return;
             features.add(SkinFeature.FRESH_MOVES);
             features.add(SkinFeature.JUST_EXPRESSIONS);
         } else if (completeLayouts > 1 || hasExpressiveSamples(image)) {
-            conflicts.add(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA);
+            if (cpm.status() == CpmCarrierReader.Status.VALID) {
+                conflicts.add(SkinConflictReason.CPM_FRESH_MOVES_OVERLAP);
+                conflicts.add(SkinConflictReason.CPM_JUST_EXPRESSIONS_OVERLAP);
+            } else if (!sneaky) {
+                conflicts.add(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA);
+            }
         }
     }
 

@@ -18,6 +18,49 @@ import static org.junit.jupiter.api.Assertions.*;
 
 final class PublicSkinImageAdapterTest {
     @Test
+    void explicitModelUrlPreservesActualContainerInsteadOfRequiringPng(@TempDir Path directory) throws Exception {
+        byte[] model = Files.readAllBytes(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"));
+        var transport = new PinnedHttpsTransport() {
+            @Override FileResponse getToFile(URI uri, String host, java.util.List<java.net.InetAddress> addresses,
+                    java.time.Duration timeout, long maximum, Path destination) throws java.io.IOException {
+                Files.write(destination, model);
+                return new FileResponse(200, uri, java.util.Map.of("content-type", java.util.List.of("image/png")), model.length);
+            }
+            @Override <T> StreamResponse<T> getStreaming(URI uri, String host, java.util.List<java.net.InetAddress> addresses,
+                    java.time.Duration timeout, long maximum, PublicHttpsImageFetcher.BodyReader<T> reader) throws java.io.IOException {
+                assertEquals("example.com", host);
+                assertEquals(java.util.List.of(java.net.InetAddress.getByName("8.8.8.8")), addresses);
+                return new StreamResponse<>(200, uri, java.util.Map.of("content-type", java.util.List.of("text/plain")),
+                        reader.read(new java.io.ByteArrayInputStream(model)));
+            }
+        };
+        var remote = new SafeRemotePngFetcher(transport, new PngValidator(),
+                host -> new java.net.InetAddress[]{java.net.InetAddress.getByName("8.8.8.8")});
+        var storage = new NclSkinsStorage(directory, new PngValidator(), Clock.systemUTC());
+        var adapter = new PublicSkinImageAdapter(new TextureCache(storage), remote, new PngValidator());
+        var acquired = assertInstanceOf(com.naocraftlab.skins.core.importing.PublicSkinImageSource.ModelInput.class,
+                adapter.acquireUrl("https://example.com/not-a-model.PNG"));
+        try (var input = acquired.input(); var reader = input.open()) {
+            assertEquals(com.naocraftlab.skins.client.ImportInput.Kind.MODEL, input.kind());
+            assertArrayEquals(model, reader.readAllBytes());
+        }
+    }
+
+    @Test
+    void modelFrameIsOwnedUnchangedUntilNativeParser(@TempDir Path directory) throws Exception {
+        byte[] valid = Files.readAllBytes(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"));
+        byte[] invalid = valid.clone(); invalid[invalid.length - 1] ^= 1;
+        var accepted = assertInstanceOf(com.naocraftlab.skins.core.importing.PublicSkinImageSource.ModelInput.class,
+                PublicSkinImageAdapter.acquireLocal(Files.write(directory.resolve("valid.bin"), valid)));
+        accepted.input().close();
+        var pending = assertInstanceOf(com.naocraftlab.skins.core.importing.PublicSkinImageSource.ModelInput.class,
+                PublicSkinImageAdapter.acquireLocal(Files.write(directory.resolve("invalid.bin"), invalid)));
+        try (var frozen = pending.input(); var reader = frozen.open()) {
+            assertArrayEquals(invalid, reader.readAllBytes());
+        }
+    }
+
+    @Test
     void verifiedLookupUsesExistingCacheAndPreservesNormalizedBytes(@TempDir Path directory) throws Exception {
         String hash = "a".repeat(64);
         String payload = Base64.getEncoder().encodeToString(("""

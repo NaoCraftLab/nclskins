@@ -29,5 +29,24 @@ public final class MojangSessionJoinTransport {
         };
     }
 
+    public static CpmPastePublicationAdapter.Join createProof(CpmPastePublicationAdapter.Exchange transport) {
+        return new CpmPastePublicationAdapter.Join() {
+            public int send(java.util.UUID profileId, String accessToken, String serverId, Duration timeout) throws IOException {
+                return send(profileId, accessToken, serverId, timeout, () -> true);
+            }
+            public int send(java.util.UUID profileId, String accessToken, String serverId, Duration timeout,
+                    java.util.function.BooleanSupplier beforeSend) throws IOException {
+            JsonObject body = new JsonObject();
+            body.addProperty("accessToken", accessToken);
+            body.addProperty("selectedProfile", profileId.toString().replace("-", ""));
+            body.addProperty("serverId", serverId);
+            byte[] bytes = body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            return transport.send("POST", JOIN_ENDPOINT,
+                    java.util.Map.of("Content-Type", "application/json", "Accept", "application/json",
+                            "Content-Length", Integer.toString(bytes.length)), bytes, timeout, 65536, beforeSend).status();
+            }
+        };
+    }
+
     private MojangSessionJoinTransport() {}
 }

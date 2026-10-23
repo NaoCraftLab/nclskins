@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.naocraftlab.skins.compat.client.cape.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": ["RenderTypeFlagsMixin"],
+  "injectors": {"defaultRequire": 1}
+}

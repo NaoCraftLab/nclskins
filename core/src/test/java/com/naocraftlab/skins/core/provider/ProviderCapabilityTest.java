@@ -7,6 +7,8 @@ import java.util.Set;
 import static com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE;
 import static com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN;
 import static com.naocraftlab.skins.core.provider.ProviderCapability.DISTRIBUTION;
+import static com.naocraftlab.skins.core.provider.ProviderCapability.HD;
+import static com.naocraftlab.skins.core.provider.ProviderCapability.ANIMATION;
 import static com.naocraftlab.skins.core.provider.ProviderCapability.LIMITED_WRITE;
 import static com.naocraftlab.skins.core.provider.ProviderCapability.WRITE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -18,7 +20,7 @@ class ProviderCapabilityTest {
     @Test
     void capabilitiesAreComponentSpecificAndImmutable() {
         assertEquals(Set.of(WRITE), BuiltinProvider.OFFLINE.capabilities(SKIN));
-        assertEquals(Set.of(WRITE), BuiltinProvider.OFFLINE.capabilities(CAPE));
+        assertEquals(Set.of(WRITE, HD, ANIMATION), BuiltinProvider.OFFLINE.capabilities(CAPE));
         assertEquals(Set.of(WRITE, DISTRIBUTION), BuiltinProvider.MINECRAFT.capabilities(SKIN));
         assertEquals(Set.of(LIMITED_WRITE, DISTRIBUTION), BuiltinProvider.MINECRAFT.capabilities(CAPE));
         for (BuiltinProvider provider : Set.of(BuiltinProvider.OPTIFINE,
@@ -28,6 +30,11 @@ class ProviderCapabilityTest {
             assertEquals(Set.of(DISTRIBUTION), provider.capabilities(CAPE));
             assertFalse(provider.canWrite(CAPE));
         }
+        assertFalse(BuiltinProvider.MINECRAFTCAPES.supportsSkin());
+        assertEquals(Set.of(), BuiltinProvider.MINECRAFTCAPES.capabilities(SKIN));
+        assertEquals(Set.of(DISTRIBUTION, HD, ANIMATION),
+                BuiltinProvider.MINECRAFTCAPES.capabilities(CAPE));
+        assertFalse(BuiltinProvider.MINECRAFTCAPES.canWrite(CAPE));
         for (BuiltinProvider provider : BuiltinProvider.values()) {
             for (var component : AppearanceProviders.Component.values()) {
                 var capabilities = provider.capabilities(component);

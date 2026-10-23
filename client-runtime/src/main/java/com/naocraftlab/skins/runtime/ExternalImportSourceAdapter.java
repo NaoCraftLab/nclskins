@@ -12,9 +12,9 @@ import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.NormalizedSkin;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.PngFileReader;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -141,14 +141,14 @@ public final class ExternalImportSourceAdapter implements ExternalImportSourceAc
             return normalized(embedded.pngBytes(), PersonalSkinSource.FILE, Optional.empty());
         }
         if (locator instanceof SkinLocator.LocalPng local) {
-            return normalized(readBounded(local.path()), PersonalSkinSource.FILE, Optional.empty());
+            return normalized(local.path(), PersonalSkinSource.FILE, Optional.empty());
         }
         if (locator instanceof SkinLocator.PublicUrl remote) {
             if (remote.localCache().filter(path ->
                     Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)).isPresent()) {
                 try {
                     return normalized(
-                            readBounded(remote.localCache().orElseThrow()),
+                            remote.localCache().orElseThrow(),
                             PersonalSkinSource.URL,
                             Optional.empty());
                 } catch (IOException | RuntimeException invalidCache) {
@@ -180,17 +180,13 @@ public final class ExternalImportSourceAdapter implements ExternalImportSourceAc
                 skin.pngBytes(), suggestedVariant.orElse(skin.detectedVariant()), source);
     }
 
-    private static byte[] readBounded(Path path) throws IOException {
+    private Resolution normalized(Path path, PersonalSkinSource source,
+            Optional<SkinVariant> suggestedVariant) throws Exception {
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("External skin file is unavailable");
         }
-        try (InputStream input = Files.newInputStream(path)) {
-            byte[] bytes = input.readNBytes(PngValidator.DEFAULT_MAX_BYTES + 1);
-            if (bytes.length > PngValidator.DEFAULT_MAX_BYTES) {
-                throw new IOException("External skin file exceeds the PNG limit");
-            }
-            return bytes;
-        }
+        NormalizedSkin skin = new PngFileReader(pngValidator).projectImport(path);
+        return new Resolution(skin.pngBytes(), suggestedVariant.orElse(skin.detectedVariant()), source);
     }
 
     static List<Path> expectedRoots(

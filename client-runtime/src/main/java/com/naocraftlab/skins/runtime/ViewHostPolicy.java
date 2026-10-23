@@ -3,6 +3,7 @@ package com.naocraftlab.skins.runtime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 
 public final class ViewHostPolicy {
@@ -95,6 +96,17 @@ public final class ViewHostPolicy {
         }
     }
 
+    public static float passiveIndicatorOpacity(WidgetIcon icon, boolean highlighted) {
+        Objects.requireNonNull(icon, "icon");
+        if (icon == GuiIcon.STATUS_COMPATIBILITY_EXTENDED
+                || icon == GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE) return 1.0F;
+        return highlighted ? 1.0F : 0.65F;
+    }
+
+    public static boolean showMissingValueIcon(ViewSpec.IconDecoration decoration) {
+        return Objects.requireNonNull(decoration, "decoration").providerTexture().isEmpty();
+    }
+
     public static Optional<String> inlineCapePointerActionAt(
             ViewSpec view, double pointerX, double pointerY) {
         return pointerOwnerAt(view, pointerX, pointerY)
@@ -117,6 +129,45 @@ public final class ViewHostPolicy {
                 .filter(widget -> pointerInsideClip(
                         view, widget.id(), pointerX, pointerY))
                 .isPresent();
+    }
+
+    public static String playerCapeKey(ViewSpec.Preview preview, UUID accountId) {
+        Objects.requireNonNull(preview, "preview");
+        return "player:" + Objects.requireNonNull(accountId, "accountId") + ":" + preview.id();
+    }
+
+    public static String cardCapeKey(ViewSpec.BackEquipmentPreview preview) {
+        return "card:" + preview.id() + ":" + preview.capeId();
+    }
+
+    public static String decorationCapeKey(ViewSpec.IconDecoration decoration, UUID accountId) {
+        Objects.requireNonNull(decoration, "decoration");
+        return "decoration:" + Objects.requireNonNull(accountId, "accountId") + ":" + decoration.id();
+    }
+
+    public static boolean capeCardHovered(ViewSpec view, ViewSpec.BackEquipmentPreview preview,
+            double pointerX, double pointerY) {
+        int centerX = preview.bounds().x() + preview.bounds().width() / 2;
+        int centerY = preview.bounds().y() + preview.bounds().height() / 2;
+        return view.widgets().stream()
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.CAPE_CARD)
+                .filter(widget -> widget.bounds().contains(centerX, centerY))
+                .anyMatch(widget -> hoverInside(view, widget, pointerX, pointerY));
+    }
+
+    public static boolean providerCapeRowHovered(ViewSpec view, ViewSpec.IconDecoration decoration,
+            double pointerX, double pointerY) {
+        return view.widget(decoration.ownerWidgetId())
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.SELECTABLE_CARD)
+                .filter(widget -> hoverInside(view, widget, pointerX, pointerY))
+                .isPresent();
+    }
+
+    private static boolean hoverInside(ViewSpec view, ViewSpec.Widget widget,
+            double pointerX, double pointerY) {
+        return widget.visible() && visibleIntersection(view, widget.id())
+                && widget.bounds().contains(pointerX, pointerY)
+                && pointerInsideClip(view, widget.id(), pointerX, pointerY);
     }
 
     public static Optional<String> submitAction(

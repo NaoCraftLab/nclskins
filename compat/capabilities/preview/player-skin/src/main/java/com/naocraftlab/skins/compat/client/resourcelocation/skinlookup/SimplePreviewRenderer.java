@@ -3,6 +3,7 @@ package com.naocraftlab.skins.compat.client.resourcelocation.skinlookup;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.naocraftlab.skins.compat.client.cape.CapeTranslucentFoilMaterial;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.PreviewRenderer;
@@ -148,6 +149,7 @@ public final class SimplePreviewRenderer
                         buffers,
                         cloak,
                         request.appearance().capeMode(),
+                        request.appearance().capeGlint(),
                         cape,
                         false);
             }
@@ -185,6 +187,7 @@ public final class SimplePreviewRenderer
                     request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE
                             ? CapeMode.CAPE
                             : CapeMode.ELYTRA,
+                    false,
                     texture,
                     true);
             graphics.flush();
@@ -199,6 +202,7 @@ public final class SimplePreviewRenderer
             MultiBufferSource.BufferSource buffers,
             ModelPart cloak,
             CapeMode capeMode,
+            boolean capeGlint,
             ResourceLocation texture,
             boolean standalone) {
         if (capeMode == CapeMode.CAPE) {
@@ -214,9 +218,11 @@ public final class SimplePreviewRenderer
                 cloak.resetPose();
                 cloak.visible = true;
                 try {
+                    VertexConsumer capeBuffer = CapeTranslucentFoilMaterial.buffer(buffers, texture, capeGlint,
+                            RenderType.entityTranslucent(texture));
                     cloak.render(
                             pose,
-                            buffers.getBuffer(RenderType.entityTranslucent(texture)),
+                            capeBuffer,
                             LightTexture.FULL_BRIGHT,
                             OverlayTexture.NO_OVERLAY);
                 } finally {

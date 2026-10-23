@@ -25,6 +25,89 @@ final class BuildLogicTest {
             new File(repository, 'gradle/server-plugin-abi.json'))
 
     @Test
+    void cpmSubprocessesUseDistinctEmptyHeadlessTemporaryDirectories() {
+        File work = Files.createTempDirectory('ncl-cpm-registration').toFile()
+        try {
+            File source = new File(work, 'TmpProbe.java')
+            source.text = '''package com.naocraftlab.skins.buildlogic.probe;
+import java.nio.file.*;
+public final class TmpProbe {
+    public static void main(String[] args) throws Exception {
+        Path temp = Path.of(System.getProperty("java.io.tmpdir"));
+        if (!Boolean.getBoolean("java.awt.headless")) throw new AssertionError("CPM probe must be headless");
+        if (!temp.startsWith(Path.of(args[0]))) throw new AssertionError("CPM probe must own its temporary directory");
+        try (var files = Files.list(temp)) {
+            if (files.findAny().isPresent()) throw new AssertionError("CPM probe temporary directory must start empty");
+        }
+        Files.writeString(temp.resolve("owned.tmp"), "owned");
+    }
+}'''
+            File classes = new File(work, 'classes'); classes.mkdirs()
+            assertEquals(0, javax.tools.ToolProvider.systemJavaCompiler.run(null, null, null,
+                    '--release', '17', '-d', classes.path, source.path))
+            def project = org.gradle.testfixtures.ProjectBuilder.builder().withProjectDir(work).build()
+            def task = project.tasks.create('cpmFixture', VerifyCpmIntegrationTask)
+            def method = VerifyCpmIntegrationTask.getDeclaredMethod('runProbe', File, String, List, String, List, List)
+            method.accessible = true
+            for (String label : ['first', 'second'])
+                method.invoke(task, work, label, [classes], 'TmpProbe', [work.absolutePath], [])
+            assertNotEquals(new File(work, 'tmp-first').canonicalPath, new File(work, 'tmp-second').canonicalPath)
+            assertTrue(new File(work, 'tmp-first/owned.tmp').isFile())
+            assertTrue(new File(work, 'tmp-second/owned.tmp').isFile())
+        } finally { work.deleteDir() }
+    }
+
+    @Test
+    void cpmCanonicalRegistrationIncludesActualModelConversionAndOptionalComposition() {
+        String source = new File(repository, 'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/VerifyCpmIntegrationTask.groovy').text
+        assertTrue(source.contains("'CpmModelGuardSetup'"))
+        assertTrue(source.contains("'observe'"))
+        assertTrue(source.contains("'CpmModelConversionProbe'"))
+        assertTrue(source.contains("'fixtures/model-conversion'"))
+        assertTrue(source.contains("'all'"))
+        assertTrue(source.contains("'composition'"))
+        assertTrue(source.contains("'CpmOptionalEnvironmentProbe'"))
+        assertTrue(source.contains("'CpmOwnedPreviewDispatchProbe'"))
+        String consumer = new File(repository, 'gradle/build-logic/src/cpmComposition/java/com/naocraftlab/skins/buildlogic/probe/CpmOwnedPreviewDispatchProbe.java').text
+        assertTrue(consumer.contains('quotaConsumers(fixtures)'))
+        assertTrue(consumer.contains('CpmCallerHarness.quotaViews(resolver)'))
+        assertTrue(consumer.contains('lastSource = source'))
+        assertFalse(source.contains('.agents'))
+        assertFalse(source.contains('openspec'))
+    }
+
+    @Test
+    void cpmProjectBindingRegistrationUsesActualScopedCompilerAndIndependentFixtures() {
+        String source = new File(repository, 'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/VerifyCpmIntegrationTask.groovy').text
+        for (String probe : ['CpmProjectTransformProbe', 'CpmProjectBindingProbe', 'CpmProjectOptionalProbe'])
+            assertTrue(source.contains("'${probe}'"))
+        assertTrue(source.contains("'fixtures/project-binding'"))
+        assertTrue(source.contains("'-Dcpm.debug=true'"))
+        assertFalse(source.contains('.agents'))
+        assertFalse(source.contains('openspec'))
+    }
+
+    @Test
+    void cpmSessionPublicationRegistrationExercisesOriginalUserThroughProductionCaller() {
+        String source = new File(repository, 'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/VerifyCpmIntegrationTask.groovy').text
+        assertTrue(source.contains("'session-host-setup'"))
+        assertTrue(source.contains("'session-native'"))
+        assertTrue(source.contains("'CpmSessionPublicationProbe'"))
+        assertFalse(source.contains('.agents'))
+        assertFalse(source.contains('openspec'))
+    }
+
+    @Test
+    void cpmProjectCompositionRegistrationExercisesNativeCarrierWithIndependentFixtures() {
+        String source = new File(repository, 'gradle/build-logic/src/main/groovy/com/naocraftlab/skins/buildlogic/VerifyCpmIntegrationTask.groovy').text
+        assertTrue(source.contains("'CpmProjectCompositionProbe'"))
+        assertTrue(source.contains("'fixtures/project-composition'"))
+        assertTrue(source.contains("'project-composition-' + mode"))
+        assertFalse(source.contains('.agents'))
+        assertFalse(source.contains('openspec'))
+    }
+
+    @Test
     void finderMetadataIsIgnoredLocallyAndExcludedFromCopyOutputs() {
         List<String> ignored = new File(repository, '.gitignore').readLines('UTF-8')
         assertTrue(ignored.contains('.DS_Store'))
@@ -436,6 +519,17 @@ final class BuildLogicTest {
     }
 
     @Test
+    void auxiliaryCapeMaterialConsumersDoNotPublishAppearanceInputs() {
+        for (String path : [
+                'compat/capabilities/appearance/local-player-skin/src/main/java/com/naocraftlab/skins/compat/client/identifier/mixin/AvatarRendererMaterialMixin.java',
+                'compat/capabilities/appearance/cape-layer-translucent/src/main/java/com/naocraftlab/skins/compat/client/cape/mixin/CapeLayerTransparencyMixin.java']) {
+            String source = new File(repository, path).text
+            assertFalse(source.contains('CapeProjection.resolve('), path + ' must not replace authoritative inputs')
+            assertTrue(source.contains('CapeProjection.material('), path + ' must use read-only material lookup')
+        }
+    }
+
+    @Test
     void canonicalIconDimensionsMatchTheRendererAndMetadataContracts() {
         assertEquals(false, catalog.mod.iconBlur)
         File blockbench = CatalogTools.blockbenchRoot(repository, catalog)
@@ -452,8 +546,11 @@ final class BuildLogicTest {
                 sourceIcons[relative.substring(0, relative.length() - '.bbmodel'.length()) + '.png'] = path.toFile()
             }
         }
-        assertEquals(42, sourceIcons.size())
+        assertEquals(45, sourceIcons.size())
         assertEquals(ArtifactVerifier.REQUIRED_GUI_ICONS, sourceIcons.keySet())
+        def cpmIcon = ImageIO.read(new ByteArrayInputStream(BlockbenchPng.decode(sourceIcons['provider/cape/cpm.png'])))
+        assertEquals(32, cpmIcon.width)
+        assertEquals(32, cpmIcon.height)
         sourceIcons.each { String name, File source ->
             assertNotNull(ImageIO.read(new ByteArrayInputStream(BlockbenchPng.decode(source))), name)
         }
@@ -1427,6 +1524,7 @@ final class BuildLogicTest {
                 assertEquals([
                         modmenu    : ">=${target.loader.modMenuVersion}".toString(),
                         fancymenu: '*',
+                        cpm: '*',
                         sqlite_jdbc              : catalog.optionalDependencies.sqlite_jdbc.predicates.fabric,
                         yet_another_config_lib_v3: CatalogTools.optionalDependencyPredicate(catalog, target, 'yet_another_config_lib_v3')
                 ], metadata.suggests)
@@ -1487,6 +1585,20 @@ final class BuildLogicTest {
                 assertTrue(metadata.contains("file=\"${target.metadata.accessTransformer}\""))
                 assertEquals((target.metadata.serverMixins ?: []) + target.metadata.mixins, metadata.readLines().findAll { it.startsWith('config=') }.collect { it.substring('config="'.length(), it.length() - 1) })
             }
+        }
+    }
+
+    @Test
+    void upstreamBindingsRequireExplicitlyDisabledMinecraftRemapping() {
+        [null, true, false].each { Boolean remap ->
+            def writer = new org.objectweb.asm.ClassWriter(0)
+            writer.visit(org.objectweb.asm.Opcodes.V17, org.objectweb.asm.Opcodes.ACC_PUBLIC,
+                    'fixture/UpstreamBinding', null, 'java/lang/Object', null)
+            def annotation = writer.visitAnnotation('Lorg/spongepowered/asm/mixin/Mixin;', false)
+            if (remap != null) annotation.visit('remap', remap)
+            annotation.visitEnd()
+            writer.visitEnd()
+            assertEquals(remap == false, ArtifactVerifier.unmappedMixin(writer.toByteArray()))
         }
     }
 
@@ -2330,19 +2442,56 @@ final class BuildLogicTest {
                 'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ].each { String path ->
             String source = new File(repository, path).text
-            String init = source.substring(source.indexOf('protected void init()'),
-                    source.indexOf('protected void setInitialFocus()'))
-            String extraction = source.substring(source.indexOf('public void extractRenderState('),
-                    source.indexOf('private void drawListPanels('))
+            String init = sourceSection(source, 'protected void init()', 'protected void setInitialFocus()')
+            String extraction = sourceSection(source, 'public void extractRenderState(', 'private void drawListPanels(')
+            String editor = sourceSection(extraction, 'ViewSpec initialView =', '} else {')
 
-            assertTrue(init.indexOf('addNativeWidgets(currentView)')
-                    < init.indexOf('syncNativeWidgetState(currentView)'), path)
-            assertTrue(extraction.indexOf('ViewSpec view = runtime.view(width, height, mouseX, mouseY);')
-                    < extraction.indexOf('syncNativeWidgetState(view)'), path)
-            assertTrue(extraction.indexOf('syncNativeWidgetState(view)')
-                    < extraction.indexOf('drawPreviews(graphics, view)'), path)
-            assertTrue(extraction.indexOf('syncNativeWidgetState(view)')
-                    < extraction.indexOf('extractRenderablesClipped(graphics, view'), path)
+            assertSourceStages(init, ['addNativeWidgets(currentView)', 'syncNativeWidgetState(currentView)'])
+            assertSourceStagesWithNegatives(editor, [
+                    'ViewSpec initialView = runtime.view(width, height, mouseX, mouseY);',
+                    'publishNativeScroll(initialView);',
+                    'ViewSpec previewView = runtime.view(width, height, mouseX, mouseY);',
+                    'currentView = previewView;',
+                    'syncNativeWidgetState(previewView);',
+                    'syncPreviewAssets(previewView);',
+                    'drawPreviews(graphics, previewView);',
+                    'graphics.nextStratum();',
+                    'snapshotChanged(runtime.snapshot());',
+                    'ViewSpec view = currentView;',
+                    'drawListPanels(graphics, view);',
+                    'drawCardBackgrounds(graphics, view, mouseX, mouseY);'
+            ], [
+                    'currentView = previewView;': 'drawPreviews(graphics, previewView);',
+                    'syncNativeWidgetState(previewView);': 'drawPreviews(graphics, previewView);',
+                    'syncPreviewAssets(previewView);': 'drawPreviews(graphics, previewView);',
+                    'snapshotChanged(runtime.snapshot());': 'drawCardBackgrounds(graphics, view, mouseX, mouseY);',
+                    'ViewSpec view = currentView;': 'drawCardBackgrounds(graphics, view, mouseX, mouseY);'
+            ])
+            assertSourceStages(extraction, [
+                    'snapshotChanged(runtime.snapshot());', 'ViewSpec view = currentView;',
+                    'extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);'
+            ])
+            String reconcile = sourceSection(source, 'private void snapshotChanged(', 'private Map<String, EditBox> retainedEditBoxes()')
+            List<String> reconcileStages = [
+                    'ViewSpec next = runtime.view(width, height, lastMouseX, lastMouseY);',
+                    'currentView = next;', 'syncPreviewAssets(next);',
+                    'List<WidgetSignature> nextSignature = signatures(next);',
+                    'List<TabGroupSignature> nextTabSignature = tabSignatures(next);',
+                    'retainedEditBoxes = retainedEditBoxes();', 'rebuildWidgets();',
+                    'retainedEditBoxes = Map.of();', '} else {',
+                    'syncNativeWidgetState(next);', 'syncNativeTabState(next);', 'applyFocusRequest(next);'
+            ]
+            assertSourceStagesWithNegatives(reconcile, reconcileStages, [
+                    'ViewSpec next = runtime.view(width, height, lastMouseX, lastMouseY);': 'currentView = next;',
+                    'currentView = next;': 'syncPreviewAssets(next);',
+                    'rebuildWidgets();': 'syncNativeWidgetState(next);',
+                    'syncNativeWidgetState(next);': 'applyFocusRequest(next);'
+            ])
+            assertThrows(AssertionError) {
+                assertSourceStages(reconcile.replace(
+                        'ViewSpec next = runtime.view(width, height, lastMouseX, lastMouseY);',
+                        'ViewSpec next = currentView;'), reconcileStages)
+            }
             assertTrue(source.contains('EditBox field = retainedEditBoxes.get(spec.id());'), path)
             assertTrue(source.contains('boolean retained = field != null;'), path)
             assertTrue(source.contains('''if (!retained) {
@@ -2486,7 +2635,8 @@ final class BuildLogicTest {
                 immediate.indexOf('private final class PassiveIndicatorWidget'),
                 immediate.indexOf('private void renderActionIcon'))
         assertTrue(immediateIndicator.contains('renderActionIcon('))
-        assertTrue(immediateIndicator.contains('isHovered || (keyboardNavigation && isFocused()) ? 1.0F : 0.65F'))
+        assertTrue(immediateIndicator.contains('ViewHostPolicy.passiveIndicatorOpacity('))
+        assertTrue(immediateIndicator.contains('icon, isHovered || (keyboardNavigation && isFocused())'))
         assertTrue(immediateIndicator.contains('isHoveredOrFocused()'))
         assertTrue(immediateIndicator.contains('drawCardFocusFrame('))
         assertFalse(immediateIndicator.contains('super.renderWidget('))
@@ -2504,7 +2654,8 @@ final class BuildLogicTest {
         assertTrue(submissionIndicator.contains(
                 'renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());'))
         assertTrue(submissionIndicator.contains('case PASSIVE_INDICATOR -> renderWidgetIcon('))
-        assertTrue(submissionIndicator.contains('(isHovered || (keyboardNavigation && isFocused()) ? 0xFF : 0xA6)'))
+        assertTrue(submissionIndicator.contains('Math.round(ViewHostPolicy.passiveIndicatorOpacity(icon.orElseThrow(),'))
+        assertTrue(submissionIndicator.contains('isHovered || (keyboardNavigation && isFocused())) * 255.0F) << 24'))
         assertFalse(submissionIndicator.contains('renderDefaultSprite('))
         assertTrue(submission.contains('boolean iconOnlyFrame = kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON'))
         assertTrue(submission.contains('if ((iconOnlyFrame && isHoveredOrFocused())'))
@@ -2520,7 +2671,8 @@ final class BuildLogicTest {
                     source.indexOf('private final class PassiveIndicatorWidget'),
                     source.indexOf('private static void extractActionIcon'))
             assertTrue(indicator.contains('extractActionIcon('))
-            assertTrue(indicator.contains('(isHovered || (keyboardNavigation && isFocused()) ? 0xFF : 0xA6)'))
+            assertTrue(indicator.contains('Math.round(ViewHostPolicy.passiveIndicatorOpacity(icon,'))
+            assertTrue(indicator.contains('isHovered || (keyboardNavigation && isFocused())) * 255.0F) << 24'))
             assertTrue(indicator.contains('isHoveredOrFocused()'))
             assertTrue(indicator.contains('extractCardFocusFrame('))
             assertFalse(indicator.contains('extractDefaultSprite('))
@@ -2550,6 +2702,61 @@ final class BuildLogicTest {
             assertTrue(source.contains('output.add(NarratedElementType.HINT, description)'), family)
             assertTrue(source.contains('filter(hint -> !hint.equals('), family)
             assertTrue(source.contains('defaultButtonNarrationText(output)'), family)
+            assertTrue(source.contains('public Component getNarrationMessage()'), family + ': Import Text needs native Screen narration')
+            String narration = source.substring(source.indexOf('public Component getNarrationMessage()'))
+            narration = narration.substring(0, narration.indexOf('\n    private '))
+            assertTrue(narration.contains('Component message = super.getNarrationMessage()'), family)
+            assertTrue(narration.contains('importStatusNarration()'), family)
+            List<String> narrationStages = [
+                    'Component message = super.getNarrationMessage();',
+                    'Optional<Component> status = importStatusNarration();',
+                    'if (status.isPresent()) message = message.copy().append("\\n").append(status.orElseThrow());',
+                    'Optional<Component> caption = previewErrorNarration();',
+                    'return caption.isPresent() ? message.copy().append("\\n").append(caption.orElseThrow()) : message;'
+            ]
+            assertSourceStagesWithNegatives(narration, narrationStages, [
+                    (narrationStages[0]): narrationStages[1],
+                    (narrationStages[2]): narrationStages[3],
+                    (narrationStages[3]): narrationStages[4]
+            ])
+            [
+                    'if (status.isPresent())': 'if (status.isEmpty())',
+                    'message = message.copy()': 'message.copy()',
+                    'message.copy().append("\\n").append(caption.orElseThrow())': 'caption.orElseThrow()',
+                    ': message;': ': super.getNarrationMessage();'
+            ].each { String original, String replacement ->
+                assertTrue(narration.contains(original), family)
+                assertThrows(AssertionError, {
+                    assertSourceStages(narration.replace(original, replacement), narrationStages)
+                }, family + ': invalid narration accepted: ' + replacement)
+            }
+            String statusNarration = source.substring(source.indexOf('private Optional<Component> importStatusNarration()'))
+            statusNarration = statusNarration.substring(0, statusNarration.indexOf('\n    private '))
+            assertTrue(statusNarration.contains('minecraft == null'), family)
+            assertTrue(statusNarration.contains('runtime.closed()'), family)
+            assertTrue(statusNarration.contains('showingAccountLink'), family)
+            assertTrue(statusNarration.contains('!"add_source".equals('), family)
+            assertTrue(statusNarration.contains('tab.id().equals("add.tab.file") && tab.selected()'), family)
+            assertTrue(statusNarration.contains('text.id().equals("add.import.status")'), family)
+            assertTrue(statusNarration.contains('.findFirst().map(text -> '), family)
+            assertTrue(statusNarration.contains('resolve(text.message())'), family)
+            assertFalse(statusNarration.contains('snapshot.status()'), family)
+            if (family == 'immediate') {
+                assertTrue(statusNarration.contains('!initialized || removed'), family)
+                assertTrue(statusNarration.contains('minecraft.screen != this'), family)
+                assertTrue(statusNarration.contains('ViewSpec view = currentView()'), family)
+            } else {
+                assertTrue(statusNarration.contains('!activeScreen || rebuilding'), family)
+                assertTrue(statusNarration.contains(family == 'submission'
+                        ? 'minecraft.screen != this' : 'ExtractionGuiApi.currentScreen(minecraft) != this'), family)
+                assertTrue(statusNarration.contains(family == 'submission' ? 'view == null' : 'currentView == null'), family)
+            }
+            String snapshot = source.substring(source.indexOf('private void snapshotChanged('))
+            snapshot = snapshot.substring(0, snapshot.indexOf('\n    private '))
+            assertTrue(snapshot.contains('if (importStatusNarration().isPresent()) triggerImmediateNarration(true)'), family)
+            assertTrue(snapshot.indexOf('triggerImmediateNarration(true)') > snapshot.indexOf(family == 'immediate'
+                    ? 'synchronizeWidgets(currentView())' : family == 'submission' ? 'refresh()' : 'syncNativeTabState(next)'), family)
+            assertEquals(1, source.count('triggerImmediateNarration(true)'), family)
             assertFalse(renderer.contains('Tooltip.create('), family)
             assertFalse(source.contains('Tooltip.create(indicatorTooltip('), family)
             assertFalse(source.contains('private static Component indicatorTooltip('), family)
@@ -2642,29 +2849,60 @@ final class BuildLogicTest {
                 'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java'
         ].collect { new File(repository, it).text }
 
-        assertTrue(immediate.contains('''if (editor) {
-            renderPreviews(graphics, view);
-            if (!view.previews().isEmpty()) {
-                capabilities.finishPreviewPass(graphics);
-            }
-        }'''))
-        assertTrue(immediate.indexOf('if (editor) {')
-                < immediate.indexOf('renderCardBackgrounds(graphics, view, mouseX, mouseY);'))
-        assertTrue(submission.contains('''if (editor) {
-            renderPreviews(graphics, current);
-            graphics.nextStratum();
-            renderListPanels(graphics, current);
-            renderCardBackgrounds(graphics, current, mouseX, mouseY);
-            graphics.nextStratum();
-            renderBackEquipment(graphics, current);'''))
+        String immediateFrame = sourceSection(immediate, 'public final void render(', 'private void renderPreviews(')
+        String immediateEditor = sourceSection(immediateFrame, 'ViewSpec initialView =', 'if (!editor) {')
+        assertSourceStagesWithNegatives(immediateEditor, [
+                'ViewSpec initialView = currentView();', 'publishNativeScroll(initialView);',
+                'ViewSpec previewView = currentView();', 'synchronizeWidgets(previewView);',
+                'synchronizePreviews(previewView);', 'if (editor) {',
+                'renderPreviews(graphics, previewView);', 'if (!previewView.previews().isEmpty()) {',
+                'capabilities.finishPreviewPass(graphics);',
+                'ViewSpec view = currentView();', 'synchronizeWidgets(view);',
+                'renderCardBackgrounds(graphics, view, mouseX, mouseY);'
+        ], [
+                'capabilities.finishPreviewPass(graphics);': 'renderCardBackgrounds(graphics, view, mouseX, mouseY);',
+                'ViewSpec view = currentView();': 'renderCardBackgrounds(graphics, view, mouseX, mouseY);',
+                'synchronizeWidgets(view);': 'renderCardBackgrounds(graphics, view, mouseX, mouseY);'
+        ])
+        assertSourceStages(immediateFrame, [
+                'renderCardBackgrounds(graphics, view, mouseX, mouseY);',
+                'renderBackEquipmentPreviews(graphics, view);',
+                'for (Map.Entry<String, AbstractWidget> entry : nativeWidgets.entrySet()) {'
+        ])
+
+        String submissionFrame = sourceSection(submission, 'public void render(', 'private boolean renderCardBackgrounds(')
+        String submissionEditor = sourceSection(submissionFrame, 'if (editor) {', '} else {')
+        assertSourceStagesWithNegatives(submissionEditor, [
+                'renderPreviews(graphics, current);', 'graphics.nextStratum();',
+                'refresh();', 'current = view;', 'renderListPanels(graphics, current);',
+                'renderCardBackgrounds(graphics, current, mouseX, mouseY);',
+                'graphics.nextStratum();', 'renderBackEquipment(graphics, current);'
+        ], [
+                'graphics.nextStratum();': 'renderCardBackgrounds(graphics, current, mouseX, mouseY);',
+                'refresh();': 'renderCardBackgrounds(graphics, current, mouseX, mouseY);',
+                'current = view;': 'renderCardBackgrounds(graphics, current, mouseX, mouseY);'
+        ])
+        assertSourceStages(submissionFrame, [
+                'renderBackEquipment(graphics, current);', 'NativeSurfaceAdapter.renderFramePanels(graphics, current);',
+                'renderWidgetsClipped(graphics, current, mouseX, mouseY, partialTick);'
+        ])
         extraction.each { String source ->
-            assertTrue(source.contains('''if (editor) {
-            drawPreviews(graphics, view);
-            graphics.nextStratum();
-            drawListPanels(graphics, view);
-            drawCardBackgrounds(graphics, view, mouseX, mouseY);
-            graphics.nextStratum();
-            drawBackEquipmentPreviews(graphics, view);'''))
+            String frame = sourceSection(source, 'public void extractRenderState(', 'private void drawListPanels(')
+            String editor = sourceSection(frame, 'if (editor) {', '} else {')
+            assertSourceStagesWithNegatives(editor, [
+                    'drawPreviews(graphics, previewView);', 'graphics.nextStratum();',
+                    'snapshotChanged(runtime.snapshot());', 'ViewSpec view = currentView;', 'if (editor) {',
+                    'drawListPanels(graphics, view);', 'drawCardBackgrounds(graphics, view, mouseX, mouseY);',
+                    'graphics.nextStratum();', 'drawBackEquipmentPreviews(graphics, view);'
+            ], [
+                    'graphics.nextStratum();': 'drawCardBackgrounds(graphics, view, mouseX, mouseY);',
+                    'snapshotChanged(runtime.snapshot());': 'drawCardBackgrounds(graphics, view, mouseX, mouseY);',
+                    'ViewSpec view = currentView;': 'drawCardBackgrounds(graphics, view, mouseX, mouseY);'
+            ])
+            assertSourceStages(frame, [
+                    'drawBackEquipmentPreviews(graphics, view);', 'NativeSurfaceAdapter.drawFrameBackgrounds(graphics, view);',
+                    'extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);'
+            ])
         }
     }
 
@@ -3116,6 +3354,41 @@ final class BuildLogicTest {
         assertFalse(PublicationTreeVerifier.containsComment("def value = /a\\/\\/b/\n", true))
         assertTrue(PublicationTreeVerifier.containsComment('int value = 1; // private note\n', false))
         assertTrue(PublicationTreeVerifier.containsComment('int value = 1; /* private note */\n', false))
+    }
+
+    private static String sourceSection(String source, String start, String end) {
+        int first = source.indexOf(start)
+        assertTrue(first >= 0, "Missing section start: ${start}")
+        int last = source.indexOf(end, first + start.length())
+        assertTrue(last >= 0, "Missing section end after ${start}: ${end}")
+        return source.substring(first, last)
+    }
+
+    private static void assertSourceStages(String source, List<String> stages) {
+        int cursor = 0
+        stages.each { String stage ->
+            int position = source.indexOf(stage, cursor)
+            assertTrue(position >= 0, "Missing or out-of-order stage after offset ${cursor}: ${stage}")
+            cursor = position + stage.length()
+        }
+    }
+
+    private static void assertSourceStagesWithNegatives(
+            String source, List<String> stages, Map<String, String> moves) {
+        assertSourceStages(source, stages)
+        moves.each { String stage, String after ->
+            int start = source.indexOf(stage)
+            assertTrue(start >= 0, "Missing mutation stage: ${stage}")
+            int end = start + stage.length()
+            int destination = source.indexOf(after, end)
+            assertTrue(destination >= 0, "Missing later mutation destination: ${after}")
+            destination += after.length()
+            String missing = source.substring(0, start) + source.substring(end)
+            String moved = source.substring(0, start) + source.substring(end, destination) +
+                    stage + source.substring(destination)
+            assertThrows(AssertionError, { assertSourceStages(missing, stages) }, "Missing stage accepted: ${stage}")
+            assertThrows(AssertionError, { assertSourceStages(moved, stages) }, "Late stage accepted: ${stage}")
+        }
     }
 
     private Set<String> selected(String path) {

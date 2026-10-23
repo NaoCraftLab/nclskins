@@ -2,6 +2,10 @@
 
 <a href="https://modrinth.com/mod/nclskins"><img src="https://img.shields.io/static/v1?label=Modrinth&amp;message=NCL%20Skins&amp;color=1bd96a&amp;logo=modrinth&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins on Modrinth" /></a> <a href="https://www.curseforge.com/minecraft/mc-mods/nclskins"> <img src="https://img.shields.io/static/v1?label=CurseForge&amp;message=NCL%20Skins&amp;color=fb4e44&amp;logo=curseforge&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins on CurseForge" /> </a>
 
+**Full overview (English, German, Russian, and Ukrainian dubbing)**
+
+[![Full NCL Skins overview](https://img.youtube.com/vi/NwiXHtG04e4/maxresdefault.jpg)](https://www.youtube.com/watch?v=NwiXHtG04e4)
+
 NCL Skins Plugin is the server companion for the NCL Skins client mod, letting other players see appearance changes without reconnecting. It supports official Minecraft skin and cape updates, as well as changes from other providers used by the player, including OptiFine and SkinMC, even when their Minecraft profile has not changed.
 
 The player changing their appearance needs NCL Skins. Official skin and cape updates are visible to other players in the world and player list even without the mod. To receive updates from other providers, viewers also need NCL Skins: each player sees the result according to their own enabled providers and priorities.

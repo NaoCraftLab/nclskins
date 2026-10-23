@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "capabilityKeys": [
     "gui",
+    "guiCapeMaterial",
     "textures",
     "preview",
     "appearance",
@@ -22,6 +23,18 @@
     "skinExtensionEnvironment"
   ],
   "sharedSuites": {
+    "cape-material-preview": {
+      "tests": [
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ProvidersPresenterTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/PreviewAssetCacheTest.java"
+      ],
+      "supportSources": [],
+      "semantics": [
+        "provider-row-material-follows-own-cape",
+        "installed-frame-and-material-replace-together",
+        "flat-cape-crop-and-alpha-mask"
+      ]
+    },
     "view-host-contract": {
       "tests": [
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/ScreenKeybindingDispatcherTest.java",
@@ -100,7 +113,8 @@
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceRefreshCoordinatorTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceReconnectTrackerTest.java",
         "client-runtime/src/test/java/com/naocraftlab/skins/runtime/AppearanceOverrideControllerTest.java",
-        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/CapeProviderCoordinatorTest.java"
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/CapeProviderCoordinatorTest.java",
+        "client-runtime/src/test/java/com/naocraftlab/skins/runtime/CapeProjectionTest.java"
       ],
       "supportSources": [],
       "semantics": [
@@ -328,6 +342,56 @@
     }
   },
   "implementations": {
+    "cape-gui-foil-immediate": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-immediate/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-immediate-buffer": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-immediate-buffer/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-submission": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-submission/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-submission-methods": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-submission-methods/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-extraction-ordered": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-extraction-ordered-methods": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-extraction-ordered-methods/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-extraction-sampler": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-extraction-sampler/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-extraction-sampler-methods": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-extraction-sampler-methods/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-extraction-combined": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-extraction-combined/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
+    "cape-gui-foil-extraction-combined-methods": {
+      "capabilityKey": "guiCapeMaterial",
+      "sharedSuite": "cape-material-preview",
+      "leafSource": "compat/capabilities/gui/cape-gui-foil-extraction-combined-methods/src/main/java/com/naocraftlab/skins/compat/client/gui/CapeGuiFoilMaterial.java"
+    },
     "immediate-resource-location-player-info": {
       "capabilityKey": "gui",
       "sharedSuite": "view-host-contract",
@@ -433,10 +497,25 @@
       "sharedSuite": "appearance-orchestration",
       "leafSource": "compat/capabilities/appearance/skin-lookup/src/main/java/com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/SkinLookupAppearanceCapability.java"
     },
-    "avatar-state-local-player-skin": {
+    "cape-foil-pipeline-samplers": {
       "capabilityKey": "appearance",
       "sharedSuite": "appearance-orchestration",
-      "leafSource": "compat/capabilities/appearance/local-player-skin/src/main/java/com/naocraftlab/skins/compat/client/identifier/IdentifierAppearanceSink.java"
+      "leafSource": "compat/capabilities/appearance/cape-foil-pipeline/src/main/java/com/naocraftlab/skins/compat/client/identifier/foil/pipeline/CapeLayerFoilMixin.java"
+    },
+    "cape-foil-pipeline-target-state": {
+      "capabilityKey": "appearance",
+      "sharedSuite": "appearance-orchestration",
+      "leafSource": "compat/capabilities/appearance/cape-foil-pipeline/src/main/java/com/naocraftlab/skins/compat/client/identifier/foil/pipeline/CapeLayerFoilMixin.java"
+    },
+    "cape-foil-pipeline-bind-groups": {
+      "capabilityKey": "appearance",
+      "sharedSuite": "appearance-orchestration",
+      "leafSource": "compat/capabilities/appearance/cape-foil-pipeline/src/main/java/com/naocraftlab/skins/compat/client/identifier/foil/pipeline/CapeLayerFoilMixin.java"
+    },
+    "cape-foil-combined": {
+      "capabilityKey": "appearance",
+      "sharedSuite": "appearance-orchestration",
+      "leafSource": "compat/capabilities/appearance/cape-foil-combined/src/main/java/com/naocraftlab/skins/compat/client/identifier/foil/combined/CapeLayerFoilMixin.java"
     },
     "fabric-immediate": {
       "capabilityKey": "loaderScreen",

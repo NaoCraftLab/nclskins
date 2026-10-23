@@ -12,6 +12,21 @@ public interface TextureRegistry extends AutoCloseable {
 
     TextureHandle register(TextureKind kind, String sha256, byte[] pngBytes) throws IOException;
 
+    default TextureHandle registerRgba(TextureKind kind, String sha256, int width, int height,
+            byte[] rgba8, CpuLease cpuLease) throws IOException {
+        cpuLease.close();
+        throw new IOException("Raw frame upload is unavailable");
+    }
+
+    interface CpuLease extends AutoCloseable {
+        default void sourcePixelsReleased(long retainedNativeBytes) {}
+        @Override void close();
+    }
+
+
+    default TextureUseValidity capture(TextureHandle handle) {
+        return TextureUseValidity.INVALID;
+    }
 
     void release(TextureHandle handle);
 

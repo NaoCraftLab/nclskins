@@ -440,6 +440,8 @@ tasks.register('captureCapabilityAbi', nclskinsCapabilityAbiTaskType) {
 }
 
 def capabilityAbiTask = tasks.register('verifyCapabilityAbi', nclskinsCapabilityAbiTaskType) {
+    dependsOn tasks.named(abiSourceSet.classesTaskName)
+    delegate.productClasspath.from(abiSourceSet.output, sourceSets.main.output)
     group = 'verification'
     description = 'Verifies exact declared Minecraft and loader ABI surfaces against committed baselines.'
     delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
@@ -468,6 +470,97 @@ def fancyMenuAbiTask = tasks.register('verifyFancyMenuAbi',
     delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
     delegate.targetId.set(currentTargetId)
     delegate.resolutionClasspath.from(abiSourceSet.compileClasspath)
+}
+
+if (spec.loader.id == 'forge') {
+    def selectorProcessor = tasks.register('compileCpmSelectorProcessor', JavaCompile) {
+        source repositoryRoot.dir('gradle/build-logic/src/cpmProcessor/java')
+        source repositoryRoot.file('compat/cpm/src/main/java/com/naocraftlab/skins/compat/cpm/MergedCpmSelector.java')
+        classpath = configurations.annotationProcessor
+        destinationDirectory.set(layout.buildDirectory.dir('cpm-selector-processor'))
+        options.release.set(17)
+        options.compilerArgs.add('-proc:none')
+    }
+    tasks.named('compileJava', JavaCompile).configure {
+        dependsOn selectorProcessor
+        options.annotationProcessorPath = configurations.annotationProcessor + files(selectorProcessor.flatMap { it.destinationDirectory })
+        options.compilerArgs.addAll(['-processor',
+                'com.naocraftlab.skins.buildlogic.CpmSelectorProcessor,org.spongepowered.tools.obfuscation.MixinObfuscationProcessorInjection,org.spongepowered.tools.obfuscation.MixinObfuscationProcessorTargets,com.llamalad7.mixinextras.ap.MixinExtrasAP'])
+    }
+}
+
+def providerFrameFamily = [
+        'immediate-resource-location-player-info': 'immediate',
+        'immediate-resource-location-skin-lookup': 'immediate',
+        'identifier-submission': 'submission',
+        'identifier-extraction-tab-navigation-glfw': 'extraction',
+        'identifier-extraction-menu-tab-glfw': 'extraction',
+        'identifier-extraction-menu-tab-input-constants': 'extraction'
+][spec.capabilities.gui.toString()]
+if (providerFrameFamily == null) throw new GradleException('Unknown provider frame binding: ' + spec.capabilities.gui)
+def providerFrameSource = repositoryRoot.file(providerFrameFamily == 'immediate'
+        ? 'compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java'
+        : providerFrameFamily == 'submission'
+        ? 'compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java'
+        : 'compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java').asFile
+def providerFrameClass = providerFrameFamily == 'immediate'
+        ? 'com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.class'
+        : 'com/naocraftlab/skins/compat/client/identifier/' + providerFrameFamily + '/NclSkinsScreen.class'
+def providerFrameStamp = layout.buildDirectory.file('verification/provider-row-clipping-compiled.json')
+def providerFrameDigest = { File file ->
+    java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString()
+}
+def providerFrameInput = {
+    def compiledHosts = abiSourceSet.output.classesDirs.files.collect { new File(it, providerFrameClass) }.findAll { it.isFile() }
+    if (compiledHosts.size() != 1) throw new GradleException('Expected exactly one current compiled provider frame host')
+    compiledHosts.first()
+}
+tasks.named(abiSourceSet.compileJavaTaskName, JavaCompile).configure {
+    outputs.file(providerFrameStamp)
+    doLast {
+        File output = providerFrameStamp.get().asFile
+        output.parentFile.mkdirs()
+        output.text = JsonOutput.toJson([source: providerFrameDigest(providerFrameSource),
+                host: providerFrameDigest(providerFrameInput())])
+    }
+}
+def compileProviderRowClippingProbe = tasks.register('compileProviderRowClippingProbe', JavaCompile) {
+    dependsOn tasks.named(abiSourceSet.classesTaskName)
+    source repositoryRoot.dir('gradle/build-logic/src/providerClipping/java')
+    classpath = files(configurations.cpmCompositionRuntime, abiSourceSet.output, sourceSets.main.output, abiSourceSet.compileClasspath)
+    destinationDirectory.set(layout.buildDirectory.dir('verification/provider-row-clipping/classes'))
+    options.release.set(17)
+    options.compilerArgs.add('-proc:none')
+}
+def providerRowClippingTask = tasks.register('verifyProviderRowClipping', JavaExec) {
+    group = 'verification'
+    description = 'Executes the target-compiled provider frame and clipping methods with independent pixel sentinels.'
+    dependsOn compileProviderRowClippingProbe
+    classpath = files(compileProviderRowClippingProbe.flatMap { it.destinationDirectory },
+            configurations.cpmCompositionRuntime, abiSourceSet.output, sourceSets.main.output, abiSourceSet.compileClasspath)
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(spec.java.release as int) })
+    mainClass.set('com.naocraftlab.skins.buildlogic.probe.ProviderRowClippingProbe')
+    inputs.file(providerFrameSource)
+    inputs.file(providerFrameStamp)
+    def output = layout.buildDirectory.dir('verification/provider-row-clipping/result')
+    doFirst {
+        File host = providerFrameInput()
+        def stamp = new JsonSlurper().parse(providerFrameStamp.get().asFile)
+        if (stamp.source != providerFrameDigest(providerFrameSource) || stamp.host != providerFrameDigest(host))
+            throw new GradleException('Stale compiled provider frame input')
+        setArgs([host.absolutePath, providerFrameFamily, 'green', output.get().asFile.absolutePath])
+    }
+}
+
+def cpmIntegrationTask = tasks.register('verifyCpmIntegration', nclskinsVerifyCpmIntegrationTaskType) {
+    group = 'verification'
+    dependsOn tasks.named(abiSourceSet.classesTaskName), tasks.named('processResources')
+    delegate.resolutionClasspath.from(abiSourceSet.output, sourceSets.main.output, abiSourceSet.compileClasspath)
+    delegate.packagedClasspath.from(tasks.named('jar').flatMap { it.archiveFile })
+    delegate.probeClasspath.from(configurations.cpmCompositionRuntime)
+    delegate.probeDirectory.set(repositoryRoot.dir('gradle/build-logic/src/cpmComposition'))
+    delegate.carrierFixtures.set(repositoryRoot.dir('core/src/test/resources/cpm'))
+    delegate.workDirectory.set(layout.buildDirectory.dir('verification/cpm-composition'))
 }
 
 def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
@@ -577,6 +670,8 @@ tasks.named('check').configure {
     dependsOn capabilityAbiTask
     if (modMenuAbiTask != null) dependsOn modMenuAbiTask
     dependsOn fancyMenuAbiTask
+    dependsOn providerRowClippingTask
+    dependsOn cpmIntegrationTask
     dependsOn isolationTask
 }
 

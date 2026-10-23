@@ -5,23 +5,45 @@ import com.naocraftlab.skins.client.SkinCatalogSource;
 import com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.SkinVariant;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public interface CatalogRead {
     List<SkinCatalogSource.CollectionDescriptor> catalogCollections() throws Exception;
     Map<CatalogVariant, SkinFeatureEvidence> catalogFeatureEvidence();
     CapeEditorData loadCapeEditorData(UUID accountId) throws Exception;
     long capeCatalogGeneration();
+    default boolean capeCatalogCapacityIncomplete() { return false; }
+    default CapacityWatch capeCatalogCapacityWatch(Consumer<CapacityWatch> ready) {
+        throw new UnsupportedOperationException("Cape catalog capacity notice unavailable");
+    }
+    default boolean supportsStartupResourceCapeWarmup() { return false; }
     void warmResourceCapeCatalog(long generation) throws Exception;
     void warmCapeCatalog(UUID accountId, long generation) throws Exception;
     Optional<CapeEditorData> warmedCapeEditorData(UUID accountId);
     Map<String, byte[]> warmedCapePreviews(UUID accountId);
     Optional<byte[]> loadResourceCapePreview(UUID accountId, ResourceCapeSelection selection) throws Exception;
+    default Optional<PreparedCapeLease> acquirePreparedResourceCape(UUID accountId,
+            ResourceCapeSelection selection) throws Exception {
+        return Optional.empty();
+    }
+
+    interface PreparedCapeLease extends AutoCloseable {
+        PreparedCapeAsset asset();
+        @Override void close() throws IOException;
+    }
+
+    interface CapacityWatch extends AutoCloseable {
+        void arm();
+        @Override void close();
+    }
 
     record ResourceCapeKey(String collectionId, String capeId) {
         public ResourceCapeKey {

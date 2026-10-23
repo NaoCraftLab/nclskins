@@ -154,7 +154,7 @@ tasks.register('statusReceipt') {
         IllegalStateException baselineDrift = assertThrows(IllegalStateException) {
             BuildReceipt.publish(root, catalog, before, baselineOnly, 'fullCheck')
         }
-        assertEquals('Build inputs changed during verification', baselineDrift.message)
+        assertEquals('Build inputs changed during verification: environment.requiredServerPluginVersion', baselineDrift.message)
         assertFalse(BuildReceipt.location(root).exists())
         runner(root, '1.5.0-beta.2', 'captureReceipt')
                 .withArguments('downloadFixtureDependency', 'captureReceipt', '--console=plain', '--stacktrace').build()
@@ -163,7 +163,7 @@ tasks.register('statusReceipt') {
         IllegalStateException combinedDrift = assertThrows(IllegalStateException) {
             BuildReceipt.publish(root, catalog, before, changed, 'fullCheck')
         }
-        assertEquals('Build inputs changed during verification', combinedDrift.message)
+        assertEquals('Build inputs changed during verification: environment.requiredServerPluginVersion', combinedDrift.message)
         assertFalse(BuildReceipt.location(root).exists())
         runner(root, '  1.4.0  ', 'captureReceipt').build()
         Map equivalent = read(root, 'build/capture.json')

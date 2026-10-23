@@ -32,8 +32,10 @@ public record NclBakedPlayerRenderState(
         float modelOffsetX,
         float modelOffsetY,
         float scale,
+        boolean capeGlint,
         boolean standaloneEquipment,
         float depthExtent,
+        com.naocraftlab.skins.client.PreviewModelFrames.Completion completion,
         ScreenRectangle scissorArea,
         ScreenRectangle bounds) implements PictureInPictureRenderState, NclSkinsDepthEnvelopeState {
 
@@ -58,8 +60,10 @@ public record NclBakedPlayerRenderState(
             float modelOffsetX,
             float modelOffsetY,
             float scale,
+            boolean capeGlint,
             boolean standaloneEquipment,
             float depthExtent,
+            com.naocraftlab.skins.client.PreviewModelFrames.Completion completion,
             ScreenRectangle scissorArea) {
         this(
                 target,
@@ -82,8 +86,10 @@ public record NclBakedPlayerRenderState(
                 modelOffsetX,
                 modelOffsetY,
                 scale,
+                capeGlint,
                 standaloneEquipment,
                 depthExtent,
+                completion,
                 scissorArea,
                 PictureInPictureRenderState.getBounds(x0, y0, x1, y1, scissorArea));
     }
@@ -114,6 +120,9 @@ public record NclBakedPlayerRenderState(
         }
         if (standaloneEquipment && attachmentTexture == null) {
             throw new IllegalArgumentException("Standalone equipment is missing");
+        }
+        if (capeGlint && (capeMode != PreviewRenderer.CapeMode.CAPE || attachmentTexture == null)) {
+            throw new IllegalArgumentException("Cape glint requires a cape attachment");
         }
         if (!standaloneEquipment) {
             Objects.requireNonNull(skinTexture, "skinTexture");
@@ -150,8 +159,10 @@ public record NclBakedPlayerRenderState(
                 modelOffsetX,
                 modelOffsetY,
                 scale,
+                capeGlint,
                 standaloneEquipment,
                 depthExtent,
+                completion,
                 scissor);
     }
 

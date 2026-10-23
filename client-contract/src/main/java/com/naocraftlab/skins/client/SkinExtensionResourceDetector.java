@@ -7,7 +7,7 @@ import java.util.Optional;
 
 
 public final class SkinExtensionResourceDetector {
-    private static final int MAX_MODEL_BYTES = 512 * 1024;
+    public static final int MAX_MODEL_BYTES = 512 * 1024;
     private final SkinCatalogSource resources;
 
     public SkinExtensionResourceDetector(SkinCatalogSource resources) {

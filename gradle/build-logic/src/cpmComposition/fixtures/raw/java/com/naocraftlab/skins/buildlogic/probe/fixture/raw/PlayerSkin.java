@@ -1,0 +1,1 @@
+package com.naocraftlab.skins.buildlogic.probe.fixture.raw; public final class PlayerSkin {public com.naocraftlab.skins.buildlogic.probe.fixture.raw.ResourceLocation texture(){return DefaultPlayerSkin.getDefaultSkin();}}

@@ -30,7 +30,7 @@ public final class PreviewScope implements AutoCloseable {
             AbstractClientPlayer player,
             PreviewRenderer.PreviewAppearance appearance) {
         this.player = player;
-        playerScope = new ExactLocalPlayerScope(player);
+        playerScope = new ExactLocalPlayerScope(player, appearance);
         this.appearance = appearance;
         ResourceLocation body = location(appearance.skin().location());
         ResourceLocation selectedCape = appearance.cape()
@@ -39,14 +39,15 @@ public final class PreviewScope implements AutoCloseable {
         ResourceLocation cape = appearance.capeMode() == PreviewRenderer.CapeMode.CAPE
                 ? selectedCape
                 : null;
-        ResourceLocation elytraTexture = appearance.capeMode() == PreviewRenderer.CapeMode.ELYTRA
+        ResourceLocation elytraTexture = appearance.capeMode() == PreviewRenderer.CapeMode.ELYTRA && appearance.capeHasElytra()
                 ? selectedCape
                 : null;
         PlayerSkin.Model model = appearance.model() == SkinModel.SLIM
                 ? PlayerSkin.Model.SLIM
                 : PlayerSkin.Model.WIDE;
         skin = new PlayerSkin(body, "", cape, elytraTexture, model, false);
-        elytra = elytraTexture != null;
+        elytra = appearance.capeMode() == PreviewRenderer.CapeMode.ELYTRA
+                && (selectedCape != null || appearance.nativeAccessories());
     }
 
     public static PreviewScope open(
@@ -56,8 +57,8 @@ public final class PreviewScope implements AutoCloseable {
         Objects.requireNonNull(minecraft, "minecraft");
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(appearance, "appearance");
-        if (!minecraft.isSameThread() || minecraft.player != player) {
-            throw new IllegalStateException("Editor preview scope requires the local player on the client thread");
+        if (!minecraft.isSameThread() || minecraft.level == null || minecraft.level != player.level()) {
+            throw new IllegalStateException("Editor preview scope requires a player in the current world on the client thread");
         }
         if (ACTIVE.get() != null) {
             throw new IllegalStateException("Editor preview scope is already active");
@@ -78,7 +79,8 @@ public final class PreviewScope implements AutoCloseable {
             return null;
         }
         if (part == PlayerModelPart.CAPE) {
-            return scope.skin.capeTexture() != null;
+            return scope.appearance.capeMode() == PreviewRenderer.CapeMode.CAPE
+                    && (scope.skin.capeTexture() != null || scope.appearance.nativeAccessories());
         }
         return scope.appearance.outerLayerVisibility().visible(outerLayerPart(part));
     }
@@ -117,6 +119,8 @@ public final class PreviewScope implements AutoCloseable {
         }
         return location;
     }
+
+    public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return playerScope.body(); }
 
     @Override
     public void close() {

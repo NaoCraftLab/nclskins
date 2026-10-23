@@ -123,3 +123,34 @@ neoForge {
 
 ext.nclskinsFancyCompileConfiguration = 'compileOnly'
 apply from: '../../../gradle/fancymenu-conventions.gradle'
+ext.nclskinsCpmCompileConfiguration = 'compileOnly'
+apply from: '../../../gradle/cpm-conventions.gradle'
+if (targetSpec.capabilities.appearance in ['skin-lookup', 'cape-foil-pipeline-samplers', 'cape-foil-pipeline-target-state', 'cape-foil-pipeline-bind-groups', 'cape-foil-combined']
+        && findProperty('nclskinsWaveyCompositionProfile') != 'isolated') {
+    neoForge.runs.create('waveyVerification') {
+        client()
+        if (targetSpec.capabilities.appearance != 'skin-lookup') mainClass = 'com.naocraftlab.skins.buildlogic.boot.ClientCapeLauncher'
+        gameDirectory = layout.buildDirectory.dir('verification/waveycapes-composition/runtime')
+        disableIdeRun()
+    }
+}
+if (targetSpec.capabilities.appearance == 'skin-lookup' && findProperty('nclskinsWaveyCompositionProfile') != 'isolated') {
+    tasks.register('prepareWaveyLegacyProvider') {
+        dependsOn tasks.named('prepareWaveyVerificationRun')
+        ext.vmArgsFile = layout.buildDirectory.file('verification/wavey-provider/vm.json')
+        ext.programArgsFile = layout.buildDirectory.file('verification/wavey-provider/provider.json')
+        outputs.files(vmArgsFile, programArgsFile)
+        doLast {
+            def t = tasks.named('runWaveyVerification').get()
+            Map inputs = [mainClass: t.mainClass.get(), classpath: t.classpathProvider.files.collect { it.absolutePath },
+                    jvmArgs: t.allJvmArgs + t.jvmArgumentProviders.collectMany { it.asArguments().toList() },
+                    args: t.args + t.argumentProviders.collectMany { it.asArguments().toList() },
+                    properties: t.systemProperties, environment: t.environmentProperty.get()]
+            Map safe = nclskinsCatalogTools.classLoader.loadClass('com.naocraftlab.skins.buildlogic.WaveyLegacyComposition').safeProvider(inputs)
+            File output = programArgsFile.get().asFile; output.parentFile.mkdirs()
+            output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(safe))
+            vmArgsFile.get().asFile.text = groovy.json.JsonOutput.toJson(safe.jvmArgs)
+        }
+    }
+}
+apply from: '../../../gradle/waveycapes-conventions.gradle'

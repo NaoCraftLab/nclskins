@@ -32,6 +32,9 @@ final class FabricClientLifecycle {
         if (!checkedLifecycle.install(checked, current -> current.initialize(checkedDirectory))) {
             return;
         }
+        com.naocraftlab.skins.compat.waveycapes.WaveyCapesIntegration.install(
+                FabricLoader.getInstance().getModContainer("waveycapes")
+                        .map(mod -> mod.getMetadata().getVersion().getFriendlyString()).orElse(null));
         FabricScreenKeybindings.register();
         com.naocraftlab.skins.compat.fancymenu.FancyMenuIntegration.install(
                 FabricLoader.getInstance().isModLoaded("fancymenu"), checked::openDestination, checked.diagnostics());

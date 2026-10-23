@@ -2,6 +2,10 @@
 
 <a href="https://modrinth.com/mod/nclskins-plugin"><img src="https://img.shields.io/static/v1?label=Modrinth&amp;message=NCL%20Skins%20Plugin&amp;color=1bd96a&amp;logo=modrinth&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins Plugin on Modrinth" /></a> <a href="https://www.curseforge.com/minecraft/bukkit-plugins/nclskins-plugin"> <img src="https://img.shields.io/static/v1?label=CurseForge&amp;message=NCL%20Skins%20Plugin&amp;color=fb4e44&amp;logo=curseforge&amp;logoColor=white&amp;style=for-the-badge" alt="NCL Skins Plugin on CurseForge" /> </a>
 
+**Full overview (English, German, Russian, and Ukrainian dubbing)**
+
+[![Full NCL Skins overview](https://img.youtube.com/vi/NwiXHtG04e4/maxresdefault.jpg)](https://www.youtube.com/watch?v=NwiXHtG04e4)
+
 Managing your appearance in Minecraft should feel as natural as everything else in the game. NCL Skins brings skins, Classic or Slim arms, capes, second-layer settings, and saved looks together in one built-in gallery.
 
 Create complete looks and switch between them with one click. Each look remembers its skin, Classic or Slim model, selected Cape or Elytra, and the visibility of every Second layer part.

@@ -11,6 +11,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ViewSpecWidgetInteractionTest {
     @Test
+    void unavailableInspectionKeepsFocusAndReasonWithoutActivation() {
+        ViewSpec.Widget card = ViewSpec.Widget.button("inspect", new Bounds(0, 0, 32, 32),
+                UiMessage.info("inspect"), true)
+                .withActivation(false, UiMessage.info("world-required"));
+        assertTrue(card.enabled());
+        org.junit.jupiter.api.Assertions.assertFalse(card.activationEnabled());
+        assertTrue(ViewSpec.NavigationNode.control(card, 0, 0).enabled());
+        assertEquals(Optional.empty(), ViewSpec.NavigationNode.control(card, 0, 0).activationActionId());
+        assertEquals("world-required", card.hint().orElseThrow().key());
+    }
+
+    @Test
     void textFieldCarriesSelectAllAndSubmitPolicy() {
         ViewSpec.Widget field = ViewSpec.Widget.textField(
                 "add.url.input",

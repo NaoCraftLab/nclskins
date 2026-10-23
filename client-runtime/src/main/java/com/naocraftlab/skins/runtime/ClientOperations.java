@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface ClientOperations extends AccountReconciliationPort, AutoCloseable, CapeObservationPort, CatalogRead, CatalogMaterialization, ImportOperations, LibraryEditorPort, UiPreferencesPort, ProviderOperations, ClientSessionView, PreviewAssetSource {
+public interface ClientOperations extends AccountReconciliationPort, AutoCloseable, CapeObservationPort, CatalogRead, CatalogMaterialization, ImportOperations, LibraryEditorPort, UiPreferencesPort, ProviderOperations, ProviderRefreshEffects, ClientSessionView, PreviewAssetSource {
 
     void verifyStorageAccess() throws Exception;
 
@@ -46,6 +46,8 @@ public interface ClientOperations extends AccountReconciliationPort, AutoCloseab
     }
 
     InitialData initialize() throws Exception;
+
+    default InitialData initializeForRuntime() throws Exception { return initialize(); }
 
     default Map<UUID, SkinFeatureEvidence> assetFeatureEvidence() throws Exception {
         return Map.of();
@@ -98,7 +100,32 @@ public interface ClientOperations extends AccountReconciliationPort, AutoCloseab
             OwnedCapeInventory ownedCapes,
             long intentRevision,
             AppearanceSyncStatus syncStatus,
-            AppearanceProviders providers) {
+            AppearanceProviders providers,
+            Map<String, ProviderCapePoster> providerPosters,
+            Map<String, byte[]> savedSkinPreviews) implements AutoCloseable {
+        public InitialData(
+                AccountState account, SessionValidation session,
+                Optional<UUID> currentOfficialSkinId, Optional<UUID> activePresetId,
+                Optional<AppliedAppearance> localAppearance, boolean pendingOfficialSync,
+                List<String> storageWarnings, AccountUiPreferences uiPreferences,
+                Optional<OuterLayerVisibility> outerLayerVisibility, OwnedCapeInventory ownedCapes,
+                long intentRevision, AppearanceSyncStatus syncStatus, AppearanceProviders providers,
+                Map<String, ProviderCapePoster> providerPosters) {
+            this(account, session, currentOfficialSkinId, activePresetId, localAppearance,
+                    pendingOfficialSync, storageWarnings, uiPreferences, outerLayerVisibility,
+                    ownedCapes, intentRevision, syncStatus, providers, providerPosters, Map.of());
+        }
+        public InitialData(
+                AccountState account, SessionValidation session,
+                Optional<UUID> currentOfficialSkinId, Optional<UUID> activePresetId,
+                Optional<AppliedAppearance> localAppearance, boolean pendingOfficialSync,
+                List<String> storageWarnings, AccountUiPreferences uiPreferences,
+                Optional<OuterLayerVisibility> outerLayerVisibility, OwnedCapeInventory ownedCapes,
+                long intentRevision, AppearanceSyncStatus syncStatus, AppearanceProviders providers) {
+            this(account, session, currentOfficialSkinId, activePresetId, localAppearance,
+                    pendingOfficialSync, storageWarnings, uiPreferences, outerLayerVisibility,
+                    ownedCapes, intentRevision, syncStatus, providers, Map.of(), Map.of());
+        }
         public InitialData(
                 AccountState account,
                 SessionValidation session,
@@ -212,6 +239,8 @@ public interface ClientOperations extends AccountReconciliationPort, AutoCloseab
 
         public InitialData {
             Objects.requireNonNull(providers, "providers");
+            providerPosters = Map.copyOf(Objects.requireNonNull(providerPosters, "providerPosters"));
+            savedSkinPreviews = Map.copyOf(Objects.requireNonNull(savedSkinPreviews, "savedSkinPreviews"));
             Objects.requireNonNull(account, "account");
             Objects.requireNonNull(session, "session");
             currentOfficialSkinId = Objects.requireNonNull(currentOfficialSkinId, "currentOfficialSkinId");
@@ -231,6 +260,10 @@ public interface ClientOperations extends AccountReconciliationPort, AutoCloseab
             if (!ownedCapes.accountId().equals(account.accountId())) {
                 throw new IllegalArgumentException("Owned capes belong to another account");
             }
+        }
+
+        @Override public void close() {
+            providerPosters.values().forEach(ProviderCapePoster::close);
         }
     }
 

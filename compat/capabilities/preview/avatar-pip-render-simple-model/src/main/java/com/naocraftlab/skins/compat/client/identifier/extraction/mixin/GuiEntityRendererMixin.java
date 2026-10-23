@@ -24,14 +24,25 @@ abstract class GuiEntityRendererMixin {
             Operation<Void> original) {
         PreviewRenderFailureSink layerSink = nclskins$layerSink(guiState);
         AvatarPreviewContext previewContext = nclskins$previewContext(guiState);
-        try (var ignoredContext = previewContext == null
-                        ? null
-                        : previewContext.open(Minecraft.getInstance());
-                EditorPreviewLayerGuard ignored = layerSink == null
-                ? null
-                : EditorPreviewLayerGuard.open(layerSink::onFailure)) {
-            original.call(guiState, poseStack, collector);
+        if (previewContext != null && !previewContext.current()) return;
+        AvatarPreviewContext.Attempt attempt = null;
+        try {
+            attempt = previewContext == null ? null : previewContext.submission(guiState);
+            if (attempt != null) {
+                original.call(guiState, poseStack, collector);
+                attempt.submitted();
+                return;
+            }
+            try (var ignoredContext = previewContext == null
+                            ? null
+                            : previewContext.open(Minecraft.getInstance());
+                    EditorPreviewLayerGuard ignored = layerSink == null
+                            ? null
+                            : EditorPreviewLayerGuard.open(layerSink::onFailure)) {
+                original.call(guiState, poseStack, collector);
+            }
         } catch (RuntimeException failure) {
+            if (attempt != null) attempt.failed();
             if (!nclskins$handle(guiState, failure)) {
                 throw failure;
             }

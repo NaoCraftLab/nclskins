@@ -148,7 +148,7 @@ class CapePngTest {
 
     @Test void malformedOversizedAndAnimatedPngAreRejected() throws Exception {
         assertThrows(PngValidationException.class, () -> validator.projectCape(new byte[64]));
-        assertThrows(PngValidationException.class, () -> validator.projectCape(new byte[PngValidator.DEFAULT_MAX_BYTES + 1]));
+        assertThrows(PngValidationException.class, () -> new PngValidator(128).projectCape(new byte[129]));
         byte[] valid = png(new BufferedImage(64, 32, 2));
         var chunk = java.nio.ByteBuffer.allocate(20).putInt(8).putInt(0x6163544c).putInt(1).putInt(0);
         var crc = new java.util.zip.CRC32(); crc.update(chunk.array(), 4, 12); chunk.putInt((int) crc.getValue());
@@ -159,7 +159,7 @@ class CapePngTest {
         assertThrows(PngValidationException.class, () -> validator.projectCape(valid));
         assertThrows(PngValidationException.class, () -> validator.projectImportedCape(valid));
         assertThrows(PngValidationException.class, () -> validator.projectImportedCape(new byte[64]));
-        assertThrows(PngValidationException.class, () -> validator.projectImportedCape(new byte[PngValidator.DEFAULT_MAX_BYTES + 1]));
+        assertThrows(PngValidationException.class, () -> new PngValidator(128).projectImportedCape(new byte[129]));
         byte[] narrow = png(new BufferedImage(46, 22, 2));
         var narrowAnimated = new ByteArrayOutputStream();
         narrowAnimated.write(narrow, 0, 33); narrowAnimated.write(chunk.array()); narrowAnimated.write(narrow, 33, narrow.length - 33);
@@ -220,9 +220,9 @@ class CapePngTest {
         emptyScan[scanStart] = (byte) 0xff;
         emptyScan[scanStart + 1] = (byte) 0xd9;
         assertThrows(PngValidationException.class, () -> validator.projectCape(emptyScan));
-        byte[] oversized = java.util.Arrays.copyOf(valid, PngValidator.DEFAULT_MAX_BYTES + 1);
+        byte[] oversized = java.util.Arrays.copyOf(valid, valid.length + 1);
         assertEquals(PngValidationException.Reason.OVERSIZED,
-                assertThrows(PngValidationException.class, () -> validator.projectCape(oversized)).reason());
+                assertThrows(PngValidationException.class, () -> new PngValidator(valid.length).projectCape(oversized)).reason());
         byte[] unsupportedFrame = valid.clone();
         for (int i = 2; i < unsupportedFrame.length - 1; i++) {
             if ((unsupportedFrame[i] & 0xff) == 0xff && (unsupportedFrame[i + 1] & 0xff) == 0xc0) {

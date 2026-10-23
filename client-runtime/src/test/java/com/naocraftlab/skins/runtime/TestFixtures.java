@@ -25,6 +25,19 @@ final class TestFixtures {
 
     private TestFixtures() {}
 
+    static void confirmOrdinaryDisplay(ClientRuntime runtime) {
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var session = new com.naocraftlab.skins.client.EditorPreviewSession();
+        session.beginBody(runtime.previewBodySource(preview), false, false);
+        com.naocraftlab.skins.client.PreviewRenderer<Object> renderer = new com.naocraftlab.skins.client.PreviewRenderer<>() {
+            public void render(Object graphics, PreviewRequest request) { throw new AssertionError(); }
+            public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return session.body(); }
+        };
+        session.observeBody(runtime.observePreviewBody(preview, renderer::displayKind));
+        session.ordinaryDisplay(() -> true).accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+    }
+
     static AccountState account(int presetCount) {
         Instant base = Instant.parse("2026-01-01T00:00:00Z");
         List<SkinAsset> skins = List.of(

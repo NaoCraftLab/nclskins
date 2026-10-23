@@ -8,10 +8,39 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CapeProjectionTest {
+    @Test
+    void minecraftCapesMaterialFollowsExactSelfObserverAndWinningFrame() {
+        UUID id = UUID.fromString("12345678-1234-1234-1234-123456789abc");
+        var identity = new CapeProjection.Identity(id, "Player");
+        var glint = new CapeProjection.Candidate("nclskins:frame0", "nclskins:frame0", true, true);
+        var plain = new CapeProjection.Candidate("nclskins:offline", null, false);
+        try {
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.MINECRAFTCAPES, BuiltinProvider.OFFLINE),
+                    Map.of(), Map.of(), Map.of(), Map.of(identity, glint), identity, plain, null));
+            for (boolean self : new boolean[] {true, false}) {
+                var selected = CapeProjection.resolve(id, "Player", plain, null, self);
+                assertEquals("nclskins:frame0", selected.capeLocation());
+                assertTrue(selected.capeGlint());
+                assertEquals(BuiltinProvider.MINECRAFTCAPES, selected.provider());
+            }
+            assertFalse(CapeProjection.resolve(id, "Other", plain, null, false).capeGlint());
+            TestCapeProjection.publish(new CapeProjection.Snapshot(
+                    List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFTCAPES),
+                    Map.of(), Map.of(), Map.of(), Map.of(identity, glint), identity, plain, null));
+            var selected = CapeProjection.resolve(id, "Player", plain, null, true);
+            assertEquals("nclskins:offline", selected.capeLocation());
+            assertFalse(selected.capeGlint());
+        } finally {
+            TestCapeProjection.clear();
+        }
+    }
+
     @Test
     void oldOwnerCannotPublishClearOrDetachNewOwner() {
         var identity = new CapeProjection.Identity(UUID.randomUUID(), "Player");

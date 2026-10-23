@@ -23,6 +23,10 @@ public final class AccountAppearanceStorageAdapter implements AccountAppearanceS
     public AccountAppearanceState updateAppearance(UUID accountId, UnaryOperator<AccountAppearanceState> update) throws IOException {
         return storage.updateAppearance(accountId, update);
     }
+    public AccountAppearanceState updateAppearance(UUID accountId, UnaryOperator<AccountAppearanceState> update,
+            java.util.function.BooleanSupplier current) throws IOException {
+        return storage.updateAppearance(accountId, update, current);
+    }
     public AccountAppearanceState updateAppearanceIntent(UUID accountId, BiFunction<AccountAppearanceState, Long, AccountAppearanceState> update) throws IOException {
         return storage.updateAppearanceIntent(accountId, update);
     }

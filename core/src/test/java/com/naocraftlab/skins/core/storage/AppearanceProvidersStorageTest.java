@@ -35,6 +35,71 @@ class AppearanceProvidersStorageTest {
     @TempDir Path directory;
 
     @Test
+    void optionalActivationThatLosesScopeDuringPreparationDoesNotCommit() throws Exception {
+        var store = storage();
+        UUID account = UUID.randomUUID();
+        store.updateAppearance(account, state -> state);
+        byte[] before = Files.readAllBytes(store.layout().accountAppearance(account));
+        var ready = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var pending = worker.submit(() -> assertThrows(java.io.IOException.class,
+                    () -> store.updateAppearance(account, state -> {
+                        var candidate = state.withProviders(new AppearanceProviders(
+                                state.providers().skin(), state.providers().cape().initializeCpm()));
+                        ready.countDown();
+                        try { assertTrue(release.await(10, java.util.concurrent.TimeUnit.SECONDS)); }
+                        catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+                        return candidate;
+                    }, current::get)));
+            assertTrue(ready.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            current.set(false);
+            release.countDown();
+            pending.get(20, java.util.concurrent.TimeUnit.SECONDS);
+            org.junit.jupiter.api.Assertions.assertArrayEquals(before, Files.readAllBytes(store.layout().accountAppearance(account)));
+        } finally { release.countDown(); worker.shutdownNow(); }
+    }
+
+    @Test
+    void failedOptionalInitializationSaveCanRetryWithoutRememberingSuccess() throws Exception {
+        var store = storage();
+        UUID account = UUID.randomUUID();
+        store.updateAppearance(account, state -> state);
+        Path path = store.layout().accountAppearance(account);
+        byte[] before = Files.readAllBytes(path);
+        var permissions = Files.getPosixFilePermissions(path.getParent());
+        try {
+            assertThrows(java.io.IOException.class, () -> store.updateAppearance(account, state -> {
+                try {
+                    Files.setPosixFilePermissions(path.getParent(), java.nio.file.attribute.PosixFilePermissions.fromString("r-x------"));
+                } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                return state.withProviders(new AppearanceProviders(state.providers().skin(), state.providers().cape().initializeCpm()));
+            }));
+        } finally { Files.setPosixFilePermissions(path.getParent(), permissions); }
+        org.junit.jupiter.api.Assertions.assertArrayEquals(before, Files.readAllBytes(path));
+        org.junit.jupiter.api.Assertions.assertNull(storage().loadAppearance(account).providers().cape().cpmConfiguration());
+        var saved = storage().updateAppearance(account, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape().initializeCpm())));
+        assertEquals(1, saved.providers().cape().configurationRevision());
+        assertEquals(com.naocraftlab.skins.core.provider.BuiltinProvider.CPM, saved.providers().cape().order().get(0));
+    }
+
+    @Test
+    void unchangedOptionalProviderTransactionDoesNotRewriteExistingFile() throws Exception {
+        var store = storage();
+        UUID account = UUID.randomUUID();
+        store.updateAppearance(account, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape().initializeCpm())));
+        Path path = store.layout().accountAppearance(account);
+        var timestamp = java.nio.file.attribute.FileTime.from(Instant.parse("2001-01-01T00:00:00Z"));
+        Files.setLastModifiedTime(path, timestamp);
+        store.updateAppearance(account, state -> state);
+        assertEquals(timestamp, Files.getLastModifiedTime(path));
+    }
+
+    @Test
     void publishedSchemasPreserveAcknowledgementAndUncertaintyDuringMigration() throws Exception {
         AccountAppearanceStateJson json = new AccountAppearanceStateJson();
         for (int schema : new int[] {1, 2}) {
@@ -350,6 +415,35 @@ class AppearanceProvidersStorageTest {
 
         assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE", "MINECRAFT", "SKINMC"));
         assertEquals(skinmc, storage.loadAppearance(account).providers().cape().skinmc().value());
+    }
+
+    @Test
+    void unknownCpmInitializationAndDisabledSlotSurviveKnownProviderWrites() throws Exception {
+        UUID account = UUID.randomUUID();
+        NclSkinsStorage storage = storage();
+        storage.updateAppearance(account, state -> state);
+        Path path = storage.layout().accountAppearance(account);
+        var document = com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+        var cape = document.getAsJsonObject("providers").getAsJsonObject("cape");
+        var metadata = com.google.gson.JsonParser.parseString(
+                "{\"CPM\":{\"initialized\":true,\"disabledSlot\":1,\"future\":{\"retain\":true}},"
+                        + "\"FUTURE\":{\"opaque\":[1,2]}}").getAsJsonObject();
+        cape.add("optionalProviders", metadata);
+        Files.writeString(path, document.toString());
+        var original = storage.loadAppearance(account);
+
+        storage.updateAppearance(account, state -> state.withProviders(state.providers()
+                .move(AppearanceProviders.Component.CAPE, MINECRAFT, -1)
+                .disable(AppearanceProviders.Component.CAPE, OFFLINE)
+                .enable(AppearanceProviders.Component.CAPE, OPTIFINE)));
+
+        var loaded = storage().loadAppearance(account);
+        assertEquals(original.schemaVersion(), loaded.schemaVersion());
+        assertEquals(original.providers().skin(), loaded.providers().skin());
+        assertEquals(java.util.List.of(MINECRAFT, OPTIFINE), loaded.providers().cape().order());
+        var written = com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+        assertEquals(metadata, written.getAsJsonObject("providers").getAsJsonObject("cape")
+                .getAsJsonObject("optionalProviders"));
     }
 
     private static AccountAppearanceState advanced(AccountAppearanceState state, long revision, UUID preset) {

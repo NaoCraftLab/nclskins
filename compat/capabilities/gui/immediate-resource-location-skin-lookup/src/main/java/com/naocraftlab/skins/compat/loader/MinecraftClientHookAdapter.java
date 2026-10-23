@@ -94,6 +94,7 @@ public final class MinecraftClientHookAdapter
 
     @Override
     public void close() {
+        com.naocraftlab.skins.compat.waveycapes.WaveyCapesIntegration.close();
         NclSkinsMenuPreview.clear();
         ImmediateClientRuntime.instance().close();
     }

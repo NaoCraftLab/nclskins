@@ -57,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class ExternalImportAdaptersTest {
     private static final UUID ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000123");
@@ -67,6 +68,15 @@ final class ExternalImportAdaptersTest {
         byte[] png = skinPng(0xff336699);
         var calls = new java.util.ArrayList<String>();
         PublicSkinImports imports = new PublicSkinImports() {
+            public ImportOperations.AcquiredInput acquireUrl(String url, Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+                    com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+                return new ImportOperations.AcquiredSkin(loadUrl(url));
+            }
+            public ImportOperations.AcquiredInput acquireFile(Path path, Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+                    com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+                return PublicSkinImportService.admitInput(com.naocraftlab.skins.core.api.PublicSkinImageAdapter.acquireLocal(path),
+                        converter, unavailable, "Imported skin", PersonalSkinSource.FILE);
+            }
             @Override public ImportOperations.ImportDraft loadPlayer(String query) {
                 calls.add(query);
                 return new ImportOperations.ImportDraft("Canonical", SkinVariant.SLIM, png, PersonalSkinSource.PLAYER_NAME);
@@ -89,6 +99,113 @@ final class ExternalImportAdaptersTest {
         assertArrayEquals(player.pngBytes(), url.pngBytes());
         assertEquals(PersonalSkinSource.PLAYER_NAME, player.source());
         assertEquals(PersonalSkinSource.URL, url.source());
+    }
+
+    @Test
+    void externalLocalAndCachedSkinUseBoundedProjectionAndQuickPreferencesKeepRawIdentity(@TempDir Path game)
+            throws Exception {
+        Path path = game.resolve("quickskin/uploads/skins/Large.png");
+        Files.createDirectories(path.getParent());
+        writeLargeEncodedSkin(path);
+        assertTrue(Files.size(path) > 65 * 1024 * 1024);
+        MessageDigest digest = MessageDigest.getInstance("SHA-1");
+        try (var input = new java.security.DigestInputStream(Files.newInputStream(path), digest)) {
+            input.transferTo(java.io.OutputStream.nullOutputStream());
+        }
+        String rawHash = java.util.HexFormat.of().formatHex(digest.digest());
+        Files.createDirectories(game.resolve("config"));
+        Files.writeString(game.resolve("config/skin-preferences.json"),
+                "{\"preferences\":{\"" + rawHash + "\":{\"modelType\":\"classic\"}}}");
+        ExternalImportBatch batch = new QuickSkinImportAdapter().discover(game, context(game));
+        assertEquals(1, batch.records().size());
+        assertEquals(Optional.of(SkinVariant.CLASSIC), batch.records().get(0).declaredVariant());
+        var adapter = externalAdapter(new PngValidator());
+        var local = adapter.resolve(batch.records().get(0));
+        var cached = adapter.resolve(new ExternalAppearanceRecord("cached", "Cached", Optional.empty(),
+                new SkinLocator.PublicUrl("https://example.com/skin.png", Optional.of(path)), Optional.empty(), 0));
+        assertTrue(local.pngBytes().length < 1024);
+        assertArrayEquals(local.pngBytes(), cached.pngBytes());
+        assertEquals(PersonalSkinSource.FILE, local.source());
+        assertEquals(PersonalSkinSource.URL, cached.source());
+        assertEquals(new PngValidator().renderSha256(local.pngBytes()),
+                new PngValidator().renderSha256(cached.pngBytes()));
+    }
+
+    @Test
+    void externalPathAdmissionKeepsExactLimitAndRejectsOneMoreByte(@TempDir Path root) throws Exception {
+        byte[] original = skinPng(0xff336699);
+        Path path = Files.write(root.resolve("skin.png"), original);
+        var adapter = externalAdapter(new PngValidator(original.length));
+        var record = new ExternalAppearanceRecord("local", "Local", Optional.empty(),
+                new SkinLocator.LocalPng(path), Optional.empty(), 0);
+        assertArrayEquals(original, adapter.resolve(record).pngBytes());
+        Files.write(path, java.util.Arrays.copyOf(original, original.length + 1));
+        assertEquals(com.naocraftlab.skins.core.png.PngValidationException.Reason.OVERSIZED,
+                assertThrows(com.naocraftlab.skins.core.png.PngValidationException.class,
+                        () -> adapter.resolve(record)).reason());
+    }
+
+    private static ExternalImportSourceAdapter externalAdapter(PngValidator validator) {
+        PublicSkinImports unavailable = new PublicSkinImports() {
+            public ImportOperations.AcquiredInput acquireUrl(String url, Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+                    com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+                return new ImportOperations.AcquiredSkin(loadUrl(url));
+            }
+            public ImportOperations.AcquiredInput acquireFile(Path path, Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+                    com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+                return PublicSkinImportService.admitInput(com.naocraftlab.skins.core.api.PublicSkinImageAdapter.acquireLocal(path),
+                        converter, unavailable, "Imported skin", PersonalSkinSource.FILE);
+            }
+            @Override public ImportOperations.ImportDraft loadPlayer(String query) { throw new AssertionError(); }
+            @Override public ImportOperations.ImportDraft loadUrl(String url) { throw new AssertionError(); }
+        };
+        return new ExternalImportSourceAdapter(unavailable,
+                (collection, skin, model) -> { throw new AssertionError(); }, validator, List.of());
+    }
+
+    private static void writeLargeEncodedSkin(Path path) throws Exception {
+        byte[] raw = new byte[64 * (1 + 64 * 4)];
+        byte[] emptyBlocks = new byte[8190];
+        for (int offset = 0; offset < emptyBlocks.length; offset += 5) {
+            emptyBlocks[offset + 3] = (byte) 255;
+            emptyBlocks[offset + 4] = (byte) 255;
+        }
+        int blocks = 14_000_000;
+        int idatLength = 2 + blocks * 5 + 5 + raw.length + 4;
+        var adler = new java.util.zip.Adler32(); adler.update(raw);
+        try (var output = new java.io.DataOutputStream(new java.io.BufferedOutputStream(Files.newOutputStream(path)))) {
+            output.write(new byte[]{(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
+            output.write(pngFixtureChunk("IHDR", ByteBuffer.allocate(13).putInt(64).putInt(64)
+                    .put((byte) 8).put((byte) 6).put((byte) 0).put((byte) 0).put((byte) 0).array()));
+            output.writeInt(idatLength);
+            byte[] type = "IDAT".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+            output.write(type);
+            CRC32 crc = new CRC32(); crc.update(type);
+            byte[] zlibHeader = {(byte) 0x78, 1}; output.write(zlibHeader); crc.update(zlibHeader);
+            int remaining = blocks * 5;
+            while (remaining > 0) {
+                int count = Math.min(remaining, emptyBlocks.length);
+                output.write(emptyBlocks, 0, count); crc.update(emptyBlocks, 0, count); remaining -= count;
+            }
+            byte[] finalHeader = {1, (byte) raw.length, (byte) (raw.length >>> 8),
+                    (byte) ~raw.length, (byte) (~raw.length >>> 8)};
+            output.write(finalHeader); crc.update(finalHeader);
+            output.write(raw); crc.update(raw);
+            byte[] checksum = ByteBuffer.allocate(4).putInt((int) adler.getValue()).array();
+            output.write(checksum); crc.update(checksum);
+            output.writeInt((int) crc.getValue());
+            output.write(pngFixtureChunk("IEND", new byte[0]));
+        }
+    }
+
+    private static byte[] pngFixtureChunk(String name, byte[] data) throws java.io.IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        var output = new java.io.DataOutputStream(bytes);
+        byte[] type = name.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        output.writeInt(data.length); output.write(type); output.write(data);
+        CRC32 crc = new CRC32(); crc.update(type); crc.update(data);
+        output.writeInt((int) crc.getValue());
+        return bytes.toByteArray();
     }
 
     @Test
@@ -341,22 +458,21 @@ final class ExternalImportAdaptersTest {
     }
 
     @Test
-    void curseForgePreservesCurrentVariantAndRejectsOversizedBlob(@TempDir Path root) throws Exception {
+    void curseForgePreservesCurrentVariantAndRawInvalidBlob(@TempDir Path root) throws Exception {
         Path database = root.resolve("app.db");
         try (Connection connection = sqlite(database); Statement statement = connection.createStatement()) {
             statement.execute("CREATE TABLE minecraft_custom_skins (Id TEXT, Uuid TEXT, Name TEXT, Url TEXT, Data BLOB, AddedAt INTEGER, Variant TEXT NOT NULL DEFAULT 'CLASSIC')");
             insertCurseForgeSkin(connection, "slim", compactUuid(ACCOUNT_ID), "Slim", "", skinPng(0xFF998877), 3, "SLIM");
             insertCurseForgeSkin(connection, "unknown", compactUuid(ACCOUNT_ID), "Unknown", "https://example.com/fallback.png", null, 2, "MYSTERY");
-            insertCurseForgeSkin(connection, "large", compactUuid(ACCOUNT_ID), "Large", "https://example.com/not-used.png", new byte[PngValidator.DEFAULT_MAX_BYTES + 1], 1, "CLASSIC");
+            insertCurseForgeSkin(connection, "large", compactUuid(ACCOUNT_ID), "Large", "https://example.com/not-used.png", new byte[] {1}, 1, "CLASSIC");
         }
 
         ExternalImportBatch batch = new CurseForgeAppImportAdapter().discover(database, context(root));
 
-        assertEquals(2, batch.records().size());
+        assertEquals(3, batch.records().size());
         assertEquals(Optional.of(SkinVariant.SLIM), batch.records().get(0).declaredVariant());
         assertEquals(Optional.empty(), batch.records().get(1).declaredVariant());
         assertTrue(batch.warnings().contains("unknown_model"));
-        assertTrue(batch.warnings().contains("invalid_skin_image"));
     }
 
     @Test
@@ -903,7 +1019,8 @@ final class ExternalImportAdaptersTest {
         var accounts = new LibraryCatalogAdapter(library, new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), () -> ACCOUNT_ID);
         return new ExternalAppearanceImportService(
                 new ExternalImportSourceAdapter(publicImports, sources, validator, adapters),
-                new PreparedCatalogService(sources, accounts), new LibraryExternalImportAdapter(library, accounts));
+                new PreparedCatalogService(sources, accounts, new FileCapeStaging()),
+                new LibraryExternalImportAdapter(library, accounts));
     }
 
 }

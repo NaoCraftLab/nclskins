@@ -92,4 +92,61 @@ final class PreviewAssetLoaderTest {
         assertEquals(2, current.join().orElseThrow()[0]);
         assertEquals(2, loader.requestPreview("catalog:1:skin", Optional::empty).join().orElseThrow()[0]);
     }
+
+    @Test
+    void savedCapePosterIsReadyBeforeWorkerAndRetiredWithAccountEpoch() {
+        var loader = new PreviewAssetLoader(client, worker, DiagnosticSinks.discarding());
+        var poster = new ProviderCapePoster(1, 1, new byte[]{1, 2, 3, (byte) 255},
+                "0".repeat(64), CapePreparationQueue.tryReserveCpu(4));
+        loader.installWarmedProviderPosters(java.util.Map.of("a".repeat(64), poster));
+        var ready = loader.requestProviderPoster("a".repeat(64), Optional::empty);
+        assertTrue(ready.isDone());
+        assertEquals(1, ready.join().orElseThrow().rgba8()[0]);
+        assertTrue(work.isEmpty(), "a saved poster must not wait for a new worker job");
+        loader.invalidateProviderPosters();
+        var missing = loader.requestProviderPoster("a".repeat(64), Optional::empty);
+        work.remove().run();
+        assertTrue(missing.join().isEmpty());
+        loader.close();
+    }
+
+    @Test
+    void invalidatedPosterWorkerCannotRepublishOldAccountOrCorruptAsset() {
+        var loader = new PreviewAssetLoader(client, worker, DiagnosticSinks.discarding());
+        var old = new ProviderCapePoster(1, 1, new byte[]{4, 5, 6, (byte) 255},
+                "1".repeat(64), CapePreparationQueue.tryReserveCpu(4));
+        var pending = loader.requestProviderPoster("a".repeat(64), () -> Optional.of(old));
+        loader.invalidateProviderPoster("a".repeat(64));
+        assertTrue(pending.join().isEmpty());
+        work.remove().run();
+        var fresh = loader.requestProviderPoster("a".repeat(64), Optional::empty);
+        work.remove().run();
+        assertTrue(fresh.join().isEmpty());
+        loader.close();
+        try (var all = CapePreparationQueue.tryReserveCpu(64L * 1024 * 1024)) {
+            assertTrue(all != null, "stale poster completion must release its CPU lease");
+        }
+    }
+
+    @Test
+    void offscreenPosterCacheEvictsOldestWithinItsQuota() {
+        var loader = new PreviewAssetLoader(client, worker, DiagnosticSinks.discarding());
+        for (int index = 0; index < 34; index++) {
+            byte[] rgba = new byte[512 * 256 * 4];
+            rgba[0] = (byte) index;
+            String key = "%064x".formatted(index);
+            var poster = new ProviderCapePoster(512, 256, rgba, key,
+                    CapePreparationQueue.tryReserveCpu(rgba.length));
+            loader.installWarmedProviderPosters(java.util.Map.of(key, poster));
+        }
+        assertTrue(loader.requestProviderPoster("%064x".formatted(33), Optional::empty).isDone());
+        var evicted = loader.requestProviderPoster("%064x".formatted(0), Optional::empty);
+        assertFalse(evicted.isDone(), "old offscreen poster must not stay cached without bound");
+        work.remove().run();
+        assertTrue(evicted.join().isEmpty());
+        loader.close();
+        try (var all = CapePreparationQueue.tryReserveCpu(64L * 1024 * 1024)) {
+            assertTrue(all != null);
+        }
+    }
 }

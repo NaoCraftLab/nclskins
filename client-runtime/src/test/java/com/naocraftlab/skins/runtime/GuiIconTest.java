@@ -20,6 +20,7 @@ final class GuiIconTest {
     @Test
     void registrySealsSemanticPathsAndBaseCanvases() {
         Map<String, Integer> expected = Map.ofEntries(
+                Map.entry("provider/cape/cpm", 32),
                 Map.entry("action/add_cape", 32),
                 Map.entry("action/rename", 16),
                 Map.entry("action/remove", 16),
@@ -61,7 +62,9 @@ final class GuiIconTest {
                 Map.entry("status/compatibility/incompatible", 16),
                 Map.entry("status/provider_capability/write", 16),
                 Map.entry("status/provider_capability/limited_write", 16),
-                Map.entry("status/provider_capability/distribution", 16));
+                Map.entry("status/provider_capability/distribution", 16),
+                Map.entry("status/provider_capability/hd", 16),
+                Map.entry("status/provider_capability/animation", 16));
 
         Map<String, Integer> actual = java.util.Arrays.stream(GuiIcon.values())
                 .collect(Collectors.toUnmodifiableMap(GuiIcon::semanticPath, GuiIcon::baseCanvas));

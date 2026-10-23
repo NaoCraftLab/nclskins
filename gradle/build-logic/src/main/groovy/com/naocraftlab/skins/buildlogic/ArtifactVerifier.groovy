@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.buildlogic
 
 import groovy.json.JsonSlurper
+import org.objectweb.asm.*
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -20,11 +21,14 @@ final class ArtifactVerifier {
     static final List<String> FORBIDDEN_DEV_RUNTIME_PREFIXES = [
             'com/terraformersmc/modmenu/',
             'de/keksuccino/fancymenu/',
+            'com/tom/cpm/',
+            'com/tom/cpl/',
             'de/keksuccino/konkrete/',
             'de/keksuccino/melody/',
             'META-INF/jars/modmenu',
             'net/covers1624/devlogin/',
-            'META-INF/jars/DevLogin'
+            'META-INF/jars/DevLogin',
+            'dev/tr7zw/'
     ]
     static final Pattern FORBIDDEN_CONTENT = Pattern.compile('login' + '\\.microsoftonline\\.com|refresh' + '_token|launcher' + '_accounts\\.json|accounts\\.json')
     static final Pattern FORBIDDEN_MIXIN = Pattern.compile('(?:User|Session|Authlib).*Mixin\\.class$')
@@ -33,7 +37,7 @@ final class ArtifactVerifier {
     static final String GUI_ICONS = 'assets/nclskins/textures/gui/icons/'
     static final Set<String> REQUIRED_GUI_ICONS = ([
         'action/edit.png', 'action/open_account.png', 'action/duplicate.png', 'action/delete.png', 'action/select_folder.png',
-        'action/collapse_all.png', 'action/expand_all.png', 'action/add_provider.png', 'action/add_cape.png',
+        'provider/cape/cpm.png', 'action/collapse_all.png', 'action/expand_all.png', 'action/add_provider.png', 'action/add_cape.png',
         'action/rename.png', 'action/remove.png', 'provider/skin/no_value.png', 'provider/cape/no_value.png', 'action/refresh.png',
         'action/providers.png', 'action/add_look.png', 'editor/tab/appearance.png', 'editor/tab/cape.png',
         'appearance/model/classic.png', 'appearance/model/slim.png', 'appearance/back/cape.png',
@@ -46,7 +50,8 @@ final class ArtifactVerifier {
         'appearance/outer_layer/legs/all_off.png', 'appearance/outer_layer/legs/left_off.png',
         'appearance/outer_layer/legs/right_off.png', 'status/compatibility/extended.png',
         'status/compatibility/incompatible.png', 'status/provider_capability/write.png',
-        'status/provider_capability/limited_write.png', 'status/provider_capability/distribution.png'
+        'status/provider_capability/limited_write.png', 'status/provider_capability/distribution.png',
+        'status/provider_capability/hd.png', 'status/provider_capability/animation.png'
     ] as Set).asImmutable()
     static final Map<String, Map> FORGE_REFMAPS = [
         'forge-1.20.1': [
@@ -58,9 +63,13 @@ final class ArtifactVerifier {
                 'com/naocraftlab/skins/compat/keybindings/mixin/MouseScreenKeybindingMixin': [
                     'onPress(JIII)V': 'Lnet/minecraft/client/MouseHandler;m_91530_(JIII)V'
                 ],
+                'com/naocraftlab/skins/compat/client/cape/mixin/RenderTypeFlagsMixin': [
+                    sortOnUpload: 'f_110393_:Z'
+                ],
                 'com/naocraftlab/skins/compat/client/cape/mixin/CapeLayerTransparencyMixin': [
+                    'Lnet/minecraft/client/renderer/MultiBufferSource;getBuffer(Lnet/minecraft/client/renderer/RenderType;)Lcom/mojang/blaze3d/vertex/VertexConsumer;': 'Lnet/minecraft/client/renderer/MultiBufferSource;m_6299_(Lnet/minecraft/client/renderer/RenderType;)Lcom/mojang/blaze3d/vertex/VertexConsumer;',
                     'render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V': 'Lnet/minecraft/client/renderer/entity/layers/CapeLayer;m_6494_(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V',
-                    'Lnet/minecraft/client/renderer/RenderType;entitySolid(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/client/renderer/RenderType;': 'Lnet/minecraft/client/renderer/RenderType;m_110446_(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/client/renderer/RenderType;'
+                    'Lnet/minecraft/client/renderer/RenderType;entitySolid(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/client/renderer/RenderType;': 'Lnet/minecraft/client/renderer/RenderType;m_110446_(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/client/renderer/RenderType;',
                 ],
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/AccessibilityOptionsScreenMixin': [
                     options: 'Lnet/minecraft/client/gui/screens/AccessibilityOptionsScreen;m_232690_(Lnet/minecraft/client/Options;)[Lnet/minecraft/client/OptionInstance;'
@@ -78,7 +87,7 @@ final class ArtifactVerifier {
                         'upload(Lcom/mojang/blaze3d/platform/NativeImage;)V': 'Lnet/minecraft/client/renderer/texture/HttpTexture;m_118020_(Lcom/mojang/blaze3d/platform/NativeImage;)V'
                 ],
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/HttpTextureSneakyMixin': [
-                    processLegacySkin: 'Lnet/minecraft/client/renderer/texture/HttpTexture;m_118032_(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;'
+                    'processLegacySkin(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;': 'Lnet/minecraft/client/renderer/texture/HttpTexture;m_118032_(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;'
                 ],
                 'com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/mixin/LivingEntityRendererPreviewMixin': [
                         render                                                                                                                                                                                              : 'Lnet/minecraft/client/renderer/entity/LivingEntityRenderer;m_7392_(Lnet/minecraft/world/entity/LivingEntity;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V',
@@ -173,9 +182,11 @@ final class ArtifactVerifier {
             verifyManifest(archive, target, errors)
             verifyForgeRefmap(archive, target, names, errors)
             verifyCapeProjectionArtifact(target, names, errors)
+            verifyWaveyCapesArtifact(target, names, errors)
             verifyMixinHelperPackages(archive, target, names, errors)
             verifyLegacySkinRegistrationSeam(archive, target, names, errors)
             verifyPreAlphaSkinCapture(archive, target, names, errors)
+            verifyCapeEntityResources(archive, target, names, errors)
             verifyMixinExtrasPayload(archive, catalog, target, names, errors)
             verifyMenuPreviewCompatibility(archive, target, errors)
             verifyPreviewRegistration(archive, target, names, errors)
@@ -989,9 +1000,35 @@ final class ArtifactVerifier {
         Map refmap = json(archive, baseline.path.toString(), target, errors)
         if (refmap == null) return
         declared.remove('com/naocraftlab/skins/compat/client/resourcelocation/optifine/mixin/OptifineCapeUtilsMixin')
+        ['AnimationEngineMixin', 'PlayerMixin', 'PlayerProfileMixin', 'ModelDefinitionLoaderMixin',
+         'ModelRenderManagerMixin', 'RenderManagerMixin', 'RedirectRendererMixin',
+         'CapeBranchBoundPlayerMixin', 'CapeBranchRenderStateMixin',
+         'CpmModelDefinitionPartsAccessor', 'CpmModelSkinTextureAccessor', 'CpmModelTextureAccessor', 'CpmModelFileBackupAccessor',
+         'CpmProjectExporterInvoker', 'CpmProjectExporterMixin', 'CpmProjectTemplateMixin', 'CpmProjectTextureMixin',
+         'CpmAnimatedTextureMixin', 'CpmDefinitionResourceMixin'].each { String name ->
+            String mixin = 'com/naocraftlab/skins/compat/cpm/mixin/' + name
+            if (declared.remove(mixin) && !unmappedMixin(read(archive, mixin + '.class'))) {
+                errors.add("${target.id}: CPM upstream binding ${name} must explicitly disable Minecraft remapping")
+            }
+        }
         if (declared != (baseline.mappings as Map).keySet() as Set) errors.add("${target.id}: Forge Mixin declarations differ from refmap baseline")
         if (refmap.mappings != baseline.mappings) errors.add("${target.id}: Forge Mixin production mapping baseline differs")
         if (!(refmap.data instanceof Map) || refmap.data.searge != baseline.mappings) errors.add("${target.id}: Forge Mixin searge mapping baseline differs")
+    }
+
+    static boolean unmappedMixin(byte[] bytes) {
+        boolean[] unmapped = [false] as boolean[]
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+                if (descriptor != 'Lorg/spongepowered/asm/mixin/Mixin;') return null
+                return new AnnotationVisitor(Opcodes.ASM9) {
+                    @Override void visit(String name, Object value) {
+                        if (name == 'remap' && value == false) unmapped[0] = true
+                    }
+                }
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
+        unmapped[0]
     }
 
     static void verifyCapeProjectionArtifact(Map target, List<String> names, List<String> errors) {
@@ -1014,6 +1051,39 @@ final class ArtifactVerifier {
         if (!names.contains('com/naocraftlab/skins/runtime/CapeProjection.class')) {
             errors.add("${target.id}: missing common cape projection")
         }
+    }
+
+    static void verifyWaveyCapesArtifact(Map target, List<String> names, List<String> errors) {
+        List<String> required = [
+                'com/naocraftlab/skins/compat/waveycapes/WaveyCapesIntegration.class',
+                'com/naocraftlab/skins/compat/waveycapes/CapeRenderThread.class',
+                'com/naocraftlab/skins/compat/waveycapes/WaveyCapesSupport.class',
+                'com/naocraftlab/skins/client/TextureUseValidity.class']
+        String implementation = target.capabilities.appearance
+        boolean immediate = implementation in ['player-info-cache', 'skin-lookup']
+        boolean prepared = implementation in ['cape-foil-pipeline-bind-groups', 'cape-foil-combined']
+        if (immediate) {
+            required += ['com/naocraftlab/skins/compat/client/cape/CapePassMaterial.class',
+                    'com/naocraftlab/skins/compat/client/cape/CapturedCapePass.class',
+                    'nclskins.cape-pass-immediate.mixins.json']
+        } else {
+            required += ['com/naocraftlab/skins/compat/waveycapes/WaveyCapePasses.class',
+                    'com/naocraftlab/skins/compat/client/identifier/foil/CapturedCapePass.class',
+                    prepared ? 'nclskins.cape-pass-prepared.mixins.json' : 'nclskins.cape-pass-buffered.mixins.json']
+        }
+        required.each { entry ->
+            if (!names.contains(entry)) errors.add("${target.id}: missing scoped WaveyCapes adapter ${entry}")
+        }
+        if (names.any { entry ->
+            String lower = entry.toLowerCase(Locale.ROOT)
+            entry.startsWith('dev/tr7zw/') || entry.tokenize('/').contains('.agents')
+                    || entry.startsWith('com/naocraftlab/skins/buildlogic/')
+                    || entry == 'META-INF/services/net.neoforged.neoforgespi.transformation.ClassProcessorProvider'
+                    || entry.startsWith('com/naocraftlab/skins/probe/')
+                    || lower.endsWith('.jar') && ['waveycapes', 'transition', 'trender'].any {
+                        lower.tokenize('/').last().startsWith(it)
+                    }
+        }) errors.add("${target.id}: forbidden WaveyCapes dependency or research payload")
     }
 
     static void verifyMixinHelperPackages(ZipFile archive, Map target, List<String> names, List<String> errors) {
@@ -1088,6 +1158,64 @@ final class ArtifactVerifier {
         }
     }
 
+    static boolean capeShaderSupplierReadsCurrentProgram(byte[] bytecode) {
+        boolean current = false
+        new ClassReader(bytecode).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override
+            MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+                if (!name.startsWith('lambda$create$')) return null
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override
+                    void visitFieldInsn(int opcode, String owner, String field, String type) {
+                        if (opcode == Opcodes.GETSTATIC && field == 'shader'
+                                && owner.endsWith('/cape/CapeTranslucentFoilMaterial')) current = true
+                    }
+                }
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
+        current
+    }
+
+    static void verifyCapeEntityResources(ZipFile archive, Map target, List<String> names, List<String> errors) {
+        String implementation = target.capabilities.appearance
+        String helper = implementation.startsWith('cape-foil-')
+                ? 'com/naocraftlab/skins/compat/client/identifier/foil/CapeTranslucentFoilMaterial.class'
+                : 'com/naocraftlab/skins/compat/client/cape/CapeTranslucentFoilMaterial.class'
+        if (!names.contains(helper)) errors.add("${target.id}: missing selected cape entity material")
+        else if (!implementation.startsWith('cape-foil-')) {
+            byte[] bytecode = archive.getInputStream(archive.getEntry(helper)).withCloseable { it.readAllBytes() }
+            if (!capeShaderSupplierReadsCurrentProgram(bytecode)) {
+                errors.add("${target.id}: cached cape material must read the current reload shader")
+            }
+        }
+        String fragment = 'assets/nclskins/shaders/core/cape_entity_foil.fsh'
+        if (!names.contains(fragment)) { errors.add("${target.id}: missing cape entity shader"); return }
+        String body = archive.getInputStream(archive.getEntry(fragment)).withCloseable { it.getText('UTF-8') }
+        if (implementation == 'cape-foil-combined') {
+            if (!body.contains('color.a <= 0.0') || body.contains('color.a = max(color.a, GlintAlpha)')
+                    || !body.contains('texture(GlintSampler, texCoordGlint)')) {
+                errors.add("${target.id}: combined/OIT cape shader must preserve current frame alpha")
+            }
+            return
+        }
+        if (!body.contains('texture(Sampler0, texCoord0)') || !body.contains('discard;')
+                || !body.contains('color.rgb += foil * foil;')
+                || !body.contains('vec3 foil = GlintAlpha * texture(')
+                || !body.contains('TextureMat * vec4(texCoord0, 0.0, 1.0)') || (body =~ /color\.a\s*=/).find()) {
+            errors.add("${target.id}: packaged cape shader loses alpha-aware composition")
+        }
+        if (!implementation.startsWith('cape-foil-')) {
+            String descriptor = 'assets/nclskins/shaders/core/cape_entity_foil.json'
+            if (!names.contains(descriptor)) { errors.add("${target.id}: missing entity ShaderInstance descriptor"); return }
+            Map shader = new JsonSlurper().parse(archive.getInputStream(archive.getEntry(descriptor))) as Map
+            if (shader.vertex != 'rendertype_entity_translucent' || shader.fragment != 'nclskins:cape_entity_foil'
+                    || !(shader.samplers*.name as Set).containsAll(['Sampler0', 'Sampler1', 'Sampler2', 'Sampler3'])
+                    || !(shader.uniforms*.name as Set).containsAll(['TextureMat', 'GlintAlpha'])) {
+                errors.add("${target.id}: cape shader must use native entity vertices and all four samplers")
+            }
+        }
+    }
+
     static void verifyPreAlphaSkinCapture(ZipFile archive, Map target, List<String> names, List<String> errors) {
         String epoch = target.minecraft.epoch.toString()
         boolean fabric = target.loader.id == 'fabric'
@@ -1095,9 +1223,9 @@ final class ArtifactVerifier {
             String leaf = epoch == '1.20.1' ? 'playerinfo' : 'skinlookup'
             String path = "com/naocraftlab/skins/compat/client/resourcelocation/${leaf}/mixin/HttpTextureSneakyMixin.class"
             String targetMethod = fabric ? 'method_22798' : 'processLegacySkin'
-            if (!names.contains(path) || !PreAlphaSkinCaptureVerifier.injectedAtHead(
-                    read(archive, path), 'nclskins$capture', targetMethod)) {
-                errors.add("${target.id}: legacy Sneaky pixels must be captured at processLegacySkin HEAD")
+            if (!names.contains(path) || !PreAlphaSkinCaptureVerifier.wrappedBeforeOriginal(
+                    read(archive, path), targetMethod, 'nclskins$capture')) {
+                errors.add("${target.id}: legacy Sneaky pixels must be captured before original processLegacySkin")
             }
             return
         }
@@ -1116,8 +1244,9 @@ final class ArtifactVerifier {
         boolean intermediary = fabric && epoch == '1.21.11'
         String process = intermediary ? 'method_65863' : 'processLegacySkin'
         String register = intermediary ? 'method_65860' : 'registerTextureInManager'
-        if (!PreAlphaSkinCaptureVerifier.injectedAtHead(bytes, 'nclskins$rememberUnmodifiedSkinPixels', process)
-                || !PreAlphaSkinCaptureVerifier.injectedAtHead(bytes, 'nclskins$captureSkinPixels', register)
+        if (!PreAlphaSkinCaptureVerifier.wrappedBeforeOriginal(bytes, process, 'nclskins$rememberUnmodifiedSkinPixels')
+                || !PreAlphaSkinCaptureVerifier.wrappedBeforeOriginal(bytes, register,
+                        'skinTextureReady', 'nclskins$captureSkinPixels')
                 || !PreAlphaSkinCaptureVerifier.modernStages(bytes)) {
             errors.add("${target.id}: modern Sneaky pixels must be copied before native alpha forcing and published with registered texture identity")
         }

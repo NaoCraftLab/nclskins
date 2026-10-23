@@ -47,12 +47,279 @@ class CapeCatalogTest {
             "nclskins.event.cape.hero.name", "Hero cape",
             "nclskins.event.cape.hero.description", "Hero description");
 
+    @Test
+    void embeddedCpmIsFirstReadOnlyAndInspectionNeverAssigns() {
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 91), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, false, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        var original = model();
+        var catalog = original.withAccessories(capability);
+        assertEquals("nclskins.capes.embedded.description", catalog.collectionInfo("EMBEDDED").orElseThrow());
+        assertEquals("EMBEDDED", catalog.visibleCollections().get(0));
+        var card = catalog.cards().get(0);
+        assertEquals(BuiltinProvider.CPM, card.provider());
+        assertTrue(card.texture().isEmpty());
+        assertTrue(catalog.selected(card));
+        var presented = AccessoryInspection.present(capeEditor(catalog).present(320, 240, 0),
+                capability, true, true, PreviewRenderer.CapeMode.CAPE, false);
+        assertFalse(presented.iconDecorations().stream().anyMatch(icon ->
+                icon.ownerWidgetId().equals("editor.tab.cape") && icon.icon() == GuiIcon.SOURCE_CPM));
+        var inspection = catalog.choose(card);
+        assertEquals(original.offline(), inspection.offline());
+        assertEquals(original.minecraft(), inspection.minecraft());
+        assertEquals(original.providers(), inspection.providers());
+        assertEquals(card, inspection.inspected());
+        var unavailable = catalog.withAccessories(new com.naocraftlab.skins.client.PreviewAccessories(
+                capability.scope(), 1, capability.availability(), false, true,
+                PreviewRenderer.LiveReason.WORLD_REQUIRED));
+        assertEquals("EMBEDDED", unavailable.visibleCollections().get(0));
+        org.junit.jupiter.api.Assertions.assertNull(unavailable.choose(unavailable.cards().get(0)).inspected());
+        var lost = inspection.withAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(
+                PreviewRenderer.LiveReason.WORLD_REQUIRED));
+        assertFalse(lost.visibleCollections().contains("EMBEDDED"));
+        org.junit.jupiter.api.Assertions.assertNull(lost.inspected());
+        assertEquals(original.offline(), lost.offline());
+    }
+
+    @Test
+    void sneakyUsesSharedSearchFilterAndDisclosureWithoutLosingInspection() {
+        var base = model();
+        var providers = new AppearanceProviders(base.providers().skin(), base.providers().cape().enable(BuiltinProvider.SNEAKY));
+        var catalog = new CapeCatalogModel(base.cards(), providers, base.offline(), base.minecraft(), "", 0,
+                Set.of(), null, null, false, "", false)
+                .withSneaky(new PreviewAssets.SneakyResult(PreviewAssets.SneakyStatus.VALUE, new byte[]{1}, "f".repeat(64), false), 1);
+        var card = catalog.cards().stream().filter(value -> value.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+        var inspected = catalog.choose(card);
+        var searched = inspected.withQuery("no matching card");
+        assertFalse(searched.visibleCollections().contains("EMBEDDED"));
+        assertEquals(card, searched.inspected());
+        assertEquals(card.texture(), searched.previewCape());
+        var filtered = inspected.cycleFilter(false);
+        assertTrue(filtered.matches(BuiltinProvider.SNEAKY).isEmpty());
+        assertEquals(card, filtered.inspected());
+        var collapsed = inspected.toggle("EMBEDDED");
+        assertTrue(collapsed.collapsed().contains("EMBEDDED"));
+        assertEquals(card, collapsed.inspected());
+        for (int width : new int[]{200, 320, 854}) {
+            var view = capeEditor(inspected).present(width, 240, 0);
+            assertTrue(view.widget(card.widgetId()).isPresent());
+            assertFalse(view.widgets().stream().anyMatch(widget -> widget.id().startsWith("editor.cape_action.")
+                    && widget.id().contains("SNEAKY")));
+        }
+        assertEquals(providers, inspected.providers());
+    }
+
+    @Test
+    void allDraftProviderOrdersResolveOneAccessoryBundle() {
+        var base = model();
+        var sources = List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT, BuiltinProvider.CPM, BuiltinProvider.SNEAKY);
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 98), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true, PreviewRenderer.LiveReason.AVAILABLE);
+        for (var first : sources) for (var second : sources) for (var third : sources) for (var fourth : sources) {
+            var order = List.of(first, second, third, fourth);
+            if (order.stream().distinct().count() != sources.size()) continue;
+            var channel = base.providers().cape().enable(BuiltinProvider.CPM).enable(BuiltinProvider.SNEAKY);
+            for (int position = 0; position < order.size(); position++) {
+                var provider = order.get(position);
+                while (channel.order().indexOf(provider) > position) channel = channel.move(provider, -1);
+            }
+            var catalog = new CapeCatalogModel(base.cards(), new AppearanceProviders(base.providers().skin(), channel),
+                    new LocalCapeReference(base.offline().entryId(), base.offline().sha256(), false), Optional.of("owned"),
+                    "", 0, Set.of(), null, null, false, "", false).withAccessories(capability)
+                    .withSneaky(new PreviewAssets.SneakyResult(PreviewAssets.SneakyStatus.VALUE, new byte[]{1}, "e".repeat(64), false), 1);
+            assertEquals(first, catalog.defaultBundle().source());
+            assertEquals(first == BuiltinProvider.CPM || first == BuiltinProvider.MINECRAFT, catalog.previewHasElytra());
+            assertEquals(first == BuiltinProvider.CPM, catalog.nativePreview());
+            assertEquals(catalog.defaultBundle().texture(), catalog.previewCape());
+            assertTrue(catalog.selected(catalog.cards().stream().filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow()));
+        }
+    }
+
+    @Test
+    void embeddedPresenceSelectionIsSourceSpecificAfterPartialDisable() {
+        var base = model();
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 97), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true, PreviewRenderer.LiveReason.AVAILABLE);
+        var providers = new AppearanceProviders(base.providers().skin(), base.providers().cape().enable(BuiltinProvider.SNEAKY));
+        var both = new CapeCatalogModel(base.cards(), providers, base.offline(), base.minecraft(), "", 0,
+                Set.of(), null, null, false, "", false).withAccessories(capability)
+                .withSneaky(new PreviewAssets.SneakyResult(PreviewAssets.SneakyStatus.VALUE, new byte[]{1}, "d".repeat(64), false), 1);
+        var cpm = both.cards().get(0);
+        var sneaky = both.cards().get(1);
+        var disabled = both.refreshed(TestFixtures.account(2), providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM),
+                both.offline(), both.minecraft(), List.of());
+        assertFalse(disabled.selected(cpm));
+        assertTrue(disabled.selected(sneaky));
+    }
+
+    @Test
+    void defaultPreviewUsesProviderOrderAndClicksOnlyTemporarilyOverrideIt() {
+        var base = model();
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 92), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        for (boolean cpmFirst : new boolean[]{true, false}) {
+            var cape = cpmFirst ? AppearanceProviders.initial().cape().initializeCpm()
+                    : base.providers().cape().enable(BuiltinProvider.CPM);
+            var catalog = new CapeCatalogModel(base.cards(), new AppearanceProviders(base.providers().skin(), cape),
+                    base.offline(), base.minecraft(), "", 0, Set.of(), null, null, false, "", false)
+                    .withAccessories(capability);
+            var embedded = catalog.cards().get(0);
+            var ordinary = catalog.cards().stream().filter(card -> card.local() != null).findFirst().orElseThrow();
+            assertEquals(cpmFirst, catalog.nativePreview());
+            assertTrue(catalog.selected(embedded));
+            var inspected = cpmFirst ? catalog.choose(ordinary) : catalog.choose(embedded);
+            assertEquals(!cpmFirst, inspected.nativePreview());
+            assertEquals(catalog.offline(), inspected.offline());
+            assertEquals(catalog.minecraft(), inspected.minecraft());
+            assertTrue(inspected.selected(embedded));
+            var reset = inspected.resetInspection();
+            assertEquals(cpmFirst, reset.nativePreview());
+            assertEquals(catalog.providers(), reset.providers());
+            assertEquals(catalog.offline(), reset.offline());
+        }
+    }
+
+    @Test
+    void disabledCpmRemovesEmbeddedCollectionAndRejectsStaleInspection() {
+        var original = model();
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 93), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        var enabled = original.withAccessories(capability);
+        var stale = enabled.cards().get(0);
+        var disabledProviders = new AppearanceProviders(original.providers().skin(),
+                original.providers().cape().disable(BuiltinProvider.CPM));
+        var disabled = enabled.choose(stale).refreshed(TestFixtures.account(1), disabledProviders,
+                original.offline(), original.minecraft(), List.of()).withAccessories(capability);
+        assertFalse(disabled.visibleCollections().contains("EMBEDDED"));
+        assertFalse(disabled.cards().stream().anyMatch(CapeCatalogModel.Card::embedded));
+        org.junit.jupiter.api.Assertions.assertNull(disabled.inspected());
+        assertFalse(disabled.nativePreview());
+        assertFalse(disabled.selected(stale));
+        org.junit.jupiter.api.Assertions.assertNull(disabled.choose(stale).inspected());
+        var view = capeEditor(disabled).present(320, 240, 0);
+        assertFalse(view.widgets().stream().anyMatch(w -> w.id().contains("EMBEDDED") || w.id().equals(stale.widgetId())));
+        assertFalse(view.navigationNodes().stream().anyMatch(n -> n.id().contains("EMBEDDED") || n.id().equals(stale.widgetId())));
+        assertEquals(disabledProviders, disabled.providers());
+        assertEquals(original.offline(), disabled.offline());
+    }
+
+    @Test
+    void sneakyWinnerUsesOneBundleEvenWhenCpmAndWritableCapesHaveElytra() {
+        var base = model();
+        var providers = new AppearanceProviders(base.providers().skin(), base.providers().cape()
+                .enable(BuiltinProvider.SNEAKY).move(BuiltinProvider.SNEAKY, -1)
+                .move(BuiltinProvider.SNEAKY, -1).move(BuiltinProvider.SNEAKY, -1));
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 95), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        var catalog = new CapeCatalogModel(base.cards(), providers,
+                new LocalCapeReference(base.offline().entryId(), base.offline().sha256(), true), base.minecraft(),
+                "", 0, Set.of(), null, null, false, "", false).withAccessories(capability)
+                .withSneaky(new PreviewAssets.SneakyResult(PreviewAssets.SneakyStatus.VALUE,
+                        new byte[]{1}, "c".repeat(64), false), 1);
+        assertEquals(List.of(BuiltinProvider.CPM, BuiltinProvider.SNEAKY), catalog.cards().stream()
+                .filter(CapeCatalogModel.Card::embedded).map(CapeCatalogModel.Card::provider).toList());
+        assertFalse(catalog.nativeChain());
+        assertFalse(catalog.nativePreview());
+        assertEquals(Optional.of("sneaky:preview:1:" + "c".repeat(64)), catalog.previewCape());
+        assertFalse(catalog.previewHasElytra());
+        var inspected = catalog.choose(catalog.cards().get(0));
+        assertTrue(inspected.nativePreview());
+        assertEquals(catalog.offline(), inspected.offline());
+        assertEquals(catalog.minecraft(), inspected.minecraft());
+        assertEquals(catalog.previewCape(), inspected.resetInspection().previewCape());
+    }
+
+    @Test
+    void partialRefreshPreservesSneakyInspectionAndDisclosureButRejectsNewTicket() {
+        var base = model();
+        var providers = new AppearanceProviders(base.providers().skin(), base.providers().cape().enable(BuiltinProvider.SNEAKY));
+        var value = new PreviewAssets.SneakyResult(PreviewAssets.SneakyStatus.VALUE, new byte[]{1}, "c".repeat(64), false);
+        var catalog = new CapeCatalogModel(base.cards(), providers, base.offline(), base.minecraft(),
+                "", 0, Set.of(), null, null, false, "", false).withSneaky(value, 1);
+        var card = catalog.cards().get(0);
+        var inspected = catalog.choose(card).withCollapsed(Set.of("EMBEDDED"));
+        var refreshed = inspected.refreshed(TestFixtures.account(1), providers,
+                inspected.offline(), inspected.minecraft(), List.of());
+        assertEquals(card, refreshed.inspected());
+        assertEquals(Set.of("EMBEDDED"), refreshed.collapsed());
+        assertEquals(card.texture(), refreshed.previewCape());
+        var lostCpm = refreshed.withAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(
+                PreviewRenderer.LiveReason.WORLD_REQUIRED));
+        assertEquals(card, lostCpm.inspected());
+        assertEquals(card, lostCpm.withQuery("no matches").inspected());
+        org.junit.jupiter.api.Assertions.assertNull(lostCpm.withSneaky(value, 2).inspected());
+    }
+
+    @Test
+    void sneakyCardFromAnEarlierTicketCannotReactivateSamePixels() {
+        var base = model();
+        var providers = new AppearanceProviders(base.providers().skin(), base.providers().cape().enable(BuiltinProvider.SNEAKY));
+        var value = new PreviewAssets.SneakyResult(PreviewAssets.SneakyStatus.VALUE, new byte[]{1}, "c".repeat(64), false);
+        var catalog = new CapeCatalogModel(base.cards(), providers, base.offline(), base.minecraft(),
+                "", 0, Set.of(), null, null, false, "", false).withSneaky(value, 1);
+        var stale = catalog.cards().get(0);
+        org.junit.jupiter.api.Assertions.assertNull(catalog.withSneaky(value, 2).choose(stale).inspected());
+    }
+
     private CapeCatalogModel model() {
         var account = TestFixtures.account(1).withPersonalCapes(List.of(
                 new PersonalCapeEntry(local, "b".repeat(64), "Local blue", Instant.EPOCH)));
-        return CapeCatalogModel.open(account, AppearanceProviders.initial(), local, Optional.of("owned"),
+        return CapeCatalogModel.open(account, new AppearanceProviders(AppearanceProviders.initial().skin(),
+                AppearanceProviders.initial().cape().enable(BuiltinProvider.CPM)), local, Optional.of("owned"),
                 List.of(new PresetEditorModel.CapeChoice(Optional.of("owned"), UiMessage.literal("Owned red", UiMessage.Severity.INFO), true)),
                 message -> message.arguments().isEmpty() ? message.key() : message.arguments().get(0).toString());
+    }
+
+    @Test
+    void embeddedComponentsSearchDisclosureClippingAndOrdinaryAssignments() {
+        for (boolean elytra : new boolean[] {false, true}) {
+            var catalog = model().withAccessories(new com.naocraftlab.skins.client.PreviewAccessories(
+                    new UUID(0, 91), 1, com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED,
+                    !elytra, elytra, PreviewRenderer.LiveReason.AVAILABLE));
+            var embedded = catalog.cards().get(0);
+            assertEquals(elytra, embedded.hasElytra());
+            assertEquals(List.of("EMBEDDED"), catalog.withQuery("customizable_player_models").visibleCollections());
+            assertTrue(catalog.withQuery("absent search").visibleCollections().isEmpty());
+            for (int width : new int[] {240, 320, 854}) {
+                var view = capeEditor(catalog).present(width, 240, 0);
+                var card = view.widget(embedded.widgetId()).orElseThrow();
+                var glyph = view.iconDecorations().stream().filter(icon -> icon.ownerWidgetId().equals(card.id())
+                        && icon.icon() == GuiIcon.SOURCE_CPM).findFirst().orElseThrow();
+                assertEquals(card.bounds().y() + (card.bounds().height() - glyph.bounds().height()) / 2,
+                        glyph.bounds().y());
+                assertTrue(card.activationEnabled());
+                assertTrue(view.clipFor(card.id()).isPresent());
+                assertTrue(view.iconDecorations().stream().anyMatch(icon -> icon.ownerWidgetId().equals(card.id())
+                        && icon.icon() == GuiIcon.SOURCE_CPM && icon.idleOpacity() == 0.8F && icon.activeOpacity() == 1.0F));
+                assertFalse(view.widgets().stream().anyMatch(widget -> widget.id().startsWith("editor.cape_action.")
+                        && widget.id().endsWith(embedded.key())));
+                assertFalse(capeEditor(catalog.toggle("EMBEDDED")).present(width, 240, 0)
+                        .widget(embedded.widgetId()).isPresent());
+            }
+            var inspected = catalog.choose(embedded);
+            var ordinary = catalog.cards().stream().filter(card -> card.provider() == BuiltinProvider.OFFLINE
+                    && !card.service()).findFirst().orElseThrow();
+            var assigned = inspected.choose(ordinary);
+            assertEquals(ordinary.local(), assigned.offline());
+            assertFalse(assigned.nativePreview());
+            var none = catalog.cards().stream().filter(card -> card.provider() == BuiltinProvider.OFFLINE
+                    && card.key().equals("none")).findFirst().orElseThrow();
+            var cleared = inspected.choose(none);
+            assertEquals(null, cleared.offline());
+            assertTrue(cleared.previewCape().isEmpty());
+            assertFalse(cleared.nativePreview());
+            assertEquals(catalog.providers(), cleared.providers());
+            for (var state : com.naocraftlab.skins.client.PreviewAccessories.Availability.values()) {
+                if (state == com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED) continue;
+                var unknown = catalog.withAccessories(new com.naocraftlab.skins.client.PreviewAccessories(
+                        new UUID(0, 91), 2, state, false, false,
+                        PreviewRenderer.LiveReason.AVAILABLE));
+                assertFalse(unknown.visibleCollections().contains("EMBEDDED"));
+            }
+        }
     }
 
     private CapeCatalogModel resourceModel() {
@@ -727,8 +994,8 @@ class CapeCatalogTest {
     }
 
     @Test
-    void longFourFormatErrorWrapsInsideNarrowPaneWithoutCoveringSearchOrFooter() {
-        String copy = "Поддерживаются PNG 46×22, 64×32, 92×44 и 128×64 пикселя";
+    void acceptedFormatErrorWrapsAtMaximumScaleWithoutCoveringSearchOrFooter() {
+        String copy = "Поддерживаются PNG и GIF плащей до 2048×1024 на кадр и до 64 кадров, PNG 46×22 и 92×44, JPEG 64×32";
         TextResolver resolver = TextResolver.withLayout(
                 message -> message.key().equals("nclskins.capes.format_error")
                         ? copy : message.key(),

@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.naocraftlab.skins.compat.client.identifier.MinecraftProviderVisibility;
 import com.naocraftlab.skins.runtime.CapeProjection;
+import com.naocraftlab.skins.client.SkinModel;
 import com.mojang.authlib.GameProfile;
 import java.util.function.Supplier;
 import net.minecraft.client.Minecraft;
@@ -75,15 +76,17 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
         ClientAsset.Texture officialElytra = !self && visibility.cape() ? original.elytra() : null;
         CapeProjection.Candidate fallbackOfficial = officialCape == null ? null :
                 new CapeProjection.Candidate(officialCape.texturePath().toString(),
-                        officialElytra == null ? null : officialElytra.texturePath().toString(), officialElytra != null);
+                        (officialElytra == null ? officialCape : officialElytra).texturePath().toString(), true);
         if (!self) CapeProjection.visibleSkin(info.getProfile().id(), info.getProfile().name(),
                 visibility.skin() ? original.body().texturePath().toString() : null);
+        PlayerSkin fallback = self || visibility.skin() ? original : DefaultPlayerSkin.get(info.getProfile());
+        CapeProjection.effectiveSkin(info.getProfile().id(), info.getProfile().id(),
+                fallback.body().texturePath().toString(), fallback.model() == net.minecraft.world.entity.player.PlayerModelType.SLIM ? SkinModel.SLIM : SkinModel.CLASSIC, false);
         CapeProjection.Result resolved = CapeProjection.resolve(info.getProfile().id(),
                 info.getProfile().name(), null, fallbackOfficial, self);
         ClientAsset.Texture cape = nclskins$texture(resolved.capeLocation());
         ClientAsset.Texture elytra = cape == null ? null : nclskins$texture(resolved.hasElytra()
                 ? resolved.elytraLocation() : "minecraft:textures/entity/equipment/wings/elytra.png");
-        PlayerSkin fallback = self || visibility.skin() ? original : DefaultPlayerSkin.get(info.getProfile());
         return new PlayerSkin(fallback.body(), cape, elytra, fallback.model(), original.secure());
     }
 

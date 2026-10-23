@@ -26,6 +26,32 @@ final class PresentationCompositionCharacterizationTest {
         assertEquals(ViewSpec.SurfaceRole.IMPORT, view("external_review").surfaceRole());
     }
 
+    @Test
+    void editorLayerDescriptorsPreserveEveryMaskAndExactGeometry() {
+        for (int bits = 0; bits < 64; bits++) {
+            var mask = OuterLayerVisibility.noneVisible();
+            for (var part : OuterLayerPart.values()) mask = mask.with(part, (bits & (1 << part.ordinal())) != 0);
+            for (int[] size : List.of(new int[]{200, 100}, new int[]{320, 240}, new int[]{854, 480})) {
+                var transform = PreviewInteractionModel.editor(size[1], PreviewRenderer.CapeMode.CAPE)
+                        .withOuterLayerVisibility(mask);
+                var editor = PresetEditorModel.open(TestFixtures.account(0), Optional.empty(), Optional.empty(),
+                        Optional.empty(), UiMessage::key, size[1], PreviewRenderer.CapeMode.CAPE).withPreview(transform);
+                var view = editor.present(size[0], size[1], 0, 0, ViewChromeMetrics.STANDARD, true);
+                int y = 33 + Math.max(0, (Math.max(0, size[1] - 66) - 64) / 2);
+                int index = 0;
+                for (String group : List.of("head", "body", "legs")) {
+                    var widget = view.widget("editor.outer_layer." + group).orElseThrow();
+                    var state = EditorOuterLayerCycle.state(group, mask);
+                    assertEquals(new Bounds(2, y + index++ * 22, 20, 20), widget.bounds());
+                    assertEquals(state.label(), widget.label());
+                    assertEquals(Optional.of(state.icon()), widget.icon());
+                    assertEquals(ViewSpec.Widget.iconOnlyButton(widget.id(), widget.bounds(),
+                            state.label(), state.icon(), true), widget);
+                }
+            }
+        }
+    }
+
     private static ViewSpec view(String screenId) {
         return new ViewSpec(screenId, UiMessage.literal("Fixture", UiMessage.Severity.INFO), 320, 240,
                 List.of(), List.of(), List.of(), List.of(), Optional.empty());
@@ -45,10 +71,10 @@ final class PresentationCompositionCharacterizationTest {
         for (int[] size : List.of(new int[]{320, 240}, new int[]{854, 480}, new int[]{1600, 720}, new int[]{320, 240})) {
             int width = size[0];
             int height = size[1];
-            var before = editor.present(width, height);
+            var before = editor.present(width, height, 0, 0, ViewChromeMetrics.STANDARD, true);
             var providers = presenter.present(AppearanceProviders.initial(), AppearanceProviders.Component.SKIN,
                     false, false, providerTransform, SkinVariant.SLIM, width, height);
-            assertEquals(before, editor.present(width, height));
+            assertEquals(before, editor.present(width, height, 0, 0, ViewChromeMetrics.STANDARD, true));
             for (var view : List.of(before, providers)) {
                 var stage = view.previews().get(0);
                 assertEquals(new Bounds(0, 0, width, height), stage.bounds());

@@ -8,11 +8,10 @@ import net.minecraft.resources.ResourceLocation;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 
-@Mixin(HttpTexture.class)
+@Mixin(value = HttpTexture.class, priority = 2000)
 abstract class HttpTextureSneakyMixin implements RegisteredSkinTexture {
     @Shadow private boolean processLegacySkin;
     @Unique private String nclskins$skinLocation;
@@ -22,8 +21,13 @@ abstract class HttpTextureSneakyMixin implements RegisteredSkinTexture {
         nclskins$skinLocation = location.toString();
     }
 
-    @Inject(method = "processLegacySkin", at = @At("HEAD"), require = 1, expect = 1, allow = 1)
-    private void nclskins$capture(NativeImage image, CallbackInfoReturnable<NativeImage> ci) {
+    @WrapMethod(method = "processLegacySkin(Lcom/mojang/blaze3d/platform/NativeImage;)Lcom/mojang/blaze3d/platform/NativeImage;")
+    private NativeImage nclskins$raw(NativeImage image, Operation<NativeImage> original) {
+        nclskins$capture(image);
+        return original.call(image);
+    }
+
+    private void nclskins$capture(NativeImage image) {
         if (!processLegacySkin || nclskins$skinLocation == null || image == null
                 || image.getWidth() != 64 || image.getHeight() != 64) return;
         int[] argb = new int[64 * 64];

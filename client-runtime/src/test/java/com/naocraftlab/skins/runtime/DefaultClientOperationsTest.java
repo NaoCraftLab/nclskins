@@ -2,7 +2,8 @@ package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.ClientExecutor;
-import com.naocraftlab.skins.client.EncodedTextureLimit;
+import com.naocraftlab.skins.client.AbstractTextureRegistry;
+import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.client.ExpectedAppearance;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.GameSessionTokenUnavailableException;
@@ -38,6 +39,7 @@ import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.png.PngValidationException;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderDelivery;
@@ -93,6 +95,135 @@ final class DefaultClientOperationsTest {
     java.nio.file.Path temporaryDirectory;
 
     @Test
+    void staleCpmConfigurationRevisionCannotUndoCompetingInstanceChoice() throws Exception {
+        var store = storage();
+        var operations = TestClientGraph.operations(tokens(), new StubProfileApi(), store,
+                ignored -> skinPng(0xff224488), fixedClock());
+        operations.useCpmPresence(() -> true);
+        long revision;
+        try (var initialized = operations.initialize()) { revision = initialized.providers().cape().configurationRevision(); }
+        var competitor = TestClientGraph.operations(tokens(), new StubProfileApi(), storage(),
+                ignored -> skinPng(0xff224488), fixedClock());
+        competitor.useCpmPresence(() -> true);
+        competitor.disableProvider(TestFixtures.ACCOUNT_ID, AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        var saved = store.loadAppearance(TestFixtures.ACCOUNT_ID);
+        assertThrows(IOException.class, () -> operations.enableProvider(TestFixtures.ACCOUNT_ID,
+                AppearanceProviders.Component.CAPE, BuiltinProvider.CPM, revision));
+        assertThrows(IOException.class, () -> operations.moveProvider(TestFixtures.ACCOUNT_ID,
+                AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE, 1, revision));
+        assertEquals(saved, store.loadAppearance(TestFixtures.ACCOUNT_ID));
+        operations.enableProvider(TestFixtures.ACCOUNT_ID, AppearanceProviders.Component.CAPE,
+                BuiltinProvider.CPM, saved.providers().cape().configurationRevision());
+        assertTrue(store.loadAppearance(TestFixtures.ACCOUNT_ID).providers().cape().enabled(BuiltinProvider.CPM));
+    }
+
+    @Test
+    void cpmCompetingInitializersPersistOneActivation() throws Exception {
+        var firstStore = storage();
+        var secondStore = storage();
+        var first = TestClientGraph.operations(tokens(), new StubProfileApi(), firstStore,
+                ignored -> skinPng(0xff224488), fixedClock());
+        var second = TestClientGraph.operations(tokens(), new StubProfileApi(), secondStore,
+                ignored -> skinPng(0xff224488), fixedClock());
+        var ready = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        java.util.function.BooleanSupplier presence = () -> {
+            ready.countDown();
+            try { assertTrue(release.await(10, TimeUnit.SECONDS)); }
+            catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+            return true;
+        };
+        first.useCpmPresence(presence);
+        second.useCpmPresence(presence);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var a = workers.submit(first::initialize);
+            var b = workers.submit(second::initialize);
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            release.countDown();
+            try (var initialized = a.get(20, TimeUnit.SECONDS)) {
+                assertNotNull(initialized.providers().cape().cpmConfiguration());
+            }
+            try (var initialized = b.get(20, TimeUnit.SECONDS)) {
+                assertNotNull(initialized.providers().cape().cpmConfiguration());
+            }
+            var saved = firstStore.loadAppearance(TestFixtures.ACCOUNT_ID).providers().cape();
+            assertEquals(1, saved.configurationRevision());
+            assertEquals(1, saved.order().stream().filter(provider -> provider == BuiltinProvider.CPM).count());
+            first.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+            try (var initialized = second.initialize()) {
+                assertFalse(initialized.providers().cape().enabled(BuiltinProvider.CPM));
+            }
+        } finally { release.countDown(); workers.shutdownNow(); }
+    }
+
+    @Test
+    void stalePinnedCpmActionCannotWriteAfterSessionSwitch() throws Exception {
+        var store = storage();
+        var identity = new AtomicReference<>(new GameSessionTokenSource.SessionIdentity(TestFixtures.ACCOUNT_ID, "Player"));
+        var pinned = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var armed = new java.util.concurrent.atomic.AtomicBoolean();
+        GameSessionTokenSource source = new GameSessionTokenSource() {
+            @Override public SessionIdentity currentSession() {
+                var captured = identity.get();
+                if (armed.compareAndSet(true, false)) {
+                    pinned.countDown();
+                    try { assertTrue(release.await(10, TimeUnit.SECONDS)); }
+                    catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+                }
+                return captured;
+            }
+            @Override public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) throws E {
+                return request.execute("scoped-token");
+            }
+        };
+        var operations = TestClientGraph.operations(source, new StubProfileApi(), store,
+                ignored -> skinPng(0xff224488), fixedClock());
+        operations.useCpmPresence(() -> true);
+        operations.initialize().close();
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        var before = store.loadAppearance(TestFixtures.ACCOUNT_ID);
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            armed.set(true);
+            var action = worker.submit(() -> assertThrows(IOException.class, () -> operations.enableProvider(
+                    TestFixtures.ACCOUNT_ID, AppearanceProviders.Component.CAPE, BuiltinProvider.CPM)));
+            assertTrue(pinned.await(10, TimeUnit.SECONDS));
+            identity.set(new GameSessionTokenSource.SessionIdentity(new UUID(0, 92), "Other"));
+            release.countDown();
+            action.get(20, TimeUnit.SECONDS);
+            assertEquals(before, store.loadAppearance(TestFixtures.ACCOUNT_ID));
+        } finally { release.countDown(); worker.shutdownNow(); }
+    }
+
+    @Test
+    void cpmAccountInitializationIsModPresentOnlyAndDoesNotReenableSavedDisable() throws Exception {
+        var store = storage();
+        var graph = TestClientGraph.create(countingTokens(new AtomicInteger()), new StubProfileApi(),
+                store, ignored -> skinPng(0xFF224488), fixedClock());
+        var operations = graph.operations();
+        operations.useCpmPresence(() -> true);
+        var first = operations.initialize();
+        first.close();
+        assertEquals(BuiltinProvider.CPM, first.providers().cape().order().get(0));
+        assertNotNull(first.providers().cape().cpmConfiguration());
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        try (var initialized = operations.initialize()) {
+            assertFalse(initialized.providers().cape().enabled(BuiltinProvider.CPM));
+        }
+        operations.useCpmPresence(() -> false);
+        try (var initialized = operations.initialize()) {
+            assertFalse(initialized.providers().cape().enabled(BuiltinProvider.CPM));
+        }
+        assertNotNull(store.loadAppearance(first.account().accountId()).providers().cape().cpmConfiguration());
+        operations.useCpmPresence(() -> true);
+        try (var initialized = operations.initialize()) {
+            assertFalse(initialized.providers().cape().enabled(BuiltinProvider.CPM));
+        }
+    }
+
+    @Test
     void allScreenEntriesReadLocallyAfterOneStartupCheckAndKeepExplicitRefresh() throws Exception {
         AtomicInteger tokenRequests = new AtomicInteger();
         StubProfileApi api = new StubProfileApi();
@@ -133,7 +264,7 @@ final class DefaultClientOperationsTest {
             assertEquals(0, api.capeActivations.get());
             assertEquals(0, api.capeDeactivations.get());
         }
-        operations.refreshProviders(AppearanceProviders.Component.SKIN);
+        TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.SKIN).appearance().orElseThrow();
         assertEquals(2, api.profileGets.get());
         assertEquals(2, tokenRequests.get());
         runtime.close();
@@ -251,7 +382,7 @@ final class DefaultClientOperationsTest {
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
                 List.of(new RemoteCape("observed-cape", RemoteAssetState.ACTIVE,
                         URI.create("https://textures.minecraft.net/texture/provider-observed-cape"), "Observed")), Set.of());
-        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         ClientOperations.DurableAppearance activated = operations.enableProvider(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
         operations.reconcileAppearance(activated.reconciliationKey(), Trigger.LOCAL_INTENT);
         assertEquals(1, api.skinUploads.get());
@@ -274,7 +405,7 @@ final class DefaultClientOperationsTest {
         com.naocraftlab.skins.core.storage.TextureCache cache =
                 new com.naocraftlab.skins.core.storage.TextureCache(shared);
         Files.write(cache.cachePath(capeUri), png);
-        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         var custom = shared.importCape(TestFixtures.ACCOUNT_ID, "Personal", customCapePng());
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Cape choice", SkinReference.accountDefault(), SkinVariant.CLASSIC,
@@ -283,7 +414,7 @@ final class DefaultClientOperationsTest {
         String key = custom.texture().sha256();
         assertEquals(Optional.of(key), selected.localAppearance().orElseThrow().localCapeCacheKey());
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(), List.of(), Set.of());
-        ClientOperations.DurableAppearance refreshed = operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        ClientOperations.DurableAppearance refreshed = TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         assertTrue(shared.loadOwnedCapes(TestFixtures.ACCOUNT_ID).capes().isEmpty());
         assertNull(refreshed.providers().cape().minecraft().value());
         assertEquals(key, refreshed.providers().cape().offline().value().textureCacheKey());
@@ -307,7 +438,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
-        ClientOperations.DurableAppearance refreshed = operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        ClientOperations.DurableAppearance refreshed = TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         assertEquals(1, api.profileGets.get());
         assertEquals(0, api.skinUploads.get());
         assertEquals(0, api.capeActivations.get());
@@ -317,7 +448,7 @@ final class DefaultClientOperationsTest {
         assertTrue(refreshed.providers().cape().minecraft().known());
         assertFalse(refreshed.providers().skin().minecraft().known());
         operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
-        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         assertEquals(1, api.profileGets.get());
     }
 
@@ -348,7 +479,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = TestClientGraph.operations(
                 countingTokens, api, storage, ignored -> skin.clone(), fixedClock());
         operations.initialize();
-        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(),
                 "Settled",
@@ -613,6 +744,56 @@ final class DefaultClientOperationsTest {
         assertEquals(previousGets + 2, fixture.api().profileGets.get());
         assertEquals(previousActivations, fixture.api().capeActivations.get());
         assertEquals(confirmedCape, fixture.operations().loadProviders().cape().minecraftDelivery());
+    }
+
+    @Test
+    void sneakyInspectionActiveSavePreservesRealPartialDeliveriesAndRecoveryWithoutHttp() throws Exception {
+        byte[] skin = SneakyPreviewPreparationTest.skin(0x7f123456);
+        StubProfileApi api = new StubProfileApi();
+        api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(),
+                List.of(new RemoteCape("cape-owned", RemoteAssetState.INACTIVE,
+                        URI.create("https://textures.minecraft.net/texture/partial-cape"), "Owned cape")), Set.of());
+        api.capeFailure = new ProfileApiException(ApiFailureKind.RATE_LIMITED, "cape rate limited", 429, Duration.ofSeconds(60), false);
+        NclSkinsStorage shared = storage();
+        var graph = TestClientGraph.create(tokens(), api, shared, ignored -> skin.clone(), fixedClock());
+        DefaultClientOperations operations = graph.operations();
+        var initial = operations.initialize();
+        var saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(Optional.empty(), "Sneaky partial",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()), SkinVariant.CLASSIC, SkinVariant.CLASSIC,
+                Optional.of("cape-owned"), Optional.of(skin)));
+        operations.usePreset(saved.presetId());
+        var partial = operations.reconcileAppearance(Trigger.LOCAL_INTENT).orElseThrow();
+        assertEquals(AppearanceSyncStatus.PARTIAL, partial.appearance().syncStatus());
+        operations.enableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        var before = operations.durableAppearance().orElseThrow();
+        int gets = api.profileGets.get(), uploads = api.skinUploads.get(), activations = api.capeActivations.get();
+        ClientExecutor client = new ClientExecutor() {
+            public boolean isClientThread() { return true; }
+            public void execute(Runnable action) { action.run(); }
+        };
+        graph.attachProviders(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
+        try (ClientRuntime runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client,
+                () -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty()), Runnable::run,
+                UiMessage::key, Optional.empty(), DiagnosticSinks.discarding())) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + saved.presetId() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            var draft = runtime.snapshot().editor().orElseThrow();
+            var card = draft.capeCatalog().cards().stream().filter(value -> value.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+            runtime.dispatchWidget(card.widgetId());
+            assertEquals(draft.saveRequest(), runtime.snapshot().editor().orElseThrow().saveRequest());
+            runtime.dispatchWidget("editor.save");
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            assertTrue(runtime.loadCapePreview(card.texture().orElseThrow()).join().isEmpty());
+            var after = operations.durableAppearance().orElseThrow();
+            assertEquals(AppearanceSyncStatus.PARTIAL, after.syncStatus());
+            assertEquals(before.providers().skin().minecraftDelivery(), after.providers().skin().minecraftDelivery());
+            assertEquals(before.providers().cape().minecraftDelivery(), after.providers().cape().minecraftDelivery());
+            assertEquals(gets, api.profileGets.get());
+            assertEquals(uploads, api.skinUploads.get());
+            assertEquals(activations, api.capeActivations.get());
+            assertTrue(runtime.snapshot().recoveryActions().contains(com.naocraftlab.skins.core.service.RecoveryAction.RETRY_CAPE));
+        }
     }
 
     @Test
@@ -1091,7 +1272,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations second = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         second.initialize();
-        second.refreshProviders(AppearanceProviders.Component.CAPE);
+        TestCapeOperations.refreshSource(second, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         LibraryEditorPort.EditorSave edited = second.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.of(saved.presetId()),
                 "Cape only",
@@ -2122,18 +2303,18 @@ final class DefaultClientOperationsTest {
         byte[] valid = customCapePng();
         byte[] invalidHd = skinPng(184, 88, 0xFF557799);
         byte[] importOnlyOptifine = skinPng(46, 22, 0xFF335577);
-        byte[] invalidSquare = skinPng(64, 64, 0xFF335577);
+        byte[] invalidSquare = skinPng(64, 48, 0xFF335577);
         AtomicInteger generation = new AtomicInteger(4);
         AtomicInteger capeLoads = new AtomicInteger();
         AtomicReference<byte[]> active = new AtomicReference<>(valid);
         List<com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor> capes =
                 ResourcePackCapeCatalog.build(List.of(
                         new ResourcePackCapeCatalog.Variant(
-                                "event", "hero", "file/event.zip", 0, "1".repeat(64)),
+                                "event", "hero", "file/event.zip", 0, "event:textures/entity/cape/hero.png"),
                         new ResourcePackCapeCatalog.Variant(
-                                "broken", "hd", "file/event.zip", 0, "2".repeat(64)),
+                                "broken", "hd", "file/event.zip", 0, "broken:textures/entity/cape/hd.png"),
                         new ResourcePackCapeCatalog.Variant(
-                                "broken", "optifine", "file/event.zip", 0, "3".repeat(64))));
+                                "broken", "optifine", "file/event.zip", 0, "broken:textures/entity/cape/optifine.png")));
         SkinCatalogSource source = new SkinCatalogSource() {
             @Override
             public byte[] load(String collectionId, String skinId, SkinModel model) {
@@ -2230,13 +2411,13 @@ final class DefaultClientOperationsTest {
                 "raw46", raw46, "padded64", padded64,
                 "raw92", raw92, "padded128", padded128,
                 "invalid184", skinPng(184, 88, 0xff445566),
-                "invalid256", skinPng(256, 128, 0xff445566),
-                "invalid_square", skinPng(64, 64, 0xff445566),
+                "invalid256", skinPng(256, 127, 0xff445566),
+                "invalid_square", skinPng(64, 48, 0xff445566),
                 "animated", animatedCapePng(padded64),
                 "empty", new byte[0]);
         var variants = sources.keySet().stream().sorted().map(id ->
                 new ResourcePackCapeCatalog.Variant("event", id, "file/event.zip", 0,
-                        id.repeat(4))).toList();
+                        "event:textures/entity/cape/" + id + ".png")).toList();
         AtomicInteger generation = new AtomicInteger(4);
         AtomicReference<Boolean> packActive = new AtomicReference<>(true);
         SkinCatalogSource source = new SkinCatalogSource() {
@@ -2271,9 +2452,11 @@ final class DefaultClientOperationsTest {
                     data.resourceGeneration(), cape.renderSupport()
                             == com.naocraftlab.skins.client.CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA);
             byte[] canonical = validator.projectCape(original).bytes();
-            assertArrayEquals(canonical, operations.loadResourceCapePreview(
-                    TestFixtures.ACCOUNT_ID, selection).orElseThrow());
-            var preview = ImageIO.read(new java.io.ByteArrayInputStream(canonical));
+            byte[] previewPng = operations.loadResourceCapePreview(
+                    TestFixtures.ACCOUNT_ID, selection).orElseThrow();
+            assertEquals(validator.projectCape(canonical).renderSha256(),
+                    validator.projectCape(previewPng).renderSha256());
+            var preview = ImageIO.read(new java.io.ByteArrayInputStream(previewPng));
             assertEquals(id.contains("92") || id.contains("128") ? 128 : 64, preview.getWidth());
             assertEquals(0x80112233, preview.getRGB(id.contains("92") || id.contains("128")
                     ? 44 : 22, 0));
@@ -2355,12 +2538,15 @@ final class DefaultClientOperationsTest {
         var selection = new ClientOperations.ResourceCapeSelection("event", "hero", "Hero",
                 descriptor.contentIdentity(), data.sourceHashes().get(key),
                 data.resourceGeneration(), true);
-        assertArrayEquals(canonical, operations.loadResourceCapePreview(
-                TestFixtures.ACCOUNT_ID, selection).orElseThrow());
+        byte[] preview = operations.loadResourceCapePreview(
+                TestFixtures.ACCOUNT_ID, selection).orElseThrow();
+        assertEquals(new PngValidator().projectCape(canonical).renderSha256(),
+                new PngValidator().projectCape(preview).renderSha256());
         var saved = operations.materializeResourceCape(TestFixtures.ACCOUNT_ID, selection);
         assertTrue(saved.texture().hasElytra());
-        assertArrayEquals(canonical, shared.readCapeAsset(
-                TestFixtures.ACCOUNT_ID, saved.texture().sha256()));
+        assertEquals(new PngValidator().projectCape(preview).renderSha256(),
+                new PngValidator().projectCape(shared.readCapeAsset(
+                        TestFixtures.ACCOUNT_ID, saved.texture().sha256())).renderSha256());
 
         active.set(false);
         generation.incrementAndGet();
@@ -2396,7 +2582,7 @@ final class DefaultClientOperationsTest {
     void personalCapeFileRejectsOverSharedLimitBeforeFormatCheck() throws Exception {
         Path oversized = temporaryDirectory.resolve("oversized.jpeg");
         try (var file = new java.io.RandomAccessFile(oversized.toFile(), "rw")) {
-            file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1L);
+            file.setLength(com.naocraftlab.skins.core.png.CapeAssetDecoder.MAX_ENCODED_BYTES + 1L);
         }
         byte[] png = customCapePng();
         DefaultClientOperations operations = TestClientGraph.operations(
@@ -2405,6 +2591,251 @@ final class DefaultClientOperationsTest {
         PngValidationException failure = assertThrows(PngValidationException.class,
                 () -> operations.importCape(TestFixtures.ACCOUNT_ID, oversized, "Cape"));
         assertEquals(PngValidationException.Reason.OVERSIZED, failure.reason());
+    }
+
+    @Test
+    void importedPreparedCapeIsAvailableToOfflineCardAndPlayerPreview() throws Exception {
+        NclSkinsStorage storage = storage();
+        DefaultClientOperations operations = TestClientGraph.operations(
+                tokens(), new StubProfileApi(), storage,
+                (collection, id, model) -> skinPng(0xff224488), fixedClock());
+        ClientOperations.InitialData initial = operations.initialize();
+        BufferedImage hd = new BufferedImage(1024, 512, BufferedImage.TYPE_INT_ARGB);
+        hd.setRGB(4, 6, 0xff335577);
+        Path hdPath = temporaryDirectory.resolve("personal-hd.png");
+        ImageIO.write(hd, "png", hdPath.toFile());
+        Path animatedPath = temporaryDirectory.resolve("personal-animated.gif");
+        try (var output = new javax.imageio.stream.MemoryCacheImageOutputStream(
+                Files.newOutputStream(animatedPath))) {
+            var writer = ImageIO.getImageWritersByFormatName("gif").next();
+            try {
+                writer.setOutput(output);
+                writer.prepareWriteSequence(null);
+                for (int color : new int[] {0xff224466, 0xff668822}) {
+                    BufferedImage frame = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+                    frame.setRGB(3, 5, color);
+                    writer.writeToSequence(new javax.imageio.IIOImage(frame, null, null), null);
+                }
+                writer.endWriteSequence();
+            } finally { writer.dispose(); }
+        }
+
+        com.naocraftlab.skins.core.model.LocalCapeReference animated = null;
+        List<com.naocraftlab.skins.core.model.LocalCapeReference> importedCapes = new java.util.ArrayList<>();
+        for (Path path : List.of(hdPath, animatedPath)) {
+            var imported = operations.importCape(TestFixtures.ACCOUNT_ID, path, "Personal");
+            importedCapes.add(imported.texture());
+            if (path.equals(animatedPath)) animated = imported.texture();
+            String key = imported.texture().sha256();
+            String capeId = "provider:cape:" + key;
+            var account = storage.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
+            var card = CapeCatalogModel.open(account, operations.loadProviders(), imported.texture(),
+                    Optional.empty(), List.of(), UiMessage::key).cards().stream()
+                    .filter(candidate -> imported.texture().equals(candidate.local()))
+                    .findFirst().orElseThrow();
+            assertEquals(capeId, card.texture().orElseThrow());
+            assertTrue(operations.loadProviderTexture(key, false).isPresent(),
+                    "personal card must load its durable prepared cape");
+            try (ProviderCapePoster poster = operations.loadProviderPoster(key).orElseThrow()) {
+                assertTrue(poster.width() <= 512 && poster.height() <= 256);
+                assertEquals(poster.width() * poster.height() * 4, poster.rgba8().length);
+                if (path.equals(hdPath)) assertEquals(512, poster.width());
+            }
+            assertTrue(operations.loadCapePreview(capeId).isPresent(),
+                    "editor and player preview must load the selected personal cape offline");
+            if (path.equals(hdPath)) {
+                assertEquals(1024, ImageIO.read(new java.io.ByteArrayInputStream(
+                        operations.loadCapePreview(capeId).orElseThrow())).getWidth(),
+                        "the full player fallback must retain original resolution");
+            }
+            ClientExecutor client = new ClientExecutor() {
+                @Override public boolean isClientThread() { return true; }
+                @Override public void execute(Runnable action) { action.run(); }
+            };
+            try (var preview = operations.openPreparedCapePreview(TestFixtures.ACCOUNT_ID,
+                    Optional.empty(), capeId, Runnable::run, client).orElseThrow()) {
+                try (var frame = preview.nextFrame(-1).join().orElseThrow()) {
+                    assertEquals(0, frame.index());
+                }
+            }
+        }
+        var saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
+                Optional.empty(), "Animated offline",
+                SkinReference.asset(initial.account().skinAssets().get(0).id()),
+                SkinVariant.CLASSIC, SkinVariant.CLASSIC, Optional.empty(), Optional.empty())
+                .withOfflineCape(animated));
+        operations.usePreset(saved.presetId());
+        Files.delete(hdPath);
+        Files.delete(animatedPath);
+        NclSkinsStorage restartedStorage = storage();
+        DefaultClientOperations restarted = TestClientGraph.operations(
+                tokens(), new StubProfileApi(), restartedStorage,
+                (collection, id, model) -> skinPng(0xff224488), fixedClock());
+        ClientOperations.InitialData restartedData = restarted.initializeForRuntime();
+        assertTrue(restartedData.providerPosters().containsKey(animated.sha256()),
+                "enabled saved cape must be handed to READY with its bounded first frame");
+        for (var cape : importedCapes) {
+            String capeId = "provider:cape:" + cape.sha256();
+            var card = CapeCatalogModel.open(
+                    restartedStorage.loadOrCreateAccount(TestFixtures.ACCOUNT_ID),
+                    restarted.loadProviders(), cape, Optional.empty(), List.of(), UiMessage::key)
+                    .cards().stream().filter(candidate -> cape.equals(candidate.local()))
+                    .findFirst().orElseThrow();
+            assertEquals(capeId, card.texture().orElseThrow());
+            assertTrue(restarted.loadProviderTexture(cape.sha256(), false).isPresent());
+            try (ProviderCapePoster poster = restarted.loadProviderPoster(cape.sha256()).orElseThrow()) {
+                assertTrue(poster.width() <= 512 && poster.height() <= 256,
+                        "saved card pixels must stay bounded after source deletion and restart");
+            }
+            assertTrue(restarted.loadCapePreview(capeId).isPresent());
+            ClientExecutor previewClient = new ClientExecutor() {
+                @Override public boolean isClientThread() { return true; }
+                @Override public void execute(Runnable action) { action.run(); }
+            };
+            try (var preview = restarted.openPreparedCapePreview(TestFixtures.ACCOUNT_ID,
+                    Optional.empty(), capeId, Runnable::run, previewClient).orElseThrow()) {
+                try (var frame = preview.nextFrame(-1).join().orElseThrow()) {
+                    assertEquals(0, frame.index());
+                }
+            }
+        }
+        restartedData.close();
+        AtomicInteger worldUploads = new AtomicInteger();
+        PlayerAppearanceSink<Object> sink = new PlayerAppearanceSink<>() {
+            @Override public ApplyResult apply(
+                    com.naocraftlab.skins.client.SignedProfileResolver.ResolvedProfile<Object> profile) {
+                return ApplyResult.UPDATED;
+            }
+            @Override public Optional<String> registerCapeFrame(UUID profileId, CapeSource source,
+                    String hash, int width, int height, byte[] rgba8,
+                    com.naocraftlab.skins.client.TextureRegistry.CpuLease lease) {
+                assertEquals(CapeSource.OFFLINE, source);
+                worldUploads.incrementAndGet();
+                lease.close();
+                return Optional.of("nclskins:offline/" + profileId);
+            }
+        };
+        ClientExecutor client = new ClientExecutor() {
+            @Override public boolean isClientThread() { return true; }
+            @Override public void execute(Runnable action) { action.run(); }
+        };
+        try (CapeProviderCoordinator coordinator = CapeTestComposition.create(tokens(), restartedStorage,
+                new com.naocraftlab.skins.core.storage.TextureCache(restartedStorage), sink, client,
+                Runnable::run, CapeTestComposition.optifine(restartedStorage,
+                        (uri, timeout, maxBytes) -> new OptifineCapeReader.Response(404, new byte[0]),
+                        fixedClock()), CapeTestComposition.skinMc(restartedStorage,
+                        (uri, timeout, maxBytes) -> new OptifineCapeReader.Response(404, new byte[0]),
+                        fixedClock()), (account, id) -> Optional.empty())) {
+            coordinator.start();
+            assertEquals(BuiltinProvider.OFFLINE,
+                    CapeProjection.resolveSelf(TestFixtures.ACCOUNT_ID, "Player")
+                            .orElseThrow().provider());
+            assertTrue(worldUploads.get() > 0, "applied personal animation uploads a world frame");
+        }
+        String animatedCapeId = "provider:cape:" + animated.sha256();
+        PreparedCapeAsset metadataOnly = restartedStorage.readPreparedCapeThumbnail(
+                TestFixtures.ACCOUNT_ID, animated.sha256()).orElseThrow();
+        byte[] backingBytes = Files.readAllBytes(metadataOnly.backing());
+        backingBytes[backingBytes.length - 1] ^= 1;
+        Files.write(metadataOnly.backing(), backingBytes);
+        ClientExecutor previewClient = new ClientExecutor() {
+            @Override public boolean isClientThread() { return true; }
+            @Override public void execute(Runnable action) { action.run(); }
+        };
+        assertThrows(IOException.class, () -> restarted.openPreparedCapePreview(
+                TestFixtures.ACCOUNT_ID, Optional.empty(),
+                animatedCapeId, Runnable::run, previewClient),
+                "player preview must validate the entire backing before publishing its first frame");
+        CatalogRead.PreparedCapeLease changedAfterMetadata = new CatalogRead.PreparedCapeLease() {
+            @Override public PreparedCapeAsset asset() { return metadataOnly; }
+            @Override public void close() {}
+        };
+        assertThrows(IOException.class, () -> PreparedCapePreview.open(
+                changedAfterMetadata, Runnable::run, previewClient),
+                "a changed backing cannot pass the metadata-to-pinned-lease handoff");
+    }
+
+    @Test
+    void savedLegacyStaticCapeUsesBoundedProviderPosterWithoutChangingPlayerBytes() throws Exception {
+        NclSkinsStorage storage = storage();
+        DefaultClientOperations operations = TestClientGraph.operations(
+                tokens(), new StubProfileApi(), storage,
+                (collection, id, model) -> skinPng(0xff224488), fixedClock());
+        operations.initialize();
+        var cape = storage.importCape(TestFixtures.ACCOUNT_ID, "Static", customCapePng()).texture();
+        byte[] full = operations.loadProviderTexture(cape.sha256(), false).orElseThrow();
+        try (ProviderCapePoster poster = operations.loadProviderPoster(cape.sha256()).orElseThrow()) {
+            assertEquals(64, poster.width());
+            assertEquals(32, poster.height());
+            assertEquals(64 * 32 * 4, poster.rgba8().length);
+        }
+        assertArrayEquals(full, operations.loadCapePreview("provider:cape:" + cape.sha256()).orElseThrow());
+    }
+
+    @Test
+    void nativeFullCapePreviewsDoNotExhaustCpuAdmissionForRepeatedGifImports() throws Exception {
+        NclSkinsStorage storage = storage();
+        DefaultClientOperations operations = TestClientGraph.operations(tokens(),
+                new StubProfileApi(), storage,
+                (collection, id, model) -> skinPng(0xff224488), fixedClock());
+        operations.initialize();
+        BufferedImage hd = new BufferedImage(256, 128, BufferedImage.TYPE_INT_ARGB);
+        hd.setRGB(3, 5, 0xff123456);
+        Path source = temporaryDirectory.resolve("another-hd.png");
+        assertTrue(ImageIO.write(hd, "png", source.toFile()));
+        AbstractTextureRegistry<byte[]> registry = new AbstractTextureRegistry<>() {
+            @Override protected LoadedTexture<byte[]> load(TextureRegistry.TextureKind kind,
+                    String hash, byte[] png) throws IOException {
+                throw new IOException("Only raw frames are used");
+            }
+            @Override protected LoadedTexture<byte[]> loadRgba(String hash, int width,
+                    int height, byte[] rgba) {
+                return new LoadedTexture<>(new TextureRegistry.TextureHandle("test:" + hash,
+                        width, height), rgba.clone());
+            }
+            @Override protected void unload(byte[] resource) {}
+            @Override protected void checkClientThread() {}
+        };
+        List<TextureRegistry.TextureHandle> handles = new java.util.ArrayList<>();
+        try {
+            for (int frame = 0; frame < 3; frame++) {
+                var lease = CapePreparationQueue.tryReserveCpu(16L * 1024 * 1024);
+                assertNotNull(lease);
+                handles.add(registry.registerRgba(TextureRegistry.TextureKind.IMAGE,
+                        Integer.toHexString(frame + 1).repeat(64), 2048, 1024,
+                        new byte[8 * 1024 * 1024], lease));
+                lease.sourcePixelsReleased(8L * 1024 * 1024);
+            }
+            assertNotNull(operations.importCape(TestFixtures.ACCOUNT_ID, source, "Cape"),
+                    "retained native pixels must not prevent a valid subsequent import");
+            for (int cape = 0; cape < 5; cape++) {
+                Path gif = temporaryDirectory.resolve("repeated-animated-" + cape + ".gif");
+                try (var output = new javax.imageio.stream.MemoryCacheImageOutputStream(
+                        Files.newOutputStream(gif))) {
+                    var writer = ImageIO.getImageWritersByFormatName("gif").next();
+                    try {
+                        writer.setOutput(output);
+                        writer.prepareWriteSequence(null);
+                        for (int frame = 0; frame < 6; frame++) {
+                            BufferedImage image = new BufferedImage(1024, 512, BufferedImage.TYPE_INT_ARGB);
+                            image.setRGB(3 + cape, 5 + frame, 0xff225500 | (cape << 4) | frame);
+                            writer.writeToSequence(new javax.imageio.IIOImage(image, null, null), null);
+                        }
+                        writer.endWriteSequence();
+                    } finally {
+                        writer.dispose();
+                    }
+                }
+                var imported = operations.importCape(TestFixtures.ACCOUNT_ID, gif, "Animated " + cape);
+                assertEquals(6, storage.readPreparedCapeAsset(TestFixtures.ACCOUNT_ID,
+                        imported.texture().sha256()).orElseThrow().frameCount(),
+                        "every distinct GIF must remain prepared after repeated imports");
+            }
+        } finally {
+            handles.forEach(registry::release);
+            registry.close();
+            operations.close();
+        }
     }
 
     @Test
@@ -2431,7 +2862,7 @@ final class DefaultClientOperationsTest {
                 @Override public List<com.naocraftlab.skins.client.CapeCatalogSource.CollectionDescriptor>
                         capeCollections() {
                     return ResourcePackCapeCatalog.build(List.of(new ResourcePackCapeCatalog.Variant(
-                            "event", "hero", "file/event.zip", 0, "1".repeat(64))));
+                            "event", "hero", "file/event.zip", 0, "event:textures/entity/cape/hero.png")));
                 }
                 @Override public byte[] loadCape(String collectionId, String capeId) {
                     Runnable changeNow = duringRead.getAndSet(null);
@@ -2488,7 +2919,7 @@ final class DefaultClientOperationsTest {
                 collectionReads.incrementAndGet();
                 return ResourcePackCapeCatalog.build(List.of(
                         new ResourcePackCapeCatalog.Variant(
-                                "event", "hero", "fixture", 0, "1".repeat(64))));
+                                "event", "hero", "fixture", 0, "event:textures/entity/cape/hero.png")));
             }
 
             @Override
@@ -2506,6 +2937,7 @@ final class DefaultClientOperationsTest {
                 tokens(), new StubProfileApi(), storage(), source, fixedClock());
         operations.initialize();
         operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        int discoveredReads = collectionReads.get();
 
         Path importPath = temporaryDirectory.resolve("same-cape.png");
         Files.write(importPath, valid);
@@ -2517,12 +2949,12 @@ final class DefaultClientOperationsTest {
         operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
         operations.deleteCape(TestFixtures.ACCOUNT_ID, imported.texture().entryId());
         operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
-        assertEquals(1, collectionReads.get());
+        assertEquals(discoveredReads, collectionReads.get());
         assertEquals(1, resourceLoads.get());
 
         generation.incrementAndGet();
         operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
-        assertEquals(2, collectionReads.get());
+        assertTrue(collectionReads.get() > discoveredReads);
         assertEquals(2, resourceLoads.get());
     }
 
@@ -2542,7 +2974,7 @@ final class DefaultClientOperationsTest {
                 collectionReads.incrementAndGet();
                 return ResourcePackCapeCatalog.build(List.of(
                         new ResourcePackCapeCatalog.Variant(
-                                "event", "hero", "fixture", 0, "1".repeat(64))));
+                                "event", "hero", "fixture", 0, "event:textures/entity/cape/hero.png")));
             }
 
             @Override
@@ -2560,9 +2992,11 @@ final class DefaultClientOperationsTest {
         operations.initialize();
 
         operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
+        int afterFirst = collectionReads.get();
         operations.loadCapeEditorData(TestFixtures.ACCOUNT_ID);
 
-        assertEquals(2, collectionReads.get());
+        assertTrue(collectionReads.get() > afterFirst,
+                "an unknown resource generation must rediscover the cape catalog");
     }
 
     @Test
@@ -3706,7 +4140,7 @@ final class DefaultClientOperationsTest {
                 new com.naocraftlab.skins.core.storage.TextureCache(storage).cachePath(changedUri),
                 changedElsewhere);
 
-        ClientOperations.DurableAppearance refreshed = operations.refreshProviders(AppearanceProviders.Component.SKIN);
+        ClientOperations.DurableAppearance refreshed = TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.SKIN).appearance().orElseThrow();
         assertEquals(2, api.profileGets.get());
         assertTrue(refreshed.providers().skin().minecraft().known());
         assertNotEquals(first.appearance().providers().skin().minecraft().value(),
@@ -4850,7 +5284,7 @@ final class DefaultClientOperationsTest {
         DefaultClientOperations operations = TestClientGraph.operations(
                 tokens(), api, shared, ignored -> skin.clone(), fixedClock());
         operations.initialize();
-        operations.refreshProviders(AppearanceProviders.Component.CAPE);
+        TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE).appearance().orElseThrow();
         LibraryEditorPort.EditorSave saved = operations.saveEditor(new LibraryEditorPort.EditorSaveRequest(
                 Optional.empty(), "Cape A", SkinReference.accountDefault(), SkinVariant.CLASSIC,
                 SkinVariant.CLASSIC, Optional.of("cape-a"), Optional.empty()));
@@ -5036,6 +5470,26 @@ final class DefaultClientOperationsTest {
             fixture.releaseMutation().countDown();
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    void minecraftCapesGlintObservationSurvivesDurableDisableAndReenable() throws Exception {
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = TestClientGraph.operations(
+                tokens(), new StubProfileApi(), shared,
+                ignored -> skinPng(0xff123456), fixedClock());
+        operations.retrySession();
+        var cape = new com.naocraftlab.skins.core.provider.ProviderCape(
+                "minecraftcapes:self", "a".repeat(64), true, true);
+        shared.updateAppearance(TestFixtures.ACCOUNT_ID, state -> state.withProviders(
+                new AppearanceProviders(state.providers().skin(), state.providers().cape()
+                        .enable(BuiltinProvider.MINECRAFTCAPES)
+                        .observeMinecraftcapes(cape))));
+        operations.disableProvider(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFTCAPES);
+        var restored = operations.enableProvider(AppearanceProviders.Component.CAPE,
+                BuiltinProvider.MINECRAFTCAPES);
+        assertEquals(cape, restored.providers().cape().minecraftcapes().value());
+        assertTrue(restored.providers().cape().minecraftcapes().value().capeGlint());
     }
 
     @Test
@@ -5610,6 +6064,146 @@ final class DefaultClientOperationsTest {
         assertEquals(0, remoteCalls.get());
     }
 
+    @Test
+    void unavailableRemoteCapeRetainsPendingOfflineSkinUntilPlayerCanAttach() throws Exception {
+        assertUnavailableCapeRetainsOfflineSkin(false);
+    }
+
+    @Test
+    void missingCachedCapeRetainsPendingOfflineSkinUntilPlayerCanAttach() throws Exception {
+        assertUnavailableCapeRetainsOfflineSkin(true);
+    }
+
+    @Test
+    void confirmedOfflineSkinRemainsResolvableAfterStartupProfileTimeout() throws Exception {
+        NclSkinsStorage shared = storage();
+        byte[] pixels = skinPng(0xFF225588);
+        var first = TestClientGraph.operations(
+                tokens(), new StubProfileApi(), shared, ignored -> pixels.clone(), fixedClock());
+        first.initialize();
+        var library = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared);
+        var imported = new LibraryService(library, library, fixedClock()).importSkin(
+                TestFixtures.ACCOUNT_ID, "Offline", SkinVariant.SLIM, SkinSource.IMPORTED, pixels);
+        var saved = first.saveEditor(new LibraryEditorPort.EditorSaveRequest(
+                Optional.empty(), "Offline preset", SkinReference.asset(imported.asset().id()),
+                SkinVariant.SLIM, SkinVariant.SLIM, Optional.empty(), Optional.empty()));
+        first.usePreset(saved.presetId());
+        var unavailable = new StubProfileApi();
+        unavailable.profileFailure = new ProfileApiException(
+                ApiFailureKind.NETWORK, "synthetic profile timeout", null, null, false);
+        var restarted = TestClientGraph.operations(tokens(), unavailable, shared,
+                ignored -> pixels.clone(), fixedClock());
+
+        restarted.warmSession();
+        var appearance = restarted.warmedDurableAppearance().orElseThrow().localAppearance().orElseThrow();
+        assertEquals(Optional.of(imported.asset().sha256()), appearance.localSkinSha256());
+        assertEquals(Optional.of(SkinVariant.SLIM), appearance.skinVariant());
+        var resolver = new DeterministicAppearanceAssetResolver(tokens(), shared,
+                new com.naocraftlab.skins.core.storage.TextureCache(shared), Runnable::run,
+                ignored -> { throw new AssertionError("Offline skin must not use texture HTTP"); });
+        var resolved = resolver.resolve(expectedAppearance(appearance)).join().orElseThrow();
+        assertEquals(imported.asset().sha256(), resolved.platformProfile().skin().orElseThrow().sha256());
+        assertEquals(1, unavailable.profileGets.get());
+        assertEquals(0, unavailable.skinUploads.get());
+        assertEquals(0, unavailable.skinResets.get());
+        assertEquals(0, unavailable.capeActivations.get());
+    }
+
+    private void assertUnavailableCapeRetainsOfflineSkin(boolean cachedCape) throws Exception {
+        NclSkinsStorage shared = storage();
+        shared.initialize();
+        var library = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(shared);
+        byte[] pixels = skinPng(0xFF225588);
+        var imported = new LibraryService(library, library, fixedClock()).importSkin(
+                TestFixtures.ACCOUNT_ID, "Offline", SkinVariant.SLIM, SkinSource.IMPORTED, pixels);
+        String location = "nclskins:test/pending-offline-skin";
+        AtomicInteger transitions = new AtomicInteger();
+        var registration = com.naocraftlab.skins.client.NativePlayerSkinLifecycle.pending(
+                location, transitions::incrementAndGet);
+        AtomicInteger registrations = new AtomicInteger();
+        AtomicInteger restores = new AtomicInteger();
+        AtomicInteger releases = new AtomicInteger();
+        boolean[] playerPresent = {false};
+        var controller = new AppearanceOverrideController<ExpectedAppearance, String>(
+                new AppearanceOverrideController.Strategy<>() {
+                    @Override public ExpectedAppearance expected(ExpectedAppearance value) { return value; }
+                    @Override public List<String> handles(ExpectedAppearance value) { return List.of(location); }
+                    @Override public PlayerAppearanceSink.ApplyResult attach(ExpectedAppearance value) {
+                        return playerPresent[0]
+                                && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(location)
+                                ? PlayerAppearanceSink.ApplyResult.UPDATED
+                                : PlayerAppearanceSink.ApplyResult.DEFERRED;
+                    }
+                    @Override public void restore() { restores.incrementAndGet(); }
+                    @Override public void release(String handle) { releases.incrementAndGet(); }
+                });
+        AtomicInteger remoteCalls = new AtomicInteger();
+        var resolver = new DeterministicAppearanceAssetResolver(
+                tokens(), shared, new com.naocraftlab.skins.core.storage.TextureCache(shared),
+                Runnable::run, uri -> {
+                    remoteCalls.incrementAndGet();
+                    throw new IOException("synthetic unavailable cape");
+                });
+        PlayerAppearanceSink<AcknowledgedAppearanceAssets> sink = new PlayerAppearanceSink<>() {
+            @Override
+            public ApplyResult apply(com.naocraftlab.skins.client.SignedProfileResolver.ResolvedProfile<
+                    AcknowledgedAppearanceAssets> resolved) {
+                assertTrue(resolved.platformProfile().skin().isPresent());
+                assertTrue(resolved.platformProfile().cape().isEmpty());
+                assertEquals(imported.asset().sha256(),
+                        resolved.platformProfile().skin().orElseThrow().sha256());
+                var retained = controller.reattachIfActive(resolved.expectedAppearance());
+                if (retained.isPresent()) return retained.orElseThrow();
+                registrations.incrementAndGet();
+                return controller.install(resolved.expectedAppearance());
+            }
+            @Override public ApplyResult reattach(ExpectedAppearance expected) {
+                return controller.reattach(expected);
+            }
+            @Override public void invalidate(ExpectedAppearance expected) { controller.invalidate(expected); }
+        };
+        ClientExecutor client = new ClientExecutor() {
+            @Override public boolean isClientThread() { return true; }
+            @Override public void execute(Runnable action) { action.run(); }
+        };
+        var coordinator = new AppearanceRefreshCoordinator<>(client, resolver, sink, DiagnosticSinks.discarding());
+        AppliedAppearance appearance = AppliedAppearance.localSkin(
+                TestFixtures.ACCOUNT_ID, imported.asset().sha256(), SkinVariant.SLIM,
+                cachedCape ? Optional.empty() : Optional.of(
+                        URI.create("https://textures.minecraft.net/texture/synthetic-unavailable-cape")),
+                cachedCape ? Optional.of("c".repeat(64)) : Optional.empty());
+        try {
+            assertEquals(AppearanceRefresh.Result.DEFERRED,
+                    coordinator.afterReconnect(appearance, ignored -> {}).join());
+            var installed = controller.active().orElseThrow();
+            assertEquals(Optional.of(imported.asset().sha256()), installed.localSkinSha256());
+            assertEquals(Optional.of(SkinModel.SLIM), installed.skinModel());
+            assertTrue(installed.capeTexture().isEmpty());
+            assertTrue(installed.localCapeCacheKey().isEmpty());
+            assertEquals(0, restores.get());
+            assertEquals(0, releases.get());
+            registration.ready();
+            assertEquals(1, transitions.get());
+            assertEquals(PlayerAppearanceSink.ApplyResult.DEFERRED, controller.reattach(installed));
+            assertEquals(Optional.of(installed), controller.active());
+            playerPresent[0] = true;
+            assertEquals(PlayerAppearanceSink.ApplyResult.UPDATED, controller.reattach(installed));
+            assertEquals(AppearanceRefresh.Result.UPDATED,
+                    coordinator.afterReconnect(appearance, ignored -> {}).join());
+            assertEquals(1, registrations.get());
+            assertEquals(cachedCape ? 0 : 2, remoteCalls.get());
+            assertArrayEquals(pixels, shared.readAsset(imported.asset().sha256()));
+        } finally {
+            coordinator.close();
+            controller.close();
+            registration.retire();
+        }
+        assertEquals(1, restores.get());
+        assertEquals(1, releases.get());
+        assertEquals(AppearanceRefresh.Result.SUPERSEDED,
+                coordinator.afterReconnect(appearance, ignored -> {}).join());
+    }
+
     private SettledActiveFixture settledActiveFixture() throws Exception {
         StubProfileApi api = new StubProfileApi();
         api.profile = new RemoteProfile(
@@ -5846,7 +6440,7 @@ final class DefaultClientOperationsTest {
                 api.profile.capes(), Set.of());
         DefaultClientOperations restarted = TestClientGraph.operations(
                 tokens(), api, shared, source, fixedClock(), ignored -> assigned.clone());
-        var refreshed = restarted.refreshProviders(AppearanceProviders.Component.SKIN);
+        var refreshed = TestCapeOperations.refreshSource(restarted, AppearanceProviders.Component.SKIN).appearance().orElseThrow();
         assertTrue(refreshed.providers().skin().minecraft().known());
         assertNull(refreshed.providers().skin().minecraft().value());
         assertEquals(offline, refreshed.providers().skin().offline());
@@ -5863,6 +6457,147 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
+    void nonMinecraftSelectionsNeverReadOfficialProfileOrPublishItsLibraryAndInventory() throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        AtomicInteger textures = new AtomicInteger();
+        DefaultClientOperations operations = TestClientGraph.operations(tokens(), api, shared, ignored -> skinPng(0xffabcdef), fixedClock(), skin -> {
+            textures.incrementAndGet();
+            return skinPng(0xff123456);
+        });
+        operations.initialize();
+        shared.updateAppearance(TestFixtures.ACCOUNT_ID, state -> state.withProviders(state.providers()
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFTCAPES)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)));
+        api.profile = profileWithActiveAppearance(URI.create("https://textures.minecraft.net/texture/selected-skin"),
+                URI.create("https://textures.minecraft.net/texture/selected-cape"));
+        var account = shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
+        var appearance = shared.loadAppearance(TestFixtures.ACCOUNT_ID);
+        var inventory = shared.loadOwnedCapes(TestFixtures.ACCOUNT_ID);
+        for (var component : AppearanceProviders.Component.values()) {
+            for (var provider : BuiltinProvider.values()) {
+                if (provider == BuiltinProvider.MINECRAFT || component == AppearanceProviders.Component.SKIN && !provider.supportsSkin()) continue;
+                var result = TestCapeOperations.refreshSource(operations, ProviderRefreshRequest.one(component, provider));
+                assertTrue(result.outcomes().get(BuiltinProvider.MINECRAFT) == null);
+                assertEquals(appearance, shared.loadAppearance(TestFixtures.ACCOUNT_ID));
+                assertEquals(account, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID));
+                assertEquals(inventory, shared.loadOwnedCapes(TestFixtures.ACCOUNT_ID));
+            }
+        }
+        assertEquals(0, api.profileGets.get());
+        assertEquals(0, textures.get());
+        assertEquals(0, api.skinUploads.get());
+        assertEquals(0, api.skinResets.get());
+        assertEquals(0, api.capeActivations.get());
+        assertEquals(0, api.capeDeactivations.get());
+    }
+
+    @Test
+    void selectedMinecraftAcceptsOnlyCurrentComponentAndRetainsItsOwnLocalCacheEffects() throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        AtomicInteger skinLoads = new AtomicInteger();
+        URI skinUri = URI.create("https://textures.minecraft.net/texture/scoped-skin");
+        URI capeUri = URI.create("https://textures.minecraft.net/texture/scoped-cape");
+        api.profile = profileWithActiveAppearance(skinUri, capeUri);
+        DefaultClientOperations operations = TestClientGraph.operations(tokens(), api, shared, ignored -> skinPng(0xffabcdef), fixedClock(), skin -> {
+            assertEquals(skinUri, skin.textureUri());
+            skinLoads.incrementAndGet();
+            return skinPng(0xff315b72);
+        });
+        operations.initialize();
+        var before = shared.loadAppearance(TestFixtures.ACCOUNT_ID);
+        var skinResult = TestCapeOperations.refreshSource(operations, ProviderRefreshRequest.one(
+                AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT));
+        assertEquals(1, api.profileGets.get());
+        assertEquals(1, skinLoads.get());
+        assertEquals(before.providers().cape(), skinResult.appearance().orElseThrow().providers().cape());
+        assertEquals(before.providers().skin().offline(), skinResult.appearance().orElseThrow().providers().skin().offline());
+        assertFalse(shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID).skinAssets().isEmpty());
+        var capeResult = TestCapeOperations.refreshSource(operations, ProviderRefreshRequest.one(
+                AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT));
+        assertEquals(2, api.profileGets.get());
+        assertEquals(1, skinLoads.get());
+        assertEquals(skinResult.appearance().orElseThrow().providers().skin(), capeResult.appearance().orElseThrow().providers().skin());
+        assertTrue(shared.loadOwnedCapes(TestFixtures.ACCOUNT_ID).find("cape-active").isPresent());
+        assertEquals(before.intentRevision(), shared.loadAppearance(TestFixtures.ACCOUNT_ID).intentRevision());
+        assertEquals(0, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+    }
+
+    @Test
+    void offlineRefreshDoesNotAdoptOrSignalForeignMinecraftChangeFromRealSharedStorage() throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = TestClientGraph.operations(
+                tokens(), api, shared, ignored -> skinPng(0xff123456), fixedClock());
+        operations.initialize();
+        var first = new com.naocraftlab.skins.core.provider.ProviderCape("first", null, false);
+        var foreign = new com.naocraftlab.skins.core.provider.ProviderCape("foreign", null, true);
+        shared.updateAppearance(TestFixtures.ACCOUNT_ID, state -> state.withProviders(new AppearanceProviders(
+                state.providers().skin(), state.providers().cape().observeMinecraft(first))));
+        var before = shared.loadAppearance(TestFixtures.ACCOUNT_ID).providers();
+        var queue = new java.util.ArrayDeque<Runnable>();
+        AtomicInteger signals = new AtomicInteger();
+        CapeObservationPort capes = (CapeObservationPort) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{CapeObservationPort.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("capeObservationGeneration")) return 0L;
+                    if (method.getName().equals("capeProviderCooldown")) return Optional.empty();
+                    throw new AssertionError("Offline refresh cannot demand " + method.getName());
+                });
+        var readiness = new ServerAppearanceReadiness() {
+            public StartResult start() { signals.incrementAndGet(); return StartResult.STARTED; }
+            public void close() { throw new AssertionError("Readiness is borrowed"); }
+        };
+        try (var service = new ProviderRefreshService(operations, capes, operations, queue::add,
+                Runnable::run, () -> before, Optional.of(readiness))) {
+            var future = service.refresh(ProviderRefreshRequest.one(
+                    AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE), before);
+            shared.updateAppearance(TestFixtures.ACCOUNT_ID, state -> state.withProviders(new AppearanceProviders(
+                    state.providers().skin(), state.providers().cape().observeMinecraft(foreign))));
+            queue.remove().run();
+            var result = future.getNow(null);
+            assertNotNull(result);
+            assertEquals(foreign, result.appearance().orElseThrow().providers().cape().minecraft().value());
+            assertTrue(result.outcomes().isEmpty(), "Durable snapshot is not a confirmed source read");
+            assertEquals(before, result.merge(before, Optional.empty()).orElseThrow().providers());
+            service.initialPublished(result);
+            assertTrue(queue.isEmpty());
+            assertEquals(0, signals.get());
+        }
+        assertEquals(0, api.profileGets.get());
+        assertEquals(0, api.skinUploads.get());
+        assertEquals(0, api.capeActivations.get());
+    }
+
+    @Test
+    void configurationChangedInsideOfficialReadIsSupersededBeforeTextureOrLibraryEffects() throws Exception {
+        StubProfileApi api = new StubProfileApi();
+        NclSkinsStorage shared = storage();
+        AtomicInteger textures = new AtomicInteger();
+        DefaultClientOperations operations = TestClientGraph.operations(tokens(), api, shared, ignored -> skinPng(0xffabcdef), fixedClock(), skin -> {
+            textures.incrementAndGet(); return skinPng(0xff123456);
+        });
+        operations.initialize();
+        var libraryBefore = shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID);
+        api.profile = profileWithActiveAppearance(URI.create("https://textures.minecraft.net/texture/stale-skin"), null);
+        api.beforeProfileGet = () -> {
+            try { shared.updateAppearance(TestFixtures.ACCOUNT_ID, state -> state.withProviders(state.providers()
+                    .disable(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT))); }
+            catch (IOException failure) { throw new IllegalStateException(failure); }
+        };
+        var result = TestCapeOperations.refreshSource(operations, ProviderRefreshRequest.one(
+                AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT));
+        assertTrue(result.superseded());
+        assertEquals(1, api.profileGets.get());
+        assertEquals(0, textures.get());
+        assertEquals(libraryBefore, shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID));
+        assertEquals(0, api.skinUploads.get());
+    }
+
+    @Test
     void providerRefreshReportsOnlyItsAcceptedMinecraftRead() throws Exception {
         StubProfileApi api = new StubProfileApi();
         NclSkinsStorage shared = storage();
@@ -5876,15 +6611,15 @@ final class DefaultClientOperationsTest {
                         state.providers().cape().observeMinecraft(sharedCape))));
         api.rateLimitRemaining = Optional.of(Duration.ofSeconds(30));
         int reads = api.profileGets.get();
-        var limited = operations.refreshProvidersWithObservation(AppearanceProviders.Component.CAPE);
-        assertNull(limited.confirmedMinecraft());
-        assertEquals(sharedCape, limited.appearance().providers().cape().minecraft().value());
+        var limited = TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE);
+        assertNull(limited.outcomes().get(BuiltinProvider.MINECRAFT).observation());
+        assertEquals(sharedCape, limited.appearance().orElseThrow().providers().cape().minecraft().value());
         assertEquals(reads, api.profileGets.get());
         api.rateLimitRemaining = Optional.empty();
-        var accepted = operations.refreshProvidersWithObservation(AppearanceProviders.Component.CAPE);
+        var accepted = TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.CAPE);
         assertEquals(com.naocraftlab.skins.core.provider.ProviderObservation.observed(null),
-                accepted.confirmedMinecraft());
-        assertNull(accepted.appearance().providers().cape().minecraft().value());
+                accepted.outcomes().get(BuiltinProvider.MINECRAFT).observation());
+        assertNull(accepted.appearance().orElseThrow().providers().cape().minecraft().value());
         assertTrue(api.profileGets.get() > reads);
     }
 
@@ -5906,13 +6641,45 @@ final class DefaultClientOperationsTest {
         assertNull(operations.loadProviders().skin().minecraft().value());
         assertNull(operations.loadProviders().skin().offline().value());
         api.profile = profileWithActiveAppearance(skinUri, null);
-        var custom = operations.refreshProviders(AppearanceProviders.Component.SKIN);
+        var custom = TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.SKIN).appearance().orElseThrow();
         assertNotNull(custom.providers().skin().minecraft().value());
         api.profile = new RemoteProfile(TestFixtures.ACCOUNT_ID, "Player", List.of(), List.of(), Set.of(), false);
-        var malformed = operations.refreshProviders(AppearanceProviders.Component.SKIN);
+        var malformed = TestCapeOperations.refreshSource(operations, AppearanceProviders.Component.SKIN).appearance().orElseThrow();
         assertEquals(custom.providers().skin().minecraft(), malformed.providers().skin().minecraft());
         assertEquals(0, api.skinUploads.get());
         assertEquals(0, api.skinResets.get());
+    }
+
+    @Test
+    void runtimeInitializationHandsOffOnlyEnabledSavedSkinBytes() throws Exception {
+        NclSkinsStorage shared = storage();
+        DefaultClientOperations operations = TestClientGraph.operations(
+                tokens(), new StubProfileApi(), shared,
+                (collection, name, model) -> skinPng(0xff123456), fixedClock());
+        operations.retrySession();
+        byte[] skinBytes = skinPng(0xff445566);
+        String hash = shared.storeAsset(skinBytes).sha256();
+        shared.updateAppearance(TestFixtures.ACCOUNT_ID, current ->
+                new com.naocraftlab.skins.core.model.AccountAppearanceState(
+                        current.schemaVersion(), current.accountId(), 1,
+                        current.activePresetId(), hash, SkinVariant.CLASSIC,
+                        current.capeId(), OuterLayerVisibility.allVisible(),
+                        AppearanceSyncStatus.LOCAL_ONLY, current.settledRevision(),
+                        current.updatedAt(),
+                        new AppearanceProviders(current.providers().skin().select(1,
+                                new ProviderSkin(hash, SkinVariant.CLASSIC)),
+                                current.providers().cape())));
+        ClientOperations.InitialData enabled = operations.initializeForRuntime();
+        assertArrayEquals(skinBytes, enabled.savedSkinPreviews().get("provider:skin:" + hash));
+        enabled.close();
+
+        shared.updateAppearance(TestFixtures.ACCOUNT_ID, current -> current.withProviders(
+                new AppearanceProviders(current.providers().skin().disable(BuiltinProvider.OFFLINE),
+                        current.providers().cape())));
+        ClientOperations.InitialData disabled = operations.initializeForRuntime();
+        assertTrue(disabled.savedSkinPreviews().isEmpty(),
+                "a retained disabled skin observation must not load on the enabled cape channel");
+        disabled.close();
     }
 
     @Test

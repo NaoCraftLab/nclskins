@@ -183,20 +183,39 @@ public final class SafeRemotePngFetcher {
     }
 
     public NormalizedSkin fetchSkin(String input) throws PublicSkinImportException {
+        return (NormalizedSkin) acquire(input, false);
+    }
+
+    public com.naocraftlab.skins.client.ImportInput fetchInput(String input) throws PublicSkinImportException {
+        return (com.naocraftlab.skins.client.ImportInput) acquire(input, true);
+    }
+
+    private Object acquire(String input, boolean formats) throws PublicSkinImportException {
         long deadline = saturatedAdd(nanoTime.getAsLong(), timeout.toNanos());
         ValidatedUri validated = validateBeforeDeadline(input, deadline);
         Set<String> visited = new HashSet<>();
         visited.add(loopKey(validated));
         boolean reachedHttps = isHttps(validated.uri());
         int redirects = 0;
+        java.nio.file.Path directory = null;
+        com.naocraftlab.skins.client.ImportInput captured = null;
         try {
+            if (!formats) directory = java.nio.file.Files.createTempDirectory("nclskins-public-image-");
+            java.nio.file.Path staged = formats ? null : directory.resolve("source.png");
             while (true) {
-                PinnedHttpsTransport.Response response = transport.get(
+                PinnedHttpsTransport.FileResponse response;
+                if (formats) {
+                    var streamed = transport.getStreaming(validated.uri(), validated.asciiHost(), validated.addresses(),
+                            remaining(deadline), validator.maxBytes(), com.naocraftlab.skins.client.FrozenImportInput::capture);
+                    captured = streamed.body();
+                    response = new PinnedHttpsTransport.FileResponse(streamed.statusCode(), streamed.uri(), streamed.headers(),
+                            captured == null ? 0 : captured.size());
+                } else response = transport.getToFile(
                         validated.uri(),
                         validated.asciiHost(),
                         validated.addresses(),
                         remaining(deadline),
-                        validator.maxBytes());
+                        validator.maxBytes(), staged);
                 if (!validated.uri().equals(response.uri())) {
                     throw networkFailure();
                 }
@@ -231,13 +250,19 @@ public final class SafeRemotePngFetcher {
                 String contentType = response.firstHeader("Content-Type")
                         .toLowerCase(Locale.ROOT);
                 if ((!encoding.isEmpty() && !"identity".equalsIgnoreCase(encoding))
-                        || contentType.startsWith("text/") || contentType.contains("html")) {
+                        || !formats && (contentType.startsWith("text/") || contentType.contains("html"))) {
                     throw new PublicSkinImportException(
                             PublicSkinImportException.Code.INVALID_PNG,
                             "Remote response is not a PNG.");
                 }
+                if (formats) {
+                    ensureBeforeDeadline(deadline);
+                    var result = captured;
+                    captured = null;
+                    return result;
+                }
                 try {
-                    NormalizedSkin normalized = validator.normalizeSkinWithVariant(response.body());
+                    NormalizedSkin normalized = new com.naocraftlab.skins.core.png.PngFileReader(validator).projectImport(staged);
                     ensureBeforeDeadline(deadline);
                     return normalized;
                 } catch (PngValidationException exception) {
@@ -253,7 +278,21 @@ public final class SafeRemotePngFetcher {
                     PublicSkinImportException.Code.OVERSIZED,
                     "Remote skin file exceeds the size limit.");
         } catch (IOException exception) {
+            for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+                if (cause instanceof com.naocraftlab.skins.client.FrozenImportInput.Rejected rejected)
+                    throw new PublicSkinImportException(rejected.reason() == com.naocraftlab.skins.client.FrozenImportInput.Rejection.LIMIT
+                            ? PublicSkinImportException.Code.OVERSIZED : PublicSkinImportException.Code.INVALID_PNG,
+                            "Remote input was rejected.");
+            }
             throw networkFailure();
+        } finally {
+            if (captured != null) try { captured.close(); } catch (IOException ignored) { }
+            if (directory != null) {
+                try {
+                    java.nio.file.Files.deleteIfExists(directory.resolve("source.png"));
+                    java.nio.file.Files.deleteIfExists(directory);
+                } catch (IOException ignored) { }
+            }
         }
     }
 
@@ -321,7 +360,7 @@ public final class SafeRemotePngFetcher {
         }
     }
 
-    private static URI redirectTarget(URI source, PinnedHttpsTransport.Response response)
+    private static URI redirectTarget(URI source, PinnedHttpsTransport.FileResponse response)
             throws PublicSkinImportException {
         List<String> locations = response.headers().getOrDefault("location", List.of());
         if (locations.size() != 1 || locations.get(0).isBlank()) {

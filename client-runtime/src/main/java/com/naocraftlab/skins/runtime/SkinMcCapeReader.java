@@ -4,12 +4,15 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import com.naocraftlab.skins.core.api.PublicHttpsImageFetcher;
 import com.naocraftlab.skins.core.png.PngValidationException;
-import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.CapeAssetDecoder;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -30,25 +33,36 @@ public final class SkinMcCapeReader implements CapeObservationReader {
     private static final int MAX_JSON_ALIASES = 16;
     private final OptifineCapeReader.Transport transport;
     private final ImageTransport imageTransport;
-    private final PngValidator validator;
+    private final CapeAssetDecoder decoder;
+    private final Path scratch;
     private final ProviderCooldown cooldown;
     private final SkinMcFreshnessQuery freshness;
     private final LongSupplier nanoTime;
     private final AtomicLong cooldownEpoch = new AtomicLong();
 
-    public SkinMcCapeReader() {
-        this(new OptifineCapeReader.HttpTransport(), new PngValidator(), Clock.systemUTC());
+    public SkinMcCapeReader(Path scratch) {
+        this(new OptifineCapeReader.HttpTransport(), new SafeImageTransport(),
+                new CapeAssetDecoder(), Objects.requireNonNull(scratch, "scratch"),
+                Clock.systemUTC(), System::nanoTime);
     }
 
-    SkinMcCapeReader(OptifineCapeReader.Transport transport, PngValidator validator, Clock clock) {
-        this(transport, new SafeImageTransport(), validator, clock, System::nanoTime);
+    SkinMcCapeReader(OptifineCapeReader.Transport transport, Path scratch, Clock clock) {
+        this(transport, new SafeImageTransport(), new CapeAssetDecoder(), scratch,
+                clock, System::nanoTime);
     }
 
     SkinMcCapeReader(OptifineCapeReader.Transport transport, ImageTransport imageTransport,
-            PngValidator validator, Clock clock, LongSupplier nanoTime) {
+            Path scratch, Clock clock, LongSupplier nanoTime) {
+        this(transport, imageTransport, new CapeAssetDecoder(), scratch, clock, nanoTime);
+    }
+
+    SkinMcCapeReader(OptifineCapeReader.Transport transport, ImageTransport imageTransport,
+            CapeAssetDecoder decoder, Path scratch,
+            Clock clock, LongSupplier nanoTime) {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.imageTransport = Objects.requireNonNull(imageTransport, "imageTransport");
-        this.validator = Objects.requireNonNull(validator, "validator");
+        this.decoder = Objects.requireNonNull(decoder, "decoder");
+        this.scratch = Objects.requireNonNull(scratch, "scratch");
         this.cooldown = new ProviderCooldown(clock);
         this.freshness = new SkinMcFreshnessQuery(clock);
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
@@ -72,23 +86,38 @@ public final class SkinMcCapeReader implements CapeObservationReader {
             return Outcome.failure(Failure.RATE_LIMITED);
         }
         long started = nanoTime.getAsLong();
-        URI canonical = SkinMcFreshnessQuery.canonical(profileId);
+        Path encoded = null;
+        Path backing = null;
+        boolean retainBacking = false;
         try {
+            Files.createDirectories(scratch);
+            encoded = Files.createTempFile(scratch, "skinmc-cape-", ".encoded");
+            Files.delete(encoded);
+            URI canonical = SkinMcFreshnessQuery.canonical(profileId);
             long nonce = freshness.next();
             URI wire = SkinMcFreshnessQuery.wire(profileId, canonical, nonce);
-            OptifineCapeReader.Response first = transport.getSkinMcCape(profileId, canonical, wire,
-                    nonce, REQUEST_TIMEOUT, validator.maxBytes());
+            OptifineCapeReader.Response first = transport.getSkinMcCapeToFile(profileId,
+                    canonical, wire, nonce, REQUEST_TIMEOUT, CapeAssetDecoder.MAX_ENCODED_BYTES, encoded);
+            if (cooldownEpoch.get() != epoch) return Outcome.failure(Failure.RATE_LIMITED);
             observeCooldown(epoch, first);
             if (first.status() == 429) return Outcome.failure(Failure.RATE_LIMITED);
             if (first.status() == 204 || first.status() == 404) return Outcome.absent();
             if (first.status() != 200) return Outcome.failure(Failure.HTTP);
             byte[] body = first.bytes();
-            if (body.length > validator.maxBytes()) return Outcome.failure(Failure.OVERSIZED);
-            if (imageSignature(body)) {
+            if (Files.exists(encoded) || imageSignature(body)) {
+                if (!Files.exists(encoded)) Files.write(encoded, body);
+                if (Files.size(encoded) > CapeAssetDecoder.MAX_ENCODED_BYTES) {
+                    return Outcome.failure(Failure.OVERSIZED);
+                }
                 if (remaining(started).isEmpty()) return Outcome.failure(Failure.NETWORK);
-                PngValidator.CapePng cape = validator.projectImportedCape(body);
-                return remaining(started).isPresent() ? Outcome.present(cape)
-                        : Outcome.failure(Failure.NETWORK);
+                backing = Files.createTempFile(scratch, "skinmc-cape-", ".frames");
+                Files.delete(backing);
+                PreparedCapeAsset asset = CapePreparationQueue.decode(decoder::prepare, encoded, backing);
+                if (remaining(started).isEmpty() || cooldownEpoch.get() != epoch) {
+                    return Outcome.failure(Failure.NETWORK);
+                }
+                retainBacking = true;
+                return Outcome.present(asset);
             }
             if (body.length == 0 || body.length > MAX_JSON_BYTES) {
                 return Outcome.failure(Failure.OVERSIZED);
@@ -100,24 +129,33 @@ public final class SkinMcCapeReader implements CapeObservationReader {
             if (remaining.isEmpty()) return Outcome.failure(Failure.NETWORK);
             Duration hopTimeout = remaining.get().compareTo(REQUEST_TIMEOUT) < 0
                     ? remaining.get() : REQUEST_TIMEOUT;
-            int aggregateLeft = validator.maxBytes() + MAX_JSON_BYTES - body.length;
+            long aggregateLeft = CapeAssetDecoder.MAX_ENCODED_BYTES + MAX_JSON_BYTES - body.length;
             if (cooldownEpoch.get() != epoch || cooldown.remaining().isPresent()) {
                 return Outcome.failure(Failure.RATE_LIMITED);
             }
-            OptifineCapeReader.Response second = imageTransport.get(image, hopTimeout,
-                    Math.min(validator.maxBytes(), aggregateLeft));
-            observeCooldown(epoch, second);
+            OptifineCapeReader.FileResponse second = imageTransport.getToFile(image, hopTimeout,
+                    Math.min(CapeAssetDecoder.MAX_ENCODED_BYTES, aggregateLeft), encoded);
+            if (cooldownEpoch.get() != epoch) return Outcome.failure(Failure.RATE_LIMITED);
+            observeCooldown(epoch, new OptifineCapeReader.Response(second.status(),
+                    new byte[0], second.headers()));
             if (second.status() == 429) return Outcome.failure(Failure.RATE_LIMITED);
             if (second.status() != 200) return Outcome.failure(Failure.HTTP);
-            byte[] imageBytes = second.bytes();
-            if (imageBytes.length > validator.maxBytes() || imageBytes.length > aggregateLeft) {
+            if (!Files.exists(encoded)) return Outcome.failure(Failure.INVALID_IMAGE);
+            if (second.bytes() > aggregateLeft || second.bytes() > CapeAssetDecoder.MAX_ENCODED_BYTES
+                    || Files.size(encoded) > aggregateLeft
+                    || Files.size(encoded) > CapeAssetDecoder.MAX_ENCODED_BYTES) {
                 return Outcome.failure(Failure.OVERSIZED);
             }
             if (remaining(started).isEmpty()) return Outcome.failure(Failure.NETWORK);
-            if (!imageSignature(imageBytes)) return Outcome.failure(Failure.INVALID_IMAGE);
-            PngValidator.CapePng cape = validator.projectImportedCape(imageBytes);
-            return remaining(started).isPresent() ? Outcome.present(cape)
-                    : Outcome.failure(Failure.NETWORK);
+            if (!imageSignature(encoded)) return Outcome.failure(Failure.INVALID_IMAGE);
+            backing = Files.createTempFile(scratch, "skinmc-cape-", ".frames");
+            Files.delete(backing);
+            PreparedCapeAsset asset = CapePreparationQueue.decode(decoder::prepare, encoded, backing);
+            if (remaining(started).isEmpty() || cooldownEpoch.get() != epoch) {
+                return Outcome.failure(Failure.NETWORK);
+            }
+            retainBacking = true;
+            return Outcome.present(asset);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return Outcome.failure(Failure.INTERRUPTED);
@@ -126,10 +164,13 @@ public final class SkinMcCapeReader implements CapeObservationReader {
             return Outcome.failure(Failure.OVERSIZED);
         } catch (PublicHttpsImageFetcher.UnsafeImageUriException invalid) {
             return Outcome.failure(Failure.UNVERIFIED_IMAGE_HOST);
-        } catch (IOException failed) {
-            return Outcome.failure(Failure.NETWORK);
         } catch (PngValidationException invalid) {
             return Outcome.failure(Failure.INVALID_IMAGE);
+        } catch (IOException failed) {
+            return Outcome.failure(Failure.NETWORK);
+        } finally {
+            if (encoded != null) try { Files.deleteIfExists(encoded); } catch (IOException ignored) {}
+            if (!retainBacking && backing != null) try { Files.deleteIfExists(backing); } catch (IOException ignored) {}
         }
     }
 
@@ -144,7 +185,16 @@ public final class SkinMcCapeReader implements CapeObservationReader {
                 && bytes[2] == 'N' && bytes[3] == 'G' && bytes[4] == 13
                 && bytes[5] == 10 && bytes[6] == 26 && bytes[7] == 10
                 || bytes.length >= 3 && bytes[0] == (byte) 0xff
-                && bytes[1] == (byte) 0xd8 && bytes[2] == (byte) 0xff;
+                && bytes[1] == (byte) 0xd8 && bytes[2] == (byte) 0xff
+                || bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I'
+                && bytes[2] == 'F' && bytes[3] == '8'
+                && (bytes[4] == '7' || bytes[4] == '9') && bytes[5] == 'a';
+    }
+
+    private static boolean imageSignature(Path path) throws IOException {
+        try (var input = Files.newInputStream(path)) {
+            return imageSignature(input.readNBytes(8));
+        }
     }
 
     private static boolean jsonCandidate(byte[] body) {
@@ -221,25 +271,31 @@ public final class SkinMcCapeReader implements CapeObservationReader {
 
     @FunctionalInterface
     interface ImageTransport {
-        OptifineCapeReader.Response get(URI uri, Duration timeout, int maxBytes)
-                throws IOException, InterruptedException;
+        OptifineCapeReader.FileResponse getToFile(URI uri, Duration timeout,
+                long maxBytes, Path destination) throws IOException, InterruptedException;
     }
 
     private static final class SafeImageTransport implements ImageTransport {
         private final PublicHttpsImageFetcher fetcher = new PublicHttpsImageFetcher();
 
         @Override
-        public OptifineCapeReader.Response get(URI uri, Duration timeout, int maxBytes)
-                throws IOException {
-            PublicHttpsImageFetcher.Response response = fetcher.get(uri, timeout, maxBytes);
-            return new OptifineCapeReader.Response(response.status(), response.bytes(), response.headers());
+        public OptifineCapeReader.FileResponse getToFile(URI uri, Duration timeout,
+                long maxBytes, Path destination) throws IOException {
+            PublicHttpsImageFetcher.FileResponse response = fetcher.getToFile(
+                    uri, timeout, maxBytes, destination);
+            return new OptifineCapeReader.FileResponse(response.status(), response.bytes(),
+                    response.headers());
         }
     }
 
     public CapeObservationReader.Result observe(UUID account, String canonicalName, long epoch) {
         var result = read(account, epoch);
         return new CapeObservationReader.Result(CapeObservationReader.Kind.valueOf(result.kind().name()),
-                result.cape(), result.failure() == Failure.RATE_LIMITED);
+                null, result.asset(), result.failure() == Failure.RATE_LIMITED);
+    }
+
+    @Override public void discard(PreparedCapeAsset asset) throws IOException {
+        Files.deleteIfExists(asset.backing());
     }
 
     public enum Failure {
@@ -249,17 +305,19 @@ public final class SkinMcCapeReader implements CapeObservationReader {
 
     public enum Kind { PRESENT, ABSENT, FAILURE }
 
-    public record Outcome(Kind kind, PngValidator.CapePng cape, Failure failure) {
+    public record Outcome(Kind kind, PreparedCapeAsset asset,
+            Failure failure) {
         public Outcome {
             Objects.requireNonNull(kind, "kind");
-            if (kind == Kind.PRESENT && cape == null || kind != Kind.PRESENT && cape != null
+            if (kind == Kind.PRESENT && asset == null
+                    || kind != Kind.PRESENT && asset != null
                     || kind == Kind.FAILURE && failure == null || kind != Kind.FAILURE && failure != null) {
                 throw new IllegalArgumentException("Invalid SkinMC outcome");
             }
         }
 
-        public static Outcome present(PngValidator.CapePng cape) {
-            return new Outcome(Kind.PRESENT, Objects.requireNonNull(cape, "cape"), null);
+        public static Outcome present(PreparedCapeAsset asset) {
+            return new Outcome(Kind.PRESENT, Objects.requireNonNull(asset, "asset"), null);
         }
 
         public static Outcome absent() { return new Outcome(Kind.ABSENT, null, null); }

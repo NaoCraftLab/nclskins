@@ -29,7 +29,7 @@ public final class AvatarPreviewScope implements AutoCloseable {
             PlayerSkin skin,
             ItemStack chestEquipment) {
         this.player = player;
-        playerScope = new ExactLocalPlayerScope(player);
+        playerScope = new ExactLocalPlayerScope(player, appearance);
         this.appearance = appearance;
         this.skin = skin;
         this.chestEquipment = chestEquipment;
@@ -98,6 +98,8 @@ public final class AvatarPreviewScope implements AutoCloseable {
             case CAPE -> throw new IllegalArgumentException("cape is not an outer-layer part");
         };
     }
+
+    public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return playerScope.body(); }
 
     @Override
     public void close() {

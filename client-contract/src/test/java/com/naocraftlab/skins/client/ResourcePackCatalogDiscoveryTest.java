@@ -99,6 +99,11 @@ class ResourcePackCatalogDiscoveryTest {
         assertEquals("event_pack:textures/entity/cape/hero.png", cape.contentIdentity());
         assertTrue(ResourcePackCatalogDiscovery.isCapeCandidatePath("textures/entity/cape/hero.jpg"));
         assertTrue(ResourcePackCatalogDiscovery.isCapeCandidatePath("textures/entity/cape/hero.jpeg"));
+        assertTrue(ResourcePackCatalogDiscovery.isCapeCandidatePath("textures/entity/cape/hero.gif"));
+        assertEquals("event_pack:textures/entity/cape/hero.gif",
+                ResourcePackCatalogDiscovery.capeVariant("event_pack",
+                        "textures/entity/cape/hero.gif", "file/event.zip", 1)
+                        .orElseThrow().contentIdentity());
         assertEquals("event_pack:textures/entity/cape/hero.jpg",
                 ResourcePackCatalogDiscovery.capeVariant("event_pack",
                         "textures/entity/cape/hero.jpg", "file/event.zip", 1)
@@ -111,9 +116,17 @@ class ResourcePackCatalogDiscoveryTest {
         assertFalse(ResourcePackCatalogDiscovery.capeVariant(
                 "event_pack", "textures/entity/cape/nested/hero.jpeg", "file/event.zip", 1).isPresent());
         assertFalse(ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack", "textures/entity/cape/nested/hero.gif", "file/event.zip", 1).isPresent());
+        assertFalse(ResourcePackCatalogDiscovery.capeVariant(
                 "event_pack", "textures/entity/player/wide/hero.png", "file/event.zip", 1).isPresent());
         assertFalse(ResourcePackCatalogDiscovery.capeVariant(
                 "event_pack", "textures/entity/cape/hero.png", "file/event.zip", 1, true).isPresent());
+        assertFalse(ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack", "textures/entity/cape/hero.gif", "file/event.zip", 1, true).isPresent());
+        assertFalse(ResourcePackCatalogDiscovery.capeVariant(
+                "event_pack", "textures/entity/cape/Uppercase.gif", "file/event.zip", 1).isPresent());
+        assertFalse(ResourcePackCatalogDiscovery.isCapeCandidatePath(
+                "textures/entity/cape/hero.gif.mcmeta"));
     }
 
     @Test

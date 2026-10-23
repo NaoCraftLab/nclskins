@@ -81,6 +81,34 @@ public final class IdentifierTextureRegistry
     }
 
     @Override
+    protected LoadedTexture<NativeTexture> loadRgba(String sha256, int width, int height,
+            byte[] rgba8) throws IOException {
+        NativeImage image = new NativeImage(width, height, false);
+        DynamicTexture texture = null;
+        try {
+            int offset = 0;
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int abgr = (rgba8[offset] & 255) | ((rgba8[offset + 1] & 255) << 8)
+                            | ((rgba8[offset + 2] & 255) << 16) | ((rgba8[offset + 3] & 255) << 24);
+                    image.setPixelABGR(x, y, abgr);
+                    offset += 4;
+                }
+            }
+            texture = new DynamicTexture(() -> "NCL Skins " + sha256.substring(0, 12), image);
+            Identifier location = Identifier.fromNamespaceAndPath(
+                    "nclskins", pathRoot + "/image/" + sha256);
+            Minecraft.getInstance().getTextureManager().register(location, texture);
+            return new LoadedTexture<>(new TextureHandle(location.toString(), width, height),
+                    NativeTexture.loaded(location));
+        } catch (RuntimeException | Error failure) {
+            if (texture == null) image.close();
+            else texture.close();
+            throw failure;
+        }
+    }
+
+    @Override
     protected void unload(NativeTexture resource) {
         resource.retire();
     }

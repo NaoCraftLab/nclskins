@@ -36,6 +36,19 @@ final class WaveyCapesAbiVerifier {
                     throw new IllegalStateException("WaveyCapes ${targetId} has no bundled transition ABI")
                 }
                 Map<String, byte[]> nested = nestedClasses(read(zip, nestedName), [WRAPPER, UTIL] as Set)
+                String factoryOwner = artifact.renderFactory.toString().split('\\.')[0]
+                String nativeType = factoryOwner.startsWith('net/minecraft/class_')
+                        ? 'net/minecraft/class_1921'
+                        : factoryOwner.endsWith('/rendertype/RenderTypes')
+                        ? 'net/minecraft/client/renderer/rendertype/RenderType' : factoryOwner
+                Map<String, byte[]> passClasses = [:]
+                [WaveyCapesPassAbi.SUPPORT, WaveyCapesPassAbi.RENDERER, WaveyCapesPassAbi.PASS,
+                 WaveyCapesPassAbi.INFOS, WaveyCapesPassAbi.COLLECTOR, WaveyCapesPassAbi.MANAGER].each { String name ->
+                    passClasses[name] = read(zip, name + '.class')
+                }
+                passClasses[WaveyCapesPassAbi.WRAPPER] = nested[WRAPPER]
+                WaveyCapesPassAbi.verify(passClasses, nativeType)
+                WaveyCapesPassAbi.verifyGeometryDispatch(read(zip, 'dev/tr7zw/waveycapes/render/CustomCapeRenderer.class'))
                 if (!nested.keySet().containsAll([WRAPPER, UTIL])) {
                     throw new IllegalStateException("WaveyCapes ${targetId} transition ABI is incomplete")
                 }

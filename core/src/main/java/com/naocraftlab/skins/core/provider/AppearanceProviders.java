@@ -93,7 +93,8 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
         return new AppearanceProviders(bootstrapped.skin(), new ProviderChannel<>(channel.order(),
                 channel.enabled(BuiltinProvider.OFFLINE) ? ProviderObservation.observed(offlineCape) : channel.offline(),
                 channel.minecraft(), channel.configurationRevision(), channel.intentRevision(), channel.desired(),
-                channel.minecraftDelivery(), offlineCape, channel.optifine(), channel.skinmc(), channel.sneaky()));
+                channel.minecraftDelivery(), offlineCape, channel.optifine(), channel.skinmc(),
+                channel.sneaky(), channel.minecraftcapes(), channel.cpmConfiguration(), channel.serializedOrder()));
     }
 
     public AppearanceProviders withCapeTexture(String capeId, String textureCacheKey) {
@@ -111,12 +112,15 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
                 cape.minecraftDelivery(), enrichCape(cape.offlineDesired(), texture),
                 new ProviderObservation<>(cape.optifine().known(), enrichCape(cape.optifine().value(), texture)),
                 new ProviderObservation<>(cape.skinmc().known(), enrichCape(cape.skinmc().value(), texture)),
-                new ProviderObservation<>(cape.sneaky().known(), enrichCape(cape.sneaky().value(), texture))));
+                new ProviderObservation<>(cape.sneaky().known(), enrichCape(cape.sneaky().value(), texture)),
+                new ProviderObservation<>(cape.minecraftcapes().known(),
+                        enrichCape(cape.minecraftcapes().value(), texture)), cape.cpmConfiguration(), cape.serializedOrder()));
     }
 
     private static ProviderCape enrichCape(ProviderCape value, ProviderCape texture) {
         return value != null && value.id().equals(texture.id()) && (value.textureCacheKey() == null || value.textureCacheKey().equals(texture.textureCacheKey()) && value.hasElytra() == null)
-                ? texture : value;
+                ? new ProviderCape(texture.id(), texture.textureCacheKey(), texture.hasElytra(), value.capeGlint())
+                : value;
     }
 
     private static boolean skinIdentityEquals(ProviderSkin first, ProviderSkin second) {
@@ -134,7 +138,8 @@ public record AppearanceProviders(ProviderChannel<ProviderSkin> skin, ProviderCh
         return new ProviderCape(
                 next.id(),
                 next.textureCacheKey() == null ? previous.textureCacheKey() : next.textureCacheKey(),
-                next.hasElytra() == null ? previous.hasElytra() : next.hasElytra());
+                next.hasElytra() == null ? previous.hasElytra() : next.hasElytra(),
+                next.capeGlint());
     }
 
     public AppearanceProviders enable(Component component, BuiltinProvider provider) {

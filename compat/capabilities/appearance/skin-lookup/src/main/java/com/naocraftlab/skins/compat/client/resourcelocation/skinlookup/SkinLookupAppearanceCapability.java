@@ -34,6 +34,7 @@ final class SkinLookupAppearanceCapability
     private final ResourceLocationTextureRegistry textures =
             new ResourceLocationTextureRegistry("live/appearance", this::markMaintenanceDirty);
     private final Map<ProviderCape, TextureHandle> providerCapes = new HashMap<>();
+    private final Map<ProviderCape, TextureHandle> previousProviderCapes = new HashMap<>();
     private final AppearanceOverrideController<InstalledOverride, TextureHandle> overrides =
             new AppearanceOverrideController<>(new AppearanceOverrideController.Strategy<>() {
                 @Override
@@ -72,6 +73,12 @@ final class SkinLookupAppearanceCapability
     @Override
     public void providerVisibility(com.naocraftlab.skins.client.ProviderVisibility visibility) {
         MinecraftProviderVisibility.set(visibility);
+        com.naocraftlab.skins.runtime.CapeProjection.skinLookup(id -> {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (!minecraft.isSameThread() || minecraft.getConnection() == null) return;
+            PlayerInfo info = minecraft.getConnection().getPlayerInfo(id);
+            if (info != null) info.getSkin();
+        });
     }
 
     @Override
@@ -100,12 +107,59 @@ final class SkinLookupAppearanceCapability
         checkClientThread(Minecraft.getInstance());
         try {
             TextureHandle next = textures.register(TextureKind.IMAGE, sha256, normalizedPng);
-            TextureHandle previous = providerCapes.put(new ProviderCape(profileId, provider), next);
-            release(previous);
-            return Optional.of(next.location());
+            return installCapeTexture(profileId, provider, next);
         } catch (IOException | RuntimeException unavailableTexture) {
             return Optional.empty();
         }
+    }
+
+    @Override
+    public Optional<String> registerCapeFrame(UUID profileId, CapeSource provider,
+            String frameSha256, int width, int height, byte[] rgba8,
+            com.naocraftlab.skins.client.TextureRegistry.CpuLease cpuLease) {
+        Objects.requireNonNull(cpuLease, "cpuLease");
+        boolean handedToRegistry = false;
+        try {
+            Objects.requireNonNull(profileId, "profileId");
+            Objects.requireNonNull(provider, "provider");
+            Objects.requireNonNull(frameSha256, "frameSha256");
+            Objects.requireNonNull(rgba8, "rgba8");
+            checkClientThread(Minecraft.getInstance());
+            handedToRegistry = true;
+            TextureHandle next = textures.registerRgba(TextureKind.IMAGE, frameSha256,
+                    width, height, rgba8, cpuLease);
+            return installCapeTexture(profileId, provider, next);
+        } catch (IOException | RuntimeException unavailableTexture) {
+            return Optional.empty();
+        } finally {
+            if (!handedToRegistry) cpuLease.close();
+        }
+    }
+
+    private Optional<String> installCapeTexture(UUID profileId, CapeSource provider,
+            TextureHandle next) {
+        ProviderCape key = new ProviderCape(profileId, provider);
+        TextureHandle previous = providerCapes.put(key, next);
+        release(previousProviderCapes.remove(key));
+        if (previous != null) {
+            if (provider == CapeSource.MINECRAFTCAPES || provider == CapeSource.OFFLINE) {
+                previousProviderCapes.put(key, previous);
+            } else {
+                release(previous);
+            }
+        }
+        return Optional.of(next.location());
+    }
+
+    @Override
+    public com.naocraftlab.skins.client.TextureUseValidity captureCapeTexture(
+            UUID profileId, CapeSource provider, String exactLocation) {
+        checkClientThread(Minecraft.getInstance());
+        if (profileId == null || provider == null || exactLocation == null)
+            return com.naocraftlab.skins.client.TextureUseValidity.INVALID;
+        TextureHandle handle = providerCapes.get(new ProviderCape(profileId, provider));
+        return handle != null && exactLocation.equals(handle.location())
+                ? textures.capture(handle) : com.naocraftlab.skins.client.TextureUseValidity.INVALID;
     }
 
     @Override
@@ -113,7 +167,9 @@ final class SkinLookupAppearanceCapability
         Objects.requireNonNull(profileId, "profileId");
         Objects.requireNonNull(provider, "provider");
         checkClientThread(Minecraft.getInstance());
-        release(providerCapes.remove(new ProviderCape(profileId, provider)));
+        ProviderCape key = new ProviderCape(profileId, provider);
+        release(providerCapes.remove(key));
+        release(previousProviderCapes.remove(key));
     }
 
     @Override
@@ -123,7 +179,7 @@ final class SkinLookupAppearanceCapability
         checkClientThread(minecraft);
         UUID profileId = resolvedProfile.profileId();
         if (!minecraft.getUser().getProfileId().equals(profileId)) {
-            return ApplyResult.DEFERRED;
+            return ApplyResult.NOT_INSTALLED;
         }
 
         ExpectedAppearance expected = resolvedProfile.expectedAppearance();
@@ -135,6 +191,7 @@ final class SkinLookupAppearanceCapability
         AcknowledgedAppearanceAssets payload = resolvedProfile.platformProfile();
         TextureHandle skinHandle = null;
         TextureHandle capeHandle = null;
+        final ApplyResult applied;
         try {
             PlayerSkin fallback = DefaultPlayerSkin.get(profileId);
             ResourceLocation body = fallback.texture();
@@ -162,12 +219,13 @@ final class SkinLookupAppearanceCapability
             PlayerSkin skin = new PlayerSkin(body, "", cape, expected.capeHasElytra() || cape == null ? cape : ResourceLocation.withDefaultNamespace("textures/entity/elytra.png"), model, false);
             InstalledOverride replacement =
                     new InstalledOverride(expected, skin, () -> skin, skinHandle, capeHandle);
-            return dirty(overrides.install(replacement));
+            applied = overrides.install(replacement);
         } catch (IOException | RuntimeException invalidTextureOrClientState) {
             release(skinHandle);
             release(capeHandle);
-            return ApplyResult.DEFERRED;
+            return ApplyResult.NOT_INSTALLED;
         }
+        return dirty(applied);
     }
 
     Optional<CurrentPlayerAppearanceSource.PlayerAppearance> installedAppearance(UUID profileId) {
@@ -254,6 +312,8 @@ final class SkinLookupAppearanceCapability
         overrides.close();
         providerCapes.values().forEach(textures::release);
         providerCapes.clear();
+        previousProviderCapes.values().forEach(textures::release);
+        previousProviderCapes.clear();
         textures.close();
     }
 

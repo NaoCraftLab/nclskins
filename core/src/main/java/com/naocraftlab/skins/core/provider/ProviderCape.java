@@ -3,8 +3,11 @@ package com.naocraftlab.skins.core.provider;
 import java.util.Objects;
 import java.util.Optional;
 
-public record ProviderCape(String id, String textureCacheKey, Boolean hasElytra) {
+public record ProviderCape(String id, String textureCacheKey, Boolean hasElytra, boolean capeGlint) {
     public ProviderCape(String id, String textureCacheKey) { this(id, textureCacheKey, null); }
+    public ProviderCape(String id, String textureCacheKey, Boolean hasElytra) {
+        this(id, textureCacheKey, hasElytra, false);
+    }
 
     public ProviderCape {
         Objects.requireNonNull(id, "id");

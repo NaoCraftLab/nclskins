@@ -3,11 +3,14 @@ package com.naocraftlab.skins.core.storage;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.PersonalCapeEntry;
 import com.naocraftlab.skins.core.png.PngValidationException;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
 import com.naocraftlab.skins.core.service.AccountWriteGuard;
 import com.naocraftlab.skins.core.service.AssetStorePort;
 import com.naocraftlab.skins.core.service.LibraryStatePort;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 
@@ -30,6 +33,12 @@ public final class LibraryStorageAdapter implements LibraryStatePort, AssetStore
     }
 
     @Override
+    public AccountState updateAccount(UUID accountId, UnaryOperator<AccountState> update,
+            AccountWriteGuard guard, java.util.function.BooleanSupplier current) throws IOException {
+        return storage.updateAccount(accountId, update, guard, current);
+    }
+
+    @Override
     public AccountAppearanceMutationResult mutateAccountAndAppearance(UUID accountId,
             AccountAppearanceMutation mutation) throws IOException {
         var result = storage.mutateAccountAndAppearance(accountId, (account, appearance, revision) -> {
@@ -45,6 +54,23 @@ public final class LibraryStorageAdapter implements LibraryStatePort, AssetStore
     public PersonalCapeEntry importCape(UUID accountId, String name, byte[] bytes, AccountWriteGuard guard)
             throws IOException, PngValidationException {
         return storage.importCape(accountId, name, bytes, guard);
+    }
+
+    @Override
+    public PersonalCapeEntry importCape(UUID accountId, String name, Path source, AccountWriteGuard guard)
+            throws IOException, PngValidationException {
+        return storage.importCape(accountId, name, source, guard);
+    }
+
+    @Override
+    public PersonalCapeEntry importPreparedCape(UUID accountId, String name, PreparedCapeAsset prepared,
+            AccountWriteGuard guard) throws IOException {
+        return storage.importPreparedCape(accountId, name, prepared, guard);
+    }
+
+    @Override
+    public Optional<PreparedCapeAsset> readPreparedCapeAsset(UUID accountId, String key) throws IOException {
+        return storage.readPreparedCapeAsset(accountId, key);
     }
 
     @Override
@@ -67,6 +93,13 @@ public final class LibraryStorageAdapter implements LibraryStatePort, AssetStore
     @Override
     public Asset storeAsset(byte[] bytes) throws IOException, PngValidationException {
         var asset = storage.storeAsset(bytes);
+        return new Asset(asset.sha256(), asset.pngInfo(), asset.alreadyPresent());
+    }
+
+    @Override
+    public Asset storeAsset(byte[] bytes, java.util.function.BooleanSupplier current)
+            throws IOException, PngValidationException {
+        var asset = storage.storeAsset(bytes, current);
         return new Asset(asset.sha256(), asset.pngInfo(), asset.alreadyPresent());
     }
 

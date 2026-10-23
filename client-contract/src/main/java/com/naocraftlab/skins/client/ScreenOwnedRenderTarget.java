@@ -36,6 +36,10 @@ public final class ScreenOwnedRenderTarget implements AutoCloseable {
         owner = null;
     }
 
+    public synchronized boolean owns(Object expectedOwner, AutoCloseable expectedResource) {
+        return !closed && owner == expectedOwner && resource == expectedResource;
+    }
+
     @Override
     public synchronized void close() {
         if (closed) {

@@ -192,3 +192,69 @@ tasks.named('jarJar', Jar).configure {
 
 ext.nclskinsFancyCompileConfiguration = 'compileOnly'
 apply from: '../../../gradle/fancymenu-conventions.gradle'
+ext.nclskinsCpmCompileConfiguration = 'compileOnly'
+apply from: '../../../gradle/cpm-conventions.gradle'
+if (findProperty('nclskinsWaveyCompositionProfile') != 'isolated') {
+    minecraft.runs.create('waveyVerification') {
+        parent minecraft.runs.client
+        workingDirectory layout.buildDirectory.dir('verification/waveycapes-composition/runtime').get().asFile
+    }
+    tasks.register('prepareWaveyVerificationRun') {
+        dependsOn tasks.named('prepareRunWaveyVerification')
+        dependsOn tasks.named('createSrgToMcp')
+        dependsOn tasks.named('processForgeMixinRuntimeResources')
+        ext.generatedMixinRefmapFile = layout.file(tasks.named('processForgeMixinRuntimeResources').map {
+            new File(it.destinationDir, forgeMixinRefmap)
+        })
+        inputs.file(generatedMixinRefmapFile).withPropertyName('nativeGeneratedMixinRefmap')
+        inputs.files(tasks.named('createSrgToMcp')).withPropertyName('nativeRefmapMapping')
+        ext.vmArgsFile = layout.buildDirectory.file('verification/wavey-provider/vm.json')
+        ext.programArgsFile = layout.buildDirectory.file('verification/wavey-provider/provider.json')
+        ext.waveyRuntimeFile = layout.buildDirectory.file('verification/wavey-provider/waveycapes-named-runtime.jar')
+        outputs.files(vmArgsFile, programArgsFile, waveyRuntimeFile)
+        doLast {
+            def t = tasks.named('runWaveyVerification').get()
+            def r = t.runConfig.get()
+            def generator = plugins.getPlugin('net.minecraftforge.gradle').class.classLoader
+                    .loadClass('net.minecraftforge.gradle.common.util.runs.RunConfigGenerator')
+            def tokens = generator.configureTokensLazy(project, r, generator.mapModClassesToGradle(project, r), t.minecraftArtifacts, t.runtimeClasspathArtifacts)
+            Map inputs = [mainClass: t.mainClass.get(),
+                    classpath: (r.allSources.collectMany { it.runtimeClasspath.files } + t.minecraftArtifacts.files + t.runtimeClasspathArtifacts.files).collect { it.absolutePath },
+                    jvmArgs: (r.jvmArgs + (r.client ? t.additionalClientArgs.get() : [])).collect { r.replace(tokens, it) },
+                    args: generator.getArgsStream(r, tokens, false).toArray().toList(),
+                    properties: r.properties.collectEntries { k, v -> [(k): r.replace(tokens, v)] },
+                    environment: r.environment.collectEntries { k, v -> [(k): r.replace(tokens, v)] }]
+            Map safe = nclskinsCatalogTools.classLoader.loadClass('com.naocraftlab.skins.buildlogic.WaveyLegacyComposition')
+                    .safeProvider(inputs, tasks.named('createSrgToMcp').get().outputs.files.singleFile)
+            File output = programArgsFile.get().asFile; output.parentFile.mkdirs()
+            output.text = JsonOutput.prettyPrint(JsonOutput.toJson(safe))
+            vmArgsFile.get().asFile.text = JsonOutput.toJson(safe.jvmArgs)
+            List<File> wavey = sourceSets.main.compileClasspath.files.findAll { artifact ->
+                artifact.isFile() && artifact.name.endsWith('.jar') && new java.util.zip.ZipFile(artifact).withCloseable {
+                    it.getEntry('dev/tr7zw/waveycapes/render/CapeNodeCollector.class') != null
+                }
+            }.toList()
+            if (wavey.size() != 1) throw new GradleException('Named Wavey runtime cardinality')
+            Map<String, byte[]> entries = [:]
+            def deobfuscator = fg.class.classLoader.loadClass('net.minecraftforge.gradle.userdev.util.Deobfuscator')
+                    .newInstance(project, layout.buildDirectory.dir('verification/wavey-provider/deobf-cache').get().asFile)
+            new java.util.zip.ZipFile(wavey.first()).withCloseable { archive ->
+                archive.entries().each { entry ->
+                    if (entry.directory) return
+                    byte[] bytes = archive.getInputStream(entry).bytes
+                    if (entry.name.endsWith('.jar')) {
+                        File nested = new File(output.parentFile, 'nested/' + entry.name)
+                        nested.parentFile.mkdirs(); nested.bytes = bytes
+                        File named = deobfuscator.deobfBinary(nested, minecraft.mappings.get(), nested.name)
+                        if (named == null || !named.isFile()) throw new GradleException('Named nested runtime unavailable')
+                        bytes = named.bytes
+                    }
+                    entries[entry.name] = bytes
+                }
+            }
+            nclskinsCatalogTools.classLoader.loadClass('com.naocraftlab.skins.buildlogic.WaveyLoaderComposition')
+                    .archive(waveyRuntimeFile.get().asFile, entries)
+        }
+    }
+}
+apply from: '../../../gradle/waveycapes-conventions.gradle'

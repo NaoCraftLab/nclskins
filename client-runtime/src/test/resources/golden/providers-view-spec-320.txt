@@ -12,7 +12,7 @@ widgets
 0|providers.tab.SKIN|TAB_BUTTON|138,45,24,24|key:nclskins.editor.tab.selected(key:nclskins.providers.skins:INFO):INFO|value=provider/skin/no_value|hint=key:nclskins.providers.skins:INFO|enabled=true|visible=true|max=0
 1|providers.tab.CAPE|TAB_BUTTON|138,69,24,24|key:nclskins.providers.capes:INFO|value=provider/cape/no_value|hint=key:nclskins.providers.capes:INFO|enabled=true|visible=true|max=0
 2|providers.add|ICON_BUTTON|168,39,20,20|key:nclskins.providers.add:INFO|value=action/add_provider|hint=key:nclskins.providers.add:INFO|enabled=true|visible=true|max=0
-3|providers.refresh|ICON_BUTTON|292,39,20,20|key:nclskins.providers.refresh:INFO|value=action/refresh|hint=key:nclskins.providers.refresh:INFO|enabled=true|visible=true|max=0
+3|providers.refresh|ICON_BUTTON|292,39,20,20|key:nclskins.providers.refresh_all:INFO|value=action/refresh|hint=key:nclskins.providers.refresh_all:INFO|enabled=true|visible=true|max=0
 4|providers.row.OFFLINE|SELECTABLE_CARD|168,65,144,36|key:nclskins.providers.offline:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 5|providers.up.OFFLINE|PROVIDER_ACTION|186,67,16,16|key:nclskins.providers.up:INFO|value=-|hint=-|enabled=false|visible=true|max=0
 6|providers.down.OFFLINE|PROVIDER_ACTION|186,83,16,16|key:nclskins.providers.down:INFO|value=-|hint=-|enabled=true|visible=true|max=0
@@ -32,9 +32,9 @@ previews
 0|editor.preview|0,0,320,240|anchor=0,0,160,240|skin=ASSET:014842d4-80b5-3149-9a4a-0363793f7367|revision=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|variant=SLIM|cape=provider:cape:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-22.0|pitch=-5.0|scale=0.6958763|preset=-
 back_equipment_previews
 icon_decorations
-0|providers.tab.SKIN.icon|142,49,16,16|icon=provider/skin/no_value|owner=providers.tab.SKIN|idle=1.0|active=1.0|provider=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|overlay=true
-1|providers.tab.CAPE.icon|144,73,16,16|icon=provider/cape/no_value|owner=providers.tab.CAPE|idle=1.0|active=1.0|provider=provider:cape:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|overlay=false
-2|providers.row.OFFLINE.icon|170,67,32,32|icon=provider/skin/no_value|owner=providers.row.OFFLINE|idle=1.0|active=1.0|provider=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|overlay=true
+0|providers.tab.SKIN.icon|142,49,16,16|icon=provider/skin/no_value|owner=providers.tab.SKIN|idle=1.0|active=1.0|provider=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|overlay=true|capeGlint=false
+1|providers.tab.CAPE.icon|144,73,16,16|icon=provider/cape/no_value|owner=providers.tab.CAPE|idle=1.0|active=1.0|provider=provider:cape:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|overlay=false|capeGlint=false
+2|providers.row.OFFLINE.icon|170,67,32,32|icon=provider/skin/no_value|owner=providers.row.OFFLINE|idle=1.0|active=1.0|provider=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|overlay=true|capeGlint=false
 3|providers.row.MINECRAFT.icon|170,107,32,32|icon=provider/skin/no_value|owner=providers.row.MINECRAFT|idle=1.0|active=1.0
 clip_regions
 0|providers.rows|168,65,144,142|prefixes=providers.row.,providers.up.,providers.down.,providers.edit.,providers.remove.,providers.account.,providers.capability.

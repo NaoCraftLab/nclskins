@@ -1,0 +1,30 @@
+{
+  "required": true,
+  "package": "com.naocraftlab.skins.compat.cpm.mixin",
+  "plugin": "com.naocraftlab.skins.compat.cpm.CpmMixinPlugin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "AnimationEngineMixin",
+    "CpmAnimatedTextureMixin",
+    "CpmDefinitionResourceMixin",
+    "CpmModelFileBackupAccessor",
+    "CpmModelDefinitionPartsAccessor",
+    "CpmModelSkinTextureAccessor",
+    "CpmModelTextureAccessor",
+    "CpmProjectExporterInvoker",
+    "CpmProjectExporterMixin",
+    "CpmProjectTemplateMixin",
+    "CpmProjectTextureMixin",
+    "ModelDefinitionLoaderMixin",
+    "ModelRenderManagerMixin",
+    "PlayerMixin",
+    "PlayerProfileMixin",
+    "CapeBranchBoundPlayerMixin",
+    "CapeBranchRenderStateMixin",
+    "RenderManagerMixin",
+    "RedirectRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

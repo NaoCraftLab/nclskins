@@ -68,9 +68,14 @@ public final class AddSourcePresenter {
         operationStatus = Objects.requireNonNull(operationStatus, "operationStatus");
         personalRename = Objects.requireNonNull(personalRename, "personalRename");
         chromeMetrics = Objects.requireNonNull(chromeMetrics, "chromeMetrics");
+        operationStatus = projectedStatus(model, operationStatus).map(message ->
+                message.key().equals("nclskins.add.cpm_publication_count_quota")
+                        ? model.countQuotaMessage() : message);
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("view dimensions must be positive");
         }
+        if (model.importContext().dependency().isPresent())
+            return publication(model, busy, operationStatus, width, height, chromeMetrics);
         List<ViewSpec.Panel> panels = new ArrayList<>();
         List<ViewSpec.Text> texts = new ArrayList<>();
         List<ViewSpec.Widget> widgets = new ArrayList<>();
@@ -79,6 +84,18 @@ public final class AddSourcePresenter {
         List<ViewSpec.TooltipRegion> tooltipRegions = new ArrayList<>();
         List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
         List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
+        int contextHeight = contextTitleHeight(model, width);
+        if (contextHeight > 0) {
+            texts.add(new ViewSpec.Text("add.context.title",
+                    new Bounds(16, TAB_BAR_HEIGHT + CONTROLS_GAP, Math.max(1, width - 32), contextHeight),
+                    UiMessage.info("nclskins.add_source.cpm.title"),
+                    ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP));
+        }
+        boolean publishing = operationStatus.map(value -> value.key().equals("nclskins.add.cpm_publication_loading")).orElse(false) && busy;
+        boolean scoped = contextHeight > 0 || importFeedback(operationStatus);
+        CatalogLayout workspace = catalogLayout(model, width, height, chromeMetrics, operationStatus);
+        int scrollOffset = Math.min(model.scrollOffset(), workspace.maximum());
+        int contextShift = scoped ? workspace.contentTop() - 30 - scrollOffset : 0;
         List<ViewSpec.Tab> tabs = List.of(
                 new ViewSpec.Tab(
                         "add.tab.catalog",
@@ -94,17 +111,20 @@ public final class AddSourcePresenter {
         Optional<ViewSpec.Scrollbar> scrollbar = Optional.empty();
         List<ViewSpec.ScrollSurface> scrollSurfaces = List.of();
         if (model.selectedTab() == AddSourceTab.FILE) {
-            int contentWidth = Math.min(520, Math.max(220, width - 32));
+            int contentWidth = scoped ? Math.min(520, Math.max(1, width - 32)) : Math.min(520, Math.max(220, width - 32));
             int contentX = (width - contentWidth) / 2;
-            int actionWidth = Math.min(96, Math.max(76, contentWidth / 3));
+            int actionWidth = Math.min(96, Math.max(scoped ? 48 : 76, contentWidth / 3));
+            int privacyHeight = scoped ? model.messageHeight(UiMessage.info("nclskins.add_source.url_privacy"), contentWidth) : 10;
+            int privacyExtra = privacyHeight - 10;
+
             texts.add(new ViewSpec.Text(
                     "add.player.label",
-                    new Bounds(contentX, 30, contentWidth, 10),
+                    new Bounds(contentX, 30 + contextShift, contentWidth, 10),
                     UiMessage.info("nclskins.add_source.player_label"),
                     ViewSpec.Text.Alignment.LEFT));
             widgets.add(ViewSpec.Widget.textField(
                     "add.player.input",
-                    new Bounds(contentX, 41, contentWidth - actionWidth - 6, 20),
+                    new Bounds(contentX, 41 + contextShift, contentWidth - actionWidth - 6, 20),
                     UiMessage.info("nclskins.add_source.player_label"),
                     model.playerInput(),
                     UiMessage.info("nclskins.add_source.player_hint"),
@@ -114,62 +134,65 @@ public final class AddSourcePresenter {
                     Optional.of("add.player.load")));
             widgets.add(ViewSpec.Widget.button(
                     "add.player.load",
-                    new Bounds(contentX + contentWidth - actionWidth, 41, actionWidth, 20),
+                    new Bounds(contentX + contentWidth - actionWidth, 41 + contextShift, actionWidth, 20),
                     UiMessage.info("nclskins.add_source.find_player"),
                     !busy && !model.playerInput().isBlank()));
             texts.add(new ViewSpec.Text(
                     "add.url.label",
-                    new Bounds(contentX, 65, contentWidth, 10),
+                    new Bounds(contentX, 65 + contextShift, contentWidth, 10),
                     UiMessage.info("nclskins.add_source.url_label"),
                     ViewSpec.Text.Alignment.LEFT));
             widgets.add(ViewSpec.Widget.textField(
                     "add.url.input",
-                    new Bounds(contentX, 76, contentWidth - actionWidth - 6, 20),
+                    new Bounds(contentX, 76 + contextShift, contentWidth - actionWidth - 6, 20),
                     UiMessage.info("nclskins.add_source.url_label"),
                     model.urlInput(),
-                    UiMessage.info("nclskins.add_source.url_hint"),
+                    model.urlHint(),
                     !busy,
                     2048,
                     true,
                     Optional.of("add.url.load")));
             widgets.add(ViewSpec.Widget.button(
                     "add.url.load",
-                    new Bounds(contentX + contentWidth - actionWidth, 76, actionWidth, 20),
+                    new Bounds(contentX + contentWidth - actionWidth, 76 + contextShift, actionWidth, 20),
                     UiMessage.info("nclskins.add_source.download"),
                     !busy && !model.urlInput().isBlank()));
             texts.add(new ViewSpec.Text(
                     "add.url.privacy",
-                    new Bounds(contentX, 99, contentWidth, 10),
+                    new Bounds(contentX, 99 + contextShift, contentWidth, privacyHeight),
                     UiMessage.info("nclskins.add_source.url_privacy"),
-                    ViewSpec.Text.Alignment.LEFT));
+                    ViewSpec.Text.Alignment.LEFT, scoped ? ViewSpec.Text.Layout.WRAP : ViewSpec.Text.Layout.SINGLE_LINE));
             widgets.add(ViewSpec.Widget.button(
                     "add.file.choose",
-                    new Bounds(contentX, 113, contentWidth, 20),
+                    new Bounds(contentX, 113 + contextShift + privacyExtra, contentWidth, 20),
                     UiMessage.info("nclskins.add_source.choose_file"),
                     !busy));
             widgets.add(ViewSpec.Widget.button(
                     "add.external.launcher",
-                    new Bounds(contentX, 137, contentWidth, 20),
+                    new Bounds(contentX, 137 + contextShift + privacyExtra, contentWidth, 20),
                     UiMessage.info("nclskins.external_import.from_launcher"),
-                    !busy));
+                    blockedSourceHint(model, AddSourceModel.SourceAction.LAUNCHER),
+                    !busy && model.importContext().allows(AddSourceModel.SourceAction.LAUNCHER)));
             widgets.add(ViewSpec.Widget.button(
                     "add.external.mod",
-                    new Bounds(contentX, 161, contentWidth, 20),
+                    new Bounds(contentX, 161 + contextShift + privacyExtra, contentWidth, 20),
                     UiMessage.info("nclskins.external_import.from_mod"),
-                    !busy));
-            operationStatus.filter(status -> status.severity() == UiMessage.Severity.ERROR)
+                    blockedSourceHint(model, AddSourceModel.SourceAction.MOD),
+                    !busy && model.importContext().allows(AddSourceModel.SourceAction.MOD)));
+            operationStatus.filter(status -> status.severity() == UiMessage.Severity.ERROR || publishing)
                     .ifPresent(status -> texts.add(new ViewSpec.Text(
                     "add.import.status",
-                            new Bounds(contentX, 187, contentWidth, model.messageHeight(status, contentWidth)),
+                            new Bounds(contentX, 187 + contextShift + privacyExtra, contentWidth, model.messageHeight(status, contentWidth)),
                     status,
                     ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP)));
         } else {
+            int controlsTop = scoped ? workspace.contentTop() - scrollOffset : CONTROLS_TOP;
             int filterWidth = Math.min(104, Math.max(72, width / 4));
             int disclosureX = width - 16 - DISCLOSURE_BUTTON_SIZE;
             int filterX = disclosureX - CONTROL_GAP - filterWidth;
             widgets.add(ViewSpec.Widget.textField(
                     "add.catalog.search",
-                    new Bounds(16, CONTROLS_TOP, Math.max(1, filterX - CONTROL_GAP - 16), CONTROLS_HEIGHT),
+                    new Bounds(16, controlsTop, Math.max(1, filterX - CONTROL_GAP - 16), CONTROLS_HEIGHT),
                     UiMessage.info("nclskins.add_source.search"),
                     model.query(),
                     UiMessage.info("nclskins.add_source.search_hint"),
@@ -179,20 +202,21 @@ public final class AddSourcePresenter {
                     Optional.empty()));
             widgets.add(ViewSpec.Widget.button(
                     "add.catalog.filter",
-                    new Bounds(filterX, CONTROLS_TOP, filterWidth, CONTROLS_HEIGHT),
+                    new Bounds(filterX, controlsTop, filterWidth, CONTROLS_HEIGHT),
                     filterLabel(model.filter()),
-                    !busy));
+                    model.importContext().requiredVariant().map(value -> requiredTypeMessage(model)),
+                    !busy && !model.importContext().filterLocked()));
             boolean anyCollapsed = model.anyAvailableCollectionCollapsed();
             widgets.add(ViewSpec.Widget.iconButton(
                     "add.catalog.disclosure",
-                    new Bounds(disclosureX, CONTROLS_TOP, DISCLOSURE_BUTTON_SIZE, DISCLOSURE_BUTTON_SIZE),
+                    new Bounds(disclosureX, controlsTop, DISCLOSURE_BUTTON_SIZE, DISCLOSURE_BUTTON_SIZE),
                     UiMessage.info(anyCollapsed
                             ? "nclskins.collection.expand_all"
                             : "nclskins.collection.collapse_all"),
                     anyCollapsed ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL,
                     !busy && !model.availableCollectionIds().isEmpty()));
 
-            CatalogLayout layout = catalogLayout(model, width, height, chromeMetrics);
+            CatalogLayout layout = workspace;
             addCatalogContent(
                     model,
                     busy,
@@ -205,7 +229,7 @@ public final class AddSourcePresenter {
                     tooltipRegions,
                     navigationNodes,
                     personalRename);
-            clipRegions.add(AppearanceCollections.clip(
+            if (!scoped) clipRegions.add(AppearanceCollections.clip(
                     "add.catalog.viewport",
                     new Bounds(0, CONTENT_TOP, width, Math.max(1, layout.contentBottom() - CONTENT_TOP)),
                     List.of(
@@ -226,18 +250,46 @@ public final class AddSourcePresenter {
             if (layout.matchingSkinCount() == 0) {
                 texts.add(new ViewSpec.Text(
                         "add.catalog.empty",
-                        new Bounds(16, Math.max(CONTENT_TOP + 12, height / 2), Math.max(1, width - 32), 10),
+                        new Bounds(16, scoped ? layout.contentStart() + 12 - scrollOffset : Math.max(CONTENT_TOP + 12, height / 2), Math.max(1, width - 32), 10),
                         UiMessage.info("nclskins.add_source.no_results"),
                         ViewSpec.Text.Alignment.CENTER));
             }
             operationStatus.filter(status ->
-                            "nclskins.your_skins.delete_failed".equals(status.key())
+                            publishing || scoped && status.severity() == UiMessage.Severity.ERROR || model.importContext().failure().isPresent()
+                                    || "nclskins.your_skins.delete_failed".equals(status.key())
                                     || "nclskins.add_source.disclosure_failed".equals(status.key()))
                     .ifPresent(status -> texts.add(new ViewSpec.Text(
                     "add.catalog.status",
-                    new Bounds(16, Math.max(CONTENT_TOP, height - 39), Math.max(1, width - 32), 10),
+                    new Bounds(16, scoped ? controlsTop + CONTROLS_HEIGHT + CONTROLS_GAP : Math.max(CONTENT_TOP, height - 39), Math.max(1, width - 32),
+                            scoped || model.importContext().failure().isPresent() ? model.messageHeight(status, Math.max(1, width - 32)) : 10),
                     status,
-                    ViewSpec.Text.Alignment.CENTER)));
+                    ViewSpec.Text.Alignment.CENTER, scoped || model.importContext().failure().isPresent()
+                            ? ViewSpec.Text.Layout.WRAP : ViewSpec.Text.Layout.SINGLE_LINE)));
+        }
+
+        if (scoped) {
+            for (ViewSpec.Text text : List.copyOf(texts)) {
+                if (text.id().equals("add.catalog.status")) {
+                    widgets.add(ViewSpec.Widget.infoButton(text.id() + ".info",
+                            new Bounds(Math.max(0, text.bounds().x() - 16), text.bounds().y(), 14, 20), text.message(), !publishing));
+                }
+            }
+            Bounds viewport = new Bounds(0, workspace.contentTop(), width, workspace.contentBottom() - workspace.contentTop());
+            String surfaceId = model.selectedTab() == AddSourceTab.FILE ? "add.import" : "add.catalog";
+            clipRegions.add(AppearanceCollections.clip("add.context.viewport", viewport,
+                    List.of("add.player.", "add.url.", "add.file.", "add.external.", "add.import.", "add.catalog.")));
+            scrollbar = workspace.scrollbar();
+            scrollSurfaces = List.of(new ViewSpec.ScrollSurface(surfaceId, viewport,
+                    ViewSpec.Scrollbar.Orientation.VERTICAL, scrollOffset, workspace.maximum()));
+            for (ViewSpec.Widget widget : widgets) {
+                if (navigationNodes.stream().noneMatch(node -> node.id().equals(widget.id()))) {
+                    var node = ViewSpec.NavigationNode.control(widget, navigationNodes.size(), navigationNodes.size());
+                    boolean blockedSource = widget.id().equals("add.external.launcher") || widget.id().equals("add.external.mod");
+                    navigationNodes.add(ViewSpec.NavigationNode.card(widget.id(), widget.bounds(), surfaceId,
+                            node.documentOrder(), node.tabOrder(), node.enabled() || !busy && blockedSource,
+                            node.pattern(), widget.enabled() ? node.activationActionId() : Optional.empty()));
+                }
+            }
         }
 
         int cancelWidth = Math.min(200, Math.max(100, width - 32));
@@ -245,12 +297,15 @@ public final class AddSourcePresenter {
                 "add.cancel",
                 new Bounds((width - cancelWidth) / 2, Math.max(0, height - 28), cancelWidth, 20),
                 UiMessage.info("gui.cancel"),
-                !busy || model.selectedTab() == AddSourceTab.FILE));
+                !publishing && (!busy || (model.selectedTab() == AddSourceTab.FILE || model.importContext().canCancelPending())
+                        && personalRename.isEmpty() && model.personalSkinDeletion().isEmpty())));
+        if (scoped) navigationNodes.add(ViewSpec.NavigationNode.control(
+                widgets.get(widgets.size() - 1), navigationNodes.size(), navigationNodes.size()));
 
         Optional<ViewSpec.FocusRequest> focus = focusRequest(model);
         return new ViewSpec(
                 "add_source",
-                UiMessage.info("nclskins.add_source.title"),
+                UiMessage.info(contextHeight > 0 ? "nclskins.add_source.cpm.title" : "nclskins.add_source.title"),
                 width,
                 height,
                 panels,
@@ -268,64 +323,66 @@ public final class AddSourcePresenter {
                 tooltipRegions).withNavigationNodes(navigationNodes);
     }
 
+    private static ViewSpec publication(AddSourceModel model, boolean busy, Optional<UiMessage> status,
+            int width, int height, ViewChromeMetrics chrome) {
+        var prompt = model.importContext().dependency().orElseThrow();
+        String action = "add.cpm.dependency.";
+        int contentWidth = Math.max(1, width - 40);
+        var title = UiMessage.info("nclskins.add.cpm_dependency_title");
+        var warning = UiMessage.info("nclskins.add.cpm_dependency_warning");
+        int titleHeight = model.messageHeight(title, contentWidth);
+        int warningHeight = model.messageHeight(warning, contentWidth);
+        var error = status.filter(value -> value.severity() == UiMessage.Severity.ERROR);
+        int errorHeight = error.map(value -> model.messageHeight(value, contentWidth) + 8).orElse(0);
+        Bounds viewport = new Bounds(16, 8, contentWidth, Math.max(1, height - chrome.catalogFooterHeight() - 16));
+        int total = titleHeight + warningHeight + errorHeight + 44;
+        int maximum = Math.max(0, total - viewport.height());
+        int offset = Math.min(model.scrollOffset(), maximum);
+        int y = viewport.y() - offset;
+        var texts = new ArrayList<ViewSpec.Text>();
+        texts.add(new ViewSpec.Text("add.cpm.publication.title", new Bounds(16, y, contentWidth, titleHeight),
+                title, ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP));
+        y += titleHeight + 8;
+        texts.add(new ViewSpec.Text("add.cpm.publication.warning", new Bounds(16, y, contentWidth, warningHeight),
+                warning, ViewSpec.Text.Alignment.LEFT, ViewSpec.Text.Layout.WRAP));
+        y += warningHeight + 8;
+        if (error.isPresent()) {
+            texts.add(new ViewSpec.Text("add.cpm.publication.status", new Bounds(16, y, contentWidth, errorHeight - 8),
+                    error.orElseThrow(), ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP));
+            y += errorHeight;
+        }
+        var confirm = ViewSpec.Widget.button(action + "confirm." + prompt.revision(),
+                new Bounds(16, y, contentWidth, 20),
+                UiMessage.info("nclskins.add.cpm_dependency_confirm"),
+                Optional.of(warning), !busy);
+        var cancel = ViewSpec.Widget.button(action + "cancel." + prompt.revision(),
+                new Bounds(16, Math.max(0, height - 28), contentWidth, 20), UiMessage.info("gui.cancel"), true);
+        Optional<ViewSpec.Scrollbar> scrollbar = Optional.empty();
+        if (maximum > 0) {
+            Bounds track = new Bounds(width - 12, viewport.y(), 6, viewport.height());
+            int thumbHeight = Math.min(track.height(), Math.max(16, track.height() * viewport.height() / total));
+            scrollbar = Optional.of(new ViewSpec.Scrollbar(track,
+                    new Bounds(track.x(), track.y() + (track.height() - thumbHeight) * offset / maximum, track.width(), thumbHeight),
+                    offset, maximum, ViewSpec.Scrollbar.Orientation.VERTICAL));
+        }
+        return new ViewSpec("add_source", title, width, height, List.of(), texts, List.of(confirm, cancel),
+                List.of(), scrollbar, List.of(), focusRequest(model)
+                        .filter(request -> request.widgetId().equals(confirm.id()) || request.widgetId().equals(cancel.id())),
+                List.of(new ViewSpec.ClipRegion("add.import", viewport, List.of("add.cpm.publication.title",
+                        "add.cpm.publication.warning", "add.cpm.publication.status", action + "confirm."))),
+                List.of(), List.of(),
+                List.of(new ViewSpec.ScrollSurface("add.import", viewport, ViewSpec.Scrollbar.Orientation.VERTICAL, offset, maximum)), List.of())
+                .withNavigationNodes(List.of(ViewSpec.NavigationNode.card(confirm.id(), confirm.bounds(), "add.import",
+                        0, 0, confirm.enabled(), ViewSpec.NavigationNode.control(confirm, 0, 0).pattern(), Optional.of(confirm.id())),
+                        ViewSpec.NavigationNode.control(cancel, 1, 1)));
+    }
+
     private static Optional<ViewSpec.FocusRequest> focusRequest(AddSourceModel model) {
         if (model.focusWidgetId().isEmpty() || model.focusToken().isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(new ViewSpec.FocusRequest(
                 model.focusWidgetId().orElseThrow(), model.focusToken().orElseThrow()));
-    }
-
-    public int maximumScroll(AddSourceModel model, int width, int height) {
-        return maximumScroll(model, width, height, ViewChromeMetrics.STANDARD);
-    }
-
-    public int maximumScroll(
-            AddSourceModel model, int width, int height, ViewChromeMetrics chromeMetrics) {
-        return catalogLayout(model, width, height, chromeMetrics).maximum();
-    }
-
-    public int normalizedScrollOffset(
-            AddSourceModel model, int width, int height, int desired) {
-        return normalizedScrollOffset(
-                model, width, height, desired, ViewChromeMetrics.STANDARD);
-    }
-
-    public int normalizedScrollOffset(
-            AddSourceModel model,
-            int width,
-            int height,
-            int desired,
-            ViewChromeMetrics chromeMetrics) {
-        CatalogLayout layout = catalogLayout(model, width, height, chromeMetrics);
-        return Math.max(0, Math.min(layout.maximum(), desired));
-    }
-
-    public int offsetFromScrollbar(
-            AddSourceModel model,
-            int width,
-            int height,
-            double desiredThumbTop,
-            ViewChromeMetrics chromeMetrics) {
-        CatalogLayout layout = catalogLayout(model, width, height, chromeMetrics);
-        if (layout.maximum() == 0 || layout.scrollbar().isEmpty()) {
-            return 0;
-        }
-        ViewSpec.Scrollbar bar = layout.scrollbar().orElseThrow();
-        int travel = Math.max(1, bar.track().height() - bar.thumb().height());
-        double normalized = Math.max(
-                0.0,
-                Math.min(1.0, (desiredThumbTop - bar.track().y()) / travel));
-        int desired = (int) Math.round(normalized * layout.maximum());
-        return Math.max(0, Math.min(layout.maximum(), desired));
-    }
-
-    public int nextScrollOffset(
-            AddSourceModel model, int width, int height, int direction) {
-        CatalogLayout layout = catalogLayout(
-                model, width, height, ViewChromeMetrics.STANDARD);
-        return Math.max(0, Math.min(
-                layout.maximum(), model.scrollOffset() + Integer.signum(direction) * 32));
     }
 
     private static void addCatalogContent(
@@ -345,8 +402,8 @@ public final class AddSourcePresenter {
                 || personalRename.isPresent();
         List<SkinCatalogSource.CollectionDescriptor> collections = model.visibleCollections();
         var sections = AppearanceCollections.layout(collectionSections(model, collections, layout.cardHeight()), layout.columns());
-        Bounds viewport = new Bounds(0, CONTENT_TOP, layout.contentRight(), Math.max(1, contentBottom - CONTENT_TOP));
-        int contentTop = CONTENT_TOP - Math.min(model.scrollOffset(), layout.maximum());
+        Bounds viewport = new Bounds(0, layout.contentTop(), layout.contentRight(), Math.max(1, contentBottom - layout.contentTop()));
+        int contentTop = layout.contentStart() - Math.min(model.scrollOffset(), layout.maximum());
         for (int sectionIndex = 0; sectionIndex < collections.size(); sectionIndex++) {
             SkinCatalogSource.CollectionDescriptor collection = collections.get(sectionIndex);
             var section = sections.sections().get(sectionIndex);
@@ -506,21 +563,30 @@ public final class AddSourcePresenter {
     }
 
     private static CatalogLayout catalogLayout(
-            AddSourceModel model,
-            int width,
-            int height,
-            ViewChromeMetrics chromeMetrics) {
+            AddSourceModel model, int width, int height, ViewChromeMetrics chromeMetrics, Optional<UiMessage> status) {
         Objects.requireNonNull(chromeMetrics, "chromeMetrics");
+        boolean scoped = model.importContext().canCancelPending() || importFeedback(status);
+        int contentTop = scoped ? CONTROLS_TOP + contextTitleShift(model, width) : CONTENT_TOP;
+        int contentWidth = Math.min(520, Math.max(1, width - 32));
+        int errorHeight = status.filter(value -> value.severity() == UiMessage.Severity.ERROR
+                        || value.key().equals("nclskins.add.cpm_publication_loading"))
+                .map(value -> Math.max(20, model.messageHeight(value, model.selectedTab() == AddSourceTab.FILE ? contentWidth : Math.max(1, width - 32)))).orElse(0);
+
+        int prefix = scoped ? CONTROLS_HEIGHT + CONTROLS_GAP
+                + (errorHeight == 0 ? 0 : errorHeight + CONTROLS_GAP) : 0;
+        boolean form = scoped && model.selectedTab() == AddSourceTab.FILE;
+        if (form) prefix = 157 + model.messageHeight(UiMessage.info("nclskins.add_source.url_privacy"), contentWidth)
+                + CONTROLS_GAP + errorHeight + 8;
         List<SkinCatalogSource.CollectionDescriptor> collections = model.visibleCollections();
         CollectionGridLayout.CardMetrics metrics = CatalogCardSizing.reference(width, height, chromeMetrics);
         List<CollectionGridLayout.Section> sections = AppearanceCollections.gridSections(
-                collectionSections(model, collections, metrics.height()));
+                form ? List.of() : collectionSections(model, collections, metrics.height()));
         CollectionGridLayout.Layout layout = CollectionGridLayout.calculate(
                 width,
                 height,
-                CONTENT_TOP,
+                contentTop,
                 chromeMetrics.catalogFooterHeight(),
-                0,
+                prefix + (scoped && !form && sections.isEmpty() ? 24 : 0),
                 0,
                 COLLECTION_HEADER_HEIGHT,
                 CatalogCardSizing.GAP,
@@ -533,10 +599,58 @@ public final class AddSourcePresenter {
                 layout.cardStartX(),
                 layout.cardHeight(),
                 layout.contentRight(),
+                contentTop,
+                contentTop + prefix,
                 layout.contentBottom(),
                 layout.maximum(),
                 layout.itemCount(),
                 layout.scrollbar());
+    }
+
+    private static boolean importFeedback(Optional<UiMessage> status) {
+        return status.map(value -> value.key().startsWith("nclskins.add.cpm_publication_")
+                || value.key().startsWith("nclskins.add_source.cpm.")).orElse(false);
+    }
+
+    private static Optional<UiMessage> projectedStatus(AddSourceModel model, Optional<UiMessage> ordinary) {
+        return model.importContext().failure().map(reason -> switch (reason) {
+            case CPM_MISSING -> UiMessage.error("nclskins.add_source.cpm.dependency_missing");
+            case CPM_UNAVAILABLE -> UiMessage.error("nclskins.add_source.cpm.adapter_unavailable");
+            case NESTED_MODEL -> UiMessage.error("nclskins.add_source.cpm.nested_file");
+            case INVALID_MODEL -> UiMessage.error("nclskins.add_source.cpm.invalid_model");
+            case MODEL_UNSUPPORTED -> UiMessage.error("nclskins.add_source.cpm.model_unsupported");
+            case IO_FAILED -> UiMessage.error("nclskins.add_source.file_io_error");
+            case VARIANT_UNSUPPORTED -> UiMessage.error(requiredTypeMessage(model).key());
+            case NONPORTABLE_OVERFLOW -> UiMessage.error("nclskins.add_source.cpm.local_overflow");
+            case PORTABILITY_UNSUPPORTED -> UiMessage.error("nclskins.add_source.cpm.portability_unsupported");
+            case CONVERSION_FAILED -> UiMessage.error("nclskins.add_source.cpm.conversion_failed");
+            case INVALID_OUTPUT_PNG -> UiMessage.error("nclskins.add_source.cpm.invalid_output");
+            case STALE_RESOURCES -> UiMessage.error("nclskins.add_source.cpm.stale_resources");
+            case STALE_WORLD -> UiMessage.error("nclskins.add_source.cpm.stale_world");
+            case CLOSED -> null;
+        }).or(() -> model.importContext().failure().isPresent() ? Optional.empty() : ordinary);
+    }
+
+    private static Optional<UiMessage> blockedSourceHint(AddSourceModel model, AddSourceModel.SourceAction action) {
+        return model.importContext().allows(action) ? Optional.empty()
+                : Optional.of(UiMessage.info(action == AddSourceModel.SourceAction.LAUNCHER
+                        ? "nclskins.add_source.cpm.launcher_blocked" : "nclskins.add_source.cpm.mod_blocked"));
+    }
+
+    private static UiMessage requiredTypeMessage(AddSourceModel model) {
+        return UiMessage.info(model.importContext().requiredVariant().orElseThrow()
+                == com.naocraftlab.skins.client.SkinModel.SLIM
+                ? "nclskins.add_source.cpm.required_slim" : "nclskins.add_source.cpm.required_classic");
+    }
+
+    private static int contextTitleHeight(AddSourceModel model, int width) {
+        return model.importContext().canCancelPending()
+                ? model.messageHeight(UiMessage.info("nclskins.add_source.cpm.title"), Math.max(1, width - 32)) : 0;
+    }
+
+    private static int contextTitleShift(AddSourceModel model, int width) {
+        int height = contextTitleHeight(model, width);
+        return height == 0 ? 0 : height + CONTROLS_GAP;
     }
 
     private static boolean intersectsViewport(Bounds bounds, int contentBottom) {
@@ -577,6 +691,8 @@ public final class AddSourcePresenter {
             int cardStartX,
             int cardHeight,
             int contentRight,
+            int contentTop,
+            int contentStart,
             int contentBottom,
             int maximum,
             int matchingSkinCount,

@@ -1,0 +1,11 @@
+def cpm = targetCatalog.optionalDependencies.cpm
+String coordinate = "maven.modrinth:${cpm.projectId}:${cpm.versions[targetSpec.id]}"
+def compileDependency = dependencies.create(coordinate)
+compileDependency.transitive = false
+if (targetSpec.loader.id == 'forge') {
+    dependencies.add(nclskinsCpmCompileConfiguration, fg.deobf(compileDependency))
+} else {
+    dependencies.add(nclskinsCpmCompileConfiguration, compileDependency)
+}
+
+dependencies.add("testRuntimeOnly", compileDependency)

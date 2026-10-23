@@ -1,0 +1,243 @@
+Map wavey = targetCatalog.optionalDependencies.waveycapes
+Map pin = wavey.artifacts[targetSpec.id]
+String compileScope = targetSpec.loader.id == 'fabric' && configurations.findByName('modCompileOnly') != null
+        ? 'modCompileOnly' : 'compileOnly'
+def publicAbi = configurations.create('waveyCapesPublicAbi') {
+    transitive = false
+    canBeConsumed = false
+}
+String coordinate = "maven.modrinth:${wavey.projectId}:${pin.versionId}"
+dependencies.add(publicAbi.name, coordinate) { transitive = false }
+def compileDependency = dependencies.create(coordinate)
+compileDependency.transitive = false
+dependencies.add(compileScope,
+        targetSpec.loader.id == 'forge' ? fg.deobf(compileDependency) : compileDependency)
+
+def extracted = tasks.register('extractWaveyCapesAbi',
+        nclskinsCatalogTools.getClassLoader().loadClass('com.naocraftlab.skins.buildlogic.ExtractWaveyCapesAbiTask')) {
+    publicArtifact.set(layout.file(providers.provider { publicAbi.singleFile }))
+    sha512.set(pin.sha512.toString())
+    outputJar.set(layout.buildDirectory.file('waveycapes-abi/companions.jar'))
+}
+def compileAbi = extracted.flatMap { it.outputJar }
+if (targetSpec.loader.id == 'fabric' && compileScope == 'modCompileOnly') {
+    def remapped = tasks.register('remapWaveyCapesAbi',
+            loom.getClass().getClassLoader().loadClass('net.fabricmc.loom.task.RemapJarTask')) {
+        inputFile.set(extracted.flatMap { it.outputJar })
+        sourceNamespace.set('intermediary')
+        targetNamespace.set('named')
+        def intermediary = loom.getClass().getClassLoader()
+                .loadClass('net.fabricmc.loom.api.mappings.layered.MappingsNamespace')
+                .enumConstants.find { it.name() == 'INTERMEDIARY' }
+        classpath.setFrom(publicAbi, loom.getMinecraftJarsCollection(intermediary))
+        addNestedDependencies.set(false)
+        useMixinAP.set(false)
+        destinationDirectory.set(layout.buildDirectory.dir('waveycapes-abi/named'))
+        archiveFileName.set('companions.jar')
+    }
+    compileAbi = remapped.flatMap { it.archiveFile }
+} else if (targetSpec.loader.id == 'forge') {
+    def namedAbi = layout.buildDirectory.file('waveycapes-abi/named/companions.jar')
+    def remapped = tasks.register('remapWaveyCapesAbi') {
+        inputs.file(extracted.flatMap { it.outputJar })
+        inputs.property('mappings', minecraft.mappings)
+        outputs.file(namedAbi)
+        doLast {
+            def deobfuscator = fg.getClass().getClassLoader()
+                    .loadClass('net.minecraftforge.gradle.userdev.util.Deobfuscator')
+                    .newInstance(project, layout.buildDirectory.dir('waveycapes-abi/deobf-cache').get().asFile)
+            File result = deobfuscator.deobfBinary(extracted.get().outputJar.get().asFile,
+                    minecraft.mappings.get(), 'companions.jar')
+            if (result == null || !result.isFile()) throw new GradleException('WaveyCapes companion deobfuscation failed')
+            copy { from(result); into(namedAbi.get().asFile.parentFile) }
+        }
+    }
+    compileAbi = namedAbi
+    compileAbi = compileAbi.map { file -> files(file).builtBy(remapped) }
+}
+dependencies.add('compileOnly', files(compileAbi))
+
+def verifyCompileAbi = tasks.register('verifyWaveyCapesCompileAbi', JavaCompile) {
+    group = 'verification'
+    source file('../../../gradle/build-logic/src/waveyCompile/java')
+    def clientSources = sourceSets.findByName('client') ?: sourceSets.main
+    classpath = clientSources.compileClasspath
+    destinationDirectory.set(layout.buildDirectory.dir('verification/waveycapes-compile-abi'))
+    javaCompiler.set(javaToolchains.compilerFor {
+        languageVersion = JavaLanguageVersion.of(targetSpec.java.release as int)
+    })
+    options.release.set(targetSpec.java.release as int)
+    options.compilerArgs.addAll(['-proc:none', '-Xlint:all', '-Werror'])
+}
+tasks.named('check').configure { dependsOn verifyCompileAbi }
+
+String appearance = targetSpec.capabilities.appearance.toString()
+boolean loaderPrepareOnly = nclskinsCatalogTools.getClassLoader()
+        .loadClass('com.naocraftlab.skins.buildlogic.WaveyLoaderComposition')
+        .parsePrepareOnly(project.findProperty('nclskinsWaveyLoaderPrepareOnly'),
+                project.hasProperty('nclskinsWaveyLoaderPrepareOnly'))
+boolean prepared = appearance == 'cape-foil-pipeline-bind-groups'
+boolean combined = appearance == 'cape-foil-combined'
+if (combined) {
+    def bundles = nclskinsCatalogTools.resolveTargetSources(file('../../..'), targetCatalog, targetSpec).bundles
+    if (!bundles.containsAll(['cape-pass-prepared', 'cape-draw-render-pass']))
+        throw new GradleException('Combined composition requires prepared passes and RenderPass draw capabilities')
+}
+boolean buffered = appearance in ['cape-foil-pipeline-samplers', 'cape-foil-pipeline-target-state']
+String immediate = appearance == 'player-info-cache' ? 'rendered-buffer'
+        : appearance == 'skin-lookup' ? 'mesh' : null
+if (prepared || buffered || combined || immediate != null) {
+    def clientSources = sourceSets.findByName('client') ?: sourceSets.main
+    File probes = file('../../../gradle/build-logic/src/waveyComposition/java')
+    boolean legacyClientMode = targetSpec.loader.id == 'forge' && immediate == 'rendered-buffer'
+            || targetSpec.loader.id == 'neoforge' && immediate == 'mesh'
+    def compositionType = nclskinsCatalogTools.getClassLoader().loadClass('com.naocraftlab.skins.buildlogic.' +
+            (legacyClientMode ? 'VerifyWaveyLegacyCompositionTask' : 'VerifyWaveyCapesCompositionTask'))
+    def configureComposition = {
+        group = 'verification'
+        description = 'Verifies genuine WaveyCapes against the production-woven native cape consumer without GPU work.'
+        dependsOn tasks.named(clientSources.classesTaskName), tasks.named(sourceSets.main.classesTaskName)
+        mode.set(immediate ?: (combined ? 'combined' : prepared ? 'prepared' : 'buffered'))
+        submissionPreview.set(targetSpec.capabilities.preview.toString().startsWith('avatar-pip-submission-'))
+        targetId.set(targetSpec.id.toString())
+        javaRelease.set(targetSpec.java.release as int)
+        runtimeProfile.set(nclskinsCatalogTools.getClassLoader()
+                .loadClass('com.naocraftlab.skins.buildlogic.WaveyLoaderComposition')
+                .select((project.findProperty('nclskinsWaveyCompositionProfile') ?: 'default').toString(),
+                        targetSpec.loader.id.toString(), mode.get(), submissionPreview.get()))
+        prepareOnly.set(loaderPrepareOnly)
+        if (runtimeProfile.get() != 'isolated') {
+            probeSources.from(fileTree(probes) {
+                include '**/CapeRegistrationFailureProbe.java', '**/CapeUnsupportedAbiProbe.java'
+                include '**/CapeCallbackLinkageProbe.java', '**/CapeClosedLegacyProbe.java', '**/CapeGuardProbe.java'
+            })
+            boolean legacyClient = runtimeProfile.get().startsWith('legacy-client-')
+            if (!legacyClient) {
+                isolatedSdk.set(layout.file(publicAbi.elements.map { locations ->
+                    if (locations.size() != 1) throw new GradleException('Expected exactly one canonical WaveyCapes SDK')
+                    locations.iterator().next().asFile
+                }))
+                abiSdkPin.set(pin.collectEntries { key, value -> [(key.toString()): value.toString()] }
+                        + [sourceCommit: wavey.sourceCommit.toString()])
+            }
+            loaderSources.from(fileTree('../../../gradle/build-logic/src/waveyLoaderComposition') {
+                if (legacyClient) {
+                    include 'legacy-boot/**/*.java', 'legacy-spi/**/*.java', 'legacy-game/**/*.java', 'legacy-contract/**/*.java'
+                    include "legacy-${targetSpec.loader.id}/**/*.java"
+                    include '**/CaseLifecycle.java'
+                } else {
+                    include 'boot/**/*.java', 'spi/**/*.java', 'terminal/**/*.java', 'game/**/*.java', 'contract/**/*.java'
+                    include "${mode.get()}/**/*.java"
+                    exclude submissionPreview.get() ? 'game/holder-components/**/*.java' : 'game/item-components/**/*.java'
+                }
+            })
+            if (legacyClient) probeSources.setFrom(fileTree(probes) {
+                include '**/CapeRegistrationFailureProbe.java', '**/CapeUnsupportedAbiProbe.java'
+            })
+            def prepare = tasks.named(legacyClient && targetSpec.loader.id == 'neoforge' ? 'prepareWaveyLegacyProvider' : 'prepareWaveyVerificationRun')
+            dependsOn prepare
+            loaderVmArgs.set(prepare.flatMap { it.vmArgsFile })
+            loaderProgramArgs.set(prepare.flatMap { it.programArgsFile })
+            if (legacyClient) providerEnvironment.set(providers.provider {
+                Map data = new groovy.json.JsonSlurper().parse(loaderProgramArgs.get().asFile)
+                Map values = data.environment.findAll { k, v -> k == 'MCP_MAPPINGS' }
+                values + [MOD_CLASSES: 'nclskins%%' + workDirectory.file('runtime/mods/nclskins-verification.jar').get().asFile.absolutePath]
+            })
+            if (legacyClient && targetSpec.loader.id == 'forge') {
+                generatedMixinRefmap.set(prepare.flatMap { it.generatedMixinRefmapFile })
+                namedWaveyRuntime.set(prepare.flatMap { it.waveyRuntimeFile })
+                executableClasspath.from(namedWaveyRuntime)
+                loaderRuntimeClasspath.from(providers.provider {
+                    def t = tasks.named('runWaveyVerification').get()
+                    t.minecraftArtifacts + t.runtimeClasspathArtifacts + sourceSets.main.runtimeClasspath
+                })
+            } else loaderRuntimeClasspath.from(tasks.named('runWaveyVerification').get().classpathProvider)
+        }
+        if (prepared) probeSources.from(fileTree(probes) { include '**/*.java' })
+        else if (combined) {
+            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyCombinedComposition/java') { include '**/*.java' })
+            probeSources.from(fileTree(probes) {
+                include '**/WaveyProducerFixture.java', '**/CapeSink.java', '**/CapeRegistry.java', '**/HeadlessCapeClient.java'
+            })
+        } else if (immediate == null) {
+            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyBufferedComposition/java') {
+                include '**/*.java'
+                if (submissionPreview.get()) exclude '**/PublicationCapeCollector.java'
+            })
+            probeSources.from(fileTree(probes) {
+                include '**/WaveyProducerFixture.java', '**/CapeSink.java', '**/CapeRegistry.java', '**/HeadlessCapeClient.java'
+            })
+        }
+        if (submissionPreview.get()) probeSources.from(fileTree('../../../gradle/build-logic/src/waveyBufferedComposition/submission/java') { include '**/*.java' })
+        if (immediate != null) {
+            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyImmediateComposition/java') { include '**/*.java' })
+            probeSources.from(fileTree("../../../gradle/build-logic/src/waveyImmediateComposition/${immediate}/java") { include '**/*.java' })
+            probeSources.from(fileTree(probes) {
+                include '**/WaveyProducerFixture.java', '**/CapeSink.java', '**/CapeRegistry.java', '**/HeadlessCapeClient.java'
+            })
+        }
+        probeSources.from(fileTree('../../../gradle/build-logic/src/cpmComposition/java') { include '**/Headless*.java' })
+        serviceResources.set(layout.projectDirectory.dir('../../../gradle/build-logic/src/cpmComposition/resources'))
+        if (immediate == null && !combined) mixinConfigurations.from(file('../../../compat/capabilities/appearance/cape-foil-pipeline/src/main/resources/nclskins.cape-foil-pipeline.mixins.json'))
+        String capture = immediate != null ? 'cape-pass-immediate' : prepared || combined ? 'cape-pass-prepared' : 'cape-pass-buffered'
+        mixinConfigurations.from(file("../../../compat/capabilities/appearance/${capture}/src/main/resources/nclskins.${capture}.mixins.json"))
+        if (immediate == null) {
+            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyLoaderComposition/terminal/java') { include '**/*.java' })
+            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyLoaderComposition/contract/java') { include '**/BakedPreviewContract.java' })
+            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyPublicationComposition/java') {
+                include '**/*.java'
+                if (submissionPreview.get()) exclude '**/ExtractionPublicationProbe.java', '**/BindExtractionPublicationInputs.java', '**/ExtractionBakedPreviewProbe.java', '**/NativeElytraConsumptionProbe.java'
+            })
+            if (!submissionPreview.get()) {
+                String bakedConsumer = combined ? 'combined' : prepared ? 'prepared' : 'buffered'
+                String scissorAbi = prepared || combined ? 'screen-bounded-scissor' : 'unbounded-scissor'
+                probeSources.from(fileTree("../../../gradle/build-logic/src/waveyPublicationComposition/${scissorAbi}/java") { include '**/BakedGuiInputs.java' })
+                probeSources.from(fileTree("../../../gradle/build-logic/src/waveyPublicationComposition/baked-${bakedConsumer}/java") { include '**/*.java' })
+                String dispatcher = combined ? 'avatar-state' : 'entity-state'
+                probeSources.from(fileTree("../../../gradle/build-logic/src/waveyPublicationComposition/${dispatcher}/java") { include '**/*.java' })
+            } else {
+                probeSources.from(fileTree('../../../gradle/build-logic/src/waveyBufferedComposition/unified/java') { include '**/*.java' })
+            }
+            mixinConfigurations.from(fileTree('../../../gradle/build-logic/src/waveyPublicationComposition/resources') { include '*.json' })
+        }
+        def bytecodeTooling = configurations.cpmCompositionRuntime.filter {
+            it.name.startsWith('asm-') || it.name.startsWith('sponge-mixin-') || it.name.startsWith('mixinextras-common-')
+        }
+        resolutionClasspath.from(clientSources.output, sourceSets.main.output, bytecodeTooling,
+                clientSources.compileClasspath, configurations.nclskinsSqliteClientRuntime)
+        def runtimeInputs = configurations.named(clientSources.runtimeClasspathConfigurationName)
+        resourceClasspath.from(runtimeInputs)
+        executableClasspath.from(clientSources.output, sourceSets.main.output, bytecodeTooling,
+                runtimeInputs, configurations.nclskinsSqliteClientRuntime,
+                clientSources.compileClasspath.filter { File artifact ->
+                    if (!artifact.isFile() || !artifact.name.endsWith('.jar')) return false
+                    new java.util.zip.ZipFile(artifact).withCloseable { zip ->
+                        zip.getEntry('dev/tr7zw/waveycapes/render/CapeNodeCollector.class') != null
+                    }
+                }, files(compileAbi))
+        compilerExecutable.set(javaToolchains.compilerFor {
+            languageVersion = JavaLanguageVersion.of(targetSpec.java.release as int)
+        }.map { it.executablePath })
+        javaExecutable.set(javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(targetSpec.java.release as int)
+        }.map { it.executablePath })
+        workDirectory.set(layout.buildDirectory.dir('verification/waveycapes-composition'))
+    }
+    def composition = tasks.register('verifyWaveyCapesComposition', compositionType, configureComposition)
+    if (composition.get().runtimeProfile.get() != 'isolated') {
+        def guards = tasks.register('verifyWaveyCapesGuards', compositionType, configureComposition)
+        guards.configure {
+            description = 'Requires isolated production ABI safety plus genuine connected registration, callback and closed guards.'
+            guardOnly.set(true)
+            guardRoster.set(nclskinsCatalogTools.getClassLoader()
+                    .loadClass('com.naocraftlab.skins.buildlogic.WaveyCompositionGuards').roster(delegate))
+            workDirectory.set(layout.buildDirectory.dir('verification/waveycapes-guards'))
+        }
+        composition.configure {
+            dependsOn guards
+            guardReceipt.set(guards.flatMap { it.workDirectory.file('result.json') })
+        }
+        tasks.named('check').configure { dependsOn guards }
+    }
+    tasks.named('check').configure { dependsOn composition }
+}

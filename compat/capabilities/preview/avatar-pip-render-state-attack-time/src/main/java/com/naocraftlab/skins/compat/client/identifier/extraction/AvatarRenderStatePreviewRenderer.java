@@ -1,5 +1,8 @@
 package com.naocraftlab.skins.compat.client.identifier.extraction;
 
+import com.naocraftlab.skins.runtime.CapeProjection;
+import com.naocraftlab.skins.client.PreviewAccessories;
+
 import com.mojang.authlib.GameProfile;
 import com.naocraftlab.skins.client.EditorPreviewSession;
 import com.naocraftlab.skins.client.EditorPreviewClock;
@@ -12,6 +15,7 @@ import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
+import com.naocraftlab.skins.compat.client.identifier.CapeMaterialSnapshot;
 import com.naocraftlab.skins.diagnostics.DiagnosticDetails;
 import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
 import com.naocraftlab.skins.diagnostics.DiagnosticSink;
@@ -62,6 +66,29 @@ public final class AvatarRenderStatePreviewRenderer
                                     .build())
                     .build());
     private final EditorPreviewSession session = new EditorPreviewSession();
+    private java.util.function.Consumer<PreviewAccessories> accessoryObserver = value -> {};
+    private boolean closed;
+
+    @Override
+    public void observeAccessories(java.util.function.Consumer<PreviewAccessories> observer) {
+        accessoryObserver = Objects.requireNonNull(observer);
+    }
+
+    @Override
+    public PreviewAccessories accessories(PreviewRequest request) {
+        Minecraft client = Minecraft.getInstance();
+        LiveReason reason = closed ? LiveReason.LIVE_UNAVAILABLE : session.liveReason(request.intent(),
+                client.level != null && client.player != null,
+                NativePlayerSkinLifecycle.isReady(request.appearance().skin().location()),
+                previewPlayer != null && previewLevel == client.level);
+        return CapeProjection.previewAccessories(previewProfile.id(), request.appearance().skin().location(),
+                request.appearance().model(), reason);
+    }
+
+    private void clearAccessoryInspection() {
+        accessoryObserver.accept(PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE));
+    }
+
     private final DiagnosticSink diagnostics;
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
     private final EditorPreviewTickGate previewTickGate = new EditorPreviewTickGate();
@@ -77,16 +104,35 @@ public final class AvatarRenderStatePreviewRenderer
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
+    @Override public void observeBody(java.util.function.Consumer<BodyStatus> observer) { session.observeBody(observer); }
+
+    @Override public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return session.body(); }
+
+    @Override public void prepareBody(String source, boolean cpm) {
+        var client = Minecraft.getInstance();
+        session.beginBody(source, cpm, !closed && client.level != null && client.player != null);
+    }
+
     @Override
     public void render(GuiGraphicsExtractor graphics, PreviewRequest request) {
         Objects.requireNonNull(graphics, "graphics");
         Objects.requireNonNull(request, "request");
+        if (closed) { session.invalidateDisplayedBody(); return; }
+        var authorityClient = Minecraft.getInstance();
+        session.displayAuthority(java.util.Arrays.asList(request.appearance().skin(), request.appearance().model(),
+                request.intent(), NativePlayerSkinLifecycle.registration(request.appearance().skin().location())),
+                authorityClient.level, authorityClient.player);
+        if (session.waitsForBody() && session.bodyStatus() != BodyStatus.READY) {
+            if (session.bodyStatus() != BodyStatus.PENDING) { renderFallback(graphics, request); return; }
+            if (!NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) { session.invalidateDisplayedBody(); return; }
+        }
         Minecraft minecraft = Minecraft.getInstance();
         LocalPlayer player = minecraft.player;
         if (session.path(request.intent(), minecraft.level != null && player != null)
                         == EditorPreviewSession.Path.BAKED
                 || !NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) {
-            bakedRenderer.render(graphics, request);
+            accessoryObserver.accept(accessories(request));
+            renderFallback(graphics, request);
             return;
         }
 
@@ -96,13 +142,27 @@ public final class AvatarRenderStatePreviewRenderer
             ItemStack chestEquipment = appearance.capeMode() == CapeMode.ELYTRA
                     ? previewElytraStack()
                     : ItemStack.EMPTY;
-            AvatarPreviewContext context = new AvatarPreviewContext(
-                    player, appearance, skin, chestEquipment);
             PreviewPlayer renderPlayer = previewPlayer(minecraft, appearance, skin, chestEquipment);
             if (renderPlayer == null) {
-                bakedRenderer.render(graphics, request);
+                accessoryObserver.accept(accessories(request));
+                renderFallback(graphics, request);
                 return;
             }
+            if (session.waitsForBody()) {
+                session.body(com.naocraftlab.skins.client.PreviewModelFrames.prepare(previewProfile, request.appearance()));
+                if (session.bodyStatus() == BodyStatus.PENDING) return;
+                if (session.bodyStatus() != BodyStatus.READY) { renderFallback(graphics, request); return; }
+            }
+            var frameCurrent = session.frame();
+            var frameWorld = minecraft.level;
+            var frameTexture = NativePlayerSkinLifecycle.registration(appearance.skin().location());
+            var framePlayer = minecraft.player;
+            AvatarPreviewContext context = new AvatarPreviewContext(minecraft.player, appearance, skin, chestEquipment,
+                    () -> !closed && minecraft.level == frameWorld && minecraft.player == framePlayer
+                            && previewPlayer == renderPlayer && previewLevel == frameWorld
+                            && NativePlayerSkinLifecycle.isReady(appearance.skin().location())
+                            && NativePlayerSkinLifecycle.registration(appearance.skin().location()).equals(frameTexture)
+                            && frameCurrent.getAsBoolean(), session.displayBody(() -> true));
             float previewAge = previewClock.ageTicks(renderPlayer.tickCount);
             applySettling(renderPlayer, previewAge, session.capeSettling(
                     request.intent(), true, appearance.capeMode(),
@@ -111,12 +171,17 @@ public final class AvatarRenderStatePreviewRenderer
             AvatarRenderState state = createRenderState(minecraft, renderPlayer, context);
             state.ageInTicks = previewAge;
             configurePreviewState(state, appearance, skin, request);
+            ((CapeMaterialSnapshot.Carrier) state).nclskins$setCapeMaterial(
+                    CapeMaterialSnapshot.preview(
+                            state.skin.cape() == null ? null : state.skin.cape().texturePath().toString(),
+                            appearance.cape().map(TextureHandle::location).orElse(null),
+                            appearance.capeMode() == CapeMode.CAPE, appearance.capeGlint(), appearance.capeValidity()));
             NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
             float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
             previewState.nclskins$setDepthExtent(PreviewDepthEnvelope.forRequest(
                     request.intent(), requestedScale, request.pitchDegrees(), appearance.capeMode()));
-            previewState.nclskins$setFailureSink(this::onLiveRenderFailure);
-            previewState.nclskins$setLayerFailureSink(this::onLiveLayerFailure);
+            previewState.nclskins$setFailureSink(failure -> { if (context.current()) onLiveRenderFailure(failure); });
+            previewState.nclskins$setLayerFailureSink(failure -> { if (context.current()) onLiveLayerFailure(failure); });
             previewState.nclskins$setPreviewContext(context);
 
             float pitchRadians = LivePreviewPitch.radians(request.pitchDegrees());
@@ -149,6 +214,16 @@ public final class AvatarRenderStatePreviewRenderer
         }
     }
 
+    private void renderFallback(GuiGraphicsExtractor graphics, PreviewRequest request) {
+        var client = Minecraft.getInstance();
+        var world = client.level;
+        var local = client.player;
+        var texture = NativePlayerSkinLifecycle.registration(request.appearance().skin().location());
+        bakedRenderer.render(graphics, request, session.ordinaryDisplay(() -> !closed && client.level == world && client.player == local
+                && NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())
+                && NativePlayerSkinLifecycle.registration(request.appearance().skin().location()).equals(texture)));
+    }
+
     private AvatarRenderState createRenderState(
             Minecraft minecraft,
             AbstractClientPlayer player,
@@ -179,6 +254,8 @@ public final class AvatarRenderStatePreviewRenderer
             previewLevel = null;
             return null;
         }
+        CapeProjection.effectiveSkin(previewProfile.id(), minecraft.player.getUUID(),
+                appearance.skin().location(), appearance.model(), true);
         if (previewPlayer == null || previewLevel != level) {
             previewPlayer = new PreviewPlayer(level, previewProfile);
             previewPlayer.setId(nextPreviewEntityId());
@@ -227,7 +304,9 @@ public final class AvatarRenderStatePreviewRenderer
     }
 
     private void onLiveRenderFailure(RuntimeException failure) {
-        if (session.disableLive(failure)) {
+        boolean firstFailure = session.disableLive(failure);
+        clearAccessoryInspection();
+        if (firstFailure) {
             diagnostics.report(
                     DiagnosticEvent.CLIENT_PREVIEW_LIVE_DISABLED,
                     () -> DiagnosticDetails.failure(failure));
@@ -413,6 +492,11 @@ public final class AvatarRenderStatePreviewRenderer
 
     @Override
     public void close() {
+        session.invalidateDisplayedBody();
+        closed = true;
+        clearAccessoryInspection();
+        accessoryObserver = value -> {};
+        CapeProjection.retireSkin(previewProfile.id());
         bakedRenderer.close();
         previewPlayer = null;
         previewLevel = null;

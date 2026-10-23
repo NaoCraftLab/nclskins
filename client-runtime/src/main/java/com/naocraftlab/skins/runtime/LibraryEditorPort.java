@@ -142,6 +142,13 @@ public interface LibraryEditorPort {
         }
     }
 
+    record EditorSaveScope(UUID initiatingAccountId, long accountEpoch, java.util.function.BooleanSupplier stillCurrent) {
+        public EditorSaveScope {
+            Objects.requireNonNull(initiatingAccountId, "initiatingAccountId");
+            Objects.requireNonNull(stillCurrent, "stillCurrent");
+        }
+    }
+
     record EditorSaveRequest(
             Optional<UUID> originalPresetId,
             String name,
@@ -155,7 +162,37 @@ public interface LibraryEditorPort {
             Optional<String> personalSkinName,
             PersonalSkinSource personalSkinSource,
             com.naocraftlab.skins.core.model.LocalCapeReference offlineCape,
-            Optional<FrozenCatalogSelection> frozenCatalogSelection) {
+            Optional<FrozenCatalogSelection> frozenCatalogSelection,
+            Optional<EditorSaveScope> saveScope,
+            boolean exactCarrierReuse) {
+        public EditorSaveRequest(Optional<UUID> originalPresetId, String name, SkinReference skin,
+                SkinVariant initialVariant, SkinVariant variant, Optional<String> capeId,
+                OuterLayerVisibility outerLayerVisibility, Optional<byte[]> pngBytes,
+                Optional<CatalogOrigin> catalogOrigin, Optional<String> personalSkinName,
+                PersonalSkinSource personalSkinSource, com.naocraftlab.skins.core.model.LocalCapeReference offlineCape,
+                Optional<FrozenCatalogSelection> frozenCatalogSelection, Optional<EditorSaveScope> saveScope) {
+            this(originalPresetId, name, skin, initialVariant, variant, capeId, outerLayerVisibility,
+                    pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, frozenCatalogSelection, saveScope, false);
+        }
+
+        public EditorSaveRequest withExactCarrierReuse(boolean exact) {
+            return new EditorSaveRequest(originalPresetId, name, skin, initialVariant, variant, capeId,
+                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, frozenCatalogSelection, saveScope, exact);
+        }
+        public EditorSaveRequest(Optional<UUID> originalPresetId, String name, SkinReference skin,
+                SkinVariant initialVariant, SkinVariant variant, Optional<String> capeId,
+                OuterLayerVisibility outerLayerVisibility, Optional<byte[]> pngBytes,
+                Optional<CatalogOrigin> catalogOrigin, Optional<String> personalSkinName,
+                PersonalSkinSource personalSkinSource, com.naocraftlab.skins.core.model.LocalCapeReference offlineCape,
+                Optional<FrozenCatalogSelection> frozenCatalogSelection) {
+            this(originalPresetId, name, skin, initialVariant, variant, capeId, outerLayerVisibility,
+                    pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, frozenCatalogSelection, Optional.empty());
+        }
+
+        public EditorSaveRequest withSaveScope(Optional<EditorSaveScope> scope) {
+            return new EditorSaveRequest(originalPresetId, name, skin, initialVariant, variant, capeId,
+                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, frozenCatalogSelection, scope, exactCarrierReuse);
+        }
         public EditorSaveRequest(Optional<UUID> originalPresetId, String name, SkinReference skin,
                 SkinVariant initialVariant, SkinVariant variant, Optional<String> capeId,
                 OuterLayerVisibility outerLayerVisibility, Optional<byte[]> pngBytes,
@@ -167,7 +204,7 @@ public interface LibraryEditorPort {
 
         public EditorSaveRequest withFrozenCatalogSelection(Optional<FrozenCatalogSelection> frozen) {
             return new EditorSaveRequest(originalPresetId, name, skin, initialVariant, variant, capeId,
-                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, frozen);
+                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, offlineCape, frozen, saveScope, exactCarrierReuse);
         }
 
         public EditorSaveRequest(Optional<UUID> originalPresetId, String name, SkinReference skin,
@@ -181,7 +218,7 @@ public interface LibraryEditorPort {
 
         public EditorSaveRequest withOfflineCape(com.naocraftlab.skins.core.model.LocalCapeReference value) {
             return new EditorSaveRequest(originalPresetId, name, skin, initialVariant, variant, capeId,
-                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, value, frozenCatalogSelection);
+                    outerLayerVisibility, pngBytes, catalogOrigin, personalSkinName, personalSkinSource, value, frozenCatalogSelection, saveScope, exactCarrierReuse);
         }
 
         public EditorSaveRequest(
@@ -261,6 +298,7 @@ public interface LibraryEditorPort {
         }
 
         public EditorSaveRequest {
+            saveScope = Objects.requireNonNull(saveScope, "saveScope");
             frozenCatalogSelection = Objects.requireNonNull(frozenCatalogSelection, "frozenCatalogSelection");
             originalPresetId = Objects.requireNonNull(originalPresetId, "originalPresetId");
             Objects.requireNonNull(name, "name");

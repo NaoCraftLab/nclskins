@@ -49,15 +49,24 @@ interface TestCapeOperations extends ClientOperations {
 
     default void startOptiFineCapes() {}
 
-    default void refreshOptiFineCapes() {}
+    default long capeObservationGeneration() { return 0; }
 
-    default void refreshOptiFineCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
-        refreshOptiFineCapes();
+    default void refreshCapeProvider(ProviderRefreshUseCases.Scope scope, BuiltinProvider provider,
+            Consumer<ProviderObservation<ProviderCape>> completion) {
         completion.accept(null);
     }
 
-    default void refreshSkinMcCapes(Consumer<ProviderObservation<ProviderCape>> completion) {
-        completion.accept(null);
+    default void selfCapeCandidatesChanged(UUID accountId, String canonicalName, AppearanceProviders providers,
+            java.util.Set<BuiltinProvider> allowedSources) {}
+
+    static ProviderRefreshResult refreshSource(ClientOperations operations, AppearanceProviders.Component component) throws Exception {
+        return refreshSource(operations, ProviderRefreshRequest.all(component));
+    }
+
+    static ProviderRefreshResult refreshSource(ClientOperations operations, ProviderRefreshRequest request) throws Exception {
+        var before = operations.loadProviders();
+        return operations.refreshProviderSources(new ProviderRefreshUseCases.Scope(request, operations.sessionIdentity(),
+                before, request.resolve(before), 0));
     }
 
     default Optional<Duration> capeProviderCooldown(BuiltinProvider provider) {
@@ -165,13 +174,13 @@ interface TestCapeOperations extends ClientOperations {
         return durableAppearance().orElseThrow();
     }
 
-    default DurableAppearance refreshProviders(AppearanceProviders.Component component) throws Exception {
-        throw new UnsupportedOperationException("Provider refresh is unavailable");
+    default boolean providerRefreshCurrent(ProviderRefreshUseCases.Scope scope) {
+        try { return scope.identity().equals(sessionIdentity()) && scope.configurationMatches(loadProviders()); }
+        catch (Exception unavailable) { return false; }
     }
 
-    default ProviderRefresh refreshProvidersWithObservation(
-            AppearanceProviders.Component component) throws Exception {
-        return new ProviderRefresh(refreshProviders(component), null);
+    default ProviderRefreshResult refreshProviderSources(ProviderRefreshUseCases.Scope scope) throws Exception {
+        return new ProviderRefreshResult(scope, Optional.of(reloadProviders()), java.util.Map.of(), false);
     }
 
     default DurableAppearance enableProvider(AppearanceProviders.Component component, BuiltinProvider provider)
@@ -284,6 +293,23 @@ interface TestCapeOperations extends ClientOperations {
         throw new UnsupportedOperationException("Remote PNG import is unavailable");
     }
 
+    @Override
+    default AcquiredInput acquireFile(java.nio.file.Path path,
+            java.util.Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+            com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+        return PublicSkinImportService.admitInput(
+                com.naocraftlab.skins.core.api.PublicSkinImageAdapter.acquireLocal(path), converter, unavailable,
+                UntrustedDisplayName.fromFileName(path.getFileName().toString(), "Imported skin"),
+                com.naocraftlab.skins.core.model.PersonalSkinSource.FILE);
+    }
+
+    @Override
+    default AcquiredInput acquireUrl(String url,
+            java.util.Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+            com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+        return new AcquiredSkin(loadUrlSkin(url));
+    }
+
     default ExternalImportProbe probeExternalSource(
             ExternalImportSource source, Optional<Path> selectedRoot) throws Exception {
         Objects.requireNonNull(source, "source");
@@ -313,4 +339,19 @@ interface TestCapeOperations extends ClientOperations {
     default void warmOwnedCapeCache() throws Exception {}
     default void warmSession() throws Exception {}
     default void verifyStorageAccess() throws Exception {}
+    @Override
+    default DurableAppearance enableProvider(UUID accountId, AppearanceProviders.Component component,
+            BuiltinProvider provider, long revision) throws Exception {
+        return enableProvider(accountId, component, provider);
+    }
+    @Override
+    default DurableAppearance disableProvider(UUID accountId, AppearanceProviders.Component component,
+            BuiltinProvider provider, long revision) throws Exception {
+        return disableProvider(accountId, component, provider);
+    }
+    @Override
+    default DurableAppearance moveProvider(UUID accountId, AppearanceProviders.Component component,
+            BuiltinProvider provider, int direction, long revision) throws Exception {
+        return moveProvider(accountId, component, provider, direction);
+    }
 }

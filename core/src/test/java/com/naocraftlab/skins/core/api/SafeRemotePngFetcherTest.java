@@ -57,7 +57,7 @@ final class SafeRemotePngFetcherTest {
     @Test
     void validatesPublicHttpAndHttpsDefaultPortsAndRejectsMixedDns() throws Exception {
         SafeRemotePngFetcher safe = new SafeRemotePngFetcher(
-                new PinnedHttpsTransport(), new PngValidator(),
+                new FileTransport(), new PngValidator(),
                 host -> new InetAddress[] {InetAddress.getByName("8.8.8.8")});
         assertEquals("example.com", safe.validate("https://example.com/skin.png?download=1").asciiHost());
         assertEquals("example.com", safe.validate("http://example.com/skin.png").asciiHost());
@@ -82,7 +82,7 @@ final class SafeRemotePngFetcherTest {
         }
 
         SafeRemotePngFetcher mixed = new SafeRemotePngFetcher(
-                new PinnedHttpsTransport(), new PngValidator(),
+                new FileTransport(), new PngValidator(),
                 host -> new InetAddress[] {
                     InetAddress.getByName("8.8.8.8"), InetAddress.getByName("127.0.0.1")
                 });
@@ -97,7 +97,7 @@ final class SafeRemotePngFetcherTest {
         InetAddress first = InetAddress.getByName("8.8.8.8");
         InetAddress second = InetAddress.getByName("1.1.1.1");
         AtomicReference<List<InetAddress>> connected = new AtomicReference<>();
-        PinnedHttpsTransport transport = new PinnedHttpsTransport() {
+        PinnedHttpsTransport transport = new FileTransport() {
             @Override
             Response get(
                     URI uri,
@@ -195,7 +195,7 @@ final class SafeRemotePngFetcherTest {
             thread.setDaemon(true);
             return thread;
         });
-        PinnedHttpsTransport transport = new PinnedHttpsTransport() {
+        PinnedHttpsTransport transport = new FileTransport() {
             @Override
             Response get(
                     URI uri,
@@ -248,7 +248,7 @@ final class SafeRemotePngFetcherTest {
         AtomicInteger clockReads = new AtomicInteger();
         long expired = Duration.ofSeconds(21).toNanos();
         SafeRemotePngFetcher fetcher = new SafeRemotePngFetcher(
-                new PinnedHttpsTransport() {
+                new FileTransport() {
                     @Override
                     Response get(
                             URI request,
@@ -327,7 +327,7 @@ final class SafeRemotePngFetcherTest {
     @Test
     void mapsTransportSizeLimitToOversized() throws Exception {
         URI uri = URI.create("https://one.example/skin.png");
-        PinnedHttpsTransport oversized = new PinnedHttpsTransport() {
+        PinnedHttpsTransport oversized = new FileTransport() {
             @Override
             Response get(
                     URI request,
@@ -418,7 +418,17 @@ final class SafeRemotePngFetcherTest {
     private record Call(URI uri, List<InetAddress> addresses, Duration timeout) {
     }
 
-    private static final class ScriptedTransport extends PinnedHttpsTransport {
+    private static class FileTransport extends PinnedHttpsTransport {
+        @Override
+        FileResponse getToFile(URI uri, String host, List<InetAddress> addresses,
+                Duration timeout, long maximum, java.nio.file.Path destination) throws IOException {
+            Response response = get(uri, host, addresses, timeout, (int) maximum);
+            if (response.statusCode() == 200) java.nio.file.Files.write(destination, response.body());
+            return new FileResponse(response.statusCode(), response.uri(), response.headers(), response.body().length);
+        }
+    }
+
+    private static final class ScriptedTransport extends FileTransport {
         private final Map<URI, PinnedHttpsTransport.Response> responses;
         private final AtomicLong now;
         private final List<Call> calls = new ArrayList<>();

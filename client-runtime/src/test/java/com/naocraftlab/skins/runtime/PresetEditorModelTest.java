@@ -31,6 +31,61 @@ final class PresetEditorModelTest {
     };
 
     @Test
+    void convertedAlternateExplainsItsOwnUnavailableReasonWithoutChangingOrdinaryCards() {
+        PresetEditorModel ordinary = PresetEditorModel.open(TestFixtures.account(0), Optional.empty(),
+                Optional.empty(), Optional.empty(), ENGLISH, 240, PreviewRenderer.CapeMode.OFF);
+        for (SkinVariant selected : SkinVariant.values()) {
+            String selectedId = "editor.model_choice." + selected.name().toLowerCase(java.util.Locale.ROOT);
+            SkinVariant alternate = selected == SkinVariant.CLASSIC ? SkinVariant.SLIM : SkinVariant.CLASSIC;
+            String alternateId = "editor.model_choice." + alternate.name().toLowerCase(java.util.Locale.ROOT);
+            PresetEditorModel png = ordinary.withImportedPng("skin.png", new byte[] {1, 2, 3}, selected);
+            for (boolean busy : List.of(false, true)) {
+                PresetEditorModel plain = busy ? png.withBusyWithoutStatus() : png;
+                ViewSpec plainView = plain.present(320, 240);
+                assertTrue(plainView.widget(alternateId).orElseThrow().hint().isEmpty());
+                PresetEditorModel converted = ordinary.withConvertedPng("model.png", new byte[] {4, 5, 6}, selected);
+                if (busy) converted = converted.withBusyWithoutStatus();
+                assertEquals(selected, converted.variant());
+                assertTrue(converted.variantAvailable(selected));
+                assertFalse(converted.variantAvailable(alternate));
+                assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED),
+                        converted.variantUnavailableReason(alternate));
+                ViewSpec view = converted.present(320, 240);
+                ViewSpec.Widget current = view.widget(selectedId).orElseThrow();
+                ViewSpec.Widget disabled = view.widget(alternateId).orElseThrow();
+                assertEquals(plainView.widget(alternateId).orElseThrow().bounds(), disabled.bounds());
+                assertEquals(Optional.of("selected"), current.value());
+                assertEquals("nclskins.editor.model_selected", current.label().key());
+                assertTrue(current.hint().isEmpty());
+                assertFalse(disabled.enabled());
+                assertFalse(disabled.activationEnabled());
+                assertEquals(Optional.of("unselected"), disabled.value());
+                UiMessage reason = UiMessage.info("nclskins.editor.cpm_variant_unavailable");
+                assertEquals(Optional.of(reason), disabled.hint(), "Converted alternate needs its Editor-specific reason");
+                assertEquals(UiMessage.info("nclskins.inspection.source",
+                        UiMessage.info("nclskins.editor.model_unavailable",
+                                UiMessage.info(alternate == SkinVariant.CLASSIC
+                                        ? "nclskins.editor.arms_classic" : "nclskins.editor.arms_slim")), reason),
+                        disabled.label(), "Accessible label must include the same complete reason");
+                assertEquals(selected, converted.variant());
+                assertArrayEquals(new byte[] {4, 5, 6}, converted.saveRequest().pngBytes().orElseThrow());
+                assertTrue(converted.saveRequest().exactCarrierReuse());
+                assertTrue(converted.saveRequest().withSaveScope(Optional.empty()).withOfflineCape(null)
+                        .withFrozenCatalogSelection(Optional.empty()).exactCarrierReuse());
+                if (!busy) assertFalse(converted.withImportedPng("replacement.png", new byte[]{7, 8, 9}, selected)
+                        .saveRequest().exactCarrierReuse());
+            }
+            PresetEditorModel catalog = PresetEditorModel.openPersonalCatalog("Saved skin",
+                    Map.of(selected, new PresetEditorModel.ReusableCatalogVariant(
+                            SkinReference.asset(TestFixtures.CLASSIC_ID), new byte[] {1})), selected,
+                    Optional.empty(), 240, PreviewRenderer.CapeMode.OFF);
+            assertFalse(catalog.present(320, 240).widget(alternateId).orElseThrow().enabled());
+            assertTrue(catalog.present(320, 240).widget(alternateId).orElseThrow().hint().isEmpty());
+            assertFalse(catalog.saveRequest().exactCarrierReuse());
+        }
+    }
+
+    @Test
     void draftChangesDoNotMutateOriginalAndSaveCarriesOwnedPng() {
         AccountState account = TestFixtures.account(1);
         AppearancePreset original = account.presets().get(0);
@@ -301,7 +356,8 @@ final class PresetEditorModelTest {
                 480,
                 PreviewRenderer.CapeMode.OFF);
 
-        ViewSpec enabled = model.present(854, 480, 0.0);
+        assertTrue(model.present(854, 480).widgets().stream().noneMatch(widget -> widget.id().startsWith("editor.outer_layer.")));
+        ViewSpec enabled = model.present(854, 480, 0.0, 0.0, ViewChromeMetrics.STANDARD, true);
         assertCycleButton(enabled, "head", new Bounds(2, 208, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_ON,
                 "nclskins.editor.outer_head_on");
         assertCycleButton(enabled, "body", new Bounds(2, 230, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_BODY_ALL_ON,
@@ -319,7 +375,7 @@ final class PresetEditorModelTest {
                 .cycleOuterLayer("head", 1)
                 .cycleOuterLayer("body", -1)
                 .cycleOuterLayer("legs", -1);
-        ViewSpec changedView = changed.present(854, 480, 0.0);
+        ViewSpec changedView = changed.present(854, 480, 0.0, 0.0, ViewChromeMetrics.STANDARD, true);
         assertCycleButton(changedView, "head", new Bounds(2, 208, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_HEAD_OFF,
                 "nclskins.editor.outer_head_off");
         assertCycleButton(changedView, "body", new Bounds(2, 230, 20, 20), GuiIcon.APPEARANCE_OUTER_LAYER_BODY_LEFT_ARM_OFF,
@@ -384,7 +440,7 @@ final class PresetEditorModelTest {
                 SkinVariant.CLASSIC,
                 capes).withSelectedEditorTab(EditorTab.CAPE);
 
-        ViewSpec view = model.selectCape(1).present(320, 240, 0.0);
+        ViewSpec view = model.selectCape(1).present(320, 240, 0.0, 0.0, ViewChromeMetrics.STANDARD, true);
         assertEquals(new Bounds(2, 35, 20, 20),
                 view.widget("editor.preview_mode").orElseThrow().bounds());
         assertEquals(Optional.of(GuiIcon.APPEARANCE_BACK_CAPE), view.widget("editor.preview_mode").orElseThrow().icon());

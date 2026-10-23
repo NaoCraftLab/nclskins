@@ -523,6 +523,15 @@ public final class PresetEditorModel {
         return catalogVariants.isEmpty() || catalogVariants.containsKey(value);
     }
 
+    boolean convertedCreation() {
+        return !catalogVariants.isEmpty() && catalogOrigin.isEmpty() && reusableCatalogVariants.isEmpty();
+    }
+
+    public Optional<com.naocraftlab.skins.client.CpmModelFileConversion.Reason> variantUnavailableReason(SkinVariant value) {
+        return convertedCreation() && !variantAvailable(value)
+                ? Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED) : Optional.empty();
+    }
+
     public boolean modelVariantSelectable() {
         return catalogVariants.isEmpty() || catalogVariants.size() > 1;
     }
@@ -634,6 +643,19 @@ public final class PresetEditorModel {
                 preview, selectedEditorTab, capeCatalog);
     }
 
+    PresetEditorModel withConvertedPng(String sourceName, byte[] bytes, SkinVariant model) {
+        return withConvertedPngs(sourceName, Map.of(model, bytes), model);
+    }
+
+    PresetEditorModel withConvertedPngs(String sourceName, Map<SkinVariant, byte[]> bytes, SkinVariant model) {
+        var pairs = new java.util.EnumMap<SkinVariant, DraftPng>(SkinVariant.class);
+        bytes.forEach((variant, pngBytes) -> pairs.put(variant, new DraftPng(sourceName, pngBytes)));
+        DraftPng converted = Objects.requireNonNull(pairs.get(model), "selected converted pair");
+        return new PresetEditorModel(Optional.empty(), name, SkinReference.accountDefault(), model, model,
+                capeId, capeChoices, hasOwnedCapePreview, Optional.of(converted), Optional.empty(),
+                pairs, Map.of(), false, Optional.empty(), preview, selectedEditorTab, capeCatalog);
+    }
+
     public PresetEditorModel withBusy(UiMessage message) {
         return copy(
                 name,
@@ -712,7 +734,7 @@ public final class PresetEditorModel {
                 bytesToPersist,
                 catalogOrigin,
                 personalSkinName).withOfflineCape(capeCatalog == null ? null : capeCatalog.offline())
-                .withFrozenCatalogSelection(frozenCatalogSelection);
+                .withFrozenCatalogSelection(frozenCatalogSelection).withExactCarrierReuse(convertedCreation());
     }
 
     public EditorTab selectedEditorTab() {
@@ -749,6 +771,11 @@ public final class PresetEditorModel {
             double capeScrollPosition,
             double modelScrollPosition,
             ViewChromeMetrics chromeMetrics) {
+        return present(width, height, capeScrollPosition, modelScrollPosition, chromeMetrics, false);
+    }
+
+    public ViewSpec present(int width, int height, double capeScrollPosition, double modelScrollPosition,
+            ViewChromeMetrics chromeMetrics, boolean showOuterLayers) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("view dimensions must be positive");
         }
@@ -825,7 +852,7 @@ public final class PresetEditorModel {
                     navigationNodes,
                     capeGallery);
         }
-        addPreviewCycleControls(widgets, previewBounds);
+        addPreviewCycleControls(widgets, previewBounds, showOuterLayers);
         widgets.add(ViewSpec.Widget.button(
                 "editor.save",
                 new Bounds(footerX, bottom, half, 20),
@@ -892,7 +919,7 @@ public final class PresetEditorModel {
                                 .map(id -> "asset:" + id).orElse("current-player")),
                         variant, previewCapeId(), originalPresetId, previewCatalogImage,
                         capeCatalog == null || capeCatalog.previewHasElytra(), PreviewRenderer.PreviewIntent.EDITOR_DRAFT),
-                preview);
+                preview).withOwnedPng(png.isPresent());
         return new ViewSpec(
                 "preset_editor",
                 UiMessage.info(originalPresetId.isPresent()
@@ -977,13 +1004,9 @@ public final class PresetEditorModel {
         return Math.max(0.0, Math.min(layout.maximum(), centered));
     }
 
-    private void addPreviewCycleControls(List<ViewSpec.Widget> widgets, Bounds previewBounds) {
-        var outerLayers = new ArrayList<PlayerAppearanceStage.Control>();
-        for (String id : List.of("head", "body", "legs")) {
-            EditorOuterLayerCycle.State state = EditorOuterLayerCycle.state(id, preview.outerLayerVisibility());
-            outerLayers.add(new PlayerAppearanceStage.Control("editor.outer_layer." + id,
-                    state.label(), state.icon(), !busy));
-        }
+    private void addPreviewCycleControls(List<ViewSpec.Widget> widgets, Bounds previewBounds, boolean showOuterLayers) {
+        var outerLayers = showOuterLayers ? PlayerAppearanceStage.outerLayers(preview.outerLayerVisibility(),
+                "editor.outer_layer.", !busy) : List.<PlayerAppearanceStage.Control>of();
         widgets.addAll(PlayerAppearanceStage.controls(previewBounds,
                 hasCapePreview() ? Optional.of(PlayerAppearanceStage.capeMode("editor.preview_mode", preview, !busy))
                         : Optional.empty(), outerLayers));
@@ -997,9 +1020,10 @@ public final class PresetEditorModel {
             List<ViewSpec.ClipRegion> clips,
             List<ViewSpec.NavigationNode> navigation,
             EditorCardLayout layout) {
-        clips.add(AppearanceCollections.clip("editor.models", layout.viewport(),
-                List.of("editor.name", "editor.catalog_info", "editor.model_label",
-                        "editor.model_card.", "editor.model_choice.")));
+        var prefixes = new ArrayList<>(List.of("editor.name", "editor.catalog_info", "editor.model_label",
+                "editor.model_card.", "editor.model_choice."));
+
+        clips.add(AppearanceCollections.clip("editor.models", layout.viewport(), prefixes));
         for (int index = 0; index < 2; index++) {
             SkinVariant choice = index == 0 ? SkinVariant.CLASSIC : SkinVariant.SLIM;
             int cardWidth = layout.cardWidth() + (index == 1 ?
@@ -1029,7 +1053,9 @@ public final class PresetEditorModel {
                     SkinCardPreviewLayout.modelIcon(card),
                     index == 0 ? GuiIcon.APPEARANCE_MODEL_CLASSIC : GuiIcon.APPEARANCE_MODEL_SLIM,
                     id, enabled ? (choice == variant ? 1.0F : 0.8F) : 0.35F, enabled ? 1.0F : 0.35F));
-            widgets.add(chrome.widget());
+            widgets.add(variantUnavailableReason(choice).isPresent()
+                    ? chrome.widget().withActivation(false, UiMessage.info("nclskins.editor.cpm_variant_unavailable"))
+                    : chrome.widget());
         }
     }
 
@@ -1054,6 +1080,7 @@ public final class PresetEditorModel {
     }
 
     public double normalizedModelScrollPosition(int width, int height, double desired) {
+
         if (!Double.isFinite(desired)) {
             throw new IllegalArgumentException("model scroll position must be finite");
         }
@@ -1229,7 +1256,7 @@ public final class PresetEditorModel {
     }
 
     private boolean hasCapePreview() {
-        return capeCatalog == null ? capeId.isPresent() || hasOwnedCapePreview : previewCapeId().isPresent();
+        return capeCatalog == null ? capeId.isPresent() || hasOwnedCapePreview : previewCapeId().isPresent() || capeCatalog.nativePreview();
     }
 
     private BackEquipmentPreviewRenderer.Mode backEquipmentMode() {
@@ -1262,7 +1289,10 @@ public final class PresetEditorModel {
                 reusableCatalogVariants,
                 nextBusy,
                 nextStatus,
-                nextPreview, selectedEditorTab, capeCatalog, frozenCatalogSelection);
+                nextPreview, selectedEditorTab, capeCatalog == null ? null
+                        : !skin.equals(nextSkin) || variant != nextVariant || !png.equals(nextPng)
+                                ? capeCatalog.withAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(
+                                        PreviewRenderer.LiveReason.LOADING)) : capeCatalog, frozenCatalogSelection);
     }
 
     private static SkinVariant variantFor(

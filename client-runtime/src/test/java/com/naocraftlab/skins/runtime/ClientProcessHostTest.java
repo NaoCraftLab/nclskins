@@ -19,8 +19,8 @@ final class ClientProcessHostTest {
         FakeProcess process = new FakeProcess(events);
         ClientProcessHost<Connection> host = new ClientProcessHost<>(process);
 
-        host.tick(connection, true);
-        host.tick(connection, true);
+        host.tick(connection, null, true);
+        host.tick(connection, null, true);
 
         assertEquals(List.of("tick", "reconnect", "tick"), events);
     }
@@ -31,8 +31,8 @@ final class ClientProcessHostTest {
         FakeProcess process = new FakeProcess(events);
         ClientProcessHost<Connection> host = new ClientProcessHost<>(process);
 
-        host.tick(null, false);
-        host.tick(new Connection(), false);
+        host.tick(null, null, false);
+        host.tick(new Connection(), null, false);
 
         assertEquals(List.of("tick", "tick"), events);
     }
@@ -46,14 +46,14 @@ final class ClientProcessHostTest {
         ClientProcessHost<Connection> host = new ClientProcessHost<>(process);
 
         for (int tick = 0; tick < 200; tick++) {
-            host.tick(connection, true);
+            host.tick(connection, null, true);
         }
 
         assertEquals(200, events.stream().filter("tick"::equals).count());
         assertEquals(1, events.stream().filter("reconnect"::equals).count());
 
         Connection nextGeneration = new Connection();
-        host.tick(nextGeneration, true);
+        host.tick(nextGeneration, null, true);
 
         assertEquals(2, events.stream().filter("reconnect"::equals).count());
     }
@@ -81,7 +81,7 @@ final class ClientProcessHostTest {
 
         assertThrows(IllegalStateException.class, host::warmSession);
         assertThrows(IllegalStateException.class, () ->
-                host.tick(null, false));
+                host.tick(null, null, false));
         assertEquals(List.of("close"), events);
     }
 
@@ -103,6 +103,9 @@ final class ClientProcessHostTest {
         public void tick() {
             events.add("tick");
         }
+
+        @Override
+        public void worldChanged() {}
 
         @Override
         public CompletableFuture<Result> afterReconnect() {

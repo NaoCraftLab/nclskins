@@ -9,6 +9,54 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PreviewRendererTest {
     @Test
+    void displayedBodyQueryReadsCurrentWitnessWithoutPreparingOrRendering() {
+        var witness = new java.util.concurrent.atomic.AtomicReference<PreviewModelFrames.Body>();
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        var currentReads = new java.util.concurrent.atomic.AtomicInteger();
+        var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+        PreviewRenderer<Object> renderer = new PreviewRenderer<>() {
+            public void render(Object graphics, PreviewRequest request) { throw new AssertionError("No rendering"); }
+            public void prepareBody(String source, boolean expected) { throw new AssertionError("No preparation"); }
+            public PreviewModelFrames.Body body() { reads.incrementAndGet(); return witness.get(); }
+        };
+        java.util.function.Supplier<PreviewRenderer.DisplayKind> query = renderer::displayKind;
+        witness.set(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.READY, () -> {
+            currentReads.incrementAndGet();
+            return current.get();
+        }));
+        assertEquals(PreviewRenderer.DisplayKind.CPM, query.get(), "Actual current displayed body must be projected by the shared renderer query");
+        assertEquals(1, reads.get());
+        assertEquals(1, currentReads.get());
+        current.set(false);
+        assertEquals(PreviewRenderer.DisplayKind.UNCONFIRMED, query.get());
+        for (var status : PreviewRenderer.BodyStatus.values()) {
+            witness.set(new PreviewModelFrames.Body(status, () -> {
+                if (status == PreviewRenderer.BodyStatus.ORDINARY) return true;
+                throw new AssertionError("Non-display witness is not queried");
+            }));
+            if (status != PreviewRenderer.BodyStatus.READY) assertEquals(status == PreviewRenderer.BodyStatus.ORDINARY
+                    ? PreviewRenderer.DisplayKind.ORDINARY : PreviewRenderer.DisplayKind.UNCONFIRMED, query.get(), status.name());
+        }
+        witness.set(null);
+        assertEquals(PreviewRenderer.DisplayKind.UNCONFIRMED, query.get());
+        PreviewRenderer<Object> ordinary = (graphics, request) -> { throw new AssertionError("No rendering"); };
+        assertEquals(PreviewRenderer.BodyStatus.ORDINARY, ordinary.body().status());
+
+        assertEquals(PreviewRenderer.DisplayKind.UNCONFIRMED, ordinary.displayKind());
+        assertEquals(false, ordinary.body().current().getAsBoolean());
+        for (var status : PreviewRenderer.BodyStatus.values()) {
+            witness.set(new PreviewModelFrames.Body(status, () -> true));
+            assertEquals(switch (status) {
+                case READY -> PreviewRenderer.DisplayKind.CPM;
+                case ORDINARY -> PreviewRenderer.DisplayKind.ORDINARY;
+                default -> PreviewRenderer.DisplayKind.UNCONFIRMED;
+            }, renderer.displayKind());
+            witness.set(new PreviewModelFrames.Body(status, () -> false));
+            assertEquals(PreviewRenderer.DisplayKind.UNCONFIRMED, renderer.displayKind());
+        }
+    }
+
+    @Test
     void staticPreviewPreservesEachOuterLayerWithoutChangingSkinModelOrCape() {
         var skin = new TextureRegistry.TextureHandle("nclskins:test", 64, 64);
         var cape = new TextureRegistry.TextureHandle("nclskins:cape", 64, 32);

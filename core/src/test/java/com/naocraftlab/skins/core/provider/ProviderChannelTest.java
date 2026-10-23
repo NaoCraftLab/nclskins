@@ -17,6 +17,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProviderChannelTest {
     @Test
+    void visibleReorderPreservesHiddenCpmSlot() {
+        var channel = ProviderChannel.<String>initial().initializeCpm().move(BuiltinProvider.CPM, 1);
+        assertEquals(List.of(OFFLINE, MINECRAFT), channel.visibleOrder(false));
+        var moved = channel.moveVisible(MINECRAFT, -1, false);
+        assertEquals(List.of(MINECRAFT, BuiltinProvider.CPM, OFFLINE), moved.order());
+        assertEquals(channel.cpmConfiguration(), moved.cpmConfiguration());
+        assertSame(moved, moved.moveVisible(BuiltinProvider.CPM, 1, false));
+        assertEquals(List.of(BuiltinProvider.CPM, MINECRAFT, OFFLINE),
+                moved.moveVisible(BuiltinProvider.CPM, -1, true).order());
+    }
+
+    @Test
+    void cpmInitializesOnceAndExplicitAddAppendsWithoutChangingIntent() {
+        var initial = ProviderChannel.<String>initial().select(1, "selected");
+        var initialized = initial.initializeCpm();
+        assertEquals(List.of(BuiltinProvider.CPM, OFFLINE, MINECRAFT), initialized.order());
+        assertEquals(initial.intentRevision(), initialized.intentRevision());
+        assertEquals(initial.minecraftDelivery(), initialized.minecraftDelivery());
+        assertSame(initialized, initialized.initializeCpm());
+        var moved = initialized.move(BuiltinProvider.CPM, 1);
+        var disabled = moved.disable(BuiltinProvider.CPM);
+        assertEquals(Integer.valueOf(1), disabled.cpmConfiguration().disabledSlot());
+        assertSame(disabled, disabled.initializeCpm());
+        assertEquals(List.of(OFFLINE, MINECRAFT, BuiltinProvider.CPM), disabled.enable(BuiltinProvider.CPM).order());
+        assertNull(disabled.enable(BuiltinProvider.CPM).cpmConfiguration().disabledSlot());
+        assertEquals(disabled.cpmConfiguration(), disabled.select(2, "new").cpmConfiguration());
+        assertEquals(java.util.Set.of(ProviderCapability.DISTRIBUTION),
+                BuiltinProvider.CPM.capabilities(AppearanceProviders.Component.CAPE));
+        assertTrue(!BuiltinProvider.CPM.supportsSkin());
+        assertTrue(!BuiltinProvider.CPM.canWrite(AppearanceProviders.Component.CAPE));
+    }
+    @Test
+    void minecraftcapesIsOptInCapeOnlyAndPreservesObservationAcrossOrderChanges() {
+        AppearanceProviders initial = AppearanceProviders.initial();
+        assertTrue(!initial.cape().enabled(BuiltinProvider.MINECRAFTCAPES));
+        assertTrue(!BuiltinProvider.MINECRAFTCAPES.supportsSkin());
+        assertThrows(IllegalArgumentException.class,
+                () -> initial.enable(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFTCAPES));
+
+        ProviderCape cape = new ProviderCape("minecraftcapes:test", "a".repeat(64), true);
+        ProviderChannel<ProviderCape> enabled = initial.enable(
+                AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFTCAPES)
+                .cape().observeMinecraftcapes(cape);
+        assertEquals(BuiltinProvider.MINECRAFTCAPES, enabled.resolve().orElseThrow().provider());
+        assertEquals(cape, enabled.move(BuiltinProvider.MINECRAFTCAPES, -1).minecraftcapes().value());
+        ProviderChannel<ProviderCape> disabled = enabled.disable(BuiltinProvider.MINECRAFTCAPES);
+        assertTrue(disabled.resolve().isEmpty());
+        assertEquals(cape, disabled.minecraftcapes().value());
+        assertEquals(cape, disabled.enable(BuiltinProvider.MINECRAFTCAPES).minecraftcapes().value());
+        assertEquals(enabled.minecraftDelivery(), disabled.minecraftDelivery());
+    }
+
+    @Test
     void sneakyIsCapeOnlyDisabledInitiallyAndFollowsCapePriority() {
         AppearanceProviders initial = AppearanceProviders.initial();
         assertTrue(!initial.cape().enabled(BuiltinProvider.SNEAKY));

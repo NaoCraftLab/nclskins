@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.identifier.extraction;
 
+import com.naocraftlab.skins.compat.client.identifier.foil.CapeTranslucentFoilMaterial;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
@@ -10,6 +11,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.model.Model;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.client.renderer.state.gui.GuiRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -31,7 +33,10 @@ public final class NclBakedPlayerRenderer
             GuiRenderState guiRenderState,
             FeatureRenderDispatcher featureRenderDispatcher,
             int guiScale) {
+        var completion = state.completion();
+        if (completion != null && !completion.current()) return;
         NclBakedPlayerTarget target = state.target();
+        try {
         TargetRenderer renderer = target.acquire(
                 this,
                 () -> {
@@ -39,7 +44,17 @@ public final class NclBakedPlayerRenderer
                     return new TargetRenderer();
                 },
                 TargetRenderer.class);
+        renderer.primaryRendered = false;
         renderer.prepare(state, guiRenderState, featureRenderDispatcher, guiScale);
+        if (completion != null && renderer.primaryRendered) completion.accept(
+                new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                        com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY,
+                        () -> target.owns(this, renderer)));
+        } catch (RuntimeException | Error failure) {
+            if (completion != null) completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                    com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
+            throw failure;
+        }
     }
 
     @Override
@@ -71,6 +86,7 @@ public final class NclBakedPlayerRenderer
 
     private static final class TargetRenderer
             extends PictureInPictureRenderer<NclBakedPlayerRenderState> {
+        private boolean primaryRendered;
         @Override
         public Class<NclBakedPlayerRenderState> getRenderStateClass() {
             return NclBakedPlayerRenderState.class;
@@ -105,11 +121,18 @@ public final class NclBakedPlayerRenderer
                                 attachment,
                                 Unit.INSTANCE,
                                 pose,
-                                state.attachmentTexture(),
+                                state.capeGlint()
+                                        ? CapeTranslucentFoilMaterial.forTexture(state.attachmentTexture())
+                                        : RenderTypes.entityTranslucent(state.attachmentTexture()),
                                 0x00F000F0,
                                 OverlayTexture.NO_OVERLAY,
                                 0,
                                 null);
+                        if (state.capeGlint() && CapeTranslucentFoilMaterial.inWorld()) {
+                            collector.order(1).submitModel(attachment, Unit.INSTANCE, pose,
+                                    RenderTypes.entityGlint(), 0x00F000F0,
+                                    OverlayTexture.NO_OVERLAY, 0, null);
+                        }
                     } finally {
                         pose.popPose();
                     }
@@ -124,6 +147,7 @@ public final class NclBakedPlayerRenderer
                             OverlayTexture.NO_OVERLAY,
                             0,
                             null);
+                    primaryRendered = true;
                 }
             } finally {
                 pose.popPose();

@@ -97,7 +97,8 @@ public final class ResourcePackCapeCatalog {
         if (identity.endsWith(".png")) return 0;
         if (identity.endsWith(".jpg")) return 1;
         if (identity.endsWith(".jpeg")) return 2;
-        return 3;
+        if (identity.endsWith(".gif")) return 3;
+        return 4;
     }
 
     private static final class CollectionBuilder {

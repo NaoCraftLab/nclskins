@@ -16,7 +16,8 @@ class PreparedImportPortsTest {
     void controlledSourcesKeepOrderErrorsAndOneAtomicCommit() throws Exception {
         var accounts = new PreparedCatalogServiceTest.MemoryAccounts();
         byte[] image = PreparedCatalogServiceTest.png(64, 64, 0);
-        var serviceCatalog = new PreparedCatalogService((collection, skin, model) -> image, accounts);
+        var serviceCatalog = new PreparedCatalogService((collection, skin, model) -> image,
+                accounts, new FileCapeStaging());
         AtomicInteger commits = new AtomicInteger();
         ExternalImportCommit commit = (account, selected) -> {
             commits.incrementAndGet();
@@ -46,7 +47,8 @@ class PreparedImportPortsTest {
     void cancellationPropagatesWithoutCommitOrEmptySuccess() throws Exception {
         var accounts = new PreparedCatalogServiceTest.MemoryAccounts();
         byte[] image = PreparedCatalogServiceTest.png(64, 64, 0);
-        var catalog = new PreparedCatalogService((collection, skin, model) -> image, accounts);
+        var catalog = new PreparedCatalogService((collection, skin, model) -> image,
+                accounts, new FileCapeStaging());
         AtomicInteger commits = new AtomicInteger();
         var service = new ExternalAppearanceImportService(sources(image, true), catalog,
                 (account, candidates) -> { commits.incrementAndGet(); return new ExternalImportCommit.BatchResult(accounts.state, 0, 0); });

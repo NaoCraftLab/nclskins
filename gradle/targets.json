@@ -224,7 +224,7 @@
         "capabilities": {
           "gui": "identifier-submission",
           "textures": "identifier-texture-registry",
-          "appearance": "avatar-state-local-player-skin",
+          "appearance": "cape-foil-pipeline-samplers",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
           "filePicker": "tinyfd-safe-v1",
@@ -260,7 +260,7 @@
         "capabilities": {
           "gui": "identifier-extraction-tab-navigation-glfw",
           "textures": "identifier-texture-registry",
-          "appearance": "avatar-state-local-player-skin",
+          "appearance": "cape-foil-pipeline-target-state",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
           "filePicker": "tinyfd-safe-v1",
@@ -296,7 +296,7 @@
         "capabilities": {
           "gui": "identifier-extraction-menu-tab-glfw",
           "textures": "identifier-texture-registry",
-          "appearance": "avatar-state-local-player-skin",
+          "appearance": "cape-foil-pipeline-bind-groups",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
           "filePicker": "tinyfd-safe-v1",
@@ -332,7 +332,7 @@
         "capabilities": {
           "gui": "identifier-extraction-menu-tab-input-constants",
           "textures": "identifier-texture-registry",
-          "appearance": "avatar-state-local-player-skin",
+          "appearance": "cape-foil-combined",
           "session": "minecraft-user-v1",
           "clientExecutor": "minecraft-client-executor-v1",
           "filePicker": "sdl-dialog-safe-v1",
@@ -370,6 +370,92 @@
     "maximum": "2.14.0"
   },
   "optionalDependencies": {
+    "cpm": {
+      "side": "client",
+      "projectId": "h1E7sQNL",
+      "sourceCommit": "1e94ed23f7d1d9b253d285c98acc3427bd71bdd0",
+      "versions": {
+        "fabric-1.20.1": "3XedKRav",
+        "forge-1.20.1": "BZZSHBbA",
+        "fabric-1.21.1": "7REwdnKp",
+        "neoforge-1.21.1": "YXfPij2E",
+        "fabric-1.21.11": "uHdKq7aj",
+        "neoforge-1.21.11": "oGp97F4J",
+        "fabric-26.1": "mCnoK01C",
+        "neoforge-26.1": "fFHN1j51",
+        "fabric-26.2": "klnLackF",
+        "neoforge-26.2": "boNjhV6Y",
+        "fabric-26.3": "y57itTtd",
+        "neoforge-26.3": "bl0g58z6"
+      },
+      "predicates": {
+        "fabric": "*",
+        "forge": "[0,)",
+        "neoforge": "[0,)"
+      },
+      "artifacts": {
+        "fabric-1.20.1": {
+          "versionId": "3XedKRav",
+          "file": "CustomPlayerModels-Fabric-1.20-0.6.27a.jar",
+          "sha512": "ba87ccd347f4a7163718481f8008a1cea47367465d50b721560e60f4e65a0ef335bfa2e7a5876d38fa8dffc9b24230e138f6740022e944bab1891a46f137ba54"
+        },
+        "forge-1.20.1": {
+          "versionId": "BZZSHBbA",
+          "file": "CustomPlayerModels-1.20-0.6.27a.jar",
+          "sha512": "ec0ae724e5cc58180f1203d0c155cecf5f362030bb445083d15abd4c1d09585e2000c68e7e074f78bd8416267e792f98322e551b09cd0e9bd0fbf94eb7cf9331"
+        },
+        "fabric-1.21.1": {
+          "versionId": "7REwdnKp",
+          "file": "CustomPlayerModels-Fabric-1.21-0.6.27a.jar",
+          "sha512": "6ed6cc86c94fbb22e6e7552219a5bbdb22bfe293fdc0b785baf0286e1e4febd92b96305f5257cdb9e5618cd571ab26f4b08a36b937d7ad6ed87ea3ed26b7b36b"
+        },
+        "neoforge-1.21.1": {
+          "versionId": "YXfPij2E",
+          "file": "CustomPlayerModels-1.21-0.6.27a.jar",
+          "sha512": "5af1150d16bfc3adfa942bf606a8e4d829cdcc15d3ec46eb98cdb03bd85db81ceac4b85274b4207a928497d78a4f53afeab1cf5b43ac73219d20147948fea38b"
+        },
+        "fabric-1.21.11": {
+          "versionId": "uHdKq7aj",
+          "file": "CustomPlayerModels-Fabric-1.21.11-0.6.27a.jar",
+          "sha512": "94ae4187f0b700d8407d32374208ccc53ee0b5e06151a048eca2ed10e7dcb2b9536d6b5b8ae988121972c78d8030e8343f42dfa234d6387a4e49a48afa84bd0e"
+        },
+        "neoforge-1.21.11": {
+          "versionId": "oGp97F4J",
+          "file": "CustomPlayerModels-1.21.11-0.6.27a.jar",
+          "sha512": "37c76428b0357390eab252e8b285d08d7a5b0589e06f74f4410516c39ec61f74a16b00875cd666ca7548d108a351e570cb4cea523397a6a8aa7cbe8ac93bc366"
+        },
+        "fabric-26.1": {
+          "versionId": "mCnoK01C",
+          "file": "CustomPlayerModels-Fabric-26.1-0.6.27b.jar",
+          "sha512": "de27c9a8c8ea25696843f3337b34b62e4dc5918b3afdf65bb5c35f9e2fed133488efd846221cb9a089205f41be4b8e1d38e2bb22e38277958b9207fb99b9d94b"
+        },
+        "neoforge-26.1": {
+          "versionId": "fFHN1j51",
+          "file": "CustomPlayerModels-26.1-0.6.27b.jar",
+          "sha512": "6a8cc2f2ab0e17368e6bd3d49775aaed3cc520a03a7467963ad75a2dca9cda63358ebf67674a3301e33fb7031fbf14c01feab59f116bdd5ab069eec912cdf50d"
+        },
+        "fabric-26.2": {
+          "versionId": "klnLackF",
+          "file": "CustomPlayerModels-Fabric-26.2-0.6.27c.jar",
+          "sha512": "c260f75cbc345dcf097bd9af7166ae8f9c825b99260af78f7ee8334e3c29adfe34eb44bdb5c0992c95eb498595d5299d81216fbc9febe12de328f5c2189cdad9"
+        },
+        "neoforge-26.2": {
+          "versionId": "boNjhV6Y",
+          "file": "CustomPlayerModels-26.2-0.6.27c.jar",
+          "sha512": "e0ad7ef3896c3b3b05b2e24a96ac2f310bbe3a08f9fb849c0479b7567f16adf7d8b6cbddea3f088d17883cd8abe352a5e695ecc13ef991eff1a893f1bfe694d0"
+        },
+        "fabric-26.3": {
+          "versionId": "y57itTtd",
+          "file": "CustomPlayerModels-Fabric-26.3-0.6.27e.jar",
+          "sha512": "ac388b872ee7818b3f0cdc2581257ff880624ce0168e5e1b53d27747bca559a6852062845b9e84fb63ab671c3296a9477df37ee754707dad00778a969742de87"
+        },
+        "neoforge-26.3": {
+          "versionId": "bl0g58z6",
+          "file": "CustomPlayerModels-26.3-0.6.27b.jar",
+          "sha512": "779a16bb5ab5aef48e0b22952fb385d5405f64dca6228b859c75593dc2dd90a6af6a970b479515a00eac26059501b5b3a41379fab3a37dbdbf89f3fdd0137a52"
+        }
+      }
+    },
     "optifine": {
       "targetId": "forge-1.20.1",
       "version": "HD_U_I6",
@@ -384,101 +470,101 @@
     },
     "waveycapes": {
       "projectId": "kYuIpRLv",
-      "sourceCommit": "c979ad3ad85b453b2d740dc3c78d10b8f24f55d5",
+      "sourceCommit": "46362c5bc2b0169dd8a658262b8194bdf0b0a11b",
       "artifacts": {
             "fabric-1.20.1": {
-                  "versionId": "JunWGyYI",
-                  "version": "1.11.2",
-                  "file": "waveycapes-fabric-1.11.2-mc1.20.1.jar",
-                  "sha512": "937ef84ecac2aa1e57eb748ddc6f2d60ae59e158d4f868ee9b2d83c82778b6c2342dc6d30938e3e32bc76d4f12691ea80e69de474aee1da8b3d8a3a26803e037",
+                  "versionId": "hlPN4g5v",
+                  "version": "1.11.3",
+                  "file": "waveycapes-fabric-1.11.3-mc1.20.1.jar",
+                  "sha512": "cc061e4936449a875446d7c8f03b41740a3127c9da22c64660c5302effd7a5e5e0f388f14a41030925a1af7d14790622241b6220ef25b578d103542204bb58fd",
                   "renderFactory": "net/minecraft/class_1921.method_23580(",
                   "capeSource": "net/minecraft/class_742.method_3119("
             },
             "forge-1.20.1": {
-                  "versionId": "YQu1WxmI",
-                  "version": "1.11.2",
-                  "file": "waveycapes-forge-1.11.2-mc1.20.1.jar",
-                  "sha512": "ec9c66e0ccbe3832cdfd6dfc68b3b73b4e8575b2e7115f5d4fcbdec66e254dc891c942db279bcce4092128f843e2fdecd7ea150ac6a931e96edb548cb725125b",
+                  "versionId": "gVLFQd36",
+                  "version": "1.11.3",
+                  "file": "waveycapes-forge-1.11.3-mc1.20.1.jar",
+                  "sha512": "bb3e2a648b5aea19502263e4642a8a1c0f9298f44f002a4b1d39c27872d6c90f09454007bcf4f79da23f2a6daf187fa05b094ceb6cf81aaa7c79b96a90f654dc",
                   "renderFactory": "net/minecraft/client/renderer/RenderType.m_110473_(",
                   "capeSource": "net/minecraft/client/player/AbstractClientPlayer.m_108561_("
             },
             "fabric-1.21.1": {
-                  "versionId": "jZeY6GAm",
-                  "version": "1.11.2",
-                  "file": "waveycapes-fabric-1.11.2-mc1.21.1.jar",
-                  "sha512": "fb40dbad0f721b1314a0085d0277d7ec6e19f9d9c0f1eaa4c24bc80d2cebb933a5506993acb0381577c3aafec558df51cfea4f3260c016183e378b8770dfbd3f",
+                  "versionId": "NuT1fOdy",
+                  "version": "1.11.3",
+                  "file": "waveycapes-fabric-1.11.3-mc1.21.1.jar",
+                  "sha512": "382a94187354248dc53214687aaccbe59bd098de2399ba701fdc4f5b46796da81c090e6d17738ffe9797aae6d3d457866351c21afe40db48182cf55f0a286e09",
                   "renderFactory": "net/minecraft/class_1921.method_23580(",
                   "capeSource": "net/minecraft/class_8685.comp_1627("
             },
             "neoforge-1.21.1": {
-                  "versionId": "7ndXqAZv",
-                  "version": "1.11.2",
-                  "file": "waveycapes-neoforge-1.11.2-mc1.21.1.jar",
-                  "sha512": "c5bf900acf5a9fa29db9b7c0cb48eebc2e71858a43b6df143ac0c28e631900120d42ca9d780b09e31fabde4eea77cd99ad124cc5cd73832ad5c197c375538e73",
+                  "versionId": "A5I6bbOi",
+                  "version": "1.11.3",
+                  "file": "waveycapes-neoforge-1.11.3-mc1.21.1.jar",
+                  "sha512": "42a285e1cbf0e4b04d29d31a65963c71b10947980cab2f8c6463d77714ddf14a0e9b8220b450bbd0a916fe73f647ffd0d43e7a6b548d81652dea3eb681bba6da",
                   "renderFactory": "net/minecraft/client/renderer/RenderType.entityTranslucent(",
                   "capeSource": "net/minecraft/client/resources/PlayerSkin.capeTexture("
             },
             "fabric-1.21.11": {
-                  "versionId": "HiXJOcqr",
-                  "version": "1.11.2",
-                  "file": "waveycapes-fabric-1.11.2-mc1.21.11.jar",
-                  "sha512": "9dc36e4b6c8fd2e4bf07765a7b0384a4d0afe83558866d9804aeb4924083fdf8ea794c885ac43d3853aeda210ab7dd61db37f922e9e904583f084903fce82009",
+                  "versionId": "NR0hCf95",
+                  "version": "1.11.3",
+                  "file": "waveycapes-fabric-1.11.3-mc1.21.11.jar",
+                  "sha512": "0e76d901c4dfe83197f6df7d84c925b9c70e3d64215984a74494af438e6ba67fffbb21cbe299389dfc65a8dba52f01fbef4d98243a4f19f9a698e15dae989ac1",
                   "renderFactory": "net/minecraft/class_12249.method_76000(",
                   "capeSource": "net/minecraft/class_8685.comp_1627("
             },
             "neoforge-1.21.11": {
-                  "versionId": "aQLkCDa2",
-                  "version": "1.11.2",
-                  "file": "waveycapes-neoforge-1.11.2-mc1.21.11.jar",
-                  "sha512": "84be52bd4d550233204b293be4f5eec44331d8236b1c2da96da58c0941a78f8046dc95ac8750602f390b3685c572fc61ded36a267b497949350fa6475657ee90",
+                  "versionId": "yrBYJaFD",
+                  "version": "1.11.3",
+                  "file": "waveycapes-neoforge-1.11.3-mc1.21.11.jar",
+                  "sha512": "62e5c7ca36d62810fa3e06c6dc7e0f84a5505db35df3dcf3cf9f423f3ad85d7821b9033f3eebca845892d999e1483f260a8bac87f70306f37ff70759aef941fc",
                   "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
                   "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
             },
             "fabric-26.1": {
-                  "versionId": "zoWJUmXV",
-                  "version": "1.11.2",
-                  "file": "waveycapes-fabric-1.11.2-mc26.1.jar",
-                  "sha512": "17a2a751cb2bea2813e9c360e3892a70af728cb890a3909ef722a1e6b5976e3606f95f0cdd5192dd77b19fbee68c1ed1f656846404511b8abd13ca6fc90a999d",
+                  "versionId": "TQ8147bZ",
+                  "version": "1.11.3",
+                  "file": "waveycapes-fabric-1.11.3-mc26.1.jar",
+                  "sha512": "fb15d267d5a0e3c9be13809b6bc7f3c65820cbe4b0ca74af8f3b613dcb635336c0b3e98173fa0f189f188a225aa86b0bb9dfd37fb661f627935b6f9f57cdf34d",
                   "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
                   "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
             },
             "neoforge-26.1": {
-                  "versionId": "eJPljGs6",
-                  "version": "1.11.1",
-                  "file": "waveycapes-neoforge-1.11.1-mc26.1.2.jar",
-                  "sha512": "b4083aecc25ba3ae9edbe31a1a222e2348315c9871aafcf5b311246cb52c0f07e281339db6119d72f196bd021ea9762437e736c00c5135f9e445f70d2e183d68",
+                  "versionId": "D1vDE6CI",
+                  "version": "1.11.3",
+                  "file": "waveycapes-neoforge-1.11.3-mc26.1.2.jar",
+                  "sha512": "11bc6b10fa40d8caa43adc7380723a6b1d51bd60171f8eb3bd796f5d44f6a70b1bc6342abfa237611ec5f5633d82c07b7d8668302dbdea21bcddbd4dd28bebc1",
                   "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
                   "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
             },
             "fabric-26.2": {
-                  "versionId": "lgCaDv04",
-                  "version": "1.11.2",
-                  "file": "waveycapes-fabric-1.11.2-mc26.2.jar",
-                  "sha512": "d027d800275efe2c34a6f5dd90724ac3035bcdb2a952625ac4958f8dbac27ad826515a34098ea42c5dde5bcd0e4a76b38bd51b8225a02e6e743ffed1cb1ba597",
+                  "versionId": "qADFZPJi",
+                  "version": "1.11.3",
+                  "file": "waveycapes-fabric-1.11.3-mc26.2.jar",
+                  "sha512": "3f47f2deb0f273a7f593bcfac5c23b2d19d5f30ec138f465148a3c5d299022e58ac3a3524be5200f02e561ff3e78d6920b1176b2776f2b5d6e3427e975a9ad78",
                   "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
                   "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
             },
             "neoforge-26.2": {
-                  "versionId": "8oLUoF0z",
-                  "version": "1.11.2",
-                  "file": "waveycapes-neoforge-1.11.2-mc26.2.jar",
-                  "sha512": "6d7f6f8d788d334edc0640990d9eb6260f42da401b7dc1aaf3ea667fb2c3832db01aecb1c94ad2ff861affc7ec952ac59855ad205e8287c3d74e006761ed7635",
+                  "versionId": "8MermvCp",
+                  "version": "1.11.3",
+                  "file": "waveycapes-neoforge-1.11.3-mc26.2.jar",
+                  "sha512": "224820830ffd34ea85fda84fd2507ff3c4e9ecbe8e77d92c66a3d76fb7a6a0027df09f1ef50e0d9709d37b146077c6de45ef01581d496b6053109114f68b7b79",
                   "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
                   "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
             },
             "fabric-26.3": {
-                  "versionId": "btMqe7fQ",
-                  "version": "1.11.2",
-                  "file": "waveycapes-fabric-1.11.2-mc26.3.jar",
-                  "sha512": "37258922ea1fc332f43612e14f8dbc6cc8b60cb3341adc6a6b9b49422ccd1c661607f84c6dad9ae07e24eb70d48ca0e6034f02e4b0e0abe80c108172d890d2b4",
+                  "versionId": "HzJI5xeL",
+                  "version": "1.11.3",
+                  "file": "waveycapes-fabric-1.11.3-mc26.3.jar",
+                  "sha512": "8be4bbe1efdf9ccb0d57b4e399849c52ac9034b3ba12012cb71e4951a800205b81bb4e035b7558c2005cce43acf7840b8ef0ca9f3568a22a7633dbf398866a21",
                   "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
                   "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
             },
             "neoforge-26.3": {
-                  "versionId": "wzmGlyop",
-                  "version": "1.11.2",
-                  "file": "waveycapes-neoforge-1.11.2-mc26.3.jar",
-                  "sha512": "76b35e4502a86df164eed553d10554c1bfd214a0ff220b9f84b0115a8ca4f8ef378aef864d33594c0580167ddb72d4a5dc223198582dd505578a23b2349406f1",
+                  "versionId": "ypIJFpel",
+                  "version": "1.11.3",
+                  "file": "waveycapes-neoforge-1.11.3-mc26.3.jar",
+                  "sha512": "4fe79684770ffe6f8afbda85bda48ac719f91201b3f1a5e0ccf427e385ef874852d9efa3ced24b5f62ea4690d662cc5b5091f4f84572f20d1826c5e8087e7bf1",
                   "renderFactory": "net/minecraft/client/renderer/rendertype/RenderTypes.entityTranslucent(",
                   "capeSource": "net/minecraft/world/entity/player/PlayerSkin.cape("
             }
@@ -788,8 +874,9 @@
       {"id":"26.3-purpur-standalone","minecraft":"26.3","kernel":"purpur","mode":"standalone","ports":{"server":26063},"dependencies":[]}
    ],
   "baseBundles": [
-    "fancymenu-actions","portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
+    "cpm-client","fancymenu-actions","portable-common", "config-screen-common", "canonical-resources", "mojang-collections-resources"],
   "sourceBundles": {
+    "cpm-client": {"java": ["compat/cpm/src/main/java"], "resources": ["compat/cpm/src/main/resources"], "side": "client", "requires": []},
     "screen-keybindings-shared": {"java": ["compat/keybindings/shared/src/main/java"], "resources": ["compat/keybindings/shared/src/main/resources"], "side": "client", "requires": []},
     "screen-keybindings-primitive-input": {"java": ["compat/capabilities/keybindings/primitive-input/src/main/java"], "resources": [], "side": "client", "requires": ["screen-keybindings-shared"]},
     "screen-keybindings-event-input": {"java": ["compat/capabilities/keybindings/event-input/src/main/java"], "resources": [], "side": "client", "requires": ["screen-keybindings-shared"]},
@@ -945,6 +1032,66 @@
     "extraction-shared": {
       "java": ["compat/capabilities/gui/extraction-shared/src/main/java"],
       "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-immediate": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-immediate/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-immediate/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-immediate-buffer": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-immediate-buffer/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-immediate/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-submission": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-submission/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-submission-methods": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-submission-methods/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-extraction-ordered": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-extraction-ordered-methods": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered-methods/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-extraction-sampler": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-extraction-sampler/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-extraction-sampler-methods": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-extraction-sampler-methods/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-ordered/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-extraction-combined": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-extraction-combined/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-combined/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-extraction-combined-methods": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-extraction-combined-methods/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-combined/src/main/resources"],
       "side": "client",
       "requires": []
     },
@@ -1162,7 +1309,7 @@
       "java": ["compat/capabilities/appearance/player-info-cache/src/main/java"],
       "resources": ["compat/capabilities/appearance/player-info-cache/src/main/resources"],
       "side": "client",
-      "requires": ["cape-layer-translucent"]
+      "requires": ["cape-layer-translucent", "cape-entity-shader-view-rotation", "wavey-capes-entity", "cape-pass-rendered-buffer"]
     },
     "optifine-cape": {
       "java": ["compat/capabilities/appearance/optifine-cape/src/main/java"],
@@ -1174,13 +1321,164 @@
       "java": ["compat/capabilities/appearance/skin-lookup/src/main/java"],
       "resources": ["compat/capabilities/appearance/skin-lookup/src/main/resources"],
       "side": "client",
-      "requires": ["cape-layer-translucent"]
+      "requires": ["cape-layer-translucent", "cape-entity-shader-position-fog", "wavey-capes-entity", "cape-pass-mesh"]
     },
     "avatar-state-local-player-skin": {
       "java": ["compat/capabilities/appearance/local-player-skin/src/main/java"],
       "resources": ["compat/capabilities/appearance/local-player-skin/src/main/resources"],
       "side": "client",
       "requires": []
+    },
+    "cape-pass-capture": {
+      "java": ["compat/capabilities/appearance/cape-pass-capture/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["wavey-capes-common"]
+    },
+    "wavey-capes-common": {
+      "java": ["compat/waveycapes/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "wavey-capes-entity": {
+      "java": ["compat/capabilities/appearance/wavey-capes-entity/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["wavey-capes-common", "cape-pass-immediate"]
+    },
+    "cape-pass-immediate": {
+      "java": ["compat/capabilities/appearance/cape-pass-immediate/src/main/java"],
+      "resources": ["compat/capabilities/appearance/cape-pass-immediate/src/main/resources"],
+      "side": "client",
+      "requires": ["wavey-capes-common"]
+    },
+    "cape-pass-rendered-buffer": {
+      "java": ["compat/capabilities/appearance/cape-pass-rendered-buffer/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["cape-pass-immediate"]
+    },
+    "cape-pass-mesh": {
+      "java": ["compat/capabilities/appearance/cape-pass-mesh/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["cape-pass-immediate"]
+    },
+    "wavey-capes-render-state": {
+      "java": ["compat/capabilities/appearance/wavey-capes-render-state/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["wavey-capes-common"]
+    },
+    "cape-geometry-unified": {
+      "java": ["compat/capabilities/appearance/cape-geometry-unified/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["cape-pass-buffered"]
+    },
+    "cape-geometry-split": {
+      "java": ["compat/capabilities/appearance/cape-geometry-split/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["cape-pass-buffered"]
+    },
+    "cape-pass-buffered": {
+      "java": ["compat/capabilities/appearance/cape-pass-buffered/src/main/java"],
+      "resources": ["compat/capabilities/appearance/cape-pass-buffered/src/main/resources"],
+      "side": "client",
+      "requires": ["cape-pass-capture"]
+    },
+    "cape-draw-staged": {
+      "java": ["compat/capabilities/appearance/cape-draw-staged/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["cape-pass-prepared"]
+    },
+    "cape-draw-render-pass": {
+      "java": ["compat/capabilities/appearance/cape-draw-render-pass/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["cape-pass-prepared"]
+    },
+    "cape-pass-prepared": {
+      "java": ["compat/capabilities/appearance/cape-pass-prepared/src/main/java"],
+      "resources": ["compat/capabilities/appearance/cape-pass-prepared/src/main/resources"],
+      "side": "client",
+      "requires": ["cape-pass-capture"]
+    },
+    "cape-foil-pipeline": {
+      "java": [
+        "compat/capabilities/appearance/cape-foil-pipeline/src/main/java"
+      ],
+      "resources": [
+        "compat/capabilities/appearance/cape-foil-pipeline/src/main/resources"
+      ],
+      "side": "client",
+      "requires": [
+        "avatar-state-local-player-skin",
+        "cape-pass-capture", "wavey-capes-render-state"
+      ]
+    },
+    "cape-foil-buffer": {
+      "java": ["compat/capabilities/appearance/cape-foil-buffer/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["cape-foil-pipeline"]
+    },
+    "cape-foil-pipeline-samplers": {
+      "java": [
+        "compat/capabilities/appearance/cape-foil-pipeline-samplers/src/main/java"
+      ],
+      "resources": [],
+      "side": "client",
+      "requires": [
+        "cape-foil-pipeline",
+        "cape-foil-buffer", "cape-geometry-unified"
+      ]
+    },
+    "cape-foil-pipeline-target-state": {
+      "java": [
+        "compat/capabilities/appearance/cape-foil-pipeline-target-state/src/main/java"
+      ],
+      "resources": [],
+      "side": "client",
+      "requires": [
+        "cape-foil-pipeline",
+        "cape-foil-buffer", "cape-geometry-split"
+      ]
+    },
+    "cape-foil-pipeline-bind-groups": {
+      "java": [
+        "compat/capabilities/appearance/cape-foil-pipeline-bind-groups/src/main/java"
+      ],
+      "resources": [],
+      "side": "client",
+      "requires": [
+        "cape-foil-pipeline", "cape-draw-staged"
+      ]
+    },
+    "cape-entity-shader-view-rotation": {
+      "java": [],
+      "resources": [
+        "compat/capabilities/appearance/cape-entity-shader-view-rotation/src/main/resources"
+      ],
+      "side": "client",
+      "requires": []
+    },
+    "cape-entity-shader-position-fog": {
+      "java": [],
+      "resources": [
+        "compat/capabilities/appearance/cape-entity-shader-position-fog/src/main/resources"
+      ],
+      "side": "client",
+      "requires": []
+    },
+    "cape-foil-combined": {
+      "java": ["compat/capabilities/appearance/cape-foil-combined/src/main/java"],
+      "resources": ["compat/capabilities/appearance/cape-foil-combined/src/main/resources"],
+      "side": "client",
+      "requires": ["avatar-state-local-player-skin", "cape-pass-capture", "cape-draw-render-pass", "wavey-capes-render-state"]
     },
     "fabric-client-common": {
       "java": ["loader/fabric/common/src/main/java"],
@@ -1510,6 +1808,16 @@
     }
   },
   "capabilityImplementations": {
+    "cape-gui-foil-immediate": {"bundle": "cape-gui-foil-immediate", "abiImplementation": "cape-gui-foil-immediate"},
+    "cape-gui-foil-immediate-buffer": {"bundle": "cape-gui-foil-immediate-buffer", "abiImplementation": "cape-gui-foil-immediate-buffer"},
+    "cape-gui-foil-submission": {"bundle": "cape-gui-foil-submission", "abiImplementation": "cape-gui-foil-submission"},
+    "cape-gui-foil-submission-methods": {"bundle": "cape-gui-foil-submission-methods", "abiImplementation": "cape-gui-foil-submission-methods"},
+    "cape-gui-foil-extraction-ordered": {"bundle": "cape-gui-foil-extraction-ordered", "abiImplementation": "cape-gui-foil-extraction-ordered"},
+    "cape-gui-foil-extraction-ordered-methods": {"bundle": "cape-gui-foil-extraction-ordered-methods", "abiImplementation": "cape-gui-foil-extraction-ordered-methods"},
+    "cape-gui-foil-extraction-sampler": {"bundle": "cape-gui-foil-extraction-sampler", "abiImplementation": "cape-gui-foil-extraction-sampler"},
+    "cape-gui-foil-extraction-sampler-methods": {"bundle": "cape-gui-foil-extraction-sampler-methods", "abiImplementation": "cape-gui-foil-extraction-sampler-methods"},
+    "cape-gui-foil-extraction-combined": {"bundle": "cape-gui-foil-extraction-combined", "abiImplementation": "cape-gui-foil-extraction-combined"},
+    "cape-gui-foil-extraction-combined-methods": {"bundle": "cape-gui-foil-extraction-combined-methods", "abiImplementation": "cape-gui-foil-extraction-combined-methods"},
     "immediate-resource-location-player-info": {"bundle": "immediate-resource-location-player-info", "abiImplementation": "immediate-resource-location-player-info"},
     "immediate-resource-location-skin-lookup": {"bundle": "immediate-resource-location-skin-lookup", "abiImplementation": "immediate-resource-location-skin-lookup"},
     "identifier-submission": {"bundle": "identifier-submission", "abiImplementation": "identifier-submission"},
@@ -1531,7 +1839,10 @@
     "avatar-pip-extraction-simple-model-no-attack-time-neoforge": {"bundle": "avatar-pip-extraction-simple-model-no-attack-time-neoforge", "abiImplementation": "avatar-pip-extraction-simple-model-no-attack-time"},
     "player-info-cache": {"bundle": "player-info-cache", "abiImplementation": "player-info-cache"},
     "skin-lookup": {"bundle": "skin-lookup", "abiImplementation": "skin-lookup"},
-    "avatar-state-local-player-skin": {"bundle": "avatar-state-local-player-skin", "abiImplementation": "avatar-state-local-player-skin"},
+    "cape-foil-pipeline-samplers": {"bundle": "cape-foil-pipeline-samplers", "abiImplementation": "cape-foil-pipeline-samplers"},
+    "cape-foil-pipeline-target-state": {"bundle": "cape-foil-pipeline-target-state", "abiImplementation": "cape-foil-pipeline-target-state"},
+    "cape-foil-pipeline-bind-groups": {"bundle": "cape-foil-pipeline-bind-groups", "abiImplementation": "cape-foil-pipeline-bind-groups"},
+    "cape-foil-combined": {"bundle": "cape-foil-combined", "abiImplementation": "cape-foil-combined"},
     "fabric-immediate": {"bundle": "fabric-immediate", "abiImplementation": "fabric-immediate"},
     "fabric-submission": {"bundle": "fabric-submission", "abiImplementation": "fabric-submission"},
     "fabric-extraction": {"bundle": "fabric-extraction", "abiImplementation": "fabric-extraction"},
@@ -1624,6 +1935,7 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "immediate-resource-location-player-info",
+        "guiCapeMaterial": "cape-gui-foil-immediate",
         "textures": "resource-location-legacy",
         "preview": "remote-player-preview",
         "appearance": "player-info-cache",
@@ -1650,7 +1962,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 15,
-        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1693,6 +2005,7 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "immediate-resource-location-player-info",
+        "guiCapeMaterial": "cape-gui-foil-immediate",
         "textures": "resource-location-legacy",
         "preview": "remote-player-preview",
         "appearance": "player-info-cache",
@@ -1721,7 +2034,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/forge/client/NclSkinsForgeClientEvents$ForgeBus.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": 15,
-        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.optifine-cape.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.optifine-cape.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1764,6 +2077,7 @@
       "sourceLayout": "fabricSplit",
       "capabilities": {
         "gui": "immediate-resource-location-skin-lookup",
+        "guiCapeMaterial": "cape-gui-foil-immediate-buffer",
         "textures": "resource-location-modern",
         "preview": "player-skin-preview",
         "appearance": "skin-lookup",
@@ -1790,7 +2104,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 34,
-        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1833,6 +2147,7 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "immediate-resource-location-skin-lookup",
+        "guiCapeMaterial": "cape-gui-foil-immediate-buffer",
         "textures": "resource-location-modern",
         "preview": "player-skin-preview",
         "appearance": "skin-lookup",
@@ -1861,7 +2176,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": 34,
-        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -1904,9 +2219,10 @@
       "sourceLayout": "fabricSplit",
       "capabilities": {
         "gui": "identifier-submission",
+        "guiCapeMaterial": "cape-gui-foil-submission",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-submission-fabric",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-pipeline-samplers",
         "loaderScreen": "fabric-submission",
         "updateNotification": "modmenu-static-catalog",
         "session": "minecraft-user-v1",
@@ -1930,7 +2246,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.identifier-submission-fabric.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.identifier-submission-fabric.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -1973,9 +2289,10 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "identifier-submission",
+        "guiCapeMaterial": "cape-gui-foil-submission-methods",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-submission-neoforge",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-pipeline-samplers",
         "loaderScreen": "neoforge-extraction",
         "updateNotification": "native-static-catalog",
         "session": "minecraft-user-v1",
@@ -2001,7 +2318,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2044,9 +2361,10 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "identifier-extraction-tab-navigation-glfw",
+        "guiCapeMaterial": "cape-gui-foil-extraction-sampler",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-extraction-player-model-fabric",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-pipeline-target-state",
         "loaderScreen": "fabric-extraction",
         "updateNotification": "modmenu-static-catalog",
         "session": "minecraft-user-v1",
@@ -2078,7 +2396,9 @@
         ],
         "mixins": [
           "nclskins.player-skin-providers.mixins.json",
-          "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"
+          "nclskins.cape-foil-pipeline.mixins.json",
+          "nclskins.cape-pass-buffered.mixins.json",
+          "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"
         ],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
@@ -2141,9 +2461,10 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "identifier-extraction-tab-navigation-glfw",
+        "guiCapeMaterial": "cape-gui-foil-extraction-sampler-methods",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-extraction-player-model-neoforge",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-pipeline-target-state",
         "loaderScreen": "neoforge-extraction",
         "updateNotification": "native-static-catalog",
         "session": "minecraft-user-v1",
@@ -2177,7 +2498,9 @@
         ],
         "mixins": [
           "nclskins.player-skin-providers.mixins.json",
-          "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"
+          "nclskins.cape-foil-pipeline.mixins.json",
+          "nclskins.cape-pass-buffered.mixins.json",
+          "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"
         ],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
@@ -2240,9 +2563,10 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "identifier-extraction-menu-tab-glfw",
+        "guiCapeMaterial": "cape-gui-foil-extraction-ordered",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-extraction-simple-model-attack-time-fabric",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-pipeline-bind-groups",
         "loaderScreen": "fabric-extraction",
         "updateNotification": "modmenu-static-catalog",
         "session": "minecraft-user-v1",
@@ -2266,7 +2590,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2309,9 +2633,10 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "identifier-extraction-menu-tab-glfw",
+        "guiCapeMaterial": "cape-gui-foil-extraction-ordered-methods",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-extraction-simple-model-attack-time-neoforge",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-pipeline-bind-groups",
         "loaderScreen": "neoforge-extraction",
         "updateNotification": "native-static-catalog",
         "session": "minecraft-user-v1",
@@ -2337,7 +2662,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2380,9 +2705,10 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "identifier-extraction-menu-tab-input-constants",
+        "guiCapeMaterial": "cape-gui-foil-extraction-combined",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-extraction-simple-model-no-attack-time-fabric",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-combined",
         "loaderScreen": "fabric-extraction",
         "updateNotification": "modmenu-static-catalog",
         "session": "minecraft-user-v1",
@@ -2406,7 +2732,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2449,9 +2775,10 @@
       "sourceLayout": "single",
       "capabilities": {
         "gui": "identifier-extraction-menu-tab-input-constants",
+        "guiCapeMaterial": "cape-gui-foil-extraction-combined-methods",
         "textures": "identifier-texture-registry",
         "preview": "avatar-pip-extraction-simple-model-no-attack-time-neoforge",
-        "appearance": "avatar-state-local-player-skin",
+        "appearance": "cape-foil-combined",
         "loaderScreen": "neoforge-extraction",
         "updateNotification": "native-static-catalog",
         "session": "minecraft-user-v1",
@@ -2477,7 +2804,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {

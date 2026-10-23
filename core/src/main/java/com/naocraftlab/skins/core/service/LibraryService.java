@@ -13,9 +13,11 @@ import com.naocraftlab.skins.core.model.SkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
 import com.naocraftlab.skins.core.service.AssetStorePort.Asset;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -56,6 +58,16 @@ public final class LibraryService {
     public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
             UUID accountId, String name, byte[] bytes) throws IOException, PngValidationException {
         return storage.importCape(accountId, name, bytes, current -> {});
+    }
+
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
+            UUID accountId, String name, Path source) throws IOException, PngValidationException {
+        return storage.importCape(accountId, name, source, current -> {});
+    }
+
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importPreparedCape(
+            UUID accountId, String name, PreparedCapeAsset prepared) throws IOException {
+        return storage.importPreparedCape(accountId, name, prepared, current -> {});
     }
 
     public AccountState renameCape(UUID accountId, UUID entryId, String name) throws IOException {
@@ -293,6 +305,50 @@ public final class LibraryService {
             OuterLayerVisibility outerLayerVisibility,
             String capeId,
             com.naocraftlab.skins.core.model.LocalCapeReference offlineCape) throws IOException, PngValidationException {
+        return savePresetWithPersonalSkin(accountId, originalPresetId, presetName, personalSkinDisplayName,
+                variant, source, pngBytes, outerLayerVisibility, capeId, offlineCape, () -> true, false, false);
+    }
+
+    public SavedPersonalSkinPreset savePresetWithPersonalSkin(
+            UUID accountId, Optional<UUID> originalPresetId, String presetName,
+            String personalSkinDisplayName, SkinVariant variant, PersonalSkinSource source,
+            byte[] pngBytes, OuterLayerVisibility outerLayerVisibility, String capeId,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException, PngValidationException {
+        return savePresetWithPersonalSkin(accountId, originalPresetId, presetName, personalSkinDisplayName,
+                variant, source, pngBytes, outerLayerVisibility, capeId, offlineCape,
+                Objects.requireNonNull(stillCurrent, "stillCurrent"), true, false);
+    }
+
+    public SavedPersonalSkinPreset savePresetWithPersonalSkin(
+            UUID accountId, Optional<UUID> originalPresetId, String presetName,
+            String personalSkinDisplayName, SkinVariant variant, PersonalSkinSource source,
+            byte[] pngBytes, OuterLayerVisibility outerLayerVisibility, String capeId,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape, boolean exactCarrierReuse)
+            throws IOException, PngValidationException {
+        return savePresetWithPersonalSkin(accountId, originalPresetId, presetName, personalSkinDisplayName,
+                variant, source, pngBytes, outerLayerVisibility, capeId, offlineCape, () -> true, false, exactCarrierReuse);
+    }
+
+    public SavedPersonalSkinPreset savePresetWithPersonalSkin(
+            UUID accountId, Optional<UUID> originalPresetId, String presetName,
+            String personalSkinDisplayName, SkinVariant variant, PersonalSkinSource source,
+            byte[] pngBytes, OuterLayerVisibility outerLayerVisibility, String capeId,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape,
+            java.util.function.BooleanSupplier stillCurrent, boolean exactCarrierReuse)
+            throws IOException, PngValidationException {
+        return savePresetWithPersonalSkin(accountId, originalPresetId, presetName, personalSkinDisplayName,
+                variant, source, pngBytes, outerLayerVisibility, capeId, offlineCape,
+                Objects.requireNonNull(stillCurrent, "stillCurrent"), true, exactCarrierReuse);
+    }
+
+    private SavedPersonalSkinPreset savePresetWithPersonalSkin(
+            UUID accountId, Optional<UUID> originalPresetId, String presetName,
+            String personalSkinDisplayName, SkinVariant variant, PersonalSkinSource source,
+            byte[] pngBytes, OuterLayerVisibility outerLayerVisibility, String capeId,
+            com.naocraftlab.skins.core.model.LocalCapeReference offlineCape,
+            java.util.function.BooleanSupplier stillCurrent, boolean guarded, boolean exactCarrierReuse) throws IOException, PngValidationException {
+        requireCurrent(stillCurrent);
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(originalPresetId, "originalPresetId");
         Objects.requireNonNull(variant, "variant");
@@ -301,15 +357,21 @@ public final class LibraryService {
         String displayName = requirePersonalSkinDisplayName(personalSkinDisplayName);
         byte[] requiredPng = Objects.requireNonNull(pngBytes, "pngBytes");
         String renderSha256 = pngValidator.renderSha256(requiredPng);
-        Asset stored = storeOrReusePersonalAsset(accountId, requiredPng, renderSha256);
+        requireCurrent(stillCurrent);
+        AccountState existing = storage.loadOrCreateAccount(accountId);
+        requireCurrent(stillCurrent);
+        Optional<Asset> reusable = findReusablePersonalAsset(existing, renderSha256, exactCarrierReuse ? requiredPng : null);
+        requireCurrent(stillCurrent);
+        Asset stored = reusable.isPresent() ? reusable.orElseThrow()
+                : guarded ? assets.storeAsset(requiredPng, stillCurrent) : assets.storeAsset(requiredPng);
         Asset[] selectedStored = {stored};
         UUID candidateAssetId = UUID.randomUUID();
         UUID createdPresetId = UUID.randomUUID();
         Instant now = clock.instant();
 
-        AccountState state = storage.updateAccount(accountId, current -> {
+        java.util.function.UnaryOperator<AccountState> update = current -> {
             Asset mutationStored = recheckPersonalAssetReuse(
-                    current, renderSha256, selectedStored[0]);
+                    current, renderSha256, exactCarrierReuse ? requiredPng : null, selectedStored[0]);
             selectedStored[0] = mutationStored;
             int presetIndex = originalPresetId
                     .map(presetId -> indexOfPreset(current.presets(), presetId))
@@ -398,7 +460,13 @@ public final class LibraryService {
                     personalSkins,
                     presets,
                     mutationTime, current.personalCapes());
-        });
+        };
+        AccountWriteGuard guard = current -> {
+            if (!accountId.equals(current.accountId())) throw new IOException("Editor account changed");
+            requireCurrent(stillCurrent);
+        };
+        AccountState state = guarded ? storage.updateAccount(accountId, update, guard, stillCurrent)
+                : storage.updateAccount(accountId, update, guard);
 
         PersonalSkinEntry personalSkin = findPersonalSkin(state, selectedStored[0].sha256());
         SkinAsset asset = findSkin(
@@ -1072,6 +1140,10 @@ public final class LibraryService {
         return trimmed;
     }
 
+    private static void requireCurrent(java.util.function.BooleanSupplier current) throws IOException {
+        if (!current.getAsBoolean()) throw new IOException("Editor account retired");
+    }
+
     private Asset storeOrReusePersonalAsset(
             UUID accountId, byte[] pngBytes, String incomingRenderSha256)
             throws IOException, PngValidationException {
@@ -1090,10 +1162,21 @@ public final class LibraryService {
 
     private Optional<Asset> findReusablePersonalAsset(
             AccountState current, String incomingRenderSha256) {
+        return findReusablePersonalAsset(current, incomingRenderSha256, null);
+    }
+
+    private Asset recheckPersonalAssetReuse(AccountState current, String incomingRenderSha256,
+            byte[] exactCarrier, Asset fallback) {
+        return findReusablePersonalAsset(current, incomingRenderSha256, exactCarrier).orElse(fallback);
+    }
+
+    private Optional<Asset> findReusablePersonalAsset(
+            AccountState current, String incomingRenderSha256, byte[] exactCarrier) {
         for (PersonalSkinEntry entry : current.personalSkins()) {
             try {
                 byte[] existingPng = assets.readAsset(entry.sha256());
-                if (incomingRenderSha256.equals(pngValidator.renderSha256(existingPng))) {
+                if (incomingRenderSha256.equals(pngValidator.renderSha256(existingPng))
+                        && (exactCarrier == null || java.util.Arrays.equals(exactCarrier, existingPng))) {
                     return Optional.of(new Asset(
                             entry.sha256(),
                             pngValidator.validate(existingPng),

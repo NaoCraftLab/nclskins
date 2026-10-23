@@ -34,6 +34,17 @@ final class NclSkinsBuildToolsPlugin implements Plugin<Project> {
                     'com.mojang:authlib:9.0.75'
             ].each { String coordinate -> project.dependencies.add(runtime.name, coordinate) }
         }
+        project.repositories.maven { url = project.uri('https://maven.fabricmc.net/'); content { includeGroup 'net.fabricmc' } }
+        def cpmProbe = project.configurations.create('cpmCompositionRuntime') { transitive = false }
+        ['net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7',
+         'io.github.llamalad7:mixinextras-common:0.5.3',
+         'org.ow2.asm:asm:9.9.1', 'org.ow2.asm:asm-tree:9.9.1',
+         'org.ow2.asm:asm-commons:9.9.1', 'org.ow2.asm:asm-util:9.9.1',
+         'org.ow2.asm:asm-analysis:9.9.1', 'com.google.guava:guava:32.1.2-jre',
+         'com.google.code.gson:gson:2.10.1', 'org.slf4j:slf4j-api:2.0.9'].each {
+            project.dependencies.add(cpmProbe.name, it)
+        }
+        project.extensions.extraProperties.set('nclskinsVerifyCpmIntegrationTaskType', VerifyCpmIntegrationTask)
         project.extensions.extraProperties.set('nclskinsVerifyArchitectureTaskType', VerifyArchitectureTask)
         project.extensions.extraProperties.set('nclskinsCatalogTools', CatalogTools)
         project.extensions.extraProperties.set('nclskinsNativeModelTests', NativeModelTests)

@@ -6,8 +6,6 @@ import com.naocraftlab.skins.core.model.RemoteCape;
 import com.naocraftlab.skins.core.model.RemoteSkin;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -21,16 +19,10 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Objects;
-import javax.imageio.ImageIO;
 
 
 public final class TextureCache {
     public static final int DEFAULT_MAX_BYTES = EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES;
-    private static final int MAX_DIMENSION = 4096;
-    private static final long MAX_PIXELS = 16L * 1024L * 1024L;
-    private static final byte[] PNG_SIGNATURE = {
-        (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
-    };
 
     private final NclSkinsStorage storage;
     private final HttpClient httpClient;
@@ -132,18 +124,39 @@ public final class TextureCache {
                     "Official texture service returned an unexpected status.");
         }
 
-        byte[] body;
-        try (InputStream input = response.body()) {
-            body = input.readNBytes(maxBytes + 1);
+        Path staged = Files.createTempFile(cachedPath.getParent(), ".nclskins-texture-", ".tmp");
+        try {
+            try (InputStream input = response.body(); var output = Files.newOutputStream(staged)) {
+                byte[] buffer = new byte[8192];
+                long total = 0;
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    if (count == 0) continue;
+                    if (count > maxBytes - total) throw new TextureCacheException(
+                            TextureCacheException.Code.OVERSIZED, "Official texture exceeds the cache size limit.");
+                    output.write(buffer, 0, count);
+                    total += count;
+                }
+            }
+            Dimensions dimensions = decodeDimensions(staged);
+            try (var channel = java.nio.channels.FileChannel.open(staged, java.nio.file.StandardOpenOption.WRITE)) {
+                channel.force(true);
+            }
+            try {
+                Files.move(staged, cachedPath, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                throw new StorageException(StorageException.Code.ATOMIC_MOVE_UNSUPPORTED,
+                        "Filesystem does not support atomic texture replacement", unsupported);
+            }
+            try (var directory = java.nio.channels.FileChannel.open(cachedPath.getParent(),
+                    java.nio.file.StandardOpenOption.READ)) {
+                directory.force(true);
+            } catch (IOException | UnsupportedOperationException ignored) { }
+            return new CachedTexture(source, cachedPath, false, dimensions.width(), dimensions.height());
+        } finally {
+            Files.deleteIfExists(staged);
         }
-        if (body.length > maxBytes) {
-            throw new TextureCacheException(
-                    TextureCacheException.Code.OVERSIZED,
-                    "Official texture exceeds the cache size limit.");
-        }
-        Dimensions dimensions = decodeDimensions(body);
-        AtomicFileWriter.replace(cachedPath, body);
-        return new CachedTexture(source, cachedPath, false, dimensions.width(), dimensions.height());
     }
 
     public Path cachePath(URI source) throws TextureCacheException {
@@ -201,8 +214,7 @@ public final class TextureCache {
         Path path = cachePath(key);
         try (var ignored = storage.acquireTextureCacheLock(key)) {
             if (Files.isRegularFile(path)) {
-                byte[] existing = readBounded(path);
-                if (!new PngValidator().projectCanonicalCape(existing).renderSha256().equals(key)) {
+                if (!new com.naocraftlab.skins.core.png.PngFileReader(new PngValidator()).projectCanonicalCape(path).renderSha256().equals(key)) {
                     throw new TextureCacheException(TextureCacheException.Code.INVALID_TEXTURE,
                             "Cached cape failed integrity verification");
                 }
@@ -227,53 +239,68 @@ public final class TextureCache {
             return null;
         }
         try {
-            byte[] bytes = readBounded(path);
-            if (bytes.length == 0) {
-                return null;
-            }
-            Dimensions dimensions = decodeDimensions(bytes);
+            Dimensions dimensions = decodeDimensions(path);
             return new CachedTexture(source, path, true, dimensions.width(), dimensions.height());
         } catch (TextureCacheException invalidCacheEntry) {
             return null;
         }
     }
 
+    public Path readPath(CachedTexture cached) throws IOException {
+        Objects.requireNonNull(cached, "cached");
+        decodeDimensions(cached.path());
+        return cached.path();
+    }
+
+    public java.util.Optional<Path> readIfCachedPath(URI source) throws IOException {
+        return cachedPathIfValid(cachePath(source));
+    }
+
+    public java.util.Optional<Path> readIfCachedPath(String key) throws IOException {
+        return cachedPathIfValid(cachePath(key));
+    }
+
+    private java.util.Optional<Path> cachedPathIfValid(Path path) throws IOException {
+        if (!Files.isRegularFile(path)) return java.util.Optional.empty();
+        decodeDimensions(path);
+        return java.util.Optional.of(path);
+    }
+
     private byte[] readBounded(Path path) throws IOException {
         try (InputStream input = Files.newInputStream(path)) {
-            byte[] bytes = input.readNBytes(maxBytes + 1);
-            if (bytes.length > maxBytes) {
-                throw new TextureCacheException(
-                        TextureCacheException.Code.OVERSIZED,
-                        "Official texture exceeds the cache size limit.");
-            }
-            return bytes;
+            byte[] bytes = input.readNBytes(Math.min(maxBytes, 65 * 1024 * 1024) + 1);
+            if (bytes.length <= Math.min(maxBytes, 65 * 1024 * 1024)) return bytes;
+            if (bytes.length > maxBytes) throw new TextureCacheException(
+                    TextureCacheException.Code.OVERSIZED, "Official texture exceeds the cache size limit.");
+        }
+        try {
+            return new com.naocraftlab.skins.core.png.PngFileReader(new PngValidator(maxBytes)).canonicalTexture(path);
+        } catch (PngValidationException exception) {
+            throw textureFailure(exception);
         }
     }
 
-    private static Dimensions decodeDimensions(byte[] bytes) throws TextureCacheException {
-        if (bytes.length < PNG_SIGNATURE.length) {
-            throw invalidTexture();
-        }
-        for (int index = 0; index < PNG_SIGNATURE.length; index++) {
-            if (bytes[index] != PNG_SIGNATURE[index]) {
-                throw invalidTexture();
-            }
-        }
+    private Dimensions decodeDimensions(Path path) throws IOException {
         try {
-            BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
-            if (image == null
-                    || image.getWidth() <= 0
-                    || image.getHeight() <= 0
-                    || image.getWidth() > MAX_DIMENSION
-                    || image.getHeight() > MAX_DIMENSION
-                    || (long) image.getWidth() * image.getHeight() > MAX_PIXELS) {
-                throw invalidTexture();
-            }
-            image.getRGB(0, 0);
-            return new Dimensions(image.getWidth(), image.getHeight());
-        } catch (IOException | RuntimeException exception) {
-            throw invalidTexture();
+            var info = new com.naocraftlab.skins.core.png.PngFileReader(new PngValidator(maxBytes)).validateTexture(path);
+            return new Dimensions(info.width(), info.height());
+        } catch (PngValidationException exception) {
+            throw textureFailure(exception);
         }
+    }
+
+    private Dimensions decodeDimensions(byte[] bytes) throws IOException {
+        Path staged = Files.createTempFile("nclskins-cache-", ".png");
+        try {
+            Files.write(staged, bytes);
+            return decodeDimensions(staged);
+        } finally { Files.deleteIfExists(staged); }
+    }
+
+    private static TextureCacheException textureFailure(PngValidationException exception) {
+        return exception.reason() == PngValidationException.Reason.OVERSIZED
+                ? new TextureCacheException(TextureCacheException.Code.OVERSIZED,
+                        "Official texture exceeds the cache size limit.") : invalidTexture();
     }
 
     private static TextureCacheException invalidTexture() {

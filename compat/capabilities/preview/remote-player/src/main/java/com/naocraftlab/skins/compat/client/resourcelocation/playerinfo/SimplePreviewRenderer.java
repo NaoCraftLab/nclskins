@@ -1,13 +1,13 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.playerinfo;
 
 import com.mojang.blaze3d.platform.Lighting;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.naocraftlab.skins.compat.client.cape.CapeTranslucentFoilMaterial;
 import com.naocraftlab.skins.client.OuterLayerPart;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
-import com.naocraftlab.skins.client.PlayerPreviewLighting;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry;
@@ -24,7 +24,6 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 import org.joml.Quaternionf;
-import org.joml.Vector3f;
 
 
 public final class SimplePreviewRenderer
@@ -35,7 +34,7 @@ public final class SimplePreviewRenderer
             new VanillaPlayerModelTransform.Operations<>() {
                 @Override
                 public void scale(PoseStack pose, float x, float y, float z) {
-                    pose.scale(x, y, z);
+                    PreviewPoseScale.apply(pose, x, y, z);
                 }
 
                 @Override
@@ -57,7 +56,7 @@ public final class SimplePreviewRenderer
             BACK_EQUIPMENT_OPERATIONS = new VanillaBackEquipmentTransform.Operations<>() {
                 @Override
                 public void scale(PoseStack pose, float x, float y, float z) {
-                    pose.scale(x, y, z);
+                    PreviewPoseScale.apply(pose, x, y, z);
                 }
 
                 @Override
@@ -132,7 +131,7 @@ public final class SimplePreviewRenderer
                     request.pitchDegrees(),
                     POSE_OPERATIONS);
 
-            setupLighting();
+            BakedPreviewLighting.setup();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation skin = location(appearance.skin());
             model.renderToBuffer(
@@ -151,6 +150,7 @@ public final class SimplePreviewRenderer
                     model,
                     model == slimModel ? slimCloak : classicCloak,
                     appearance.capeMode(),
+                    appearance.capeGlint(),
                     appearance.capeMode() == CapeMode.ELYTRA && !appearance.capeHasElytra()
                             ? new ResourceLocation("minecraft", "textures/entity/elytra.png") : location(capeHandle)));
             buffers.endBatch();
@@ -176,7 +176,7 @@ public final class SimplePreviewRenderer
             VanillaBackEquipmentTransform.applyStandalone(
                     pose, scale, BACK_EQUIPMENT_OPERATIONS);
 
-            setupLighting();
+            BakedPreviewLighting.setup();
             MultiBufferSource.BufferSource buffers = graphics.bufferSource();
             ResourceLocation texture = request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA && !request.capeHasElytra()
                     ? new ResourceLocation("minecraft", "textures/entity/elytra.png") : location(request.texture());
@@ -188,6 +188,7 @@ public final class SimplePreviewRenderer
                     request.mode() == BackEquipmentPreviewRenderer.Mode.CAPE
                             ? CapeMode.CAPE
                             : CapeMode.ELYTRA,
+                    false,
                     texture);
             buffers.endBatch();
         } finally {
@@ -202,6 +203,7 @@ public final class SimplePreviewRenderer
             PlayerModel<LivingEntity> model,
             ModelPart cloak,
             CapeMode capeMode,
+            boolean capeGlint,
             ResourceLocation capeTexture) {
         if (capeMode == CapeMode.CAPE) {
             pose.pushPose();
@@ -211,9 +213,11 @@ public final class SimplePreviewRenderer
                 cloak.resetPose();
                 cloak.visible = true;
                 try {
+                    VertexConsumer capeBuffer = CapeTranslucentFoilMaterial.buffer(buffers, capeTexture, capeGlint,
+                            RenderType.entityTranslucent(capeTexture));
                     cloak.render(
                             pose,
-                            buffers.getBuffer(RenderType.entityTranslucent(capeTexture)),
+                            capeBuffer,
                             FULL_BRIGHT,
                             OverlayTexture.NO_OVERLAY);
                 } finally {
@@ -288,15 +292,5 @@ public final class SimplePreviewRenderer
             throw new IllegalArgumentException("Invalid texture location");
         }
         return location;
-    }
-
-    private static Vector3f lightDirection(PlayerPreviewLighting.Direction direction) {
-        return new Vector3f(direction.x(), direction.y(), direction.z());
-    }
-
-    private static void setupLighting() {
-        PlayerPreviewLighting.Rig rig = PlayerPreviewLighting.centeredFront();
-        RenderSystem.setShaderLights(
-                lightDirection(rig.primary()), lightDirection(rig.fill()));
     }
 }

@@ -30,6 +30,11 @@ final class AvatarPipPreviewRenderer
 
     @Override
     public void render(GuiGraphicsExtractor graphics, PreviewRequest request) {
+        render(graphics, request, null);
+    }
+
+    void render(GuiGraphicsExtractor graphics, PreviewRequest request,
+            com.naocraftlab.skins.client.PreviewModelFrames.Completion completion) {
         PreviewAppearance appearance = request.appearance();
         Model.Simple simpleModel = appearance.model() == SkinModel.SLIM
                 ? models.slimModel
@@ -75,9 +80,11 @@ final class AvatarPipPreviewRenderer
                 PreviewStageGeometry.modelOffsetX(request, scale),
                 PreviewStageGeometry.modelOffsetY(request, scale),
                 scale,
+                appearance.capeGlint() && appearance.capeMode() == CapeMode.CAPE,
                 false,
                 PreviewDepthEnvelope.forRequest(
                         request.intent(), scale, request.pitchDegrees(), appearance.capeMode()),
+                completion,
                 null);
         try (NclBakedPlayerSubmission submission =
                 NclBakedPlayerSubmission.open(graphics, state)) {
@@ -124,8 +131,10 @@ final class AvatarPipPreviewRenderer
                 0.0F,
                 0.0F,
                 scale,
+                false,
                 true,
                 0.0F,
+                null,
                 null);
         try (NclBakedPlayerSubmission submission = NclBakedPlayerSubmission.open(graphics, state)) {
             submit(

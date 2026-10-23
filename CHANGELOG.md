@@ -1,3 +1,55 @@
+## 1.3.0
+
+### Added
+
+- **Customizable Player Models support**
+    - Use skins with CPM models in saved looks and switch between them without restarting the game
+    - Preview models and their animations in the look editor after joining a world (the main menu shows the base skin)
+    - Get warnings about damaged CPM data and potential conflicts with active Fresh Moves and Just Expressions facial animations
+    - Customizable Player Models must be installed to display the models
+
+- **CPM model imports**
+    - Import `.cpmmodel` and `.cpmproject` files from your device or a link without manually exporting them to a skin first
+    - If a model needs a base skin, choose one during import, then preview and save the finished look
+    - If the model data cannot be embedded in the skin, NCL Skins automatically uploads it to CPM Paste. This requires a licensed Minecraft account. The look depends on the published model remaining available
+
+- **CPM capes and elytra**
+    - Set the priority of capes and elytra built into a model relative to other providers
+    - Use a regular cape instead of CPM accessories while keeping the model and its animations
+    - Inspect available accessories in the `Embedded` collection after joining a world without changing the look's saved assignments
+
+- **MinecraftCapes capes**
+    - Use MinecraftCapes capes for yourself and other players without installing the separate MinecraftCapes mod
+    - HD textures and animations are supported. Cape enchantment glint also works with Wavey Capes
+    - Set the provider's priority and open the service's account page directly from `Providers`
+
+- **Animated capes and more HD formats**
+    - Import GIF animations and PNGs with vertically stacked frames. Up to 64 frames are supported, with frame sizes of 64×32, 128×64, 256×128, 512×256, 1024×512, and 2048×1024 pixels
+    - Use these capes in resource pack collections and save them in looks with their full animation
+    - Thumbnails play the animation on hover, while the full player preview plays it continuously
+    - The new HD and animated cape formats require NCL Skins 1.3.0. These capes do not appear in older versions
+
+- **Embedded Sneaky Capes previews**
+    - Preview the selected skin's cape in a separate editor card, even without joining a world
+    - Inspecting the cape does not change the look's saved assignments
+
+- **Outer-layer controls on the providers screen**
+    - Toggle the head, body, and leg outer layers when the provider configuration makes the look editor unavailable
+    - Changes apply to the player immediately and are saved in Minecraft settings without overwriting the saved look
+
+### Changed
+
+- **Provider refresh**
+    - When a row is selected, the button refreshes only that source. With no row selected, it refreshes all enabled sources in the current tab
+    - Refreshing no longer blocks the entire screen. Other available actions remain usable while the source loads
+
+### Fixed
+
+- Fixed Sneaky Capes rendering on other players and embedded cape recovery after reconnecting or refreshing appearance state
+- An unavailable cape no longer discards a prepared custom skin waiting to be applied
+- Fixed abrupt changes in model lighting when moving the cursor in menus and previews
+- Selection and keyboard focus outlines no longer extend beyond the scrollable provider list
+
 ## 1.2.2
 
 ### Added

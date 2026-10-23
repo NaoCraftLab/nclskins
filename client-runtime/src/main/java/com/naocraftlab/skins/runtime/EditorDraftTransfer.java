@@ -7,9 +7,15 @@ import java.util.Optional;
 import java.util.UUID;
 
 record EditorDraftTransfer(PresetEditorModel draft, LocalCapeReference capeSeed,
-        Optional<PersonalSkinSource> source, UUID selectedPresetId) {
+        Optional<PersonalSkinSource> source, UUID selectedPresetId, Optional<LibraryEditorPort.EditorSaveScope> saveScope) {
+    EditorDraftTransfer(PresetEditorModel draft, LocalCapeReference capeSeed,
+            Optional<PersonalSkinSource> source, UUID selectedPresetId) {
+        this(draft, capeSeed, source, selectedPresetId, Optional.empty());
+    }
     EditorDraftTransfer {
         Objects.requireNonNull(draft, "draft");
         source = Objects.requireNonNull(source, "source");
+        saveScope = Objects.requireNonNull(saveScope, "saveScope");
+        if (draft.convertedCreation() && saveScope.isEmpty()) throw new IllegalArgumentException("Converted draft requires initiating scope");
     }
 }

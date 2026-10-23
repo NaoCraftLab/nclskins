@@ -98,6 +98,28 @@ final class PointerRoutingTest {
         assertFalse(PointerRouting.scrollSurface(routed, 191, 160).isPresent());
     }
 
+    @Test
+    void passiveCaptionPreservesPreviewRoutingIncludingCaptionAndControls() {
+        var editor = PresetEditorModel.open(TestFixtures.account(0), Optional.empty(), Optional.empty(),
+                Optional.empty(), message -> "Long CPM failure caption with wrapped text", 240, CapeMode.OFF);
+        for (int[] size : List.of(new int[]{854, 480}, new int[]{240, 240}, new int[]{854, 180}, new int[]{1280, 240})) {
+            ViewSpec base = editor.present(size[0], size[1]);
+            ViewSpec overlay = PlayerAppearanceStage.withError(base, UiMessage.error("nclskins.editor.cpm_preview_failed"),
+                    message -> "Long CPM failure caption with wrapped text");
+            Bounds caption = overlay.texts().get(overlay.texts().size() - 1).bounds();
+            double x = caption.x() + caption.width() / 2.0;
+            double y = caption.bottom() - 1;
+            assertTrue(PointerRouting.hit(base, x, y).preview("editor.preview"));
+            org.junit.jupiter.api.Assertions.assertEquals(PointerRouting.hit(base, x, y), PointerRouting.hit(overlay, x, y));
+            for (int py = 0; py < size[1]; py += 7) {
+                for (int px = 0; px < size[0]; px += 7) {
+                    org.junit.jupiter.api.Assertions.assertEquals(PointerRouting.hit(base, px, py), PointerRouting.hit(overlay, px, py));
+                    org.junit.jupiter.api.Assertions.assertEquals(PointerRouting.scrollSurface(base, px, py), PointerRouting.scrollSurface(overlay, px, py));
+                }
+            }
+        }
+    }
+
     private static ViewSpec view(String screenId) {
         ViewSpec.Preview preview = new ViewSpec.Preview(
                 "editor.preview",

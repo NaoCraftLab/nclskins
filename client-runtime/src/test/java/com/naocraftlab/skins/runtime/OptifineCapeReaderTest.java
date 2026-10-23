@@ -1,16 +1,21 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.core.png.PngValidator;
-import com.sun.net.httpserver.HttpServer;
+import com.naocraftlab.skins.core.png.CapeAssetDecoder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.net.URI;
-import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.Clock;
 import java.time.Instant;
@@ -27,20 +32,90 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class OptifineCapeReaderTest {
+    @TempDir Path scratch;
+
+    @Test
+    void preparedReadUsesCallerOwnedFileAndReleasesEncodedStage() throws Exception {
+        byte[] png = capePng();
+        OptifineCapeReader.Transport transport = new OptifineCapeReader.Transport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri,
+                    Duration timeout, long maxBytes, Path destination) throws IOException {
+                assertEquals(CapeAssetDecoder.MAX_ENCODED_BYTES, maxBytes);
+                assertEquals(URI.create("https://optifine.net/capes/Player.png"), uri);
+                Files.write(destination, png);
+                return new OptifineCapeReader.FileResponse(200, png.length, Map.of());
+            }
+        };
+        var reader = new OptifineCapeReader(transport, new CapeAssetDecoder(), scratch, Clock.systemUTC());
+
+        var result = reader.read("Player");
+        assertEquals(OptifineCapeReader.Kind.PRESENT, result.kind());
+        assertEquals(64, result.asset().width());
+        assertEquals(32, result.asset().height());
+        assertEquals(new PngValidator().projectImportedCape(png).renderSha256(),
+                result.asset().visualSha256());
+        try (var staged = Files.list(scratch)) {
+            assertEquals(List.of(result.asset().backing()), staged.toList());
+        }
+        Files.delete(result.asset().backing());
+    }
+
+    @Test
+    void inclusiveEncodedCeilingReachesDecoderAndPlusOneIsRejected() throws Exception {
+        for (long size : new long[] {CapeAssetDecoder.MAX_ENCODED_BYTES,
+                CapeAssetDecoder.MAX_ENCODED_BYTES + 1}) {
+            OptifineCapeReader.Transport transport = new OptifineCapeReader.Transport() {
+                @Override public OptifineCapeReader.FileResponse getToFile(URI uri,
+                        Duration timeout, long maxBytes, Path destination) throws IOException {
+                    try (FileChannel file = FileChannel.open(destination,
+                            StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                        file.position(size - 1);
+                        file.write(ByteBuffer.wrap(new byte[] {0}));
+                    }
+                    return new OptifineCapeReader.FileResponse(200, size, Map.of());
+                }
+            };
+            var reader = new OptifineCapeReader(transport, new CapeAssetDecoder(), scratch, Clock.systemUTC());
+            assertEquals(size == CapeAssetDecoder.MAX_ENCODED_BYTES
+                            ? OptifineCapeReader.Failure.INVALID_PNG
+                            : OptifineCapeReader.Failure.OVERSIZED,
+                    reader.read("Player").failure());
+            try (var staged = Files.list(scratch)) { assertEquals(0, staged.count()); }
+        }
+    }
+
+    @Test
+    void preparedRateLimitBlocksAnotherRequest() {
+        AtomicInteger calls = new AtomicInteger();
+        OptifineCapeReader.Transport transport = new OptifineCapeReader.Transport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri,
+                    Duration timeout, long maxBytes, Path destination) {
+                calls.incrementAndGet();
+                return new OptifineCapeReader.FileResponse(429, 0,
+                        Map.of("Retry-After", List.of("120")));
+            }
+        };
+        var reader = new OptifineCapeReader(transport, new CapeAssetDecoder(), scratch, Clock.systemUTC());
+        assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Player").failure());
+        assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Player").failure());
+        assertEquals(1, calls.get());
+    }
+
     @Test
     void publicReadUsesOnlyCanonicalNameAndNormalizesValidPng() throws Exception {
         byte[] png = capePng();
         AtomicReference<URI> requested = new AtomicReference<>();
-        var reader = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new OptifineCapeReader(mock((uri, timeout, maxBytes) -> {
             requested.set(uri);
             assertEquals(Duration.ofSeconds(10), timeout);
-            assertEquals(PngValidator.DEFAULT_MAX_BYTES, maxBytes);
+            assertEquals(CapeAssetDecoder.MAX_ENCODED_BYTES, maxBytes);
             return new OptifineCapeReader.Response(200, png);
-        }, new PngValidator());
+        }), scratch, Clock.systemUTC());
         var result = reader.read("Player_123");
         assertEquals(OptifineCapeReader.Kind.PRESENT, result.kind());
         assertEquals(URI.create("https://optifine.net/capes/Player_123.png"), requested.get());
-        assertArrayEquals(new PngValidator().projectImportedCape(png).bytes(), result.cape().bytes());
+        assertEquals(new PngValidator().projectImportedCape(png).renderSha256(),
+                result.asset().visualSha256());
         assertNull(result.failure());
     }
 
@@ -53,12 +128,10 @@ class OptifineCapeReaderTest {
         }
         assertEquals(OptifineCapeReader.Failure.INVALID_PNG,
                 reader(200, new byte[] {1, 2, 3}).read("Player").failure());
-        assertEquals(OptifineCapeReader.Failure.OVERSIZED,
-                reader(200, new byte[PngValidator.DEFAULT_MAX_BYTES + 1]).read("Player").failure());
         assertEquals(OptifineCapeReader.Failure.NETWORK,
-                new OptifineCapeReader((uri, timeout, maxBytes) -> {
+                new OptifineCapeReader((uri, timeout, maxBytes, destination) -> {
                     throw new IOException("timeout");
-                }, new PngValidator()).read("Player").failure());
+                }, scratch, Clock.systemUTC()).read("Player").failure());
         assertEquals(OptifineCapeReader.Failure.INVALID_NAME,
                 reader(200, png).read("bad/name").failure());
     }
@@ -71,7 +144,7 @@ class OptifineCapeReaderTest {
         ImageIO.write(image, "png", output);
         var result = reader(200, output.toByteArray()).read("Player");
         assertEquals(OptifineCapeReader.Kind.PRESENT, result.kind());
-        BufferedImage normalized = ImageIO.read(new java.io.ByteArrayInputStream(result.cape().bytes()));
+        BufferedImage normalized = ImageIO.read(new ByteArrayInputStream(result.asset().framePng(0)));
         assertEquals(64, normalized.getWidth());
         assertEquals(32, normalized.getHeight());
         assertEquals(0x80112233, normalized.getRGB(45, 21));
@@ -92,8 +165,8 @@ class OptifineCapeReaderTest {
 
             var result = reader(200, output.toByteArray()).read("Player");
             assertEquals(OptifineCapeReader.Kind.PRESENT, result.kind());
-            assertEquals(true, result.cape().hasElytra());
-            BufferedImage canonical = ImageIO.read(new ByteArrayInputStream(result.cape().bytes()));
+            assertEquals(true, result.asset().hasElytra());
+            BufferedImage canonical = ImageIO.read(new ByteArrayInputStream(result.asset().framePng(0)));
             assertEquals(128, canonical.getWidth());
             assertEquals(64, canonical.getHeight());
             assertEquals(0x80112233, canonical.getRGB(3, 7));
@@ -105,39 +178,14 @@ class OptifineCapeReaderTest {
     }
 
     @Test
-    void nonSuccessStatusDoesNotWaitForOrBufferItsBody() throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/cape", exchange -> {
-            exchange.sendResponseHeaders(404, 0);
-            try {
-                Thread.sleep(1000);
-                exchange.getResponseBody().write(new byte[4096]);
-            } catch (IOException | InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            } finally {
-                exchange.close();
-            }
-        });
-        server.start();
-        try {
-            URI uri = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/cape");
-            var result = new OptifineCapeReader.HttpTransport().get(uri, Duration.ofMillis(500), 16);
-            assertEquals(404, result.status());
-            assertEquals(0, result.bytes().length);
-        } finally {
-            server.stop(0);
-        }
-    }
-
-    @Test
     void providerCooldownSuppressesHttpAndUsesBoundedRetryAfter() {
         MutableClock clock = new MutableClock();
         AtomicInteger requests = new AtomicInteger();
-        var reader = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new OptifineCapeReader(mock((uri, timeout, maxBytes) -> {
             requests.incrementAndGet();
             return new OptifineCapeReader.Response(429, new byte[0],
                     Map.of("Retry-After", List.of("120")));
-        }, new PngValidator(), clock);
+        }), scratch, clock);
         assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Player").failure());
         assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Player").failure());
         assertEquals(1, requests.get());
@@ -151,9 +199,9 @@ class OptifineCapeReaderTest {
     void invalidAndOverflowRetryAfterUseFiniteFallback() {
         for (String value : List.of("-5", "999999999999999999999999999999", "garbage")) {
             MutableClock clock = new MutableClock();
-            var reader = new OptifineCapeReader((uri, timeout, maxBytes) ->
+            var reader = new OptifineCapeReader(mock((uri, timeout, maxBytes) ->
                     new OptifineCapeReader.Response(429, new byte[0],
-                            Map.of("Retry-After", List.of(value))), new PngValidator(), clock);
+                            Map.of("Retry-After", List.of(value)))), scratch, clock);
             reader.read("Player");
             assertEquals(Duration.ofSeconds(60), reader.cooldownRemaining().orElseThrow());
         }
@@ -163,11 +211,11 @@ class OptifineCapeReaderTest {
     void accountChangeKeepsDeadlineAndRejectsOldAdmission() {
         MutableClock clock = new MutableClock();
         AtomicInteger requests = new AtomicInteger();
-        var reader = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new OptifineCapeReader(mock((uri, timeout, maxBytes) -> {
             requests.incrementAndGet();
             return new OptifineCapeReader.Response(429, new byte[0],
                     Map.of("Retry-After", List.of("120")));
-        }, new PngValidator(), clock);
+        }), scratch, clock);
         long oldEpoch = reader.accountEpoch();
         reader.read("Old", oldEpoch);
         reader.accountChanged();
@@ -186,14 +234,14 @@ class OptifineCapeReaderTest {
         MutableClock clock = new MutableClock();
         AtomicInteger requests = new AtomicInteger();
         AtomicReference<OptifineCapeReader> current = new AtomicReference<>();
-        var reader = new OptifineCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new OptifineCapeReader(mock((uri, timeout, maxBytes) -> {
             if (requests.incrementAndGet() == 1) {
                 current.get().accountChanged();
                 return new OptifineCapeReader.Response(429, new byte[0],
                         Map.of("Retry-After", List.of("86400")));
             }
             return new OptifineCapeReader.Response(404, new byte[0]);
-        }, new PngValidator(), clock);
+        }), scratch, clock);
         current.set(reader);
         assertEquals(OptifineCapeReader.Failure.RATE_LIMITED, reader.read("Old").failure());
         assertEquals(true, reader.cooldownRemaining().isEmpty());
@@ -213,9 +261,28 @@ class OptifineCapeReaderTest {
         @Override public Instant instant() { return Instant.ofEpochSecond(seconds.get()); }
     }
 
-    private static OptifineCapeReader reader(int status, byte[] body) {
-        return new OptifineCapeReader((uri, timeout, maxBytes) ->
-                new OptifineCapeReader.Response(status, body), new PngValidator());
+    private OptifineCapeReader reader(int status, byte[] body) {
+        return new OptifineCapeReader(mock((uri, timeout, maxBytes) ->
+                new OptifineCapeReader.Response(status, body)), scratch, Clock.systemUTC());
+    }
+
+    @FunctionalInterface
+    private interface ResponseFixture {
+        OptifineCapeReader.Response response(URI uri, Duration timeout, long maxBytes) throws IOException;
+    }
+
+    private static OptifineCapeReader.Transport mock(ResponseFixture fixture) {
+        return (uri, timeout, maxBytes, destination) -> {
+            OptifineCapeReader.Response response = fixture.response(uri, timeout, maxBytes);
+            if (response.status() == 200) {
+                if (response.bytes().length > maxBytes) {
+                    throw new OptifineCapeReader.OversizedResponseException();
+                }
+                Files.write(destination, response.bytes());
+            }
+            return new OptifineCapeReader.FileResponse(response.status(), response.bytes().length,
+                    response.headers());
+        };
     }
 
     private static byte[] capePng() throws IOException {

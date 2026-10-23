@@ -22,6 +22,7 @@ import com.naocraftlab.skins.diagnostics.DiagnosticEvent;
 
 import java.net.URI;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -39,10 +40,12 @@ final class ProviderFlow {
     private UiMessage optiFineLinkFeedback;
     private long optiFineLinkAttempt;
     private static final URI SKINMC_ACCOUNT_URI = URI.create("https://skinmc.net/account/capes");
+    private static final URI MINECRAFTCAPES_ACCOUNT_URI = URI.create("https://minecraftcapes.net/account/profile");
     private static final URI SNEAKY_EDITOR_URI = URI.create("https://penguinspy.neocities.org/projects/loom/");
-    private UUID skinMcLinkAccountId;
-    private boolean skinMcLinkPending;
-    private boolean skinMcLinkClaimed;
+    private UUID fixedAccountLinkAccountId;
+    private BuiltinProvider fixedAccountLinkProvider;
+    private boolean fixedAccountLinkPending;
+    private boolean fixedAccountLinkClaimed;
     private boolean sneakyEditorLinkPending;
     private boolean sneakyEditorLinkClaimed;
     private boolean draggingProviderRowsScrollbar;
@@ -68,18 +71,33 @@ final class ProviderFlow {
     }
 
     Optional<URI> consumeReadySkinMcAccountLink() {
-        if (!liveSkinMcLinkView() || !skinMcLinkPending || skinMcLinkClaimed) return Optional.empty();
-        skinMcLinkClaimed = true;
-        return Optional.of(SKINMC_ACCOUNT_URI);
+        return consumeReadyFixedAccountLink(BuiltinProvider.SKINMC);
     }
 
     Optional<URI> currentSkinMcAccountLink() {
-        return liveSkinMcLinkView() && skinMcLinkClaimed
-                ? Optional.of(SKINMC_ACCOUNT_URI) : Optional.empty();
+        return currentFixedAccountLink(BuiltinProvider.SKINMC);
     }
 
     void finishSkinMcAccountLink() {
-        context.onClient(this::cancelSkinMcAccountLink);
+        finishFixedAccountLink(BuiltinProvider.SKINMC);
+    }
+
+    Optional<URI> consumeReadyFixedAccountLink(BuiltinProvider provider) {
+        if (!liveFixedAccountLinkView(provider) || !fixedAccountLinkPending || fixedAccountLinkClaimed)
+            return Optional.empty();
+        fixedAccountLinkClaimed = true;
+        return Optional.of(fixedAccountUri(provider));
+    }
+
+    Optional<URI> currentFixedAccountLink(BuiltinProvider provider) {
+        return liveFixedAccountLinkView(provider) && fixedAccountLinkClaimed
+                ? Optional.of(fixedAccountUri(provider)) : Optional.empty();
+    }
+
+    void finishFixedAccountLink(BuiltinProvider provider) {
+        context.onClient(() -> {
+            if (fixedAccountLinkProvider == provider) cancelFixedAccountLink();
+        });
     }
 
     Optional<URI> consumeReadySneakyEditorLink() {
@@ -114,10 +132,11 @@ final class ProviderFlow {
         optiFineLinkFeedback = null;
     }
 
-    void cancelSkinMcAccountLink() {
-        skinMcLinkPending = false;
-        skinMcLinkClaimed = false;
-        skinMcLinkAccountId = null;
+    void cancelFixedAccountLink() {
+        fixedAccountLinkPending = false;
+        fixedAccountLinkClaimed = false;
+        fixedAccountLinkAccountId = null;
+        fixedAccountLinkProvider = null;
     }
 
     void cancelSneakyEditorLink() {
@@ -133,13 +152,23 @@ final class ProviderFlow {
                 && context.providers().cape().enabled(BuiltinProvider.SNEAKY);
     }
 
-    boolean liveSkinMcLinkView() {
-        return context.account() != null && context.account().accountId().equals(skinMcLinkAccountId)
+    boolean liveFixedAccountLinkView(BuiltinProvider provider) {
+        return (provider == BuiltinProvider.SKINMC || provider == BuiltinProvider.MINECRAFTCAPES)
+                && fixedAccountLinkProvider == provider
+                && context.account() != null && context.account().accountId().equals(fixedAccountLinkAccountId)
                 && context.lifecycle() == ClientSnapshot.Lifecycle.READY
                 && (context.providersOpen() || !context.providers().galleryAvailable())
                 && !state.providerAdding && context.editor() == null
                 && state.providerComponent == AppearanceProviders.Component.CAPE
-                && context.providers().cape().enabled(BuiltinProvider.SKINMC);
+                && context.providers().cape().enabled(provider);
+    }
+
+    private static URI fixedAccountUri(BuiltinProvider provider) {
+        return switch (provider) {
+            case SKINMC -> SKINMC_ACCOUNT_URI;
+            case MINECRAFTCAPES -> MINECRAFTCAPES_ACCOUNT_URI;
+            default -> throw new IllegalArgumentException("Provider has no fixed account link: " + provider);
+        };
     }
 
     boolean liveOptiFineLinkView() {
@@ -188,7 +217,7 @@ final class ProviderFlow {
             state.providerPreview = PreviewInteractionModel.editor(context.viewportHeight(), context.preferredCapeMode());
         } else if (id.equals("providers.back")) {
             cancelOptiFineAccountLink();
-            cancelSkinMcAccountLink();
+            cancelFixedAccountLink();
             cancelSneakyEditorLink();
             if (state.providerAdding) state.providerAdding = false;
             else if (context.rootDestination() == ScreenDestination.PROVIDERS) context.closeScreenOnClient();
@@ -196,7 +225,7 @@ final class ProviderFlow {
             else context.closeScreenOnClient();
         } else if (id.startsWith("providers.tab.")) {
             cancelOptiFineAccountLink();
-            cancelSkinMcAccountLink();
+            cancelFixedAccountLink();
             cancelSneakyEditorLink();
             selectProvidersTab(AppearanceProviders.Component.valueOf(id.substring(14)));
             state.providerPreviewSources.clear();
@@ -204,7 +233,7 @@ final class ProviderFlow {
             state.providerRowsOffset = 0;
         } else if (id.equals("providers.add")) {
             cancelOptiFineAccountLink();
-            cancelSkinMcAccountLink();
+            cancelFixedAccountLink();
             cancelSneakyEditorLink();
             state.providerAdding = true;
             state.providerChooserOffset = 0;
@@ -217,35 +246,21 @@ final class ProviderFlow {
             String[] action = id.split("\\.");
             if (action.length < 2 || context.busy()) return;
             if (id.equals("providers.refresh")) {
-                RefreshComparison comparison = captureRefreshComparison(component);
-                context.submit(UiMessage.info("nclskins.providers.refresh"),
-                        () -> context.providerOperations().refreshProvidersWithObservation(component), result -> {
-                    ClientOperations.DurableAppearance appearance = result.appearance();
-                    acceptProviderChange(appearance);
-                    if (component == AppearanceProviders.Component.CAPE) {
-                        AppearanceProviders confirmedMinecraft = appearance.providers();
-                        CompletableFuture<ProviderObservation<ProviderCape>> optifine = new CompletableFuture<>();
-                        CompletableFuture<ProviderObservation<ProviderCape>> skinmc = new CompletableFuture<>();
-                        CompletableFuture.allOf(optifine, skinmc).thenRun(() -> context.onClient(() ->
-                                finishRefreshComparison(comparison, confirmedMinecraft,
-                                        result.confirmedMinecraft(), optifine.join(), skinmc.join())));
-                        try {
-                            context.capeObservations().refreshOptiFineCapes(optifine::complete);
-                        } catch (RuntimeException unavailable) {
-                            optifine.complete(null);
-                        }
-                        try {
-                            context.capeObservations().refreshSkinMcCapes(skinmc::complete);
-                        } catch (RuntimeException unavailable) {
-                            skinmc.complete(null);
-                        }
-                    } else {
-                        finishRefreshComparison(comparison, appearance.providers(),
-                                result.confirmedMinecraft(), null, null);
-                    }
-                });
+                BuiltinProvider selected = normalizedSelection(component);
+                ProviderRefreshRequest request = selected == null ? ProviderRefreshRequest.all(component)
+                        : ProviderRefreshRequest.one(component, selected);
+                if (refreshPending()) return;
+                var cooldowns = new java.util.EnumMap<BuiltinProvider, java.time.Duration>(BuiltinProvider.class);
+                for (BuiltinProvider provider : request.resolve(context.providers()))
+                    context.capeObservations().capeProviderCooldown(provider).ifPresent(value -> cooldowns.put(provider, value));
+                if (request.blockedByRateLimit(context.providers(), context.clientSessionView().rateLimitRemaining(), cooldowns)) return;
+                context.submitProviderRefresh(UiMessage.info(selected == null
+                        ? "nclskins.providers.refresh_all" : "nclskins.providers.refresh"),
+                        () -> context.providerRefresh().refresh(request, context.providers()));
             } else if (action.length == 3) {
                 BuiltinProvider provider = BuiltinProvider.valueOf(action[2]);
+                if (provider == BuiltinProvider.CPM && (!context.snapshot().skinExtensionEnvironment().cpmPresent()
+                        || component != AppearanceProviders.Component.CAPE)) return;
                 String verb = action[1];
                 if (verb.equals("edit")) {
                     if (state.providerAdding || !context.providers().galleryAvailable()
@@ -253,7 +268,7 @@ final class ProviderFlow {
                             || !(component == AppearanceProviders.Component.SKIN ? context.providers().skin().order()
                             : context.providers().cape().order()).contains(provider)) return;
                     cancelOptiFineAccountLink();
-                    cancelSkinMcAccountLink();
+                    cancelFixedAccountLink();
                     cancelSneakyEditorLink();
                     context.editProvider(new EditRequest(component, provider));
                     context.publish();
@@ -261,7 +276,7 @@ final class ProviderFlow {
                 }
                 if (verb.equals("account")) {
                     if ((provider != BuiltinProvider.OPTIFINE && provider != BuiltinProvider.SKINMC
-                            && provider != BuiltinProvider.SNEAKY)
+                            && provider != BuiltinProvider.SNEAKY && provider != BuiltinProvider.MINECRAFTCAPES)
                             || component != AppearanceProviders.Component.CAPE
                             || state.providerAdding || !context.providers().cape().order().contains(provider)) return;
                     if (provider == BuiltinProvider.OPTIFINE) prepareOptiFineAccountLink();
@@ -270,29 +285,40 @@ final class ProviderFlow {
                         sneakyEditorLinkClaimed = false;
                         context.publish();
                     } else {
-                        skinMcLinkAccountId = context.account().accountId();
-                        skinMcLinkPending = true;
-                        skinMcLinkClaimed = false;
+                        fixedAccountLinkAccountId = context.account().accountId();
+                        fixedAccountLinkProvider = provider;
+                        fixedAccountLinkPending = true;
+                        fixedAccountLinkClaimed = false;
                         context.publish();
                     }
                     return;
                 }
                 if (verb.equals("row") && state.providerAdding && (component == AppearanceProviders.Component.SKIN
                         ? context.providers().skin().order() : context.providers().cape().order()).contains(provider)) return;
-                if (verb.equals("row") && !state.providerAdding) { state.providerPreviewSources.put(component, provider); context.publish(); return; }
+                if (verb.equals("row") && !state.providerAdding) {
+                    if (provider == BuiltinProvider.CPM && !state.accessories.canInspect()) return;
+                    if (component == AppearanceProviders.Component.SKIN)
+                        acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(
+                                PreviewRenderer.LiveReason.LOADING));
+                    state.providerPreviewSources.put(component, provider);
+                    context.publish();
+                    return;
+                }
                 if (verb.equals("remove") && provider == BuiltinProvider.OPTIFINE
                         && component == AppearanceProviders.Component.CAPE) cancelOptiFineAccountLink();
-                if (verb.equals("remove") && provider == BuiltinProvider.SKINMC
-                        && component == AppearanceProviders.Component.CAPE) cancelSkinMcAccountLink();
+                if (verb.equals("remove") && provider == fixedAccountLinkProvider
+                        && component == AppearanceProviders.Component.CAPE) cancelFixedAccountLink();
                 if (verb.equals("remove") && provider == BuiltinProvider.SNEAKY
                         && component == AppearanceProviders.Component.CAPE) cancelSneakyEditorLink();
-                int previousIndex = (component == AppearanceProviders.Component.SKIN ? context.providers().skin().order() : context.providers().cape().order()).indexOf(provider);
+                int previousIndex = (component == AppearanceProviders.Component.SKIN ? context.providers().skin().order() : context.providers().cape().visibleOrder(context.snapshot().skinExtensionEnvironment().cpmPresent())).indexOf(provider);
                 UUID accountId = context.account().accountId();
+                long revision = (component == AppearanceProviders.Component.SKIN
+                        ? context.providers().skin() : context.providers().cape()).configurationRevision();
                 submitProviderConfiguration(() -> switch (verb) {
-                    case "row" -> context.providerOperations().enableProvider(accountId, component, provider);
-                    case "remove" -> context.providerOperations().disableProvider(accountId, component, provider);
-                    case "up" -> context.providerOperations().moveProvider(accountId, component, provider, -1);
-                    case "down" -> context.providerOperations().moveProvider(accountId, component, provider, 1);
+                    case "row" -> context.providerOperations().enableProvider(accountId, component, provider, revision);
+                    case "remove" -> context.providerOperations().disableProvider(accountId, component, provider, revision);
+                    case "up" -> context.providerOperations().moveProvider(accountId, component, provider, -1, revision);
+                    case "down" -> context.providerOperations().moveProvider(accountId, component, provider, 1, revision);
                     default -> throw new IllegalArgumentException("Unknown provider action");
                 }, appearance -> {
                     CompletableFuture<AppearanceRefresh.Result> providerRebind =
@@ -300,7 +326,8 @@ final class ProviderFlow {
                     context.capeObservations().optiFineConfigurationChanged();
                     state.providerAdding = false;
                     if (origin == InteractionOrigin.KEYBOARD) {
-                        var remaining = component == AppearanceProviders.Component.SKIN ? context.providers().skin().order() : context.providers().cape().order();
+                        var remaining = component == AppearanceProviders.Component.SKIN ? context.providers().skin().order()
+                                : context.providers().cape().visibleOrder(context.snapshot().skinExtensionEnvironment().cpmPresent());
                         String target = "providers.row." + provider.name();
                         if (verb.equals("remove")) target = remaining.isEmpty() ? "providers.add"
                                 : "providers.row." + remaining.get(Math.max(0, Math.min(previousIndex, remaining.size() - 1))).name();
@@ -393,76 +420,60 @@ final class ProviderFlow {
         }
     }
 
-    RefreshComparison captureRefreshComparison(AppearanceProviders.Component component) {
-        if (context.account() == null) return null;
-        try {
-            GameSessionTokenSource.SessionIdentity identity = context.clientSessionView().sessionIdentity();
-            if (!identity.profileId().equals(context.account().accountId())) return null;
-            return new RefreshComparison(identity.profileId(), identity.profileName(),
-                    component, context.providers());
-        } catch (RuntimeException unavailable) {
+    boolean acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories value) {
+        if (state.accessories.equals(value)) return false;
+        if (!AccessoryInspection.current(state.accessories, value))
+            state.providerPreviewSources.remove(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        state.accessories = value;
+        return true;
+    }
+
+    boolean previewStillCurrent(ViewSpec.Preview preview) {
+        var selected = normalizedSelection(AppearanceProviders.Component.SKIN);
+        var skin = selected == null ? context.providers().skin().resolve().map(com.naocraftlab.skins.core.provider.ProviderChannel.Resolved::value)
+                : java.util.Optional.ofNullable(context.providers().skin().observation(selected).value());
+        return preview.imageRevision().equals(skin.map(value -> "provider:skin:" + value.sha256()).orElse("provider:default"))
+                && preview.variant() == skin.map(com.naocraftlab.skins.core.provider.ProviderSkin::variant).orElse(context.currentPlayerVariant());
+    }
+
+    private boolean nativePreview() {
+        if (!state.accessories.canInspect() || !state.accessories.present()) return false;
+        BuiltinProvider selected = normalizedSelection(AppearanceProviders.Component.CAPE);
+        if (selected != null) return selected == BuiltinProvider.CPM;
+        for (BuiltinProvider provider : context.providers().cape().order()) {
+            if (provider == BuiltinProvider.CPM) return context.snapshot().skinExtensionEnvironment().cpmPresent();
+            if (context.providers().cape().observation(provider).value() != null) return false;
+        }
+        return false;
+    }
+
+    private BuiltinProvider normalizedSelection(AppearanceProviders.Component component) {
+        BuiltinProvider selected = state.providerPreviewSources.get(component);
+        var order = component == AppearanceProviders.Component.SKIN ? context.providers().skin().order()
+                : context.providers().cape().visibleOrder(context.snapshot().skinExtensionEnvironment().cpmPresent());
+        if (selected != null && !order.contains(selected)) {
+            state.providerPreviewSources.remove(component);
             return null;
         }
+        return selected;
     }
 
-    void finishRefreshComparison(RefreshComparison comparison,
-            AppearanceProviders confirmedState, ProviderObservation<?> confirmedMinecraft,
-            ProviderObservation<ProviderCape> optifine,
-            ProviderObservation<ProviderCape> skinmc) {
-        if (comparison == null || context.disposed() || context.account() == null
-                || !comparison.accountId().equals(context.account().accountId())) return;
-        GameSessionTokenSource.SessionIdentity identity;
-        try {
-            identity = context.clientSessionView().sessionIdentity();
-        } catch (RuntimeException unavailable) {
-            return;
-        }
-        if (!comparison.accountId().equals(identity.profileId())
-                || !comparison.canonicalName().equals(identity.profileName())) return;
-        var before = comparison.component() == AppearanceProviders.Component.SKIN
-                ? comparison.providers().skin() : comparison.providers().cape();
-        var after = comparison.component() == AppearanceProviders.Component.SKIN
-                ? confirmedState.skin() : confirmedState.cape();
-        if (before.configurationRevision() != after.configurationRevision()
-                || !before.order().equals(after.order())
-                || (comparison.component() == AppearanceProviders.Component.CAPE
-                    && context.providers().cape().configurationRevision() != after.configurationRevision())) return;
-        ProviderObservation<?> oldMinecraft = before.observation(BuiltinProvider.MINECRAFT);
-        boolean changed = false;
-        if (before.enabled(BuiltinProvider.MINECRAFT) && oldMinecraft.known()
-                && confirmedMinecraft != null && confirmedMinecraft.known()) {
-            changed = comparison.component() == AppearanceProviders.Component.CAPE
-                    ? !sameCapeContent((ProviderCape) oldMinecraft.value(),
-                            (ProviderCape) confirmedMinecraft.value())
-                    : !oldMinecraft.equals(confirmedMinecraft);
-        }
-        if (comparison.component() == AppearanceProviders.Component.CAPE
-                && before.enabled(BuiltinProvider.OPTIFINE) && optifine != null) {
-            ProviderObservation<ProviderCape> oldOptifine = comparison.providers().cape().optifine();
-            changed |= oldOptifine.known() && optifine.known()
-                    && !sameCapeContent(oldOptifine.value(), optifine.value());
-        }
-        if (comparison.component() == AppearanceProviders.Component.CAPE
-                && before.enabled(BuiltinProvider.SKINMC) && skinmc != null) {
-            ProviderObservation<ProviderCape> oldSkinMc = comparison.providers().cape().skinmc();
-            changed |= oldSkinMc.known() && skinmc.known()
-                    && !sameCapeContent(oldSkinMc.value(), skinmc.value());
-        }
-        if (changed) {
-            context.serverAppearanceReadiness().ifPresent(ServerAppearanceReadiness::start);
-        }
-    }
-
-    boolean sameCapeContent(ProviderCape left, ProviderCape right) {
-        if (left == null || right == null) return left == right;
-        if (left.textureCacheKey() != null && right.textureCacheKey() != null) {
-            return left.textureCacheKey().equals(right.textureCacheKey())
-                    && Objects.equals(left.hasElytra(), right.hasElytra());
-        }
-        return left.equals(right);
+    private boolean showOuterLayers() {
+        return context.providerScreenVisible() && !state.providerAdding && !context.providers().galleryAvailable()
+                && context.currentDisplayKind() == com.naocraftlab.skins.client.PreviewRenderer.DisplayKind.ORDINARY;
     }
 
     boolean dispatchProviderAction(String widgetId, boolean reverse, InteractionOrigin origin) {
+        if (widgetId.startsWith("providers.outer_layer.")) {
+            String group = widgetId.substring("providers.outer_layer.".length());
+            if (!List.of("head", "body", "legs").contains(group) || !showOuterLayers() || context.busy()) return true;
+            context.outerLayerVisibilityController().ifPresent(controller -> {
+                controller.applyDurable(EditorOuterLayerCycle.cycle(group, controller.current(), reverse ? -1 : 1));
+                if (origin.keyboard()) context.requestRuntimeFocus("providers", widgetId);
+                context.publish();
+            });
+            return true;
+        }
         if (widgetId.equals("gallery.providers") || widgetId.startsWith("providers.")) {
             dispatchProviderWidget(widgetId, origin);
             return true;
@@ -475,14 +486,17 @@ final class ProviderFlow {
 
     ViewSpec presentProvider(int width, int height) {
             if (state.providerAdding) return context.withRuntimeFocus(new ProvidersPresenter().presentChooser(
-                    context.providers(), state.providerComponent, context.busy(), width, height, state.providerChooserOffset));
+                    context.providers(), state.providerComponent, context.busy(), width, height,
+                    state.providerChooserOffset, context.snapshot().skinExtensionEnvironment().cpmPresent()));
             ViewSpec providerView = new ProvidersPresenter().present(context.providers(), state.providerComponent,
                     state.providerAdding, context.busy(), state.providerPreview.withOuterLayerVisibility(
                     context.outerLayerVisibilityController().map(OuterLayerVisibilityController::current).orElse(OuterLayerVisibility.allVisible())),
-                    context.currentPlayerVariant(), width, height, state.providerPreviewSources.get(AppearanceProviders.Component.SKIN),
-                    state.providerPreviewSources.get(AppearanceProviders.Component.CAPE), context.snapshot().rateLimitProgress(),
+                    context.currentPlayerVariant(), width, height, normalizedSelection(AppearanceProviders.Component.SKIN),
+                    normalizedSelection(AppearanceProviders.Component.CAPE), context.snapshot().rateLimitProgress(),
                     optiFineAccountLink != null && optiFineAccountLink.preparing(), optiFineLinkFeedback,
-                    state.providerRowsOffset, context.textResolver(), context.snapshot().capeProviderCooldowns());
+                    state.providerRowsOffset, context.textResolver(), context.snapshot().capeProviderCooldowns(),
+                    context.outerLayerVisibilityController().isPresent(), refreshPending(),
+                    context.snapshot().skinExtensionEnvironment().cpmPresent(), showOuterLayers());
             SkinFeatureEvidence evidence = Optional.of(providerView.previews().get(0).imageRevision()).filter(revision -> revision.startsWith("provider:skin:")).flatMap(revision -> context.snapshot().account().flatMap(account ->
                     account.skinAssets().stream().filter(asset -> asset.sha256().equals(revision.substring(14))).findFirst()))
                     .map(asset -> context.snapshot().assetEvidence().getOrDefault(asset.id(), SkinFeatureEvidence.ORDINARY)).orElse(SkinFeatureEvidence.ORDINARY);
@@ -491,7 +505,22 @@ final class ProviderFlow {
                 providerView = providerView.withCompatibilityIndicator("providers.compatibility", new Bounds(2, Math.max(35, height - 55), 20, 20),
                         CompatibilityMessages.accessibleLabel(compatibility), CompatibilityMessages.icon(compatibility), Optional.empty());
             }
-            return context.withRuntimeFocus(providerView);
+            providerView = AccessoryInspection.present(providerView, state.accessories, nativePreview(),
+                    context.account() != null && CapeProjection.cpmWins(context.account().accountId()), state.providerPreview.capeMode(), context.busy());
+            if (context.snapshot().skinExtensionEnvironment().cpmPresent()
+                    && evidence.supportedFeatures().contains(com.naocraftlab.skins.core.compatibility.SkinFeature.CUSTOMIZABLE_PLAYER_MODELS)
+                    && state.accessories.scope() != null
+                    && state.accessories.availability() == com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED) {
+                providerView = PlayerAppearanceStage.withError(providerView,
+                        UiMessage.error("nclskins.editor.cpm_preview_failed"), context.textResolver());
+            }
+            ViewSpec focused = context.withRuntimeFocus(providerView);
+            if (focused.focusRequest().filter(request -> request.widgetId().startsWith("providers.outer_layer.")
+                    && focused.widget(request.widgetId()).isEmpty()).isPresent()) {
+                context.requestRuntimeFocus("providers", "providers.tab." + state.providerComponent.name());
+                return context.withRuntimeFocus(providerView);
+            }
+            return focused;
             }
 
     void acceptPreviewMode(PreviewRenderer.CapeMode mode) {
@@ -553,6 +582,11 @@ final class ProviderFlow {
 
     PreviewInteractionModel providerPreview() { return state.providerPreview; }
 
+    java.util.Optional<BuiltinProvider> inspectedCapeSource() {
+        return java.util.Optional.ofNullable(
+                state.providerPreviewSources.get(AppearanceProviders.Component.CAPE));
+    }
+
     void releaseScrollbar() { draggingProviderRowsScrollbar = false; }
 
     void grabScrollbar(ViewSpec.Scrollbar scrollbar, double mouseX, double mouseY) {
@@ -578,15 +612,30 @@ final class ProviderFlow {
 
     boolean draggingProviderRowsScrollbar() { return draggingProviderRowsScrollbar; }
 
+    boolean refreshPending() {
+        if (context.initialProviderRefreshPending()) return true;
+        if (context.account() == null) return false;
+        var component = state.providerComponent;
+        var selected = normalizedSelection(component);
+        var request = selected == null ? ProviderRefreshRequest.all(component)
+                : ProviderRefreshRequest.one(component, selected);
+        return context.providerRefresh().refreshing(request, context.providers());
+    }
+
     interface Context {
         AccountState account();
         ClientSnapshot.Lifecycle lifecycle();
         boolean providersOpen();
+        boolean providerScreenVisible();
+        com.naocraftlab.skins.client.PreviewRenderer.DisplayKind currentDisplayKind();
         AppearanceProviders providers();
         PresetEditorModel editor();
         AccountUiPreferences uiPreferences();
         UiPreferencesPort uiPreferencesPort();
         ProviderOperations providerOperations();
+        ProviderRefreshUseCases providerRefresh();
+        boolean initialProviderRefreshPending();
+        void submitProviderRefresh(UiMessage progress, java.util.function.Supplier<CompletableFuture<ProviderRefreshResult>> operation);
         ClientSessionView clientSessionView();
         int viewportHeight();
         int viewportWidth();
@@ -643,6 +692,8 @@ final class ProviderFlow {
     }
 
     private static final class State {
+        com.naocraftlab.skins.client.PreviewAccessories accessories =
+                com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING);
         final java.util.EnumMap<AppearanceProviders.Component, BuiltinProvider> providerPreviewSources = new java.util.EnumMap<>(AppearanceProviders.Component.class);
         boolean providerAdding;
         double providerChooserOffset;

@@ -26,6 +26,35 @@ import java.util.Set;
 
 
 public final class AddSourceModel {
+    public enum Purpose { CREATE_PRESET, CPM_BASE }
+    public enum SourceAction { CATALOG, PNG, URL, PLAYER, LAUNCHER, MOD }
+
+    public record DependencyPrompt(long revision) { }
+
+    public record ImportContext(Optional<SkinModel> requiredVariant,
+            Optional<com.naocraftlab.skins.client.CpmModelFileConversion.Reason> failure, Purpose purpose,
+            Optional<DependencyPrompt> dependency) {
+        public ImportContext(Optional<SkinModel> requiredVariant,
+                Optional<com.naocraftlab.skins.client.CpmModelFileConversion.Reason> failure, Purpose purpose) {
+            this(requiredVariant, failure, purpose, Optional.empty());
+        }
+        public ImportContext(Optional<SkinModel> requiredVariant,
+                Optional<com.naocraftlab.skins.client.CpmModelFileConversion.Reason> failure) {
+            this(requiredVariant, failure, requiredVariant.isPresent() ? Purpose.CPM_BASE : Purpose.CREATE_PRESET);
+        }
+        public ImportContext {
+            Objects.requireNonNull(requiredVariant, "requiredVariant");
+            Objects.requireNonNull(failure, "failure");
+            Objects.requireNonNull(purpose, "purpose");
+            Objects.requireNonNull(dependency, "dependency");
+        }
+        public boolean filterLocked() { return requiredVariant.isPresent(); }
+        public boolean canCancelPending() { return dependency.isPresent() || purpose() != Purpose.CREATE_PRESET; }
+        public boolean allows(SourceAction action) {
+            return dependency.isEmpty() && (purpose() == Purpose.CREATE_PRESET || action != SourceAction.LAUNCHER && action != SourceAction.MOD);
+        }
+    }
+
     public enum CatalogFilter {
         ALL,
         CLASSIC,
@@ -64,6 +93,7 @@ public final class AddSourceModel {
     private final SkinExtensionEnvironment skinExtensionEnvironment;
     private final Map<String, SkinFeatureEvidence> compatibilityEvidence;
     private final boolean hideIncompatibleCatalogSkins;
+    private final ImportContext importContext;
 
     private AddSourceModel(
             AddSourceTab selectedTab,
@@ -81,7 +111,9 @@ public final class AddSourceModel {
             TextResolver textResolver,
             SkinExtensionEnvironment skinExtensionEnvironment,
             Map<String, SkinFeatureEvidence> compatibilityEvidence,
-            boolean hideIncompatibleCatalogSkins) {
+            boolean hideIncompatibleCatalogSkins,
+            ImportContext importContext) {
+        this.importContext = Objects.requireNonNull(importContext, "importContext");
         this.selectedTab = Objects.requireNonNull(selectedTab, "selectedTab");
         this.collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
         this.collapsedCollectionIds = Set.copyOf(
@@ -89,8 +121,10 @@ public final class AddSourceModel {
         this.query = Objects.requireNonNull(query, "query");
         this.playerInput = Objects.requireNonNull(playerInput, "playerInput");
         this.urlInput = Objects.requireNonNull(urlInput, "urlInput");
-        this.filter = Objects.requireNonNull(filter, "filter");
-        this.preferredVariant = Objects.requireNonNull(preferredVariant, "preferredVariant");
+        this.filter = importContext.requiredVariant().map(value -> CatalogFilter.valueOf(value.name()))
+                .orElse(Objects.requireNonNull(filter, "filter"));
+        this.preferredVariant = importContext.requiredVariant().map(value -> SkinVariant.valueOf(value.name()))
+                .orElse(Objects.requireNonNull(preferredVariant, "preferredVariant"));
         if (scrollOffset < 0 || focusToken < 0) {
             throw new IllegalArgumentException("scroll offset and focus token must not be negative");
         }
@@ -161,7 +195,28 @@ public final class AddSourceModel {
                 textResolver,
                 SkinExtensionEnvironment.unknown(0),
                 Map.of(),
-                false);
+                false, new ImportContext(Optional.empty(), Optional.empty()));
+    }
+
+    public ImportContext importContext() { return importContext; }
+
+    UiMessage urlHint() {
+        return UiMessage.info(importContext.purpose() == Purpose.CREATE_PRESET && skinExtensionEnvironment.cpmPresent()
+                ? "nclskins.add_source.url_cpm_hint" : "nclskins.add_source.url_hint");
+    }
+
+    AddSourceModel withImportContext(ImportContext value) {
+        return new AddSourceModel(selectedTab, collections, collapsedCollectionIds, query,
+                playerInput, urlInput, filter, preferredVariant, scrollOffset, focusToken, focusWidgetId,
+                personalSkinDeletion, textResolver, skinExtensionEnvironment, compatibilityEvidence,
+                hideIncompatibleCatalogSkins, value);
+    }
+
+    AddSourceModel refreshed(AddSourceModel value) {
+        return new AddSourceModel(selectedTab, value.collections, collapsedCollectionIds, query,
+                playerInput, urlInput, filter, preferredVariant, scrollOffset, focusToken, focusWidgetId,
+                personalSkinDeletion, textResolver, value.skinExtensionEnvironment, value.compatibilityEvidence,
+                value.hideIncompatibleCatalogSkins, importContext);
     }
 
     public AddSourceTab selectedTab() {
@@ -447,7 +502,7 @@ public final class AddSourceModel {
                 textResolver,
                 skinExtensionEnvironment,
                 compatibilityEvidence,
-                hideIncompatibleCatalogSkins);
+                hideIncompatibleCatalogSkins, importContext);
     }
 
     public AddSourceModel cancelPersonalSkinDeletion() {
@@ -475,7 +530,7 @@ public final class AddSourceModel {
                 textResolver,
                 skinExtensionEnvironment,
                 compatibilityEvidence,
-                hideIncompatibleCatalogSkins);
+                hideIncompatibleCatalogSkins, importContext);
     }
 
     public AddSourceModel removeConfirmedPersonalSkin() {
@@ -566,7 +621,7 @@ public final class AddSourceModel {
                 textResolver,
                 skinExtensionEnvironment,
                 compatibilityEvidence,
-                hideIncompatibleCatalogSkins);
+                hideIncompatibleCatalogSkins, importContext);
     }
 
     public List<SkinCatalogSource.SkinDescriptor> visibleSkins(
@@ -622,7 +677,7 @@ public final class AddSourceModel {
                 textResolver,
                 environment,
                 evidence,
-                hideIncompatible);
+                hideIncompatible, importContext);
     }
 
     public SkinCompatibility compatibility(
@@ -657,6 +712,17 @@ public final class AddSourceModel {
                 skin.descriptionText(),
                 skin.authorsText(),
                 models));
+    }
+
+    UiMessage countQuotaMessage() {
+        String editor = textResolver.resolve(CatalogText.translated("button.cpm.open_editor", ""));
+        String edit = textResolver.resolve(CatalogText.translated("button.cpm.edit", ""));
+        String pastes = textResolver.resolve(CatalogText.translated("button.cpm.edit.pastes", ""));
+        if (editor.isBlank() || edit.isBlank() || pastes.isBlank()
+                || editor.equals("button.cpm.open_editor") || edit.equals("button.cpm.edit")
+                || pastes.equals("button.cpm.edit.pastes"))
+            return UiMessage.error("nclskins.add.cpm_publication_count_quota_unavailable");
+        return UiMessage.error("nclskins.add.cpm_publication_count_quota", editor, edit, pastes);
     }
 
     public String collectionName(SkinCatalogSource.CollectionDescriptor collection) {
@@ -716,7 +782,7 @@ public final class AddSourceModel {
                 selectedTab, renamed, collapsedCollectionIds, query, playerInput, urlInput,
                 filter, preferredVariant, scrollOffset, focusToken, focusWidgetId,
                 personalSkinDeletion, textResolver, skinExtensionEnvironment,
-                compatibilityEvidence, hideIncompatibleCatalogSkins);
+                compatibilityEvidence, hideIncompatibleCatalogSkins, importContext);
     }
 
     static String personalActionId(String prefix, String collectionId, String sha256) {
@@ -814,7 +880,7 @@ public final class AddSourceModel {
                 textResolver,
                 skinExtensionEnvironment,
                 compatibilityEvidence,
-                hideIncompatibleCatalogSkins);
+                hideIncompatibleCatalogSkins, importContext);
     }
 
     private static Comparator<SkinCatalogSource.CollectionDescriptor> collectionComparator(

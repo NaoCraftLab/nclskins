@@ -175,12 +175,16 @@ public final class QuickSkinImportAdapter implements ExternalImportAdapter {
 
     private static Optional<String> rawSha1(Path path) {
         try (InputStream input = Files.newInputStream(path)) {
-            byte[] bytes = input.readNBytes(PngValidator.DEFAULT_MAX_BYTES + 1);
-            if (bytes.length > PngValidator.DEFAULT_MAX_BYTES) {
-                return Optional.empty();
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            byte[] buffer = new byte[8192];
+            long total = 0;
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (count > PngValidator.DEFAULT_MAX_BYTES - total) return Optional.empty();
+                total += count;
+                digest.update(buffer, 0, count);
             }
-            return Optional.of(HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-1").digest(bytes)));
+            return Optional.of(HexFormat.of().formatHex(digest.digest()));
         } catch (IOException | NoSuchAlgorithmException failure) {
             return Optional.empty();
         }

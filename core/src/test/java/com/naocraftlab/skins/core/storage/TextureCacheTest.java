@@ -48,6 +48,62 @@ class TextureCacheTest {
     Path temporaryDirectory;
 
     @Test
+    void largeEncodedCapeCacheFallbackPreservesRectangleAndPixels() throws Exception {
+        TextureCache cache = cache(new FakeHttpClient(200, SOURCE, new byte[0]), TextureCache.DEFAULT_MAX_BYTES);
+        Path path = cache.cachePath(SOURCE);
+        Files.createDirectories(path.getParent());
+        byte[] raw = new byte[32 * (1 + 64 * 4)];
+        byte[] emptyBlocks = new byte[8190];
+        for (int offset = 0; offset < emptyBlocks.length; offset += 5) {
+            emptyBlocks[offset + 3] = (byte) 255;
+            emptyBlocks[offset + 4] = (byte) 255;
+        }
+        int blocks = 14_000_000;
+        int idatLength = 2 + blocks * 5 + 5 + raw.length + 4;
+        var adler = new java.util.zip.Adler32(); adler.update(raw);
+        try (var output = new java.io.DataOutputStream(new java.io.BufferedOutputStream(Files.newOutputStream(path)))) {
+            output.write(new byte[]{(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
+            output.write(pngChunk("IHDR", java.nio.ByteBuffer.allocate(13).putInt(64).putInt(32)
+                    .put((byte) 8).put((byte) 6).put((byte) 0).put((byte) 0).put((byte) 0).array()));
+            output.writeInt(idatLength);
+            byte[] type = "IDAT".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+            output.write(type);
+            java.util.zip.CRC32 crc = new java.util.zip.CRC32(); crc.update(type);
+            byte[] zlibHeader = {(byte) 0x78, 1}; output.write(zlibHeader); crc.update(zlibHeader);
+            int remaining = blocks * 5;
+            while (remaining > 0) {
+                int count = Math.min(remaining, emptyBlocks.length);
+                output.write(emptyBlocks, 0, count); crc.update(emptyBlocks, 0, count); remaining -= count;
+            }
+            byte[] finalHeader = {1, (byte) raw.length, (byte) (raw.length >>> 8),
+                    (byte) ~raw.length, (byte) (~raw.length >>> 8)};
+            output.write(finalHeader); crc.update(finalHeader);
+            output.write(raw); crc.update(raw);
+            byte[] checksum = java.nio.ByteBuffer.allocate(4).putInt((int) adler.getValue()).array();
+            output.write(checksum); crc.update(checksum);
+            output.writeInt((int) crc.getValue());
+            output.write(pngChunk("IEND", new byte[0]));
+        }
+        assertTrue(Files.size(path) > 65 * 1024 * 1024);
+        byte[] restored = cache.readIfCached(SOURCE).orElseThrow();
+        var image = javax.imageio.ImageIO.read(new ByteArrayInputStream(restored));
+        assertEquals(64, image.getWidth());
+        assertEquals(32, image.getHeight());
+        assertEquals(0, image.getRGB(20, 20));
+        assertTrue(restored.length < 1024);
+    }
+
+    private static byte[] pngChunk(String name, byte[] data) throws IOException {
+        var bytes = new java.io.ByteArrayOutputStream();
+        var output = new java.io.DataOutputStream(bytes);
+        byte[] type = name.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        output.writeInt(data.length); output.write(type); output.write(data);
+        var crc = new java.util.zip.CRC32(); crc.update(type); crc.update(data);
+        output.writeInt((int) crc.getValue());
+        return bytes.toByteArray();
+    }
+
+    @Test
     void rejectsHostBeforeAnyNetworkRequest() throws Exception {
         FakeHttpClient http = new FakeHttpClient(200, SOURCE, TestPng.create(64, 64));
         TextureCache cache = cache(http, TextureCache.DEFAULT_MAX_BYTES);
@@ -143,14 +199,29 @@ class TextureCacheTest {
         try (var file = new java.io.RandomAccessFile(path.toFile(), "rw")) {
             file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
         }
-        assertEquals(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES,
-                cache.readIfCached(SOURCE).orElseThrow().length);
+        assertEquals(TextureCacheException.Code.INVALID_TEXTURE,
+                assertThrows(TextureCacheException.class, () -> cache.readIfCachedPath(SOURCE)).code());
         try (var file = new java.io.RandomAccessFile(path.toFile(), "rw")) {
             file.setLength(EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1L);
         }
         assertEquals(TextureCacheException.Code.OVERSIZED,
                 assertThrows(TextureCacheException.class,
-                        () -> cache.readIfCached(SOURCE)).code());
+                        () -> cache.readIfCachedPath(SOURCE)).code());
+    }
+
+    @Test
+    void pathLookupsValidateCacheWithoutChangingEncodedIdentity() throws Exception {
+        byte[] source = TestPng.create(64, 64);
+        TextureCache cache = cache(new FakeHttpClient(200, SOURCE, source), TextureCache.DEFAULT_MAX_BYTES);
+        CachedTexture cached = cache.get(SOURCE);
+        assertEquals(cached.path(), cache.readPath(cached));
+        assertEquals(cached.path(), cache.readIfCachedPath(SOURCE).orElseThrow());
+        assertEquals(cached.path(), cache.readIfCachedPath(TextureCache.cacheKey(SOURCE)).orElseThrow());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(source, Files.readAllBytes(cached.path()));
+        byte[] corrupt = source.clone(); corrupt[corrupt.length - 5] ^= 1;
+        Files.write(cached.path(), corrupt);
+        assertEquals(TextureCacheException.Code.INVALID_TEXTURE,
+                assertThrows(TextureCacheException.class, () -> cache.readIfCachedPath(SOURCE)).code());
     }
 
     @Test

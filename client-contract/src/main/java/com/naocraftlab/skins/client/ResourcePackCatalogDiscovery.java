@@ -109,6 +109,7 @@ public final class ResourcePackCatalogDiscovery {
         if (path.endsWith(".png")) return ".png";
         if (path.endsWith(".jpg")) return ".jpg";
         if (path.endsWith(".jpeg")) return ".jpeg";
+        if (path.endsWith(".gif")) return ".gif";
         return null;
     }
 

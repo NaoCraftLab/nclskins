@@ -40,6 +40,9 @@ final class EditorFlow {
     private final State state = new State();
     private final Context context;
     private long editorCatalogGeneration;
+    private long draftTicket;
+    private long draftRevision;
+    private PreviewAssets.SneakyLease sneakyLease;
     private BuiltinProvider pendingCapeProviderInspection;
     private CompletableFuture<Void> capeDisclosureWrite = CompletableFuture.completedFuture(null);
     private long capeDisclosureSequence;
@@ -57,7 +60,19 @@ final class EditorFlow {
         return editorEvidenceStillCurrent(preview.imageRevision(), preview.variant());
     }
 
+    boolean acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories value) {
+        if (state.editor == null || state.editor.capeCatalog() == null
+                || state.editor.capeCatalog().accessories().equals(value)) return false;
+        state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withAccessories(value));
+        return true;
+    }
+
+    private boolean showOuterLayers() {
+        return context.currentDisplayKind() == PreviewRenderer.DisplayKind.ORDINARY;
+    }
+
     void cycleEditorOuterLayer(String action, boolean reverse) {
+        if (!showOuterLayers()) return;
         switch (action) {
             case "head", "body", "legs" -> updateEditor(
                     editor -> editor.cycleOuterLayer(action, reverse ? -1 : 1));
@@ -68,7 +83,7 @@ final class EditorFlow {
     }
 
     void selectEditorTab(EditorTab tab) {
-        if (state.editor == null || state.editor.busy()) {
+        if (editor() == null || state.editor.busy()) {
             return;
         }
         pendingCapeProviderInspection = null;
@@ -235,12 +250,13 @@ final class EditorFlow {
         if (state.editor == null || context.account() == null) return;
         UUID accountId = context.account().accountId();
         long generation = ++editorCatalogGeneration;
-        ScreenOperationTicket ticket = context.captureScreenOperation();
+        long resourceGeneration = context.catalogRead().capeCatalogGeneration();
         CompletableFuture.supplyAsync(() -> {
             try { return context.catalogRead().loadCapeEditorData(accountId); }
             catch (Exception failure) { throw new CompletionException(failure); }
         }, context.worker()).whenComplete((data, failure) -> context.onClient(() -> {
-            if (!context.current(ticket) || generation != editorCatalogGeneration || state.editor == null
+            if (context.disposed() || generation != editorCatalogGeneration || state.editor == null
+                    || resourceGeneration != context.catalogRead().capeCatalogGeneration()
                     || !accountId.equals(context.account().accountId())) return;
             if (failure != null) { context.diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure); return; }
             var previous = state.editor.capeCatalog();
@@ -253,10 +269,12 @@ final class EditorFlow {
             var fresh = CapeCatalogModel.open(context.account(), context.providers(), local,
                     previous.minecraft(), state.editor.capeChoices(), data.resourceCollections(),
                     data.sourceHashes(), data.resourceGeneration(), context.textResolver());
-            var inspection = previous.inspected() == null ? fresh.inspected() : fresh.cards().stream()
+            var inspection = previous.inspected() == null ? fresh.inspected() : previous.inspected().embedded() ? previous.inspected() : fresh.cards().stream()
                     .filter(card -> card.widgetId().equals(previous.inspected().widgetId())).findFirst().orElse(null);
             state.editor = state.editor.withCapeCatalog(new CapeCatalogModel(fresh.cards(), fresh.providers(), fresh.offline(), previous.minecraft(),
-                    previous.query(), previous.filter(), previous.collapsed(), inspection, previous.editing(), previous.deleting(), previous.renameValue(), previous.importError(), context.textResolver()));
+                    previous.query(), previous.filter(), previous.collapsed(), inspection, previous.editing(), previous.deleting(), previous.renameValue(), previous.importError(), context.textResolver(),
+                    previous.accessories(), previous.sneaky(), previous.sneakyTicket(), previous.sneakyReadiness())
+                    .withAccessories(previous.accessories()).withSneakyState(previous.sneaky(), previous.sneakyTicket(), previous.sneakyReadiness()));
             if (pendingCapeProviderInspection != null) {
                 state.editor = state.editor.withCapeCatalog(
                         state.editor.capeCatalog().inspect(pendingCapeProviderInspection, context.account()));
@@ -272,6 +290,15 @@ final class EditorFlow {
         }));
     }
 
+    void providersChanged(AppearanceProviders previous) {
+        if (state.editor == null || state.editor.capeCatalog() == null) return;
+        var catalog = state.editor.capeCatalog();
+        refreshCapeCatalog(catalog.offline(), catalog.minecraft());
+        if (previous.cape().enabled(BuiltinProvider.SNEAKY) != context.providers().cape().enabled(BuiltinProvider.SNEAKY)) {
+            prepareSneaky(state.editor);
+        }
+    }
+
     void refreshCapeCatalog(com.naocraftlab.skins.core.model.LocalCapeReference local, Optional<String> owned) {
         if (state.editor == null) return;
         var previous = state.editor.capeCatalog();
@@ -281,7 +308,7 @@ final class EditorFlow {
     }
 
     void chooseCapePng() {
-        if (state.editor == null || state.editor.busy()) return;
+        if (editor() == null || state.editor.busy()) return;
         UUID accountId = context.account().accountId();
         String fallbackName = context.textResolver().resolve(UiMessage.info("options.modelPart.cape"));
         ScreenOperationTicket ticket = context.beginScreenOperation();
@@ -346,9 +373,7 @@ final class EditorFlow {
     }
 
     void chooseEditorPng() {
-        if (state.editor == null || state.editor.busy()) {
-            return;
-        }
+        if (editor() == null || state.editor.busy()) return;
         ScreenOperationTicket ticket = context.beginScreenOperation();
         state.editor = state.editor.withBusy(UiMessage.info("nclskins.status.choose_png"));
         context.publish();
@@ -381,10 +406,12 @@ final class EditorFlow {
                                 context.diagnose(DiagnosticEvent.CLIENT_IMPORT_FAILED, pngFailure);
                                 state.editor = state.editor.withStatus(context.fileImportFailure(pngFailure));
                             } else {
-                                state.editor = state.editor.withImportedPng(
+                                draftRevision++;
+                                state.editor = state.editor.withoutStatus().withImportedPng(
                                         path.getFileName().toString(),
                                         skin.pngBytes(),
                                         skin.detectedVariant());
+                                context.editorPngReplaced();
                                 prepareEditorEvidence(state.editor);
                                 context.rememberPreferredSkinVariant(skin.detectedVariant());
                             }
@@ -407,16 +434,21 @@ final class EditorFlow {
     }
 
     void saveEditor() {
-        if (state.editor == null || state.editor.busy() || state.editor.name().trim().isEmpty()) {
+        if (editor() == null || state.editor.busy() || state.editor.name().trim().isEmpty()) {
             return;
         }
         PresetEditorModel draft = state.editor;
-        UUID editorAccountId = context.account().accountId();
+        Optional<LibraryEditorPort.EditorSaveScope> saveScope = state.saveScope;
+        UUID editorAccountId = saveScope.map(LibraryEditorPort.EditorSaveScope::initiatingAccountId)
+                .orElseGet(() -> context.account().accountId());
         PersonalSkinSource personalSource = state.editorPersonalSource;
         state.editor = draft.withBusy(UiMessage.info("nclskins.status.saving"));
         context.submit(
                 UiMessage.info("nclskins.status.saving"),
                 () -> {
+                    if (saveScope.isPresent() && !saveScope.orElseThrow().stillCurrent().getAsBoolean()) {
+                        throw new java.io.IOException("Editor account retired");
+                    }
                     LibraryEditorPort.EditorSaveRequest request = draft.saveRequest();
                     com.naocraftlab.skins.core.model.LocalCapeReference offlineCape =
                             request.offlineCape();
@@ -432,10 +464,14 @@ final class EditorFlow {
                             request.originalPresetId(), request.name(), request.skin(),
                             request.initialVariant(), request.variant(), request.capeId(),
                             request.outerLayerVisibility(), request.pngBytes(), request.catalogOrigin(), request.personalSkinName(),
-                            personalSource).withOfflineCape(offlineCape).withFrozenCatalogSelection(request.frozenCatalogSelection()));
+                            personalSource).withSaveScope(saveScope).withOfflineCape(offlineCape).withFrozenCatalogSelection(request.frozenCatalogSelection())
+                            .withExactCarrierReuse(request.exactCarrierReuse()));
                 },
                 saved -> {
+                    if (retireStaleSave(saveScope)) return;
+                    retireSaveScope();
                     state.editor = null;
+                    retireSneaky();
                     state.editorEvidence = null;
                     state.editorPersonalSource = PersonalSkinSource.FILE;
                     state.pendingPresetName = null;
@@ -443,6 +479,7 @@ final class EditorFlow {
                             draft.capeCatalog() != null && draft.capeCatalog().offline() != null));
                 },
                 failure -> {
+                    if (retireStaleSave(saveScope)) return;
                     if (state.editor != null) {
                         UiMessage saveFailure = UiMessage.error("nclskins.error.save");
                         state.editor = state.editor.withStatus(saveFailure);
@@ -451,9 +488,18 @@ final class EditorFlow {
                 });
     }
 
+    private boolean retireStaleSave(Optional<LibraryEditorPort.EditorSaveScope> scope) {
+        if (scope.isEmpty() || scope.orElseThrow().stillCurrent().getAsBoolean()) return false;
+        closeDraft();
+        context.editorSaveRetired();
+        return true;
+    }
+
     void cancelEditor() {
-        if (state.editor != null && !state.editor.busy()) {
+        if (editor() != null && !state.editor.busy()) {
+            retireSaveScope();
             state.editor = null;
+            retireSneaky();
             state.editorEvidence = null;
             context.returnFromEditor();
             resetEditorScroll();
@@ -623,7 +669,7 @@ final class EditorFlow {
     }
 
     void updateEditor(java.util.function.UnaryOperator<PresetEditorModel> update) {
-        if (state.editor == null) {
+        if (editor() == null) {
             return;
         }
         state.editor = Objects.requireNonNull(update.apply(state.editor), "editor update");
@@ -631,12 +677,13 @@ final class EditorFlow {
     }
 
     void selectEditorVariant(SkinVariant variant) {
-        if (state.editor == null || state.editor.selectedEditorTab() != EditorTab.APPEARANCE) {
+        if (editor() == null || state.editor.selectedEditorTab() != EditorTab.APPEARANCE) {
             return;
         }
         SkinVariant before = state.editor.variant();
         state.editor = state.editor.selectVariant(variant);
         if (state.editor.variant() != before) {
+            draftRevision++;
             prepareEditorEvidence(state.editor);
             context.rememberPreferredSkinVariant(state.editor.variant());
         }
@@ -645,6 +692,7 @@ final class EditorFlow {
 
     void prepareEditorEvidence(PresetEditorModel editor) {
         Objects.requireNonNull(editor, "editor");
+        prepareSneaky(editor);
         state.editorEvidence = null;
         Optional<UUID> assetId = editor.skin().optionalAssetId();
         if (editor.png().isPresent()) {
@@ -696,6 +744,73 @@ final class EditorFlow {
                 && editor.variant() == variant;
     }
 
+    private void prepareSneaky(PresetEditorModel editor) {
+        long ticket = ++draftTicket;
+        if (state.editor != null && state.editor.capeCatalog() != null) {
+            state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withSneaky(null, ticket));
+        }
+        if (sneakyLease != null) sneakyLease.close();
+        sneakyLease = null;
+        if (!context.providers().cape().enabled(BuiltinProvider.SNEAKY)) return;
+        state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withSneakyState(null, ticket,
+                CapeCatalogModel.SneakyReadiness.PENDING));
+        UUID account = context.account().accountId();
+        String revision = editorEvidenceRevision(editor);
+        SkinVariant variant = editor.variant();
+        CompletableFuture<Optional<byte[]>> source = editor.png().isPresent()
+                ? CompletableFuture.completedFuture(Optional.of(editor.png().orElseThrow().bytes()))
+                : context.loadSkinPreview(editor.skin());
+        source.whenComplete((bytes, failure) -> context.onClient(() -> {
+            if (!sneakyCurrent(ticket, account, revision, variant)) return;
+            if (failure != null || bytes == null || bytes.isEmpty()) {
+                acceptSneaky(PreviewAssets.SneakyResult.failure());
+                context.publish();
+                return;
+            }
+            sneakyLease = context.previewAssets().prepareSneaky(bytes.orElseThrow());
+            sneakyLease.result().whenComplete((result, preparationFailure) -> context.onClient(() -> {
+                if (!sneakyCurrent(ticket, account, revision, variant)) return;
+                acceptSneaky(preparationFailure == null ? result : PreviewAssets.SneakyResult.failure());
+                context.publish();
+            }));
+        }));
+    }
+
+    private void retireSneaky() {
+        ++draftTicket;
+        if (state.editor != null && state.editor.capeCatalog() != null) {
+            state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withSneaky(null, draftTicket));
+        }
+        if (sneakyLease != null) sneakyLease.close();
+        sneakyLease = null;
+    }
+
+    void invalidateSneaky() {
+        if (state.editor != null) prepareSneaky(state.editor);
+        else retireSneaky();
+    }
+
+    private boolean sneakyCurrent(long ticket, UUID account,
+            String revision, SkinVariant variant) {
+        return !context.disposed() && ticket == draftTicket
+                && context.account() != null && account.equals(context.account().accountId())
+                && editorEvidenceStillCurrent(revision, variant)
+                && context.providers().cape().enabled(BuiltinProvider.SNEAKY);
+    }
+
+    private void acceptSneaky(PreviewAssets.SneakyResult result) {
+        if (state.editor == null || state.editor.capeCatalog() == null || result == null) return;
+        state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withSneaky(result, draftTicket));
+    }
+
+    Optional<byte[]> sneakyPreview(String key) {
+        if (state.editor == null || state.editor.capeCatalog() == null) return Optional.empty();
+        PreviewAssets.SneakyResult value = state.editor.capeCatalog().sneaky();
+        return value != null && state.editor.capeCatalog().sneakyReadiness() == CapeCatalogModel.SneakyReadiness.VALUE
+                && key.equals("sneaky:preview:" + state.editor.capeCatalog().sneakyTicket() + ":" + value.identity())
+                ? Optional.of(value.atlas()) : Optional.empty();
+    }
+
     String editorEvidenceRevision(PresetEditorModel editor) {
         return editor.png()
                 .map(PresetEditorModel.DraftPng::revision)
@@ -705,9 +820,13 @@ final class EditorFlow {
     }
 
     boolean dispatchEditorAction(String widgetId, boolean reverse, InteractionOrigin origin) {
+
         if (widgetId.startsWith("editor.outer_layer.")) {
-            cycleEditorOuterLayer(
-                    widgetId.substring("editor.outer_layer.".length()), reverse);
+            String group = widgetId.substring("editor.outer_layer.".length());
+            if (state.editor == null || state.editor.busy() || !showOuterLayers()
+                    || !List.of("head", "body", "legs").contains(group)) return true;
+            context.retainKeyboardFocus(origin, "preset_editor", widgetId);
+            cycleEditorOuterLayer(group, reverse);
             return true;
         }
         if (state.editor != null && state.editor.capeCatalog() != null) {
@@ -724,6 +843,14 @@ final class EditorFlow {
             return true;
         }
         switch (widgetId) {
+            case "editor.cpm.fallback.choose" -> {
+
+                return true;
+            }
+            case "editor.png.choose" -> {
+                chooseEditorPng();
+                return true;
+            }
             case "editor.tab.appearance", "editor.tab.cape" -> {
                 selectEditorTab(widgetId.endsWith("appearance") ? EditorTab.APPEARANCE : EditorTab.CAPE);
                 context.retainKeyboardFocus(origin, "preset_editor", widgetId);
@@ -763,7 +890,7 @@ final class EditorFlow {
     ViewSpec presentEditor(int width, int height) {
         PresetEditorModel editor = state.editor;
             ViewSpec editorView = editor.present(
-                    width, height, editorCapeScrollPosition, editorModelScrollPosition, context.viewChromeMetrics());
+                    width, height, editorCapeScrollPosition, editorModelScrollPosition, context.viewChromeMetrics(), showOuterLayers());
             SkinFeatureEvidence evidence = state.editorEvidence;
             if (evidence != null) {
                 SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(
@@ -782,10 +909,50 @@ final class EditorFlow {
                             Optional.of("editor.outer_layer.legs"));
                 }
             }
-            return context.withRuntimeFocus(editorView);
+            if (editor.capeCatalog() != null) {
+                var catalog = editor.capeCatalog();
+                editorView = AccessoryInspection.present(editorView, catalog.accessories(), catalog.nativePreview(),
+                        catalog.nativeChain(), editor.preview().capeMode(), editor.busy());
+            }
+            if (bodyPreview != null && editorPreviewStillCurrent(bodyPreview)) {
+                UiMessage error = switch (bodyStatus) {
+                    case FAILED -> UiMessage.error("nclskins.editor.cpm_preview_failed");
+                    case BLOCKED -> UiMessage.error("nclskins.editor.cpm_preview_blocked");
+                    case TIMED_OUT -> UiMessage.error("nclskins.editor.cpm_preview_timeout");
+                    default -> null;
+                };
+                if (error != null) editorView = PlayerAppearanceStage.withError(editorView, error, context.textResolver());
+            }
+            ViewSpec focused = context.withRuntimeFocus(editorView);
+            if (focused.focusRequest().filter(request -> request.widgetId().startsWith("editor.outer_layer.")
+                    && focused.widget(request.widgetId()).isEmpty()).isPresent()) {
+                context.requestRuntimeFocus("preset_editor", editor.selectedEditorTab() == EditorTab.CAPE
+                        ? "editor.tab.cape" : "editor.tab.appearance");
+                return context.withRuntimeFocus(editorView);
+            }
+            return focused;
             }
 
+    private ViewSpec.Preview bodyPreview;
+    private PreviewRenderer.BodyStatus bodyStatus = PreviewRenderer.BodyStatus.ORDINARY;
+
+    boolean expectedCpmBody(ViewSpec.Preview preview) {
+        return state.editor != null && editorPreviewStillCurrent(preview) && state.editorEvidence != null
+                && state.editorEvidence.supportedFeatures().contains(com.naocraftlab.skins.core.compatibility.SkinFeature.CUSTOMIZABLE_PLAYER_MODELS);
+    }
+
+    boolean acceptBody(ViewSpec.Preview preview, PreviewRenderer.BodyStatus status) {
+        if (bodyPreview != null && editorPreviewStillCurrent(bodyPreview) && bodyStatus == status) return false;
+        bodyPreview = preview;
+        bodyStatus = status;
+        return true;
+    }
+
     void acceptDraft(EditorDraftTransfer transfer) {
+        editorCatalogGeneration++;
+        draftRevision++;
+        if (transfer.saveScope().isEmpty()) retireSaveScope();
+        state.saveScope = transfer.saveScope();
         state.editor = transfer.draft();
         initializeEditorCapeCatalog(transfer.capeSeed());
         prepareEditorEvidence(state.editor);
@@ -813,18 +980,30 @@ final class EditorFlow {
     }
 
     void resetSession() {
+        retireSaveScope();
         state.editor = null;
+        retireSneaky();
         state.editorPersonalSource = PersonalSkinSource.FILE;
         state.pendingPresetName = null;
         state.editorEvidence = null;
     }
 
     void closeDraft() {
+        retireSaveScope();
         state.editor = null;
+        retireSneaky();
         state.editorEvidence = null;
     }
 
+    private void retireSaveScope() {
+        editorCatalogGeneration++;
+        draftRevision++;
+        if (state.saveScope.isPresent()) context.retireEditorSaveScope();
+        state.saveScope = Optional.empty();
+    }
+
     void renameDraft(String value) {
+        if (editor() == null || state.editor.busy()) return;
         state.editor = state.editor.withName(value);
     }
 
@@ -868,6 +1047,13 @@ final class EditorFlow {
 
     PresetEditorModel editor() { return state.editor; }
 
+    boolean hasRetainedDraft() { return state.editor != null; }
+
+
+    long draftRevision() { return draftRevision; }
+
+    boolean hasSaveScope() { return state.saveScope.isPresent(); }
+
     String pendingPresetName() { return state.pendingPresetName; }
 
     void releaseScrollbar() { draggingEditorScrollbar = false; }
@@ -904,12 +1090,19 @@ final class EditorFlow {
     boolean draggingEditorScrollbar() { return draggingEditorScrollbar; }
 
     interface Context {
+
+        PreviewRenderer.DisplayKind currentDisplayKind();
+        void editorPngReplaced();
+        void retireEditorSaveScope();
+        void editorSaveRetired();
         AccountState account();
         AccountUiPreferences uiPreferences();
         UiPreferencesPort uiPreferencesPort();
         LibraryEditorPort libraryEditorPort();
         CatalogRead catalogRead();
         CatalogMaterialization catalogMaterialization();
+        PreviewAssets previewAssets();
+        com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment skinEnvironment();
         Executor worker();
         ClientExecutor clientExecutor();
         AppearanceProviders providers();
@@ -984,6 +1177,7 @@ final class EditorFlow {
     }
 
     private static final class State {
+        Optional<LibraryEditorPort.EditorSaveScope> saveScope = Optional.empty();
         PresetEditorModel editor;
         PersonalSkinSource editorPersonalSource = PersonalSkinSource.FILE;
         String pendingPresetName;

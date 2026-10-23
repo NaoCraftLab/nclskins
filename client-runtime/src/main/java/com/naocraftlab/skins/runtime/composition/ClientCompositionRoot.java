@@ -72,10 +72,16 @@ public final class ClientCompositionRoot {
             Worker capes = resources.worker(workers, "nclskins-public-cape");
             CapeProviderCoordinator coordinator = new CapeProviderCoordinator(capabilities.session(),
                     graph.appearances(), graph.assets(), graph.textures(), capabilities.appearanceInstall(),
-                    capabilities.clientExecutor(), capes.executor(), new OptifineCapeReader(),
-                    new SkinMcCapeReader(), graph.operations()::verifiedOfficialCapeUri);
+                    capabilities.clientExecutor(), capes.executor(),
+                    new OptifineCapeReader(dataRoot.resolve("cache").resolve("optifine-staging")),
+                    new SkinMcCapeReader(dataRoot.resolve("cache").resolve("skinmc-staging")),
+                    new MinecraftCapesCapeReader(dataRoot.resolve("cache")
+                            .resolve("minecraftcapes-staging")),
+                    graph.operations()::verifiedOfficialCapeUri);
             resources.add(coordinator::close);
             graph.operations().attachCapeProviders(coordinator, capes.ownedExecutor());
+            boolean cpmPresent = capabilities.skinExtensionEnvironment().snapshot().cpmPresent();
+            graph.operations().useCpmPresence(() -> cpmPresent);
             SignedProfileResolver<AcknowledgedAppearanceAssets> resolver =
                     new DeterministicAppearanceAssetResolver(capabilities.session(), storage,
                             graph.textureCache(), worker.executor());
@@ -92,11 +98,19 @@ public final class ClientCompositionRoot {
                     Optional.of(capabilities.modelParts()), Optional.of(capabilities.serverSignal()),
                     diagnostics);
             runtime.useOptiFineAccountLink(new OptiFineAccountLink(capabilities.session(), session.executor(), com.naocraftlab.skins.runtime.MojangSessionJoinTransport.create()));
+            runtime.useCpmModelPublication(cpmPublication(capabilities.session(),
+                    CpmPastePublicationAdapter.fixedExchange(new com.naocraftlab.skins.core.api.PublicHttpsImageFetcher(java.time.Duration.ofSeconds(5))),
+                    System::nanoTime));
             runtime.useConfigurationSource(configurationSource);
             runtime.useSkinExtensionEnvironmentSource(capabilities.skinExtensionEnvironment());
             resources.transfer();
             return runtime;
         }
+    }
+
+    public static CpmModelPublication cpmPublication(GameSessionTokenSource root,
+            CpmPastePublicationAdapter.Exchange exchange, java.util.function.LongSupplier time) {
+        return new CpmPastePublicationAdapter(root, exchange, MojangSessionJoinTransport.createProof(exchange), time);
     }
 
     public static OperationsGraph operations(GameSessionTokenSource tokens, ProfileApi api,
@@ -124,7 +138,8 @@ public final class ClientCompositionRoot {
                 Objects.requireNonNull(tokens.currentSession(), "current session").profileId();
         var preferences = new UiPreferencesStorageAdapter(storage, current);
         var accounts = new LibraryCatalogAdapter(library, assets, assets, current);
-        var prepared = new PreparedCatalogService(catalog, accounts);
+        var prepared = new PreparedCatalogService(catalog, accounts,
+                new com.naocraftlab.skins.runtime.FileCapeStaging());
         var imports = new PublicSkinImportService(players, new PublicSkinImageAdapter(textureCache),
                 prepared::loadCatalogSkin);
         var external = new ExternalAppearanceImportService(new ExternalImportSourceAdapter(imports, catalog),

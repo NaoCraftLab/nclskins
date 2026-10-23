@@ -6,6 +6,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.MinecraftProviderVisibility;
 import com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.OfficialCapeSource;
 import com.naocraftlab.skins.runtime.CapeProjection;
+import com.naocraftlab.skins.client.SkinModel;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.resources.DefaultPlayerSkin;
@@ -43,7 +44,7 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
         ResourceLocation cape = textureLocations.get(MinecraftProfileTexture.Type.CAPE);
         ResourceLocation elytra = textureLocations.get(MinecraftProfileTexture.Type.ELYTRA);
         return cape == null ? null : new CapeProjection.Candidate(cape.toString(),
-                elytra == null ? null : elytra.toString(), elytra != null);
+                (elytra == null ? cape : elytra).toString(), true);
     }
 
     private CapeProjection.Result nclskins$resolvedCape() {
@@ -73,8 +74,12 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
         GameProfile profile = ((PlayerInfo) (Object) this).getProfile();
         if (!nclskins$local()) CapeProjection.visibleSkin(profile.getId(), profile.getName(),
                 MinecraftProviderVisibility.current().skin() && original != null ? original.toString() : null);
-        if (nclskins$local() || MinecraftProviderVisibility.current().skin()) return original;
-        return DefaultPlayerSkin.getDefaultSkin(((PlayerInfo) (Object) this).getProfile().getId());
+        PlayerInfo info = (PlayerInfo) (Object) this;
+        ResourceLocation effective = nclskins$local() || MinecraftProviderVisibility.current().skin()
+                ? original : DefaultPlayerSkin.getDefaultSkin(profile.getId());
+        CapeProjection.effectiveSkin(profile.getId(), profile.getId(), effective.toString(),
+                "slim".equals(info.getModelName()) ? SkinModel.SLIM : SkinModel.CLASSIC, false);
+        return effective;
     }
 
     @WrapOperation(method = "getCapeLocation", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/multiplayer/PlayerInfo;registerTextures()V"), require = 1, expect = 1, allow = 1)

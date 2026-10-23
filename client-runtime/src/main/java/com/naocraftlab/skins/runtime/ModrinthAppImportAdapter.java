@@ -73,6 +73,7 @@ public final class ModrinthAppImportAdapter implements ExternalImportAdapter {
                 try (ResultSet result = statement.executeQuery()) {
                     int sourceOrder = 0;
                     while (result.next()) {
+                        ExternalImportSqlite.checkCancelled();
                         if (sourceOrder >= ExternalImportFiles.MAX_RECORDS) {
                             warnings.add("record_limit");
                             break;
@@ -82,6 +83,7 @@ public final class ModrinthAppImportAdapter implements ExternalImportAdapter {
                         try {
                             png = ExternalImportSqlite.readPngBlob(result, "texture");
                         } catch (IOException invalidBlob) {
+                            ExternalImportSqlite.checkCancelled();
                             warnings.add("invalid_skin_image");
                             continue;
                         }

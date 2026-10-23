@@ -9,6 +9,8 @@ import java.util.function.BiFunction;
 public interface AccountAppearanceStore extends MutationGuard {
     AccountAppearanceState loadAppearance(UUID accountId) throws IOException;
     AccountAppearanceState updateAppearance(UUID accountId, UnaryOperator<AccountAppearanceState> update) throws IOException;
+    AccountAppearanceState updateAppearance(UUID accountId, UnaryOperator<AccountAppearanceState> update,
+            java.util.function.BooleanSupplier current) throws IOException;
     AccountAppearanceState updateAppearanceIntent(UUID accountId, BiFunction<AccountAppearanceState, Long, AccountAppearanceState> update) throws IOException;
     AppearanceIntentUpdate updateAppearanceIntentIfCurrent(UUID accountId, long revision, AppearanceSyncStatus status, BiFunction<AccountAppearanceState, Long, AccountAppearanceState> update) throws IOException;
     ActivePresetAppearanceIntentUpdate updateAppearanceIntentIfPresetActive(UUID accountId, UUID presetId, LibraryStatePort.AppearanceIntentFromAccount update) throws IOException;

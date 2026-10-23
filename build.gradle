@@ -217,11 +217,47 @@ tasks.register('verifyOptifineCapeComposition', VerifyOptifineCapeCompositionTas
     outputs.upToDateWhen { false }
 }
 
+repositories.maven {
+    url = uri('https://api.modrinth.com/maven')
+    content { includeGroup 'maven.modrinth' }
+}
+def waveyCapesPublicArtifacts = targetCatalog.optionalDependencies.waveycapes.artifacts.collectEntries { id, pin ->
+    def configuration = configurations.create('waveyCapesPublicAbi_' + id) {
+        transitive = false
+        canBeConsumed = false
+    }
+    dependencies.add(configuration.name,
+            "maven.modrinth:${targetCatalog.optionalDependencies.waveycapes.projectId}:${pin.versionId}") {
+        transitive = false
+    }
+    [(id): configuration]
+}
+def waveyCapesArtifactNames = providers.provider {
+    waveyCapesPublicArtifacts.collectEntries { id, configuration ->
+        def resolved = configuration.resolvedConfiguration.resolvedArtifacts
+        def pin = targetCatalog.optionalDependencies.waveycapes.artifacts[id]
+        if (resolved.size() != 1 || resolved.first().moduleVersion.id.version != pin.versionId)
+            throw new GradleException('Resolved WaveyCapes artifact differs from the target pin: ' + id)
+        [(resolved.first().file.name): pin.file.toString()]
+    }
+}
+def collectWaveyCapesAbi = tasks.register('collectWaveyCapesAbi', Sync) {
+    from(waveyCapesPublicArtifacts.values())
+    into(layout.buildDirectory.dir('waveycapes-abi/public'))
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    eachFile { details -> details.path = waveyCapesArtifactNames.get()[details.name] }
+    inputs.property('pins', targetCatalog.optionalDependencies.waveycapes.artifacts)
+}
 tasks.register('verifyWaveyCapesAbi', VerifyWaveyCapesAbiTask) {
     group = 'verification'
-    description = 'Checks pinned public WaveyCapes artifacts and their cape texture ABI.'
+    description = 'Checks pinned public WaveyCapes pass, dispatch, wrapper and texture ABI.'
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    delegate.artifactsDirectory.set(layout.dir(providers.gradleProperty('waveyCapesArtifactsDir').map { file(it) }))
+    if (providers.gradleProperty('waveyCapesArtifactsDir').isPresent()) {
+        delegate.artifactsDirectory.set(layout.dir(providers.gradleProperty('waveyCapesArtifactsDir').map { file(it) }))
+    } else {
+        dependsOn collectWaveyCapesAbi
+        delegate.artifactsDirectory.set(layout.buildDirectory.dir('waveycapes-abi/public'))
+    }
 }
 
 tasks.register('buildServerPlugin') {
@@ -304,13 +340,31 @@ tasks.register('generateIdeaRunConfigurations', GenerateIdeaRunConfigurationsTas
     outputs.upToDateWhen { false }
 }
 
+tasks.register('verifySourceOwnership') {
+    group = 'verification'
+    description = 'Rejects foreign implementation namespaces in repository source and test fixtures.'
+    def sources = fileTree(rootDir) {
+        include '**/src/**/*.java', '**/src/**/*.groovy', '**/src/**/*.kt', '**/src/**/*.scala'
+        exclude '**/build/**', '**/.gradle/**', '.agents/**', 'openspec/**', '.codex/**', 'runs/**', '.worktrees/**'
+    }
+    inputs.files(sources)
+    doLast {
+        List<String> errors = []
+        sources.files.sort().each { File source ->
+            errors.addAll(com.naocraftlab.skins.buildlogic.SourceOwnershipVerifier.verify(
+                    rootDir.toPath().relativize(source.toPath()).toString(), source.getText('UTF-8')))
+        }
+        if (!errors.isEmpty()) throw new GradleException(errors.join('\n'))
+    }
+}
+
 tasks.register('verifyLoggingConventions') {
     group = 'verification'
     description = 'Enforces the bounded diagnostics contract across production Java sources.'
     def productionSources = fileTree(rootDir) {
         include '**/src/main/java/**/*.java'
         exclude '**/build/**', '.gradle/**', 'runs/**', 'do' + 'cs/**',
-                '.agents/**', 'openspec/**', '.codex/**'
+                '.agents/**', 'openspec/**', '.codex/**', '.worktrees/**'
     }
     def repositoryPath = rootDir.toPath()
     inputs.files(productionSources)
@@ -490,6 +544,13 @@ tasks.register('verifyNativeModels', TargetBuildTask) {
     configureTargetBuild(delegate, requestedTargetId == null ? targetIds : [requestedTargetId], ['test'], false, false)
 }
 
+
+tasks.register('verifyCpmIntegrations', TargetBuildTask) {
+    group = 'verification'
+    description = 'Applies CPM Mixins against each catalogued compile API without launching Minecraft.'
+    configureTargetBuild(delegate, requestedTargetId == null ? targetIds : [requestedTargetId], ['verifyCpmIntegration'], false, false)
+}
+
 tasks.register('buildAllTargets', TargetBuildTask) {
     group = 'build'
     description = 'Clean-builds and collects every catalog target.'
@@ -580,6 +641,7 @@ def checkAll = tasks.register('checkAll') {
     dependsOn verifyPublicationTree
     dependsOn tasks.named('verifyLoggingConventions')
     dependsOn tasks.named('verifyLoggingSecurityBaseline')
+    dependsOn tasks.named('verifySourceOwnership')
     dependsOn gradle.includedBuild('build-logic').task(':test')
 }
 
@@ -685,6 +747,7 @@ tasks.register('checkRelease') {
                ':server-contract:check', ':server-runtime:check', ':server-vanilla-publication:check')
     dependsOn verifyTargetCatalog, verifyCapabilitySemantics, verifyServerPluginAbi, verifyPublicationTree
     dependsOn tasks.named('verifyLoggingConventions'), tasks.named('verifyLoggingSecurityBaseline')
+    dependsOn tasks.named('verifySourceOwnership')
     dependsOn gradle.includedBuild('build-logic').task(':test')
 }
 

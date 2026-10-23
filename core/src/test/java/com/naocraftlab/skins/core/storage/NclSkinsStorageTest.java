@@ -317,6 +317,19 @@ class NclSkinsStorageTest {
     }
 
     @Test
+    void fileAssetPathKeepsTheStoredHashAndValidatesIntegrity() throws Exception {
+        NclSkinsStorage storage = storage();
+        byte[] source = TestPng.create(64, 64);
+        Path input = Files.write(temporaryDirectory.resolve("skin-source.png"), source);
+        StoredAsset fromFile = storage.storeAsset(input);
+        assertEquals(storage.storeAsset(source).sha256(), fromFile.sha256());
+        assertEquals(fromFile.path(), storage.readAssetPath(fromFile.sha256()));
+        assertArrayEquals(source, storage.readAsset(fromFile.sha256()));
+        Files.write(fromFile.path(), TestPng.create(64, 32));
+        assertThrows(StorageException.class, () -> storage.readAssetPath(fromFile.sha256()));
+    }
+
+    @Test
     void storesScaledSkinsOnlyAfterApiCompatibleNormalization() throws Exception {
         NclSkinsStorage storage = storage();
         byte[] hdPng = TestPng.create(128, 128);

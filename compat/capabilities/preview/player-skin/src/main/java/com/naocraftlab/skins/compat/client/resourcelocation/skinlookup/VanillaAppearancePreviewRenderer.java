@@ -1,9 +1,13 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.skinlookup;
 
+import com.naocraftlab.skins.runtime.CapeProjection;
+import com.naocraftlab.skins.client.PreviewAccessories;
+
 import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.naocraftlab.skins.compat.client.cape.CapeTranslucentFoilMaterial;
 import com.naocraftlab.skins.client.CenteredPlayerPreviewGeometry;
 import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
 import com.naocraftlab.skins.client.EditorPreviewClock;
@@ -51,7 +55,7 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 
-public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<GuiGraphics> {
+public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<GuiGraphics>, AutoCloseable {
     private static final AtomicInteger NEXT_PREVIEW_ENTITY_ID = new AtomicInteger(-1);
     private static final PlayerTeam PREVIEW_TEAM = previewTeam();
     private static final float WORLDLESS_CAPE_ATTACHMENT_Z = 0.15625F;
@@ -120,6 +124,29 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     private final Minecraft minecraft;
     private final DiagnosticSink diagnostics;
     private final EditorPreviewSession session = new EditorPreviewSession();
+    private java.util.function.Consumer<PreviewAccessories> accessoryObserver = value -> {};
+    private boolean closed;
+
+    @Override
+    public void observeAccessories(java.util.function.Consumer<PreviewAccessories> observer) {
+        accessoryObserver = Objects.requireNonNull(observer);
+    }
+
+    @Override
+    public PreviewAccessories accessories(PreviewRequest request) {
+        Minecraft client = Minecraft.getInstance();
+        LiveReason reason = closed ? LiveReason.LIVE_UNAVAILABLE : session.liveReason(request.intent(),
+                client.level != null && client.player != null,
+                NativePlayerSkinLifecycle.isReady(request.appearance().skin().location()),
+                previewPlayer != null && previewLevel == client.level);
+        return CapeProjection.previewAccessories(previewProfile.getId(), request.appearance().skin().location(),
+                request.appearance().model(), reason);
+    }
+
+    private void clearAccessoryInspection() {
+        accessoryObserver.accept(PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE));
+    }
+
     private final EditorPreviewClock previewClock = new EditorPreviewClock();
     private final EditorPreviewTickGate previewTickGate = new EditorPreviewTickGate();
     private boolean layerFailureLogged;
@@ -147,63 +174,117 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
         elytra = models.elytra;
     }
 
+    @Override public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return session.body(); }
+
+    @Override public void observeBody(java.util.function.Consumer<BodyStatus> observer) { session.observeBody(observer); }
+
+    @Override public void prepareBody(String source, boolean cpm) {
+        var client = minecraft;
+        session.beginBody(source, cpm, !closed && client.level != null && client.player != null);
+    }
+
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
+        if (closed) { session.invalidateDisplayedBody(); return; }
+        session.displayAuthority(java.util.Arrays.asList(request.appearance().skin(), request.appearance().model(),
+                request.intent(), NativePlayerSkinLifecycle.registration(request.appearance().skin().location())),
+                minecraft.level, minecraft.player);
+        if (session.waitsForBody() && session.bodyStatus() != BodyStatus.READY) {
+            if (session.bodyStatus() != BodyStatus.PENDING) { renderFallback(graphics, request); return; }
+            if (!NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) { session.invalidateDisplayedBody(); return; }
+        }
         LocalPlayer localPlayer = minecraft.player;
         if (session.path(request.intent(), minecraft.level != null && localPlayer != null)
                         == EditorPreviewSession.Path.BAKED
                 || !NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) {
+            accessoryObserver.accept(accessories(request));
             renderFallback(graphics, request);
             return;
         }
 
         PreviewPlayer player = previewPlayer(request.appearance());
         if (player == null) {
+            accessoryObserver.accept(accessories(request));
             renderFallback(graphics, request);
             return;
         }
 
-        try (PreviewScope ignored = PreviewScope.open(
-                minecraft, localPlayer, request.appearance())) {
-            configureEntity(player, request);
-            PoseStack pose = graphics.pose();
-            pose.pushPose();
-            try {
-                float fittedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
-
-                pose.translate(0.0F, 0.0F, LegacyPreviewDepth.additional(fittedScale, 50.0F));
-                float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
-                Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
-                Quaternionf modelRotation = new Quaternionf()
-                        .rotateZ((float) Math.PI)
-                        .mul(cameraPitch);
-                CenteredPlayerPreviewGeometry.EntityTranslation centeredTranslation =
-                        CenteredPlayerPreviewGeometry.centeredEntityTranslation(
-                                player.getBbHeight(), pitchRadians);
-                Vector3f translation = new Vector3f(
-                        0.0F, centeredTranslation.y(), centeredTranslation.z());
-
-                try (EditorPreviewLayerGuard ignoredLayers =
-                        EditorPreviewLayerGuard.open(this::onLiveLayerFailure)) {
-                    InventoryScreen.renderEntityInInventory(
-                            graphics,
-                            request.left() + request.width() / 2.0F,
-                            request.top() + request.height() / 2.0F,
-                            fittedScale / player.getScale(),
-                            translation,
-                            modelRotation,
-                            cameraPitch,
-                            player);
-                }
-            } finally {
-                pose.popPose();
+        try {
+            if (session.waitsForBody()) {
+                session.body(com.naocraftlab.skins.client.PreviewModelFrames.prepare(previewProfile, request.appearance()));
+                if (session.bodyStatus() == BodyStatus.PENDING) return;
+                if (session.bodyStatus() != BodyStatus.READY) { renderFallback(graphics, request); return; }
             }
         } catch (RuntimeException failure) {
-            if (session.disableLive(failure)) {
+            session.disableLive(failure);
+            renderFallback(graphics, request);
+            return;
+        }
+
+        var frameWorld = minecraft.level;
+        var frameTexture = NativePlayerSkinLifecycle.registration(request.appearance().skin().location());
+        var frameCurrent = session.frame();
+        var completeBody = session.displayBody(() -> !closed && minecraft.level == frameWorld
+                && minecraft.player == localPlayer && previewPlayer == player && previewLevel == frameWorld
+                && NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())
+                && NativePlayerSkinLifecycle.registration(request.appearance().skin().location()).equals(frameTexture)
+                && frameCurrent.getAsBoolean());
+        var candidate = new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.ORDINARY, () -> true);
+        boolean completed = false;
+        boolean[] layersSucceeded = {true};
+        try {
+            try (PreviewScope scope = PreviewScope.open(
+                    minecraft, player, request.appearance())) {
+                configureEntity(player, request);
+                PoseStack pose = graphics.pose();
+                pose.pushPose();
+                try {
+                    float fittedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
+
+                    pose.translate(0.0F, 0.0F, LegacyPreviewDepth.additional(fittedScale, 50.0F));
+                    float pitchRadians = request.pitchDegrees() * DEGREES_TO_RADIANS;
+                    Quaternionf cameraPitch = new Quaternionf().rotateX(pitchRadians);
+                    Quaternionf modelRotation = new Quaternionf()
+                            .rotateZ((float) Math.PI)
+                            .mul(cameraPitch);
+                    CenteredPlayerPreviewGeometry.EntityTranslation centeredTranslation =
+                            CenteredPlayerPreviewGeometry.centeredEntityTranslation(
+                                    player.getBbHeight(), pitchRadians);
+                    Vector3f translation = new Vector3f(
+                            0.0F, centeredTranslation.y(), centeredTranslation.z());
+
+                    try (EditorPreviewLayerGuard ignoredLayers =
+                            EditorPreviewLayerGuard.open(failure -> {
+                            layersSucceeded[0] = false;
+                            onLiveLayerFailure(failure);
+                        })) {
+                        InventoryScreen.renderEntityInInventory(
+                                graphics,
+                                request.left() + request.width() / 2.0F,
+                                request.top() + request.height() / 2.0F,
+                                fittedScale / player.getScale(),
+                                translation,
+                                modelRotation,
+                                cameraPitch,
+                                player);
+                    }
+                } finally {
+                    pose.popPose();
+                }
+                candidate = scope.body();
+            }
+            completed = layersSucceeded[0];
+        } catch (RuntimeException failure) {
+            boolean firstFailure = session.disableLive(failure);
+            clearAccessoryInspection();
+            if (firstFailure) {
                 diagnostics.report(
                         DiagnosticEvent.CLIENT_PREVIEW_LIVE_DISABLED,
                         () -> DiagnosticDetails.failure(failure));
             }
+        } finally {
+            completeBody.accept(completed ? candidate
+                    : new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
         }
     }
 
@@ -223,6 +304,8 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             previewLevel = null;
             return null;
         }
+        if (minecraft.player != null) CapeProjection.effectiveSkin(previewProfile.getId(), minecraft.player.getUUID(),
+                appearance.skin().location(), appearance.model(), true);
         if (previewPlayer == null || previewLevel != level) {
             previewPlayer = new PreviewPlayer(level, previewProfile);
             previewPlayer.setId(nextPreviewEntityId());
@@ -324,6 +407,13 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
     }
 
     private void renderFallback(GuiGraphics graphics, PreviewRequest request) {
+        var world = minecraft.level;
+        var local = minecraft.player;
+        var texture = NativePlayerSkinLifecycle.registration(request.appearance().skin().location());
+        var completion = session.ordinaryDisplay(() -> !closed && minecraft.level == world && minecraft.player == local
+                && NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())
+                && NativePlayerSkinLifecycle.registration(request.appearance().skin().location()).equals(texture));
+        try {
         ResourceLocation skin = parseTexture(request.appearance().skin().location());
         ResourceLocation cape = request.appearance().cape()
                 .map(handle -> request.appearance().capeMode() == CapeMode.ELYTRA && !request.appearance().capeHasElytra()
@@ -372,12 +462,18 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
                         buffers,
                         cloak,
                         request.appearance().capeMode(),
+                        request.appearance().capeGlint(),
                         cape);
             }
             graphics.flush();
         } finally {
             pose.popPose();
             Lighting.setupFor3DItems();
+        }
+        completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.ORDINARY, () -> true));
+        } catch (RuntimeException | Error failure) {
+            completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
+            throw failure;
         }
     }
 
@@ -386,6 +482,7 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             MultiBufferSource.BufferSource buffers,
             ModelPart cloak,
             CapeMode capeMode,
+            boolean capeGlint,
             ResourceLocation texture) {
         if (capeMode == CapeMode.CAPE) {
             pose.pushPose();
@@ -397,9 +494,11 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
                 cloak.resetPose();
                 cloak.visible = true;
                 try {
+                    VertexConsumer capeBuffer = CapeTranslucentFoilMaterial.buffer(buffers, texture, capeGlint,
+                            RenderType.entityTranslucent(texture));
                     cloak.render(
                             pose,
-                            buffers.getBuffer(RenderType.entityTranslucent(texture)),
+                            capeBuffer,
                             LightTexture.FULL_BRIGHT,
                             OverlayTexture.NO_OVERLAY);
                 } finally {
@@ -484,4 +583,14 @@ public final class VanillaAppearancePreviewRenderer implements PreviewRenderer<G
             getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION, modelParts);
         }
     }
+    @Override public void close() {
+        session.invalidateDisplayedBody();
+        closed = true;
+        clearAccessoryInspection();
+        accessoryObserver = value -> {};
+        CapeProjection.retireSkin(previewProfile.getId());
+        previewPlayer = null;
+        previewLevel = null;
+    }
+
 }

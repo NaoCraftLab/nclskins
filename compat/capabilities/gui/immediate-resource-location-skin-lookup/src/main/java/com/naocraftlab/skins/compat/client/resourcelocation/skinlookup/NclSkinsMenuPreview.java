@@ -63,6 +63,9 @@ public final class NclSkinsMenuPreview implements Renderable {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        if (!ImmediateClientRuntime.instance().menuPreviewAvailable()) {
+            return;
+        }
         MenuPanelPresenter.Layout layout = updateLayout(mouseX, mouseY).orElse(null);
         if (layout == null) {
             return;

@@ -11,7 +11,7 @@ final class ExactAuthlibSignatureVerifierTest {
     void resolvesAuthlib10SessionServiceThroughMinecraftServices() throws Exception {
         assertNotNull(ExactAuthlibSignatureVerifier.resolve(
                 getClass().getClassLoader(),
-                "org.bukkit.craftbukkit.authlib10",
+                "com.naocraftlab.skins.server.plugin.bukkit.fixture",
                 "authlib-v10",
                 false));
     }
@@ -21,7 +21,7 @@ final class ExactAuthlibSignatureVerifierTest {
         assertThrows(IllegalArgumentException.class, () ->
                 ExactAuthlibSignatureVerifier.resolve(
                         getClass().getClassLoader(),
-                        "org.bukkit.craftbukkit.authlib10",
+                        "com.naocraftlab.skins.server.plugin.bukkit.fixture",
                         "authlib-v11",
                         false));
     }

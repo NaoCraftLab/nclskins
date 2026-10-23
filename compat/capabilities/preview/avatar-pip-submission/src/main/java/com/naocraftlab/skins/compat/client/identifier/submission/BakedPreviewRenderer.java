@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.identifier.submission;
 
+import com.naocraftlab.skins.compat.client.identifier.foil.CapeFoilBuffer;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.CenteredPipPreviewTransform;
@@ -40,7 +41,10 @@ public final class BakedPreviewRenderer
             BakedPreviewRenderState state,
             GuiRenderState guiRenderState,
             int guiScale) {
+        var completion = state.completion();
+        if (completion != null && !completion.current()) return;
         BakedPreviewTarget target = state.target();
+        try {
         TargetRenderer renderer = target.acquire(
                 this,
                 () -> {
@@ -48,7 +52,17 @@ public final class BakedPreviewRenderer
                     return new TargetRenderer(bufferSource);
                 },
                 TargetRenderer.class);
+        renderer.primaryRendered = false;
         renderer.prepare(state, guiRenderState, guiScale);
+        if (completion != null && renderer.primaryRendered) completion.accept(
+                new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                        com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY,
+                        () -> target.owns(this, renderer)));
+        } catch (RuntimeException | Error failure) {
+            if (completion != null) completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                    com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
+            throw failure;
+        }
     }
 
     @Override
@@ -78,6 +92,7 @@ public final class BakedPreviewRenderer
 
     private static final class TargetRenderer
             extends PictureInPictureRenderer<BakedPreviewRenderState> {
+        private boolean primaryRendered;
         private static final CenteredPipPreviewTransform.Operations<PoseStack> OPERATIONS =
                 new CenteredPipPreviewTransform.Operations<>() {
                     @Override
@@ -130,7 +145,8 @@ public final class BakedPreviewRenderer
                         Model<?> attachment = state.attachmentModel();
                         attachment.renderToBuffer(
                                 pose,
-                                bufferSource.getBuffer(
+                                CapeFoilBuffer.buffer(bufferSource,
+                                        state.attachmentTexture(), state.capeGlint(),
                                         attachment.renderType(state.attachmentTexture())),
                                 0x00F000F0,
                                 OverlayTexture.NO_OVERLAY);
@@ -145,6 +161,7 @@ public final class BakedPreviewRenderer
                             bufferSource.getBuffer(player.renderType(state.skinTexture())),
                             0x00F000F0,
                             OverlayTexture.NO_OVERLAY);
+                    primaryRendered = true;
                 }
                 bufferSource.endBatch();
             } finally {

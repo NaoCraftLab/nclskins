@@ -34,6 +34,406 @@ final class AddSourceModelPresenterTest {
     private final AddSourcePresenter presenter = new AddSourcePresenter();
 
     @Test
+    void countQuotaProjectsCurrentForeignLabelsBeforeEveryMeasurementAndReload() {
+        var keys = List.of("button.cpm.open_editor", "button.cpm.edit", "button.cpm.edit.pastes");
+        var labels = new java.util.HashMap<String, String>();
+        var measured = new java.util.ArrayList<UiMessage>();
+        var lookups = new java.util.ArrayList<String>();
+        TextResolver resolver = TextResolver.withCatalogTranslations(TextResolver.withLayout(UiMessage::key,
+                (message, width) -> { measured.add(message); return 90; }), (key, fallback) -> {
+                    lookups.add(key);
+                    assertEquals("", fallback);
+                    return labels.getOrDefault(key, fallback);
+                });
+        AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of(),
+                SkinVariant.CLASSIC, resolver).withSelectedTab(AddSourceTab.FILE);
+        var raw = UiMessage.error("nclskins.add.cpm_publication_count_quota");
+        for (var names : List.of(List.of("Редактор CPM", "Редактировать", "Вставки"),
+                List.of("Open Skin Editor", "Edit", "Pastes"), List.of("Reloaded editor", "Reloaded edit", "Reloaded pastes"))) {
+            for (int i = 0; i < keys.size(); i++) labels.put(keys.get(i), names.get(i));
+            measured.clear(); lookups.clear();
+            var view = presenter.present(model, false, Optional.of(raw), 180, 120);
+            var message = view.texts().stream().filter(text -> text.id().equals("add.import.status")).findFirst().orElseThrow().message();
+            assertEquals(raw.key(), message.key());
+            assertEquals(names, message.arguments());
+            assertEquals(UiMessage.Severity.ERROR, message.severity());
+            assertEquals(keys, lookups);
+            assertTrue(measured.stream().filter(value -> value.key().startsWith(raw.key())).allMatch(message::equals));
+            assertImportStatusHasNoInfoTarget(view);
+        }
+        for (String missing : keys) for (String invalid : List.of("", " \t", missing)) {
+            keys.forEach(key -> labels.put(key, "Current label"));
+            labels.put(missing, invalid);
+            var view = presenter.present(model, false, Optional.of(raw), 180, 120);
+            var message = view.texts().stream().filter(text -> text.id().equals("add.import.status")).findFirst().orElseThrow().message();
+            assertEquals("nclskins.add.cpm_publication_count_quota_unavailable", message.key());
+            assertTrue(message.arguments().isEmpty());
+        }
+        labels.clear();
+        var stale = presenter.present(model, false, Optional.of(raw), 180, 120);
+        assertTrue(stale.texts().stream().anyMatch(text -> text.message().key().equals(
+                "nclskins.add.cpm_publication_count_quota_unavailable") && text.message().arguments().isEmpty()));
+        for (String reason : List.of("size_quota", "protocol", "uncertain", "network", "timeout")) {
+            lookups.clear();
+            var other = UiMessage.error("nclskins.add.cpm_publication_" + reason);
+            var view = presenter.present(model, false, Optional.of(other), 180, 120);
+            assertTrue(view.texts().stream().anyMatch(text -> text.message().equals(other)));
+            assertTrue(lookups.isEmpty());
+        }
+    }
+
+    @Test
+    void localizedCountQuotaUsesOneFullWrappedMessageAboveFooterAtNarrowLowSizes() throws Exception {
+        var catalog = com.google.gson.JsonParser.parseString(java.nio.file.Files.readString(java.nio.file.Path.of("../gradle/targets.json")))
+                .getAsJsonObject().getAsJsonObject("mod").getAsJsonObject("localization").getAsJsonArray("sourceLocales");
+        var raw = UiMessage.error("nclskins.add.cpm_publication_count_quota");
+        for (var locale : catalog) {
+            var language = com.google.gson.JsonParser.parseString(java.nio.file.Files.readString(java.nio.file.Path.of(
+                    "../compat/resources/canonical/src/main/resources/assets/nclskins/lang/" + locale.getAsString() + ".json"))).getAsJsonObject();
+            for (boolean available : List.of(false, true)) {
+                TextResolver resolver = TextResolver.withCatalogTranslations(message -> {
+                    String value = language.has(message.key()) ? language.get(message.key()).getAsString() : message.key();
+                    return message.arguments().isEmpty() ? value : String.format(java.util.Locale.ROOT, value, message.arguments().toArray());
+                }, (key, fallback) -> available ? "Long current translated menu label ".repeat(8) : fallback);
+                AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of(),
+                        SkinVariant.CLASSIC, resolver).withSelectedTab(AddSourceTab.FILE);
+                for (int[] size : List.of(new int[]{180, 120}, new int[]{240, 180}, new int[]{854, 160})) {
+                    var first = presenter.present(model, false, Optional.of(raw), size[0], size[1]);
+                    var surface = first.scrollSurfaces().get(0);
+                    var end = presenter.present(model.withScrollOffset((int) surface.maximumPixels()), false,
+                            Optional.of(raw), size[0], size[1]);
+                    var status = end.texts().stream().filter(text -> text.id().equals("add.import.status")).findFirst().orElseThrow();
+                    assertEquals(available ? raw.key() : raw.key() + "_unavailable", status.message().key());
+                    assertEquals(available ? 3 : 0, status.message().arguments().size());
+                    assertEquals(model.messageHeight(status.message(), status.bounds().width()), status.bounds().height());
+                    assertEquals(ViewSpec.Text.Layout.WRAP, status.layout());
+                    assertTrue(status.bounds().bottom() <= surface.viewport().bottom());
+                    assertTrue(end.widget("add.cancel").orElseThrow().bounds().y() >= surface.viewport().bottom());
+                    assertFalse(resolver.resolve(status.message()).contains("button.cpm."));
+                    assertFalse(resolver.resolve(status.message()).contains("%1$s"));
+                    assertImportStatusHasNoInfoTarget(end);
+                    assertTrue(end.widgets().stream().noneMatch(widget -> widget.id().startsWith("add.cpm.publication.")));
+                }
+            }
+        }
+    }
+
+    @Test
+    void urlPlaceholderDependsOnPresenceAndPurposeWithoutChangingInputOrLabel() {
+        for (var purpose : List.of(AddSourceModel.Purpose.CREATE_PRESET, AddSourceModel.Purpose.CPM_BASE)) {
+            AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())
+                    .withSelectedTab(AddSourceTab.FILE)
+                    .withUrlInput("https://example.invalid/retained-input")
+                    .withImportContext(new AddSourceModel.ImportContext(Optional.empty(), Optional.empty(), purpose));
+            for (boolean present : List.of(false, true, false, true)) {
+                model = model.withCompatibilityContext(new SkinExtensionEnvironment(9, Map.of(), present), Map.of(), true);
+                var input = presenter.present(model, false, 240, 240).widget("add.url.input").orElseThrow();
+                assertEquals(present && purpose == AddSourceModel.Purpose.CREATE_PRESET
+                        ? "nclskins.add_source.url_cpm_hint" : "nclskins.add_source.url_hint", input.hint().orElseThrow().key());
+                assertEquals("nclskins.add_source.url_label", input.label().key());
+                assertEquals(Optional.of("https://example.invalid/retained-input"), input.value());
+                assertEquals(purpose, model.importContext().purpose());
+            }
+        }
+    }
+
+    @Test
+    void dependencyWarningUsesScrollableClippedFormAndPersistentCancel() {
+        for (int height : List.of(120, 240)) {
+            AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID),
+                    List.of(), SkinVariant.CLASSIC, message -> message.key().endsWith("warning") ? "Long warning ".repeat(120) : "Title")
+                    .withImportContext(new AddSourceModel.ImportContext(Optional.empty(), Optional.empty(),
+                            AddSourceModel.Purpose.CREATE_PRESET, Optional.of(new AddSourceModel.DependencyPrompt(7))));
+            ViewSpec view = presenter.present(model, false, 240, height);
+            assertTrue(view.tabGroups().isEmpty());
+            assertEquals(2, view.widgets().size());
+            assertTrue(view.scrollbar().isPresent());
+            var surface = view.scrollSurfaces().get(0);
+            var confirm = view.widget("add.cpm.dependency.confirm.7").orElseThrow();
+            assertEquals("nclskins.add.cpm_dependency_warning", confirm.hint().orElseThrow().key());
+            assertTrue(view.clipRegions().stream().anyMatch(region -> region.elementPrefixes().contains("add.cpm.dependency.confirm.")));
+            ViewSpec bottom = presenter.present(model.withScrollOffset((int) surface.maximumPixels()), true, 240, height);
+            var finalConfirm = bottom.widget(confirm.id()).orElseThrow();
+            assertTrue(finalConfirm.bounds().y() >= surface.viewport().y());
+            assertTrue(finalConfirm.bounds().bottom() <= surface.viewport().bottom());
+            assertFalse(finalConfirm.enabled());
+            var cancel = bottom.widget("add.cpm.dependency.cancel.7").orElseThrow();
+            assertTrue(cancel.enabled());
+            assertTrue(cancel.bounds().y() >= surface.viewport().bottom());
+            assertEquals(2, bottom.navigationNodes().size());
+        }
+    }
+
+    @Test
+    void ordinaryPublicationFeedbackKeepsFullWrappedTextWithoutInfoTargetsAndDisablesBusyControls() {
+        var loading = UiMessage.info("nclskins.add.cpm_publication_loading");
+        var error = UiMessage.error("nclskins.add.cpm_publication_timeout");
+        AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of(),
+                SkinVariant.CLASSIC, message -> "Полное многострочное сообщение для загрузки модели CPM Paste")
+                .withSelectedTab(AddSourceTab.FILE).withUrlInput("https://example.invalid/model");
+        for (int height : List.of(120, 240, 480)) for (UiMessage message : List.of(loading, error)) {
+            boolean busy = message == loading;
+            var view = presenter.present(model, busy, Optional.of(message), 240, height);
+            var status = view.texts().stream().filter(text -> text.id().equals("add.import.status")).findFirst().orElseThrow();
+            assertEquals(message, status.message());
+            assertEquals(ViewSpec.Text.Layout.WRAP, status.layout());
+            assertEquals(ViewSpec.Text.Alignment.CENTER, status.alignment());
+            assertTrue(status.bounds().height() > 10);
+            assertImportStatusHasNoInfoTarget(view);
+            var surface = view.scrollSurfaces().get(0);
+            var scrolled = presenter.present(model.withScrollOffset((int) surface.maximumPixels()),
+                    busy, Optional.of(message), 240, height);
+            assertImportStatusHasNoInfoTarget(scrolled);
+            var finalStatus = scrolled.texts().stream().filter(text -> text.id().equals("add.import.status")).findFirst().orElseThrow();
+            assertEquals(status.message(), finalStatus.message());
+            assertEquals(status.bounds().height(), finalStatus.bounds().height());
+            assertTrue(finalStatus.bounds().bottom() <= surface.viewport().bottom());
+            assertEquals(surface.viewport(), scrolled.clipFor(finalStatus.id()).orElseThrow());
+            assertTrue(view.widgets().stream().filter(widget -> !widget.id().equals("add.cancel"))
+                    .allMatch(widget -> !busy || !widget.enabled()));
+            assertEquals(!busy, view.widget("add.cancel").orElseThrow().enabled());
+            assertTrue(view.tabGroups().stream().flatMap(group -> group.tabs().stream()).allMatch(tab -> tab.enabled() == !busy));
+            assertEquals("nclskins.add_source.title", view.title().key());
+            assertTrue(view.widget("add.catalog.filter").isEmpty());
+            assertTrue(view.widgets().stream().noneMatch(widget -> widget.id().startsWith("add.cpm.publication.")));
+        }
+    }
+
+    @Test
+    void ordinaryFileErrorKeepsItsMessageAndGeometryWithoutStatusInfo() {
+        var error = UiMessage.error("nclskins.add_source.file_io_error");
+        var model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())
+                .withSelectedTab(AddSourceTab.FILE);
+        for (int height : List.of(120, 240, 480)) {
+            var view = presenter.present(model, false, Optional.of(error), 240, height);
+            var text = view.texts().stream().filter(value -> value.id().equals("add.import.status")).findFirst().orElseThrow();
+            assertEquals(error, text.message());
+            assertEquals(new Bounds(10, 187, 220, model.messageHeight(error, 220)), text.bounds());
+            assertEquals(ViewSpec.Text.Alignment.CENTER, text.alignment());
+            assertEquals(ViewSpec.Text.Layout.WRAP, text.layout());
+            assertImportStatusHasNoInfoTarget(view);
+            assertTrue(view.widget("add.file.choose").orElseThrow().enabled());
+            assertTrue(view.widget("add.cancel").orElseThrow().enabled());
+        }
+    }
+
+    @Test
+    void cpmBaseTitleIsForegroundUnderUnchangedTabsOnBothTabs() {
+        AddSourceModel ordinary = AddSourceModel.open(
+                AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of());
+        assertEquals("nclskins.add_source.title", presenter.present(ordinary, false, 240, 240).title().key());
+        assertTrue(presenter.present(ordinary, false, 240, 240).texts().stream()
+                .noneMatch(text -> text.id().equals("add.context.title")));
+        for (AddSourceTab tab : AddSourceTab.values()) {
+            AddSourceModel model = ordinary.withSelectedTab(tab).withImportContext(
+                    new AddSourceModel.ImportContext(Optional.of(SkinModel.SLIM), Optional.empty()));
+            ViewSpec view = presenter.present(model, false, 240, 240);
+            assertEquals(new Bounds(0, 0, 240, 24), view.tabGroups().get(0).bounds());
+            ViewSpec.Text title = view.texts().stream().filter(text -> text.id().equals("add.context.title"))
+                    .findFirst().orElseThrow(() -> new AssertionError("CPM title must materialize as foreground text"));
+            assertEquals("nclskins.add_source.cpm.title", title.message().key());
+            assertEquals(title.message(), view.title());
+            assertEquals(ViewSpec.Text.Layout.WRAP, title.layout());
+            assertTrue(title.bounds().y() >= 24);
+            assertTrue(view.widgets().stream().filter(widget -> !widget.id().equals("add.cancel"))
+                    .allMatch(widget -> widget.bounds().y() >= title.bounds().bottom()));
+        }
+    }
+
+    @Test
+    void cpmRequiredFilterAndBlockedSourcesKeepVisibleLabelsAndReasons() {
+        for (SkinModel required : SkinModel.values()) {
+            AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())
+                    .withImportContext(new AddSourceModel.ImportContext(Optional.of(required), Optional.empty()));
+            ViewSpec catalog = presenter.present(model.withSelectedTab(AddSourceTab.CATALOG), false, 240, 240);
+            ViewSpec.Widget filter = catalog.widget("add.catalog.filter").orElseThrow();
+            assertFalse(filter.enabled(), "required filter must be disabled, not merely labelled");
+            assertEquals("nclskins.add_source.filter_" + required.name().toLowerCase(java.util.Locale.ROOT), filter.label().key());
+            assertEquals("nclskins.add_source.cpm.required_" + required.name().toLowerCase(java.util.Locale.ROOT),
+                    filter.hint().orElseThrow().key());
+            ViewSpec file = presenter.present(model.withSelectedTab(AddSourceTab.FILE), false, 240, 240);
+            for (String id : List.of("add.external.launcher", "add.external.mod")) {
+                ViewSpec.Widget action = file.widget(id).orElseThrow();
+                assertTrue(action.visible());
+                assertFalse(action.enabled());
+                assertEquals("nclskins.add_source.cpm." + (id.endsWith("launcher") ? "launcher" : "mod") + "_blocked", action.hint().orElseThrow().key());
+            }
+            assertTrue(presenter.present(model.withSelectedTab(AddSourceTab.CATALOG), true, 240, 240)
+                    .widget("add.cancel").orElseThrow().enabled(), "pending CPM work remains cancellable on Catalog");
+        }
+        AddSourceModel ordinary = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())
+                .withSelectedTab(AddSourceTab.CATALOG);
+        assertTrue(presenter.present(ordinary, false, 240, 240).widget("add.catalog.filter").orElseThrow().enabled());
+        assertFalse(presenter.present(ordinary, true, 240, 240).widget("add.cancel").orElseThrow().enabled());
+    }
+
+    @Test
+    void cpmTypedFailuresAreWrappedOnTheCurrentTabWithRequiredTypeNotPreference() {
+        Map<com.naocraftlab.skins.client.CpmModelFileConversion.Reason, String> expected = Map.ofEntries(
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CPM_MISSING, "dependency_missing"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CPM_UNAVAILABLE, "adapter_unavailable"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.NESTED_MODEL, "nested_file"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.INVALID_MODEL, "invalid_model"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.MODEL_UNSUPPORTED, "model_unsupported"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.NONPORTABLE_OVERFLOW, "local_overflow"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.PORTABILITY_UNSUPPORTED, "portability_unsupported"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CONVERSION_FAILED, "conversion_failed"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.INVALID_OUTPUT_PNG, "invalid_output"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_RESOURCES, "stale_resources"),
+                Map.entry(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_WORLD, "stale_world"));
+        for (AddSourceTab tab : AddSourceTab.values()) {
+            for (SkinModel required : SkinModel.values()) {
+                AddSourceModel base = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())
+                        .withSelectedTab(tab);
+                for (var reason : com.naocraftlab.skins.client.CpmModelFileConversion.Reason.values()) {
+                    AddSourceModel model = base.withImportContext(new AddSourceModel.ImportContext(Optional.of(required), Optional.of(reason)));
+                    ViewSpec view = presenter.present(model, false, 240, 240);
+                    var statuses = view.texts().stream().filter(text -> text.id().equals(tab == AddSourceTab.FILE
+                            ? "add.import.status" : "add.catalog.status")).toList();
+                    if (reason == com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CLOSED) {
+                        assertTrue(statuses.isEmpty());
+                        continue;
+                    }
+                    assertEquals(1, statuses.size(), "typed reason must not disappear on " + tab + ": " + reason);
+                    String key = reason == com.naocraftlab.skins.client.CpmModelFileConversion.Reason.IO_FAILED
+                            ? "nclskins.add_source.file_io_error"
+                            : "nclskins.add_source.cpm." + (reason == com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED
+                                    ? "required_" + required.name().toLowerCase(java.util.Locale.ROOT) : expected.get(reason));
+                    assertEquals(key, statuses.get(0).message().key());
+                    assertEquals(UiMessage.Severity.ERROR, statuses.get(0).message().severity());
+                    assertEquals(ViewSpec.Text.Layout.WRAP, statuses.get(0).layout());
+                }
+            }
+        }
+    }
+
+    @Test
+    void cpmWorkspaceScrollClipsFormErrorsAndReasonsBeforeFixedFooter() throws Exception {
+        var catalog = com.google.gson.JsonParser.parseString(java.nio.file.Files.readString(java.nio.file.Path.of("../gradle/targets.json")))
+                .getAsJsonObject().getAsJsonObject("mod").getAsJsonObject("localization").getAsJsonArray("sourceLocales");
+        for (var locale : catalog) {
+            var language = com.google.gson.JsonParser.parseString(java.nio.file.Files.readString(java.nio.file.Path.of(
+                    "../compat/resources/canonical/src/main/resources/assets/nclskins/lang/" + locale.getAsString() + ".json"))).getAsJsonObject();
+            TextResolver resolver = message -> language.has(message.key()) ? language.get(message.key()).getAsString() : message.key();
+            for (int[] size : List.of(new int[] {240, 240}, new int[] {180, 180}, new int[] {854, 160}, new int[] {320, 240})) {
+                for (AddSourceTab tab : AddSourceTab.values()) {
+                    AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of(),
+                            SkinVariant.CLASSIC, resolver).withSelectedTab(tab).withImportContext(new AddSourceModel.ImportContext(
+                                    Optional.of(SkinModel.SLIM), Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.NONPORTABLE_OVERFLOW)));
+                    ViewSpec initial = presenter.present(model, false, size[0], size[1]);
+                    var surface = initial.scrollSurfaces().stream().findFirst()
+                            .orElseThrow(() -> new AssertionError("CPM form and error need one reachable scroll surface"));
+                    assertEquals(size[1] - 33, surface.viewport().bottom());
+                    var title = initial.texts().stream().filter(t -> t.id().equals("add.context.title")).findFirst().orElseThrow();
+                    assertTrue(surface.viewport().y() >= title.bounds().bottom());
+                    ViewSpec end = presenter.present(model.withScrollOffset((int) surface.maximumPixels()), false, size[0], size[1]);
+                    var status = end.texts().stream().filter(t -> t.id().equals(tab == AddSourceTab.FILE ? "add.import.status" : "add.catalog.status"))
+                            .findFirst().orElseThrow();
+                    assertTrue(status.bounds().bottom() <= surface.viewport().bottom(), locale + ":" + tab + ":" + status.bounds());
+                    assertTrue(status.bounds().bottom() > surface.viewport().y());
+                    assertEquals(surface.viewport(), end.clipFor(status.id()).orElseThrow());
+                    assertEquals(surface.viewport(), end.clipFor(tab == AddSourceTab.FILE ? "add.file.choose" : "add.catalog.search").orElseThrow());
+                    assertEquals(new Bounds((size[0] - Math.min(200, Math.max(100, size[0] - 32))) / 2, size[1] - 28,
+                            Math.min(200, Math.max(100, size[0] - 32)), 20), end.widget("add.cancel").orElseThrow().bounds());
+                    assertTrue(end.clipFor("add.cancel").isEmpty());
+                    assertEquals(surface.maximumPixels(), end.scrollSurfaces().get(0).maximumPixels());
+                    for (ViewSpec.Widget widget : end.widgets()) {
+                        assertTrue(widget.bounds().x() >= 0 && widget.bounds().right() <= size[0], widget.id());
+                        if (!widget.id().equals("add.cancel")) assertTrue(end.navigationNode(widget.id()).isPresent(), widget.id());
+                    }
+                    for (int offset = 0; offset <= (int) surface.maximumPixels(); offset++) {
+                        var view = presenter.present(model.withScrollOffset(offset), false, size[0], size[1]);
+                        for (String id : tab == AddSourceTab.FILE ? List.of("add.player.input", "add.url.input", "add.file.choose", "add.external.launcher", "add.external.mod")
+                                : List.of("add.catalog.search", "add.catalog.filter")) {
+                            Bounds b = view.widget(id).orElseThrow().bounds();
+                            assertFalse(ViewHostPolicy.pointerInsideClip(view, id, b.x() + 1, surface.viewport().bottom() + 1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void cpmCatalogReasonsRemainKeyboardReachableWhileFileMismatchHasNoInfoTarget() {
+        for (AddSourceTab tab : AddSourceTab.values()) for (SkinModel required : SkinModel.values()) {
+            AddSourceModel model = AddSourceModel.open(AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID), List.of())
+                    .withSelectedTab(tab).withImportContext(new AddSourceModel.ImportContext(Optional.of(required),
+                            Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED)));
+            ViewSpec view = presenter.present(model, true, 240, 240);
+            assertTrue(view.widget("add.catalog.reason").isEmpty());
+            assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("add.catalog.reason.text")));
+            String key = "nclskins.add_source.cpm.required_" + required.name().toLowerCase(java.util.Locale.ROOT);
+            if (tab == AddSourceTab.FILE) {
+                for (int[] size : List.of(new int[] {180, 120}, new int[] {240, 240}, new int[] {854, 160})) {
+                    var initial = presenter.present(model, true, size[0], size[1]);
+                    var surface = initial.scrollSurfaces().get(0);
+                    for (int offset : List.of(0, (int) surface.maximumPixels())) {
+                        var file = presenter.present(model.withScrollOffset(offset), true, size[0], size[1]);
+                        var status = file.texts().stream().filter(text -> text.id().equals("add.import.status")).findFirst().orElseThrow();
+                        assertEquals(key, status.message().key());
+                        assertEquals(UiMessage.Severity.ERROR, status.message().severity());
+                        assertEquals(ViewSpec.Text.Alignment.CENTER, status.alignment());
+                        assertEquals(ViewSpec.Text.Layout.WRAP, status.layout());
+                        assertEquals(model.messageHeight(status.message(), status.bounds().width()), status.bounds().height());
+                        assertImportStatusHasNoInfoTarget(file);
+                        assertTrue(ViewNavigationPolicy.activationAction(file, "add.external.launcher").isEmpty());
+                        assertTrue(ViewNavigationPolicy.activationAction(file, "add.external.mod").isEmpty());
+                        assertTrue(file.widget("add.cancel").orElseThrow().enabled());
+                    }
+                }
+                continue;
+            }
+            String reasonId = "add.catalog.status.info";
+            var reason = view.widget(reasonId).orElseThrow(() -> new AssertionError("disabled reason needs a focusable narration consumer"));
+            assertTrue(reason.enabled());
+            assertEquals(ViewSpec.WidgetKind.INFO_BUTTON, reason.kind());
+            assertEquals(key, reason.label().key());
+            String cursor = null;
+            java.util.Set<String> reached = new java.util.HashSet<>();
+            for (int i = 0; i < view.navigationNodes().size() + 1; i++) {
+                var next = ViewNavigationPolicy.target(view, cursor, ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow();
+                cursor = next.id();
+                reached.add(cursor);
+            }
+            assertTrue(reached.containsAll(List.of(reasonId, "add.cancel")), reached.toString());
+            assertTrue(ViewNavigationPolicy.activationAction(view, reasonId).isEmpty());
+            var node = view.navigationNode(reasonId).orElseThrow();
+            var desired = ViewNavigationPolicy.ensureVisibleOffset(view, node);
+            ViewSpec scrolled = presenter.present(model.withScrollOffset((int) Math.round(desired.orElse(0.0))), true, 240, 240);
+            Bounds bounds = scrolled.widget(reasonId).orElseThrow().bounds();
+            Bounds clip = scrolled.clipFor(reasonId).orElseThrow();
+            assertTrue(bounds.y() >= clip.y() && bounds.bottom() <= clip.bottom());
+            assertEquals(reasonId, ViewHostPolicy.pointerOwnerAt(scrolled, bounds.x() + 1, bounds.y() + 1).orElseThrow().id());
+        }
+    }
+
+    private static void assertImportStatusHasNoInfoTarget(ViewSpec view) {
+        String id = "add.import.status.info";
+        assertTrue(view.widget(id).isEmpty(), "Import status must not produce a duplicate info widget");
+        assertTrue(view.navigationNode(id).isEmpty());
+        assertTrue(view.focusRequest().filter(request -> request.widgetId().equals(id)).isEmpty());
+        assertTrue(view.tooltipRegions().stream().noneMatch(region -> region.id().equals(id)));
+        assertTrue(view.iconDecorations().stream().noneMatch(icon -> icon.id().equals(id)));
+        var status = view.texts().stream().filter(text -> text.id().equals("add.import.status")).findFirst().orElseThrow();
+        assertEquals(1, view.texts().stream().filter(text -> text.id().equals(status.id())).count());
+        assertTrue(view.widgets().stream().noneMatch(widget -> widget.hint().filter(status.message()::equals).isPresent()));
+        int formerX = Math.max(0, status.bounds().x() - 16);
+        for (int x = formerX; x < formerX + 14; x++) for (int y = status.bounds().y(); y < status.bounds().y() + 20; y++) {
+            assertTrue(ViewHostPolicy.pointerOwnerAt(view, x, y).isEmpty(), "former status icon area must not own pointer input");
+        }
+        for (var command : List.of(ViewSpec.NavigationCommand.TAB_FORWARD, ViewSpec.NavigationCommand.TAB_BACKWARD)) {
+            String cursor = null;
+            for (int i = 0; i <= view.navigationNodes().size() + view.widgets().size(); i++) {
+                var next = ViewNavigationPolicy.target(view, cursor, command);
+                if (next.isEmpty()) break;
+                cursor = next.orElseThrow().id();
+                assertNotEquals(id, cursor);
+            }
+        }
+    }
+
+    @Test
     void readOnlySkinCardsRemoveActionReserveAndMatchPersonalPreviewHeight() {
         SkinCatalogSource.SkinDescriptor item = skin(hash('a'), "Skin", SkinModel.CLASSIC);
         List<SkinCatalogSource.CollectionDescriptor> collections = List.of(
@@ -70,12 +470,12 @@ final class AddSourceModelPresenterTest {
         ViewSpec view = presenter.present(model, false, 320, 240);
         assertEquals(340, view.navigationNode("add.catalog.collection:pack").orElseThrow().bounds().y());
         assertEquals(576, view.navigationNode("add.catalog.collection:vanilla").orElseThrow().bounds().y());
-        assertEquals(605, presenter.maximumScroll(model, 320, 240));
+        assertEquals(605, presenter.present(model, false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels());
         ViewSpec end = presenter.present(model.withScrollOffset(605), false, 320, 240);
         Bounds last = end.navigationNode("add.catalog.skin:vanilla:" + items[4].id()).orElseThrow().bounds();
         assertEquals(193, last.bottom());
         assertEquals(98, last.height());
-        assertEquals(389, presenter.maximumScroll(model.withCollectionCollapsed("pack", true), 320, 240));
+        assertEquals(389, presenter.present(model.withCollectionCollapsed("pack", true), false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels());
     }
 
     @Test
@@ -384,7 +784,7 @@ final class AddSourceModelPresenterTest {
         assertTrue(emptyView.widget("add.catalog.collection:slim_only").isEmpty());
         assertTrue(emptyView.tooltipRegions().isEmpty());
         assertTrue(emptyView.texts().stream().anyMatch(text -> text.id().equals("add.catalog.empty")));
-        assertEquals(0, presenter.maximumScroll(noClassic, 320, 240));
+        assertEquals(0, presenter.present(noClassic, false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels());
         assertTrue(emptyView.scrollbar().isEmpty());
 
         SkinCatalogSource.CollectionDescriptor manyClassic = collection(
@@ -407,8 +807,8 @@ final class AddSourceModelPresenterTest {
         AddSourceModel matchingOnly = openCatalog(manyClassic).cycleFilter();
 
         assertEquals(
-                presenter.maximumScroll(matchingOnly, 320, 240),
-                presenter.maximumScroll(mixedFilter, 320, 240),
+                presenter.present(matchingOnly, false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels(),
+                presenter.present(mixedFilter, false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels(),
                 "hidden collections must not reserve header, metadata or scroll space");
         assertEquals(
                 presenter.present(matchingOnly, false, 320, 240).scrollbar(),
@@ -865,7 +1265,7 @@ final class AddSourceModelPresenterTest {
                 .orElseThrow();
         assertTrue(firstName.marqueeActivation().orElseThrow().focusWidgetIds().stream()
                 .anyMatch(id -> id.startsWith("add.catalog.skin:")));
-        int nextOffset = presenter.nextScrollOffset(model, 320, 240, 1);
+        int nextOffset = (int) Math.min(scrollSurface.maximumPixels(), 32);
         assertTrue(nextOffset > 0);
         ViewSpec afterNext = presenter.present(model.withScrollOffset(nextOffset), false, 320, 240);
         assertFalse(afterNext.previews().isEmpty());
@@ -1018,11 +1418,10 @@ final class AddSourceModelPresenterTest {
                 assertViewFitsViewport(scrolled);
                 assertFalse(scrolled.previews().isEmpty(), "every pixel offset must expose clipped card content");
 
-                int next = presenter.nextScrollOffset(
-                        model.withScrollOffset(offset), viewport.width(), viewport.height(), 1);
+                int next = (int) Math.min(scrolled.scrollSurface("add.catalog").orElseThrow().maximumPixels(), offset + 32);
                 if (next == offset) {
                     assertEquals(
-                            presenter.maximumScroll(model, viewport.width(), viewport.height()),
+                            scrolled.scrollSurface("add.catalog").orElseThrow().maximumPixels(),
                             offset);
                     break;
                 }
@@ -1323,7 +1722,8 @@ final class AddSourceModelPresenterTest {
                         List.of(personal, MinecraftSkinCatalog.collections().get(0)))
                 .withQuery("hero")
                 .cycleFilter();
-        int preservedScroll = presenter.normalizedScrollOffset(unscrolled, 320, 240, 5);
+        int preservedScroll = (int) presenter.present(unscrolled.withScrollOffset(5), false, 320, 240)
+                .scrollSurface("add.catalog").orElseThrow().offsetPixels();
         assertEquals(5, preservedScroll, "arbitrary in-range pixel offsets must not snap to rows");
         AddSourceModel catalog = unscrolled.withScrollOffset(preservedScroll);
         assertTrue(presenter.present(catalog, false, 320, 240)

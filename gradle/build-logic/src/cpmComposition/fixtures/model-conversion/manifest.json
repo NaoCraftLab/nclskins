@@ -1,0 +1,12 @@
+{
+  "provenance": "Independent synthetic NCL format fixtures. No real user/model/account data and no copied upstream implementation.",
+  "positive_types": {"classic": 1, "slim": 0},
+  "positive_routes": ["embedded", "public", "public-package"],
+  "negative_routes": ["local", "unknown-link", "mismatch-link"],
+  "negative_types": ["unknown-type", "absent-type", "conflicting-type"],
+  "embedded_marker_bytes": 1900,
+  "expected_payload": "Independent .payload bytes, not exporter-generated expectations; long embedded payload crosses variant-dependent carrier regions.",
+  "base_a": "Separate base-a payload and envelope. Expected B must replace A without source reuse.",
+  "transparent_control": "Probe sets independent visible pixel (8,8) to 0x00123456 and requires exact preservation.",
+  "ownership": "Master fixtures remain immutable during invocations; disposable source/base copies are replaced or deleted by the probe."
+}

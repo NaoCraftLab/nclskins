@@ -94,6 +94,38 @@ final class EditorOuterLayerCycleTest {
         assertEquals(first, visibility);
     }
 
+    @Test
+    void everyExactMaskWrapsAndPreservesUnrelatedGroups() {
+        for (int bits = 0; bits < 64; bits++) {
+            var mask = OuterLayerVisibility.noneVisible();
+            for (var part : OuterLayerPart.values()) mask = mask.with(part, (bits & (1 << part.ordinal())) != 0);
+            for (String group : List.of("head", "body", "legs")) {
+                var parts = switch (group) {
+                    case "head" -> List.of(OuterLayerPart.HEAD);
+                    case "body" -> List.of(OuterLayerPart.BODY, OuterLayerPart.LEFT_ARM, OuterLayerPart.RIGHT_ARM);
+                    default -> List.of(OuterLayerPart.LEFT_LEG, OuterLayerPart.RIGHT_LEG);
+                };
+                for (int direction : List.of(-1, 1)) {
+                    var next = mask;
+                    var seen = new java.util.HashSet<OuterLayerVisibility>();
+                    for (int step = 0; step < (1 << parts.size()); step++) {
+                        seen.add(next);
+                        var state = EditorOuterLayerCycle.state(group, next);
+                        assertState(group, next, state.icon(), state.label().key());
+                        for (var part : OuterLayerPart.values()) {
+                            if (!parts.contains(part)) assertEquals(mask.visible(part), next.visible(part));
+                        }
+                        next = EditorOuterLayerCycle.cycle(group, next, direction);
+                    }
+                    assertEquals(1 << parts.size(), seen.size());
+                    assertEquals(mask, next);
+                    assertEquals(mask, EditorOuterLayerCycle.cycle(group,
+                            EditorOuterLayerCycle.cycle(group, mask, direction), -direction));
+                }
+            }
+        }
+    }
+
     private static OuterLayerVisibility maskBody(
             OuterLayerVisibility base, ExpectedStep step) {
         return base.with(OuterLayerPart.BODY, step.first())

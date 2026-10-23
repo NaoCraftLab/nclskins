@@ -146,7 +146,7 @@ final class CapeCatalogPresenter {
                         tabOrder++,
                         !busy,
                         ViewSpec.NavigationPattern.GRID,
-                        Optional.of(id)));
+                        card.embedded() && !model.canInspect(card) ? Optional.empty() : Optional.of(id)));
                 List<ViewSpec.Widget> actions = personalActions(model, card, bounds, busy);
                 for (ViewSpec.Widget action : actions) {
                     ViewSpec.NavigationNode node = ViewSpec.NavigationNode.control(action, ordinal++, tabOrder++);
@@ -161,7 +161,8 @@ final class CapeCatalogPresenter {
                 var chrome = AppearanceCard.chrome(surface, id, bounds, ViewSpec.WidgetKind.CAPE_CARD,
                         card.label(), Optional.of(model.selected(card) ? "selected" : "unselected"), !busy);
                 panels.add(chrome.surface());
-                widgets.add(chrome.widget());
+                widgets.add(card.provider() == com.naocraftlab.skins.core.provider.BuiltinProvider.CPM ? chrome.widget().withActivation(model.canInspect(card),
+                        AccessoryInspection.reason(model.accessories())) : chrome.widget());
                 boolean editing = card.local() != null
                         && card.local().entryId().equals(model.editing());
                 if (!(editing && !model.deleting()) && !card.importCard()) {
@@ -178,8 +179,8 @@ final class CapeCatalogPresenter {
                     previews.add(new AppearanceCard.Cape(card.texture().orElseThrow(), mode,
                             !Boolean.FALSE.equals(card.hasElytra())).present(surface + ".preview", previewBounds));
                 } else {
-                    icons.add(AppearanceCard.service(surface + ".icon", previewBounds,
-                            card.importCard() ? GuiIcon.ACTION_ADD_CAPE : GuiIcon.APPEARANCE_CAPE_NONE, id));
+                    icons.add(AppearanceCard.service(surface + ".icon", card.embedded() ? bounds : previewBounds,
+                            card.embedded() ? GuiIcon.SOURCE_CPM : card.importCard() ? GuiIcon.ACTION_ADD_CAPE : GuiIcon.APPEARANCE_CAPE_NONE, id));
                 }
                 widgets.addAll(actions);
             }

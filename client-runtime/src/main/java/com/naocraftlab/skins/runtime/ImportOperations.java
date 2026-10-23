@@ -13,6 +13,23 @@ import java.util.Objects;
 import java.util.Optional;
 
 public interface ImportOperations extends LocalSkinImportSource {
+    AcquiredInput acquireUrl(String url, Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+            com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception;
+    AcquiredInput acquireFile(Path path, Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+            com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception;
+
+    sealed interface AcquiredInput permits AcquiredSkin, AcquiredModel, AcquiredDependency { }
+    non-sealed interface AcquiredDependency extends AcquiredInput, AutoCloseable {
+        AcquiredInput acquire(java.util.function.BooleanSupplier current) throws Exception;
+        @Override void close() throws java.io.IOException;
+    }
+    record AcquiredSkin(ImportDraft draft) implements AcquiredInput {
+        public AcquiredSkin { Objects.requireNonNull(draft); }
+    }
+    record AcquiredModel(com.naocraftlab.skins.client.CpmModelFileConversion.AdmittedModel model) implements AcquiredInput {
+        public AcquiredModel { Objects.requireNonNull(model); }
+    }
+
     ImportDraft loadPlayerSkin(String playerNameOrUuid) throws Exception;
     ImportDraft loadUrlSkin(String url) throws Exception;
     ExternalImportProbe probeExternalSource(ExternalImportSource source, Optional<Path> selectedRoot) throws Exception;

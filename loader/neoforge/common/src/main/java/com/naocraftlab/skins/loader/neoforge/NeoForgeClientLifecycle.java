@@ -34,6 +34,9 @@ final class NeoForgeClientLifecycle {
         if (!checkedLifecycle.install(checked, current -> current.initialize(checkedDirectory))) {
             return;
         }
+        com.naocraftlab.skins.compat.waveycapes.WaveyCapesIntegration.install(
+                ModList.get().getModContainerById("waveycapes")
+                        .map(mod -> mod.getModInfo().getVersion().toString()).orElse(null));
         com.naocraftlab.skins.compat.fancymenu.FancyMenuIntegration.install(
                 ModList.get().isLoaded("fancymenu"), checked::openDestination, checked.diagnostics());
 

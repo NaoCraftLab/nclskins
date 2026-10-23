@@ -12,16 +12,28 @@ public final class PreviewContext {
     private final PreviewRenderer.PreviewAppearance appearance;
     private final PlayerSkin skin;
     private final ItemStack chestEquipment;
+    private final java.util.function.BooleanSupplier current;
+    private final java.util.function.Consumer<com.naocraftlab.skins.client.PreviewModelFrames.Body> displayed;
 
     PreviewContext(
             AbstractClientPlayer player,
             PreviewRenderer.PreviewAppearance appearance,
             PlayerSkin skin,
-            ItemStack chestEquipment) {
+            ItemStack chestEquipment, java.util.function.BooleanSupplier current,
+            java.util.function.Consumer<com.naocraftlab.skins.client.PreviewModelFrames.Body> displayed) {
+        this.displayed = Objects.requireNonNull(displayed);
+        this.current = Objects.requireNonNull(current);
         this.player = Objects.requireNonNull(player, "player");
         this.appearance = Objects.requireNonNull(appearance, "appearance");
         this.skin = Objects.requireNonNull(skin, "skin");
         this.chestEquipment = Objects.requireNonNull(chestEquipment, "chestEquipment").copy();
+    }
+
+    public boolean current() { return current.getAsBoolean(); }
+
+    public void displayed(com.naocraftlab.skins.client.PreviewModelFrames.Body body) {
+        if (current()) displayed.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(body.status(),
+                () -> current() && body.current().getAsBoolean()));
     }
 
     public PreviewScope open(Minecraft minecraft) {

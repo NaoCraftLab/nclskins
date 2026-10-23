@@ -11,9 +11,11 @@ import java.util.function.Consumer;
 
 public interface CapeObservationPort {
     void startOptiFineCapes();
-    void refreshOptiFineCapes();
-    void refreshOptiFineCapes(Consumer<ProviderObservation<ProviderCape>> completion);
-    void refreshSkinMcCapes(Consumer<ProviderObservation<ProviderCape>> completion);
+    long capeObservationGeneration();
+    void refreshCapeProvider(ProviderRefreshUseCases.Scope scope, BuiltinProvider provider,
+            Consumer<ProviderObservation<ProviderCape>> completion);
+    void selfCapeCandidatesChanged(UUID accountId, String canonicalName, AppearanceProviders providers,
+            java.util.Set<BuiltinProvider> allowedSources);
     Optional<Duration> capeProviderCooldown(BuiltinProvider provider);
     void optiFineConfigurationChanged();
     void adoptSharedCapeObservation(UUID accountId, String canonicalName, AppearanceProviders providers);

@@ -1,6 +1,9 @@
 package com.naocraftlab.skins.loader.neoforge;
 
 import com.naocraftlab.skins.client.BuiltInClientPackDescriptor;
+import com.naocraftlab.skins.compat.client.gui.CapeGuiFoilMaterial;
+import com.naocraftlab.skins.compat.client.cape.CapeTranslucentFoilMaterial;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.PackType;
@@ -12,6 +15,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
+import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import net.neoforged.neoforge.event.AddPackFindersEvent;
 
 
@@ -25,6 +29,16 @@ public final class NclSkinsNeoForgeClient {
             BuiltInClientPackDescriptor.MOJANG_COLLECTIONS;
 
     private NclSkinsNeoForgeClient() {}
+
+    @SubscribeEvent
+    public static void registerCapeGuiShader(RegisterShadersEvent event) throws java.io.IOException {
+        event.registerShader(new net.minecraft.client.renderer.ShaderInstance(
+                event.getResourceProvider(), CapeGuiFoilMaterial.SHADER,
+                DefaultVertexFormat.POSITION_TEX_COLOR), CapeGuiFoilMaterial::shaderLoaded);
+        event.registerShader(new net.minecraft.client.renderer.ShaderInstance(
+                event.getResourceProvider(), CapeTranslucentFoilMaterial.SHADER,
+                DefaultVertexFormat.NEW_ENTITY), CapeTranslucentFoilMaterial::shaderLoaded);
+    }
 
     @SubscribeEvent
     public static void registerKeyMappings(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {

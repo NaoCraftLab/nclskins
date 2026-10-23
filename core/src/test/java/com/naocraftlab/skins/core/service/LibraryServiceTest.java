@@ -314,6 +314,42 @@ class LibraryServiceTest {
     }
 
     @Test
+    void importingDifferentTransparentCarriersRetainsBothBlobsAndExistingPreset() throws Exception {
+        NclSkinsStorage storage = storage();
+        LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage),
+                new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), Clock.fixed(NOW, ZoneOffset.UTC));
+        UUID account = UUID.randomUUID();
+        byte[] first;
+        byte[] second;
+        try (var a = getClass().getResourceAsStream("/cpm/classic-a.png");
+                var b = getClass().getResourceAsStream("/cpm/classic-b.png")) {
+            first = java.util.Objects.requireNonNull(a).readAllBytes();
+            second = java.util.Objects.requireNonNull(b).readAllBytes();
+        }
+        var a = library.createPresetFromPersonalSkin(account, "A", "A", SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE, first, null);
+        var b = library.createPresetFromPersonalSkin(account, "B", "B", SkinVariant.CLASSIC,
+                PersonalSkinSource.FILE, second, null);
+        assertNotEquals(a.asset().id(), b.asset().id());
+        assertEquals(2, library.load(account).personalSkins().size());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(first, Files.readAllBytes(storage.assetPath(a.asset().sha256())));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(second, Files.readAllBytes(storage.assetPath(b.asset().sha256())));
+        UUID batchAccount = UUID.randomUUID();
+        var candidates = List.of(
+                new LibraryService.PersonalSkinPresetImport("A", "A", SkinVariant.CLASSIC, PersonalSkinSource.FILE, first, null),
+                new LibraryService.PersonalSkinPresetImport("B", "B", SkinVariant.CLASSIC, PersonalSkinSource.FILE, second, null),
+                new LibraryService.PersonalSkinPresetImport("A", "A", SkinVariant.CLASSIC, PersonalSkinSource.FILE, first, null));
+        var batch = library.importPersonalSkinPresets(batchAccount, candidates);
+        assertEquals(2, batch.imported());
+        assertEquals(1, batch.alreadyPresent());
+        assertEquals(2, batch.state().skinAssets().size());
+        var repeat = library.importPersonalSkinPresets(batchAccount, candidates);
+        assertEquals(0, repeat.imported());
+        assertEquals(3, repeat.alreadyPresent());
+        assertEquals(batch.state(), repeat.state());
+    }
+
+    @Test
     void cleanLegacyReimportDoesNotReuseStoredRawBlobOrMutateOldPreset() throws Exception {
         NclSkinsStorage storage = storage();
         LibraryService library = new LibraryService(new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage), Clock.fixed(NOW, ZoneOffset.UTC));

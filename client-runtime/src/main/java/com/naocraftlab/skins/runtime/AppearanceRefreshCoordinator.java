@@ -136,16 +136,31 @@ public final class AppearanceRefreshCoordinator<P> implements AppearanceRefresh 
         if (closed || ticket != generation.get()) {
             result = Result.SUPERSEDED;
         } else if (failure != null || resolved == null || resolved.isEmpty()) {
+            diagnostics.report(DiagnosticEvent.CLIENT_APPEARANCE_ASSETS_UNAVAILABLE, DiagnosticDetails::none);
             if (failure != null) {
                 diagnose(failure);
             }
             result = invalidate(expected);
         } else {
             try {
-                PlayerAppearanceSink.ApplyResult applied = sink.apply(resolved.orElseThrow());
+                var installable = resolved.orElseThrow();
+                if ((expected.capeTexture().isPresent() || expected.localCapeCacheKey().isPresent())
+                        && installable.expectedAppearance().capeTexture().isEmpty()
+                        && installable.expectedAppearance().localCapeCacheKey().isEmpty()
+                        && (installable.expectedAppearance().skinTexture().isPresent()
+                                || installable.expectedAppearance().localSkinSha256().isPresent())) {
+                    diagnostics.report(DiagnosticEvent.CLIENT_APPEARANCE_CAPE_UNAVAILABLE, DiagnosticDetails::none);
+                }
+                PlayerAppearanceSink.ApplyResult applied = sink.apply(installable);
+                if (applied == PlayerAppearanceSink.ApplyResult.DEFERRED) {
+                    diagnostics.report(DiagnosticEvent.CLIENT_APPEARANCE_ATTACHMENT_DEFERRED, DiagnosticDetails::none);
+                } else if (applied == PlayerAppearanceSink.ApplyResult.NOT_INSTALLED) {
+                    diagnostics.report(DiagnosticEvent.CLIENT_APPEARANCE_NOT_INSTALLED, DiagnosticDetails::none);
+                }
                 result = applied == PlayerAppearanceSink.ApplyResult.UPDATED
                         ? Result.UPDATED
-                        : invalidate(expected);
+                        : invalidate(applied == PlayerAppearanceSink.ApplyResult.DEFERRED
+                                ? installable.expectedAppearance() : expected);
             } catch (RuntimeException sinkFailure) {
                 diagnose(sinkFailure);
                 result = invalidate(expected);

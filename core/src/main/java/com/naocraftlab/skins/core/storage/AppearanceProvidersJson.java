@@ -43,22 +43,33 @@ final class AppearanceProvidersJson {
     private static void mergeChannel(JsonObject original, JsonObject encoded) {
         JsonArray oldOrder = original.getAsJsonArray("order");
         JsonArray newOrder = encoded.getAsJsonArray("order");
-        List<String> known = new ArrayList<>();
-        newOrder.forEach(element -> known.add(element.getAsString()));
-        JsonArray mergedOrder = new JsonArray();
-        int nextKnown = 0;
+        List<String> serialized = new ArrayList<>();
+        newOrder.forEach(element -> serialized.add(element.getAsString()));
+        int slot = 0;
         for (JsonElement entry : oldOrder) {
             String id = entry.getAsString();
-            if (knownProvider(id)) {
-                if (nextKnown < known.size()) mergedOrder.add(known.get(nextKnown++));
-            } else {
-                mergedOrder.add(id);
+            if (!knownProvider(id) && !serialized.contains(id)) {
+                serialized.add(Math.min(slot, serialized.size()), id);
             }
+            slot++;
         }
-        while (nextKnown < known.size()) mergedOrder.add(known.get(nextKnown++));
+        JsonArray mergedOrder = new JsonArray();
+        serialized.forEach(mergedOrder::add);
         original.add("order", mergedOrder);
         encoded.entrySet().forEach(entry -> {
-            if (!entry.getKey().equals("order")) original.add(entry.getKey(), entry.getValue().deepCopy());
+            if (entry.getKey().equals("optionalProviders")) {
+                JsonObject optional = original.has("optionalProviders")
+                        ? object(original, "optionalProviders") : new JsonObject();
+                JsonObject cpm = optional.has("CPM") ? object(optional, "CPM") : new JsonObject();
+                JsonObject updated = entry.getValue().getAsJsonObject().getAsJsonObject("CPM");
+                cpm.addProperty("initialized", true);
+                if (updated.has("disabledSlot")) cpm.add("disabledSlot", updated.get("disabledSlot"));
+                else cpm.remove("disabledSlot");
+                optional.add("CPM", cpm);
+                original.add("optionalProviders", optional);
+            } else if (!entry.getKey().equals("order")) {
+                original.add(entry.getKey(), entry.getValue().deepCopy());
+            }
         });
         if (!encoded.has("desired")) original.remove("desired");
     }
@@ -74,15 +85,27 @@ final class AppearanceProvidersJson {
             boolean cape) {
         JsonObject result = new JsonObject();
         JsonArray order = new JsonArray();
-        channel.order().forEach(provider -> order.add(provider.name()));
+        channel.serializedOrder().forEach(order::add);
         result.add("order", order);
         result.addProperty("configurationRevision", channel.configurationRevision());
         result.addProperty("intentRevision", channel.intentRevision());
         result.add("offline", encodeObservation(channel.offline(), encode));
         result.add("minecraft", encodeObservation(channel.minecraft(), encode));
         if (cape) {
+            if (channel.cpmConfiguration() != null) {
+                JsonObject optional = new JsonObject();
+                JsonObject cpm = new JsonObject();
+                cpm.addProperty("initialized", true);
+                if (!channel.enabled(BuiltinProvider.CPM)
+                        && channel.cpmConfiguration().disabledSlot() != null) {
+                    cpm.addProperty("disabledSlot", channel.cpmConfiguration().disabledSlot());
+                }
+                optional.add("CPM", cpm);
+                result.add("optionalProviders", optional);
+            }
             result.add("optifine", encodeObservation(channel.optifine(), encode));
             result.add("skinmc", encodeObservation(channel.skinmc(), encode));
+            result.add("minecraftcapes", encodeObservation(channel.minecraftcapes(), encode));
         }
         if (channel.desired() != null) {
             result.add("desired", encode.apply(channel.desired()));
@@ -100,10 +123,11 @@ final class AppearanceProvidersJson {
             boolean cape) {
         JsonElement elements = root.get("order");
         if (elements == null || !elements.isJsonArray()
-                || elements.getAsJsonArray().size() > 32) {
+                || elements.getAsJsonArray().size() > 33) {
             throw new JsonParseException("Invalid provider order");
         }
         List<BuiltinProvider> order = new ArrayList<>();
+        List<String> serializedOrder = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (JsonElement element : elements.getAsJsonArray()) {
             if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
@@ -113,6 +137,7 @@ final class AppearanceProvidersJson {
             if (!id.matches("[A-Z][A-Z0-9_]{0,63}") || !seen.add(id)) {
                 throw new JsonParseException("Invalid provider ID");
             }
+            serializedOrder.add(id);
             BuiltinProvider provider;
             try {
                 provider = BuiltinProvider.valueOf(id);
@@ -123,6 +148,29 @@ final class AppearanceProvidersJson {
                 throw new JsonParseException("Provider does not support component");
             }
             order.add(provider);
+        }
+        ProviderChannel.CpmConfiguration cpmConfiguration = null;
+        if (cape && root.has("optionalProviders")) {
+            JsonObject optional = object(root, "optionalProviders");
+            if (optional.has("CPM")) {
+                JsonObject cpm = object(optional, "CPM");
+                JsonElement initialized = cpm.get("initialized");
+                if (initialized == null || !initialized.isJsonPrimitive()
+                        || !initialized.getAsJsonPrimitive().isBoolean()
+                        || !initialized.getAsBoolean()) {
+                    throw new JsonParseException("Invalid optional provider initialization");
+                }
+                Integer disabledSlot = null;
+                if (cpm.has("disabledSlot")) {
+                    long slot = number(cpm, "disabledSlot");
+                    if (slot < 0 || slot > Integer.MAX_VALUE) {
+                        throw new JsonParseException("Invalid optional provider slot");
+                    }
+                    disabledSlot = (int) slot;
+                }
+                cpmConfiguration = new ProviderChannel.CpmConfiguration(
+                        order.contains(BuiltinProvider.CPM) ? null : disabledSlot);
+            }
         }
         JsonObject delivery = object(root, "delivery");
         return new ProviderChannel<>(order,
@@ -140,7 +188,11 @@ final class AppearanceProvidersJson {
                         : ProviderObservation.unknown(),
                 cape && root.has("skinmc")
                         ? decodeObservation(object(root, "skinmc"), decode)
-                        : ProviderObservation.unknown());
+                        : ProviderObservation.unknown(),
+                ProviderObservation.unknown(),
+                cape && root.has("minecraftcapes")
+                        ? decodeObservation(object(root, "minecraftcapes"), decode)
+                        : ProviderObservation.unknown(), cpmConfiguration, serializedOrder);
     }
 
     private static <T> JsonObject encodeObservation(ProviderObservation<T> observation, Function<T, JsonObject> encode) {
@@ -176,6 +228,7 @@ final class AppearanceProvidersJson {
         JsonObject result = new JsonObject();
         result.addProperty("id", value.id());
         if (value.hasElytra() != null) result.addProperty("hasElytra", value.hasElytra());
+        if (value.capeGlint()) result.addProperty("capeGlint", true);
         value.optionalTextureCacheKey().ifPresent(key -> result.addProperty("textureCacheKey", key));
         return result;
     }
@@ -183,7 +236,8 @@ final class AppearanceProvidersJson {
     private static ProviderCape decodeCape(JsonObject root) {
         return new ProviderCape(string(root, "id"),
                 root.has("textureCacheKey") ? string(root, "textureCacheKey") : null,
-                root.has("hasElytra") ? root.get("hasElytra").getAsBoolean() : null);
+                root.has("hasElytra") ? root.get("hasElytra").getAsBoolean() : null,
+                root.has("capeGlint") && root.get("capeGlint").getAsBoolean());
     }
 
     private static JsonObject object(JsonObject root, String key) {

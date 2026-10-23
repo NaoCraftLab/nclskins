@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "com.naocraftlab.skins.compat.client.identifier.foil.prepared",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "CapturedRenderTypeMixin",
+    "CapturedPreparedTypeMixin",
+    "CapturedGeometryMixin",
+    "CapturedDrawGroupMixin",
+    "CapturedDrawMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

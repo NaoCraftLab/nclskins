@@ -3,6 +3,7 @@ package com.naocraftlab.skins.runtime;
 import com.naocraftlab.skins.core.model.AccountState;
 import com.naocraftlab.skins.core.model.PersonalCapeEntry;
 import com.naocraftlab.skins.core.png.PngValidationException;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
 import com.naocraftlab.skins.core.service.LibraryService;
 import com.naocraftlab.skins.core.service.LibraryStatePort;
 import com.naocraftlab.skins.core.service.AssetStorePort;
@@ -33,6 +34,18 @@ public final class LibraryCatalogAdapter implements CatalogAccountAccess {
             throws IOException, PngValidationException {
         requireCurrent(accountId);
         return storage.importCape(accountId, name, bytes, current -> { requireCurrent(accountId); guard.verify(current); });
+    }
+    @Override public PersonalCapeEntry importPreparedCape(UUID accountId, String name, PreparedCapeAsset prepared,
+            com.naocraftlab.skins.core.service.AccountWriteGuard guard) throws IOException, PngValidationException {
+        requireCurrent(accountId);
+        var checked = (com.naocraftlab.skins.core.service.AccountWriteGuard) current -> {
+            requireCurrent(accountId);
+            guard.verify(current);
+        };
+        if (prepared.frameCount() == 1 && prepared.width() <= 128) {
+            return storage.importCape(accountId, name, prepared.framePng(0), checked);
+        }
+        return storage.importPreparedCape(accountId, name, prepared, checked);
     }
     @Override public void requireCurrent(UUID accountId) throws IOException {
         if (!accountId.equals(currentAccountId())) throw new IOException("Account changed");

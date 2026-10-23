@@ -559,44 +559,45 @@ final class ClientRuntimeServerSignalBoundaryTest {
                 case "reconciliationKey" -> Optional.of(durable.reconciliationKey());
                 case "durableAppearance" -> Optional.of(durable);
                 case "sessionIdentity" -> currentIdentity;
-                case "reloadProviders", "refreshProviders" -> new ClientOperations.DurableAppearance(
+                case "reloadProviders" -> new ClientOperations.DurableAppearance(
                         account.accountId(), durable.intentRevision(), durable.syncStatus(),
                         durable.activePresetId(), localAppearance,
                         durable.outerLayerVisibility(), providers);
-                case "refreshProvidersWithObservation" -> new ProviderOperations.ProviderRefresh(
-                        new ClientOperations.DurableAppearance(account.accountId(), durable.intentRevision(),
-                                durable.syncStatus(), durable.activePresetId(), localAppearance,
-                                durable.outerLayerVisibility(), providers), confirmedMinecraft);
-                case "refreshOptiFineCapes" -> {
-                    if (arguments != null && arguments.length == 1) {
+                case "providerRefreshCurrent" -> ((ProviderRefreshUseCases.Scope) arguments[0]).configurationMatches(providers);
+                case "capeObservationGeneration" -> 0L;
+                case "refreshProviderSources" -> {
+                    var scope = (ProviderRefreshUseCases.Scope) arguments[0];
+                    var outcomes = new java.util.EnumMap<BuiltinProvider, ProviderRefreshResult.Outcome>(BuiltinProvider.class);
+                    if (scope.providers().contains(BuiltinProvider.MINECRAFT) && confirmedMinecraft != null && confirmedMinecraft.known())
+                        outcomes.put(BuiltinProvider.MINECRAFT, new ProviderRefreshResult.Outcome(ProviderRefreshResult.Status.CONFIRMED, confirmedMinecraft));
+                    yield new ProviderRefreshResult(scope, Optional.of(new ClientOperations.DurableAppearance(
+                            account.accountId(), durable.intentRevision(), durable.syncStatus(), durable.activePresetId(),
+                            localAppearance, durable.outerLayerVisibility(), providers)), outcomes, false);
+                }
+                case "refreshCapeProvider" -> {
+                    var provider = (BuiltinProvider) arguments[1];
+                    var completion = (Consumer<ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>>) arguments[2];
+                    if (provider == BuiltinProvider.OPTIFINE) {
                         if (refreshConfirmed) {
                             providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
                                     providers.skin(), providers.cape().observeOptifine(refreshCape));
-                            optifineObservation.accept(new CapeObservationPort.Observation(BuiltinProvider.OPTIFINE,
+                            optifineObservation.accept(new CapeObservationPort.Observation(provider,
                                     currentIdentity.profileId(), currentIdentity.profileName(),
-                                    providers.cape().configurationRevision(), null, com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshCape)));
+                                    providers.cape().configurationRevision(), null, ProviderObservation.observed(refreshCape)));
                         }
                         afterRefresh.run();
-                        ((Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>>) arguments[0])
-                                .accept(refreshConfirmed
-                                        ? com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshCape)
-                                        : null);
-                    }
-                    yield null;
-                }
-                case "refreshSkinMcCapes" -> {
-                    if (skinMcRefreshConfirmed) {
-                        providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
-                                providers.skin(), providers.cape().observeSkinmc(refreshSkinMcCape));
-                        skinMcObservation.accept(new CapeObservationPort.Observation(BuiltinProvider.SKINMC,
-                                currentIdentity.profileId(), currentIdentity.profileName(),
-                                providers.cape().configurationRevision(), null, com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshSkinMcCape)));
-                    }
-                    var completion = (Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>>) arguments[0];
-                    if (deferSkinMcCompletion) pendingSkinMcRefresh = completion;
-                    else completion.accept(skinMcRefreshConfirmed
-                            ? com.naocraftlab.skins.core.provider.ProviderObservation.observed(refreshSkinMcCape)
-                            : null);
+                        completion.accept(refreshConfirmed ? ProviderObservation.observed(refreshCape) : null);
+                    } else if (provider == BuiltinProvider.SKINMC) {
+                        if (skinMcRefreshConfirmed) {
+                            providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(
+                                    providers.skin(), providers.cape().observeSkinmc(refreshSkinMcCape));
+                            skinMcObservation.accept(new CapeObservationPort.Observation(provider,
+                                    currentIdentity.profileId(), currentIdentity.profileName(),
+                                    providers.cape().configurationRevision(), null, ProviderObservation.observed(refreshSkinMcCape)));
+                        }
+                        if (deferSkinMcCompletion) pendingSkinMcRefresh = completion;
+                        else completion.accept(skinMcRefreshConfirmed ? ProviderObservation.observed(refreshSkinMcCape) : null);
+                    } else completion.accept(null);
                     yield null;
                 }
                 case "onCapeObservation" -> {

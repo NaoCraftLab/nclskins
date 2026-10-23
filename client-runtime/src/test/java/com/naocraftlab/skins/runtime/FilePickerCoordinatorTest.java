@@ -18,6 +18,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class FilePickerCoordinatorTest {
     @Test
+    void actualContentNotSuffixDeterminesImportPurpose(@TempDir Path directory) throws Exception {
+        Path png = Files.copy(Path.of("../core/src/test/resources/cpm/classic-a.png"), directory.resolve("skin.cpmproject"));
+        Path model = Files.copy(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"), directory.resolve("model.png"));
+        var picker = new FilePickerCoordinator(Runnable::run);
+        assertEquals(Optional.of(png.toAbsolutePath()), picker.choose(() -> Optional.of(png)).join());
+        assertEquals(Optional.of(model.toAbsolutePath()), picker.chooseSkinImport(() -> Optional.of(model)).join());
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(CompletionException.class,
+                () -> picker.choose(() -> Optional.of(model)).join());
+        assertInstanceOf(com.naocraftlab.skins.client.FilePicker.InvalidSelection.class, failure.getCause());
+    }
+
+    @Test
+    void cancelledModelPickerConsumerDoesNotReleaseNativeDialogGuard(@TempDir Path directory) throws Exception {
+        var picker=new FilePickerCoordinator(Runnable::run);
+        var nativeResult=new CompletableFuture<Optional<Path>>();
+        var selected=picker.chooseSkinImportAsync(()->nativeResult,Runnable::run);
+        assertTrue(selected.cancel(false));
+        assertTrue(picker.choose(Optional::empty).isCompletedExceptionally());
+        Path model=Files.copy(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"),directory.resolve("fixture.CPMMODEL"));
+        nativeResult.complete(Optional.of(model));
+        assertEquals(Optional.empty(),picker.choose(Optional::empty).join());
+        assertEquals(Optional.of(model.toAbsolutePath()),picker.chooseSkinImport(()->Optional.of(model)).join());
+        assertTrue(picker.choose(()->Optional.of(model)).isCompletedExceptionally());
+        assertTrue(picker.chooseCape(()->Optional.of(model)).isCompletedExceptionally());
+        Path project=Files.write(directory.resolve("fixture.cpmproject"),new byte[]{1});
+        assertTrue(picker.chooseSkinImport(()->Optional.of(project)).isCompletedExceptionally());
+    }
+
+    @Test
     void asynchronousDialogStartsOnRequestedExecutorAndRetainsSingleDialogGuard(
             @TempDir Path directory) throws Exception {
         QueuedExecutor worker = new QueuedExecutor();
@@ -145,6 +174,46 @@ final class FilePickerCoordinatorTest {
                 CompletionException.class, invalid::join);
         assertInstanceOf(IllegalStateException.class, failure.getCause());
         assertTrue(failure.getCause().getCause() instanceof IllegalArgumentException);
+    }
+
+    @Test
+    void rejectedModelSelectionIsSanitizedWithoutBecomingAcceptedPng(@TempDir Path directory) throws Exception {
+        Path model = Files.copy(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"),directory.resolve("private-name.CPMMODEL"));
+        var picker = new FilePickerCoordinator(Runnable::run);
+        for (boolean async : List.of(false, true)) {
+            var selected = async ? picker.chooseAsync(
+                    () -> CompletableFuture.completedFuture(Optional.of(model)), Runnable::run)
+                    : picker.choose(() -> Optional.of(model));
+            CompletionException failure = org.junit.jupiter.api.Assertions.assertThrows(CompletionException.class, selected::join);
+            var rejected = assertInstanceOf(com.naocraftlab.skins.client.FilePicker.InvalidSelection.class, failure.getCause());
+            assertEquals(com.naocraftlab.skins.client.FilePicker.InvalidSelection.Reason.MODEL_NOT_ALLOWED, rejected.reason());
+            assertEquals("MODEL_NOT_ALLOWED", rejected.getMessage());
+            assertEquals(null, rejected.getCause());
+            assertEquals(0, rejected.getSuppressed().length);
+            assertEquals(Optional.empty(), picker.choose(Optional::empty).join());
+            assertEquals(Optional.of(model.toAbsolutePath()), picker.chooseSkinImport(() -> Optional.of(model)).join());
+            assertTrue(picker.chooseCape(() -> Optional.of(model)).isCompletedExceptionally());
+        }
+    }
+
+    @Test
+    void nativeAndSchedulingFailuresRemainPickerFailuresAndReleaseGuard() {
+        var picker = new FilePickerCoordinator(Runnable::run);
+        for (boolean async : List.of(false, true)) {
+            var nativeFailure = async ? picker.chooseAsync(() -> { throw new UnsatisfiedLinkError("synthetic"); }, Runnable::run)
+                    : picker.choose(() -> { throw new UnsatisfiedLinkError("synthetic"); });
+            CompletionException failure = org.junit.jupiter.api.Assertions.assertThrows(CompletionException.class, nativeFailure::join);
+            assertInstanceOf(IllegalStateException.class, failure.getCause());
+            assertInstanceOf(UnsatisfiedLinkError.class, failure.getCause().getCause());
+            assertEquals(Optional.empty(), picker.choose(Optional::empty).join());
+            Executor rejecting = command -> { throw new java.util.concurrent.RejectedExecutionException("synthetic"); };
+            var scheduled = async ? picker.chooseAsync(() -> CompletableFuture.completedFuture(Optional.empty()), rejecting)
+                    : new FilePickerCoordinator(rejecting).choose(Optional::empty);
+            CompletionException rejected = org.junit.jupiter.api.Assertions.assertThrows(CompletionException.class, scheduled::join);
+            assertInstanceOf(IllegalStateException.class, rejected.getCause());
+            assertInstanceOf(java.util.concurrent.RejectedExecutionException.class, rejected.getCause().getCause());
+            assertEquals(Optional.empty(), picker.choose(Optional::empty).join());
+        }
     }
 
     private static final class QueuedExecutor implements Executor {

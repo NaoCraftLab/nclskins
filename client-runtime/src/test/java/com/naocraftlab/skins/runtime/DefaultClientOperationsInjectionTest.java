@@ -34,7 +34,8 @@ final class DefaultClientOperationsInjectionTest {
         var clock = Clock.systemUTC();
         var library = new LibraryService(state, assets, clock);
         SkinCatalogSource sources = (collection, skin, model) -> { throw new AssertionError("catalog accessed"); };
-        var prepared = new PreparedCatalogService(sources, unused(CatalogAccountAccess.class));
+        var prepared = new PreparedCatalogService(sources, unused(CatalogAccountAccess.class),
+                new FileCapeStaging());
         var imports = unused(PublicSkinImports.class);
         var external = new ExternalAppearanceImportService(unused(ExternalImportSourceAccess.class), prepared,
                 unused(ExternalImportCommit.class));

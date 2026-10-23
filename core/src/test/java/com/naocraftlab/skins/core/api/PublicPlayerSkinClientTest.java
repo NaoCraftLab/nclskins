@@ -45,6 +45,21 @@ final class PublicPlayerSkinClientTest {
     }
 
     @Test
+    void publicProfileJsonKeepsItsSmallLimitBeforeVerification() throws Exception {
+        AtomicInteger verifications = new AtomicInteger();
+        try (Fixture fixture = new Fixture("a".repeat(64 * 1024))) {
+            var client = fixture.client((value, signature) -> {
+                verifications.incrementAndGet();
+                return Optional.of(value);
+            });
+            assertEquals(PublicSkinImportException.Code.PROFILE_REJECTED,
+                    assertThrows(PublicSkinImportException.class, () -> client.lookup(ID)).code());
+            assertEquals(0, verifications.get());
+            assertEquals(1, fixture.sessionCalls.get());
+        }
+    }
+
+    @Test
     void rejectsTexturePayloadWhenNativeSignatureVerificationFails() throws Exception {
         String payload = Base64.getEncoder().encodeToString(("""
                 {"profileId":"%s","profileName":"Player","textures":{}}

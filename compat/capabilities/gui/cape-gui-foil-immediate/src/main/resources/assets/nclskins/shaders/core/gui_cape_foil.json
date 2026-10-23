@@ -1,0 +1,13 @@
+{
+  "blend": {"func": "add", "srcrgb": "srcalpha", "dstrgb": "1-srcalpha"},
+  "vertex": "nclskins:gui_cape_foil",
+  "fragment": "nclskins:gui_cape_foil",
+  "attributes": ["Position", "UV0", "Color"],
+  "samplers": [{"name": "Sampler0"}, {"name": "Sampler1"}],
+  "uniforms": [
+    {"name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]},
+    {"name": "ProjMat", "type": "matrix4x4", "count": 16, "values": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]},
+    {"name": "ColorModulator", "type": "float", "count": 4, "values": [1, 1, 1, 1]},
+    {"name": "FoilTime", "type": "float", "count": 1, "values": [0]}
+  ]
+}

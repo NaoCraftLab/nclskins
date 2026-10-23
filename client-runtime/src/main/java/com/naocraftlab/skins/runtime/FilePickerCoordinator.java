@@ -1,5 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.client.FilePicker;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -24,6 +26,14 @@ public final class FilePickerCoordinator {
 
     public CompletableFuture<Optional<Path>> chooseCape(Dialog dialog) {
         return choose(dialog, SelectionType.CAPE);
+    }
+
+    public CompletableFuture<Optional<Path>> chooseSkinImport(Dialog dialog) {
+        return choose(dialog, SelectionType.SKIN_IMPORT);
+    }
+
+    public CompletableFuture<Optional<Path>> chooseSkinImportAsync(AsyncDialog dialog, Executor starter) {
+        return chooseAsync(dialog, SelectionType.SKIN_IMPORT, starter);
     }
 
     public CompletableFuture<Optional<Path>> chooseDirectory(Dialog dialog) {
@@ -75,6 +85,8 @@ public final class FilePickerCoordinator {
             return CompletableFuture.supplyAsync(() -> {
                 try {
                     return validate(dialog.open(), selectionType);
+                } catch (FilePicker.InvalidSelection invalidSelection) {
+                    throw invalidSelection;
                 } catch (LinkageError | RuntimeException failure) {
                     throw new IllegalStateException(
                             pickerUnavailable(selectionType),
@@ -125,6 +137,8 @@ public final class FilePickerCoordinator {
                         } else {
                             result.complete(validate(selection, selectionType));
                         }
+                    } catch (FilePicker.InvalidSelection invalidSelection) {
+                        result.completeExceptionally(invalidSelection);
                     } catch (LinkageError | RuntimeException validationFailure) {
                         result.completeExceptionally(new IllegalStateException(
                                 pickerUnavailable(selectionType), validationFailure));
@@ -152,12 +166,26 @@ public final class FilePickerCoordinator {
             if (!Files.isDirectory(path)) {
                 throw new IllegalArgumentException("The selected path is not a local directory");
             }
-        } else if (selectionType == SelectionType.PNG || selectionType == SelectionType.CAPE) {
+        } else if (selectionType == SelectionType.PNG || selectionType == SelectionType.CAPE
+                || selectionType == SelectionType.SKIN_IMPORT) {
             Path fileName = path.getFileName();
             String name = fileName == null ? "" : fileName.toString().toLowerCase(Locale.ROOT);
+            byte[] prefix = new byte[0];
+            if (Files.isRegularFile(path)) {
+                try (var input = Files.newInputStream(path)) { prefix = input.readNBytes(8); }
+                catch (java.io.IOException failure) { throw new IllegalStateException("Selected file is unavailable", failure); }
+            }
+            boolean png = java.util.Arrays.equals(prefix, new byte[]{(byte)137,80,78,71,13,10,26,10});
+            boolean model = prefix.length > 0 && prefix[0] == 83;
+            boolean project = prefix.length >= 4 && prefix[0] == 80 && prefix[1] == 75 && prefix[2] == 3 && prefix[3] == 4;
+            if (selectionType == SelectionType.PNG && (model || project)) {
+                throw new FilePicker.InvalidSelection(FilePicker.InvalidSelection.Reason.MODEL_NOT_ALLOWED);
+            }
             if (!Files.isRegularFile(path)
-                    || !(name.endsWith(".png") || selectionType == SelectionType.CAPE
-                    && (name.endsWith(".jpg") || name.endsWith(".jpeg")))) {
+                    || !(png || name.endsWith(".png") && !model && !project
+                    || selectionType == SelectionType.SKIN_IMPORT && (model || project)
+                    || selectionType == SelectionType.CAPE && !model && !project
+                    && (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".gif")))) {
                 throw new IllegalArgumentException("The selected file is not a supported local image");
             }
         } else if (!Files.isRegularFile(path)
@@ -171,6 +199,7 @@ public final class FilePickerCoordinator {
     private static String pickerUnavailable(SelectionType type) {
         return switch (type) {
             case PNG -> "The system PNG picker is unavailable";
+            case SKIN_IMPORT -> "The system skin file picker is unavailable";
             case CAPE -> "The system cape picker is unavailable";
             case DIRECTORY -> "The system directory picker is unavailable";
             case SQLITE_DATABASE -> "The system SQLite database picker is unavailable";
@@ -180,6 +209,7 @@ public final class FilePickerCoordinator {
     private static String pickerCouldNotStart(SelectionType type) {
         return switch (type) {
             case PNG -> "The system PNG picker could not be started";
+            case SKIN_IMPORT -> "The system skin file picker could not be started";
             case CAPE -> "The system cape picker could not be started";
             case DIRECTORY -> "The system directory picker could not be started";
             case SQLITE_DATABASE -> "The system SQLite database picker could not be started";
@@ -187,6 +217,7 @@ public final class FilePickerCoordinator {
     }
 
     private enum SelectionType {
+        SKIN_IMPORT,
         PNG,
         CAPE,
         DIRECTORY,

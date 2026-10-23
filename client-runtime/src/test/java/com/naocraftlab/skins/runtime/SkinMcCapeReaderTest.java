@@ -1,7 +1,9 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.CapeAssetDecoder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -9,6 +11,8 @@ import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -32,23 +36,170 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SkinMcCapeReaderTest {
     private static final UUID PROFILE = UUID.fromString("12345678-1234-1234-1234-123456789abc");
+    @TempDir Path scratch;
+
+    @Test
+    void preparedDirectImageUsesFileStageWithoutSecondHop() throws Exception {
+        byte[] png = image("png");
+        AtomicInteger secondCalls = new AtomicInteger();
+        OptifineCapeReader.Transport first = new OptifineCapeReader.Transport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri, Duration timeout,
+                    long maxBytes, Path destination) {
+                throw new AssertionError("prepared read used byte-array transport");
+            }
+            @Override public OptifineCapeReader.Response getSkinMcCapeToFile(UUID profileId,
+                    URI canonical, URI wire, long freshness, Duration timeout, long maxBytes,
+                    Path destination) throws java.io.IOException {
+                assertEquals(CapeAssetDecoder.MAX_ENCODED_BYTES, maxBytes);
+                Files.write(destination, png);
+                return response(200, new byte[0], Map.of());
+            }
+        };
+        SkinMcCapeReader.ImageTransport second = (uri, timeout, maxBytes, destination) -> {
+            secondCalls.incrementAndGet();
+            throw new AssertionError("direct image started second hop");
+        };
+        var reader = new SkinMcCapeReader(first, second, new CapeAssetDecoder(), scratch, Clock.systemUTC(), System::nanoTime);
+
+        var result = reader.read(PROFILE);
+        assertEquals(SkinMcCapeReader.Kind.PRESENT, result.kind());
+        assertEquals(new PngValidator().projectImportedCape(png).renderSha256(),
+                result.asset().visualSha256());
+        assertEquals(0, secondCalls.get());
+        try (var staged = Files.list(scratch)) {
+            assertEquals(List.of(result.asset().backing()), staged.toList());
+        }
+        Files.delete(result.asset().backing());
+    }
+
+    @Test
+    void preparedJsonUsesOneBoundedImageFileHop() throws Exception {
+        byte[] png = image("png");
+        byte[] json = "{\"url\":\"https://cdn.example.net/a.png\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        OptifineCapeReader.Transport first = new OptifineCapeReader.Transport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri, Duration timeout,
+                    long maxBytes, Path destination) {
+                throw new AssertionError("prepared read used byte-array transport");
+            }
+            @Override public OptifineCapeReader.Response getSkinMcCapeToFile(UUID profileId,
+                    URI canonical, URI wire, long freshness, Duration timeout, long maxBytes,
+                    Path destination) {
+                return response(200, json, Map.of());
+            }
+        };
+        AtomicInteger secondCalls = new AtomicInteger();
+        SkinMcCapeReader.ImageTransport second = new SkinMcCapeReader.ImageTransport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri,
+                    Duration timeout, long maxBytes, Path destination) throws java.io.IOException {
+                secondCalls.incrementAndGet();
+                assertEquals(URI.create("https://cdn.example.net/a.png"), uri);
+                assertEquals(CapeAssetDecoder.MAX_ENCODED_BYTES, maxBytes);
+                Files.write(destination, png);
+                return new OptifineCapeReader.FileResponse(200, png.length, Map.of());
+            }
+        };
+        var reader = new SkinMcCapeReader(first, second, new CapeAssetDecoder(), scratch, Clock.systemUTC(), System::nanoTime);
+
+        var result = reader.read(PROFILE);
+        assertEquals(SkinMcCapeReader.Kind.PRESENT, result.kind());
+        assertEquals(1, secondCalls.get());
+        assertEquals(64, result.asset().width());
+        try (var staged = Files.list(scratch)) {
+            assertEquals(List.of(result.asset().backing()), staged.toList());
+        }
+        Files.delete(result.asset().backing());
+    }
+
+    @Test
+    void preparedSecondHopRateLimitBlocksNewLookup() {
+        byte[] json = "{\"url\":\"https://cdn.example.net/a.png\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        AtomicInteger lookups = new AtomicInteger();
+        OptifineCapeReader.Transport first = new OptifineCapeReader.Transport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri, Duration timeout,
+                    long maxBytes, Path destination) {
+                throw new AssertionError("prepared read used byte-array transport");
+            }
+            @Override public OptifineCapeReader.Response getSkinMcCapeToFile(UUID profileId,
+                    URI canonical, URI wire, long freshness, Duration timeout, long maxBytes,
+                    Path destination) {
+                lookups.incrementAndGet();
+                return response(200, json, Map.of());
+            }
+        };
+        SkinMcCapeReader.ImageTransport second = new SkinMcCapeReader.ImageTransport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri,
+                    Duration timeout, long maxBytes, Path destination) {
+                return new OptifineCapeReader.FileResponse(429, 0,
+                        Map.of("Retry-After", List.of("120")));
+            }
+        };
+        var reader = new SkinMcCapeReader(first, second, new CapeAssetDecoder(), scratch, Clock.systemUTC(), System::nanoTime);
+        assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
+        assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
+        assertEquals(1, lookups.get());
+    }
+
+    @Test
+    void fileSubscriberRejectsOversizedJsonBeforeTextureAllowance() throws Exception {
+        var body = OptifineCapeReader.HttpTransport.skinMcFileBody(
+                CapeAssetDecoder.MAX_ENCODED_BYTES, scratch.resolve("first.encoded"));
+        AtomicInteger cancelled = new AtomicInteger();
+        body.onSubscribe(new Flow.Subscription() {
+            @Override public void request(long count) {}
+            @Override public void cancel() { cancelled.incrementAndGet(); }
+        });
+        body.onNext(List.of(ByteBuffer.wrap(("{\"pad\":\"" + "x".repeat(2048))
+                .getBytes(StandardCharsets.UTF_8))));
+        assertThrows(ExecutionException.class, () -> body.getBody().toCompletableFuture().get());
+        assertEquals(1, cancelled.get());
+        assertTrue(Files.notExists(scratch.resolve("first.encoded")));
+    }
+
+    @Test
+    void fileSubscriberStreamsImageAtInclusiveLimitAndRejectsNextByte() throws Exception {
+        byte[] png = image("png");
+        Path accepted = scratch.resolve("accepted.encoded");
+        var exact = OptifineCapeReader.HttpTransport.skinMcFileBody(png.length, accepted);
+        exact.onSubscribe(new Flow.Subscription() {
+            @Override public void request(long count) {}
+            @Override public void cancel() { throw new AssertionError("exact size cancelled"); }
+        });
+        exact.onNext(List.of(ByteBuffer.wrap(png, 0, 3), ByteBuffer.wrap(png, 3, png.length - 3)));
+        exact.onComplete();
+        assertEquals(0, exact.getBody().toCompletableFuture().get().length);
+        assertTrue(java.util.Arrays.equals(png, Files.readAllBytes(accepted)));
+
+        Path oversized = scratch.resolve("oversized.encoded");
+        var plusOne = OptifineCapeReader.HttpTransport.skinMcFileBody(png.length - 1, oversized);
+        AtomicInteger cancelled = new AtomicInteger();
+        plusOne.onSubscribe(new Flow.Subscription() {
+            @Override public void request(long count) {}
+            @Override public void cancel() { cancelled.incrementAndGet(); }
+        });
+        plusOne.onNext(List.of(ByteBuffer.wrap(png)));
+        assertThrows(ExecutionException.class, () -> plusOne.getBody().toCompletableFuture().get());
+        assertEquals(1, cancelled.get());
+        assertTrue(Files.size(oversized) < png.length);
+    }
 
     @Test
     void directPngAndJpegUseOnlyFixedPublicEndpointAndCanonicalCape() throws Exception {
         for (String format : List.of("png", "jpeg")) {
             byte[] image = image(format);
             AtomicReference<URI> requested = new AtomicReference<>();
-            var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
                 requested.set(uri);
                 assertEquals(Duration.ofSeconds(10), timeout);
-                assertEquals(PngValidator.DEFAULT_MAX_BYTES, maxBytes);
+                assertEquals(CapeAssetDecoder.MAX_ENCODED_BYTES, maxBytes);
                 return response(200, image, Map.of("Content-Type", List.of("image/" + format)));
-            }, new PngValidator(), Clock.systemUTC());
+            }), scratch, Clock.systemUTC());
             var outcome = reader.read(PROFILE);
             assertEquals(SkinMcCapeReader.Kind.PRESENT, outcome.kind());
             assertFreshWire(requested.get(), PROFILE);
-            assertTrue(outcome.cape().bytes().length > 0);
-            if (format.equals("jpeg")) assertTrue(outcome.cape().hasElytra());
+            assertTrue(Files.exists(outcome.asset().backing()));
+            if (format.equals("jpeg")) assertTrue(outcome.asset().hasElytra());
         }
     }
 
@@ -85,9 +236,6 @@ class SkinMcCapeReaderTest {
         assertEquals(SkinMcCapeReader.Kind.PRESENT,
                 reader(response(200, image("png"), Map.of("Content-Type", List.of("text/html"))))
                         .read(PROFILE).kind());
-        assertEquals(SkinMcCapeReader.Failure.OVERSIZED,
-                reader(response(200, new byte[PngValidator.DEFAULT_MAX_BYTES + 1],
-                        Map.of("Content-Type", List.of("image/png")))).read(PROFILE).failure());
     }
 
     @Test
@@ -95,7 +243,7 @@ class SkinMcCapeReaderTest {
         MutableClock clock = new MutableClock();
         List<URI> requested = new ArrayList<>();
         byte[] png = image("png");
-        var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             requested.add(uri);
             return switch (requested.size()) {
                 case 1, 5 -> response(200, png, Map.of("Content-Type", List.of("image/png")));
@@ -104,7 +252,7 @@ class SkinMcCapeReaderTest {
                 case 4 -> response(429, new byte[0], Map.of("Retry-After", List.of("120")));
                 default -> throw new AssertionError("Unexpected physical read");
             };
-        }, new PngValidator(), clock);
+        }), scratch, clock);
         assertEquals(SkinMcCapeReader.Kind.PRESENT, reader.read(PROFILE).kind());
         assertEquals(SkinMcCapeReader.Kind.ABSENT, reader.read(PROFILE).kind());
         assertEquals(SkinMcCapeReader.Kind.ABSENT, reader.read(PROFILE).kind());
@@ -127,11 +275,11 @@ class SkinMcCapeReaderTest {
         for (String url : List.of("http://skinmc.net/image.png", "https://127.0.0.1/a.png",
                 "https://user@skinmc.net/a.png", "https://skinmc.net/a.png#fragment")) {
             AtomicInteger requests = new AtomicInteger();
-            var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
                 requests.incrementAndGet();
                 return response(200, ("{\"url\":\"" + url + "\"}").getBytes(StandardCharsets.UTF_8),
                         Map.of("Content-Type", List.of("application/json")));
-            }, new PngValidator(), Clock.systemUTC());
+            }), scratch, Clock.systemUTC());
             var outcome = reader.read(PROFILE);
             assertEquals(SkinMcCapeReader.Kind.FAILURE, outcome.kind());
             assertEquals(1, requests.get());
@@ -151,10 +299,10 @@ class SkinMcCapeReaderTest {
                 Map.of("Retry-After", List.of("invalid")))) {
             MutableClock clock = new MutableClock();
             AtomicInteger requests = new AtomicInteger();
-            var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+            var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
                 requests.incrementAndGet();
                 return response(429, new byte[0], headers);
-            }, new PngValidator(), clock);
+            }), scratch, clock);
             assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
             assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
             assertEquals(1, requests.get());
@@ -162,11 +310,11 @@ class SkinMcCapeReaderTest {
         }
         MutableClock clock = new MutableClock();
         AtomicInteger requests = new AtomicInteger();
-        var quota = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var quota = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             requests.incrementAndGet();
             return response(404, new byte[0], Map.of("X-RateLimit-Remaining", List.of("0"),
                     "X-RateLimit-Reset", List.of("1790330520")));
-        }, new PngValidator(), clock);
+        }), scratch, clock);
         quota.read(PROFILE);
         quota.read(PROFILE);
         assertEquals(1, requests.get());
@@ -179,10 +327,10 @@ class SkinMcCapeReaderTest {
     void accountChangeKeepsDeadlineAndRejectsOldAdmission() {
         MutableClock clock = new MutableClock();
         AtomicInteger requests = new AtomicInteger();
-        var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             requests.incrementAndGet();
             return response(429, new byte[0], Map.of("Retry-After", List.of("120")));
-        }, new PngValidator(), clock);
+        }), scratch, clock);
         long oldEpoch = reader.accountEpoch();
         reader.read(PROFILE, oldEpoch);
         reader.accountChanged();
@@ -201,13 +349,13 @@ class SkinMcCapeReaderTest {
         MutableClock clock = new MutableClock();
         AtomicInteger requests = new AtomicInteger();
         AtomicReference<SkinMcCapeReader> current = new AtomicReference<>();
-        var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             if (requests.incrementAndGet() == 1) {
                 current.get().accountChanged();
                 return response(429, new byte[0], Map.of("Retry-After", List.of("86400")));
             }
             return response(404, new byte[0], Map.of());
-        }, new PngValidator(), clock);
+        }), scratch, clock);
         current.set(reader);
         assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
         assertTrue(reader.cooldownRemaining().isEmpty());
@@ -223,17 +371,17 @@ class SkinMcCapeReaderTest {
                 + "\"data\":{\"nested\":[{\"texture\":\"" + signed + "\"}]}}";
         AtomicInteger firstCalls = new AtomicInteger();
         AtomicInteger secondCalls = new AtomicInteger();
-        var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             firstCalls.incrementAndGet();
             assertFreshWire(uri, PROFILE);
             return response(200, json.getBytes(StandardCharsets.UTF_8), Map.of());
-        }, (uri, timeout, maxBytes) -> {
+        }), second((uri, timeout, maxBytes) -> {
             secondCalls.incrementAndGet();
             assertEquals(signed, uri);
             assertEquals("sig=a%2Fb&expiry=42", uri.getRawQuery());
-            assertEquals(PngValidator.DEFAULT_MAX_BYTES, maxBytes);
+            assertEquals(CapeAssetDecoder.MAX_ENCODED_BYTES, maxBytes);
             return response(200, png, Map.of("Content-Type", List.of("application/octet-stream")));
-        }, new PngValidator(), Clock.systemUTC(), System::nanoTime);
+        }), scratch, Clock.systemUTC(), System::nanoTime);
         assertEquals(SkinMcCapeReader.Kind.PRESENT, reader.read(PROFILE).kind());
         assertEquals(1, firstCalls.get());
         assertEquals(1, secondCalls.get());
@@ -251,12 +399,11 @@ class SkinMcCapeReaderTest {
                 "[" + "0,".repeat(129) + "0]");
         for (String document : documents) {
             AtomicInteger secondCalls = new AtomicInteger();
-            var reader = new SkinMcCapeReader((uri, timeout, maxBytes) ->
-                    response(200, document.getBytes(StandardCharsets.UTF_8), Map.of()),
-                    (uri, timeout, maxBytes) -> {
+            var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) ->
+                    response(200, document.getBytes(StandardCharsets.UTF_8), Map.of())), second((uri, timeout, maxBytes) -> {
                         secondCalls.incrementAndGet();
                         throw new AssertionError("invalid JSON reached image transport");
-                    }, new PngValidator(), Clock.systemUTC(), System::nanoTime);
+                    }), scratch, Clock.systemUTC(), System::nanoTime);
             assertEquals(SkinMcCapeReader.Failure.INVALID_JSON, reader.read(PROFILE).failure(), document);
             assertEquals(0, secondCalls.get());
         }
@@ -268,24 +415,22 @@ class SkinMcCapeReaderTest {
         byte[] png = image("png");
         for (int status : List.of(204, 404, 302, 500)) {
             AtomicInteger secondCalls = new AtomicInteger();
-            var reader = new SkinMcCapeReader((uri, timeout, maxBytes) ->
-                    response(200, json.getBytes(StandardCharsets.UTF_8), Map.of()),
-                    (uri, timeout, maxBytes) -> {
+            var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) ->
+                    response(200, json.getBytes(StandardCharsets.UTF_8), Map.of())), second((uri, timeout, maxBytes) -> {
                         secondCalls.incrementAndGet();
                         return response(status, png, Map.of("Location", List.of("https://elsewhere/a")));
-                    }, new PngValidator(), Clock.systemUTC(), System::nanoTime);
+                    }), scratch, Clock.systemUTC(), System::nanoTime);
             assertEquals(SkinMcCapeReader.Failure.HTTP, reader.read(PROFILE).failure());
             assertEquals(1, secondCalls.get());
         }
         for (byte[] payload : List.of(json.getBytes(StandardCharsets.UTF_8),
                 "<html>".getBytes(StandardCharsets.UTF_8), new byte[]{(byte) 0xff, (byte) 0xd8, (byte) 0xff})) {
             AtomicInteger secondCalls = new AtomicInteger();
-            var reader = new SkinMcCapeReader((uri, timeout, maxBytes) ->
-                    response(200, json.getBytes(StandardCharsets.UTF_8), Map.of()),
-                    (uri, timeout, maxBytes) -> {
+            var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) ->
+                    response(200, json.getBytes(StandardCharsets.UTF_8), Map.of())), second((uri, timeout, maxBytes) -> {
                         secondCalls.incrementAndGet();
                         return response(200, payload, Map.of());
-                    }, new PngValidator(), Clock.systemUTC(), System::nanoTime);
+                    }), scratch, Clock.systemUTC(), System::nanoTime);
             assertEquals(SkinMcCapeReader.Failure.INVALID_IMAGE, reader.read(PROFILE).failure());
             assertEquals(1, secondCalls.get());
         }
@@ -298,20 +443,20 @@ class SkinMcCapeReaderTest {
         AtomicInteger firstCalls = new AtomicInteger();
         AtomicInteger secondCalls = new AtomicInteger();
         byte[] png = image("png");
-        var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             firstCalls.incrementAndGet();
             return response(200, json, Map.of());
-        }, (uri, timeout, maxBytes) -> {
+        }), second((uri, timeout, maxBytes) -> {
             secondCalls.incrementAndGet();
             return response(429, png, Map.of("Retry-After", List.of("120")));
-        }, new PngValidator(), clock, System::nanoTime);
+        }), scratch, clock, System::nanoTime);
         assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
         assertEquals(Duration.ofSeconds(120), reader.cooldownRemaining().orElseThrow());
         assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
         assertEquals(1, firstCalls.get());
         assertEquals(1, secondCalls.get());
-        var optifine = new OptifineCapeReader((uri, timeout, maxBytes) ->
-                response(404, new byte[0], Map.of()), new PngValidator(), clock);
+        var optifine = new OptifineCapeReader((uri, timeout, maxBytes, destination) ->
+                new OptifineCapeReader.FileResponse(404, 0, Map.of()), scratch, clock);
         assertEquals(OptifineCapeReader.Kind.ABSENT, optifine.read("Example").kind());
     }
 
@@ -328,10 +473,8 @@ class SkinMcCapeReaderTest {
         for (int index = 0; index < headers.size(); index++) {
             MutableClock clock = new MutableClock();
             Map<String, List<String>> current = headers.get(index);
-            var reader = new SkinMcCapeReader((uri, timeout, maxBytes) ->
-                    response(200, json, Map.of()),
-                    (uri, timeout, maxBytes) -> response(429, new byte[0], current),
-                    new PngValidator(), clock, System::nanoTime);
+            var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) ->
+                    response(200, json, Map.of())), second((uri, timeout, maxBytes) -> response(429, new byte[0], current)), scratch, clock, System::nanoTime);
             assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
             assertEquals(Duration.ofSeconds(index == 3 ? 60 : 120),
                     reader.cooldownRemaining().orElseThrow());
@@ -347,16 +490,16 @@ class SkinMcCapeReaderTest {
         AtomicInteger firstCalls = new AtomicInteger();
         AtomicInteger imageCalls = new AtomicInteger();
         List<URI> firstUris = new ArrayList<>();
-        var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             firstUris.add(uri);
             return firstCalls.incrementAndGet() == 1
                     ? response(200, json, Map.of("X-RateLimit-Remaining", List.of("0"),
                             "X-RateLimit-Reset", List.of("1790330520")))
                     : response(200, json, Map.of());
-        }, (uri, timeout, maxBytes) -> {
+        }), second((uri, timeout, maxBytes) -> {
             imageCalls.incrementAndGet();
             return response(200, png, Map.of());
-        }, new PngValidator(), clock, System::nanoTime);
+        }), scratch, clock, System::nanoTime);
 
         assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
         assertEquals(Duration.ofSeconds(120), reader.cooldownRemaining().orElseThrow());
@@ -377,13 +520,13 @@ class SkinMcCapeReaderTest {
         byte[] json = "{\"url\":\"https://cdn.example.net/a.png\"}".getBytes(StandardCharsets.UTF_8);
         AtomicReference<SkinMcCapeReader> current = new AtomicReference<>();
         AtomicInteger imageCalls = new AtomicInteger();
-        var reader = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var reader = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             current.get().accountChanged();
             return response(200, json, Map.of());
-        }, (uri, timeout, maxBytes) -> {
+        }), second((uri, timeout, maxBytes) -> {
             imageCalls.incrementAndGet();
             return response(404, new byte[0], Map.of());
-        }, new PngValidator(), Clock.systemUTC(), System::nanoTime);
+        }), scratch, Clock.systemUTC(), System::nanoTime);
         current.set(reader);
 
         assertEquals(SkinMcCapeReader.Failure.RATE_LIMITED, reader.read(PROFILE).failure());
@@ -394,42 +537,82 @@ class SkinMcCapeReaderTest {
     void chainDeadlineAndSecondBodyLimitAreEnforced() {
         byte[] json = "{\"url\":\"https://cdn.example.net/a.png\"}".getBytes(StandardCharsets.UTF_8);
         AtomicLong now = new AtomicLong();
-        var late = new SkinMcCapeReader((uri, timeout, maxBytes) -> {
+        var late = new SkinMcCapeReader(first((uri, timeout, maxBytes) -> {
             now.addAndGet(Duration.ofSeconds(19).toNanos());
             return response(200, json, Map.of());
-        }, (uri, timeout, maxBytes) -> {
+        }), second((uri, timeout, maxBytes) -> {
             assertEquals(Duration.ofSeconds(1), timeout);
             now.addAndGet(Duration.ofSeconds(2).toNanos());
             return response(200, new byte[0], Map.of());
-        }, new PngValidator(), Clock.systemUTC(), now::get);
+        }), scratch, Clock.systemUTC(), now::get);
         assertEquals(SkinMcCapeReader.Failure.NETWORK, late.read(PROFILE).failure());
-        var oversized = new SkinMcCapeReader((uri, timeout, maxBytes) ->
-                response(200, json, Map.of()),
-                (uri, timeout, maxBytes) -> {
-                    assertEquals(128, maxBytes);
-                    return response(200, new byte[129], Map.of());
-                }, new PngValidator(128), Clock.systemUTC(), System::nanoTime);
+        var oversized = new SkinMcCapeReader(first((uri, timeout, maxBytes) ->
+                response(200, json, Map.of())), (uri, timeout, maxBytes, destination) -> {
+                    assertEquals(CapeAssetDecoder.MAX_ENCODED_BYTES, maxBytes);
+                    throw new OptifineCapeReader.OversizedResponseException();
+                }, scratch, Clock.systemUTC(), System::nanoTime);
         assertEquals(SkinMcCapeReader.Failure.OVERSIZED, oversized.read(PROFILE).failure());
     }
 
-    @Test
-    void streamingFirstResponseRejectsJsonBeforeTextureAllowance() throws Exception {
-        HttpResponse.BodySubscriber<byte[]> body = OptifineCapeReader.HttpTransport.skinMcBody(
-                PngValidator.DEFAULT_MAX_BYTES);
-        AtomicInteger cancelled = new AtomicInteger();
-        body.onSubscribe(new Flow.Subscription() {
-            @Override public void request(long count) {}
-            @Override public void cancel() { cancelled.incrementAndGet(); }
-        });
-        body.onNext(List.of(ByteBuffer.wrap(("{\"pad\":\"" + "x".repeat(2048))
-                .getBytes(StandardCharsets.UTF_8))));
-        assertThrows(ExecutionException.class, () -> body.getBody().toCompletableFuture().get());
-        assertEquals(1, cancelled.get());
+    private SkinMcCapeReader reader(OptifineCapeReader.Response response) {
+        return new SkinMcCapeReader(first((uri, timeout, maxBytes) -> response), scratch, Clock.systemUTC());
     }
 
-    private static SkinMcCapeReader reader(OptifineCapeReader.Response response) {
-        return new SkinMcCapeReader((uri, timeout, maxBytes) -> response,
-                new PngValidator(), Clock.systemUTC());
+    @FunctionalInterface
+    private interface ResponseFixture {
+        OptifineCapeReader.Response response(URI uri, Duration timeout, long maxBytes) throws java.io.IOException;
+    }
+
+    private static OptifineCapeReader.Transport first(ResponseFixture fixture) {
+        return new OptifineCapeReader.Transport() {
+            @Override public OptifineCapeReader.FileResponse getToFile(URI uri, Duration timeout,
+                    long maxBytes, Path destination) {
+                throw new AssertionError("SkinMC lookup must use its fixed-endpoint method");
+            }
+
+            @Override public OptifineCapeReader.Response getSkinMcCapeToFile(UUID profileId,
+                    URI canonical, URI wire, long freshness, Duration timeout, long maxBytes,
+                    Path destination) throws java.io.IOException {
+                SkinMcFreshnessQuery.requireExact(profileId, canonical, wire, freshness);
+                OptifineCapeReader.Response value = fixture.response(wire, timeout, maxBytes);
+                if (value.status() == 200 && imageSignature(value.bytes())) {
+                    if (value.bytes().length > maxBytes) {
+                        throw new OptifineCapeReader.OversizedResponseException();
+                    }
+                    Files.write(destination, value.bytes());
+                    return response(200, new byte[0], value.headers());
+                }
+                if (value.status() == 200 && value.bytes().length > SkinMcCapeReader.MAX_JSON_BYTES) {
+                    throw new OptifineCapeReader.OversizedResponseException();
+                }
+                return value;
+            }
+        };
+    }
+
+    private static SkinMcCapeReader.ImageTransport second(ResponseFixture fixture) {
+        return (uri, timeout, maxBytes, destination) -> {
+            OptifineCapeReader.Response value = fixture.response(uri, timeout, maxBytes);
+            if (value.status() == 200) {
+                if (value.bytes().length > maxBytes) {
+                    throw new OptifineCapeReader.OversizedResponseException();
+                }
+                Files.write(destination, value.bytes());
+            }
+            return new OptifineCapeReader.FileResponse(value.status(), value.bytes().length,
+                    value.headers());
+        };
+    }
+
+    private static boolean imageSignature(byte[] bytes) {
+        return bytes.length >= 8 && bytes[0] == (byte) 0x89 && bytes[1] == 'P'
+                && bytes[2] == 'N' && bytes[3] == 'G' && bytes[4] == 13
+                && bytes[5] == 10 && bytes[6] == 26 && bytes[7] == 10
+                || bytes.length >= 3 && bytes[0] == (byte) 0xff
+                && bytes[1] == (byte) 0xd8 && bytes[2] == (byte) 0xff
+                || bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I'
+                && bytes[2] == 'F' && bytes[3] == '8'
+                && (bytes[4] == '7' || bytes[4] == '9') && bytes[5] == 'a';
     }
 
     private static long assertFreshWire(URI wire, UUID profileId) {

@@ -6,7 +6,7 @@ import java.util.regex.Pattern
 
 final class SemanticVerifier {
     static final Set<String> REQUIRED_KEYS = [
-            'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
+            'gui', 'guiCapeMaterial', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
             'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
             'updateNotification', 'skinExtensionEnvironment',
             'serverSignal', 'serverSignalReceiver',
@@ -17,7 +17,8 @@ final class SemanticVerifier {
     static final Set<String> IMPLEMENTATION_KEYS = ['capabilityKey', 'sharedSuite', 'leafSource'] as Set
     static final Set<String> SUITE_KEYS = ['tests', 'supportSources', 'semantics'] as Set
     static final Map<String, String> EXPECTED_SUITE_BY_KEY = [
-            gui              : 'view-host-contract', textures: 'texture-ownership-and-normalization',
+            gui              : 'view-host-contract', guiCapeMaterial: 'cape-material-preview',
+            textures: 'texture-ownership-and-normalization',
             preview: 'scoped-preview-contract', appearance: 'appearance-orchestration',
             loaderScreen     : 'client-loader-lifecycle',
         session: 'session-boundary', filePicker: 'picker-coordination',
@@ -35,6 +36,8 @@ final class SemanticVerifier {
         serverLoader: 'server-loader-lifecycle'
     ]
     static final Map<String, List<String>> SUITE_MARKERS = [
+            'cape-material-preview': ['equalCapePixelsSuppressThumbnailGlintWithoutMutatingProviderMaterial',
+                                      'replacementKeepsInstalledFrameAndGlintTogetherUntilSuccessOrRetirement'],
             'view-host-contract'           : ['ViewSpecGoldenTest', 'selectAllOnFocusAcquire', 'ViewNavigationPolicyTest', 'VanillaListSurfaceTest', 'VanillaListSurface.Boundaries', 'compositeCardHovered', 'submitActionId'],
             'texture-ownership-and-normalization': ['TextureRegistryTck', 'PlayerSkinTextureNormalizer', 'NativePlayerSkinLifecycle', 'NativeTextureUploadTracker'],
             'scoped-preview-contract'            : ['PreviewIntent', 'EDITOR_DRAFT', 'EditorPreviewSession', 'EditorPreviewClock', 'ExactLocalPlayerScope', 'CenteredPipPreviewTransform', 'ScreenOwnedRenderTarget', 'PreviewSkinSourceTest'],
@@ -138,6 +141,8 @@ final class SemanticVerifier {
             if (key == 'preview') verifyPreviewBundle(implementation, roots, errors)
         }
         verifySuites(root, coverage.sharedSuites, usedSuites, errors)
+        verifyCapeGuiMaterialResources(root, catalog, selected, errors)
+        verifyCapeEntityMaterials(root, catalog, errors)
         verifyRuntimeBoundary(root, errors)
         verifyPublicationBoundary(root, errors)
         verifyBuiltInPackRegistration(root, errors)
@@ -148,6 +153,62 @@ final class SemanticVerifier {
         verifyCatalogCodeIdentifiers(catalog, abi, errors)
         verifyResourceFileNames(root, errors)
         errors
+    }
+
+    static void verifyCapeGuiMaterialResources(Path root, Map catalog, Map<String, String> selected,
+                                               List<String> errors) {
+        Map declarations = catalog.capabilityImplementations as Map
+        Map bundles = catalog.sourceBundles as Map
+        selected.findAll { String implementation, String key -> key == 'guiCapeMaterial' }.each {
+            String implementation, String key ->
+                String bundleId = declarations[implementation]?.bundle?.toString()
+                Map bundle = bundles[bundleId] instanceof Map ? bundles[bundleId] as Map : [:]
+                List<String> resources = bundle.resources instanceof List ? bundle.resources as List<String> : []
+                List<Path> fragments = resources.collect { String resource ->
+                    root.resolve(resource).resolve('assets/nclskins/shaders/core/gui_cape_foil.fsh')
+                }.findAll { Path candidate -> Files.isRegularFile(candidate) }
+                if (fragments.size() != 1) {
+                    errors.add("${implementation}: exactly one packaged cape GUI foil fragment shader is required")
+                    return
+                }
+                String fragment = Files.readString(fragments.first()).replaceAll('\\s+', ' ')
+                ['texture(Sampler0', 'texture(Sampler1', 'discard;', 'fragColor = vec4(', 'cape.a);'].each {
+                    String marker ->
+                        if (!fragment.contains(marker)) {
+                            errors.add("${implementation}: cape GUI foil shader lacks alpha-masked marker '${marker}'")
+                        }
+                }
+                if (!implementation.startsWith('cape-gui-foil-immediate')) {
+                    boolean combined = implementation.startsWith('cape-gui-foil-extraction-combined')
+                    String transforms = combined
+                            ? 'layout(std140) uniform DynamicTransforms { mat4 ModelViewMat; mat4 TextureMat; vec4 ColorModulator; vec3 ModelOffset; };'
+                            : 'layout(std140) uniform DynamicTransforms { mat4 ModelViewMat; vec4 ColorModulator; vec3 ModelOffset; mat4 TextureMat; };'
+                    String globals = combined
+                            ? 'layout(std140) uniform Globals { ivec3 CameraBlockPos; float GlintAlpha; vec3 CameraOffset; float GameTime; vec2 ScreenSize; int MenuBlurRadius; int UseRgss; };'
+                            : 'layout(std140) uniform Globals { ivec3 CameraBlockPos; vec3 CameraOffset; vec2 ScreenSize; float GlintAlpha; float GameTime; int MenuBlurRadius; int UseRgss; };'
+                    if (!fragment.contains(transforms) || !fragment.contains(globals)) {
+                        errors.add("${implementation}: cape GUI foil uniform layout differs from the selected native GUI shader ABI")
+                    }
+                    if (!fragment.contains('GameTime * vec2(180.0, -120.0)')) {
+                        errors.add("${implementation}: cape GUI foil motion must convert normalized day time to the intended scroll rate")
+                    }
+                }
+                if (implementation.startsWith('cape-gui-foil-immediate')) {
+                    for (String extension : ['json', 'vsh']) {
+                        Path stage = fragments.first().resolveSibling("gui_cape_foil.${extension}")
+                        if (!Files.isRegularFile(stage)) {
+                            errors.add("${implementation}: packaged classic cape GUI foil shader lacks ${extension} stage")
+                        }
+                    }
+                    Path declaration = fragments.first().resolveSibling('gui_cape_foil.json')
+                    if (Files.isRegularFile(declaration)) {
+                        Map blend = CatalogTools.loadJson(declaration.toFile()).blend as Map
+                        if (blend != [func: 'add', srcrgb: 'srcalpha', dstrgb: '1-srcalpha']) {
+                            errors.add("${implementation}: classic cape GUI foil shader must preserve source-alpha blending")
+                        }
+                    }
+                }
+        }
     }
 
     static void verifyBuiltInPackRegistration(Path root, List<String> errors) {
@@ -517,6 +578,7 @@ final class SemanticVerifier {
              'LivePreviewRenderState',
              'LivePreviewSubmission',
              'LivePreviewRenderer',
+             'CapeMaterialSnapshot.preview(', 'nclskins$setCapeMaterial(',
              'PreviewContext', 'PreviewScope',
              'state.previewContext().open(minecraft)', 'EditorPreviewLayerGuard.open(',
              'PreviewModelAnchors', 'ModelPartPreviewMixin',
@@ -562,6 +624,13 @@ final class SemanticVerifier {
                 errors.add("${implementation}: extraction preview pitch must stay in the centered submitted pose")
             }
         } else {
+            if (implementation in ['remote-player-preview', 'player-skin-preview']) {
+                if (!text.contains('PreviewScope.open( minecraft, player, request.appearance())')
+                        || !text.contains('minecraft.level != player.level()')
+                        || text.contains('minecraft.player != player')) {
+                    errors.add("${implementation}: inspection material must scope the rendered preview actor in the current world")
+                }
+            }
             ['tickCount', 'PreviewPlayer', 'PreviewScope.open'].each { String required ->
                 if (!text.contains(required)) {
                     errors.add("${implementation}: legacy preview lacks isolated animation marker (${required})")
@@ -648,7 +717,10 @@ final class SemanticVerifier {
                 gui              : ['ClientRuntime'],
                 textures         : ['extends AbstractTextureRegistry'],
                 preview          : ['implements PreviewRenderer'],
-                appearance       : ['implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>'],
+                appearance       : implementation.startsWith('cape-foil-')
+                        ? ['class CapeLayerFoilMixin']
+                        : ['implements PlayerAppearanceSink<AcknowledgedAppearanceAssets>'],
+                guiCapeMaterial  : ['class CapeGuiFoilMaterial', 'void draw('],
                 session          : ['implements GameSessionTokenSource'],
                 clientExecutor   : ['implements ClientExecutor'],
             filePicker: ['implements FilePicker', 'FilePickerCoordinator', 'new FilePickerCoordinator(', 'COORDINATOR.choose'],
@@ -663,6 +735,14 @@ final class SemanticVerifier {
             serverLoader: ['MinecraftServerLifecycle', 'MinecraftAppearanceRefreshNetwork']
         ]
         markers.getOrDefault(key, []).each { String marker -> if (!compact.contains(marker)) errors.add("${implementation}: ${key} leaf lacks required marker '${marker}'") }
+        if (key == 'guiCapeMaterial') {
+            String twoSamplerBinding = implementation.startsWith('cape-gui-foil-immediate')
+                    ? 'RenderSystem.setShaderTexture(1, GLINT)'
+                    : 'TextureSetup.doubleTexture('
+            if (!compact.contains(twoSamplerBinding)) {
+                errors.add("${implementation}: cape material lacks two-sampler binding '${twoSamplerBinding}'")
+            }
+        }
         if (implementation == 'modmenu-default-index') {
             if (!compact.contains('implements ModMenuApi') ||
                     !compact.contains('getModConfigScreenFactory()') ||
@@ -818,6 +898,183 @@ final class SemanticVerifier {
         if (!candidate.startsWith(root)) { errors.add("${label} escapes the repository: ${raw}"); return null }
         if (!Files.isRegularFile(candidate)) { errors.add("${label} does not exist: ${raw}"); return null }
         candidate
+    }
+
+    static boolean scopedOrderedCapeFoil(String relative, String body) {
+        String flat = body.replaceAll('\\s+', ' ')
+        String base = 'compat/capabilities/appearance/cape-foil-pipeline/src/main/java/' +
+                'com/naocraftlab/skins/compat/client/identifier/foil/'
+        if (['ThreadLocal', 'Map<', 'CapeProjection', 'TextureRegistry', 'renderBuffers(',
+             'endBatch(', 'flush(', 'getNamespace(', 'getPath(', 'getInstance('].any { body.contains(it) }) return false
+        List<String> required
+        if (relative == base + 'OrderedCapeFoil.java') {
+            required = ['public static RenderType pass(TextureUseValidity validity)',
+                    'CapturedCapePass.material(RenderTypes.entityGlint(), validity, true)',
+                    'CapturedCapePass capture = CapturedCapePass.of(type);',
+                    'return capture != null && capture.orderedFoil();']
+        } else if (relative == base + 'pipeline/OrderedCapeFoilMixin.java') {
+            required = ['@Mixin(SubmitNodeStorage.class)', '@Shadow public abstract SubmitNodeCollection order(int order);',
+                    '@WrapOperation(', 'method = "submitCustomGeometry(',
+                    'target = "Lnet/minecraft/client/renderer/SubmitNodeCollection;submitCustomGeometry(',
+                    'require = 1, expect = 1, allow = 1', 'if (OrderedCapeFoil.owns(type))',
+                    'original.call(order(1), pose, type, callback);',
+                    'original.call(receiver, pose, type, callback);']
+        } else return false
+        required.every { flat.contains(it) } && body.count('RenderTypes.entityGlint(') ==
+                (relative.endsWith('/OrderedCapeFoil.java') ? 1 : 0)
+    }
+
+    static void verifyCapeEntityMaterials(Path root, Map catalog, List<String> errors) {
+        Set<Path> inspected = [] as Set
+        catalog.targets.each { Map target ->
+            String implementation = target.capabilities.appearance
+            String bundle = catalog.capabilityImplementations[implementation].bundle
+            Set<Path> roots = bundleRoots(root, catalog.sourceBundles as Map, bundle)
+            Set<Path> previewRoots = bundleRoots(root, catalog.sourceBundles as Map,
+                    catalog.capabilityImplementations[target.capabilities.preview].bundle.toString())
+            (roots + previewRoots).each { Path directory ->
+                if (!Files.isDirectory(directory)) return
+                Files.walk(directory).withCloseable { paths ->
+                    paths.filter { Files.isRegularFile(it) && it.toString().endsWith('.java') }.forEach { Path path ->
+                        if (!inspected.add(path)) return
+                        String body = Files.readString(path)
+                        boolean nativeBuffer = path.fileName.toString() in ['CapeTranslucentFoilMaterial.java', 'CapeFoilBuffer.java']
+                                && (path.toString().contains('cape-layer-translucent')
+                                || path.toString().contains('cape-foil-buffer/'))
+                        boolean nativeSubmit = path.toString().contains('cape-foil-pipeline/')
+                                && path.fileName.toString() == 'CapeLayerFoilMixin.java'
+                        boolean nativePreview = path.toString().contains('avatar-pip-submit-crumbling-overlay/')
+                                && path.fileName.toString() == 'NclBakedPlayerRenderer.java'
+                        boolean waveyEntity = root.relativize(path).toString().replace('\\', '/') ==
+                                'compat/capabilities/appearance/wavey-capes-entity/src/main/java/com/naocraftlab/skins/compat/waveycapes/WaveyCapesSupport.java'
+                                && body.contains('new CapePassMaterial(preview ? RenderType.entityGlintDirect() : RenderType.entityGlint(), validity)')
+                                && body.contains('ExactLocalPlayerScope.capeValidity(actor, installed.toString())')
+                                && body.contains('CapeProjection.captureCapeTexture(')
+                                && !body.contains('renderBuffers(') && !body.contains('endBatch(')
+                        boolean orderedCape = scopedOrderedCapeFoil(
+                                root.relativize(path).toString().replace('\\', '/'), body)
+                        if (path.fileName.toString() in ['OrderedCapeFoil.java', 'OrderedCapeFoilMixin.java'] && !orderedCape) {
+                            errors.add("${root.relativize(path)}: own cape marker must preserve exact identity and ordered continuation")
+                        }
+                        if (body.contains('VertexMultiConsumer') && !nativeBuffer
+                                || body.contains('RenderTypes.entityGlint(') && !nativeBuffer && !nativeSubmit && !nativePreview && !orderedCape
+                                || body.contains('RenderType.entityGlintDirect(') && !nativeBuffer && !waveyEntity
+                                || body.contains('collector.order(1)') && !nativeSubmit && !nativePreview) {
+                            errors.add("${root.relativize(path)}: native cape foil must stay inside the scoped material adapter")
+                        }
+                        if (nativeBuffer && path.toString().contains('cape-layer-translucent')
+                                && (!body.contains('direct ? RenderType.entityGlintDirect() : RenderType.entityGlint()')
+                                || !body.contains('if (glint && inWorld()) return withFoil(buffers, () -> buffers.getBuffer(type), true);'))) {
+                            errors.add('immediate preview foil must use the direct target while retaining world foil')
+                        }
+                        if (nativeBuffer && path.toString().contains('cape-layer-translucent')
+                                && (!body.contains('Supplier<VertexConsumer> base')
+                                || !body.contains('VertexConsumer foil = buffers.getBuffer(')
+                                || !body.contains('return VertexMultiConsumer.create(foil, base.get());'))) {
+                            errors.add('immediate cape foil must acquire the base last to preserve the native shared builder')
+                        }
+                        if (path.fileName.toString() == 'CapeLayerTransparencyMixin.java'
+                                && path.toString().contains('cape-layer-translucent/')
+                                && !body.replaceAll('\\s+', ' ').contains('withFoil(foilBuffers, () -> original.call(buffers, type), directFoil.get())')) {
+                            errors.add('immediate cape foil must acquire the original base lazily after foil')
+                        }
+                        if (path.fileName.toString() == 'CapeLayerTransparencyMixin.java'
+                                && path.toString().contains('cape-layer-translucent/')
+                                && (!body.contains('if (!nativeFoil.get()) return original.call(buffers, type);')
+                                || !body.replaceAll('\\s+', ' ').contains('MultiBufferSource foilBuffers = directFoil.get() ? Minecraft.getInstance().renderBuffers().bufferSource() : buffers;'))) {
+                            errors.add('immediate preview foil must use the native GUI owner only for scoped direct foil')
+                        }
+                        if (nativeBuffer && !(body.contains('glint && inWorld()')
+                                || body.contains('glint && CapeTranslucentFoilMaterial.inWorld()'))) {
+                            errors.add("${root.relativize(path)}: native cape foil must retain worldless combined and world/source gating")
+                        }
+                        if (nativePreview && !body.contains('state.capeGlint() && CapeTranslucentFoilMaterial.inWorld()')) {
+                            errors.add("${root.relativize(path)}: native baked cape foil must retain world/source gating")
+                        }
+                        if (nativeSubmit && (!body.contains('@Share("nativeFoil")')
+                                || !body.contains('nativeFoil.set(CapeTranslucentFoilMaterial.inWorld())')
+                                || !body.contains('if (nativeFoil.get())')
+                                || !body.contains('original.call(collector, model, state, pose, type, light, overlay, outline, crumbling)'))) {
+                            errors.add("${root.relativize(path)}: native cape foil submission must be invocation-scoped and chain the base draw")
+                        }
+                        if (path.fileName.toString() == 'CapeLayerFoilMixin.java') {
+                            if (!body.contains('snapshot.textureLocation().equals(texture.toString())')
+                                    || !body.contains('snapshot.capeGlint()')
+                                    || !body.contains('CapeTranslucentFoilMaterial.forTexture(texture)')
+                                    || !body.contains('return original.call(texture)')) {
+                                errors.add("${implementation}: cape material must select the exact extracted texture and preserve original chaining")
+                            }
+                        }
+                        if (path.fileName.toString() == 'CapeTranslucentFoilMaterial.java') {
+                            String nativeFactory = path.toString().contains('cape-foil-combined/')
+                                    ? 'RenderTypes.entitySolidGlint(texture)'
+                                    : path.toString().contains('cape-layer-translucent/')
+                                    ? 'RenderType.entityTranslucent(texture)' : 'RenderTypes.entityTranslucent(texture)'
+                            if (!body.contains("if (inWorld) return ${nativeFactory};")
+                                    || !body.contains('minecraft != null && minecraft.level != null')) {
+                                errors.add("${root.relativize(path)}: native world material must preserve the worldless combined branch")
+                            }
+
+                            if (!body.contains('MAX_CACHED_TEXTURES = 256')
+                                    || !body.contains('TYPES.get(') && !body.contains('TYPES.computeIfAbsent(')) {
+                                errors.add("${implementation}: material descriptors must be bounded and reused")
+                            }
+                            if (path.toString().contains('cape-layer-translucent')
+                                    && (!body.contains('new ShaderStateShard(() -> shader)')
+                                    || !body.contains('if (shader == null) return RenderType.entityTranslucent(texture)')
+                                    || !body.contains('RenderSystem.setShaderTexture(3, GLINT)')
+                                    || !body.contains('DefaultVertexFormat.NEW_ENTITY'))) {
+                                errors.add('immediate cape material must retain native entity format and reload shader supplier/readiness')
+                            }
+                            if (body.contains('release(') || body.contains('close(') || body.contains('registerTexture(')) {
+                                errors.add("${implementation}: material cache must not own cape textures")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ['cape-layer-translucent', 'cape-foil-pipeline'].each { String bundle ->
+            Path fragment = root.resolve("compat/capabilities/appearance/${bundle}/src/main/resources/assets/nclskins/shaders/core/cape_entity_foil.fsh")
+            if (!Files.isRegularFile(fragment)) { errors.add("${bundle}: missing entity fragment shader"); return }
+            String body = Files.readString(fragment)
+            String foil = bundle == 'cape-layer-translucent' ? 'Sampler3' : 'GlintSampler'
+            if (!body.contains('texture(Sampler0, texCoord0)') || !body.contains('discard;')
+                    || !body.contains("texture(${foil},") || !body.contains('color.rgb += foil * foil;')
+                    || (body =~ /color\.a\s*=/).find()) {
+                errors.add("${bundle}: cape alpha must mask combined glint without replacing fractional alpha")
+            }
+            if (!body.contains('TextureMat * vec4(texCoord0, 0.0, 1.0)')
+                    || body.count('TextureMat *') != 1
+                    || !body.contains('vec3 foil = GlintAlpha * texture(')
+                    || !body.contains('color.rgb += foil * foil;')
+                    || !(bundle == 'cape-layer-translucent'
+                            ? body.contains('uniform float GlintAlpha;')
+                            : body.contains('#moj_import <minecraft:globals.glsl>'))) {
+                errors.add("${bundle}: native glint UV/intensity contract is missing")
+            }
+            if (!body.contains('lightMapColor') || !body.contains('overlayColor') || !body.contains('_fog(')) {
+                errors.add("${bundle}: entity material must retain native lighting, overlay and fog")
+            }
+        }
+        ['cape-entity-shader-position-fog', 'cape-entity-shader-view-rotation'].each { String bundle ->
+            Path descriptor = root.resolve("compat/capabilities/appearance/${bundle}/src/main/resources/assets/nclskins/shaders/core/cape_entity_foil.json")
+            if (!Files.isRegularFile(descriptor)) { errors.add("${bundle}: missing GlintAlpha descriptor"); return }
+            Map shader = new groovy.json.JsonSlurper().parse(descriptor.toFile()) as Map
+            if (shader.uniforms.find { it.name == 'GlintAlpha' } != [name: 'GlintAlpha', type: 'float', count: 1, values: [1.0]]) {
+                errors.add("${bundle}: native glint GlintAlpha descriptor is missing")
+            }
+        }
+        Path combined = root.resolve('compat/capabilities/appearance/cape-foil-combined/src/main/resources/assets/nclskins/shaders/core/cape_entity_foil.fsh')
+        if (!Files.isRegularFile(combined)) errors.add('combined/OIT cape shader is missing')
+        else {
+            String body = Files.readString(combined)
+            if (!body.contains('texture(Sampler0, texCoord0)') || !body.contains('color.a <= 0.0')
+                    || body.contains('color.a = max(color.a, GlintAlpha)')) {
+                errors.add('combined/OIT cape shader must preserve current frame alpha')
+            }
+        }
+
     }
 
     static Set<Path> bundleRoots(Path root, Map bundles, String bundleId) {

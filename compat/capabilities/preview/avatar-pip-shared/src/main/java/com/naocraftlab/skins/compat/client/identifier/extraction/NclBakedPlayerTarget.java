@@ -15,6 +15,10 @@ public final class NclBakedPlayerTarget implements AutoCloseable {
         target.release(expectedOwner);
     }
 
+    public boolean owns(Object expectedOwner, AutoCloseable expectedResource) {
+        return target.owns(expectedOwner, expectedResource);
+    }
+
     @Override
     public void close() {
         target.close();

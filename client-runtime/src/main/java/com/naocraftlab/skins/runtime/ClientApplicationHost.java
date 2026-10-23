@@ -21,6 +21,11 @@ public final class ClientApplicationHost<C> implements AutoCloseable {
             }
 
             @Override
+            public void worldChanged() {
+                runtime.importWorldChanged();
+            }
+
+            @Override
             public java.util.concurrent.CompletableFuture<AppearanceRefresh.Result> afterReconnect() {
                 return runtime.afterReconnect();
             }
@@ -51,9 +56,9 @@ public final class ClientApplicationHost<C> implements AutoCloseable {
         }
     }
 
-    public void tick(C connection, boolean playerReady) {
+    public void tick(C connection, Object worldIdentity, boolean playerReady) {
         if (!process.closed()) {
-            process.tick(connection, playerReady);
+            process.tick(connection, worldIdentity, playerReady);
         }
     }
 

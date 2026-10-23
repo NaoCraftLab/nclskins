@@ -20,6 +20,11 @@ public final class DefaultRuntimeServices implements RuntimeServices {
     public ServerAppearanceReadiness readiness(ServerAppearanceRefreshNotifier notifier) {
         return new ServerAppearanceReadinessCoordinator(notifier);
     }
+    public ProviderRefreshUseCases providerRefresh(ClientOperations operations, Executor worker, Consumer<Runnable> client,
+            java.util.function.Supplier<com.naocraftlab.skins.core.provider.AppearanceProviders> current,
+            java.util.Optional<ServerAppearanceReadiness> readiness) {
+        return new ProviderRefreshService(operations, operations, operations, worker, client, current, readiness);
+    }
     public <C> ClientProcess<C> process(ClientProcess.Process process) {
         return new ClientProcessHost<>(process);
     }

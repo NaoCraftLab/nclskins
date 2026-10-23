@@ -17,7 +17,39 @@ public record ProviderChannel<T>(
         T offlineDesired,
         ProviderObservation<T> optifine,
         ProviderObservation<T> skinmc,
-        ProviderObservation<T> sneaky) {
+        ProviderObservation<T> sneaky,
+        ProviderObservation<T> minecraftcapes,
+        CpmConfiguration cpmConfiguration,
+        List<String> serializedOrder) {
+    public ProviderChannel(List<BuiltinProvider> order, ProviderObservation<T> offline,
+            ProviderObservation<T> minecraft, long configurationRevision, long intentRevision,
+            T desired, ProviderDelivery minecraftDelivery, T offlineDesired,
+            ProviderObservation<T> optifine, ProviderObservation<T> skinmc,
+            ProviderObservation<T> sneaky, ProviderObservation<T> minecraftcapes,
+            CpmConfiguration cpmConfiguration) {
+        this(order, offline, minecraft, configurationRevision, intentRevision, desired,
+                minecraftDelivery, offlineDesired, optifine, skinmc, sneaky, minecraftcapes,
+                cpmConfiguration, order.stream().map(BuiltinProvider::name).toList());
+    }
+
+    public ProviderChannel(List<BuiltinProvider> order, ProviderObservation<T> offline,
+            ProviderObservation<T> minecraft, long configurationRevision, long intentRevision,
+            T desired, ProviderDelivery minecraftDelivery, T offlineDesired,
+            ProviderObservation<T> optifine, ProviderObservation<T> skinmc,
+            ProviderObservation<T> sneaky, ProviderObservation<T> minecraftcapes) {
+        this(order, offline, minecraft, configurationRevision, intentRevision, desired,
+                minecraftDelivery, offlineDesired, optifine, skinmc, sneaky, minecraftcapes, null);
+    }
+
+    public ProviderChannel(List<BuiltinProvider> order, ProviderObservation<T> offline,
+            ProviderObservation<T> minecraft, long configurationRevision, long intentRevision,
+            T desired, ProviderDelivery minecraftDelivery, T offlineDesired,
+            ProviderObservation<T> optifine, ProviderObservation<T> skinmc,
+            ProviderObservation<T> sneaky) {
+        this(order, offline, minecraft, configurationRevision, intentRevision, desired,
+                minecraftDelivery, offlineDesired, optifine, skinmc, sneaky,
+                ProviderObservation.unknown());
+    }
     public ProviderChannel(List<BuiltinProvider> order, ProviderObservation<T> offline,
             ProviderObservation<T> minecraft, long configurationRevision, long intentRevision,
             T desired, ProviderDelivery minecraftDelivery, T offlineDesired,
@@ -48,6 +80,14 @@ public record ProviderChannel<T>(
 
     public ProviderChannel {
         order = List.copyOf(order);
+        serializedOrder = List.copyOf(serializedOrder);
+        if (serializedOrder.size() > 33
+                || serializedOrder.stream().filter(id -> !BuiltinProvider.CPM.name().equals(id)).count() > 32
+                || serializedOrder.stream().distinct().count() != serializedOrder.size()
+                || serializedOrder.stream().anyMatch(id -> !id.matches("[A-Z][A-Z0-9_]{0,63}"))
+                || !knownOrder(serializedOrder).equals(order)) {
+            throw new IllegalArgumentException("Invalid serialized provider order");
+        }
         if (order.size() > BuiltinProvider.values().length
                 || order.stream().distinct().count() != order.size()) {
             throw new IllegalArgumentException("Provider order contains duplicate entries");
@@ -57,6 +97,7 @@ public record ProviderChannel<T>(
         Objects.requireNonNull(optifine, "optifine");
         Objects.requireNonNull(skinmc, "skinmc");
         Objects.requireNonNull(sneaky, "sneaky");
+        Objects.requireNonNull(minecraftcapes, "minecraftcapes");
         Objects.requireNonNull(minecraftDelivery, "minecraftDelivery");
         if (configurationRevision < 0 || intentRevision < 0
                 || minecraftDelivery.intentRevision() > intentRevision
@@ -71,17 +112,37 @@ public record ProviderChannel<T>(
                 new ProviderDelivery(0, 0, ProviderDelivery.Status.IDLE));
     }
 
+    public ProviderChannel<T> initializeCpm() {
+        if (cpmConfiguration != null) return this;
+        List<String> full = new ArrayList<>(serializedOrder);
+        if (!enabled(BuiltinProvider.CPM)) full.add(0, BuiltinProvider.CPM.name());
+        List<BuiltinProvider> updated = knownOrder(full);
+        return new ProviderChannel<>(updated, offline, minecraft,
+                Math.incrementExact(configurationRevision), intentRevision, desired, minecraftDelivery,
+                offlineDesired, optifine, skinmc, sneaky, minecraftcapes, new CpmConfiguration(null), full);
+    }
+
+    public record CpmConfiguration(Integer disabledSlot) {
+        public CpmConfiguration {
+            if (disabledSlot != null && disabledSlot < 0) {
+                throw new IllegalArgumentException("Invalid optional provider slot");
+            }
+        }
+    }
+
     public boolean enabled(BuiltinProvider provider) {
         return order.contains(Objects.requireNonNull(provider, "provider"));
     }
 
     public ProviderObservation<T> observation(BuiltinProvider provider) {
         return switch (provider) {
+            case CPM -> ProviderObservation.unknown();
             case OFFLINE -> offline;
             case MINECRAFT -> minecraft;
             case OPTIFINE -> optifine;
             case SKINMC -> skinmc;
             case SNEAKY -> sneaky;
+            case MINECRAFTCAPES -> minecraftcapes;
         };
     }
 
@@ -108,7 +169,7 @@ public record ProviderChannel<T>(
                 minecraft, configurationRevision, revision, value,
                 enabled(BuiltinProvider.MINECRAFT)
                         ? minecraftDelivery.assign(revision, minecraftDelivery.activation())
-                        : minecraftDelivery, localValue, optifine, skinmc, sneaky);
+                : minecraftDelivery, localValue, optifine, skinmc, sneaky, minecraftcapes, cpmConfiguration, serializedOrder);
     }
 
     public ProviderChannel<T> selectMatchingObservation(
@@ -133,15 +194,16 @@ public record ProviderChannel<T>(
                 enabled(BuiltinProvider.MINECRAFT) && assignMinecraft
                         ? minecraftDelivery.assign(revision, minecraftDelivery.activation())
                         : minecraftDelivery,
-                localValue, optifine, skinmc, sneaky);
+                localValue, optifine, skinmc, sneaky, minecraftcapes, cpmConfiguration, serializedOrder);
     }
 
     public ProviderChannel<T> enable(BuiltinProvider provider) {
         if (enabled(provider)) {
             return this;
         }
-        List<BuiltinProvider> updated = new ArrayList<>(order);
-        updated.add(provider);
+        List<String> full = new ArrayList<>(serializedOrder);
+        full.add(provider.name());
+        List<BuiltinProvider> updated = knownOrder(full);
         long generation = Math.incrementExact(configurationRevision);
         T current = intentRevision > 0 ? (provider == BuiltinProvider.OFFLINE ? offlineDesired : desired) : enabled(BuiltinProvider.MINECRAFT) ? minecraft.value() : null;
         return new ProviderChannel<>(updated,
@@ -149,7 +211,8 @@ public record ProviderChannel<T>(
                 minecraft, generation, intentRevision, desired,
                 provider == BuiltinProvider.MINECRAFT
                         ? minecraftDelivery.assign(intentRevision, generation) : minecraftDelivery,
-                offlineDesired, optifine, skinmc, sneaky);
+                offlineDesired, optifine, skinmc, sneaky, minecraftcapes,
+                provider == BuiltinProvider.CPM ? new CpmConfiguration(null) : cpmConfiguration, full);
     }
 
     public ProviderChannel<T> bootstrap(long revision, T value) {
@@ -160,7 +223,8 @@ public record ProviderChannel<T>(
                 configurationRevision, revision, value,
                 enabled(BuiltinProvider.MINECRAFT)
                         ? new ProviderDelivery(revision, minecraftDelivery.activation(), ProviderDelivery.Status.CONFIRMED)
-                        : selected.minecraftDelivery(), selected.offlineDesired(), optifine, skinmc, sneaky);
+                        : selected.minecraftDelivery(), selected.offlineDesired(), optifine, skinmc, sneaky,
+                minecraftcapes, cpmConfiguration, serializedOrder);
     }
 
     public ProviderChannel<T> disable(BuiltinProvider provider) {
@@ -176,7 +240,31 @@ public record ProviderChannel<T>(
                                 ? ProviderDelivery.Status.UNKNOWN : minecraftDelivery.status())
                 : minecraftDelivery;
         return new ProviderChannel<>(updated, offline, minecraft, generation,
-                intentRevision, desired, delivery, offlineDesired, optifine, skinmc, sneaky);
+                intentRevision, desired, delivery, offlineDesired, optifine, skinmc, sneaky,
+                minecraftcapes, provider == BuiltinProvider.CPM
+                        ? new CpmConfiguration(serializedOrder.indexOf(provider.name())) : cpmConfiguration,
+                provider == BuiltinProvider.CPM
+                        ? serializedOrder.stream().filter(id -> !id.equals(provider.name())).toList()
+                        : serializeOrder(updated));
+    }
+
+    public List<BuiltinProvider> visibleOrder(boolean cpmPresent) {
+        return order.stream().filter(provider -> provider != BuiltinProvider.CPM || cpmPresent).toList();
+    }
+
+    public ProviderChannel<T> moveVisible(BuiltinProvider provider, int direction, boolean cpmPresent) {
+        if (direction != -1 && direction != 1) {
+            throw new IllegalArgumentException("Provider move must be adjacent");
+        }
+        List<BuiltinProvider> visible = visibleOrder(cpmPresent);
+        int index = visible.indexOf(provider);
+        int target = index + direction;
+        if (index < 0 || target < 0 || target >= visible.size()) return this;
+        List<BuiltinProvider> updated = new ArrayList<>(order);
+        java.util.Collections.swap(updated, order.indexOf(provider), order.indexOf(visible.get(target)));
+        return new ProviderChannel<>(updated, offline, minecraft,
+                Math.incrementExact(configurationRevision), intentRevision, desired, minecraftDelivery,
+                offlineDesired, optifine, skinmc, sneaky, minecraftcapes, cpmConfiguration, serializeOrder(updated));
     }
 
     public ProviderChannel<T> move(BuiltinProvider provider, int direction) {
@@ -192,7 +280,7 @@ public record ProviderChannel<T>(
         java.util.Collections.swap(updated, index, target);
         return new ProviderChannel<>(updated, offline, minecraft,
                 Math.incrementExact(configurationRevision), intentRevision, desired, minecraftDelivery,
-                offlineDesired, optifine, skinmc, sneaky);
+                offlineDesired, optifine, skinmc, sneaky, minecraftcapes, cpmConfiguration, serializeOrder(updated));
     }
 
     public ProviderChannel<T> observeMinecraft(T value) {
@@ -203,7 +291,7 @@ public record ProviderChannel<T>(
                 ? ProviderObservation.observed(value) : offline;
         return new ProviderChannel<>(order, initialOffline, ProviderObservation.observed(value),
                 configurationRevision, intentRevision, desired, minecraftDelivery, offlineDesired,
-                optifine, skinmc, sneaky);
+                optifine, skinmc, sneaky, minecraftcapes, cpmConfiguration, serializedOrder);
     }
 
     public ProviderChannel<T> observeOptifine(T value) {
@@ -212,7 +300,7 @@ public record ProviderChannel<T>(
         }
         return new ProviderChannel<>(order, offline, minecraft, configurationRevision,
                 intentRevision, desired, minecraftDelivery, offlineDesired,
-                ProviderObservation.observed(value), skinmc, sneaky);
+                ProviderObservation.observed(value), skinmc, sneaky, minecraftcapes, cpmConfiguration, serializedOrder);
     }
 
     public ProviderChannel<T> observeSkinmc(T value) {
@@ -221,7 +309,7 @@ public record ProviderChannel<T>(
         }
         return new ProviderChannel<>(order, offline, minecraft, configurationRevision,
                 intentRevision, desired, minecraftDelivery, offlineDesired, optifine,
-                ProviderObservation.observed(value), sneaky);
+                ProviderObservation.observed(value), sneaky, minecraftcapes, cpmConfiguration, serializedOrder);
     }
 
     public ProviderChannel<T> observeSneaky(T value) {
@@ -232,7 +320,14 @@ public record ProviderChannel<T>(
     public ProviderChannel<T> withSneakyObservation(ProviderObservation<T> observation) {
         return new ProviderChannel<>(order, offline, minecraft, configurationRevision,
                 intentRevision, desired, minecraftDelivery, offlineDesired, optifine,
-                skinmc, observation);
+                skinmc, observation, minecraftcapes, cpmConfiguration, serializedOrder);
+    }
+
+    public ProviderChannel<T> observeMinecraftcapes(T value) {
+        if (!enabled(BuiltinProvider.MINECRAFTCAPES)) return this;
+        return new ProviderChannel<>(order, offline, minecraft, configurationRevision,
+                intentRevision, desired, minecraftDelivery, offlineDesired, optifine,
+                skinmc, sneaky, ProviderObservation.observed(value), cpmConfiguration, serializedOrder);
     }
 
     public ProviderChannel<T> settle(
@@ -246,7 +341,28 @@ public record ProviderChannel<T>(
                 status == ProviderDelivery.Status.CONFIRMED
                         ? ProviderObservation.observed(observed) : minecraft,
                 configurationRevision, intentRevision, desired, minecraftDelivery.withStatus(status),
-                offlineDesired, optifine, skinmc, sneaky);
+                offlineDesired, optifine, skinmc, sneaky, minecraftcapes, cpmConfiguration, serializedOrder);
+    }
+
+    private static List<BuiltinProvider> knownOrder(List<String> serialized) {
+        List<BuiltinProvider> known = new ArrayList<>();
+        for (String id : serialized) {
+            for (BuiltinProvider provider : BuiltinProvider.values()) {
+                if (provider.name().equals(id)) known.add(provider);
+            }
+        }
+        return List.copyOf(known);
+    }
+
+    private List<String> serializeOrder(List<BuiltinProvider> updated) {
+        List<String> result = new ArrayList<>();
+        int next = 0;
+        for (String id : serializedOrder) {
+            if (knownOrder(List.of(id)).isEmpty()) result.add(id);
+            else if (next < updated.size()) result.add(updated.get(next++).name());
+        }
+        while (next < updated.size()) result.add(updated.get(next++).name());
+        return List.copyOf(result);
     }
 
     public record Resolved<T>(BuiltinProvider provider, T value) {

@@ -5,13 +5,17 @@ import java.util.EnumSet;
 import java.util.Set;
 
 public enum BuiltinProvider {
-    OFFLINE(true, true, capabilities(ProviderCapability.WRITE), capabilities(ProviderCapability.WRITE)),
+    OFFLINE(true, true, capabilities(ProviderCapability.WRITE), capabilities(
+            ProviderCapability.WRITE, ProviderCapability.HD, ProviderCapability.ANIMATION)),
     MINECRAFT(true, true,
             capabilities(ProviderCapability.WRITE, ProviderCapability.DISTRIBUTION),
             capabilities(ProviderCapability.LIMITED_WRITE, ProviderCapability.DISTRIBUTION)),
+    CPM(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION)),
     OPTIFINE(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION)),
     SKINMC(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION)),
-    SNEAKY(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION));
+    SNEAKY(false, true, Set.of(), capabilities(ProviderCapability.DISTRIBUTION)),
+    MINECRAFTCAPES(false, true, Set.of(), capabilities(
+            ProviderCapability.DISTRIBUTION, ProviderCapability.HD, ProviderCapability.ANIMATION));
 
     private final boolean skin;
     private final boolean cape;

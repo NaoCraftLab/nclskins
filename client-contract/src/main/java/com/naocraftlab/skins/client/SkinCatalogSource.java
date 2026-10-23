@@ -1,6 +1,8 @@
 package com.naocraftlab.skins.client;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -36,6 +38,14 @@ public interface SkinCatalogSource extends CapeCatalogSource {
 
     @Override
     default byte[] loadCape(String collectionId, String capeId) throws IOException {
+        return loadResource(selectedCapeResource(collectionId, capeId));
+    }
+
+    default InputStream openCape(String collectionId, String capeId) throws IOException {
+        return new ByteArrayInputStream(loadCape(collectionId, capeId));
+    }
+
+    default String selectedCapeResource(String collectionId, String capeId) {
         String namespace = requireStableId(collectionId, "collectionId");
         String stableCapeId = requireStableId(capeId, "capeId");
         String prefix = namespace + ":" + CapeCatalogSource.CAPE_TEXTURE_ROOT + "/" + stableCapeId;
@@ -46,10 +56,11 @@ public interface SkinCatalogSource extends CapeCatalogSource {
                 .map(CapeCatalogSource.CapeDescriptor::contentIdentity)
                 .filter(identity -> identity.equals(prefix + ".png")
                         || identity.equals(prefix + ".jpg")
-                        || identity.equals(prefix + ".jpeg"))
+                        || identity.equals(prefix + ".jpeg")
+                        || identity.equals(prefix + ".gif"))
                 .findFirst()
                 .orElse(prefix + ".png");
-        return loadResource(selected);
+        return selected;
     }
 
     @Override
@@ -98,6 +109,11 @@ public interface SkinCatalogSource extends CapeCatalogSource {
             @Override
             public Optional<byte[]> findResource(String identifier) throws IOException {
                 return resourcePacks.findResource(identifier);
+            }
+
+            @Override
+            public InputStream openCape(String collectionId, String capeId) throws IOException {
+                return resourcePacks.openCape(collectionId, capeId);
             }
 
             @Override

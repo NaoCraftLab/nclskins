@@ -13,8 +13,13 @@ import com.naocraftlab.skins.core.model.PersonalSkinSource;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
+import com.naocraftlab.skins.client.EncodedTextureLimit;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -29,9 +34,10 @@ import java.util.Optional;
 import java.util.UUID;
 import static com.naocraftlab.skins.runtime.CatalogRead.*;
 
-public final class PreparedCatalogService implements CatalogRead, CatalogMaterialization {
+public final class PreparedCatalogService implements CatalogRead, CatalogMaterialization, AutoCloseable {
     private final SkinCatalogSource bundledSkins;
     private final CatalogAccountAccess accounts;
+    private final CapeStagingFiles staging;
     private volatile PreparedResources preparedResources = new PreparedResources(null, ResourceCapeDiscovery.empty());
 
     private volatile CatalogSnapshot catalogSnapshot = CatalogSnapshot.empty();
@@ -39,10 +45,13 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
     private volatile CatalogDiscoveryCache catalogDiscoveryCache;
 
     private volatile CapeView capeView = CapeView.empty();
+    private boolean closed;
 
-    public PreparedCatalogService(SkinCatalogSource sources, CatalogAccountAccess accounts) {
+    public PreparedCatalogService(SkinCatalogSource sources, CatalogAccountAccess accounts,
+            CapeStagingFiles staging) {
         this.bundledSkins = Objects.requireNonNull(sources, "sources");
         this.accounts = Objects.requireNonNull(accounts, "accounts");
+        this.staging = Objects.requireNonNull(staging, "staging");
     }
 
     void invalidatePersonalView() { catalogDiscoveryCache = null; }
@@ -50,7 +59,8 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
     void publishInitializedAccount(UUID accountId, AccountState account) {
         long generation = capeCatalogGeneration();
         ResourceCapeDiscovery discovery = preparedResources.capes();
-        if (generation != Long.MIN_VALUE && discovery.generation() == generation) {
+        if (generation != Long.MIN_VALUE && discovery.generation() == generation
+                && discovery.complete()) {
             publishCapeEditorData(accountId, account, generation, discovery);
         }
     }
@@ -224,9 +234,20 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
         ResourceSkinDiscovery result = new ResourceSkinDiscovery(
                 new CatalogDiscovery(collections, variantHashes, Map.of(), featureEvidence, snapshot), snapshot);
         ResourceCapeDiscovery capes = preparedResources.capes();
+        boolean capeCurrent = capes.generation() == bundledSkins.capeGeneration();
+        if (!capeCurrent) capes.retire();
         preparedResources = new PreparedResources(generation == Long.MIN_VALUE ? null : result,
-                capes.generation() == bundledSkins.capeGeneration() ? capes : ResourceCapeDiscovery.empty());
+                capeCurrent ? capes : ResourceCapeDiscovery.empty());
         return result;
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
+        if (closed) return;
+        closed = true;
+        preparedResources.capes().retire();
+        preparedResources = new PreparedResources(null, ResourceCapeDiscovery.empty());
+        capeView = CapeView.empty();
     }
 
     synchronized PreparedCatalogSnapshot preparedSkins() throws IOException {
@@ -399,6 +420,17 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
     }
 
     @Override
+    public boolean capeCatalogCapacityIncomplete() {
+        ResourceCapeDiscovery discovery = preparedResources.capes();
+        return discovery.generation() == bundledSkins.capeGeneration() && !discovery.complete();
+    }
+
+    @Override
+    public CapacityWatch capeCatalogCapacityWatch(java.util.function.Consumer<CapacityWatch> ready) {
+        return CapePreparationQueue.capacityNotice(ready::accept);
+    }
+
+    @Override
     public void warmResourceCapeCatalog(long generation) throws IOException {
         if (generation != Long.MIN_VALUE && bundledSkins.capeGeneration() == generation) {
             prepareResourceSkins(bundledSkins.generation());
@@ -412,9 +444,9 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
         if (bundledSkins.capeGeneration() != generation) {
             return;
         }
-        warmResourceCapeCatalog(generation);
+        prepareResourceSkins(bundledSkins.generation());
         ResourceCapeDiscovery discovery = frozenResourceCapeDiscovery(generation);
-        if (bundledSkins.capeGeneration() == generation) {
+        if (bundledSkins.capeGeneration() == generation && discovery.complete()) {
             publishCapeEditorData(accountId, accounts.load(accountId), generation, discovery);
         }
     }
@@ -422,7 +454,8 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
     @Override
     public Optional<CapeEditorData> warmedCapeEditorData(UUID accountId) {
         CapeEditorData data = capeView.data();
-        return data != null && data.resourceGeneration() != Long.MIN_VALUE
+        return data != null && preparedResources.capes().complete()
+                && data.resourceGeneration() != Long.MIN_VALUE
                 && data.account().accountId().equals(accountId)
                 && data.resourceGeneration() == bundledSkins.capeGeneration()
                 ? Optional.of(data)
@@ -452,31 +485,41 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
                 if (!key.startsWith("resource:cape:")) previews.put(key, bytes);
             });
         }
-        discovery.entries().forEach((key, entry) -> previews.put(
-                resourceCapePreviewKey(generation, key, entry.sourceSha256()), entry.previewBytes()));
         capeView = new CapeView(snapshot, data, previews);
         return data;
     }
 
-    private synchronized ResourceCapeDiscovery frozenResourceCapeDiscovery(long generation) {
+    private synchronized ResourceCapeDiscovery frozenResourceCapeDiscovery(long generation) throws IOException {
+        if (closed) throw new IOException("Catalog preparation is closed");
         ResourceCapeDiscovery cached = preparedResources.capes();
-        if (generation != Long.MIN_VALUE && cached.generation() == generation) {
+        if (generation != Long.MIN_VALUE && cached.generation() == generation && cached.complete()) {
             return cached;
         }
+        cached.retire();
+        preparedResources = new PreparedResources(preparedResources.skins(), ResourceCapeDiscovery.empty());
         List<CapeCatalogSource.CollectionDescriptor> collections = new ArrayList<>();
         Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries = new HashMap<>();
         Map<ResourceCapeKey, String> sourceHashes = new HashMap<>();
-        PngValidator validator = new PngValidator();
-        List<PreparedCatalogSnapshot.Entry> prepared = new ArrayList<>();
-        for (CapeCatalogSource.CollectionDescriptor collection : bundledSkins.capeCollections()) {
-            List<CapeCatalogSource.CapeDescriptor> capes = new ArrayList<>();
-            for (CapeCatalogSource.CapeDescriptor cape : collection.capes()) {
-                try {
-                    byte[] bytes = bundledSkins.loadCape(collection.id(), cape.id());
-                    PngValidator.CapePng projection = validator.projectCape(bytes);
+        boolean complete = true;
+        try {
+            for (CapeCatalogSource.CollectionDescriptor collection : bundledSkins.capeCollections()) {
+                List<CapeCatalogSource.CapeDescriptor> capes = new ArrayList<>();
+                for (CapeCatalogSource.CapeDescriptor cape : collection.capes()) {
+                    CapePreparation preparation = null;
+                    try {
+                    String resourceIdentifier = cape.contentIdentity();
+                    if (!resourceIdentifier.equals(bundledSkins.selectedCapeResource(collection.id(), cape.id()))) {
+                        continue;
+                    }
+                    preparation = prepareResourceCape(collection.id(), cape.id(), resourceIdentifier);
+                    PreparedCapeAsset asset = preparation.owned().asset();
+                    if (bundledSkins.capeGeneration() != generation
+                            || !resourceIdentifier.equals(bundledSkins.selectedCapeResource(collection.id(), cape.id()))) {
+                        throw new IOException("Catalog resources changed during preparation");
+                    }
                     ResourceCapeKey key = new ResourceCapeKey(collection.id(), cape.id());
-                    String sourceHash = sha256(bytes);
-                    CapeCatalogSource.RenderSupport support = projection.hasElytra()
+                    String sourceHash = preparation.sourceSha256();
+                    CapeCatalogSource.RenderSupport support = asset.hasElytra()
                             ? CapeCatalogSource.RenderSupport.CAPE_AND_ELYTRA
                             : CapeCatalogSource.RenderSupport.CAPE_ONLY;
                     capes.add(new CapeCatalogSource.CapeDescriptor(
@@ -484,54 +527,152 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
                             cape.nameText(),
                             cape.descriptionText(),
                             cape.authorsText(),
-                            projection.renderSha256(),
+                            asset.visualSha256(),
                             support, cape.provenance()));
-                    CatalogCollectionOrder provenance = cape.provenance().kind() == CatalogCollectionOrder.Kind.UNSPECIFIED
-                            ? collection.order() : cape.provenance();
-                    prepared.add(new PreparedCatalogSnapshot.Entry(
-                            new PreparedCatalogSnapshot.LogicalKey(provenance.sourceId(), collection.id(), cape.id(),
-                                    PreparedCatalogSnapshot.Component.CAPE, Optional.empty()),
-                            new PreparedCatalogSnapshot.SourceIdentity(sourceHash),
-                            new PreparedCatalogSnapshot.VisualIdentity(projection.renderSha256()),
-                            new PreparedCatalogSnapshot.RawPixelIdentity(validator.rawCapePixelSha256(bytes)),
-                            provenance, prepared.size(), Optional.empty(), SkinFeatureEvidence.ORDINARY));
                     entries.put(key, new ResourceCapeSnapshotEntry(
-                            projection.renderSha256(), sourceHash, projection.hasElytra(),
-                            bytes, projection.bytes()));
+                            asset.visualSha256(), sourceHash, asset.hasElytra(),
+                            resourceIdentifier, preparation.owned()));
+                    preparation = null;
                     sourceHashes.put(key, sourceHash);
-                } catch (IOException | PngValidationException | RuntimeException unavailable) {
+                    } catch (TransientCapePreparationException unavailable) {
+                        complete = false;
+                    } catch (IOException | PngValidationException | RuntimeException unavailable) {
+                    } finally {
+                        if (preparation != null) preparation.owned().release();
+                    }
+                }
+                if (!capes.isEmpty()) {
+                    collections.add(new CapeCatalogSource.CollectionDescriptor(
+                            collection.id(), collection.nameText(), collection.descriptionText(),
+                            collection.authorsText(), capes, collection.order()));
                 }
             }
-            if (!capes.isEmpty()) {
-                collections.add(new CapeCatalogSource.CollectionDescriptor(
-                        collection.id(),
-                        collection.nameText(),
-                        collection.descriptionText(),
-                        collection.authorsText(),
-                        capes,
-                        collection.order()));
+            if (bundledSkins.capeGeneration() != generation) {
+                throw new IllegalStateException("Cape catalog changed during preparation");
             }
+            ResourceCapeDiscovery discovered = new ResourceCapeDiscovery(
+                    generation, collections, entries, sourceHashes, complete);
+            ResourceSkinDiscovery skins = preparedResources.skins();
+            preparedResources = new PreparedResources(
+                    skins != null && skins.snapshot().generation() == bundledSkins.generation() ? skins : null,
+                    discovered);
+            return discovered;
+        } catch (IOException | RuntimeException failure) {
+            IOException cleanup = retireEntries(entries);
+            if (cleanup != null) failure.addSuppressed(cleanup);
+            throw failure;
         }
-        if (bundledSkins.capeGeneration() != generation) {
-            throw new IllegalStateException("Cape catalog changed during preparation");
-        }
-        ResourceCapeDiscovery discovered = new ResourceCapeDiscovery(
-                generation, collections, entries, sourceHashes, new PreparedCatalogSnapshot(generation, prepared));
-        ResourceSkinDiscovery skins = preparedResources.skins();
-        preparedResources = new PreparedResources(
-                skins != null && skins.snapshot().generation() == bundledSkins.generation() ? skins : null,
-                generation == Long.MIN_VALUE ? ResourceCapeDiscovery.empty() : discovered);
-        return discovered;
     }
 
-    private static String resourceCapePreviewKey(
-            long generation, ResourceCapeKey key, String sourceSha256) {
-        return "resource:cape:" + generation + ":" + key.collectionId() + ":"
-                + key.capeId() + ":" + sourceSha256;
+    @SuppressWarnings("try")
+    private CapePreparation prepareResourceCape(String collectionId, String capeId, String resourceIdentifier)
+            throws IOException, PngValidationException {
+        CapePreparationQueue.Reservation scratch = CapePreparationQueue.tryReserveScratch(
+                CapePreparationQueue.CAPE_PREPARATION_PEAK);
+        if (scratch == null) throw new TransientCapePreparationException("Cape preparation capacity unavailable");
+        Path source = null;
+        Path backing = null;
+        try {
+            source = staging.createEncoded();
+            backing = staging.createBacking();
+            String sourceHash;
+            try (var output = staging.writeEncoded(source)) {
+                sourceHash = copyCapeSource(collectionId, capeId, resourceIdentifier, output);
+            }
+            CapePreparationQueue.Reservation cpu = CapePreparationQueue.tryReserveCpu(
+                    CapePreparationQueue.DECODE_CPU_BYTES);
+            if (cpu == null) throw new TransientCapePreparationException("Cape decoding capacity unavailable");
+            PreparedCapeAsset asset;
+            try (cpu) {
+                asset = staging.prepare(source, backing);
+            }
+            staging.delete(source);
+            source = null;
+            scratch.shrinkTo(asset.backingBytes());
+            OwnedPreparedCape owned = new OwnedPreparedCape(asset, scratch, staging);
+            backing = null;
+            scratch = null;
+            return new CapePreparation(sourceHash, owned);
+        } finally {
+            if (source != null) staging.delete(source);
+            if (backing != null) staging.delete(backing);
+            if (scratch != null) scratch.close();
+        }
+    }
+
+    private String copyCapeSource(String collectionId, String capeId, String resourceIdentifier,
+            java.io.OutputStream output) throws IOException, PngValidationException {
+        MessageDigest digest = newDigest();
+        byte[] buffer = new byte[64 * 1024];
+        byte[] signature = new byte[8];
+        int signatureLength = 0;
+        long total = 0;
+        try (InputStream input = bundledSkins.openCape(collectionId, capeId)) {
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("Cape preparation interrupted");
+                if (count == 0) {
+                    int single = input.read();
+                    if (single < 0) break;
+                    buffer[0] = (byte) single;
+                    count = 1;
+                }
+                if (count > EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES - total) {
+                    throw new PngValidationException(PngValidationException.Reason.OVERSIZED,
+                            "Resource cape exceeds encoded limit");
+                }
+                int part = Math.min(count, signature.length - signatureLength);
+                System.arraycopy(buffer, 0, signature, signatureLength, part);
+                signatureLength += part;
+                total += count;
+                digest.update(buffer, 0, count);
+                output.write(buffer, 0, count);
+            }
+        }
+        if (!matchesCapeSignature(resourceIdentifier, signature, signatureLength)) {
+            throw new PngValidationException(PngValidationException.Reason.BAD_SIGNATURE,
+                    "Resource cape format does not match extension");
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static MessageDigest newDigest() {
+        try { return MessageDigest.getInstance("SHA-256"); }
+        catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    private static final class TransientCapePreparationException extends IOException {
+        private static final long serialVersionUID = 1L;
+        private TransientCapePreparationException(String message) { super(message); }
+    }
+
+    private static boolean matchesCapeSignature(String identifier, byte[] signature, int length) {
+        if (identifier.endsWith(".png")) {
+            return length >= 8 && java.util.Arrays.equals(signature,
+                    new byte[] {(byte) 137, 80, 78, 71, 13, 10, 26, 10});
+        }
+        if (identifier.endsWith(".gif")) {
+            return length >= 6 && signature[0] == 'G' && signature[1] == 'I' && signature[2] == 'F'
+                    && signature[3] == '8' && (signature[4] == '7' || signature[4] == '9')
+                    && signature[5] == 'a';
+        }
+        return (identifier.endsWith(".jpg") || identifier.endsWith(".jpeg"))
+                && length >= 3 && (signature[0] & 255) == 255 && (signature[1] & 255) == 216
+                && (signature[2] & 255) == 255;
     }
 
     @Override
     public Optional<byte[]> loadResourceCapePreview(
+            UUID accountId, ResourceCapeSelection selection) throws IOException {
+        Optional<PreparedCapeLease> lease = acquirePreparedResourceCape(accountId, selection);
+        if (lease.isEmpty()) return Optional.empty();
+        try (PreparedCapeLease prepared = lease.orElseThrow()) {
+            return Optional.of(prepared.asset().framePng(0));
+        }
+    }
+
+    @Override
+    public synchronized Optional<PreparedCapeLease> acquirePreparedResourceCape(
             UUID accountId, ResourceCapeSelection selection) throws IOException {
         requireCapeAccount(accountId);
         ResourceCapeSnapshot snapshot = capeView.snapshot();
@@ -541,10 +682,17 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
                 || bundledSkins.capeGeneration() != selection.generation()
                 || entry == null
                 || !entry.contentIdentity().equals(selection.contentIdentity())
-                || !entry.sourceSha256().equals(selection.sourceSha256())) {
+                || !entry.sourceSha256().equals(selection.sourceSha256())
+                || entry.hasElytra() != selection.hasElytra()
+                || !entry.resourceIdentifier().equals(bundledSkins.selectedCapeResource(
+                        selection.collectionId(), selection.capeId()))) {
             return Optional.empty();
         }
-        return Optional.of(entry.previewBytes());
+        try {
+            return Optional.of(entry.owned().acquire());
+        } catch (IllegalStateException retired) {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -563,37 +711,48 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
                 || entry.hasElytra() != selection.hasElytra()) {
             throw new IOException("Resource-pack cape catalog changed; reopen the editor");
         }
-        byte[] bytes = bundledSkins.loadCape(selection.collectionId(), selection.capeId());
-        if (!sha256(bytes).equals(entry.sourceSha256())) {
-            throw new IOException("Resource-pack cape source changed; reopen the editor");
+        Optional<PreparedCapeLease> acquired = acquirePreparedResourceCape(accountId, selection);
+        if (acquired.isEmpty()) throw new IOException("Resource-pack cape catalog changed; reopen the editor");
+        try (PreparedCapeLease lease = acquired.orElseThrow()) {
+            PreparedCapeAsset asset = lease.asset();
+            if (!asset.visualSha256().equals(selection.contentIdentity())
+                    || asset.hasElytra() != selection.hasElytra()) {
+                throw new IOException("Resource-pack cape identity changed; reopen the editor");
+            }
+            verifyCapeSource(accountId, selection, entry, snapshot);
+            com.naocraftlab.skins.core.model.PersonalCapeEntry imported =
+                    accounts.importPreparedCape(accountId, selection.displayName(), asset, current -> {
+                        verifyCapeSource(accountId, selection, entry, snapshot);
+                    });
+            if (!imported.renderSha256().equals(selection.contentIdentity())) {
+                throw new IOException("Resource-pack cape import changed identity");
+            }
+            return imported;
         }
-        PngValidator.CapePng projection = new PngValidator().projectCape(bytes);
-        if (!projection.renderSha256().equals(selection.contentIdentity())
-                || projection.hasElytra() != selection.hasElytra()) {
-            throw new IOException("Resource-pack cape identity changed; reopen the editor");
+    }
+
+    private void verifyCapeSource(UUID accountId, ResourceCapeSelection selection,
+            ResourceCapeSnapshotEntry entry, ResourceCapeSnapshot snapshot) throws IOException {
+        requireCapeAccount(accountId);
+        if (bundledSkins.capeGeneration() != selection.generation()
+                || capeView.snapshot() != snapshot
+                || !entry.resourceIdentifier().equals(bundledSkins.selectedCapeResource(
+                        selection.collectionId(), selection.capeId()))) {
+            throw new IOException("Resource-pack cape changed before commit");
+        }
+        String currentHash;
+        try {
+            currentHash = copyCapeSource(selection.collectionId(), selection.capeId(),
+                    entry.resourceIdentifier(), OutputStream.nullOutputStream());
+        } catch (PngValidationException invalid) {
+            throw new IOException("Resource-pack cape changed before commit", invalid);
         }
         requireCapeAccount(accountId);
         if (bundledSkins.capeGeneration() != selection.generation()
-                || capeView.snapshot() != snapshot) {
-            throw new IOException("Resource-pack cape catalog changed; reopen the editor");
+                || capeView.snapshot() != snapshot
+                || !entry.sourceSha256().equals(currentHash)) {
+            throw new IOException("Resource-pack cape changed before commit");
         }
-        com.naocraftlab.skins.core.model.PersonalCapeEntry imported =
-                accounts.importCape(accountId, selection.displayName(), bytes, current -> {
-                    requireCapeAccount(accountId);
-                    if (bundledSkins.capeGeneration() != selection.generation() || capeView.snapshot() != snapshot) {
-                        throw new IOException("Resource-pack cape changed before commit");
-                    }
-                    byte[] currentBytes = bundledSkins.loadCape(selection.collectionId(), selection.capeId());
-                    requireCapeAccount(accountId);
-                    if (bundledSkins.capeGeneration() != selection.generation() || capeView.snapshot() != snapshot
-                            || !entry.sourceSha256().equals(sha256(currentBytes))) {
-                        throw new IOException("Resource-pack cape changed before commit");
-                    }
-                });
-        if (!imported.renderSha256().equals(selection.contentIdentity())) {
-            throw new IOException("Resource-pack cape import changed identity");
-        }
-        return imported;
     }
 
     synchronized void publishOwnedCapePreviews(UUID accountId, Map<String, byte[]> owned) {
@@ -806,7 +965,8 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
             long generation,
             List<CapeCatalogSource.CollectionDescriptor> collections,
             Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries,
-            Map<ResourceCapeKey, String> sourceHashes, PreparedCatalogSnapshot prepared) {
+            Map<ResourceCapeKey, String> sourceHashes,
+            boolean complete) {
         private ResourceCapeDiscovery {
             collections = List.copyOf(Objects.requireNonNull(collections, "collections"));
             entries = Map.copyOf(Objects.requireNonNull(entries, "entries"));
@@ -814,8 +974,12 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
         }
 
         private static ResourceCapeDiscovery empty() {
-            return new ResourceCapeDiscovery(Long.MIN_VALUE, List.of(), Map.of(), Map.of(),
-                    new PreparedCatalogSnapshot(Long.MIN_VALUE, List.of()));
+            return new ResourceCapeDiscovery(Long.MIN_VALUE, List.of(), Map.of(), Map.of(), false);
+        }
+
+        private void retire() throws IOException {
+            IOException failure = retireEntries(entries);
+            if (failure != null) throw failure;
         }
     }
 
@@ -835,22 +999,75 @@ public final class PreparedCatalogService implements CatalogRead, CatalogMateria
 
     private record ResourceCapeSnapshotEntry(
             String contentIdentity, String sourceSha256, boolean hasElytra,
-            byte[] bytes, byte[] previewBytes) {
+            String resourceIdentifier, OwnedPreparedCape owned) {
         private ResourceCapeSnapshotEntry {
             Objects.requireNonNull(contentIdentity, "contentIdentity");
             Objects.requireNonNull(sourceSha256, "sourceSha256");
-            bytes = Objects.requireNonNull(bytes, "bytes").clone();
-            previewBytes = Objects.requireNonNull(previewBytes, "previewBytes").clone();
+            Objects.requireNonNull(resourceIdentifier, "resourceIdentifier");
+            Objects.requireNonNull(owned, "owned");
+        }
+    }
+
+    private record CapePreparation(String sourceSha256, OwnedPreparedCape owned) { }
+
+    private static IOException retireEntries(Map<ResourceCapeKey, ResourceCapeSnapshotEntry> entries) {
+        IOException failed = null;
+        for (ResourceCapeSnapshotEntry entry : entries.values()) {
+            try { entry.owned().retireCatalog(); }
+            catch (IOException failure) {
+                if (failed == null) failed = failure;
+                else failed.addSuppressed(failure);
+            }
+        }
+        return failed;
+    }
+
+    private static final class OwnedPreparedCape {
+        private final PreparedCapeAsset asset;
+        private final CapePreparationQueue.Reservation scratch;
+        private final CapeStagingFiles staging;
+        private int references = 1;
+        private boolean catalogRetired;
+
+        private OwnedPreparedCape(PreparedCapeAsset asset, CapePreparationQueue.Reservation scratch,
+                CapeStagingFiles staging) {
+            this.asset = asset;
+            this.scratch = scratch;
+            this.staging = staging;
         }
 
-        @Override
-        public byte[] bytes() {
-            return bytes.clone();
+        private PreparedCapeAsset asset() { return asset; }
+
+        private synchronized PreparedCapeLease acquire() {
+            if (catalogRetired) throw new IllegalStateException("Catalog cape was retired");
+            references++;
+            return new CapeLease(this);
         }
 
-        @Override
-        public byte[] previewBytes() {
-            return previewBytes.clone();
+        private synchronized void retireCatalog() throws IOException {
+            if (catalogRetired) return;
+            catalogRetired = true;
+            release();
+        }
+
+        private synchronized void release() throws IOException {
+            if (--references == 0) {
+                staging.delete(asset.backing());
+                scratch.close();
+            }
+        }
+    }
+
+    private static final class CapeLease implements PreparedCapeLease {
+        private final OwnedPreparedCape owner;
+        private boolean closed;
+
+        private CapeLease(OwnedPreparedCape owner) { this.owner = owner; }
+        @Override public PreparedCapeAsset asset() { return owner.asset(); }
+        @Override public synchronized void close() throws IOException {
+            if (closed) return;
+            closed = true;
+            owner.release();
         }
     }
 }

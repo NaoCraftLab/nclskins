@@ -57,7 +57,9 @@ final class TestClientGraph {
 
     void attachProviders(PlayerAppearanceSink<?> sink, ClientExecutor client) {
         operations().attachCapeProviders(new CapeProviderCoordinator(tokens, graph.appearances(), graph.assets(),
-                graph.textures(), sink, client, Runnable::run, new OptifineCapeReader(), new SkinMcCapeReader(),
+                graph.textures(), sink, client, Runnable::run,
+                new OptifineCapeReader(storage.layout().root().resolve("test-optifine-staging")),
+                new SkinMcCapeReader(storage.layout().root().resolve("test-skinmc-staging")),
                 operations()::verifiedOfficialCapeUri), null);
     }
 }

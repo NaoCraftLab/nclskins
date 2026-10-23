@@ -32,43 +32,59 @@ public final class LivePreviewRenderer
     @Override
     protected void renderToTexture(LivePreviewRenderState state, PoseStack pose) {
         Minecraft minecraft = Minecraft.getInstance();
-        try (PreviewScope ignoredContext =
-                        state.previewContext().open(minecraft);
-                EditorPreviewLayerGuard ignoredLayers =
-                        EditorPreviewLayerGuard.open(state.layerFailureSink()::onFailure)) {
-            SubmissionPreviewRenderer.PreviewPlayer renderPlayer = state.previewPlayer();
-            renderPlayer.tickCount = Math.max(0, (int) Math.floor(state.previewAge()));
-            renderPlayer.avatarState().tick(renderPlayer.position(), Vec3.ZERO);
-            float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(false);
-            AvatarRenderState avatarState = (AvatarRenderState)
-                    minecraft.getEntityRenderDispatcher().extractEntity(renderPlayer, partialTick);
-            SubmissionPreviewRenderer.configure(avatarState, state.request());
-            avatarState.ageInTicks = state.previewAge();
+        if (!state.previewContext().current()) return;
+        var candidate = new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY, () -> true);
+        boolean completed = false;
+        boolean[] layersSucceeded = {true};
+        try {
+            try (PreviewScope scope =
+                            state.previewContext().open(minecraft);
+                    EditorPreviewLayerGuard ignoredLayers =
+                            EditorPreviewLayerGuard.open(failure -> {
+                                layersSucceeded[0] = false;
+                                state.layerFailureSink().onFailure(failure);
+                            })) {
+                SubmissionPreviewRenderer.PreviewPlayer renderPlayer = state.previewPlayer();
+                renderPlayer.tickCount = Math.max(0, (int) Math.floor(state.previewAge()));
+                renderPlayer.avatarState().tick(renderPlayer.position(), Vec3.ZERO);
+                float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+                AvatarRenderState avatarState = (AvatarRenderState)
+                        minecraft.getEntityRenderDispatcher().extractEntity(renderPlayer, partialTick);
+                SubmissionPreviewRenderer.configure(avatarState, state.request());
+                avatarState.ageInTicks = state.previewAge();
 
-            minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.ENTITY_IN_UI);
-            pose.translate(
-                    state.translation().x,
-                    state.translation().y,
-                    state.translation().z);
-            pose.mulPose(state.rotation());
+                minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.ENTITY_IN_UI);
+                pose.translate(
+                        state.translation().x,
+                        state.translation().y,
+                        state.translation().z);
+                pose.mulPose(state.rotation());
 
-            CameraRenderState cameraState = new CameraRenderState();
-            cameraState.orientation = new Quaternionf(state.overrideCameraAngle())
-                    .conjugate()
-                    .rotateY((float) Math.PI);
-            FeatureRenderDispatcher features =
-                    minecraft.gameRenderer.getFeatureRenderDispatcher();
-            minecraft.getEntityRenderDispatcher().submit(
-                    avatarState,
-                    cameraState,
-                    0.0,
-                    0.0,
-                    0.0,
-                    pose,
-                    features.getSubmitNodeStorage());
-            features.renderAllFeatures();
+                CameraRenderState cameraState = new CameraRenderState();
+                cameraState.orientation = new Quaternionf(state.overrideCameraAngle())
+                        .conjugate()
+                        .rotateY((float) Math.PI);
+                FeatureRenderDispatcher features =
+                        minecraft.gameRenderer.getFeatureRenderDispatcher();
+                minecraft.getEntityRenderDispatcher().submit(
+                        avatarState,
+                        cameraState,
+                        0.0,
+                        0.0,
+                        0.0,
+                        pose,
+                        features.getSubmitNodeStorage());
+                features.renderAllFeatures();
+                candidate = scope.body();
+            }
+            completed = layersSucceeded[0];
         } catch (RuntimeException failure) {
-            state.failureSink().onFailure(failure);
+            if (state.previewContext().current()) state.failureSink().onFailure(failure);
+        } finally {
+            state.previewContext().displayed(completed ? candidate
+                    : new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                            com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
         }
     }
 

@@ -117,6 +117,27 @@ class MinecraftProfileApiTest {
     }
 
     @Test
+    void multipartTransmitsExactTransparentCarrierWithoutRenderingOrRetries() throws Exception {
+        byte[] png;
+        try (var input = getClass().getResourceAsStream("/cpm/classic-a.png")) {
+            png = java.util.Objects.requireNonNull(input).readAllBytes();
+        }
+        AtomicReference<byte[]> request = new AtomicReference<>();
+        server = server(exchange -> {
+            request.set(exchange.getRequestBody().readAllBytes());
+            respond(exchange, 204, "");
+        });
+        api(Duration.ofSeconds(2), duration -> {}).uploadSkin(TOKEN, SkinVariant.CLASSIC, png);
+        byte[] body = request.get();
+        byte[] header = "filename=\"skin.png\"\r\nContent-Type: image/png\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        String text = new String(body, StandardCharsets.ISO_8859_1);
+        int start = text.indexOf(new String(header, StandardCharsets.ISO_8859_1));
+        assertTrue(start >= 0);
+        start += header.length;
+        org.junit.jupiter.api.Assertions.assertArrayEquals(png, java.util.Arrays.copyOfRange(body, start, start + png.length));
+    }
+
+    @Test
     void retriesBoundedGetButNotAuthenticationFailures() throws Exception {
         AtomicInteger calls = new AtomicInteger();
         List<Duration> sleeps = new ArrayList<>();

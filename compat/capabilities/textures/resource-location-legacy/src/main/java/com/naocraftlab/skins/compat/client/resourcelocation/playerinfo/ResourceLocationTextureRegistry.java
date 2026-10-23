@@ -80,6 +80,33 @@ public final class ResourceLocationTextureRegistry
     }
 
     @Override
+    protected LoadedTexture<NativeTexture> loadRgba(String sha256, int width, int height,
+            byte[] rgba8) throws IOException {
+        NativeImage image = new NativeImage(width, height, false);
+        DynamicTexture texture = null;
+        try {
+            int offset = 0;
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int abgr = (rgba8[offset] & 255) | ((rgba8[offset + 1] & 255) << 8)
+                            | ((rgba8[offset + 2] & 255) << 16) | ((rgba8[offset + 3] & 255) << 24);
+                    image.setPixelRGBA(x, y, abgr);
+                    offset += 4;
+                }
+            }
+            texture = new DynamicTexture(image);
+            ResourceLocation location = Minecraft.getInstance().getTextureManager().register(
+                    "nclskins/" + pathRoot + "/image/" + sha256, texture);
+            return new LoadedTexture<>(new TextureHandle(location.toString(), width, height),
+                    new NativeTexture(location, texture, null, null));
+        } catch (RuntimeException | Error failure) {
+            if (texture == null) image.close();
+            else texture.close();
+            throw failure;
+        }
+    }
+
+    @Override
     protected void unload(NativeTexture resource) {
         if (resource.registration() != null) {
             resource.registration().retire();
@@ -117,6 +144,7 @@ public final class ResourceLocationTextureRegistry
                 () -> { });
         NativeTextureUploadTracker.track(texture, registration);
         try {
+            ((RegisteredSkinTexture) texture).nclskins$registeredSkinLocation(location);
             Minecraft.getInstance().getTextureManager().register(location, texture);
         } catch (RuntimeException failure) {
             texture.close();

@@ -38,16 +38,18 @@ final class SkinMcFreshnessQueryTest {
     }
 
     @Test
-    void transportRejectsCanonicalAndWireSubstitutionBeforePhysicalGet() throws Exception {
+    void transportRejectsCanonicalAndWireSubstitutionBeforePhysicalGet(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path temporary) throws Exception {
         AtomicInteger calls = new AtomicInteger();
-        OptifineCapeReader.Transport transport = (uri, timeout, maxBytes) -> {
+        OptifineCapeReader.Transport transport = (uri, timeout, maxBytes, destination) -> {
             calls.incrementAndGet();
-            return new OptifineCapeReader.Response(404, new byte[0]);
+            return new OptifineCapeReader.FileResponse(404, 0, java.util.Map.of());
         };
         URI canonical = SkinMcFreshnessQuery.canonical(PROFILE);
         long freshness = 123456L;
         URI validWire = SkinMcFreshnessQuery.wire(PROFILE, canonical, freshness);
-        transport.getSkinMcCape(PROFILE, canonical, validWire, freshness, Duration.ofSeconds(10), 1000);
+        transport.getSkinMcCapeToFile(PROFILE, canonical, validWire, freshness,
+                Duration.ofSeconds(10), 1000, temporary.resolve("valid"));
         assertEquals(1, calls.get());
 
         for (URI malicious : List.of(
@@ -58,8 +60,9 @@ final class SkinMcFreshnessQueryTest {
                 URI.create("https://skinmc.net:443/api/v1/skinmcCape/" + PROFILE),
                 URI.create("https://user@skinmc.net/api/v1/skinmcCape/" + PROFILE),
                 URI.create("https://example.org/api/v1/skinmcCape/" + PROFILE))) {
-            assertThrows(IllegalArgumentException.class, () -> transport.getSkinMcCape(
-                    PROFILE, malicious, validWire, freshness, Duration.ofSeconds(10), 1000));
+            assertThrows(IllegalArgumentException.class, () -> transport.getSkinMcCapeToFile(
+                    PROFILE, malicious, validWire, freshness, Duration.ofSeconds(10), 1000,
+                    temporary.resolve("rejected")));
         }
         for (URI malicious : List.of(
                 URI.create("https://skinmc.net/api/v1/skinmcCape/" + OTHER + "?t=" + freshness),
@@ -70,8 +73,9 @@ final class SkinMcFreshnessQueryTest {
                 URI.create(canonical + "?t=" + freshness + "#fragment"),
                 URI.create("https://example.org/api/v1/skinmcCape/" + PROFILE + "?t=" + freshness),
                 URI.create("https://skinmc.net/api/v1/skinmcCape/%2e%2e/" + PROFILE + "?t=" + freshness))) {
-            assertThrows(IllegalArgumentException.class, () -> transport.getSkinMcCape(
-                    PROFILE, canonical, malicious, freshness, Duration.ofSeconds(10), 1000));
+            assertThrows(IllegalArgumentException.class, () -> transport.getSkinMcCapeToFile(
+                    PROFILE, canonical, malicious, freshness, Duration.ofSeconds(10), 1000,
+                    temporary.resolve("rejected")));
         }
         assertEquals(1, calls.get(), "rejected URLs never reach physical GET");
     }

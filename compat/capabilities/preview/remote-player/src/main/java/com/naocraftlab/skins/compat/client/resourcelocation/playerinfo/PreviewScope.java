@@ -31,14 +31,16 @@ public final class PreviewScope implements AutoCloseable {
             AbstractClientPlayer player,
             PreviewRenderer.PreviewAppearance appearance) {
         this.player = player;
-        playerScope = new ExactLocalPlayerScope(player);
+        playerScope = new ExactLocalPlayerScope(player, appearance);
         this.appearance = appearance;
         skin = location(appearance.skin().location());
         ResourceLocation selectedCape = appearance.cape()
                 .map(handle -> location(handle.location()))
                 .orElse(null);
         cape = appearance.capeMode() == PreviewRenderer.CapeMode.CAPE ? selectedCape : null;
-        elytra = appearance.capeMode() == PreviewRenderer.CapeMode.ELYTRA ? selectedCape : null;
+        elytra = appearance.capeMode() == PreviewRenderer.CapeMode.ELYTRA && selectedCape != null
+                ? appearance.capeHasElytra() ? selectedCape : new ResourceLocation("minecraft", "textures/entity/elytra.png")
+                : null;
         model = appearance.model() == SkinModel.SLIM ? "slim" : "default";
     }
 
@@ -49,8 +51,8 @@ public final class PreviewScope implements AutoCloseable {
         Objects.requireNonNull(minecraft, "minecraft");
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(appearance, "appearance");
-        if (!minecraft.isSameThread() || minecraft.player != player) {
-            throw new IllegalStateException("Editor preview scope requires the local player on the client thread");
+        if (!minecraft.isSameThread() || minecraft.level == null || minecraft.level != player.level()) {
+            throw new IllegalStateException("Editor preview scope requires a player in the current world on the client thread");
         }
         if (ACTIVE.get() != null) {
             throw new IllegalStateException("Editor preview scope is already active");
@@ -98,7 +100,8 @@ public final class PreviewScope implements AutoCloseable {
             return null;
         }
         if (part == PlayerModelPart.CAPE) {
-            return scope.cape != null;
+            return scope.appearance.capeMode() == PreviewRenderer.CapeMode.CAPE
+                    && (scope.cape != null || scope.appearance.nativeAccessories());
         }
         return scope.appearance.outerLayerVisibility().visible(outerLayerPart(part));
     }
@@ -108,7 +111,8 @@ public final class PreviewScope implements AutoCloseable {
         if (scope == null) {
             return original;
         }
-        return slot == EquipmentSlot.CHEST && scope.elytra != null
+        return slot == EquipmentSlot.CHEST && scope.appearance.capeMode() == PreviewRenderer.CapeMode.ELYTRA
+                && (scope.elytra != null || scope.appearance.nativeAccessories())
                 ? new ItemStack(Items.ELYTRA)
                 : ItemStack.EMPTY;
     }
@@ -137,6 +141,8 @@ public final class PreviewScope implements AutoCloseable {
         }
         return location;
     }
+
+    public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return playerScope.body(); }
 
     @Override
     public void close() {

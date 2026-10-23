@@ -11,6 +11,8 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.png.PngInfo;
 import com.naocraftlab.skins.core.png.PngValidationException;
 import com.naocraftlab.skins.core.png.PngValidator;
+import com.naocraftlab.skins.core.png.CapeAssetDecoder;
+import com.naocraftlab.skins.core.png.PreparedCapeAsset;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -209,8 +211,16 @@ public final class NclSkinsStorage {
     @SuppressWarnings("try")
     public AccountState updateAccount(UUID accountId, UnaryOperator<AccountState> update,
             com.naocraftlab.skins.core.service.AccountWriteGuard guard) throws IOException {
+        return updateAccount(accountId, update, guard, () -> true);
+    }
+
+    @SuppressWarnings("try")
+    public AccountState updateAccount(UUID accountId, UnaryOperator<AccountState> update,
+            com.naocraftlab.skins.core.service.AccountWriteGuard guard,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(update, "update");
+        requireCurrent(stillCurrent);
         ensureInitialized();
         try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
             Path statePath = layout.accountState(accountId);
@@ -224,7 +234,8 @@ public final class NclSkinsStorage {
                 throw new IllegalArgumentException("Account update changed the Minecraft UUID");
             }
             guard.verify(current);
-            saveAccountLocked(replacement);
+            requireCurrent(stillCurrent);
+            saveAccountLocked(replacement, stillCurrent);
             return replacement;
         }
     }
@@ -240,19 +251,30 @@ public final class NclSkinsStorage {
     }
 
 
-    @SuppressWarnings("try")
     public AccountAppearanceState updateAppearance(
             UUID accountId, UnaryOperator<AccountAppearanceState> update) throws IOException {
+        return updateAppearance(accountId, update, () -> true);
+    }
+
+    @SuppressWarnings("try")
+    public AccountAppearanceState updateAppearance(
+            UUID accountId, UnaryOperator<AccountAppearanceState> update,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(update, "update");
+        Objects.requireNonNull(stillCurrent, "stillCurrent");
         ensureInitialized();
         try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            if (!stillCurrent.getAsBoolean()) throw new IOException("Appearance update is no longer current");
             AccountAppearanceState current = loadAppearanceLocked(accountId);
             AccountAppearanceState replacement = Objects.requireNonNull(update.apply(current), "update result");
             if (!accountId.equals(replacement.accountId())) {
                 throw new IllegalArgumentException("Appearance update changed the account UUID");
             }
-            AtomicFileWriter.replace(layout.accountAppearance(accountId), encodeAppearanceLocked(accountId, replacement));
+            if (replacement != current || !Files.exists(layout.accountAppearance(accountId))) {
+                AtomicFileWriter.replace(layout.accountAppearance(accountId), encodeAppearanceLocked(accountId, replacement), stillCurrent);
+            }
+            else if (!stillCurrent.getAsBoolean()) throw new IOException("Appearance update is no longer current");
             return replacement;
         }
     }
@@ -751,7 +773,14 @@ public final class NclSkinsStorage {
 
     @SuppressWarnings("try")
     public StoredAsset storeAsset(byte[] pngBytes) throws IOException, PngValidationException {
+        return storeAsset(pngBytes, () -> true);
+    }
+
+    @SuppressWarnings("try")
+    public StoredAsset storeAsset(byte[] pngBytes, java.util.function.BooleanSupplier stillCurrent)
+            throws IOException, PngValidationException {
         Objects.requireNonNull(pngBytes, "pngBytes");
+        requireCurrent(stillCurrent);
         ensureInitialized();
         byte[] normalizedPng = pngValidator.normalizeSkin(pngBytes);
         PngInfo info = pngValidator.validate(normalizedPng);
@@ -759,8 +788,9 @@ public final class NclSkinsStorage {
         Path path = assetPath(sha256);
         boolean created;
         try (ProcessFileLock ignored = lockManager.acquire(layout.assetLock(sha256))) {
-            created = AtomicFileWriter.createImmutable(path, normalizedPng);
-            if (!created && !sha256.equals(sha256(readBoundedAsset(path)))) {
+            requireCurrent(stillCurrent);
+            created = AtomicFileWriter.createImmutable(path, normalizedPng, stillCurrent);
+            if (!created && !sha256.equals(sha256(path))) {
                 throw new StorageException(
                         StorageException.Code.ASSET_INTEGRITY_FAILURE,
                         "Existing content-addressed skin asset failed integrity verification");
@@ -803,16 +833,236 @@ public final class NclSkinsStorage {
         return selected[0];
     }
 
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
+            UUID accountId, String name, Path encoded) throws IOException, PngValidationException {
+        return importCape(accountId, name, encoded, current -> {});
+    }
+
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
+            UUID accountId, String name, Path encoded,
+            com.naocraftlab.skins.core.service.AccountWriteGuard guard) throws IOException, PngValidationException {
+        Objects.requireNonNull(encoded, "encoded");
+        ensureInitialized();
+        Path assetDirectory = layout.accountState(accountId).getParent().resolve("cape-assets");
+        createDirectories(assetDirectory);
+        Path staged = assetDirectory.resolve(".prepared-" + UUID.randomUUID() + ".frames");
+        try {
+            PreparedCapeAsset prepared = new CapeAssetDecoder().prepare(encoded, staged);
+            if (prepared.frameCount() == 1 && prepared.width() <= 128) {
+                return importCape(accountId, name, prepared.framePng(0), guard);
+            }
+            return importPreparedCape(accountId, name, prepared, guard);
+        } finally { Files.deleteIfExists(staged); }
+    }
+
+    public com.naocraftlab.skins.core.model.PersonalCapeEntry importPreparedCape(
+            UUID accountId, String name, PreparedCapeAsset prepared,
+            com.naocraftlab.skins.core.service.AccountWriteGuard guard) throws IOException {
+        Objects.requireNonNull(prepared, "prepared");
+        Objects.requireNonNull(guard, "guard");
+        ensureInitialized();
+        byte[] descriptor = prepared.descriptorBytes();
+        String descriptorHash = sha256(descriptor);
+        Path directory = layout.accountState(accountId).getParent().resolve("cape-assets");
+        Path backing = directory.resolve(descriptorHash + ".frames");
+        Path descriptorPath = directory.resolve(descriptorHash + ".cape");
+        com.naocraftlab.skins.core.png.CapeAssetDecoder.restore(descriptor, prepared.backing());
+        com.naocraftlab.skins.core.model.PersonalCapeEntry[] selected = new com.naocraftlab.skins.core.model.PersonalCapeEntry[1];
+        try {
+            updateAccount(accountId, current -> {
+                selected[0] = current.personalCapes().stream()
+                        .filter(entry -> entry.renderSha256().equals(prepared.visualSha256()))
+                        .findFirst().orElse(null);
+                if (selected[0] != null) return current;
+                try {
+                    AtomicFileWriter.createImmutable(backing, prepared.backing(), prepared.backingBytes());
+                    com.naocraftlab.skins.core.png.CapeAssetDecoder.restore(descriptor, backing);
+                    AtomicFileWriter.createImmutable(descriptorPath, descriptor);
+                    readPreparedCapeAsset(accountId, descriptorHash).orElseThrow(
+                            () -> new IOException("Cape descriptor was not published"));
+                } catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                selected[0] = new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                        new com.naocraftlab.skins.core.model.LocalCapeReference(
+                                UUID.randomUUID(), descriptorHash, prepared.hasElytra()),
+                        prepared.visualSha256(), name, clock.instant());
+                java.util.List<com.naocraftlab.skins.core.model.PersonalCapeEntry> entries =
+                        new java.util.ArrayList<>(current.personalCapes());
+                entries.add(selected[0]);
+                return current.withPersonalCapes(entries);
+            }, guard);
+        } catch (java.io.UncheckedIOException failure) { throw failure.getCause(); }
+        return selected[0];
+    }
+
+    public java.util.Optional<PreparedCapeAsset> readPreparedCapeAsset(UUID accountId, String hash)
+            throws IOException {
+        if (!hash.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid cape hash");
+        Path directory = layout.accountState(accountId).getParent().resolve("cape-assets");
+        Path descriptorPath = directory.resolve(hash + ".cape");
+        if (!Files.exists(descriptorPath)) return java.util.Optional.empty();
+        byte[] bytes = readCapeDescriptor(descriptorPath);
+        if (!hash.equals(sha256(bytes))) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Cape descriptor integrity failure", new com.naocraftlab.skins.core.png.CapeIntegrityException("Cape descriptor integrity failure"));
+        }
+        try {
+            return java.util.Optional.of(com.naocraftlab.skins.core.png.CapeAssetDecoder.restore(bytes,
+                    directory.resolve(hash + ".frames")));
+        } catch (com.naocraftlab.skins.core.png.CapeIntegrityException failure) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Cape backing integrity failure", failure);
+        }
+    }
+
+    public java.util.Optional<PreparedCapeAsset> readPreparedCapeThumbnail(UUID accountId, String hash)
+            throws IOException {
+        if (!hash.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid cape hash");
+        Path directory = layout.accountState(accountId).getParent().resolve("cape-assets");
+        Path descriptorPath = directory.resolve(hash + ".cape");
+        if (!Files.exists(descriptorPath)) return java.util.Optional.empty();
+        byte[] descriptor = readCapeDescriptor(descriptorPath);
+        if (!hash.equals(sha256(descriptor))) throw new StorageException(
+                StorageException.Code.ASSET_INTEGRITY_FAILURE, "Cape descriptor integrity failure", new com.naocraftlab.skins.core.png.CapeIntegrityException("Cape descriptor integrity failure"));
+        try {
+            return java.util.Optional.of(com.naocraftlab.skins.core.png.CapeAssetDecoder.restoreThumbnail(
+                    descriptor, directory.resolve(hash + ".frames")));
+        } catch (com.naocraftlab.skins.core.png.CapeIntegrityException failure) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Cape backing integrity failure", failure);
+        }
+    }
+
+    @SuppressWarnings("try")
+    public String storeObservedPreparedCape(PreparedCapeAsset prepared) throws IOException {
+        Objects.requireNonNull(prepared, "prepared");
+        ensureInitialized();
+        byte[] descriptor = prepared.descriptorBytes();
+        com.naocraftlab.skins.core.png.CapeAssetDecoder.restore(descriptor, prepared.backing());
+        String key = prepared.visualSha256();
+        Path backing = layout.textureCache().resolve(key + ".frames");
+        Path description = layout.textureCache().resolve(key + ".cape");
+        try (ProcessFileLock ignored = lockManager.acquire(layout.textureLock(key))) {
+            AtomicFileWriter.createImmutable(backing, prepared.backing(), prepared.backingBytes());
+            com.naocraftlab.skins.core.png.CapeAssetDecoder.restore(descriptor, backing);
+            AtomicFileWriter.createImmutable(description, descriptor);
+            readObservedPreparedCape(key).orElseThrow(() -> new IOException("Cape cache was not published"));
+        }
+        return key;
+    }
+
+    public java.util.Optional<PreparedCapeAsset> readObservedPreparedCape(String visualSha256) throws IOException {
+        if (!visualSha256.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid cape hash");
+        Path description = layout.textureCache().resolve(visualSha256 + ".cape");
+        if (!Files.exists(description)) return java.util.Optional.empty();
+        byte[] descriptor = readCapeDescriptor(description);
+        try {
+            PreparedCapeAsset asset = com.naocraftlab.skins.core.png.CapeAssetDecoder.restore(descriptor,
+                    layout.textureCache().resolve(visualSha256 + ".frames"));
+            if (!visualSha256.equals(asset.visualSha256())) throw new com.naocraftlab.skins.core.png.CapeIntegrityException("Cape cache identity mismatch");
+            return java.util.Optional.of(asset);
+        } catch (com.naocraftlab.skins.core.png.CapeIntegrityException failure) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Cape cache integrity failure", failure);
+        }
+    }
+
+    public java.util.Optional<PreparedCapeAsset> readObservedPreparedCapeThumbnail(String visualSha256) throws IOException {
+        if (!visualSha256.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid cape hash");
+        Path descriptorPath = layout.textureCache().resolve(visualSha256 + ".cape");
+        if (!Files.exists(descriptorPath)) return java.util.Optional.empty();
+        byte[] descriptor = readCapeDescriptor(descriptorPath);
+        try {
+            PreparedCapeAsset asset = com.naocraftlab.skins.core.png.CapeAssetDecoder.restoreThumbnail(
+                    descriptor, layout.textureCache().resolve(visualSha256 + ".frames"));
+            if (!visualSha256.equals(asset.visualSha256())) throw new com.naocraftlab.skins.core.png.CapeIntegrityException("Cape cache identity mismatch");
+            return java.util.Optional.of(asset);
+        } catch (com.naocraftlab.skins.core.png.CapeIntegrityException failure) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Cape cache integrity failure", failure);
+        }
+    }
+
+    public java.util.List<com.naocraftlab.skins.core.service.ProviderTextureStore.ObservedPreparedCape>
+            listObservedPreparedCapes() throws IOException {
+        ensureInitialized();
+        Path physicalCache = layout.textureCache().toRealPath();
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        try (java.nio.file.DirectoryStream<Path> paths = Files.newDirectoryStream(layout.textureCache())) {
+            for (Path path : paths) {
+                String name = path.getFileName().toString();
+                if (Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                        && name.matches("[0-9a-f]{64}\\.(cape|frames)")) {
+                    keys.add(name.substring(0, 64));
+                }
+            }
+        }
+        java.util.List<com.naocraftlab.skins.core.service.ProviderTextureStore.ObservedPreparedCape> entries =
+                new java.util.ArrayList<>(keys.size());
+        for (String key : keys) {
+            Path backing = layout.textureCache().resolve(key + ".frames");
+            Path descriptor = layout.textureCache().resolve(key + ".cape");
+            if (Files.isSymbolicLink(backing) || Files.isSymbolicLink(descriptor)) continue;
+            Path dated = Files.isRegularFile(backing, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    ? backing : descriptor;
+            try {
+                long size = (Files.isRegularFile(backing, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                        ? Files.size(backing) : 0)
+                        + (Files.isRegularFile(descriptor, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                        ? Files.size(descriptor) : 0);
+                entries.add(new com.naocraftlab.skins.core.service.ProviderTextureStore.ObservedPreparedCape(
+                        key, physicalCache.resolve(key + ".frames"), size,
+                        Files.getLastModifiedTime(dated).toMillis()));
+            } catch (java.nio.file.NoSuchFileException concurrentlyRemoved) {
+            }
+        }
+        return java.util.List.copyOf(entries);
+    }
+
+    @SuppressWarnings("try")
+    public boolean removeObservedPreparedCape(String visualSha256) throws IOException {
+        if (!visualSha256.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid cape hash");
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.textureLock(visualSha256))) {
+            Path descriptor = layout.textureCache().resolve(visualSha256 + ".cape");
+            Path backing = layout.textureCache().resolve(visualSha256 + ".frames");
+            if (Files.isSymbolicLink(descriptor) || Files.isSymbolicLink(backing)) {
+                throw new IOException("Refusing to remove a symlinked cape cache entry");
+            }
+            if (!Files.exists(backing)) {
+                Files.deleteIfExists(descriptor);
+                return true;
+            }
+            try (java.nio.channels.FileChannel channel = java.nio.channels.FileChannel.open(backing,
+                    java.nio.file.StandardOpenOption.READ, java.nio.file.StandardOpenOption.WRITE)) {
+                java.nio.channels.FileLock lease;
+                try { lease = channel.tryLock(0, Long.MAX_VALUE, false); }
+                catch (java.nio.channels.OverlappingFileLockException pinned) { return false; }
+                if (lease == null) return false;
+                try (lease) {
+                    Files.deleteIfExists(descriptor);
+                    Files.deleteIfExists(backing);
+                    return true;
+                }
+            }
+        }
+    }
+
     public Path capeAssetPath(UUID accountId, String hash) {
         if (!hash.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid cape hash");
         return layout.accountState(accountId).getParent().resolve("cape-assets").resolve(hash + ".png");
     }
 
     public byte[] readCapeAsset(UUID accountId, String hash) throws IOException {
-        byte[] bytes = readBoundedAsset(capeAssetPath(accountId, hash));
-        if (!hash.equals(sha256(bytes))) {
-            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE, "Cape asset integrity failure");
+        if (readPreparedCapeAsset(accountId, hash).isPresent()) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Animated cape requires a bounded frame reader");
         }
+        Path path = capeAssetPath(accountId, hash);
+        if (!hash.equals(sha256(path))) throw new StorageException(
+                StorageException.Code.ASSET_INTEGRITY_FAILURE, "Cape asset integrity failure");
+        byte[] bytes = readBoundedAsset(path);
+        if (!hash.equals(sha256(bytes))) throw new StorageException(
+                StorageException.Code.ASSET_INTEGRITY_FAILURE, "Cape asset integrity failure");
         return bytes;
     }
 
@@ -822,17 +1072,32 @@ public final class NclSkinsStorage {
     }
 
     public byte[] readAsset(String sha256) throws IOException, PngValidationException {
-        Path path = assetPath(sha256);
+        Path path = verifiedAssetPath(sha256);
         byte[] bytes = readBoundedAsset(path);
-        if (!sha256.equals(sha256(bytes))) {
-            throw new StorageException(
-                    StorageException.Code.ASSET_INTEGRITY_FAILURE,
-                    "Content-addressed skin asset failed integrity verification");
-        }
+        if (!sha256.equals(sha256(bytes))) throw new StorageException(
+                StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                "Content-addressed skin asset failed integrity verification");
         pngValidator.validate(bytes);
         return bytes;
     }
 
+    public Path readAssetPath(String hash) throws IOException, PngValidationException {
+        Path path = verifiedAssetPath(hash);
+        new com.naocraftlab.skins.core.png.PngFileReader(pngValidator).validate(path);
+        return path;
+    }
+
+    private Path verifiedAssetPath(String hash) throws IOException {
+        Path path = assetPath(hash);
+        if (!hash.equals(sha256(path))) throw new StorageException(
+                StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                "Content-addressed skin asset failed integrity verification");
+        return path;
+    }
+
+    public StoredAsset storeAsset(Path encoded) throws IOException, PngValidationException {
+        return storeAsset(new com.naocraftlab.skins.core.png.PngFileReader(pngValidator).projectImport(encoded).pngBytes());
+    }
 
     public ProcessFileLock acquireRemoteMutationLock(UUID accountId) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
@@ -948,7 +1213,7 @@ public final class NclSkinsStorage {
                 Path source = layout.textureCache().resolve(key + ".png");
                 if (Files.isRegularFile(source)) {
                     try {
-                        var png = pngValidator.projectCanonicalCape(readBoundedAsset(source));
+                        var png = new com.naocraftlab.skins.core.png.PngFileReader(pngValidator).projectCanonicalCape(source);
                         String hash = sha256(png.bytes());
                         AtomicFileWriter.createImmutable(capeAssetPath(account.accountId(), hash), png.bytes());
                         preset = preset.withOfflineCape(new com.naocraftlab.skins.core.model.LocalCapeReference(null, hash, png.hasElytra()));
@@ -968,7 +1233,9 @@ public final class NclSkinsStorage {
                 .filter(Objects::nonNull).forEach(cape -> hashes.add(cape.sha256()));
         for (String hash : hashes) {
             Path target = layout.textureCache().resolve(hash + ".png");
-            if (!Files.exists(target) && Files.isRegularFile(capeAssetPath(account.accountId(), hash))) {
+            Path descriptor = capeAssetPath(account.accountId(), hash).resolveSibling(hash + ".cape");
+            if (!Files.exists(descriptor) && !Files.exists(target)
+                    && Files.isRegularFile(capeAssetPath(account.accountId(), hash))) {
                 AtomicFileWriter.createImmutable(target, readCapeAsset(account.accountId(), hash));
             }
         }
@@ -1079,6 +1346,15 @@ public final class NclSkinsStorage {
     }
 
     private void saveAccountLocked(AccountState state) throws IOException {
+        saveAccountLocked(state, () -> true);
+    }
+
+    private static void requireCurrent(java.util.function.BooleanSupplier current) throws IOException {
+        if (!current.getAsBoolean()) throw new IOException("Editor account retired");
+    }
+
+    private void saveAccountLocked(AccountState state, java.util.function.BooleanSupplier stillCurrent) throws IOException {
+        requireCurrent(stillCurrent);
         UUID accountId = state.accountId();
         Path statePath = layout.accountState(accountId);
         if (Files.exists(statePath)) {
@@ -1086,13 +1362,13 @@ public final class NclSkinsStorage {
             try {
                 AccountStateJson.Decoded decoded = stateJson.decode(existing);
                 if (decoded.state().accountId().equals(accountId)) {
-                    AtomicFileWriter.replace(layout.accountBackup(accountId), existing);
+                    AtomicFileWriter.replace(layout.accountBackup(accountId), existing, stillCurrent);
                 }
             } catch (StorageException invalidExistingState) {
 
             }
         }
-        AtomicFileWriter.replace(statePath, stateJson.encode(state));
+        AtomicFileWriter.replace(statePath, stateJson.encode(state), stillCurrent);
     }
 
     private static void validateAccountId(UUID expected, AccountState state) throws StorageException {
@@ -1104,14 +1380,48 @@ public final class NclSkinsStorage {
     }
 
     private byte[] readBoundedAsset(Path path) throws IOException {
+        int maximum = Math.min(pngValidator.maxBytes(), 65 * 1024 * 1024);
         try (java.io.InputStream input = Files.newInputStream(path)) {
-            byte[] bytes = input.readNBytes(pngValidator.maxBytes() + 1);
-            if (bytes.length <= pngValidator.maxBytes()) {
-                return bytes;
+            byte[] bytes = input.readNBytes(maximum + 1);
+            if (bytes.length <= maximum) return bytes;
+        }
+        try {
+            return new com.naocraftlab.skins.core.png.PngFileReader(pngValidator).projectStoredRender(path).pngBytes();
+        } catch (PngValidationException invalid) {
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Stored skin asset failed validation");
+        }
+    }
+
+    private String sha256(Path path) throws IOException {
+        try {
+            var digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            long total = 0;
+            try (java.io.InputStream input = Files.newInputStream(path)) {
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    if (count == 0) continue;
+                    if (count > pngValidator.maxBytes() - total) throw new StorageException(
+                            StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                            "Stored skin asset exceeds the configured size limit");
+                    digest.update(buffer, 0, count);
+                    total += count;
+                }
             }
-            throw new StorageException(
-                    StorageException.Code.ASSET_INTEGRITY_FAILURE,
-                    "Stored skin asset exceeds the configured size limit");
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private static byte[] readCapeDescriptor(Path path) throws IOException {
+        try (java.io.InputStream input = Files.newInputStream(path)) {
+            byte[] bytes = input.readNBytes(64 * 1024 + 1);
+            if (bytes.length <= 64 * 1024) return bytes;
+            throw new StorageException(StorageException.Code.ASSET_INTEGRITY_FAILURE,
+                    "Cape descriptor exceeds size limit",
+                    new com.naocraftlab.skins.core.png.CapeIntegrityException("Cape descriptor exceeds size limit"));
         }
     }
 

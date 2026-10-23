@@ -16,9 +16,14 @@ final class CompatibilityMessages {
     static UiMessage accessibleLabel(SkinCompatibility compatibility) {
         Objects.requireNonNull(compatibility, "compatibility");
         List<Object> lines = new ArrayList<>();
-        compatibility.activeConflicts().stream()
-                .map(CompatibilityMessages::reason)
-                .forEach(lines::add);
+        boolean expressive = false;
+        for (SkinConflictReason conflict : compatibility.activeConflicts()) {
+            boolean cpmExpressive = conflict == SkinConflictReason.CPM_FRESH_MOVES_OVERLAP
+                    || conflict == SkinConflictReason.CPM_JUST_EXPRESSIONS_OVERLAP;
+            if (cpmExpressive && expressive) continue;
+            expressive |= cpmExpressive;
+            lines.add(reason(conflict));
+        }
         if (!compatibility.supportedFeatures().isEmpty()) {
             if (!compatibility.activeConflicts().isEmpty()) {
                 lines.add(UiMessage.info("nclskins.compatibility.tooltip.blank"));
@@ -49,6 +54,7 @@ final class CompatibilityMessages {
             case FRESH_MOVES -> "fresh_moves";
             case JUST_EXPRESSIONS -> "just_expressions";
             case SNEAKY_CAPES -> "sneaky_capes";
+            case CUSTOMIZABLE_PLAYER_MODELS -> "customizable_player_models";
         });
     }
 
@@ -59,6 +65,9 @@ final class CompatibilityMessages {
             case MISSING_EXPRESSIVE_RUNTIME -> "missing_expressive_runtime";
             case SNEAKY_FRESH_MOVES_OVERLAP -> "sneaky_fresh_moves_overlap";
             case SNEAKY_JUST_EXPRESSIONS_OVERLAP -> "sneaky_just_expressions_overlap";
+            case MALFORMED_CPM_DATA -> "malformed_cpm_data";
+            case CPM_FRESH_MOVES_OVERLAP -> "cpm_fresh_moves_overlap";
+            case CPM_JUST_EXPRESSIONS_OVERLAP -> "cpm_just_expressions_overlap";
         });
     }
 }

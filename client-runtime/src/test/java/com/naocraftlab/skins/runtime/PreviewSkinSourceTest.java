@@ -19,6 +19,21 @@ final class PreviewSkinSourceTest {
         assertTrue(preview(SkinReference.asset(UUID.randomUUID())).requiresLoadedSkin());
     }
 
+    @Test
+    void explicitOwnedSourceDoesNotDependOnDraftRevisionTextOrCpmIntent() {
+        for (SkinVariant variant : SkinVariant.values()) {
+            var borrowed = new ViewSpec.Preview("preview", new Bounds(0, 0, 64, 96),
+                    SkinReference.accountDefault(), "draft:synthetic", variant, Optional.empty(),
+                    PreviewRenderer.CapeMode.OFF, OuterLayerVisibility.allVisible(), 0, 0, 1,
+                    Optional.empty());
+            assertFalse(borrowed.requiresLoadedSkin());
+            assertFalse(borrowed.withCapeElytra(false).requiresLoadedSkin());
+            assertFalse(borrowed.withNativeAccessories(true, PreviewRenderer.CapeMode.OFF).requiresLoadedSkin());
+            assertTrue(borrowed.withOwnedPng(true).requiresLoadedSkin());
+            assertFalse(borrowed.withOwnedPng(true).withOwnedPng(false).requiresLoadedSkin());
+        }
+    }
+
     private static ViewSpec.Preview preview(SkinReference skin) {
         return new ViewSpec.Preview(
                 "preview",

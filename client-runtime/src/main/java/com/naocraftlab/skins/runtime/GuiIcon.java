@@ -3,6 +3,7 @@ package com.naocraftlab.skins.runtime;
 import java.util.Objects;
 
 public enum GuiIcon implements WidgetIcon {
+    SOURCE_CPM("provider/cape/cpm", 32),
     ACTION_PROVIDERS("action/providers", 16),
     ACTION_ADD_PROVIDER("action/add_provider", 16),
     ACTION_REFRESH("action/refresh", 16),
@@ -50,7 +51,9 @@ public enum GuiIcon implements WidgetIcon {
     STATUS_COMPATIBILITY_INCOMPATIBLE("status/compatibility/incompatible", 16),
     STATUS_PROVIDER_CAPABILITY_WRITE("status/provider_capability/write", 16),
     STATUS_PROVIDER_CAPABILITY_LIMITED_WRITE("status/provider_capability/limited_write", 16),
-    STATUS_PROVIDER_CAPABILITY_DISTRIBUTION("status/provider_capability/distribution", 16);
+    STATUS_PROVIDER_CAPABILITY_DISTRIBUTION("status/provider_capability/distribution", 16),
+    STATUS_PROVIDER_CAPABILITY_HD("status/provider_capability/hd", 16),
+    STATUS_PROVIDER_CAPABILITY_ANIMATION("status/provider_capability/animation", 16);
 
     public static final String RESOURCE_PREFIX = "textures/gui/icons/";
 

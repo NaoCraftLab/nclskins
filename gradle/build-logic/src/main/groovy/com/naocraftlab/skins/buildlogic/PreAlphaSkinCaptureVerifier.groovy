@@ -1,10 +1,6 @@
 package com.naocraftlab.skins.buildlogic
 
-import org.objectweb.asm.AnnotationVisitor
-import org.objectweb.asm.ClassReader
-import org.objectweb.asm.ClassVisitor
-import org.objectweb.asm.MethodVisitor
-import org.objectweb.asm.Opcodes
+import org.objectweb.asm.*
 
 final class PreAlphaSkinCaptureVerifier {
     static boolean publicDuckLinks(byte[] interfaceBytes) {
@@ -77,6 +73,38 @@ final class PreAlphaSkinCaptureVerifier {
             }
         }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
         handlers[0] == 1 && method[0] && head[0]
+    }
+
+    static boolean wrappedBeforeOriginal(byte[] bytes, String target, String capture, String handler = 'nclskins$raw') {
+        boolean[] annotated = [false] as boolean[]
+        List<String> calls = []
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                if (name != handler) return null
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override AnnotationVisitor visitAnnotation(String annotation, boolean visible) {
+                        if (annotation != 'Lcom/llamalad7/mixinextras/injector/wrapmethod/WrapMethod;') return null
+                        return new AnnotationVisitor(Opcodes.ASM9) {
+                            @Override AnnotationVisitor visitArray(String key) {
+                                if (key != 'method') return null
+                                return new AnnotationVisitor(Opcodes.ASM9) {
+                                    @Override void visit(String ignored, Object value) {
+                                        if (value.toString().startsWith(target + '(')) annotated[0] = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    @Override void visitMethodInsn(int opcode, String owner, String called, String calledDescriptor, boolean itf) {
+                        calls.add(owner + '.' + called)
+                    }
+                }
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
+        int raw = calls.findIndexOf { it.endsWith('.' + capture) }
+        int original = calls.indexOf('com/llamalad7/mixinextras/injector/wrapoperation/Operation.call')
+        annotated[0] && raw >= 0 && original > raw
     }
 
     static boolean modernStages(byte[] bytes) {

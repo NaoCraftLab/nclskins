@@ -31,7 +31,9 @@ public record BakedPreviewRenderState(
         float modelOffsetX,
         float modelOffsetY,
         float scale,
+        boolean capeGlint,
         boolean standaloneEquipment,
+        com.naocraftlab.skins.client.PreviewModelFrames.Completion completion,
         ScreenRectangle scissorArea,
         ScreenRectangle bounds) implements PictureInPictureRenderState {
 
@@ -54,7 +56,9 @@ public record BakedPreviewRenderState(
             float modelOffsetX,
             float modelOffsetY,
             float scale,
+            boolean capeGlint,
             boolean standaloneEquipment,
+            com.naocraftlab.skins.client.PreviewModelFrames.Completion completion,
             ScreenRectangle scissorArea) {
         this(
                 target,
@@ -75,7 +79,9 @@ public record BakedPreviewRenderState(
                 modelOffsetX,
                 modelOffsetY,
                 scale,
+                capeGlint,
                 standaloneEquipment,
+                completion,
                 scissorArea,
                 PictureInPictureRenderState.getBounds(x0, y0, x1, y1, scissorArea));
     }
@@ -90,6 +96,9 @@ public record BakedPreviewRenderState(
             }
         } else if (playerModel == null || skinTexture == null) {
             throw new IllegalArgumentException("Player preview is missing its model or texture");
+        }
+        if (capeGlint && (capeMode != PreviewRenderer.CapeMode.CAPE || attachmentTexture == null)) {
+            throw new IllegalArgumentException("Cape glint requires a cape attachment");
         }
         if (attachmentModel == null) {
             if (attachmentTexture != null
@@ -136,7 +145,9 @@ public record BakedPreviewRenderState(
                 modelOffsetX,
                 modelOffsetY,
                 scale,
+                capeGlint,
                 standaloneEquipment,
+                completion,
                 scissor);
     }
 }

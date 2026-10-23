@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.EditorPreviewLayerGuard;
+import com.naocraftlab.skins.client.PreviewModelFrames;
 import com.naocraftlab.skins.compat.client.identifier.extraction.NclSkinsWideDepthState;
 import com.naocraftlab.skins.compat.client.identifier.extraction.AvatarPreviewContext;
 import com.naocraftlab.skins.compat.client.identifier.extraction.PreviewRenderFailureSink;
@@ -22,10 +23,28 @@ abstract class GuiEntityRendererMixin {
             Operation<Void> original) {
         PreviewRenderFailureSink layerSink = nclskins$layerSink(guiState);
         AvatarPreviewContext previewContext = nclskins$previewContext(guiState);
-        try (var ignoredContext = previewContext == null
-                        ? null
-                        : previewContext.open(Minecraft.getInstance());
-                EditorPreviewLayerGuard ignored = layerSink == null
+        if (previewContext != null && !previewContext.current()) return;
+        if (previewContext != null) {
+            AvatarPreviewContext.Attempt attempt = null;
+            PreviewModelFrames.Body candidate = null;
+            boolean completed = false;
+            try {
+                try (var scope = previewContext.begin(guiState, Minecraft.getInstance(), layerSink)) {
+                    attempt = scope;
+                    original.call(guiState, poseStack);
+                    scope.submitted();
+                    candidate = scope.body();
+                }
+                completed = true;
+            } catch (RuntimeException failure) {
+                if (!nclskins$handle(guiState, failure)) throw failure;
+            } finally {
+                if (attempt != null) attempt.displayed(completed, candidate);
+                else if (!completed) previewContext.failed();
+            }
+            return;
+        }
+        try (EditorPreviewLayerGuard ignored = layerSink == null
                 ? null
                 : EditorPreviewLayerGuard.open(layerSink::onFailure)) {
             original.call(guiState, poseStack);

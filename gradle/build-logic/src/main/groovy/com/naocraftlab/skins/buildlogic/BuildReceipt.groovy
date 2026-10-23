@@ -103,7 +103,15 @@ class BuildReceipt {
             }
             expected.environment = beforeEnvironment + [dependencyCache: currentCache]
         }
-        if (expected != after) throw new IllegalStateException('Build inputs changed during verification')
+        if (expected != after) {
+            List changed = after.keySet().findAll { expected[it] != after[it] }.sort()
+            if (changed.remove('environment')) {
+                changed.addAll((after.environment as Map).keySet()
+                        .findAll { expected.environment[it] != after.environment[it] }
+                        .collect { 'environment.' + it })
+            }
+            throw new IllegalStateException('Build inputs changed during verification: ' + changed.join(', '))
+        }
         if (!(level in ['fullCheck', 'incremental', 'clean'])) throw new IllegalArgumentException('Invalid verification level')
         Map record = new LinkedHashMap(after)
         record.verificationLevel = level

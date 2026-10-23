@@ -16,7 +16,9 @@ public abstract class CapeLayerTransparencyMixin {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/rendertype/RenderTypes;entitySolid(Lnet/minecraft/resources/Identifier;)Lnet/minecraft/client/renderer/rendertype/RenderType;"),
             require = 1, expect = 1, allow = 1)
     private RenderType nclskins$capeTransparency(Identifier texture, Operation<RenderType> original) {
-        return texture.getNamespace().equals("nclskins")
-                ? RenderTypes.entityTranslucent(texture) : original.call(texture);
+        RenderType selected = original.call(texture);
+        if (!texture.getNamespace().equals("nclskins")) return selected;
+        return selected == RenderTypes.entitySolid(texture)
+                ? RenderTypes.entityTranslucent(texture) : selected;
     }
 }

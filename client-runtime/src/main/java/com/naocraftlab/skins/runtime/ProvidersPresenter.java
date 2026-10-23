@@ -64,9 +64,53 @@ public final class ProvidersPresenter {
             int width, int height, BuiltinProvider selectedSkin, BuiltinProvider selectedCape,
             Optional<ClientSnapshot.RateLimitProgress> cooldown, boolean linkPreparing, UiMessage linkFeedback,
             double desiredOffset, TextResolver textResolver, Map<BuiltinProvider, Duration> capeProviderCooldowns) {
-        if (adding) return presentChooser(providers, component, busy, width, height, 0);
+        return present(providers, component, adding, busy, transform, defaultVariant, width, height,
+                selectedSkin, selectedCape, cooldown, linkPreparing, linkFeedback, desiredOffset,
+                textResolver, capeProviderCooldowns, true, false);
+    }
+
+    public ViewSpec present(AppearanceProviders providers, AppearanceProviders.Component component,
+            boolean adding, boolean busy, PreviewInteractionModel transform, SkinVariant defaultVariant,
+            int width, int height, BuiltinProvider selectedSkin, BuiltinProvider selectedCape,
+            Optional<ClientSnapshot.RateLimitProgress> cooldown, boolean linkPreparing, UiMessage linkFeedback,
+            double desiredOffset, TextResolver textResolver, Map<BuiltinProvider, Duration> capeProviderCooldowns,
+            boolean outerLayerControlAvailable, boolean refreshPending) {
+        return present(providers, component, adding, busy, transform, defaultVariant, width, height,
+                selectedSkin, selectedCape, cooldown, linkPreparing, linkFeedback, desiredOffset,
+                textResolver, capeProviderCooldowns, outerLayerControlAvailable, refreshPending, false);
+    }
+
+    public ViewSpec present(AppearanceProviders providers, AppearanceProviders.Component component,
+            boolean adding, boolean busy, PreviewInteractionModel transform, SkinVariant defaultVariant,
+            int width, int height, BuiltinProvider selectedSkin, BuiltinProvider selectedCape,
+            Optional<ClientSnapshot.RateLimitProgress> cooldown, boolean linkPreparing, UiMessage linkFeedback,
+            double desiredOffset, TextResolver textResolver, Map<BuiltinProvider, Duration> capeProviderCooldowns,
+            boolean outerLayerControlAvailable, boolean refreshPending, boolean cpmPresent) {
+        return present(providers, component, adding, busy, transform, defaultVariant, width, height,
+                selectedSkin, selectedCape, cooldown, linkPreparing, linkFeedback, desiredOffset, textResolver,
+                capeProviderCooldowns, outerLayerControlAvailable, refreshPending, cpmPresent, false);
+    }
+
+    public ViewSpec present(AppearanceProviders providers, AppearanceProviders.Component component,
+            boolean adding, boolean busy, PreviewInteractionModel transform, SkinVariant defaultVariant,
+            int width, int height, BuiltinProvider selectedSkin, BuiltinProvider selectedCape,
+            Optional<ClientSnapshot.RateLimitProgress> cooldown, boolean linkPreparing, UiMessage linkFeedback,
+            double desiredOffset, TextResolver textResolver, Map<BuiltinProvider, Duration> capeProviderCooldowns,
+            boolean outerLayerControlAvailable, boolean refreshPending, boolean cpmPresent, boolean showOuterLayers) {
+        if (adding) return presentChooser(providers, component, busy, width, height, 0, cpmPresent);
         BuiltinProvider selected = component == AppearanceProviders.Component.SKIN ? selectedSkin : selectedCape;
-        List<BuiltinProvider> order = component == AppearanceProviders.Component.SKIN ? providers.skin().order() : providers.cape().order();
+        List<BuiltinProvider> order = component == AppearanceProviders.Component.SKIN
+                ? providers.skin().order() : providers.cape().visibleOrder(cpmPresent);
+        if (selectedSkin != null && !providers.skin().enabled(selectedSkin)) selectedSkin = null;
+        if (selectedCape != null && (!providers.cape().enabled(selectedCape)
+                || selectedCape == BuiltinProvider.CPM && !cpmPresent)) selectedCape = null;
+        selected = component == AppearanceProviders.Component.SKIN ? selectedSkin : selectedCape;
+        ProviderRefreshRequest refreshRequest = selected == null ? ProviderRefreshRequest.all(component)
+                : ProviderRefreshRequest.one(component, selected);
+        boolean refreshRateLimited = refreshRequest.blockedByRateLimit(providers,
+                cooldown.map(ClientSnapshot.RateLimitProgress::remaining), capeProviderCooldowns);
+        UiMessage refreshLabel = UiMessage.info(selected == null
+                ? "nclskins.providers.refresh_all" : "nclskins.providers.refresh");
         int divider = width / 2;
         int x = divider + 8;
         int contentWidth = Math.max(1, width - x - 8);
@@ -108,7 +152,8 @@ public final class ProvidersPresenter {
         texts.add(new ViewSpec.Text("providers.component", new Bounds(x + 24, 44, Math.max(1, contentWidth - 48), 10),
                 UiMessage.info(component == AppearanceProviders.Component.SKIN ? "nclskins.providers.skins" : "nclskins.providers.capes"), ViewSpec.Text.Alignment.CENTER));
         widgets.add(ViewSpec.Widget.iconButton("providers.refresh", new Bounds(x + contentWidth - 20, 39, 20, 20),
-                UiMessage.info("nclskins.providers.refresh"), GuiIcon.ACTION_REFRESH, !busy));
+                refreshLabel, Optional.of(refreshRateLimited ? UiMessage.info("nclskins.providers.refresh_rate_limited")
+                        : refreshLabel), GuiIcon.ACTION_REFRESH, !busy && !refreshPending && !refreshRateLimited));
         List<BuiltinProvider> displayed = order;
         int y = 65 - offset;
         for (BuiltinProvider provider : displayed) {
@@ -129,9 +174,12 @@ public final class ProvidersPresenter {
                     ViewSpec.Text.Alignment.LEFT,
                     Optional.of(new ViewSpec.MarqueeActivation(nameBounds, List.of(id)))));
             if (providerCooldown != null) {
+                int extraCapabilityRows = (provider.capabilities(component).size() - 1)
+                        / capabilityColumns(contentWidth);
                 texts.add(new ViewSpec.Text(id + ".cooldown",
-                        new Bounds(x + 2, y + 36, Math.max(1, contentWidth - 4),
-                                rowHeight - (actionsBelow ? 64 : 40)),
+                        new Bounds(x + 2, y + 36 + extraCapabilityRows * 20,
+                                Math.max(1, contentWidth - 4),
+                                rowHeight - 40 - extraCapabilityRows * 20 - (actionsBelow ? 24 : 0)),
                         providerCooldown, ViewSpec.Text.Alignment.LEFT, ViewSpec.Text.Layout.WRAP));
             }
             for (int action = 0; action < 2; action++) {
@@ -142,17 +190,19 @@ public final class ProvidersPresenter {
                         !busy && (action == 0 ? order.indexOf(provider) > 0 : order.indexOf(provider) < order.size() - 1), true, 0));
             }
             int capabilityIndex = 0;
+            int capabilityColumns = capabilityColumns(contentWidth);
             for (ProviderCapability capability : ProviderCapability.values()) {
                 if (!provider.capabilities(component).contains(capability)) continue;
                 String capabilityName = capability.name().toLowerCase(java.util.Locale.ROOT);
                 widgets.add(ViewSpec.Widget.passiveIndicator("providers.capability." + provider.name() + "." + capabilityName,
-                        new Bounds(x + 38 + capabilityIndex * 20, y + 14, 20, 20),
+                        new Bounds(x + 38 + capabilityIndex % capabilityColumns * 20,
+                                y + 14 + capabilityIndex / capabilityColumns * 20, 20, 20),
                         capabilityTitle(capability), capabilityDescription(capability, component),
                         capabilityIcon(capability)));
                 capabilityIndex++;
             }
             if ((provider == BuiltinProvider.OPTIFINE || provider == BuiltinProvider.SKINMC
-                    || provider == BuiltinProvider.SNEAKY)
+                    || provider == BuiltinProvider.SNEAKY || provider == BuiltinProvider.MINECRAFTCAPES)
                     && component == AppearanceProviders.Component.CAPE) {
                 widgets.add(ViewSpec.Widget.iconButton("providers.account." + provider.name(),
                         new Bounds(x + contentWidth - 48, actionY, 20, 20),
@@ -176,7 +226,9 @@ public final class ProvidersPresenter {
         var cape = selectedCape == null ? providers.cape().resolve().map(ProviderChannel.Resolved::value) : Optional.ofNullable(providers.cape().observation(selectedCape).value());
         widgets.addAll(PlayerAppearanceStage.controls(new Bounds(0, 0, divider, height),
                 cape.isPresent() ? Optional.of(PlayerAppearanceStage.capeMode("providers.preview_mode", transform, true))
-                        : Optional.empty(), List.of()));
+                        : Optional.empty(), !showOuterLayers || providers.galleryAvailable() ? List.of()
+                        : PlayerAppearanceStage.outerLayers(transform.outerLayerVisibility(),
+                                "providers.outer_layer.", !busy && outerLayerControlAvailable)));
         texts.add(new ViewSpec.Text("providers.title", new Bounds(0, 12, width, 10), UiMessage.info(adding ? "nclskins.providers.add" : "nclskins.providers.title"), ViewSpec.Text.Alignment.CENTER));
         String revision = skin.map(s -> "provider:skin:" + s.sha256()).orElse("provider:default");
         SkinReference reference = skin.map(s -> SkinReference.asset(UUID.nameUUIDFromBytes(s.sha256().getBytes(StandardCharsets.US_ASCII)))).orElse(SkinReference.accountDefault());
@@ -230,6 +282,11 @@ public final class ProvidersPresenter {
 
     public ViewSpec presentChooser(AppearanceProviders providers, AppearanceProviders.Component component,
             boolean busy, int width, int height, double desiredOffset) {
+        return presentChooser(providers, component, busy, width, height, desiredOffset, false);
+    }
+
+    public ViewSpec presentChooser(AppearanceProviders providers, AppearanceProviders.Component component,
+            boolean busy, int width, int height, double desiredOffset, boolean cpmPresent) {
         var order = component == AppearanceProviders.Component.SKIN ? providers.skin().order() : providers.cape().order();
         UiMessage title = UiMessage.info(component == AppearanceProviders.Component.SKIN
                 ? "nclskins.providers.add_skin" : "nclskins.providers.add_cape");
@@ -237,6 +294,7 @@ public final class ProvidersPresenter {
         int x = (width - contentWidth) / 2;
         Bounds viewport = new Bounds(0, 33, width, Math.max(1, height - 66));
         long available = java.util.Arrays.stream(BuiltinProvider.values())
+                .filter(provider -> provider != BuiltinProvider.CPM || cpmPresent)
                 .filter(provider -> component == AppearanceProviders.Component.SKIN
                         ? provider.supportsSkin() : provider.supportsCape()).count();
         int maximum = Math.max(0, 9 + (int) available * 24 - viewport.height());
@@ -245,6 +303,7 @@ public final class ProvidersPresenter {
         var nodes = new ArrayList<ViewSpec.NavigationNode>();
         int y = 42 - offset;
         for (var provider : BuiltinProvider.values()) {
+            if (provider == BuiltinProvider.CPM && !cpmPresent) continue;
             if (component == AppearanceProviders.Component.SKIN && !provider.supportsSkin()
                     || component == AppearanceProviders.Component.CAPE && !provider.supportsCape()) continue;
             var widget = ViewSpec.Widget.button("providers.row." + provider.name(), new Bounds(x, y, contentWidth, 20),
@@ -284,9 +343,15 @@ public final class ProvidersPresenter {
             Map<BuiltinProvider, Duration> cooldowns,
             TextResolver textResolver, int contentWidth) {
         UiMessage message = cooldownMessage(cooldowns.get(provider));
+        int extraCapabilityRows = (provider.capabilities(component).size() - 1)
+                / capabilityColumns(contentWidth);
         return 40 + (message == null ? 0 : Math.max(10,
                 textResolver.wrappedHeight(message, Math.max(1, contentWidth - 4))))
-                + (actionsBelow(provider, component, contentWidth) ? 24 : 0);
+                + extraCapabilityRows * 20 + (actionsBelow(provider, component, contentWidth) ? 24 : 0);
+    }
+
+    private static int capabilityColumns(int contentWidth) {
+        return Math.max(1, (contentWidth - 38) / 20);
     }
 
     private static boolean actionsBelow(BuiltinProvider provider, AppearanceProviders.Component component,
@@ -307,11 +372,13 @@ public final class ProvidersPresenter {
 
     private static UiMessage providerName(BuiltinProvider provider) {
         return switch (provider) {
+            case CPM -> UiMessage.info("nclskins.compatibility.feature.customizable_player_models");
             case OFFLINE -> UiMessage.info("nclskins.providers.offline");
             case MINECRAFT -> UiMessage.literal("Minecraft", UiMessage.Severity.INFO);
             case OPTIFINE -> UiMessage.info("nclskins.providers.optifine");
             case SKINMC -> UiMessage.info("nclskins.providers.skinmc");
             case SNEAKY -> UiMessage.info("nclskins.providers.sneaky");
+            case MINECRAFTCAPES -> UiMessage.info("nclskins.providers.minecraftcapes");
         };
     }
 
@@ -320,6 +387,8 @@ public final class ProvidersPresenter {
             case WRITE -> GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE;
             case LIMITED_WRITE -> GuiIcon.STATUS_PROVIDER_CAPABILITY_LIMITED_WRITE;
             case DISTRIBUTION -> GuiIcon.STATUS_PROVIDER_CAPABILITY_DISTRIBUTION;
+            case HD -> GuiIcon.STATUS_PROVIDER_CAPABILITY_HD;
+            case ANIMATION -> GuiIcon.STATUS_PROVIDER_CAPABILITY_ANIMATION;
         };
     }
 
@@ -328,6 +397,8 @@ public final class ProvidersPresenter {
             case WRITE -> UiMessage.info("nclskins.providers.capability.write.title");
             case LIMITED_WRITE -> UiMessage.info("nclskins.providers.capability.limited_write.title");
             case DISTRIBUTION -> UiMessage.info("nclskins.providers.capability.distribution.title");
+            case HD -> UiMessage.info("nclskins.providers.capability.hd.title");
+            case ANIMATION -> UiMessage.info("nclskins.providers.capability.animation.title");
         };
     }
 
@@ -338,11 +409,14 @@ public final class ProvidersPresenter {
                 case WRITE -> "nclskins.providers.capability.write.skin.description";
                 case LIMITED_WRITE -> "nclskins.providers.capability.limited_write.skin.description";
                 case DISTRIBUTION -> "nclskins.providers.capability.distribution.skin.description";
+                case HD, ANIMATION -> throw new IllegalArgumentException("Cape-only capability");
             };
             case CAPE -> switch (capability) {
                 case WRITE -> "nclskins.providers.capability.write.cape.description";
                 case LIMITED_WRITE -> "nclskins.providers.capability.limited_write.cape.description";
                 case DISTRIBUTION -> "nclskins.providers.capability.distribution.cape.description";
+                case HD -> "nclskins.providers.capability.hd.title";
+                case ANIMATION -> "nclskins.providers.capability.animation.title";
             };
         });
     }

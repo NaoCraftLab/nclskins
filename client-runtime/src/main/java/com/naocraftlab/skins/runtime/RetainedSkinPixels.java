@@ -39,6 +39,12 @@ final class RetainedSkinPixels {
         return new Snapshot(pixels.argb.clone(), pixels.revision);
     }
 
+    synchronized long revision(String location) {
+        drain();
+        Pixels pixels = textures.get(location);
+        return pixels == null || pixels.get() == null ? 0 : pixels.revision;
+    }
+
     record Snapshot(int[] argb, long revision) {}
 
     private void drain() {

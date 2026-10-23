@@ -95,7 +95,7 @@ final class NclSkinsExtractionClientRuntime {
                 && client.player != null
                 && client.getConnection().getPlayerInfo(client.player.getUUID()) != null;
         currentProvision.maintain(playerReady);
-        current.tick(connection, playerReady);
+        current.tick(connection, client.level, playerReady);
     }
 
     static synchronized void resourcesReloaded() {

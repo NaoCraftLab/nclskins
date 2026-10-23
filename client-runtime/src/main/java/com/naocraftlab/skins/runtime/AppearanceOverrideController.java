@@ -41,6 +41,9 @@ public final class AppearanceOverrideController<N, H> implements AutoCloseable {
         ensureOpen();
         ApplyResult result = Objects.requireNonNull(
                 strategy.attach(replacement), "attachment result");
+        if (result == ApplyResult.NOT_INSTALLED) {
+            throw new IllegalStateException("Attachment strategy must accept the replacement before commit");
+        }
         N previousActive = active;
         N previousAttached = attached;
         active = replacement;

@@ -29,6 +29,10 @@ final class PublicSkinImportServiceTest {
         var result = new PublicProfileLookup.Observation("RasterSlim", Optional.of(reference),
                 SkinVariant.CLASSIC, Optional.empty());
         var service = new PublicSkinImportService(Optional.of(query -> result), new PublicSkinImageSource() {
+            public Acquired acquireUrl(String url) throws Exception { return new PngInput(loadUntrusted(url)); }
+            public Acquired acquireFile(java.nio.file.Path path) throws Exception {
+                return com.naocraftlab.skins.core.api.PublicSkinImageAdapter.acquireLocal(path);
+            }
             @Override public NormalizedSkin loadVerified(PublicProfileLookup.VerifiedTexture texture) throws Exception {
                 assertEquals(reference, texture);
                 return new PngValidator().normalizeSkinWithVariant(slim);
@@ -92,6 +96,10 @@ final class PublicSkinImportServiceTest {
         var normalized = new PngValidator().normalizeSkinWithVariant(png);
         AtomicReference<String> requested = new AtomicReference<>();
         var service = new PublicSkinImportService(Optional.empty(), new PublicSkinImageSource() {
+            public Acquired acquireUrl(String url) throws Exception { return new PngInput(loadUntrusted(url)); }
+            public Acquired acquireFile(java.nio.file.Path path) throws Exception {
+                return com.naocraftlab.skins.core.api.PublicSkinImageAdapter.acquireLocal(path);
+            }
             @Override public NormalizedSkin loadVerified(PublicProfileLookup.VerifiedTexture texture) { throw new AssertionError(); }
             @Override public NormalizedSkin loadUntrusted(String url) {
                 requested.set(url);
@@ -130,6 +138,10 @@ final class PublicSkinImportServiceTest {
             assertEquals(failure, assertThrows(PublicSkinImportException.class,
                     () -> lookupFailure.loadPlayer("Player")));
             var images = new PublicSkinImageSource() {
+            public Acquired acquireUrl(String url) throws Exception { return new PngInput(loadUntrusted(url)); }
+            public Acquired acquireFile(java.nio.file.Path path) throws Exception {
+                return com.naocraftlab.skins.core.api.PublicSkinImageAdapter.acquireLocal(path);
+            }
                 @Override public NormalizedSkin loadVerified(PublicProfileLookup.VerifiedTexture texture)
                         throws Exception { throw failure; }
                 @Override public NormalizedSkin loadUntrusted(String url) throws Exception { throw failure; }
@@ -155,6 +167,10 @@ final class PublicSkinImportServiceTest {
 
     private static PublicSkinImageSource unusedImages() {
         return new PublicSkinImageSource() {
+            public Acquired acquireUrl(String url) throws Exception { return new PngInput(loadUntrusted(url)); }
+            public Acquired acquireFile(java.nio.file.Path path) throws Exception {
+                return com.naocraftlab.skins.core.api.PublicSkinImageAdapter.acquireLocal(path);
+            }
             @Override public NormalizedSkin loadVerified(PublicProfileLookup.VerifiedTexture texture) { throw new AssertionError(); }
             @Override public NormalizedSkin loadUntrusted(String url) { throw new AssertionError(); }
         };

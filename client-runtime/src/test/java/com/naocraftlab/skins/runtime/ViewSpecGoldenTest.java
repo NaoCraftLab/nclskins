@@ -30,6 +30,49 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class ViewSpecGoldenTest {
     @Test
+    void cpmAvailabilityAndNarrowActivationSemanticsMatchGolden() {
+        var initial = com.naocraftlab.skins.core.provider.AppearanceProviders.initial();
+        var providers = new com.naocraftlab.skins.core.provider.AppearanceProviders(initial.skin(), initial.cape().initializeCpm());
+        StringBuilder actual = new StringBuilder();
+        for (var state : com.naocraftlab.skins.client.PreviewAccessories.Availability.values()) {
+            for (var live : new PreviewRenderer.LiveReason[] {PreviewRenderer.LiveReason.AVAILABLE,
+                    PreviewRenderer.LiveReason.WORLD_REQUIRED}) {
+                boolean confirmed = state == com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED;
+                var value = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 10), 1, state,
+                        confirmed, confirmed, live);
+                ViewSpec base = new ProvidersPresenter().present(providers,
+                        com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE, false, false,
+                        PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                        320, 240, null, null, Optional.empty(), false, null, 0, UiMessage::key, Map.of(), true, false, true);
+                ViewSpec view = AccessoryInspection.present(base, value, value.canInspect() && value.present(),
+                        false, PreviewRenderer.CapeMode.CAPE, false);
+                var row = view.widget("providers.row.CPM").orElseThrow();
+                actual.append(state).append('/').append(live).append('|').append(row.enabled())
+                        .append('|').append(row.activationEnabled()).append('|').append(row.hint().map(UiMessage::key).orElse("-"))
+                        .append('|').append(ViewNavigationPolicy.activationAction(view, row.id()).orElse("-"))
+                        .append('|').append(bounds(view.clipFor(row.id()).orElseThrow()))
+                        .append('|').append(view.previews().get(0).nativeAccessories()).append('\n');
+            }
+        }
+        assertEquals(golden("cpm-inspection-semantics-320.txt"), actual.toString().stripTrailing());
+    }
+
+    @Test
+    void restrictedProvidersLayerControlsMatchGolden() {
+        var providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial()
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE)
+                .disable(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT);
+        var view = new ProvidersPresenter().present(providers,
+                com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                false, false, PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 320, 240, null, null, Optional.empty(), false, null, 0,
+                UiMessage::key, java.util.Map.of(), true, false, false, true);
+        assertEquals(golden("providers-restricted-view-spec-320.txt"), describe(view).stripTrailing());
+    }
+
+    @Test
     void providersSmallViewWithMixedStatesMatchesGolden() {
         var providers = com.naocraftlab.skins.core.provider.AppearanceProviders.initial().select(1,
                 new com.naocraftlab.skins.core.provider.ProviderSkin("a".repeat(64), SkinVariant.SLIM),
@@ -437,7 +480,8 @@ final class ViewSpecGoldenTest {
                         OuterLayerVisibility.noneVisible(),
                         PreviewRenderer.CapeMode.ELYTRA,
                         false));
-        return model.withSelectedEditorTab(tab).present(width, height);
+        return model.withSelectedEditorTab(tab).present(width, height, model.initialCapeScrollPosition(width, height), 0,
+                ViewChromeMetrics.STANDARD, true);
     }
 
     private static String describePair(ViewSpec gallery, ViewSpec editor) {
@@ -476,6 +520,7 @@ final class ViewSpecGoldenTest {
                             .map(ViewSpecGoldenTest::widgetIcon)
                             .orElseGet(() -> widget.value().orElse("-"))).append('|')
                     .append("hint=").append(widget.hint().map(ViewSpecGoldenTest::message).orElse("-")).append('|')
+                    .append(widget.enabled() && !widget.activationEnabled() ? "activation=false|" : "")
                     .append("enabled=").append(widget.enabled()).append('|')
                     .append("visible=").append(widget.visible()).append('|')
                     .append("max=").append(widget.maxLength()).append('\n');
@@ -495,6 +540,8 @@ final class ViewSpecGoldenTest {
                     .append("variant=").append(preview.variant()).append('|')
                     .append("cape=").append(preview.capeId().orElse("-")).append('|')
                     .append("mode=").append(preview.capeMode()).append('|')
+                    .append(preview.nativeAccessories() ? "nativeAccessories=true|" : "")
+                    .append(preview.ownedPng() ? "ownedPng=true|" : "")
                     .append("capeHasElytra=").append(preview.capeHasElytra()).append('|')
                     .append("outer=").append(outerLayer(preview.outerLayerVisibility())).append('|')
                     .append("yaw=").append(preview.yawDegrees()).append('|')
@@ -520,7 +567,8 @@ final class ViewSpecGoldenTest {
                     .append("idle=").append(decoration.idleOpacity()).append('|')
                     .append("active=").append(decoration.activeOpacity());
             decoration.providerTexture().ifPresent(texture -> result.append("|provider=")
-                    .append(texture.requestKey()).append("|overlay=").append(texture.overlay()));
+                    .append(texture.requestKey()).append("|overlay=").append(texture.overlay())
+                    .append("|capeGlint=").append(texture.capeGlint()));
             result.append('\n');
         }
         result.append("clip_regions\n");

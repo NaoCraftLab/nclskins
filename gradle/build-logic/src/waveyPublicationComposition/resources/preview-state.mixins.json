@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.client.identifier.extraction.mixin",
+  "client": [
+    "AvatarRenderStateMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

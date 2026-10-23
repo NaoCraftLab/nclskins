@@ -18,12 +18,20 @@ public final class SkinExtensionEnvironmentSupport implements SkinExtensionEnvir
     private long observedResourceGeneration = Long.MIN_VALUE;
     private long environmentGeneration;
     private Snapshot snapshot;
+    private final java.util.function.Supplier<State> cpm;
+    private State cpmState = State.UNKNOWN;
 
     public SkinExtensionEnvironmentSupport(
             SkinCatalogSource resources,
             State ears,
             State entityModelFeatures,
             State entityTextureFeatures) {
+        this(resources, ears, entityModelFeatures, entityTextureFeatures, () -> State.INACTIVE);
+    }
+
+    public SkinExtensionEnvironmentSupport(SkinCatalogSource resources, State ears,
+            State entityModelFeatures, State entityTextureFeatures, java.util.function.Supplier<State> cpm) {
+        this.cpm = Objects.requireNonNull(cpm, "cpm");
         this.resources = Objects.requireNonNull(resources, "resources");
         this.ears = Objects.requireNonNull(ears, "ears");
         this.entityModelFeatures = Objects.requireNonNull(
@@ -34,6 +42,9 @@ public final class SkinExtensionEnvironmentSupport implements SkinExtensionEnvir
 
     @Override
     public synchronized Snapshot snapshot() {
+        State previousCpmState = cpmState;
+        try { cpmState = Objects.requireNonNull(cpm.get()); }
+        catch (RuntimeException unavailable) { cpmState = State.UNKNOWN; }
         final long resourceGeneration;
         try {
             resourceGeneration = resources.generation();
@@ -41,7 +52,13 @@ public final class SkinExtensionEnvironmentSupport implements SkinExtensionEnvir
             return installUnavailableSnapshot();
         }
         if (snapshot != null && observedResourceGeneration == resourceGeneration) {
-            return snapshot;
+            if (previousCpmState == cpmState) return snapshot;
+            environmentGeneration = nextGeneration(environmentGeneration);
+            return snapshot = snapshot(snapshot.consumers().get(Consumer.FRESH_MOVES),
+                    snapshot.consumers().get(Consumer.JUST_EXPRESSIONS));
+        }
+        if (observedResourceGeneration != Long.MIN_VALUE && observedResourceGeneration != resourceGeneration) {
+            com.naocraftlab.skins.runtime.CapeProjection.retireSkins();
         }
         observedResourceGeneration = resourceGeneration;
         environmentGeneration = nextGeneration(environmentGeneration);
@@ -62,7 +79,8 @@ public final class SkinExtensionEnvironmentSupport implements SkinExtensionEnvir
     private Snapshot installUnavailableSnapshot() {
         if (snapshot == null
                 || snapshot.consumers().get(Consumer.FRESH_MOVES) != State.UNKNOWN
-                || snapshot.consumers().get(Consumer.JUST_EXPRESSIONS) != State.UNKNOWN) {
+                || snapshot.consumers().get(Consumer.JUST_EXPRESSIONS) != State.UNKNOWN
+                || snapshot.consumers().get(Consumer.CUSTOMIZABLE_PLAYER_MODELS) != cpmState) {
             environmentGeneration = nextGeneration(environmentGeneration);
             snapshot = snapshot(State.UNKNOWN, State.UNKNOWN);
         }
@@ -73,6 +91,7 @@ public final class SkinExtensionEnvironmentSupport implements SkinExtensionEnvir
     private Snapshot snapshot(State freshMoves, State justExpressions) {
         EnumMap<Consumer, State> states = new EnumMap<>(Consumer.class);
         states.put(Consumer.EARS, ears);
+        states.put(Consumer.CUSTOMIZABLE_PLAYER_MODELS, cpmState);
         states.put(Consumer.FRESH_MOVES, freshMoves);
         states.put(Consumer.JUST_EXPRESSIONS, justExpressions);
         return new Snapshot(environmentGeneration, Map.copyOf(states));

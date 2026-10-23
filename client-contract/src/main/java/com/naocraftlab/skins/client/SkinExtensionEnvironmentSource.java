@@ -9,6 +9,11 @@ import java.util.Objects;
 public interface SkinExtensionEnvironmentSource {
     Snapshot snapshot();
 
+    default java.util.Optional<CpmModelFileConversion> modelFileConversion() { return java.util.Optional.empty(); }
+
+    default Subscription subscribe(Runnable changed) { return () -> {}; }
+    interface Subscription extends AutoCloseable { @Override void close(); }
+
     static SkinExtensionEnvironmentSource unknown() {
         return () -> Snapshot.unknown(0);
     }
@@ -16,7 +21,8 @@ public interface SkinExtensionEnvironmentSource {
     enum Consumer {
         EARS,
         FRESH_MOVES,
-        JUST_EXPRESSIONS
+        JUST_EXPRESSIONS,
+        CUSTOMIZABLE_PLAYER_MODELS
     }
 
     enum State {
@@ -26,7 +32,11 @@ public interface SkinExtensionEnvironmentSource {
         UNKNOWN
     }
 
-    record Snapshot(long generation, Map<Consumer, State> consumers) {
+    record Snapshot(long generation, Map<Consumer, State> consumers, boolean cpmPresent) {
+        public Snapshot(long generation, Map<Consumer, State> consumers) {
+            this(generation, consumers, false);
+        }
+
         public Snapshot {
             if (generation < 0) {
                 throw new IllegalArgumentException("generation must be non-negative");

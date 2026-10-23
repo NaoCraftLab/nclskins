@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.naocraftlab.skins.compat.client.identifier.foil.pipeline",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["CapeLayerFoilMixin", "OrderedCapeFoilMixin"],
+  "injectors": {"defaultRequire": 1}
+}

@@ -30,6 +30,11 @@ public final class SimplePreviewRenderer
 
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
+        render(graphics, request, null);
+    }
+
+    void render(GuiGraphics graphics, PreviewRequest request,
+            com.naocraftlab.skins.client.PreviewModelFrames.Completion completion) {
         PlayerModel model = request.appearance().model() == SkinModel.SLIM ? slim : wide;
         Optional<com.naocraftlab.skins.client.TextureRegistry.TextureHandle> attachmentTexture =
                 request.appearance().cape()
@@ -58,7 +63,9 @@ public final class SimplePreviewRenderer
                 PreviewStageGeometry.modelOffsetX(request, scale),
                 PreviewStageGeometry.modelOffsetY(request, scale),
                 scale,
+                request.appearance().capeGlint() && request.appearance().capeMode() == CapeMode.CAPE,
                 false,
+                completion,
                 null);
         submit(graphics, model, state.skinTexture(), scale, request, state);
     }
@@ -94,7 +101,9 @@ public final class SimplePreviewRenderer
                 0.0F,
                 0.0F,
                 scale,
+                false,
                 true,
+                null,
                 null);
         submit(
                 graphics,

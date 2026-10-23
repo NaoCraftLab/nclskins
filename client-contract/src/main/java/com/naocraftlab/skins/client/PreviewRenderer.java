@@ -7,6 +7,29 @@ import java.util.Optional;
 public interface PreviewRenderer<C> {
     void render(C graphicsContext, PreviewRequest request);
 
+    default PreviewAccessories accessories(PreviewRequest request) {
+        return PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
+    }
+
+    default void observeAccessories(java.util.function.Consumer<PreviewAccessories> observer) {}
+
+    enum BodyStatus { ORDINARY, PENDING, READY, FAILED, BLOCKED, TIMED_OUT }
+    enum DisplayKind { UNCONFIRMED, ORDINARY, CPM }
+
+    default void prepareBody(String source, boolean cpm) {}
+    default void observeBody(java.util.function.Consumer<BodyStatus> observer) {}
+    default PreviewModelFrames.Body body() { return new PreviewModelFrames.Body(BodyStatus.ORDINARY, () -> false); }
+
+    default DisplayKind displayKind() {
+        var displayed = body();
+        if (displayed == null || (displayed.status() != BodyStatus.ORDINARY && displayed.status() != BodyStatus.READY)
+                || !displayed.current().getAsBoolean()) return DisplayKind.UNCONFIRMED;
+        return displayed.status() == BodyStatus.READY ? DisplayKind.CPM : DisplayKind.ORDINARY;
+    }
+
+
+    enum LiveReason { AVAILABLE, WORLD_REQUIRED, LOADING, LIVE_UNAVAILABLE }
+
     enum PreviewIntent {
         EDITOR_DRAFT,
         CURRENT_APPEARANCE,
@@ -24,18 +47,37 @@ public interface PreviewRenderer<C> {
             SkinModel model,
             Optional<TextureRegistry.TextureHandle> cape,
             CapeMode capeMode,
-            OuterLayerVisibility outerLayerVisibility, boolean capeHasElytra) {
+            OuterLayerVisibility outerLayerVisibility, boolean capeHasElytra,
+            boolean capeGlint, boolean nativeAccessories, TextureUseValidity capeValidity) {
+        public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
+                Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode,
+                OuterLayerVisibility visibility, boolean capeHasElytra, boolean capeGlint,
+                boolean nativeAccessories) {
+            this(skin, model, cape, capeMode, visibility, capeHasElytra, capeGlint,
+                    nativeAccessories, TextureUseValidity.INVALID);
+        }
+        public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
+                Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode,
+                OuterLayerVisibility visibility, boolean capeHasElytra, boolean capeGlint) {
+            this(skin, model, cape, capeMode, visibility, capeHasElytra, capeGlint, false);
+        }
+        public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
+                Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode,
+                OuterLayerVisibility visibility, boolean capeHasElytra) {
+            this(skin, model, cape, capeMode, visibility, capeHasElytra, false);
+        }
         public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
                 Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode, OuterLayerVisibility visibility) {
-            this(skin, model, cape, capeMode, visibility, true);
+            this(skin, model, cape, capeMode, visibility, true, false);
         }
         public PreviewAppearance {
+            Objects.requireNonNull(capeValidity, "capeValidity");
             Objects.requireNonNull(skin, "skin");
             Objects.requireNonNull(model, "model");
             cape = Objects.requireNonNull(cape, "cape");
             Objects.requireNonNull(capeMode, "capeMode");
             Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
-            if (capeMode != CapeMode.OFF && cape.isEmpty()) {
+            if (capeMode != CapeMode.OFF && cape.isEmpty() && !nativeAccessories) {
                 throw new IllegalArgumentException("Cape and elytra preview require a selected cape");
             }
         }
@@ -53,7 +95,7 @@ public interface PreviewRenderer<C> {
                     capeMode,
                     outerLayerVisible
                             ? OuterLayerVisibility.allVisible()
-                            : OuterLayerVisibility.noneVisible());
+                            : OuterLayerVisibility.noneVisible(), true, false);
         }
     }
 

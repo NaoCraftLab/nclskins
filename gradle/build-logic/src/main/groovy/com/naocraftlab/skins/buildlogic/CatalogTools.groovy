@@ -12,7 +12,7 @@ import java.util.regex.Pattern
 
 final class CatalogTools {
     static final Set<String> REQUIRED_CAPABILITIES = [
-        'gui', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
+        'gui', 'guiCapeMaterial', 'textures', 'preview', 'appearance', 'loaderScreen', 'session',
         'clientExecutor', 'filePicker', 'bundledSkin', 'currentAppearance',
         'updateNotification', 'skinExtensionEnvironment',
         'serverSignal', 'serverSignalReceiver', 'serverProfileVerification',
@@ -565,10 +565,27 @@ final class CatalogTools {
                 || !fancyTargets.containsAll(fancy.runtimeUnavailableTargets as List)) {
             errors.add('FancyMenu must define a compile API and explicit runtime coverage for every target')
         }
+        Map cpm = catalog.optionalDependencies?.cpm instanceof Map ? catalog.optionalDependencies.cpm as Map : [:]
+        if ((cpm.keySet() as Set) != ['side', 'projectId', 'sourceCommit', 'versions', 'predicates', 'artifacts'] as Set
+                || cpm.side != 'client' || cpm.projectId != 'h1E7sQNL'
+                || !(cpm.sourceCommit?.toString() ==~ /[0-9a-f]{40}/)
+                || !(cpm.versions instanceof Map) || (cpm.versions.keySet() as Set) != fancyTargets
+                || !(cpm.artifacts instanceof Map) || (cpm.artifacts.keySet() as Set) != fancyTargets
+                || cpm.artifacts.any { Object id, Object artifact ->
+                    !(artifact instanceof Map)
+                            || (artifact.keySet() as Set) != ['versionId', 'file', 'sha512'] as Set
+                            || artifact.versionId != cpm.versions[id]
+                            || !(artifact.versionId?.toString() ==~ /[A-Za-z0-9]{8}/)
+                            || !(artifact.file?.toString() ==~ /CustomPlayerModels[A-Za-z0-9.\-]+\.jar/)
+                            || !(artifact.sha512?.toString() ==~ /[0-9a-f]{128}/)
+                }
+                || cpm.predicates != [fabric: '*', forge: '[0,)', neoforge: '[0,)']) {
+            errors.add('CPM must pin a client compile API and verified optional artifact for every target')
+        }
         Map optionalDependencies = catalog.optionalDependencies instanceof Map
                 ? catalog.optionalDependencies as Map : [:]
-        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc', 'yet_another_config_lib_v3', 'fancymenu', 'optifine', 'waveycapes'] as Set) {
-            errors.add('optionalDependencies must declare sqlite_jdbc, yet_another_config_lib_v3, fancymenu, optifine and waveycapes')
+        if ((optionalDependencies.keySet() as Set) != ['sqlite_jdbc', 'yet_another_config_lib_v3', 'fancymenu', 'optifine', 'waveycapes', 'cpm'] as Set) {
+            errors.add('optionalDependencies must declare sqlite_jdbc, yet_another_config_lib_v3, fancymenu, optifine, waveycapes and cpm')
         } else {
             Map optifine = optionalDependencies.optifine instanceof Map
                     ? optionalDependencies.optifine as Map : [:]
@@ -591,13 +608,13 @@ final class CatalogTools {
             Set waveyTargetIds = (catalog.targets as List).collect { it.id.toString() } as Set
             if ((wavey.keySet() as Set) != ['projectId', 'sourceCommit', 'artifacts'] as Set
                     || wavey.projectId != 'kYuIpRLv'
-                    || wavey.sourceCommit != 'c979ad3ad85b453b2d740dc3c78d10b8f24f55d5'
+                    || wavey.sourceCommit != '46362c5bc2b0169dd8a658262b8194bdf0b0a11b'
                     || (waveyArtifacts.keySet() as Set) != waveyTargetIds
                     || waveyArtifacts.any { Object id, Object raw ->
                         !(raw instanceof Map)
                                 || ((raw as Map).keySet() as Set) != ['versionId', 'version', 'file', 'sha512', 'renderFactory', 'capeSource'] as Set
                                 || !(raw.versionId?.toString() ==~ /[A-Za-z0-9]{8}/)
-                                || !(raw.version?.toString() ==~ /[0-9]+\.[0-9]+\.[0-9]+/)
+                                || raw.version != '1.11.3'
                                 || !(raw.file?.toString() ==~ /waveycapes-(?:fabric|forge|neoforge)-[A-Za-z0-9.\-]+\.jar/)
                                 || !(raw.sha512?.toString() ==~ /[0-9a-f]{128}/)
                                 || !raw.renderFactory?.toString()?.startsWith('net/minecraft/')
@@ -1280,7 +1297,7 @@ final class CatalogTools {
 
         Map epoch = selected.epochProfile instanceof Map ? selected.epochProfile as Map : [:]
         Set<String> epochCapabilities = REQUIRED_CAPABILITIES -
-                ['loaderScreen', 'serverLoader', 'preview', 'updateNotification',
+                ['loaderScreen', 'serverLoader', 'preview', 'guiCapeMaterial', 'updateNotification',
                 'serverSignal', 'serverSignalReceiver', 'skinExtensionEnvironment'] as Set
         if ((epoch.keySet() as Set) != ['minecraftEpoch', 'javaRelease', 'clientProviderClass',
                 'clientProviderBundle', 'accessBundles', 'previewCapabilities',

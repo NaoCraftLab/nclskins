@@ -1,9 +1,6 @@
 package com.naocraftlab.skins.core.png;
 
-import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Optional;
@@ -47,26 +44,16 @@ public final class SneakyCapeDecoder {
             ByteBuffer header = ByteBuffer.wrap(skinBytes);
             if (header.getInt(16) != 64 || header.getInt(20) != 64) return Optional.empty();
         }
-        PngValidator validator = new PngValidator();
-        PngInfo info = validator.validate(skinBytes);
-        if (info.width() != 64 || info.height() != 64) return Optional.empty();
-        try {
-            BufferedImage skin = ImageIO.read(new ByteArrayInputStream(skinBytes));
-            return decode(skin);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Validated skin could not be decoded", exception);
-        }
+        BufferedImage skin = new PngValidator().decodedSkin(skinBytes);
+        if (skin.getWidth() != 64 || skin.getHeight() != 64) return Optional.empty();
+        return decode(skin);
     }
 
     public Optional<PngValidator.CapePng> decode(BufferedImage skin) throws PngValidationException {
         Optional<BufferedImage> cape = extract(skin);
         if (cape.isEmpty()) return Optional.empty();
         try {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            if (!ImageIO.write(cape.orElseThrow(), "png", output)) {
-                throw new IllegalStateException("PNG encoder is unavailable");
-            }
-            return Optional.of(new PngValidator().projectCanonicalCape(output.toByteArray()));
+            return Optional.of(new PngValidator().projectCanonicalCape(PngValidator.encode(cape.orElseThrow())));
         } catch (IOException exception) {
             throw new IllegalStateException("Atlas could not be encoded", exception);
         }

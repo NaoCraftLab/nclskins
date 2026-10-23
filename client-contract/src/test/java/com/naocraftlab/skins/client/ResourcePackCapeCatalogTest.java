@@ -62,6 +62,45 @@ class ResourcePackCapeCatalogTest {
                 topJpeg, topJpg)).get(0).capes().get(0).contentIdentity());
     }
 
+    @Test
+    void gifInHigherPackWinsAndSamePackPrefersEarlierStaticFormats() {
+        var topGif = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "top", 0, "event:textures/entity/cape/hero.gif");
+        var lowerPng = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "lower", 1, "event:textures/entity/cape/hero.png");
+        var topJpeg = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "top", 0, "event:textures/entity/cape/hero.jpeg");
+        var topJpg = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "top", 0, "event:textures/entity/cape/hero.jpg");
+        var topPng = new ResourcePackCapeCatalog.Variant(
+                "event", "hero", "top", 0, "event:textures/entity/cape/hero.png");
+        var selected = ResourcePackCapeCatalog.build(List.of(lowerPng, topGif));
+        assertEquals(List.of("hero"), selected.get(0).capes().stream()
+                .map(CapeCatalogSource.CapeDescriptor::id).toList());
+        assertEquals(topGif.contentIdentity(), selected.get(0).capes().get(0).contentIdentity());
+        assertEquals(lowerPng.contentIdentity(), ResourcePackCapeCatalog.build(List.of(lowerPng))
+                .get(0).capes().get(0).contentIdentity());
+        assertEquals(topJpeg.contentIdentity(), ResourcePackCapeCatalog.build(List.of(
+                topGif, topJpeg, lowerPng)).get(0).capes().get(0).contentIdentity());
+        assertEquals(topJpg.contentIdentity(), ResourcePackCapeCatalog.build(List.of(
+                topGif, topJpeg, topJpg, lowerPng)).get(0).capes().get(0).contentIdentity());
+        assertEquals(topPng.contentIdentity(), ResourcePackCapeCatalog.build(List.of(
+                topGif, topJpeg, topJpg, topPng, lowerPng)).get(0).capes().get(0).contentIdentity());
+    }
+
+    @Test
+    void differentCapeNamesDisplayByNameRegardlessOfExtension() {
+        var selected = ResourcePackCapeCatalog.build(List.of(
+                new ResourcePackCapeCatalog.Variant("event", "zeta", "pack", 0,
+                        "event:textures/entity/cape/zeta.png"),
+                new ResourcePackCapeCatalog.Variant("event", "alpha", "pack", 0,
+                        "event:textures/entity/cape/alpha.gif"),
+                new ResourcePackCapeCatalog.Variant("event", "beta", "pack", 0,
+                        "event:textures/entity/cape/beta.jpg")));
+        assertEquals(List.of("alpha", "beta", "zeta"), selected.get(0).capes().stream()
+                .map(CapeCatalogSource.CapeDescriptor::id).toList());
+    }
+
     private static ResourcePackCapeCatalog.Variant variant(
             String collectionId, String capeId, String packId, int rank) {
         return new ResourcePackCapeCatalog.Variant(

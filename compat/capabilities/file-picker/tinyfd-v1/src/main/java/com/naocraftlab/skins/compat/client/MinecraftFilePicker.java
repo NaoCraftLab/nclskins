@@ -43,6 +43,20 @@ public final class MinecraftFilePicker implements FilePicker {
     }
 
     @Override
+    public CompletableFuture<Optional<Path>> chooseSkinImportFile(boolean allowCpmModel) {
+        if (!allowCpmModel) return chooseSkinPng();
+        String title = Component.translatable("nclskins.editor.file_picker_title").getString();
+        return COORDINATOR.chooseSkinImport(() -> {
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                PointerBuffer filters = stack.mallocPointer(3);
+                filters.put(stack.UTF8("*.png")).put(stack.UTF8("*.cpmmodel")).put(stack.UTF8("*.cpmproject")).flip();
+                String selected = TinyFileDialogs.tinyfd_openFileDialog(title, null, filters, title, false);
+                return selected == null ? Optional.empty() : Optional.of(Path.of(selected));
+            }
+        });
+    }
+
+    @Override
     public CompletableFuture<Optional<Path>> chooseCapePng() {
         final String title;
         try {
@@ -115,10 +129,11 @@ public final class MinecraftFilePicker implements FilePicker {
 
     private static Optional<Path> selectLocalCape(String title) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            PointerBuffer filters = stack.mallocPointer(3);
+            PointerBuffer filters = stack.mallocPointer(4);
             filters.put(stack.UTF8("*.png"));
             filters.put(stack.UTF8("*.jpg"));
-            filters.put(stack.UTF8("*.jpeg")).flip();
+            filters.put(stack.UTF8("*.jpeg"));
+            filters.put(stack.UTF8("*.gif")).flip();
             String selected = TinyFileDialogs.tinyfd_openFileDialog(
                     title, null, filters, title, false);
             return selected == null ? Optional.empty() : Optional.of(Path.of(selected));

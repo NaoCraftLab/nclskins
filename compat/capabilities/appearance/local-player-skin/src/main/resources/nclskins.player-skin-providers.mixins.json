@@ -4,6 +4,8 @@
   "package": "com.naocraftlab.skins.compat.client.identifier.mixin",
   "client": [
     "CapeLayerTransparencyMixin",
+    "AvatarRenderStateMaterialMixin",
+    "AvatarRendererMaterialMixin",
     "PlayerInfoProviderMixin",
     "ClientPacketListenerCapeMixin",
     "SkinManagerProviderMixin",

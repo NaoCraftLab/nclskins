@@ -29,6 +29,9 @@ abstract class CapabilityAbiTask extends DefaultTask {
     abstract ConfigurableFileCollection getResolutionClasspath()
 
     @Classpath
+    abstract ConfigurableFileCollection getProductClasspath()
+
+    @Classpath
     abstract ConfigurableFileCollection getResourceClasspath()
 
     @TaskAction
@@ -46,6 +49,10 @@ abstract class CapabilityAbiTask extends DefaultTask {
             return
         }
         AbiVerifier.verify(catalog, abi, targetId.get(), resolved)
+        WaveyCapesNativeAbi.verify(productClasspath.files + resolutionClasspath.files,
+                catalog.targets.find { it.id == targetId.get() }.capabilities.appearance.toString())
+        WaveyCapesNativeAbi.verifyResourcePort(productClasspath.files + resolutionClasspath.files,
+                catalog.targets.find { it.id == targetId.get() }.capabilities.appearance.toString())
         DefaultSkinParityVerifier.verify(javap, resolutionClasspath.asPath,
                 resolutionClasspath.files + resourceClasspath.files)
         logger.lifecycle("Capability ABI verification passed for ${targetId.get()}")

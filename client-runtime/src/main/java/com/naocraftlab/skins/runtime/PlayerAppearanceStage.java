@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.OuterLayerVisibility;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 
@@ -39,6 +40,13 @@ final class PlayerAppearanceStage {
         return List.copyOf(widgets);
     }
 
+    static List<Control> outerLayers(OuterLayerVisibility visibility, String prefix, boolean enabled) {
+        return List.of("head", "body", "legs").stream().map(group -> {
+            var state = EditorOuterLayerCycle.state(group, visibility);
+            return new Control(prefix + group, state.label(), state.icon(), enabled);
+        }).toList();
+    }
+
     static Control capeMode(String id, PreviewInteractionModel transform, boolean enabled) {
         boolean elytra = transform.capeMode() == PreviewRenderer.CapeMode.ELYTRA;
         return new Control(id, UiMessage.info(elytra ? "item.minecraft.elytra" : "options.modelPart.cape"),
@@ -50,4 +58,22 @@ final class PlayerAppearanceStage {
     }
 
     private PlayerAppearanceStage() {}
+
+    static ViewSpec withError(ViewSpec view, UiMessage message, TextResolver text) {
+        if (view.previews().isEmpty()) return view;
+        ViewSpec.Preview preview = view.previews().get(0);
+        Bounds original = preview.anchorBounds();
+        int textX = original.x() + 26;
+        int textWidth = Math.max(1, original.width() - 32);
+        int textHeight = text.wrappedHeight(message, textWidth);
+        int bottom = Math.max(34, view.height() - 37);
+        Bounds error = new Bounds(textX, Math.max(33, bottom - textHeight), textWidth, textHeight);
+        var texts = new ArrayList<>(view.texts());
+        texts.add(new ViewSpec.Text("editor.preview.error", error, message,
+                ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP));
+        return new ViewSpec(view.screenId(), view.title(), view.width(), view.height(), view.panels(), texts,
+                view.widgets(), view.previews(), view.scrollbar(), view.tabGroups(), view.focusRequest(), view.clipRegions(),
+                view.backEquipmentPreviews(), view.iconDecorations(), view.scrollSurfaces(), view.tooltipRegions(),
+                view.progressDecorations(), view.navigationNodes());
+    }
 }

@@ -46,12 +46,18 @@ public final class MinecraftFilePicker implements FilePicker {
     }
 
     @Override
+    public CompletableFuture<Optional<Path>> chooseSkinImportFile(boolean allowCpmModel) {
+        return allowCpmModel ? chooseFile("nclskins.editor.file_picker_title", null,
+                "PNG / CPM", "png;cpmmodel;cpmproject", SelectionType.SKIN_IMPORT) : chooseSkinPng();
+    }
+
+    @Override
     public CompletableFuture<Optional<Path>> chooseCapePng() {
         return chooseFile(
                 "nclskins.capes.import",
                 null,
                 null,
-                "png;jpg;jpeg",
+                "png;jpg;jpeg;gif",
                 SelectionType.CAPE);
     }
 
@@ -124,6 +130,7 @@ public final class MinecraftFilePicker implements FilePicker {
                 selectionType == SelectionType.CAPE ? title : filterName,
                 filterPattern);
         return switch (selectionType) {
+            case SKIN_IMPORT -> COORDINATOR.chooseSkinImportAsync(dialog, clientExecutor::execute);
             case PNG -> COORDINATOR.chooseAsync(dialog, clientExecutor::execute);
             case CAPE -> COORDINATOR.chooseCapeAsync(dialog, clientExecutor::execute);
             case SQLITE_DATABASE -> COORDINATOR.chooseSqliteDatabaseAsync(dialog, clientExecutor::execute);
@@ -148,6 +155,7 @@ public final class MinecraftFilePicker implements FilePicker {
     }
 
     private enum SelectionType {
+        SKIN_IMPORT,
         PNG,
         CAPE,
         SQLITE_DATABASE

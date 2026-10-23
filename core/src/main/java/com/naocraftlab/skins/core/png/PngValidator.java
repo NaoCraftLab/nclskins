@@ -5,9 +5,12 @@ import com.naocraftlab.skins.core.compatibility.SkinFeatureAnalyzer;
 import com.naocraftlab.skins.core.model.SkinVariant;
 
 import javax.imageio.ImageIO;
+import javax.imageio.stream.ImageInputStreamImpl;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -15,8 +18,10 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
@@ -28,6 +33,8 @@ public final class PngValidator {
     public static final int MAX_SOURCE_DIMENSION = 2_048;
     public static final long MAX_SOURCE_PIXELS = 4_194_304L;
     private static final int MAX_CHUNKS = 4_096;
+    private static final int MAX_METADATA_BYTES = 1024 * 1024;
+    private static final int LEGACY_MAX_BYTES = 65 * 1024 * 1024;
     private static final byte[] SIGNATURE = {
         (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
     };
@@ -56,17 +63,15 @@ public final class PngValidator {
         return maxBytes;
     }
 
-    public PngInfo validate(InputStream input) throws IOException, PngValidationException {
-        Objects.requireNonNull(input, "input");
-        byte[] bytes = input.readNBytes(maxBytes + 1);
-        if (bytes.length > maxBytes) {
-            throw failure(PngValidationException.Reason.OVERSIZED, "PNG exceeds the configured size limit");
-        }
-        return validate(bytes);
-    }
-
     public PngInfo validate(byte[] bytes) throws PngValidationException {
-        return inspect(bytes, false, false).info();
+        Objects.requireNonNull(bytes, "bytes");
+        if (bytes.length > maxBytes) throw failure(PngValidationException.Reason.OVERSIZED,
+                "PNG exceeds the configured size limit");
+        try {
+            return inspect(new ByteSource(bytes), false, false, null, false).info();
+        } catch (IOException exception) {
+            throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG could not be read");
+        }
     }
 
     public CapePng projectCape(byte[] bytes) throws PngValidationException {
@@ -140,11 +145,13 @@ public final class PngValidator {
         @Override public byte[] bytes() { return bytes.clone(); }
     }
 
-    private enum CapeAdmission {
-        SOURCE, CANONICAL;
+    enum CapeAdmission {
+        SOURCE, CANONICAL, TEXTURE;
 
         boolean accepts(int width, int height) {
-            return width == 64 && height == 32
+            return this == TEXTURE && width > 0 && height > 0 && width <= 4096 && height <= 4096
+                    && (long) width * height <= 16L * 1024L * 1024L
+                    || width == 64 && height == 32
                     || width == 128 && height == 64
                     || this == SOURCE && (width == 46 && height == 22 || width == 92 && height == 44);
         }
@@ -182,7 +189,11 @@ public final class PngValidator {
 
     private SkinProjection project(byte[] bytes, boolean cleanLegacyImport, boolean allowScaledLayout)
             throws PngValidationException {
-        Inspection inspection = inspect(bytes, allowScaledLayout, true);
+        return project(inspect(bytes, allowScaledLayout, true), cleanLegacyImport);
+    }
+
+    private SkinProjection project(Inspection inspection, boolean cleanLegacyImport)
+            throws PngValidationException {
         int sourceWidth = inspection.info().width();
         int sourceHeight = inspection.info().height();
         if (sourceWidth == 64 && sourceHeight == 64) {
@@ -221,6 +232,11 @@ public final class PngValidator {
 
     public String rawSkinPixelSha256(byte[] bytes) throws PngValidationException {
         return rawPixelSha256(inspect(bytes, false, false).image());
+    }
+
+    public int[] skinPixels(byte[] bytes) throws PngValidationException {
+        BufferedImage image = project(inspect(bytes, true, true), false).image();
+        return image.getRGB(0, 0, 64, 64, null, 0, 64);
     }
 
     public String rawCapePixelSha256(byte[] bytes) throws PngValidationException {
@@ -268,6 +284,7 @@ public final class PngValidator {
                     digest.update(pixel.putInt(argb).array());
                 }
             }
+            new CpmCarrierReader().read(image).appendIdentity(digest, image);
             return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException("SHA-256 is unavailable", impossible);
@@ -290,10 +307,12 @@ public final class PngValidator {
         return expanded;
     }
 
-    private static byte[] encode(BufferedImage image) throws IOException, PngValidationException {
+    static byte[] encode(BufferedImage image) throws IOException, PngValidationException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        if (!ImageIO.write(image, "png", output)) {
-            throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG encoder is unavailable");
+        try (var encoded = new javax.imageio.stream.MemoryCacheImageOutputStream(output)) {
+            if (!ImageIO.write(image, "png", encoded)) {
+                throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG encoder is unavailable");
+            }
         }
         return output.toByteArray();
     }
@@ -411,23 +430,38 @@ public final class PngValidator {
         return (argb >>> 24) == 0 ? 0 : argb;
     }
 
-    public NormalizedSkin projectStandardImport(InputStream input) throws IOException, PngValidationException {
-        SkinProjection projection = project(readBounded(Objects.requireNonNull(input, "input")), true, false);
-        return new NormalizedSkin(projection.pngBytes(), projection.detectedVariant(), featureAnalyzer.analyze(projection.image()));
+    NormalizedSkin projectImport(Source source, boolean standard) throws IOException, PngValidationException {
+        return normalized(project(inspect(source, !standard, true, null, true), true));
     }
 
-    public byte[] normalizeSkin(InputStream input) throws IOException, PngValidationException {
-        return projectImport(input).pngBytes();
+    StoredSkinProjection projectStoredRender(Source source) throws IOException, PngValidationException {
+        SkinProjection projection = project(inspect(source, true, true, null, true), false);
+        return new StoredSkinProjection(projection.pngBytes(), projection.detectedVariant(),
+                featureAnalyzer.analyze(projection.image()));
     }
 
-    public NormalizedSkin normalizeSkinWithVariant(InputStream input)
-            throws IOException, PngValidationException {
-        return projectImport(input);
+    String rawSkinPixelSha256(Source source) throws IOException, PngValidationException {
+        return rawPixelSha256(inspect(source, false, false, null, false).image());
     }
 
-    public NormalizedSkin projectImport(InputStream input)
-            throws IOException, PngValidationException {
-        return projectImport(readBounded(Objects.requireNonNull(input, "input")));
+    CapePng projectCanonicalCape(Source source) throws IOException, PngValidationException {
+        return projectCanonicalCape(encode(inspect(source, false, false, CapeAdmission.CANONICAL, false).image()));
+    }
+
+    byte[] canonicalTexture(Source source) throws IOException, PngValidationException {
+        BufferedImage image = inspect(source, false, false, CapeAdmission.TEXTURE, false).image();
+        BufferedImage canonical = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        int[] row = new int[image.getWidth()];
+        for (int y = 0; y < image.getHeight(); y++) {
+            image.getRGB(0, y, image.getWidth(), 1, row, 0, image.getWidth());
+            canonical.setRGB(0, y, image.getWidth(), 1, row, 0, image.getWidth());
+        }
+        return encode(canonical);
+    }
+
+    private NormalizedSkin normalized(SkinProjection projection) {
+        return new NormalizedSkin(projection.pngBytes(), projection.detectedVariant(),
+                featureAnalyzer.analyze(projection.image()));
     }
 
     private static SkinVariant detectSkinVariant(BufferedImage image) {
@@ -459,166 +493,253 @@ public final class PngValidator {
             boolean stripPostIendBytes,
             CapeAdmission capeAdmission) throws PngValidationException {
         Objects.requireNonNull(bytes, "bytes");
-        if (bytes.length == 0) {
-            throw failure(PngValidationException.Reason.EMPTY, "PNG is empty");
+        if (bytes.length > maxBytes) throw failure(PngValidationException.Reason.OVERSIZED,
+                "PNG exceeds the configured size limit");
+        try {
+            return inspect(new ByteSource(bytes), allowScaledLayout, stripPostIendBytes, capeAdmission, true);
+        } catch (IOException exception) {
+            throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG could not be read");
         }
-        if (bytes.length > maxBytes) {
-            throw failure(PngValidationException.Reason.OVERSIZED, "PNG exceeds the configured size limit");
-        }
-        if (bytes.length < SIGNATURE.length || !Arrays.equals(SIGNATURE, Arrays.copyOf(bytes, SIGNATURE.length))) {
-            throw failure(PngValidationException.Reason.BAD_SIGNATURE, "File is not a PNG");
-        }
+    }
 
-        ByteBuffer buffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
-        buffer.position(SIGNATURE.length);
-        boolean sawHeader = false;
-        boolean sawPalette = false;
-        boolean sawTransparency = false;
-        boolean sawImageData = false;
-        boolean sawEnd = false;
-        int canonicalLength = -1;
-        int width = -1;
-        int height = -1;
-        int bitDepth = -1;
-        int colorType = -1;
-        int interlace = -1;
-        int paletteEntries = 0;
-        int chunkIndex = 0;
+    Inspection inspect(Source source, boolean allowScaledLayout,
+            boolean stripPostIendBytes, CapeAdmission capeAdmission, boolean canonicalRequested)
+            throws IOException, PngValidationException {
+        long size = source.size();
+        if (size > maxBytes) throw failure(PngValidationException.Reason.OVERSIZED,
+                "PNG exceeds the configured size limit");
+        if (size == 0) throw failure(PngValidationException.Reason.EMPTY, "PNG is empty");
+        boolean sawHeader = false, sawPalette = false, sawTransparency = false;
+        boolean sawImageData = false, sawEnd = false;
+        int width = -1, height = -1, bitDepth = -1, colorType = -1, interlace = -1, paletteEntries = 0;
+        int metadata = 0, chunkIndex = 0;
+        long offset = SIGNATURE.length, canonicalLength = -1;
         String previousType = null;
-        ByteArrayOutputStream decoderPng = new ByteArrayOutputStream(bytes.length);
-        decoderPng.writeBytes(SIGNATURE);
-        ByteArrayOutputStream compressedImageData = new ByteArrayOutputStream();
-
-        while (buffer.hasRemaining()) {
-            if (chunkIndex >= MAX_CHUNKS) {
-                throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG contains too many chunks");
+        List<ImageDataRange> ranges = new ArrayList<>();
+        List<PixelChunkRange> pixelChunks = new ArrayList<>();
+        pixelChunks.add(new PixelChunkRange(0, SIGNATURE.length, 0));
+        long pixelLength = SIGNATURE.length;
+        byte[] buffer = new byte[8192];
+        try (DataInputStream input = new DataInputStream(new BufferedInputStream(source.stream()))) {
+            if (!Arrays.equals(SIGNATURE, input.readNBytes(SIGNATURE.length))) {
+                throw failure(PngValidationException.Reason.BAD_SIGNATURE, "File is not a PNG");
             }
-            if (buffer.remaining() < 12) {
-                throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG contains a truncated chunk");
-            }
-            long unsignedLength = Integer.toUnsignedLong(buffer.getInt());
-            if (unsignedLength > Integer.MAX_VALUE || unsignedLength + 8L > buffer.remaining()) {
-                throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG chunk length is invalid");
-            }
-            int length = (int) unsignedLength;
-            byte[] typeBytes = new byte[4];
-            buffer.get(typeBytes);
-            String type = new String(typeBytes, StandardCharsets.US_ASCII);
-            if (!isChunkType(typeBytes)) {
-                throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG chunk type is invalid");
-            }
-            byte[] data = new byte[length];
-            buffer.get(data);
-            long expectedCrc = Integer.toUnsignedLong(buffer.getInt());
-            CRC32 crc = new CRC32();
-            crc.update(typeBytes);
-            crc.update(data);
-            if (crc.getValue() != expectedCrc) {
-                throw failure(PngValidationException.Reason.BAD_CHECKSUM, "PNG chunk checksum is invalid");
-            }
-
-            if ("IHDR".equals(type)) {
-                if (chunkIndex != 0 || sawHeader || length != 13) {
-                    throw failure(PngValidationException.Reason.INVALID_HEADER, "PNG header is invalid");
+            while (offset < size) {
+                if (chunkIndex >= MAX_CHUNKS || size - offset < 12) {
+                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG chunk is truncated or excessive");
                 }
-                ByteBuffer header = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-                width = header.getInt();
-                height = header.getInt();
-                bitDepth = Byte.toUnsignedInt(header.get());
-                colorType = Byte.toUnsignedInt(header.get());
-                int compression = Byte.toUnsignedInt(header.get());
-                int filter = Byte.toUnsignedInt(header.get());
-                interlace = Byte.toUnsignedInt(header.get());
-                if (!validPngHeader(width, height, bitDepth, colorType, compression, filter, interlace)) {
-                    throw failure(PngValidationException.Reason.INVALID_HEADER, "PNG header uses invalid encoding values");
+                long unsignedLength = Integer.toUnsignedLong(input.readInt());
+                if (unsignedLength > Integer.MAX_VALUE || unsignedLength > size - offset - 12) {
+                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG chunk length is invalid");
                 }
-                if (!(capeAdmission == null
-                        ? supportedDimensions(width, height, allowScaledLayout)
-                        : capeAdmission.accepts(width, height))) {
-                    throw failure(
-                            PngValidationException.Reason.UNSUPPORTED_DIMENSIONS,
-                            allowScaledLayout
-                                    ? "Skin must use a bounded 64*n square or legacy 64*n by 32*n layout"
-                                    : "Skin must be 64x64 or legacy 64x32");
+                int length = (int) unsignedLength;
+                byte[] typeBytes = input.readNBytes(4);
+                if (!isChunkType(typeBytes)) throw failure(PngValidationException.Reason.MALFORMED_CHUNK,
+                        "PNG chunk type is invalid");
+                String type = new String(typeBytes, StandardCharsets.US_ASCII);
+                if (!"IDAT".equals(type)) {
+                    if (length > MAX_METADATA_BYTES - metadata) throw failure(
+                            PngValidationException.Reason.MALFORMED_CHUNK, "PNG metadata exceeds its limit");
+                    metadata += length;
                 }
-                sawHeader = true;
-                appendChunk(decoderPng, typeBytes, data, expectedCrc);
-            } else if ("PLTE".equals(type)) {
-                if (!sawHeader || sawPalette || sawImageData || length == 0 || length % 3 != 0
-                        || length > 768 || colorType == 0 || colorType == 4) {
-                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG palette is invalid");
+                CRC32 crc = new CRC32();
+                crc.update(typeBytes);
+                byte[] header = "IHDR".equals(type) && length == 13 ? new byte[13] : null;
+                int remaining = length;
+                while (remaining > 0) {
+                    int count = input.read(buffer, 0, Math.min(buffer.length, remaining));
+                    if (count < 0) throw new EOFException();
+                    if (count == 0) continue;
+                    crc.update(buffer, 0, count);
+                    if (header != null) System.arraycopy(buffer, 0, header, length - remaining, count);
+                    remaining -= count;
                 }
-                paletteEntries = length / 3;
-                if (colorType == 3 && paletteEntries > 1 << bitDepth) {
-                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG palette is too large");
+                if (crc.getValue() != Integer.toUnsignedLong(input.readInt())) {
+                    throw failure(PngValidationException.Reason.BAD_CHECKSUM, "PNG chunk checksum is invalid");
                 }
-                sawPalette = true;
-                appendChunk(decoderPng, typeBytes, data, expectedCrc);
-            } else if ("tRNS".equals(type)) {
-                if (!sawHeader || sawTransparency || sawImageData
-                        || !validTransparencyLength(colorType, length, sawPalette, paletteEntries)) {
-                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG transparency is invalid");
+                if ("IHDR".equals(type) || "PLTE".equals(type) || "tRNS".equals(type)
+                        || "IDAT".equals(type) || "IEND".equals(type)) {
+                    pixelChunks.add(new PixelChunkRange(offset, length + 12, pixelLength));
+                    pixelLength += length + 12L;
                 }
-                sawTransparency = true;
-                appendChunk(decoderPng, typeBytes, data, expectedCrc);
-            } else if ("IDAT".equals(type)) {
-                if (!sawHeader || sawEnd || sawImageData && !"IDAT".equals(previousType)
-                        || colorType == 3 && !sawPalette) {
-                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG image data is out of order");
-                }
-                sawImageData = true;
-                compressedImageData.writeBytes(data);
-                appendChunk(decoderPng, typeBytes, data, expectedCrc);
-            } else if ("IEND".equals(type)) {
-                if (!sawHeader || !sawImageData || sawEnd || length != 0) {
-                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG end marker is invalid");
-                }
-                sawEnd = true;
-                canonicalLength = buffer.position();
-                appendChunk(decoderPng, typeBytes, data, expectedCrc);
-                if (buffer.hasRemaining()) {
-                    if (!stripPostIendBytes) {
-                        throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG has trailing bytes");
+                if ("IHDR".equals(type)) {
+                    if (chunkIndex != 0 || sawHeader || header == null) throw failure(
+                            PngValidationException.Reason.INVALID_HEADER, "PNG header is invalid");
+                    ByteBuffer values = ByteBuffer.wrap(header);
+                    width = values.getInt(); height = values.getInt();
+                    bitDepth = Byte.toUnsignedInt(values.get()); colorType = Byte.toUnsignedInt(values.get());
+                    int compression = Byte.toUnsignedInt(values.get()), filter = Byte.toUnsignedInt(values.get());
+                    interlace = Byte.toUnsignedInt(values.get());
+                    if (!validPngHeader(width, height, bitDepth, colorType, compression, filter, interlace)) {
+                        throw failure(PngValidationException.Reason.INVALID_HEADER, "PNG header uses invalid encoding values");
                     }
-
-                    buffer.position(buffer.limit());
+                    if (!(capeAdmission == null ? supportedDimensions(width, height, allowScaledLayout)
+                            : capeAdmission.accepts(width, height))) throw failure(
+                                    PngValidationException.Reason.UNSUPPORTED_DIMENSIONS, "Unsupported image dimensions");
+                    sawHeader = true;
+                } else if ("PLTE".equals(type)) {
+                    if (!sawHeader || sawPalette || sawImageData || length == 0 || length % 3 != 0
+                            || length > 768 || colorType == 0 || colorType == 4) throw failure(
+                                    PngValidationException.Reason.MALFORMED_CHUNK, "PNG palette is invalid");
+                    paletteEntries = length / 3;
+                    if (colorType == 3 && paletteEntries > 1 << bitDepth) throw failure(
+                            PngValidationException.Reason.MALFORMED_CHUNK, "PNG palette is too large");
+                    sawPalette = true;
+                } else if ("tRNS".equals(type)) {
+                    if (!sawHeader || sawTransparency || sawImageData
+                            || !validTransparencyLength(colorType, length, sawPalette, paletteEntries)) throw failure(
+                                    PngValidationException.Reason.MALFORMED_CHUNK, "PNG transparency is invalid");
+                    sawTransparency = true;
+                } else if ("IDAT".equals(type)) {
+                    if (!sawHeader || sawEnd || sawImageData && !"IDAT".equals(previousType)
+                            || colorType == 3 && !sawPalette) throw failure(
+                                    PngValidationException.Reason.MALFORMED_CHUNK, "PNG image data is out of order");
+                    sawImageData = true;
+                    ranges.add(new ImageDataRange(offset + 8, length));
+                } else if ("IEND".equals(type)) {
+                    if (!sawHeader || !sawImageData || sawEnd || length != 0) throw failure(
+                            PngValidationException.Reason.MALFORMED_CHUNK, "PNG end marker is invalid");
+                    sawEnd = true;
+                    canonicalLength = offset + 12;
+                    if (canonicalLength < size && !stripPostIendBytes) throw failure(
+                            PngValidationException.Reason.MALFORMED_CHUNK, "PNG has trailing bytes");
+                    break;
+                } else if ((typeBytes[0] & 0x20) == 0) {
+                    throw failure(PngValidationException.Reason.UNKNOWN_CRITICAL_CHUNK, "PNG contains an unknown critical chunk");
+                } else if (capeAdmission != null && capeAdmission != CapeAdmission.TEXTURE && ("acTL".equals(type) || "fcTL".equals(type) || "fdAT".equals(type))) {
+                    throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "Animated cape is unsupported");
                 }
-            } else if ((typeBytes[0] & 0x20) == 0) {
-                throw failure(
-                        PngValidationException.Reason.UNKNOWN_CRITICAL_CHUNK,
-                        "PNG contains an unknown critical chunk");
+                offset += length + 12L;
+                previousType = type;
+                chunkIndex++;
             }
-            previousType = type;
-            chunkIndex++;
+        } catch (EOFException exception) {
+            throw failure(PngValidationException.Reason.MALFORMED_CHUNK, "PNG is truncated");
         }
-
-        if (!sawHeader || !sawImageData || !sawEnd) {
-            throw failure(PngValidationException.Reason.MISSING_IMAGE_DATA, "PNG is incomplete");
+        if (!sawHeader || !sawImageData || !sawEnd) throw failure(
+                PngValidationException.Reason.MISSING_IMAGE_DATA, "PNG is incomplete");
+        validateInflatedSize(source, ranges, expectedInflatedBytes(width, height, bitDepth, colorType, interlace));
+        BufferedImage image;
+        try (PixelChunkInput input = new PixelChunkInput(source, pixelChunks, pixelLength)) {
+            var readers = ImageIO.getImageReadersByFormatName("png");
+            if (!readers.hasNext()) throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG decoder is unavailable");
+            var reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                image = reader.read(0);
+                if (image == null || image.getWidth() != width || image.getHeight() != height) throw failure(
+                        PngValidationException.Reason.DECODE_FAILED, "PNG cannot be decoded");
+            } finally { reader.dispose(); }
+        } catch (IOException | RuntimeException exception) {
+            throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG cannot be decoded");
         }
-        byte[] canonicalBytes = canonicalLength == bytes.length
-                ? bytes.clone()
-                : Arrays.copyOf(bytes, canonicalLength);
-        validateInflatedSize(
-                compressedImageData.toByteArray(),
-                expectedInflatedBytes(width, height, bitDepth, colorType, interlace));
-        BufferedImage image = decode(decoderPng.toByteArray(), width, height);
-        return new Inspection(new PngInfo(width, height), image, canonicalBytes);
+        byte[] canonical;
+        if (!canonicalRequested) {
+            canonical = new byte[0];
+        } else if (canonicalLength <= LEGACY_MAX_BYTES) {
+            try (InputStream input = source.stream()) { canonical = input.readNBytes((int) canonicalLength); }
+        } else {
+            canonical = encode(image);
+        }
+        return new Inspection(new PngInfo(width, height), image, canonical);
     }
 
-    private byte[] readBounded(InputStream input) throws IOException, PngValidationException {
-        byte[] bytes = input.readNBytes(maxBytes + 1);
-        if (bytes.length > maxBytes) {
-            throw failure(PngValidationException.Reason.OVERSIZED, "PNG exceeds the configured size limit");
-        }
-        return bytes;
+    BufferedImage decodedSkin(byte[] bytes) throws PngValidationException {
+        return inspect(bytes, false, false).image();
     }
 
-    private static void appendChunk(
-            ByteArrayOutputStream output, byte[] type, byte[] data, long crc) {
-        output.writeBytes(ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(data.length).array());
-        output.writeBytes(type);
-        output.writeBytes(data);
-        output.writeBytes(ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt((int) crc).array());
+    static javax.imageio.stream.ImageInputStream memoryInput(byte[] bytes) {
+        return new PixelChunkInput(new ByteSource(bytes),
+                List.of(new PixelChunkRange(0, bytes.length, 0)), bytes.length);
+    }
+
+    interface Source {
+        long size();
+        int read(long position, byte[] bytes, int offset, int count) throws IOException;
+
+        default InputStream stream() {
+            return new InputStream() {
+                private long position;
+                @Override public int read() throws IOException {
+                    byte[] value = new byte[1];
+                    return read(value, 0, 1) < 0 ? -1 : Byte.toUnsignedInt(value[0]);
+                }
+                @Override public int read(byte[] bytes, int offset, int count) throws IOException {
+                    int read = Source.this.read(position, bytes, offset, count);
+                    if (read > 0) position += read;
+                    return read;
+                }
+            };
+        }
+    }
+
+    private record ByteSource(byte[] data) implements Source {
+        @Override public long size() { return data.length; }
+        @Override public int read(long position, byte[] bytes, int offset, int count) {
+            Objects.checkFromIndexSize(offset, count, bytes.length);
+            if (count == 0) return 0;
+            if (position >= data.length) return -1;
+            int read = (int) Math.min(count, data.length - position);
+            System.arraycopy(data, Math.toIntExact(position), bytes, offset, read);
+            return read;
+        }
+    }
+
+    private record ImageDataRange(long offset, int length) {}
+
+    private record PixelChunkRange(long offset, int length, long start) {}
+
+    private static final class PixelChunkInput extends ImageInputStreamImpl {
+        private final Source source;
+        private final List<PixelChunkRange> ranges;
+        private final long length;
+        private boolean closed;
+
+        private PixelChunkInput(Source source, List<PixelChunkRange> ranges, long length) {
+            this.source = source;
+            this.ranges = List.copyOf(ranges);
+            this.length = length;
+        }
+
+        @Override public int read() throws IOException {
+            byte[] value = new byte[1];
+            return read(value, 0, 1) == -1 ? -1 : Byte.toUnsignedInt(value[0]);
+        }
+
+        @Override public int read(byte[] bytes, int offset, int count) throws IOException {
+            checkClosed();
+            Objects.checkFromIndexSize(offset, count, bytes.length);
+            bitOffset = 0;
+            if (count == 0) return 0;
+            if (streamPos >= length) return -1;
+            int total = 0;
+            while (total < count && streamPos < length) {
+                int low = 0, high = ranges.size() - 1;
+                while (low < high) {
+                    int middle = (low + high + 1) >>> 1;
+                    if (ranges.get(middle).start() <= streamPos) low = middle;
+                    else high = middle - 1;
+                }
+                PixelChunkRange range = ranges.get(low);
+                int within = (int) (streamPos - range.start());
+                int remaining = Math.min(count - total, range.length() - within);
+                int read = source.read(range.offset() + within, bytes, offset + total, remaining);
+                if (read < 0) throw new EOFException();
+                if (read == 0) continue;
+                streamPos += read;
+                total += read;
+            }
+            return total;
+        }
+
+        @Override public long length() { return length; }
+
+        @Override public void close() throws IOException {
+            if (!closed) {
+                closed = true;
+                super.close();
+            }
+        }
     }
 
     private static boolean validTransparencyLength(
@@ -670,52 +791,41 @@ public final class PngValidator {
         return fullSize <= start ? 0 : (fullSize - start + step - 1) / step;
     }
 
-    private static void validateInflatedSize(byte[] compressed, long expected)
-            throws PngValidationException {
+    private static void validateInflatedSize(Source source, List<ImageDataRange> ranges, long expected)
+            throws IOException, PngValidationException {
         Inflater inflater = new Inflater();
-        byte[] output = new byte[8_192];
+        byte[] inputBytes = new byte[8192], outputBytes = new byte[8192];
         long total = 0;
         try {
-            inflater.setInput(compressed);
-            while (!inflater.finished()) {
-                int count = inflater.inflate(output);
-                if (count > 0) {
-                    total += count;
-                    if (total > expected) {
-                        throw failure(
-                                PngValidationException.Reason.DECOMPRESSION_LIMIT,
+            for (ImageDataRange range : ranges) {
+                long position = range.offset();
+                int remaining = range.length();
+                while (remaining > 0) {
+                    int count = source.read(position, inputBytes, 0, Math.min(inputBytes.length, remaining));
+                    if (count < 0) throw new EOFException();
+                    if (count == 0) continue;
+                    remaining -= count;
+                    position += count;
+                    if (inflater.finished()) throw failure(PngValidationException.Reason.DECODE_FAILED,
+                            "PNG image data contains trailing compressed bytes");
+                    inflater.setInput(inputBytes, 0, count);
+                    while (!inflater.needsInput() && !inflater.finished()) {
+                        int produced = inflater.inflate(outputBytes);
+                        total += produced;
+                        if (total > expected) throw failure(PngValidationException.Reason.DECOMPRESSION_LIMIT,
                                 "PNG image data exceeds its declared pixel layout");
+                        if (produced == 0 && !inflater.needsInput() && !inflater.finished()) throw failure(
+                                PngValidationException.Reason.DECODE_FAILED, "PNG image data made no progress");
                     }
-                } else if (inflater.needsDictionary() || inflater.needsInput()) {
-                    throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG image data is incomplete");
-                } else {
-                    throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG image data made no progress");
+                    if (inflater.finished() && inflater.getRemaining() != 0) throw failure(
+                            PngValidationException.Reason.DECODE_FAILED, "PNG image data contains trailing compressed bytes");
                 }
             }
-            if (total != expected || inflater.getRemaining() != 0) {
-                throw failure(
-                        PngValidationException.Reason.DECODE_FAILED,
-                        "PNG image data does not match its declared pixel layout");
-            }
+            if (!inflater.finished() || total != expected) throw failure(
+                    PngValidationException.Reason.DECODE_FAILED, "PNG image data does not match its declared pixel layout");
         } catch (DataFormatException invalid) {
             throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG image data is invalid");
-        } finally {
-            inflater.end();
-        }
-    }
-
-    private static BufferedImage decode(byte[] bytes, int expectedWidth, int expectedHeight)
-            throws PngValidationException {
-        try {
-            BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
-            if (image == null || image.getWidth() != expectedWidth || image.getHeight() != expectedHeight) {
-                throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG cannot be decoded");
-            }
-            image.getRGB(0, 0);
-            return image;
-        } catch (IOException | RuntimeException exception) {
-            throw failure(PngValidationException.Reason.DECODE_FAILED, "PNG cannot be decoded");
-        }
+        } finally { inflater.end(); }
     }
 
     private static boolean supportedDimensions(int width, int height, boolean allowScaledLayout) {
@@ -780,8 +890,8 @@ public final class PngValidator {
         }
     }
 
-    private record Inspection(PngInfo info, BufferedImage image, byte[] canonicalBytes) {
-        private Inspection {
+    record Inspection(PngInfo info, BufferedImage image, byte[] canonicalBytes) {
+        Inspection {
             canonicalBytes = canonicalBytes.clone();
         }
 

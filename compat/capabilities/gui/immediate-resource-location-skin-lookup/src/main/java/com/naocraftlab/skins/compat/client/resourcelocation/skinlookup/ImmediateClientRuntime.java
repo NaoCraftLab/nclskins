@@ -45,6 +45,10 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
         return INSTANCE;
     }
 
+    synchronized boolean menuPreviewAvailable() {
+        return !terminallyClosed && application != null && !application.closed();
+    }
+
     public FilePicker nativeFileDialog() {
         return provision.capabilities().nativeFileDialog();
     }
@@ -86,6 +90,7 @@ public final class ImmediateClientRuntime implements ImmediateScreenCapabilities
         provision.maintain(playerReady);
         current.tick(
                 connection,
+                minecraft.level,
                 playerReady);
     }
 

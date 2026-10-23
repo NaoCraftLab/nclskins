@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.identifier.extraction;
 
+import com.naocraftlab.skins.compat.client.identifier.foil.CapeFoilBuffer;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
@@ -29,7 +30,10 @@ public final class NclBakedPlayerRenderer
 
     @Override
     public void prepare(NclBakedPlayerRenderState state, GuiRenderState guiRenderState, int guiScale) {
+        var completion = state.completion();
+        if (completion != null && !completion.current()) return;
         NclBakedPlayerTarget target = state.target();
+        try {
         TargetRenderer renderer = target.acquire(
                 this,
                 () -> {
@@ -37,7 +41,17 @@ public final class NclBakedPlayerRenderer
                     return new TargetRenderer(bufferSource);
                 },
                 TargetRenderer.class);
+        renderer.primaryRendered = false;
         renderer.prepare(state, guiRenderState, guiScale);
+        if (completion != null && renderer.primaryRendered) completion.accept(
+                new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                        com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY,
+                        () -> target.owns(this, renderer)));
+        } catch (RuntimeException | Error failure) {
+            if (completion != null) completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                    com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
+            throw failure;
+        }
     }
 
     @Override
@@ -66,6 +80,7 @@ public final class NclBakedPlayerRenderer
 
     private static final class TargetRenderer
             extends PictureInPictureRenderer<NclBakedPlayerRenderState> {
+        private boolean primaryRendered;
         private TargetRenderer(MultiBufferSource.BufferSource bufferSource) {
             super(bufferSource);
         }
@@ -99,7 +114,9 @@ public final class NclBakedPlayerRenderer
                         BakedPlayerPose.applyAttachment(pose, state.capeMode());
                         attachment.renderToBuffer(
                                 pose,
-                                bufferSource.getBuffer(attachment.renderType(state.attachmentTexture())),
+                                CapeFoilBuffer.buffer(bufferSource,
+                                        state.attachmentTexture(), state.capeGlint(),
+                                        attachment.renderType(state.attachmentTexture())),
                                 0x00F000F0,
                                 OverlayTexture.NO_OVERLAY);
                     } finally {
@@ -113,6 +130,7 @@ public final class NclBakedPlayerRenderer
                             bufferSource.getBuffer(player.renderType(state.skinTexture())),
                             0x00F000F0,
                             OverlayTexture.NO_OVERLAY);
+                    primaryRendered = true;
                 }
                 bufferSource.endBatch();
             } finally {

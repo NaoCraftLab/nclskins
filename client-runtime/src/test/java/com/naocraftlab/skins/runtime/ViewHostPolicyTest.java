@@ -4,12 +4,102 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ViewHostPolicyTest {
+    @Test
+    void blockedCpmRowRetainsHoverAndClipWithoutKeyboardActivation() {
+        var row = new ViewSpec.Widget("providers.row.CPM", ViewSpec.WidgetKind.SELECTABLE_CARD,
+                new Bounds(0, 0, 64, 40), UiMessage.info("nclskins.compatibility.feature.customizable_player_models"),
+                Optional.empty(), Optional.empty(), true, true, 0)
+                .withActivation(false, UiMessage.info("nclskins.inspection.world_required"));
+        var view = view(List.of(row), List.of(new ViewSpec.ClipRegion("rows", new Bounds(10, 0, 40, 30), List.of(row.id()))));
+        var glyph = new ViewSpec.IconDecoration("cpm", new Bounds(0, 0, 32, 32), GuiIcon.SOURCE_CPM, row.id(), 0.8F, 1);
+        assertTrue(ViewHostPolicy.providerCapeRowHovered(view, glyph, 20, 20));
+        assertFalse(ViewHostPolicy.providerCapeRowHovered(view, glyph, 5, 20));
+        assertTrue(row.enabled());
+        assertFalse(row.activationEnabled());
+        assertTrue(ViewSpec.NavigationNode.control(row, 0, 0).activationActionId().isEmpty());
+        assertEquals("nclskins.inspection.source", row.label().key());
+    }
+
+    @Test
+    void savedProviderTexturePendingPixelsIsNotMisreportedAsNoValue() {
+        ViewSpec.IconDecoration pending = new ViewSpec.IconDecoration("providers.row.MINECRAFTCAPES.icon",
+                new Bounds(0, 0, 32, 32), GuiIcon.PROVIDER_CAPE_NO_VALUE,
+                "providers.row.MINECRAFTCAPES", 1, 1,
+                Optional.of(new ViewSpec.ProviderTexture("a".repeat(64), false, false, true)));
+        ViewSpec.IconDecoration absent = new ViewSpec.IconDecoration("providers.row.OFFLINE.icon",
+                new Bounds(0, 0, 32, 32), GuiIcon.PROVIDER_CAPE_NO_VALUE,
+                "providers.row.OFFLINE", 1, 1);
+        assertFalse(ViewHostPolicy.showMissingValueIcon(pending));
+        assertTrue(ViewHostPolicy.showMissingValueIcon(absent));
+    }
+
+    @Test
+    void capeSurfaceKeysStayStableForReplacementButNeverCrossAccounts() {
+        UUID firstAccount = UUID.randomUUID();
+        UUID secondAccount = UUID.randomUUID();
+        ViewSpec.Preview first = new ViewSpec.Preview("editor.player",
+                new Bounds(0, 0, 64, 96),
+                com.naocraftlab.skins.core.model.SkinReference.accountDefault(), "revision",
+                com.naocraftlab.skins.core.model.SkinVariant.CLASSIC, Optional.of("cape-a"),
+                com.naocraftlab.skins.client.PreviewRenderer.CapeMode.CAPE,
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                0.0F, 0.0F, 1.0F, Optional.empty());
+        ViewSpec.Preview replacement = new ViewSpec.Preview("editor.player",
+                new Bounds(0, 0, 64, 96),
+                com.naocraftlab.skins.core.model.SkinReference.accountDefault(), "revision",
+                com.naocraftlab.skins.core.model.SkinVariant.CLASSIC, Optional.of("cape-b"),
+                com.naocraftlab.skins.client.PreviewRenderer.CapeMode.CAPE,
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                0.0F, 0.0F, 1.0F, Optional.empty());
+        assertEquals(ViewHostPolicy.playerCapeKey(first, firstAccount),
+                ViewHostPolicy.playerCapeKey(replacement, firstAccount));
+        assertFalse(ViewHostPolicy.playerCapeKey(first, firstAccount).equals(
+                ViewHostPolicy.playerCapeKey(first, secondAccount)));
+
+        ViewSpec.IconDecoration row = new ViewSpec.IconDecoration("providers.row.MINECRAFTCAPES.icon",
+                new Bounds(0, 0, 32, 32), GuiIcon.APPEARANCE_CAPE_NONE,
+                "providers.row.MINECRAFTCAPES", 1, 1);
+        assertEquals("decoration:" + firstAccount + ":providers.row.MINECRAFTCAPES.icon",
+                ViewHostPolicy.decorationCapeKey(row, firstAccount));
+        assertFalse(ViewHostPolicy.decorationCapeKey(row, firstAccount).equals(
+                ViewHostPolicy.decorationCapeKey(row, secondAccount)));
+    }
+
+    @Test
+    void capeHoverUsesVisibleMouseClipAndNeverTabOrKeyboardFocus() {
+        ViewSpec.Widget card = new ViewSpec.Widget("card", ViewSpec.WidgetKind.CAPE_CARD,
+                new Bounds(0, 0, 40, 40), UiMessage.info("card"), Optional.empty(),
+                Optional.empty(), true, true, 0);
+        ViewSpec.Widget row = new ViewSpec.Widget("providers.row.ONE", ViewSpec.WidgetKind.SELECTABLE_CARD,
+                new Bounds(45, 0, 40, 40), UiMessage.info("row"), Optional.empty(),
+                Optional.empty(), true, true, 0);
+        ViewSpec.Widget tab = new ViewSpec.Widget("providers.tab.ONE", ViewSpec.WidgetKind.TAB_BUTTON,
+                new Bounds(45, 45, 40, 30), UiMessage.info("tab"), Optional.empty(),
+                Optional.empty(), true, true, 0);
+        ViewSpec view = view(List.of(card, row, tab), List.of(new ViewSpec.ClipRegion("cards",
+                new Bounds(10, 0, 65, 30), List.of(card.id(), row.id()))));
+        var preview = new ViewSpec.BackEquipmentPreview("card.preview", new Bounds(2, 2, 20, 20),
+                "cape", com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.CAPE);
+        var rowIcon = new ViewSpec.IconDecoration("row.icon", new Bounds(48, 2, 16, 16),
+                GuiIcon.APPEARANCE_CAPE_NONE, row.id(), 1, 1);
+        var tabIcon = new ViewSpec.IconDecoration("tab.icon", new Bounds(48, 48, 16, 16),
+                GuiIcon.APPEARANCE_CAPE_NONE, tab.id(), 1, 1);
+        assertTrue(ViewHostPolicy.capeCardHovered(view, preview, 15, 15));
+        assertFalse(ViewHostPolicy.capeCardHovered(view, preview, 5, 15));
+        assertFalse(ViewHostPolicy.capeCardHovered(view, preview, 15, 35));
+        assertTrue(ViewHostPolicy.providerCapeRowHovered(view, rowIcon, 60, 15));
+        assertFalse(ViewHostPolicy.providerCapeRowHovered(view, rowIcon, 80, 15));
+        assertFalse(ViewHostPolicy.providerCapeRowHovered(view, rowIcon, 60, 35));
+        assertFalse(ViewHostPolicy.providerCapeRowHovered(view, tabIcon, 60, 55));
+        assertFalse(ViewHostPolicy.providerCapeRowHovered(view, rowIcon, 95, 95));
+    }
     @Test
     void providerRowOwnershipIncludesEveryActionAndCapabilityWithoutSubstringCollisions() {
         for (String kind : List.of("row", "up", "down", "edit", "remove", "account")) {
@@ -106,6 +196,20 @@ final class ViewHostPolicyTest {
         assertTrue(ViewHostPolicy.passiveIndicatorTooltip(view, 15, 6, null).isEmpty());
         assertTrue(ViewHostPolicy.passiveIndicatorTooltip(view, 90, 90, null).isEmpty());
         assertTrue(ViewHostPolicy.passiveIndicatorTooltip(view, 90, 90, "missing").isEmpty());
+    }
+
+    @Test
+    void compatibilityBadgesStayOpaqueWithoutDimmingOtherPassiveIndicators() {
+        assertEquals(1.0F, ViewHostPolicy.passiveIndicatorOpacity(
+                GuiIcon.STATUS_COMPATIBILITY_EXTENDED, false));
+        assertEquals(1.0F, ViewHostPolicy.passiveIndicatorOpacity(
+                GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE, false));
+        assertEquals(1.0F, ViewHostPolicy.passiveIndicatorOpacity(
+                GuiIcon.STATUS_COMPATIBILITY_EXTENDED, true));
+        assertEquals(0.65F, ViewHostPolicy.passiveIndicatorOpacity(
+                GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE, false));
+        assertEquals(1.0F, ViewHostPolicy.passiveIndicatorOpacity(
+                GuiIcon.STATUS_PROVIDER_CAPABILITY_WRITE, true));
     }
 
     @Test

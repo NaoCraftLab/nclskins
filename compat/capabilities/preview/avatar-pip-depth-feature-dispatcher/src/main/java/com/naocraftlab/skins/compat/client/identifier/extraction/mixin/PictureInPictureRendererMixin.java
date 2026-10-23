@@ -5,6 +5,10 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.naocraftlab.skins.compat.client.identifier.extraction.NclSkinsDepthEnvelopeState;
 import com.naocraftlab.skins.client.PreviewDepthEnvelope;
+import com.naocraftlab.skins.client.PreviewModelFrames;
+import com.naocraftlab.skins.compat.client.identifier.extraction.AvatarPreviewContext;
+import com.naocraftlab.skins.compat.client.identifier.extraction.NclSkinsWideDepthState;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.renderer.Projection;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
@@ -27,12 +31,32 @@ abstract class PictureInPictureRendererMixin {
             PictureInPictureRenderState state, GuiRenderState guiRenderState,
             FeatureRenderDispatcher featureRenderDispatcher, int guiScale,
             Operation<Void> original) {
+        NclSkinsWideDepthState owned = state instanceof GuiEntityRenderState guiState
+                && guiState.renderState() instanceof NclSkinsWideDepthState previewState ? previewState : null;
+        AvatarPreviewContext context = owned == null ? null : owned.nclskins$previewContext();
+        if (context != null && !context.current()) return;
         float previous = NCLSKINS_DEPTH_EXTENT.get();
         NCLSKINS_DEPTH_EXTENT.set(nclskins$physicalDepthExtent(state, guiScale));
+        AvatarPreviewContext.Attempt attempt = null;
+        PreviewModelFrames.Body candidate = null;
+        boolean completed = false;
         try {
-            original.call(state, guiRenderState, featureRenderDispatcher, guiScale);
+            try (var scope = context == null ? null
+                    : context.begin(state, Minecraft.getInstance(), owned.nclskins$layerFailureSink())) {
+                attempt = scope;
+                original.call(state, guiRenderState, featureRenderDispatcher, guiScale);
+                if (scope != null) candidate = scope.body();
+            }
+            completed = true;
         } finally {
-            nclskins$restoreDepth(previous);
+            boolean restored = false;
+            try {
+                nclskins$restoreDepth(previous);
+                restored = true;
+            } finally {
+                if (attempt != null) attempt.displayed(completed && restored, candidate);
+                else if (context != null && !completed) context.failed();
+            }
         }
     }
 

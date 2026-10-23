@@ -136,3 +136,6 @@ dependencies {
 
 ext.nclskinsFancyCompileConfiguration = clientCompileOnlyConfiguration
 apply from: '../../../gradle/fancymenu-conventions.gradle'
+ext.nclskinsCpmCompileConfiguration = clientCompileOnlyConfiguration
+apply from: '../../../gradle/cpm-conventions.gradle'
+apply from: '../../../gradle/waveycapes-conventions.gradle'

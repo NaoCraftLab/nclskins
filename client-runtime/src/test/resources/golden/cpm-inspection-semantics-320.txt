@@ -1,0 +1,10 @@
+UNKNOWN/AVAILABLE|true|false|nclskins.inspection.unknown|-|168,65,144,142|false
+UNKNOWN/WORLD_REQUIRED|true|false|nclskins.inspection.world_required|-|168,65,144,142|false
+PENDING/AVAILABLE|true|false|nclskins.inspection.loading|-|168,65,144,142|false
+PENDING/WORLD_REQUIRED|true|false|nclskins.inspection.world_required|-|168,65,144,142|false
+FAILED/AVAILABLE|true|false|nclskins.inspection.failed|-|168,65,144,142|false
+FAILED/WORLD_REQUIRED|true|false|nclskins.inspection.world_required|-|168,65,144,142|false
+BLOCKED/AVAILABLE|true|false|nclskins.inspection.blocked|-|168,65,144,142|false
+BLOCKED/WORLD_REQUIRED|true|false|nclskins.inspection.world_required|-|168,65,144,142|false
+CONFIRMED/AVAILABLE|true|true|-|providers.row.CPM|168,65,144,142|true
+CONFIRMED/WORLD_REQUIRED|true|false|nclskins.inspection.world_required|-|168,65,144,142|false

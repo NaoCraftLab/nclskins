@@ -11,6 +11,27 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class CompatibilityMessagesTest {
+    @Test
+    void onlyCpmExpressiveReasonsCollapseAtTheirFirstPosition() {
+        for (SkinConflictReason first : List.of(SkinConflictReason.CPM_FRESH_MOVES_OVERLAP,
+                SkinConflictReason.CPM_JUST_EXPRESSIONS_OVERLAP)) {
+            SkinConflictReason second = first == SkinConflictReason.CPM_FRESH_MOVES_OVERLAP
+                    ? SkinConflictReason.CPM_JUST_EXPRESSIONS_OVERLAP : SkinConflictReason.CPM_FRESH_MOVES_OVERLAP;
+            var single = CompatibilityMessages.accessibleLabel(new SkinCompatibility(SkinCompatibilityStatus.INCOMPATIBLE,
+                    List.of(SkinFeature.CUSTOMIZABLE_PLAYER_MODELS), List.of(first)));
+            var combined = CompatibilityMessages.accessibleLabel(new SkinCompatibility(SkinCompatibilityStatus.INCOMPATIBLE,
+                    List.of(SkinFeature.CUSTOMIZABLE_PLAYER_MODELS), List.of(first, second)));
+            assertEquals(single, combined);
+            var mixed = CompatibilityMessages.accessibleLabel(new SkinCompatibility(SkinCompatibilityStatus.INCOMPATIBLE,
+                    List.of(), List.of(SkinConflictReason.MALFORMED_EARS_DATA, first,
+                            SkinConflictReason.SNEAKY_JUST_EXPRESSIONS_OVERLAP, second)));
+            assertEquals(3, mixed.arguments().size());
+            assertEquals(UiMessage.info("nclskins.compatibility.reason.malformed_ears_data"), mixed.arguments().get(0));
+            assertEquals(single.arguments().get(0), mixed.arguments().get(1));
+            assertEquals(UiMessage.info("nclskins.compatibility.reason.sneaky_just_expressions_overlap"), mixed.arguments().get(2));
+        }
+    }
+
     @Test void statusesUseSharedFunctionalIcons() {
         for (boolean incompatible : new boolean[]{false, true}) {
             var compatibility = new SkinCompatibility(

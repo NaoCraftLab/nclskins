@@ -34,6 +34,10 @@ public final class NativePlayerSkinLifecycle {
                 : Optional.of(registration.state);
     }
 
+    public static Optional<Registration> registration(String location) {
+        return Optional.ofNullable(CURRENT.get(requireLocation(location)));
+    }
+
     public enum State {
         PENDING,
         READY,

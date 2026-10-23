@@ -43,6 +43,29 @@ class PngValidatorTest {
     }
 
     @Test
+    void pureByteCodecsDoNotRequireImageIoDiskCache(@TempDir Path directory) throws Exception {
+        byte[] legacy = TestPng.create(64, 32);
+        byte[] modern = TestPng.create(64, 64);
+        java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+        assertTrue(ImageIO.write(new BufferedImage(64, 32, BufferedImage.TYPE_INT_RGB), "jpeg", jpeg));
+        java.io.File previousDirectory = ImageIO.getCacheDirectory();
+        boolean previousUseCache = ImageIO.getUseCache();
+        Path missingCache = Files.createDirectory(directory.resolve("unavailable-cache"));
+        ImageIO.setCacheDirectory(missingCache.toFile());
+        ImageIO.setUseCache(true);
+        Files.delete(missingCache);
+        try {
+            assertEquals(new PngInfo(64, 64), validator.validate(validator.normalizeSkin(legacy)));
+            assertArrayEquals(modern, validator.projectImport(modern).pngBytes());
+            assertEquals(new PngInfo(64, 32), validator.validate(JpegCapeDecoder.toPng(jpeg.toByteArray(), validator.maxBytes())));
+            assertTrue(new SneakyCapeDecoder().decode(modern).isEmpty());
+        } finally {
+            ImageIO.setCacheDirectory(previousDirectory);
+            ImageIO.setUseCache(previousUseCache);
+        }
+    }
+
+    @Test
     void fileImportRequiresStandardDimensionsWhileOtherImportsKeepHdSupport(@TempDir Path directory) throws Exception {
         for (int height : new int[]{32, 64}) {
             Path path = Files.write(directory.resolve("valid.png"), TestPng.create(64, height));
@@ -89,15 +112,147 @@ class PngValidatorTest {
 
     @Test
     void encodedTextureLimitIsInclusiveAndCheckedBeforeDecode() {
-        assertEquals(68_157_440, EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
-        byte[] exact = new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES];
+        assertEquals(1_140_850_688, EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
+        PngValidator boundary = new PngValidator(128);
+        byte[] exact = new byte[128];
         assertEquals(PngValidationException.Reason.BAD_SIGNATURE,
                 assertThrows(PngValidationException.class,
-                        () -> validator.projectImport(exact)).reason());
+                        () -> boundary.projectImport(exact)).reason());
         byte[] over = Arrays.copyOf(exact, exact.length + 1);
         assertEquals(PngValidationException.Reason.OVERSIZED,
                 assertThrows(PngValidationException.class,
-                        () -> validator.projectImport(over)).reason());
+                        () -> boundary.projectImport(over)).reason());
+    }
+
+    @Test
+    void pathAndStreamProjectionPreserveCanonicalSkinBytesAndHash(@TempDir Path directory) throws Exception {
+        byte[] source = insertBeforeIend(TestPng.create(64, 64), "tEXt",
+                "Label\0synthetic".getBytes(StandardCharsets.US_ASCII));
+        Path path = Files.write(directory.resolve("skin.png"), source);
+        assertArrayEquals(source, new PngFileReader(validator).projectImport(path).pngBytes());
+        assertArrayEquals(source, new PngFileReader(validator).projectImport(new ByteArrayInputStream(source)).pngBytes());
+        assertEquals(validator.renderSha256(source), new PngFileReader(validator).renderSha256(path));
+        assertEquals(validator.rawSkinPixelSha256(source), new PngFileReader(validator).rawSkinPixelSha256(path));
+    }
+
+    @Test
+    void boundedStreamCountsActualBytesAndDoesNotTrustAvailable() throws Exception {
+        byte[] source = TestPng.create(64, 64);
+        PngValidator exact = new PngValidator(source.length);
+        assertEquals(new PngInfo(64, 64), new PngFileReader(exact).validate(new ByteArrayInputStream(source) {
+            @Override public int available() { return 0; }
+        }));
+        byte[] over = Arrays.copyOf(source, source.length + 1);
+        assertEquals(PngValidationException.Reason.OVERSIZED,
+                assertThrows(PngValidationException.class, () -> new PngFileReader(exact).validate(new ByteArrayInputStream(over))).reason());
+    }
+
+    @Test
+    void metadataAndTrailingCompressedBytesStayStructurallyBounded(@TempDir Path directory) throws Exception {
+        byte[] source = TestPng.create(64, 64);
+        Path metadata = Files.write(directory.resolve("metadata.png"),
+                insertBeforeIend(source, "tEXt", new byte[1024 * 1024 + 1]));
+        assertEquals(PngValidationException.Reason.MALFORMED_CHUNK,
+                assertThrows(PngValidationException.class, () -> new PngFileReader(validator).validate(metadata)).reason());
+        byte[] corrupt = source.clone();
+        corrupt[corrupt.length - 5] ^= 1;
+        Path checksum = Files.write(directory.resolve("checksum.png"), corrupt);
+        assertEquals(PngValidationException.Reason.BAD_CHECKSUM,
+                assertThrows(PngValidationException.class, () -> new PngFileReader(validator).validate(checksum)).reason());
+    }
+
+    @Test
+    void streamProjectionUsesTheOpenedFileWhenItsNameIsReplaced(@TempDir Path directory) throws Exception {
+        byte[] original = TestPng.create(64, 64);
+        Path source = Files.write(directory.resolve("source.png"), original);
+        Path replacement = Files.write(directory.resolve("replacement.png"), TestPng.create(32, 32));
+        try (var input = new java.io.FilterInputStream(Files.newInputStream(source)) {
+            private boolean replaced;
+            @Override public int read(byte[] bytes, int offset, int length) throws java.io.IOException {
+                int count = super.read(bytes, offset, Math.min(length, 16));
+                if (!replaced) {
+                    Files.move(replacement, source, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    replaced = true;
+                }
+                return count;
+            }
+        }) {
+            assertArrayEquals(original, new PngFileReader(validator).projectImport(input).pngBytes());
+        }
+        assertEquals(PngValidationException.Reason.UNSUPPORTED_DIMENSIONS,
+                assertThrows(PngValidationException.class, () -> new PngFileReader(validator).projectImport(source)).reason());
+    }
+
+    @Test
+    void largeEncodedSkinProjectsWithoutRetainingTheEncodedBody(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("large.png");
+        byte[] raw = new byte[64 * (1 + 64 * 4)];
+        byte[] emptyBlocks = new byte[8190];
+        for (int offset = 0; offset < emptyBlocks.length; offset += 5) {
+            emptyBlocks[offset + 3] = (byte) 255;
+            emptyBlocks[offset + 4] = (byte) 255;
+        }
+        int blocks = 14_000_000;
+        int idatLength = 2 + blocks * 5 + 5 + raw.length + 4;
+        var adler = new java.util.zip.Adler32(); adler.update(raw);
+        try (var output = new java.io.DataOutputStream(new java.io.BufferedOutputStream(Files.newOutputStream(path)))) {
+            output.write(new byte[]{(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
+            output.write(chunk("IHDR", ByteBuffer.allocate(13).putInt(64).putInt(64)
+                    .put((byte) 8).put((byte) 6).put((byte) 0).put((byte) 0).put((byte) 0).array()));
+            output.writeInt(idatLength);
+            byte[] type = "IDAT".getBytes(StandardCharsets.US_ASCII);
+            output.write(type);
+            CRC32 crc = new CRC32(); crc.update(type);
+            byte[] zlibHeader = {(byte) 0x78, 1}; output.write(zlibHeader); crc.update(zlibHeader);
+            int remaining = blocks * 5;
+            while (remaining > 0) {
+                int count = Math.min(remaining, emptyBlocks.length);
+                output.write(emptyBlocks, 0, count); crc.update(emptyBlocks, 0, count); remaining -= count;
+            }
+            byte[] finalHeader = {1, (byte) raw.length, (byte) (raw.length >>> 8),
+                    (byte) ~raw.length, (byte) (~raw.length >>> 8)};
+            output.write(finalHeader); crc.update(finalHeader);
+            output.write(raw); crc.update(raw);
+            byte[] checksum = ByteBuffer.allocate(4).putInt((int) adler.getValue()).array();
+            output.write(checksum); crc.update(checksum);
+            output.writeInt((int) crc.getValue());
+            output.write(chunk("IEND", new byte[0]));
+        }
+        assertTrue(Files.size(path) > 65 * 1024 * 1024);
+        NormalizedSkin skin = new PngFileReader(validator).projectImport(path);
+        assertTrue(skin.pngBytes().length < 1024);
+        assertEquals(validator.renderSha256(encode(new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB))),
+                validator.renderSha256(skin.pngBytes()));
+    }
+
+    @Test
+    void actualUncompressedRgba16Adam7MaximumEncoderFitsTheSharedEnvelope() throws Exception {
+        int[] xStart = {0, 4, 0, 2, 0, 1, 0};
+        int[] yStart = {0, 0, 4, 0, 2, 0, 1};
+        int[] xStep = {8, 8, 4, 4, 2, 2, 1};
+        int[] yStep = {8, 8, 8, 4, 4, 2, 2};
+        class CountingOutput extends java.io.OutputStream {
+            private long bytes;
+            @Override public void write(int value) { bytes++; }
+            @Override public void write(byte[] bytes, int offset, int length) { this.bytes += length; }
+        }
+        CountingOutput output = new CountingOutput();
+        var compressor = new java.util.zip.Deflater(java.util.zip.Deflater.NO_COMPRESSION);
+        long filteredBytes = 0;
+        try (DeflaterOutputStream encoded = new DeflaterOutputStream(output, compressor, 8192)) {
+            for (int pass = 0; pass < 7; pass++) {
+                int width = (2048 - xStart[pass] + xStep[pass] - 1) / xStep[pass];
+                int height = (65_536 - yStart[pass] + yStep[pass] - 1) / yStep[pass];
+                byte[] row = new byte[1 + width * 8];
+                for (int y = 0; y < height; y++) { encoded.write(row); filteredBytes += row.length; }
+            }
+        } finally { compressor.end(); }
+        assertEquals(1_073_864_704L, filteredBytes);
+        assertTrue(output.bytes >= filteredBytes);
+        long largestPermittedContainer = 8 + 25 + 12 + (4096 - 2L) * 12;
+        assertTrue(output.bytes + largestPermittedContainer
+                < EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES);
     }
 
     @Test

@@ -9,11 +9,183 @@ import com.naocraftlab.skins.core.provider.ProviderCape;
 import com.naocraftlab.skins.core.provider.ProviderSkin;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProvidersPresenterTest {
+    @Test void refreshLabelAndHintFollowSelectionAndCooldownForBothComponents() {
+        for (var component : AppearanceProviders.Component.values()) {
+            var providers = AppearanceProviders.initial();
+            var all = refreshWidget(providers, component, null, false, java.util.Optional.empty(), Map.of());
+            assertEquals("nclskins.providers.refresh_all", all.label().key());
+            assertTrue(all.enabled());
+            var selected = refreshWidget(providers, component, BuiltinProvider.MINECRAFT, false,
+                    java.util.Optional.of(new ClientSnapshot.RateLimitProgress(Duration.ofSeconds(2), Duration.ofSeconds(2), 1)), Map.of());
+            assertEquals("nclskins.providers.refresh", selected.label().key());
+            assertEquals("nclskins.providers.refresh_rate_limited", selected.hint().orElseThrow().key());
+            assertFalse(selected.enabled());
+            var busy = refreshWidget(providers, component, BuiltinProvider.MINECRAFT, true, java.util.Optional.empty(), Map.of());
+            assertFalse(busy.enabled());
+            assertEquals("nclskins.providers.refresh", busy.hint().orElseThrow().key());
+            var mixed = refreshWidget(providers, component, null, false,
+                    java.util.Optional.of(new ClientSnapshot.RateLimitProgress(Duration.ofSeconds(2), Duration.ofSeconds(2), 1)), Map.of());
+            assertTrue(mixed.enabled());
+            var onlyMinecraft = providers.disable(component, BuiltinProvider.OFFLINE);
+            var limitedAll = refreshWidget(onlyMinecraft, component, null, false,
+                    java.util.Optional.of(new ClientSnapshot.RateLimitProgress(Duration.ofSeconds(2), Duration.ofSeconds(2), 1)), Map.of());
+            assertFalse(limitedAll.enabled());
+            assertEquals("nclskins.providers.refresh_all", limitedAll.label().key());
+            assertEquals("nclskins.providers.refresh_rate_limited", limitedAll.hint().orElseThrow().key());
+            assertTrue(refreshWidget(onlyMinecraft.disable(component, BuiltinProvider.MINECRAFT), component,
+                    null, false, java.util.Optional.empty(), Map.of()).enabled());
+        }
+    }
+
+    private ViewSpec.Widget refreshWidget(AppearanceProviders providers, AppearanceProviders.Component component,
+            BuiltinProvider selected, boolean busy, java.util.Optional<ClientSnapshot.RateLimitProgress> cooldown,
+            Map<BuiltinProvider, Duration> capeCooldowns) {
+        return new ProvidersPresenter().present(providers, component, false, busy,
+                PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                320, 240, component == AppearanceProviders.Component.SKIN ? selected : null,
+                component == AppearanceProviders.Component.CAPE ? selected : null, cooldown,
+                false, null, 0, UiMessage::key, capeCooldowns).widget("providers.refresh").orElseThrow();
+    }
+
+    @Test void confirmedOrdinaryLayerControlsRespectWritableAvailabilityOnBothTabs() {
+        var empty = AppearanceProviders.initial();
+        for (var component : AppearanceProviders.Component.values()) for (var provider : BuiltinProvider.values()) {
+            empty = empty.disable(component, provider);
+        }
+        var configurations = java.util.List.of(empty,
+                empty.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE),
+                empty.enable(AppearanceProviders.Component.SKIN, BuiltinProvider.OFFLINE),
+                empty.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE),
+                empty.enable(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT)
+                        .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT),
+                AppearanceProviders.initial());
+        for (var providers : configurations) for (var component : AppearanceProviders.Component.values()) {
+            for (boolean busy : java.util.List.of(false, true)) {
+                var view = new ProvidersPresenter().present(providers, component, false, busy,
+                        PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC,
+                        320, 240, null, null,
+                        java.util.Optional.of(new ClientSnapshot.RateLimitProgress(Duration.ofSeconds(5), Duration.ofSeconds(10), .5)),
+                        false, null, 0, UiMessage::key, Map.of(BuiltinProvider.OPTIFINE, Duration.ofSeconds(10)), true, false, false, true);
+                for (String group : java.util.List.of("head", "body", "legs")) {
+                    var widget = view.widget("providers.outer_layer." + group);
+                    assertEquals(!providers.galleryAvailable(), widget.isPresent());
+                    if (widget.isPresent()) assertEquals(!busy, widget.orElseThrow().enabled());
+                    assertEquals(!providers.galleryAvailable(), view.navigationNodes().stream()
+                            .anyMatch(node -> node.id().equals("providers.outer_layer." + group)));
+                }
+            }
+            var chooser = new ProvidersPresenter().present(providers, component, true, false,
+                    PreviewInteractionModel.editor(240, PreviewRenderer.CapeMode.CAPE), SkinVariant.CLASSIC, 320, 240);
+            assertTrue(chooser.widgets().stream().noneMatch(widget -> widget.id().startsWith("providers.outer_layer.")));
+        }
+    }
+
+    @Test void restrictedProviderLayersMatchEditorForEveryMaskAndSize() {
+        var restricted = AppearanceProviders.initial().disable(AppearanceProviders.Component.SKIN, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT);
+        for (int bits = 0; bits < 64; bits++) {
+            var mask = OuterLayerVisibility.noneVisible();
+            for (var part : com.naocraftlab.skins.client.OuterLayerPart.values()) {
+                mask = mask.with(part, (bits & (1 << part.ordinal())) != 0);
+            }
+            for (int[] size : java.util.List.of(new int[]{200, 100}, new int[]{320, 240}, new int[]{854, 480})) {
+                var transform = PreviewInteractionModel.editor(size[1], PreviewRenderer.CapeMode.ELYTRA).withOuterLayerVisibility(mask);
+                var editor = PresetEditorModel.open(TestFixtures.account(0), java.util.Optional.empty(), java.util.Optional.empty(),
+                        java.util.Optional.empty(), UiMessage::key, size[1], PreviewRenderer.CapeMode.ELYTRA).withPreview(transform);
+                var expected = editor.present(size[0], size[1], 0, 0, ViewChromeMetrics.STANDARD, true);
+                for (var component : AppearanceProviders.Component.values()) {
+                    var view = new ProvidersPresenter().present(restricted, component, false, false, transform,
+                            SkinVariant.CLASSIC, size[0], size[1], null, null, java.util.Optional.empty(), false, null, 0,
+                            UiMessage::key, Map.of(), true, false, false, true);
+                    for (String group : java.util.List.of("head", "body", "legs")) {
+                        var control = view.widget("providers.outer_layer." + group).orElseThrow();
+                        var reference = expected.widget("editor.outer_layer." + group).orElseThrow();
+                        assertEquals(reference.bounds(), control.bounds());
+                        assertEquals(reference.label(), control.label());
+                        assertEquals(reference.icon(), control.icon());
+                        assertEquals(reference.kind(), control.kind());
+                        assertEquals(reference.hint(), control.hint());
+                    }
+                    assertEquals(mask, view.previews().get(0).outerLayerVisibility());
+                }
+            }
+        }
+    }
+
+    @Test void equalCapePixelsSuppressThumbnailGlintWithoutMutatingProviderMaterial() {
+        String key = "c".repeat(64);
+        var local = new ProviderCape("local:cape", key, true, false);
+        var remote = new ProviderCape("minecraftcapes:cape", key, true, true);
+        var selected = AppearanceProviders.initial().select(1L, null, local, null);
+        var providers = new AppearanceProviders(selected.skin(), selected.cape()
+                .enable(BuiltinProvider.MINECRAFTCAPES).observeMinecraftcapes(remote));
+        var view = new ProvidersPresenter().present(providers, AppearanceProviders.Component.CAPE,
+                false, false, PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 854, 480, null, BuiltinProvider.MINECRAFTCAPES);
+        var scrolled = new ProvidersPresenter().present(providers, AppearanceProviders.Component.CAPE,
+                false, false, PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 854, 480, null, BuiltinProvider.MINECRAFTCAPES,
+                java.util.Optional.empty(), false, null, 999, UiMessage::key, Map.of());
+        var offline = view.iconDecorations().stream().filter(icon ->
+                icon.id().contains("OFFLINE") && icon.providerTexture().isPresent())
+                .findFirst().orElseThrow().providerTexture().orElseThrow();
+        var minecraftCapes = scrolled.iconDecorations().stream().filter(icon ->
+                icon.id().contains("MINECRAFTCAPES") && icon.providerTexture().isPresent())
+                .findFirst().orElseThrow().providerTexture().orElseThrow();
+        assertEquals(offline.cacheKey(), minecraftCapes.cacheKey());
+        assertFalse(offline.capeGlint());
+        assertFalse(minecraftCapes.capeGlint());
+        assertTrue(view.iconDecorations().stream().filter(icon -> icon.providerTexture().isPresent())
+                .allMatch(icon -> !icon.providerTexture().orElseThrow().capeGlint()));
+        assertTrue(scrolled.iconDecorations().stream().filter(icon -> icon.providerTexture().isPresent())
+                .allMatch(icon -> !icon.providerTexture().orElseThrow().capeGlint()));
+        assertEquals("provider:cape:" + key, view.previews().get(0).capeId().orElseThrow());
+        assertTrue(providers.cape().minecraftcapes().value().capeGlint());
+    }
+
+    @Test void feedbackAndResizeRetainLiteralProviderViewportAndPointerBoundaries() {
+        var presenter = new ProvidersPresenter();
+        for (var component : AppearanceProviders.Component.values()) {
+            for (int width : new int[]{200, 854}) {
+                for (int height : new int[]{150, 191}) {
+                    for (boolean feedback : new boolean[]{false, true}) {
+                        var view = presenter.present(AppearanceProviders.initial(), component, false, false,
+                                PreviewInteractionModel.editor(height, PreviewRenderer.CapeMode.CAPE),
+                                SkinVariant.CLASSIC, width, height, BuiltinProvider.OFFLINE, BuiltinProvider.OFFLINE,
+                                java.util.Optional.empty(), false,
+                                feedback ? UiMessage.literal("x", UiMessage.Severity.INFO) : null,
+                                10, UiMessage::key);
+                        int left = width == 200 ? 108 : 435;
+                        int rowWidth = width == 200 ? 84 : 411;
+                        int bottom = height - (feedback && component == AppearanceProviders.Component.CAPE ? 53 : 33);
+                        assertEquals(new Bounds(left, 65, rowWidth, bottom - 65),
+                                view.scrollSurface("providers.rows").orElseThrow().viewport());
+                        assertEquals(new Bounds(0, height - 33, width, 33), view.panels().stream()
+                                .filter(panel -> panel.id().equals("footer")).findFirst().orElseThrow().bounds());
+                        for (var widget : view.widgets()) {
+                            if (!ViewHostPolicy.belongsToProviderRow(widget.id(), "OFFLINE")) continue;
+                            assertEquals(new Bounds(left, 65, rowWidth, bottom - 65), view.clipFor(widget.id()).orElseThrow());
+                            assertFalse(ViewHostPolicy.pointerInsideClip(view, widget.id(), left + 2, 64));
+                            assertFalse(ViewHostPolicy.pointerInsideClip(view, widget.id(), left + 2, bottom));
+                            assertTrue(ViewHostPolicy.pointerInsideClip(view, widget.id(), left + 2, 65));
+                        }
+                        assertTrue(CatalogCardStyle.selectionSelected(view.widget("providers.row.OFFLINE").orElseThrow()));
+                        assertFalse(view.widget("providers.up.OFFLINE").orElseThrow().enabled());
+                        assertTrue(view.widget("providers.down.OFFLINE").orElseThrow().enabled());
+                    }
+                }
+            }
+        }
+    }
+
     @Test void providerRowsKeepExistingInputAndFooterBehaviorAtShortHeight() {
         var providers = AppearanceProviders.initial();
         var view = new ProvidersPresenter().present(providers, AppearanceProviders.Component.SKIN,
@@ -218,6 +390,48 @@ final class ProvidersPresenterTest {
                 SkinVariant.CLASSIC, 854, 480).widget("providers.row.SKINMC").isEmpty());
     }
 
+    @Test void minecraftCapesUsesCapeChooserAccountCooldownAndOwnInspection() {
+        var initial = AppearanceProviders.initial().enable(
+                AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFTCAPES);
+        String key = "c".repeat(64);
+        var providers = new AppearanceProviders(initial.skin(), initial.cape().observeMinecraftcapes(
+                new ProviderCape("minecraftcapes:fixture", key, false)));
+        var presenter = new ProvidersPresenter();
+        var skinChooser = presenter.presentChooser(providers, AppearanceProviders.Component.SKIN,
+                false, 200, 100, 0);
+        assertTrue(skinChooser.widget("providers.row.MINECRAFTCAPES").isEmpty());
+        var capeChooser = presenter.presentChooser(providers, AppearanceProviders.Component.CAPE,
+                false, 200, 100, 0);
+        assertFalse(capeChooser.widget("providers.row.MINECRAFTCAPES").orElseThrow().enabled());
+
+        var view = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
+                PreviewInteractionModel.editor(191, PreviewRenderer.CapeMode.CAPE),
+                SkinVariant.CLASSIC, 200, 191, null, BuiltinProvider.MINECRAFTCAPES,
+                java.util.Optional.empty(), false, null, 0, UiMessage::key,
+                Map.of(BuiltinProvider.MINECRAFTCAPES, Duration.ofSeconds(61)));
+        var row = view.widget("providers.row.MINECRAFTCAPES").orElseThrow();
+        assertEquals("nclskins.providers.minecraftcapes", row.label().key());
+        assertEquals("provider:cape:" + key, view.previews().get(0).capeId().orElseThrow());
+        assertEquals("nclskins.providers.open_account", view.widget("providers.account.MINECRAFTCAPES")
+                .orElseThrow().label().key());
+        assertTrue(view.widget("providers.edit.MINECRAFTCAPES").isEmpty());
+        assertEquals("nclskins.providers.capability.distribution.cape.description",
+                view.widget("providers.capability.MINECRAFTCAPES.distribution")
+                        .orElseThrow().hint().orElseThrow().key());
+        assertEquals("nclskins.providers.cooldown", view.texts().stream()
+                .filter(text -> text.id().equals("providers.row.MINECRAFTCAPES.cooldown"))
+                .findFirst().orElseThrow().message().key());
+        assertEquals("providers.capability.MINECRAFTCAPES.hd", ViewNavigationPolicy.target(view,
+                "providers.capability.MINECRAFTCAPES.distribution",
+                ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
+        assertEquals(GuiIcon.STATUS_PROVIDER_CAPABILITY_HD,
+                view.widget("providers.capability.MINECRAFTCAPES.hd").orElseThrow().icon().orElseThrow());
+        assertEquals(GuiIcon.STATUS_PROVIDER_CAPABILITY_ANIMATION,
+                view.widget("providers.capability.MINECRAFTCAPES.animation").orElseThrow().icon().orElseThrow());
+        assertTrue(view.widget("providers.capability.MINECRAFTCAPES.animation").orElseThrow()
+                .bounds().right() <= row.bounds().right());
+    }
+
     @Test void narrowWrappedFeedbackReservesRowsViewportAndRowsScroll() {
         var providers = AppearanceProviders.initial()
                 .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE);
@@ -333,11 +547,26 @@ final class ProvidersPresenterTest {
         var cape = presenter.present(providers, AppearanceProviders.Component.CAPE, false, false,
                 transform, SkinVariant.CLASSIC, 854, 480);
         assertEquals(java.util.List.of("providers.capability.OFFLINE.write",
+                        "providers.capability.OFFLINE.hd", "providers.capability.OFFLINE.animation",
                         "providers.capability.MINECRAFT.limited_write", "providers.capability.MINECRAFT.distribution",
                         "providers.capability.OPTIFINE.distribution", "providers.capability.SKINMC.distribution",
                         "providers.capability.SNEAKY.distribution"), capabilityIds(cape));
         var first = cape.widget("providers.capability.MINECRAFT.limited_write").orElseThrow();
         var second = cape.widget("providers.capability.MINECRAFT.distribution").orElseThrow();
+        var offlineHd = cape.widget("providers.capability.OFFLINE.hd").orElseThrow();
+        var offlineAnimation = cape.widget("providers.capability.OFFLINE.animation").orElseThrow();
+        assertEquals(GuiIcon.STATUS_PROVIDER_CAPABILITY_HD, offlineHd.icon().orElseThrow());
+        assertEquals(GuiIcon.STATUS_PROVIDER_CAPABILITY_ANIMATION,
+                offlineAnimation.icon().orElseThrow());
+        assertEquals("nclskins.providers.capability.hd.title",
+                offlineHd.hint().orElseThrow().key());
+        assertEquals("nclskins.providers.capability.animation.title",
+                offlineAnimation.hint().orElseThrow().key());
+        assertEquals("providers.capability.OFFLINE.hd", ViewNavigationPolicy.target(cape,
+                "providers.capability.OFFLINE.write", ViewSpec.NavigationCommand.RIGHT)
+                .orElseThrow().id());
+        assertTrue(offlineAnimation.bounds().right()
+                <= cape.widget("providers.row.OFFLINE").orElseThrow().bounds().right());
         var row = cape.widget("providers.row.MINECRAFT").orElseThrow();
         assertEquals(row.bounds().x() + 38, first.bounds().x());
         assertEquals(row.bounds().y() + 14, first.bounds().y());

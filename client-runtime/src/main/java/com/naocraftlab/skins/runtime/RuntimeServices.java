@@ -14,5 +14,8 @@ public interface RuntimeServices {
             Consumer<Runnable> client, AccountReconciliation.Completion completion, Runnable idle,
             BiConsumer<DiagnosticEvent, Throwable> diagnose);
     ServerAppearanceReadiness readiness(ServerAppearanceRefreshNotifier notifier);
+    ProviderRefreshUseCases providerRefresh(ClientOperations operations, Executor worker, Consumer<Runnable> client,
+            java.util.function.Supplier<com.naocraftlab.skins.core.provider.AppearanceProviders> current,
+            java.util.Optional<ServerAppearanceReadiness> readiness);
     <C> ClientProcess<C> process(ClientProcess.Process process);
 }

@@ -667,7 +667,7 @@ public record ViewSpec(
                     tabOrder,
                     widget.enabled() && widget.visible(),
                     NavigationPattern.NONE,
-                    activation);
+                    widget.activationEnabled() ? activation : Optional.empty());
         }
 
         public static NavigationNode card(
@@ -770,12 +770,17 @@ public record ViewSpec(
     }
 
 
-    public record ProviderTexture(String cacheKey, boolean skin, boolean overlay) {
+    public record ProviderTexture(String cacheKey, boolean skin, boolean overlay, boolean capeGlint) {
+        public ProviderTexture(String cacheKey, boolean skin, boolean overlay) {
+            this(cacheKey, skin, overlay, false);
+        }
+
         public ProviderTexture {
             Objects.requireNonNull(cacheKey, "cacheKey");
             if (!cacheKey.matches("[0-9a-f]{64}")) {
                 throw new IllegalArgumentException("Invalid provider texture key");
             }
+            if (skin && capeGlint) throw new IllegalArgumentException("Skin cannot carry cape glint");
         }
 
         public String requestKey() {
@@ -827,7 +832,21 @@ public record ViewSpec(
             int maxLength,
             boolean selectAllOnFocusAcquire,
             Optional<String> submitActionId,
-            Optional<WidgetIcon> icon) {
+            Optional<WidgetIcon> icon, boolean activationEnabled) {
+        public Widget(String id, WidgetKind kind, Bounds bounds, UiMessage label,
+                Optional<String> value, Optional<UiMessage> hint, boolean enabled, boolean visible,
+                int maxLength, boolean selectAllOnFocusAcquire, Optional<String> submitActionId,
+                Optional<WidgetIcon> icon) {
+            this(id, kind, bounds, label, value, hint, enabled, visible, maxLength,
+                    selectAllOnFocusAcquire, submitActionId, icon, enabled);
+        }
+
+        public Widget withActivation(boolean allowed, UiMessage reason) {
+            return new Widget(id, kind, bounds, reason == null ? label
+                    : UiMessage.info("nclskins.inspection.source", label, reason), value, Optional.ofNullable(reason), enabled,
+                    visible, maxLength, selectAllOnFocusAcquire, submitActionId, icon, enabled && allowed);
+        }
+
         public Widget(
                 String id,
                 WidgetKind kind,
@@ -1131,7 +1150,40 @@ public record ViewSpec(
             Optional<UUID> presetId,
             Optional<CatalogImage> catalogImage,
             Optional<ExternalImage> externalImage,
-            PreviewRenderer.PreviewIntent intent, boolean capeHasElytra) {
+            PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories, boolean ownedPng) {
+        public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
+                SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
+                Optional<UUID> presetId, Optional<CatalogImage> catalogImage, Optional<ExternalImage> externalImage,
+                PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories) {
+            this(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode, visibility,
+                    yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent,
+                    capeHasElytra, nativeAccessories, false);
+        }
+
+        public Preview withOwnedPng(boolean value) {
+            return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
+                    intent, capeHasElytra, nativeAccessories, value);
+        }
+        public Preview withAnchorBounds(Bounds anchor) {
+            return new Preview(id, bounds, anchor, skin, imageRevision, variant, capeId, capeMode,
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
+                    intent, capeHasElytra, nativeAccessories, ownedPng);
+        }
+        public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
+                SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
+                Optional<UUID> presetId, Optional<CatalogImage> catalogImage, Optional<ExternalImage> externalImage,
+                PreviewRenderer.PreviewIntent intent, boolean capeHasElytra) {
+            this(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode, visibility,
+                    yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, capeHasElytra, false);
+        }
+        public Preview withNativeAccessories(boolean value, PreviewRenderer.CapeMode mode) {
+            return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant,
+                    value ? Optional.empty() : capeId, mode, outerLayerVisibility, yawDegrees, pitchDegrees,
+                    scale, presetId, catalogImage, externalImage, intent, capeHasElytra, value, ownedPng);
+        }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
                 OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
@@ -1142,7 +1194,7 @@ public record ViewSpec(
         }
         public Preview withCapeElytra(boolean value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
-                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value);
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value, nativeAccessories, ownedPng);
         }
         public Preview(
                 String id,
@@ -1319,7 +1371,7 @@ public record ViewSpec(
             if (!Float.isFinite(scale) || scale <= 0.0F) {
                 throw new IllegalArgumentException("preview scale must be finite and positive");
             }
-            if (capeId.isEmpty() && capeMode != PreviewRenderer.CapeMode.OFF) {
+            if (capeId.isEmpty() && !nativeAccessories && capeMode != PreviewRenderer.CapeMode.OFF) {
                 throw new IllegalArgumentException("cape preview mode requires a cape");
             }
             if (catalogImage.isPresent() && skin.optionalAssetId().isPresent()) {
@@ -1333,7 +1385,7 @@ public record ViewSpec(
         }
 
         public boolean requiresLoadedSkin() {
-            return skin.optionalAssetId().isPresent()
+            return ownedPng || skin.optionalAssetId().isPresent()
                     || catalogImage.isPresent()
                     || externalImage.isPresent();
         }

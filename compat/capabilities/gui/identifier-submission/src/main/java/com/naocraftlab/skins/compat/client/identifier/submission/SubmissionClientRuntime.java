@@ -84,7 +84,7 @@ final class SubmissionClientRuntime {
                 && minecraft.player != null
                 && minecraft.getConnection().getPlayerInfo(minecraft.player.getUUID()) != null;
         currentProvision.maintain(playerReady);
-        current.tick(connection, playerReady);
+        current.tick(connection, minecraft.level, playerReady);
     }
 
     static synchronized void resourcesReloaded() {

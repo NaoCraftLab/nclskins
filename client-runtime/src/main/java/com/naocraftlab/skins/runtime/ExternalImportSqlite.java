@@ -3,7 +3,7 @@ package com.naocraftlab.skins.runtime;
 import com.naocraftlab.skins.core.png.PngValidator;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -24,6 +24,7 @@ final class ExternalImportSqlite {
     }
 
     static Connection openReadOnly(Path database) throws IOException {
+        checkCancelled();
         Path normalized = database.toAbsolutePath().normalize();
         if (!Files.isRegularFile(normalized, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("External import database is unavailable");
@@ -88,18 +89,25 @@ final class ExternalImportSqlite {
 
     static Optional<byte[]> readPngBlob(ResultSet result, String column)
             throws SQLException, IOException {
-        try (InputStream input = result.getBinaryStream(column)) {
-            if (input == null) {
-                return Optional.empty();
-            }
-            byte[] bytes = input.readNBytes(PngValidator.DEFAULT_MAX_BYTES + 1);
-            if (bytes.length == 0) {
-                return Optional.empty();
-            }
-            if (bytes.length > PngValidator.DEFAULT_MAX_BYTES) {
-                throw new IOException("External skin BLOB exceeds the PNG limit");
-            }
-            return Optional.of(bytes);
+        checkCancelled();
+        byte[] bytes = result.getBytes(column);
+        checkCancelled();
+        if (bytes == null || bytes.length == 0) {
+            return Optional.empty();
+        }
+        requireBlobLength(bytes.length);
+        return Optional.of(bytes);
+    }
+
+    static void requireBlobLength(long length) throws IOException {
+        if (length < 0 || length > PngValidator.DEFAULT_MAX_BYTES) {
+            throw new IOException("External skin BLOB exceeds the PNG limit");
+        }
+    }
+
+    static void checkCancelled() throws InterruptedIOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedIOException("External import cancelled");
         }
     }
 

@@ -3,6 +3,9 @@ package com.naocraftlab.skins.loader.forge.client;
 import com.naocraftlab.skins.client.BuiltInClientPackDescriptor;
 import com.naocraftlab.skins.client.ClientLifecycleGate;
 import com.naocraftlab.skins.compat.loader.MinecraftClientHookAdapter;
+import com.naocraftlab.skins.compat.client.gui.CapeGuiFoilMaterial;
+import com.naocraftlab.skins.compat.client.cape.CapeTranslucentFoilMaterial;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.naocraftlab.skins.runtime.CapeProjection;
 import com.naocraftlab.skins.compat.config.MinecraftConfigurationBridge;
 import com.naocraftlab.skins.compat.config.YaclConfigurationScreenFactory;
@@ -17,6 +20,7 @@ import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.RegisterClientReloadListenersEvent;
+import net.minecraftforge.client.event.RegisterShadersEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.event.GameShuttingDownEvent;
@@ -52,6 +56,16 @@ public final class NclSkinsForgeClientEvents {
         private ModBus() {}
 
         @SubscribeEvent
+        public static void registerCapeGuiShader(RegisterShadersEvent event) throws java.io.IOException {
+            event.registerShader(new net.minecraft.client.renderer.ShaderInstance(
+                    event.getResourceProvider(), CapeGuiFoilMaterial.SHADER,
+                    DefaultVertexFormat.POSITION_TEX_COLOR), CapeGuiFoilMaterial::shaderLoaded);
+            event.registerShader(new net.minecraft.client.renderer.ShaderInstance(
+                    event.getResourceProvider(), CapeTranslucentFoilMaterial.SHADER,
+                    DefaultVertexFormat.NEW_ENTITY), CapeTranslucentFoilMaterial::shaderLoaded);
+        }
+
+        @SubscribeEvent
         public static void registerKeyMappings(net.minecraftforge.client.event.RegisterKeyMappingsEvent event) {
             com.naocraftlab.skins.compat.keybindings.ScreenKeybindings.matcher(
                     new net.minecraftforge.client.settings.KeyMappingLookup()::getAll);
@@ -70,6 +84,10 @@ public final class NclSkinsForgeClientEvents {
             LIFECYCLE.install(
                     CLIENT_HOOKS,
                     current -> current.initialize(FMLPaths.CONFIGDIR.get()));
+            event.enqueueWork(() -> LIFECYCLE.dispatch(current ->
+                    com.naocraftlab.skins.compat.waveycapes.WaveyCapesIntegration.install(
+                            ModList.get().getModContainerById("waveycapes")
+                                    .map(mod -> mod.getModInfo().getVersion().toString()).orElse(null))));
             event.enqueueWork(() -> com.naocraftlab.skins.compat.fancymenu.FancyMenuIntegration.install(
                     ModList.get().isLoaded("fancymenu"), CLIENT_HOOKS::openDestination, CLIENT_HOOKS.diagnostics()));
             ModList.get()

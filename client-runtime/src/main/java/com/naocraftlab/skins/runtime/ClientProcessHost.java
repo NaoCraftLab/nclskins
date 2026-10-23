@@ -7,6 +7,8 @@ public final class ClientProcessHost<C> implements ClientProcess<C> {
     private final Process process;
     private final AppearanceReconnectTracker<C> reconnects = new AppearanceReconnectTracker<>();
     private boolean closed;
+    private C connectionIdentity;
+    private Object worldIdentity;
 
     public ClientProcessHost(Process process) {
         this.process = Objects.requireNonNull(process, "process");
@@ -19,8 +21,14 @@ public final class ClientProcessHost<C> implements ClientProcess<C> {
 
     public void tick(
             C connection,
+            Object world,
             boolean playerReady) {
         ensureOpen();
+        if (connectionIdentity != connection || worldIdentity != world) {
+            connectionIdentity = connection;
+            worldIdentity = world;
+            process.worldChanged();
+        }
         process.tick();
         if (connection == null) {
             reconnects.disconnected();
@@ -42,6 +50,8 @@ public final class ClientProcessHost<C> implements ClientProcess<C> {
             process.close();
         } finally {
             reconnects.disconnected();
+            connectionIdentity = null;
+            worldIdentity = null;
         }
     }
 

@@ -10,6 +10,8 @@ import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
 import com.naocraftlab.skins.client.TextureRegistry.TextureKind;
 import com.naocraftlab.skins.compat.client.identifier.IdentifierTextureRegistry;
+import com.naocraftlab.skins.compat.client.gui.CapeGuiFoilMaterial;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.runtime.ActivationCharacterGuard;
@@ -97,6 +99,9 @@ public final class NclSkinsScreen extends Screen {
     private final Map<String, SimplePreviewRenderer> bakedRenderers =
             new HashMap<>();
     private final SubmissionPreviewRenderer editorRenderer;
+    private java.util.function.Supplier<PreviewRenderer.DisplayKind> bodyCapability;
+    private java.util.function.Consumer<PreviewRenderer.BodyStatus> bodyObserver;
+    private java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories> accessoryObserver;
 
     private IdentifierTextureRegistry textureRegistry;
     private PreviewAssetCache<SkinKey> skinTextures;
@@ -186,6 +191,33 @@ public final class NclSkinsScreen extends Screen {
         refresh();
     }
 
+    @Override
+    public Component getNarrationMessage() {
+        Component message = super.getNarrationMessage();
+        Optional<Component> status = importStatusNarration();
+        if (status.isPresent()) message = message.copy().append("\n").append(status.orElseThrow());
+        Optional<Component> caption = previewErrorNarration();
+        return caption.isPresent() ? message.copy().append("\n").append(caption.orElseThrow()) : message;
+    }
+
+    private Optional<Component> previewErrorNarration() {
+        if (!activeScreen || rebuilding || minecraft == null || minecraft.screen != this
+                || showingAccountLink || runtime.closed() || view == null) return Optional.empty();
+        ViewSpec current = runtime.view(width, height, mouseX, mouseY);
+        if (!"preset_editor".equals(current.screenId()) && !"providers".equals(current.screenId())) return Optional.empty();
+        return current.texts().stream().filter(text -> text.id().equals("editor.preview.error"))
+                .findFirst().map(text -> SubmissionComponents.resolve(text.message()));
+    }
+
+    private Optional<Component> importStatusNarration() {
+        if (!activeScreen || rebuilding || minecraft == null || minecraft.screen != this
+                || showingAccountLink || runtime.closed() || view == null) return Optional.empty();
+        if (!"add_source".equals(view.screenId()) || view.tabGroups().stream().flatMap(group -> group.tabs().stream())
+                .noneMatch(tab -> tab.id().equals("add.tab.file") && tab.selected())) return Optional.empty();
+        return view.texts().stream().filter(text -> text.id().equals("add.import.status"))
+                .findFirst().map(text -> SubmissionComponents.resolve(text.message()));
+    }
+
     private void snapshotChanged(ClientSnapshot snapshot) {
         if (!activeScreen || minecraft == null || minecraft.screen != this) {
             return;
@@ -198,10 +230,12 @@ public final class NclSkinsScreen extends Screen {
                 minecraft.setScreen(parent);
             } else {
                 runtime.consumeReadyOptiFineAccountLink().ifPresent(this::showOptiFineLink);
-                if (!showingAccountLink) runtime.consumeReadySkinMcAccountLink().ifPresent(this::showSkinMcLink);
+                if (!showingAccountLink) runtime.consumeReadyFixedAccountLink(BuiltinProvider.SKINMC).ifPresent(uri -> showFixedAccountLink(BuiltinProvider.SKINMC, uri));
+            if (!showingAccountLink) runtime.consumeReadyFixedAccountLink(BuiltinProvider.MINECRAFTCAPES).ifPresent(uri -> showFixedAccountLink(BuiltinProvider.MINECRAFTCAPES, uri));
             if (!showingAccountLink) runtime.consumeReadySneakyEditorLink().ifPresent(this::showSneakyEditorLink);
                 if (showingAccountLink) return;
                 refresh();
+                if (importStatusNarration().isPresent()) triggerImmediateNarration(true);
             }
         });
     }
@@ -236,16 +270,16 @@ public final class NclSkinsScreen extends Screen {
         minecraft.setScreen(confirmation);
     }
 
-    private void showSkinMcLink(URI uri) {
+    private void showFixedAccountLink(BuiltinProvider provider, URI uri) {
         showingAccountLink = true;
         Screen confirmation = ConfigurationLinkApi.createScreen(accepted -> {
-            if (accepted && runtime.currentSkinMcAccountLink().filter(uri::equals).isPresent()) {
+            if (accepted && runtime.currentFixedAccountLink(provider).filter(uri::equals).isPresent()) {
                 ConfigurationLinkApi.open(uri);
             }
-            runtime.finishSkinMcAccountLink();
+            runtime.finishFixedAccountLink(provider);
             if (minecraft != null) minecraft.setScreen(this);
-        }, uri, () -> runtime.currentSkinMcAccountLink().filter(uri::equals).isPresent(), () -> {
-            runtime.finishSkinMcAccountLink();
+        }, uri, () -> runtime.currentFixedAccountLink(provider).filter(uri::equals).isPresent(), () -> {
+            runtime.finishFixedAccountLink(provider);
             if (minecraft != null) minecraft.setScreen(this);
         });
         minecraft.setScreen(confirmation);
@@ -518,6 +552,8 @@ public final class NclSkinsScreen extends Screen {
         if (editor) {
             renderPreviews(graphics, current);
             graphics.nextStratum();
+            refresh();
+            current = view;
             renderListPanels(graphics, current);
             renderCardBackgrounds(graphics, current, mouseX, mouseY);
             graphics.nextStratum();
@@ -566,8 +602,10 @@ public final class NclSkinsScreen extends Screen {
                 int frameColor = ProviderRowStyle.frameColor(CatalogCardStyle.selectionSelected(widget), rowFocused, keyboardNavigation);
                 if (frameColor != 0) {
                     Bounds b = widget.bounds();
-                    graphics.fill(b.x(), b.y(), b.right(), b.bottom(), frameColor);
-                    graphics.fill(b.x() + 1, b.y() + 1, b.right() - 1, b.bottom() - 1, 0xFF000000);
+                    clipped(graphics, current, widget.id(), () -> {
+                        graphics.fill(b.x(), b.y(), b.right(), b.bottom(), frameColor);
+                        graphics.fill(b.x() + 1, b.y() + 1, b.right() - 1, b.bottom() - 1, 0xFF000000);
+                    });
                     rendered = true;
                 }
                 continue;
@@ -662,7 +700,9 @@ public final class NclSkinsScreen extends Screen {
         for (ViewSpec.IconDecoration decoration : current.iconDecorations()) {
             if (decoration.providerTexture().isPresent()) {
                 var texture = decoration.providerTexture().orElseThrow();
-                var handle = capeTextures.handle(texture.requestKey());
+                String surfaceKey = texture.skin() ? texture.requestKey()
+                        : runtime.previewDecorationCapeSurfaceKey(decoration);
+                var handle = capeTextures.handle(surfaceKey);
                 if (handle.isPresent()) {
                     var loaded = handle.orElseThrow();
                     Bounds b = decoration.bounds();
@@ -674,12 +714,24 @@ public final class NclSkinsScreen extends Screen {
                     float u = crop.u();
                     float v = crop.v();
                     clipped(graphics, current, decoration.id(), () -> {
-                        graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(loaded.location()), b.x(), b.y(), u, v, b.width(), b.height(), sw, sh, w, h, -1);
-                        if (texture.skin() && texture.overlay()) graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(loaded.location()), b.x(), b.y(), w * 40 / 64.0F, v, b.width(), b.height(), sw, sh, w, h, -1);
+                        Identifier location = Identifier.parse(loaded.location());
+                        if (!texture.skin() && capeTextures.capeGlint(surfaceKey)) {
+                            CapeGuiFoilMaterial.draw(graphics, location, b.x(), b.y(), b.width(), b.height(),
+                                    u, v, sw, sh, w, h);
+                        } else {
+                            graphics.blit(RenderPipelines.GUI_TEXTURED, location, b.x(), b.y(), u, v,
+                                    b.width(), b.height(), sw, sh, w, h, -1);
+                        }
+                        if (texture.skin() && texture.overlay()) graphics.blit(RenderPipelines.GUI_TEXTURED, location, b.x(), b.y(), w * 40 / 64.0F, v, b.width(), b.height(), sw, sh, w, h, -1);
                         renderProviderArrows(graphics, current, decoration, mouseX, mouseY);
                     });
                     continue;
                 }
+            }
+            if (!ViewHostPolicy.showMissingValueIcon(decoration)) {
+                clipped(graphics, current, decoration.id(), () ->
+                        renderProviderArrows(graphics, current, decoration, mouseX, mouseY));
+                continue;
             }
 
             boolean hovered = current.widget(decoration.ownerWidgetId())
@@ -761,14 +813,40 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
+    private void releasePreviewBody() {
+        runtime.invalidatePreviewBody(bodyObserver);
+        bodyObserver = null;
+        editorRenderer.observeBody(ignored -> {});
+    }
+
+    private void releasePreviewAccessories() {
+        var registration = accessoryObserver;
+        accessoryObserver = null;
+        editorRenderer.observeAccessories(ignored -> {});
+        runtime.invalidatePreviewAccessories(registration);
+    }
+
     private void renderPreviews(GuiGraphics graphics, ViewSpec current) {
+        if (!("preset_editor".equals(current.screenId()) || "providers".equals(current.screenId()))
+                || current.previews().isEmpty()) {
+            releasePreviewAccessories();
+            releasePreviewBody();
+        }
         for (ViewSpec.Preview preview : current.previews()) {
+            if ("preset_editor".equals(current.screenId()) || "providers".equals(current.screenId())) {
+                if (bodyCapability == null) bodyCapability = editorRenderer::displayKind;
+                bodyObserver = runtime.observePreviewBody(preview, bodyCapability);
+                editorRenderer.observeBody(bodyObserver);
+                editorRenderer.prepareBody(runtime.previewBodySource(preview), runtime.waitsForCpmBody(preview));
+            }
             TextureHandle skin;
             SkinModel model;
             if (preview.requiresLoadedSkin()) {
                 Optional<TextureHandle> loaded = Optional.ofNullable(previewKeys.get(preview.id()))
                         .flatMap(skinTextures::handle);
                 if (loaded.isEmpty()) {
+                    releasePreviewAccessories();
+                    releasePreviewBody();
                     continue;
                 }
                 skin = loaded.orElseThrow();
@@ -776,18 +854,24 @@ public final class NclSkinsScreen extends Screen {
             } else {
                 PlayerAppearance appearance = runtime.previewPlayerAppearance(preview).orElse(null);
                 if (appearance == null) {
+                    releasePreviewAccessories();
+                    releasePreviewBody();
                     continue;
                 }
                 skin = appearance.skin();
                 model = appearance.model();
             }
-            Optional<TextureHandle> cape = preview.capeId().flatMap(capeTextures::handle);
+            Optional<TextureHandle> cape = preview.capeId().flatMap(capeId -> capeTextures.handle(
+                    runtime.previewCapeSurfaceKey(preview)));
             PreviewRenderer.PreviewAppearance appearance = new PreviewRenderer.PreviewAppearance(
                     skin,
                     model,
                     cape,
-                    cape.isPresent() ? preview.capeMode() : PreviewRenderer.CapeMode.OFF,
-                    preview.outerLayerVisibility(), preview.capeHasElytra());
+                    (cape.isPresent() || preview.nativeAccessories()) ? preview.capeMode() : PreviewRenderer.CapeMode.OFF,
+                    preview.outerLayerVisibility(),
+                    capeTextures.capeHasElytra(runtime.previewCapeSurfaceKey(preview)),
+                    capeTextures.capeGlint(runtime.previewCapeSurfaceKey(preview)), preview.nativeAccessories(),
+                    capeTextures.capture(runtime.previewCapeSurfaceKey(preview)));
             Bounds b = preview.anchorBounds();
             Bounds stage = preview.bounds();
             PreviewRenderer.PreviewRequest request = new PreviewRenderer.PreviewRequest(
@@ -795,8 +879,13 @@ public final class NclSkinsScreen extends Screen {
                     preview.yawDegrees(), preview.pitchDegrees(), preview.scale(), preview.intent(),
                     stage.x(), stage.y(), stage.width(), stage.height());
             clipped(graphics, current, preview.id(), () -> {
-                if (("preset_editor".equals(current.screenId()) || "providers".equals(current.screenId())) && minecraft.level != null) {
+                if (("preset_editor".equals(current.screenId()) || "providers".equals(current.screenId())) ) {
+                    var observer = runtime.observePreviewAccessories(preview, () -> editorRenderer.accessories(request));
+                    accessoryObserver = observer;
+                    editorRenderer.observeAccessories(observer);
                     editorRenderer.render(graphics, request);
+                    observer.accept(editorRenderer.accessories(request));
+                    runtime.reconcilePreviewBody(bodyObserver);
                 } else {
                     bakedRenderer("preview:" + preview.id()).render(graphics, request);
                 }
@@ -806,7 +895,7 @@ public final class NclSkinsScreen extends Screen {
 
     private void renderBackEquipment(GuiGraphics graphics, ViewSpec current) {
         for (ViewSpec.BackEquipmentPreview preview : current.backEquipmentPreviews()) {
-            capeTextures.handle(preview.capeId()).ifPresent(texture -> clipped(
+            capeTextures.handle(ViewHostPolicy.cardCapeKey(preview)).ifPresent(texture -> clipped(
                     graphics,
                     current,
                     preview.id(),
@@ -988,23 +1077,39 @@ public final class NclSkinsScreen extends Screen {
                         () -> runtime.reportSkinPreviewFailure(preview));
             }
             preview.capeId().ifPresent(capeId -> {
-                capes.add(capeId);
-                capeTextures.request(
-                        capeId,
+                String surfaceKey = runtime.previewCapeSurfaceKey(preview);
+                capes.add(surfaceKey);
+                capeTextures.requestCape(
+                        surfaceKey, capeId,
+                        () -> runtime.openPreparedCapePreview(capeId),
                         () -> runtime.loadCapePreview(preview),
+                        true, preview.capeHasElytra(), runtime.previewCapeGlint(preview),
                         () -> runtime.reportCapePreviewFailure(preview));
             });
         }
         for (ViewSpec.BackEquipmentPreview preview : current.backEquipmentPreviews()) {
-            capes.add(preview.capeId());
-            capeTextures.request(
-                    preview.capeId(), () -> runtime.loadCapePreview(preview.capeId()), () -> {});
+            String surfaceKey = ViewHostPolicy.cardCapeKey(preview);
+            capes.add(surfaceKey);
+            capeTextures.requestCape(
+                    surfaceKey, preview.capeId(), () -> runtime.openPreparedCapePreview(preview.capeId(), true),
+                    () -> runtime.loadCapePreview(preview.capeId()),
+                    ViewHostPolicy.capeCardHovered(current, preview, mouseX, mouseY), () -> {});
         }
         skinTextures.retain(skins);
         for (ViewSpec.IconDecoration decoration : current.iconDecorations()) {
             decoration.providerTexture().ifPresent(texture -> {
-                capes.add(texture.requestKey());
-                capeTextures.request(texture.requestKey(), () -> runtime.loadProviderTexture(texture), () -> {});
+                String surfaceKey = texture.skin() ? texture.requestKey()
+                        : runtime.previewDecorationCapeSurfaceKey(decoration);
+                capes.add(surfaceKey);
+                if (texture.skin()) {
+                    capeTextures.request(texture.requestKey(), () -> runtime.loadProviderTexture(texture), () -> {});
+                } else {
+                    capeTextures.requestCapeWithPoster(surfaceKey, texture.requestKey(),
+                            () -> runtime.openPreparedCapePreview("provider:cape:" + texture.cacheKey(), true),
+                            () -> runtime.loadProviderThumbnail(texture),
+                            ViewHostPolicy.providerCapeRowHovered(current, decoration, mouseX, mouseY),
+                            texture.capeGlint(), () -> runtime.invalidateProviderThumbnail(texture));
+                }
             });
         }
         capeTextures.retain(capes);
@@ -1285,6 +1390,8 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private void dispatchNativeWidget(String widgetId, boolean reverse) {
+        if (runtime.view(width, height, 0, 0).widget(widgetId)
+                .filter(widget -> !widget.activationEnabled()).isPresent()) return;
         runtime.dispatchWidget(widgetId, reverse, dispatchOrigin);
     }
 
@@ -1351,6 +1458,8 @@ public final class NclSkinsScreen extends Screen {
 
     @Override
     public void removed() {
+        releasePreviewAccessories();
+        releasePreviewBody();
         activationCharacters.reset();
         activeScreen = false;
         if (showingAccountLink) {
@@ -1380,6 +1489,7 @@ public final class NclSkinsScreen extends Screen {
             bakedRenderers.clear();
             widgets.clear();
             nativeTabGroups.clear();
+            bodyCapability = null;
             editorRenderer.close();
             runtime.closeScreen();
         } finally {
@@ -1531,7 +1641,9 @@ public final class NclSkinsScreen extends Screen {
                 }
                 case PASSIVE_INDICATOR -> renderWidgetIcon(graphics, icon.orElseThrow(),
                         getX(), getY(), getWidth(), getHeight(),
-                        (isHovered || (keyboardNavigation && isFocused()) ? 0xFF : 0xA6) << 24 | 0x00FFFFFF);
+                        Math.round(ViewHostPolicy.passiveIndicatorOpacity(icon.orElseThrow(),
+                                isHovered || (keyboardNavigation && isFocused())) * 255.0F) << 24
+                                | 0x00FFFFFF);
                 case CATALOG_CARD, SELECTABLE_CARD, CAPE_CARD, PROVIDER_ACTION -> {
                 }
                 case COLLECTION_HEADER -> renderCollectionHeader(graphics, font);

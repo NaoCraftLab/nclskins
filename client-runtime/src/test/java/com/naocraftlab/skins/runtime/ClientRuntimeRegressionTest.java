@@ -1,6 +1,5 @@
 package com.naocraftlab.skins.runtime;
 
-import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
@@ -19,9 +18,10 @@ import com.naocraftlab.skins.core.model.AppearanceSyncStatus;
 import com.naocraftlab.skins.core.model.MutationResult;
 import com.naocraftlab.skins.core.model.SkinReference;
 import com.naocraftlab.skins.core.model.SkinVariant;
-import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
+import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderSkin;
+import com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.Trigger;
 import com.naocraftlab.skins.core.service.ApplicationPhase;
 import com.naocraftlab.skins.core.service.AppliedAppearance;
 import com.naocraftlab.skins.core.service.PresetApplicationOutcome;
@@ -49,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -73,6 +74,752 @@ final class ClientRuntimeRegressionTest {
                 "The local player preview will update after reconnecting.";
         default -> message.key();
     };
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void cancelledCapePickerDoesNotSupersedePendingSneakyDraft(boolean decodePending) throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0x7f123456);
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            if (decodePending) worker.runFirst();
+            long ticket = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            assertEquals(CapeCatalogModel.SneakyReadiness.PENDING, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            runtime.dispatchWidget("editor.tab.cape");
+            runtime.dispatchWidget("editor.cape_item.OFFLINE.import");
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(ticket, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket());
+            assertEquals(CapeCatalogModel.SneakyReadiness.VALUE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void closeReopenWhileDecodePendingRejectsOldDraftEvenAcrossAccountSwitch(boolean switchAccount) throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0x7f123456);
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            String edit = "gallery.preset." + operations.account.presets().get(0).id() + ".edit";
+            runtime.dispatchWidget(edit);
+            worker.runFirst();
+            long retired = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            runtime.closeScreen();
+            if (switchAccount) {
+                UUID next = new UUID(0, 99);
+                operations.account = new AccountState(AccountState.CURRENT_SCHEMA_VERSION, next, operations.account.skinAssets(),
+                        operations.account.personalSkins(), operations.account.presets(), operations.account.updatedAt());
+                operations.session = new SessionValidation(operations.session.status(),
+                        new GameSessionTokenSource.SessionIdentity(next, "SecondAccount"), null, null, "");
+            }
+            List<ClientSnapshot> published = new ArrayList<>();
+            runtime.subscribe(published::add);
+            runtime.reopen();
+            while (worker.size() > 0) worker.runFirst();
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            runtime.dispatchWidget(edit);
+            long current = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            assertTrue(current > retired);
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(operations.account.accountId(), runtime.snapshot().account().orElseThrow().accountId());
+            assertEquals(CapeCatalogModel.SneakyReadiness.VALUE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            assertTrue(published.stream().flatMap(snapshot -> snapshot.editor().stream()).filter(editor ->
+                    editor.capeCatalog().sneakyReadiness() == CapeCatalogModel.SneakyReadiness.VALUE)
+                    .allMatch(editor -> editor.capeCatalog().sneakyTicket() == current));
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = SkinExtensionEnvironmentSource.State.class, names = {"UNKNOWN", "MISSING_PREREQUISITE"})
+    void unknownConsumersAndUnrelatedWarningDoNotBlockSneaky(SkinExtensionEnvironmentSource.State consumer) throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        try (ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() ->
+                new SkinExtensionEnvironmentSource.Snapshot(1, Map.of(SkinExtensionEnvironmentSource.Consumer.FRESH_MOVES, consumer)))) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            if (consumer == SkinExtensionEnvironmentSource.State.MISSING_PREREQUISITE) {
+                assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), runtime.view(854, 480, 0, 0)
+                        .widget("editor.compatibility").orElseThrow().icon());
+            }
+            assertEquals(BuiltinProvider.SNEAKY, runtime.snapshot().editor().orElseThrow().capeCatalog().defaultBundle().source());
+            assertEquals(1, operations.skinPreviewCalls.get());
+        }
+    }
+
+    @Test
+    void independentEmbeddedInspectionSurvivesPartialCallbacksDisableAndOverlapWarning() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        AtomicReference<SkinExtensionEnvironmentSource.State> consumer = new AtomicReference<>(SkinExtensionEnvironmentSource.State.UNKNOWN);
+        AtomicReference<Runnable> changed = new AtomicReference<>();
+        SkinExtensionEnvironmentSource environment = new SkinExtensionEnvironmentSource() {
+            public Snapshot snapshot() { return new Snapshot(1, Map.of(Consumer.FRESH_MOVES, consumer.get()), true); }
+            public Subscription subscribe(Runnable listener) { changed.set(listener); return () -> changed.compareAndSet(listener, null); }
+        };
+        try (ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(environment)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            var capability = new AtomicReference<>(new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 903), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true, PreviewRenderer.LiveReason.AVAILABLE));
+            var callback = runtime.observePreviewAccessories(runtime.view(854, 480, 0, 0).previews().get(0), capability::get);
+            var catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+            String cpm = catalog.cards().stream().filter(card -> card.provider() == BuiltinProvider.CPM).findFirst().orElseThrow().widgetId();
+            var sneaky = catalog.cards().stream().filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+            runtime.dispatchWidget(cpm);
+            consumer.set(SkinExtensionEnvironmentSource.State.ACTIVE);
+            changed.get().run();
+            assertEquals(BuiltinProvider.CPM, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected().provider());
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            consumer.set(SkinExtensionEnvironmentSource.State.UNKNOWN);
+            changed.get().run();
+            assertEquals(BuiltinProvider.CPM, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected().provider());
+            var accept = ClientRuntime.class.getDeclaredMethod("acceptProviderChange", ClientOperations.DurableAppearance.class);
+            accept.setAccessible(true);
+            operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+            accept.invoke(runtime, operations.reloadProviders());
+            assertEquals(BuiltinProvider.CPM, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected().provider());
+            operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+            accept.invoke(runtime, operations.reloadProviders());
+            runtime.dispatchWidget(runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow().widgetId());
+            capability.set(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.WORLD_REQUIRED));
+            callback.accept(capability.get());
+            assertEquals(BuiltinProvider.SNEAKY, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected().provider());
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            assertTrue(runtime.view(854, 480, 0, 0).widgets().stream().noneMatch(widget -> widget.id().startsWith("editor.cape_item.CPM.")));
+            assertEquals(sneaky.texture().isPresent(), runtime.view(854, 480, 0, 0).previews().get(0).capeId().isPresent());
+            assertEquals(1, operations.skinPreviewCalls.get());
+        }
+        assertNull(changed.get());
+    }
+
+    @Test
+    void sneakyRuntimeInteractionsUseClippedTargetsAndNeverRepeatPreparationOrExternalEffects() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        operations.account = operations.account.withPersonalCapes(java.util.stream.IntStream.range(0, 24)
+                .mapToObj(index -> new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                        new com.naocraftlab.skins.core.model.LocalCapeReference(new UUID(0, index + 100), String.format("%064x", index + 1), false),
+                        String.format("%064x", index + 1), "Personal " + index, java.time.Instant.EPOCH)).toList());
+        AtomicInteger demands = new AtomicInteger(), previewJobs = new AtomicInteger();
+        DefaultRuntimeServices realServices = new DefaultRuntimeServices();
+        RuntimeServices services = (RuntimeServices) java.lang.reflect.Proxy.newProxyInstance(RuntimeServices.class.getClassLoader(),
+                new Class<?>[]{RuntimeServices.class}, (proxy, method, arguments) -> {
+                    if (!method.getName().equals("previewAssets")) return method.invoke(realServices, arguments);
+                    PreviewAssets real = new PreviewAssetLoader(CLIENT, task -> { previewJobs.incrementAndGet(); task.run(); }, DiagnosticSinks.discarding());
+                    return java.lang.reflect.Proxy.newProxyInstance(PreviewAssets.class.getClassLoader(), new Class<?>[]{PreviewAssets.class},
+                            (assetProxy, assetMethod, assetArguments) -> {
+                                if (assetMethod.getName().equals("prepareSneaky")) demands.incrementAndGet();
+                                return assetMethod.invoke(real, assetArguments);
+                            });
+                });
+        try (ClientRuntime runtime = new ClientRuntime(services, operations, CLIENT, CANCELLED_PICKER,
+                Runnable::run, Runnable::run, Runnable::run, TEXT, Optional.empty(), Optional.empty(), DiagnosticSinks.discarding())) {
+            runtime.initialize();
+            int initializationAdoptions = operations.observationAdoptions.get();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            var initial = runtime.view(320, 240, 0, 0);
+            String id = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow().widgetId();
+            var widget = initial.widget(id).orElseThrow();
+            int x = widget.bounds().x() + widget.bounds().width() / 2;
+            int y = widget.bounds().y() + widget.bounds().height() / 2;
+            assertEquals(id, ViewHostPolicy.pointerOwnerAt(initial, x, y).orElseThrow().id());
+            int jobs = previewJobs.get();
+            var account = runtime.snapshot().account();
+            var providers = runtime.snapshot().providers();
+            runtime.dispatchWidget(ViewHostPolicy.pointerOwnerAt(initial, x, y).orElseThrow().id(), false, InteractionOrigin.POINTER);
+            assertEquals(BuiltinProvider.SNEAKY, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected().provider());
+            var previewBounds = initial.previews().get(0).bounds();
+            runtime.pointerPressed(previewBounds.x() + 10, previewBounds.y() + 10, 0);
+            runtime.pointerDragged(previewBounds.x() + 20, previewBounds.y() + 15, 0, 10, 5);
+            runtime.pointerReleased(0);
+            var transformed = runtime.snapshot().editor().orElseThrow().preview();
+            runtime.nativeScrollPositionChanged("editor.capes", 1000);
+            double scroll = runtime.view(320, 240, 0, 0).scrollSurface("editor.capes").orElseThrow().offsetPixels();
+            assertTrue(scroll > 0);
+            runtime.dispatchWidget("editor.tab.cape");
+            assertEquals(transformed, runtime.snapshot().editor().orElseThrow().preview());
+            assertEquals(scroll, runtime.view(320, 240, 0, 0).scrollSurface("editor.capes").orElseThrow().offsetPixels());
+            runtime.nativeScrollPositionChanged("editor.capes", 0);
+            runtime.dispatchWidget(id);
+            var inspected = runtime.snapshot().editor().orElseThrow().capeCatalog().inspected();
+            for (int width : new int[]{320, 854, 400}) {
+                ViewSpec resized = runtime.view(width, 240, x, y);
+                var clip = resized.clipRegions().stream().filter(region -> region.id().equals("editor.capes")).findFirst().orElseThrow().bounds();
+                assertTrue(clip.x() >= 0 && clip.right() <= width && clip.y() >= 0 && clip.bottom() <= 240);
+                assertFalse(ViewHostPolicy.pointerOwnerAt(resized, clip.x() + 1, clip.y() - 1).map(owner -> owner.id().equals(id)).orElse(false));
+            }
+            runtime.dispatchText("editor.cape_search", "no-matches");
+            ViewSpec hidden = runtime.view(320, 240, x, y);
+            assertTrue(hidden.widget(id).isEmpty());
+            assertTrue(hidden.navigationNode(id).isEmpty());
+            assertTrue(hidden.widget("editor.cape_header.EMBEDDED").isEmpty());
+            assertFalse(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, id));
+            assertTrue(ViewNavigationPolicy.target(hidden, id, ViewSpec.NavigationCommand.TAB_FORWARD)
+                    .flatMap(node -> hidden.widget(node.id())).isPresent());
+            assertEquals(inspected, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            runtime.dispatchText("editor.cape_search", "");
+            runtime.dispatchWidget("editor.cape_filter");
+            runtime.dispatchWidget("editor.cape_filter", true);
+            runtime.dispatchWidget("editor.cape_header.EMBEDDED");
+            assertTrue(runtime.view(320, 240, 0, 0).widget(id).isEmpty());
+            runtime.dispatchWidget("editor.cape_header.EMBEDDED");
+            runtime.dispatchWidget("editor.cape_disclosure");
+            runtime.dispatchWidget("editor.cape_disclosure");
+            runtime.dispatchWidget("editor.preview_mode");
+            runtime.dispatchWidget("editor.tab.cape");
+            assertEquals(1, demands.get());
+            assertEquals(jobs, previewJobs.get());
+            assertEquals(1, operations.skinPreviewCalls.get());
+            assertEquals(account, runtime.snapshot().account());
+            assertEquals(providers, runtime.snapshot().providers());
+            assertEquals(0, operations.providerHttpCalls.get());
+            assertEquals(0, operations.personalMaterializations.get());
+            assertEquals(initializationAdoptions, operations.observationAdoptions.get());
+            assertNull(operations.lastEditorRequest);
+        }
+    }
+
+    @Test
+    void failedSaveDoesNotSupersedePendingSneakyDraft() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        operations.failEditorSave = true;
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            long ticket = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            var request = runtime.snapshot().editor().orElseThrow().saveRequest();
+            runtime.dispatchWidget("editor.save");
+            worker.tasks.remove(worker.size() - 1).run();
+            assertFalse(runtime.snapshot().editor().orElseThrow().busy());
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(CapeCatalogModel.SneakyReadiness.VALUE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            assertEquals(ticket, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket());
+            assertEquals(request, runtime.snapshot().editor().orElseThrow().saveRequest());
+        }
+    }
+
+    @Test
+    void personalRenameAndDeleteWhileDecodePendingSurviveSneakyCancel() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        var keep = new com.naocraftlab.skins.core.model.LocalCapeReference(new UUID(0, 101), "a".repeat(64), false);
+        var remove = new com.naocraftlab.skins.core.model.LocalCapeReference(new UUID(0, 102), "b".repeat(64), true);
+        operations.account = operations.account.withPersonalCapes(List.of(
+                new com.naocraftlab.skins.core.model.PersonalCapeEntry(keep, keep.sha256(), "Keep", java.time.Instant.EPOCH),
+                new com.naocraftlab.skins.core.model.PersonalCapeEntry(remove, remove.sha256(), "Remove", java.time.Instant.EPOCH)));
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            worker.runFirst();
+            runtime.dispatchWidget("editor.tab.cape");
+            long ticket = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            runtime.dispatchWidget("editor.cape_action.rename." + keep.entryId());
+            runtime.dispatchText("editor.cape_action.name", "Renamed");
+            runtime.dispatchWidget("editor.cape_action.save." + keep.entryId());
+            worker.tasks.remove(worker.size() - 1).run();
+            runtime.dispatchWidget("editor.cape_action.delete." + remove.entryId());
+            runtime.dispatchWidget("editor.cape_action.confirm." + remove.entryId());
+            worker.tasks.remove(worker.size() - 1).run();
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(ticket, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket());
+            assertEquals(CapeCatalogModel.SneakyReadiness.VALUE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            runtime.dispatchWidget("editor.tab.cape");
+            var card = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(value -> value.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+            runtime.dispatchWidget(card.widgetId());
+            runtime.dispatchWidget("editor.cancel");
+            assertTrue(runtime.loadCapePreview(card.texture().orElseThrow()).join().isEmpty());
+            assertEquals(List.of("Renamed"), runtime.snapshot().account().orElseThrow().personalCapes().stream()
+                    .map(com.naocraftlab.skins.core.model.PersonalCapeEntry::name).toList());
+            assertEquals(1, operations.capeRenames.get());
+            assertEquals(1, operations.capeDeletes.get());
+            assertNull(operations.lastEditorRequest);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"model", "roundtrip", "reopen", "reenable"})
+    void cpmStringDispatchRejectsRetiredNativeScope(String transition) throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        try (ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() ->
+                new SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true))) {
+            runtime.initialize();
+            String edit = "gallery.preset." + operations.account.presets().get(0).id() + ".edit";
+            runtime.dispatchWidget(edit);
+            runtime.dispatchWidget("editor.tab.cape");
+            var first = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 901), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                    PreviewRenderer.LiveReason.AVAILABLE);
+            var oldCallback = runtime.observePreviewAccessories(runtime.view(854, 480, 0, 0).previews().get(0), () -> first);
+            String stale = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(card -> card.provider() == BuiltinProvider.CPM).findFirst().orElseThrow().widgetId();
+            if (transition.equals("reopen")) {
+                runtime.closeScreen();
+                runtime.reopen();
+                runtime.dispatchWidget(edit);
+            } else if (transition.equals("reenable")) {
+                var accept = ClientRuntime.class.getDeclaredMethod("acceptProviderChange", ClientOperations.DurableAppearance.class);
+                accept.setAccessible(true);
+                operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+                accept.invoke(runtime, operations.reloadProviders());
+                operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+                accept.invoke(runtime, operations.reloadProviders());
+            } else {
+                runtime.dispatchWidget("editor.tab.appearance");
+                runtime.dispatchWidget("editor.model_choice.slim");
+                if (transition.equals("roundtrip")) runtime.dispatchWidget("editor.model_choice.classic");
+            }
+            runtime.dispatchWidget("editor.tab.cape");
+            var next = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 902), 2,
+                    first.availability(), true, true, PreviewRenderer.LiveReason.AVAILABLE);
+            runtime.observePreviewAccessories(runtime.view(854, 480, 0, 0).previews().get(0), () -> next);
+            oldCallback.accept(first);
+            for (InteractionOrigin origin : InteractionOrigin.values()) {
+                runtime.dispatchWidget(stale, false, origin);
+                assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            }
+            String current = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(card -> card.provider() == BuiltinProvider.CPM).findFirst().orElseThrow().widgetId();
+            runtime.dispatchWidget(current);
+            assertEquals(next.scope() + ":" + next.generation(), runtime.snapshot().editor().orElseThrow().capeCatalog().inspected().embeddedIdentity());
+        }
+    }
+
+    @Test
+    void sneakyDraftPublishesWorldlessTextureWithoutBorrowingWorldSkin() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(),
+                operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        BufferedImage skin = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        int[] marker = {0xfffff42f, 0xffffffff, 0xff9c59d1, 0xff292929};
+        for (int index = 0; index < marker.length; index++) skin.setRGB(60, 48 + index, marker[index]);
+        skin.setRGB(56, 16, 0x7f123456);
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        ImageIO.write(skin, "png", encoded);
+        operations.skinPreviewByAsset = Map.of(TestFixtures.CLASSIC_ID, encoded.toByteArray());
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            AppearancePreset draft = operations.account.presets().get(0);
+            runtime.dispatchWidget("gallery.preset." + draft.id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            ViewSpec view = runtime.view(854, 480, 0, 0);
+            assertTrue(hasSneakyCard(view));
+            assertTrue(view.previews().get(0).capeId().isPresent());
+            byte[] atlas = runtime.loadCapePreview(view.previews().get(0).capeId().orElseThrow()).join().orElseThrow();
+            assertArrayEquals(new com.naocraftlab.skins.core.png.SneakyCapeDecoder()
+                    .decode(encoded.toByteArray()).orElseThrow().bytes(), atlas);
+            assertFalse(view.previews().get(0).nativeAccessories());
+            assertTrue(runtime.openPreparedCapePreview(view.previews().get(0).capeId().orElseThrow()).join().isEmpty());
+            assertEquals(0, operations.preparedCapeReads.get());
+            assertEquals(1, operations.skinPreviewCalls.get());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = SkinExtensionEnvironmentSource.Consumer.class, names = {"FRESH_MOVES", "JUST_EXPRESSIONS"})
+    void sneakyAdmissionAllowsActiveOverlapAndRetainsWarning(SkinExtensionEnvironmentSource.Consumer source) throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(),
+                operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0x7f123456);
+        AtomicReference<SkinExtensionEnvironmentSource.State> consumer = new AtomicReference<>(SkinExtensionEnvironmentSource.State.ACTIVE);
+        try (ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() ->
+                new SkinExtensionEnvironmentSource.Snapshot(1, Map.of(
+                        source, consumer.get())))) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            assertEquals(BuiltinProvider.SNEAKY, runtime.snapshot().editor().orElseThrow().capeCatalog().defaultBundle().source());
+            assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), runtime.view(854, 480, 0, 0)
+                    .widget("editor.compatibility").orElseThrow().icon());
+            consumer.set(SkinExtensionEnvironmentSource.State.INACTIVE);
+            runtime.resourcesReloaded();
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            runtime.dispatchWidget(runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow().widgetId());
+            consumer.set(SkinExtensionEnvironmentSource.State.ACTIVE);
+            runtime.resourcesReloaded();
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), runtime.view(854, 480, 0, 0)
+                    .widget("editor.compatibility").orElseThrow().icon());
+            assertEquals(1, operations.skinPreviewCalls.get());
+        }
+    }
+
+    @Test
+    void sneakyCompletionPublishesToOpenScreenAndCloseRejectsLateCompletion() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            List<ClientSnapshot> published = new ArrayList<>();
+            runtime.subscribe(published::add);
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            assertEquals(CapeCatalogModel.SneakyReadiness.PENDING, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            assertFalse(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            while (worker.size() > 0) worker.runFirst();
+            assertTrue(published.stream().anyMatch(snapshot -> snapshot.editor().map(editor ->
+                    editor.capeCatalog().sneakyReadiness() == CapeCatalogModel.SneakyReadiness.VALUE).orElse(false)));
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            int reads = operations.skinPreviewCalls.get();
+            for (int index = 0; index < 10; index++) {
+                runtime.view(320, 240, 0, 0);
+                runtime.dispatchWidget("editor.tab.cape");
+                runtime.dispatchWidget("editor.preview_mode");
+            }
+            assertEquals(reads, operations.skinPreviewCalls.get());
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(reads, operations.skinPreviewCalls.get());
+            runtime.resourcesReloaded();
+            runtime.closeScreen();
+            while (worker.size() > 0) worker.runFirst();
+            assertTrue(runtime.snapshot().editor().isEmpty());
+        }
+    }
+
+    @Test
+    void sneakyExactDraftIgnoresWorldObservationsAndInspectionNeverLeaksIntoSave() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape()
+                .enable(BuiltinProvider.SNEAKY).observeSneaky(new com.naocraftlab.skins.core.provider.ProviderCape("world:A", "a".repeat(64))));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0x7f123456);
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            AppearancePreset draft = operations.account.presets().get(0);
+            runtime.dispatchWidget("gallery.preset." + draft.id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            var card = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(value -> value.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+            runtime.dispatchWidget(card.widgetId());
+            assertArrayEquals(new com.naocraftlab.skins.core.png.SneakyCapeDecoder().decode(operations.skinPreviewBytes).orElseThrow().bytes(),
+                    runtime.loadCapePreview(card.texture().orElseThrow()).join().orElseThrow());
+            var providers = runtime.snapshot().providers();
+            runtime.dispatchWidget("editor.save");
+            assertEquals(draft.skin(), operations.lastEditorRequest.skin());
+            assertEquals(Optional.ofNullable(draft.capeId()), operations.lastEditorRequest.capeId());
+            assertTrue(operations.lastEditorRequest.pngBytes().isEmpty());
+            assertEquals(providers, runtime.snapshot().providers());
+            assertTrue(runtime.loadCapePreview(card.texture().orElseThrow()).join().isEmpty());
+        }
+    }
+
+    @Test
+    void sneakyDisableReenableRetiresGenerationWithoutLosingDraft() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            var before = runtime.snapshot().editor().orElseThrow();
+            var card = before.capeCatalog().cards().stream().filter(value -> value.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+            runtime.dispatchWidget(card.widgetId());
+            var accept = ClientRuntime.class.getDeclaredMethod("acceptProviderChange", ClientOperations.DurableAppearance.class);
+            accept.setAccessible(true);
+            operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+            accept.invoke(runtime, operations.reloadProviders());
+            assertFalse(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            assertTrue(runtime.loadCapePreview(card.texture().orElseThrow()).join().isEmpty());
+            operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+            accept.invoke(runtime, operations.reloadProviders());
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            runtime.dispatchWidget(card.widgetId());
+            var current = runtime.snapshot().editor().orElseThrow();
+            assertNull(current.capeCatalog().inspected());
+            assertEquals(before.skin(), current.skin());
+            assertEquals(before.capeId(), current.capeId());
+            org.junit.jupiter.api.Assertions.assertNotEquals(before.capeCatalog().sneakyTicket(), current.capeCatalog().sneakyTicket());
+        }
+    }
+
+    @Test
+    void sneakyImportedDraftUsesItsOwnBytesAndCancelRetiresAtlas(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        byte[] imported = SneakyPreviewPreparationTest.skin(0x7f123456);
+        java.nio.file.Path path = directory.resolve("draft.png");
+        java.nio.file.Files.write(path, imported);
+        assertTrue(operations.loadLocalSkin(path).pngBytes().length > 0);
+        FilePicker picker = () -> CompletableFuture.completedFuture(Optional.of(path));
+        try (ClientRuntime runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, CLIENT,
+                picker, Runnable::run, Runnable::run, Runnable::run, TEXT, Optional.empty(), Optional.empty(), DiagnosticSinks.discarding())) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            assertFalse(runtime.snapshot().editor().orElseThrow().busy());
+            runtime.dispatchWidget("editor.png.choose");
+            runtime.dispatchWidget("editor.tab.cape");
+            var editor = runtime.snapshot().editor().orElseThrow();
+            assertTrue(editor.png().isPresent());
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            String texture = runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow();
+            assertArrayEquals(new com.naocraftlab.skins.core.png.SneakyCapeDecoder().decode(editor.png().orElseThrow().bytes()).orElseThrow().bytes(),
+                    runtime.loadCapePreview(texture).join().orElseThrow());
+            runtime.dispatchWidget("editor.cancel");
+            assertTrue(runtime.loadCapePreview(texture).join().isEmpty());
+            assertNull(operations.lastEditorRequest);
+        }
+    }
+
+    @Test
+    void sneakyLateAToBToACompletionAdmitsOnlyLatestTicket() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0x7f123456);
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            worker.runFirst();
+            long first = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            runtime.dispatchWidget("editor.model_choice.slim");
+            runtime.dispatchWidget("editor.model_choice.classic");
+            long current = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            assertTrue(current > first);
+            List<ClientSnapshot> published = new ArrayList<>();
+            runtime.subscribe(published::add);
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(CapeCatalogModel.SneakyReadiness.VALUE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            assertTrue(published.stream().flatMap(snapshot -> snapshot.editor().stream()).filter(editor ->
+                    editor.capeCatalog().sneakyReadiness() == CapeCatalogModel.SneakyReadiness.VALUE)
+                    .allMatch(editor -> editor.capeCatalog().sneakyTicket() == current));
+        }
+    }
+
+    @Test
+    void sneakyAccountSwitchClearsPreparedCacheAndOldTexture() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            while (worker.size() > 0) worker.runFirst();
+            String old = runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow();
+            var assetsField = ClientRuntime.class.getDeclaredField("previewAssets");
+            assetsField.setAccessible(true);
+            var assets = (PreviewAssets) assetsField.get(runtime);
+            assertEquals(PreviewAssets.SneakyStatus.VALUE, assets.prepareSneaky(operations.skinPreviewBytes).result().join().status());
+            assertEquals(0, worker.size());
+            runtime.closeScreen();
+            UUID next = new UUID(0, 99);
+            operations.account = new AccountState(AccountState.CURRENT_SCHEMA_VERSION, next, operations.account.skinAssets(),
+                    operations.account.personalSkins(), operations.account.presets(), operations.account.updatedAt());
+            operations.session = new SessionValidation(operations.session.status(),
+                    new GameSessionTokenSource.SessionIdentity(next, "SecondAccount"), null, null, "");
+            runtime.reopen();
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(next, runtime.snapshot().account().orElseThrow().accountId());
+            assertTrue(runtime.loadCapePreview(old).join().isEmpty());
+            var prepared = assets.prepareSneaky(operations.skinPreviewBytes);
+            assertEquals(1, worker.size());
+            worker.runFirst();
+            assertEquals(PreviewAssets.SneakyStatus.VALUE, prepared.result().join().status());
+        }
+    }
+
+    @Test
+    void sneakyEnabledLoserStaysVisibleAndInspectionResetPreservesWritableAssignment() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        var reference = new com.naocraftlab.skins.core.model.LocalCapeReference(new UUID(0, 101), "a".repeat(64), false);
+        operations.account = operations.account.withPersonalCapes(List.of(new com.naocraftlab.skins.core.model.PersonalCapeEntry(
+                reference, reference.sha256(), "Ordinary cape", java.time.Instant.EPOCH)));
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            var catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+            var ordinary = catalog.cards().stream().filter(card -> reference.equals(card.local())).findFirst().orElseThrow();
+            runtime.dispatchWidget(ordinary.widgetId());
+            var assigned = runtime.snapshot().editor().orElseThrow().capeCatalog();
+            String sneakyWidget = assigned.cards().stream().filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow().widgetId();
+            assertEquals(BuiltinProvider.OFFLINE, assigned.defaultBundle().source());
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            runtime.dispatchWidget(sneakyWidget);
+            assertTrue(runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow().startsWith("sneaky:preview:"));
+            assertEquals(reference, runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+            runtime.dispatchWidget(sneakyWidget);
+            assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            assertEquals(assigned.previewCape(), runtime.view(854, 480, 0, 0).previews().get(0).capeId());
+            runtime.dispatchWidget(sneakyWidget);
+            runtime.dispatchWidget("editor.tab.cape");
+            assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            assertEquals(reference, runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+            assertEquals(assigned.previewCape(), runtime.view(854, 480, 0, 0).previews().get(0).capeId());
+        }
+    }
+
+    @Test
+    void sneakyMissingNativeDefaultBytesRemainFailedWithoutLocalOrWorldLookup() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        var preset = operations.account.presets().get(0);
+        var nativeDefault = new AppearancePreset(preset.id(), preset.name(), com.naocraftlab.skins.core.model.SkinReference.accountDefault(),
+                preset.capeId(), preset.outerLayerVisibility(), preset.createdAt(), preset.updatedAt());
+        operations.account = new AccountState(AccountState.CURRENT_SCHEMA_VERSION, operations.account.accountId(), operations.account.skinAssets(),
+                operations.account.personalSkins(), List.of(nativeDefault), operations.account.updatedAt());
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + preset.id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            assertEquals(CapeCatalogModel.SneakyReadiness.FAILED, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            assertFalse(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            assertEquals(0, operations.skinPreviewCalls.get());
+            assertEquals(0, operations.capePreviewCalls.get());
+        }
+    }
+
+    @Test
+    void sneakyFailureRetriesOnlyAtSourceCheckpointAndAbsenceStaysDistinct() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        operations.failNextSkinPreview = true;
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            assertEquals(CapeCatalogModel.SneakyReadiness.FAILED, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            int reads = operations.skinPreviewCalls.get();
+            for (int index = 0; index < 10; index++) runtime.view(320, 240, 0, 0);
+            assertEquals(reads, operations.skinPreviewCalls.get());
+            runtime.resourcesReloaded();
+            assertEquals(CapeCatalogModel.SneakyReadiness.VALUE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+        }
+        BufferedImage ordinary = ImageIO.read(new java.io.ByteArrayInputStream(operations.skinPreviewBytes));
+        ordinary.setRGB(60, 48, 0);
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        ImageIO.write(ordinary, "png", encoded);
+        operations.skinPreviewBytes = encoded.toByteArray();
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            assertEquals(CapeCatalogModel.SneakyReadiness.ABSENCE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+        }
+    }
+
+    @Test
+    void catalogReloadPreservesIndependentSneakyInspection() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0x7f123456);
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            var card = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(value -> value.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+            runtime.dispatchWidget(card.widgetId());
+            String texture = runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow();
+            var reload = ClientRuntime.class.getDeclaredMethod("reloadEditorCatalog");
+            reload.setAccessible(true);
+            int reads = operations.editorCatalogReads.get();
+            reload.invoke(runtime);
+            assertEquals(reads + 1, operations.editorCatalogReads.get());
+            assertTrue(hasSneakyCard(runtime.view(854, 480, 0, 0)));
+            assertEquals(card, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            assertEquals(texture, runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow());
+            assertEquals(1, operations.skinPreviewCalls.get());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void worldChangeRetiresPendingSneakyDraftBeforePublishingCurrentCompletion(boolean decodePending) throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0x7f123456);
+        QueuedExecutor worker = new QueuedExecutor();
+        try (ClientRuntime runtime = runtime(operations, worker)) {
+            runtime.initialize();
+            while (worker.size() > 0) worker.runFirst();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            if (decodePending) worker.runFirst();
+            long retired = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            List<ClientSnapshot> published = new ArrayList<>();
+            runtime.subscribe(published::add);
+            runtime.capeWorldChanged();
+            long current = runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyTicket();
+            assertTrue(current > retired);
+            while (worker.size() > 0) worker.runFirst();
+            assertEquals(CapeCatalogModel.SneakyReadiness.VALUE, runtime.snapshot().editor().orElseThrow().capeCatalog().sneakyReadiness());
+            assertTrue(published.stream().flatMap(snapshot -> snapshot.editor().stream())
+                    .filter(editor -> editor.capeCatalog().sneakyReadiness() == CapeCatalogModel.SneakyReadiness.VALUE)
+                    .allMatch(editor -> editor.capeCatalog().sneakyTicket() == current));
+            runtime.dispatchWidget("editor.tab.cape");
+            var card = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(value -> value.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow();
+            runtime.dispatchWidget(card.widgetId());
+            String oldTexture = runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow();
+            runtime.capeWorldChanged();
+            assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            assertTrue(runtime.loadCapePreview(oldTexture).join().isEmpty());
+            runtime.dispatchWidget(card.widgetId());
+            assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            assertEquals(1, operations.skinPreviewCalls.get());
+        }
+    }
+
+    @Test
+    void resourceInvalidationRetiresSneakyTextureKeyBeforeRepreparingExactDraft() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().enable(BuiltinProvider.SNEAKY));
+        operations.skinPreviewBytes = SneakyPreviewPreparationTest.skin(0);
+        try (ClientRuntime runtime = runtime(operations)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            String previous = runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow();
+            String staleAction = runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElseThrow().widgetId();
+            runtime.resourcesReloaded();
+            String next = runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow();
+            org.junit.jupiter.api.Assertions.assertNotEquals(previous, next);
+            assertTrue(runtime.loadCapePreview(previous).join().isEmpty());
+            assertTrue(runtime.loadCapePreview(next).join().isPresent());
+            runtime.dispatchWidget(staleAction);
+            assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+            runtime.closeScreen();
+            assertTrue(runtime.loadCapePreview(next).join().isEmpty());
+        }
+    }
 
     @Test
     void reloadPublishesAChangedSkinExtensionEnvironmentWithoutTickPolling() {
@@ -114,6 +861,64 @@ final class ClientRuntimeRegressionTest {
     }
 
     @Test
+    void cpmSettingsEventUpdatesFrozenSnapshotWithoutResourceReloadAndUnsubscribesOnClose() {
+        StubOperations operations = new StubOperations();
+        AtomicReference<Runnable> changed = new AtomicReference<>();
+        AtomicReference<SkinExtensionEnvironmentSource.State> cpm = new AtomicReference<>(SkinExtensionEnvironmentSource.State.ACTIVE);
+        AtomicInteger reads = new AtomicInteger();
+        SkinExtensionEnvironmentSource source = new SkinExtensionEnvironmentSource() {
+            public Snapshot snapshot() {
+                return new Snapshot(reads.incrementAndGet(), Map.of(Consumer.CUSTOMIZABLE_PLAYER_MODELS, cpm.get()));
+            }
+            public Subscription subscribe(Runnable listener) {
+                changed.set(listener);
+                return () -> changed.compareAndSet(listener, null);
+            }
+        };
+        ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(source);
+        runtime.initialize();
+        var frozen = runtime.snapshot().skinExtensionEnvironment();
+        cpm.set(SkinExtensionEnvironmentSource.State.INACTIVE);
+        changed.get().run();
+        assertEquals(com.naocraftlab.skins.core.compatibility.SkinConsumerState.ACTIVE,
+                frozen.state(com.naocraftlab.skins.core.compatibility.SkinConsumer.CUSTOMIZABLE_PLAYER_MODELS));
+        assertEquals(com.naocraftlab.skins.core.compatibility.SkinConsumerState.INACTIVE,
+                runtime.snapshot().skinExtensionEnvironment().state(com.naocraftlab.skins.core.compatibility.SkinConsumer.CUSTOMIZABLE_PLAYER_MODELS));
+        assertEquals(2, reads.get());
+        runtime.tick();
+        assertEquals(2, reads.get());
+        runtime.close();
+        assertNull(changed.get());
+    }
+
+    @Test
+    void cpmCarrierUsesTheSharedGalleryEditorAndProvidersIndicatorWithoutFiltering() throws Exception {
+        StubOperations operations = new StubOperations();
+        operations.providers = new AppearanceProviders(
+                operations.providers.skin().select(1, new ProviderSkin("1".repeat(64), SkinVariant.CLASSIC)),
+                operations.providers.cape());
+        operations.skinPreviewBytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of("../core/src/test/resources/cpm/classic-a.png"));
+        ClientRuntime runtime = runtime(operations).useSkinExtensionEnvironmentSource(() ->
+                new SkinExtensionEnvironmentSource.Snapshot(1, Map.of(SkinExtensionEnvironmentSource.Consumer.CUSTOMIZABLE_PLAYER_MODELS, SkinExtensionEnvironmentSource.State.INACTIVE)));
+        runtime.initialize();
+        AppearancePreset preset = runtime.snapshot().account().orElseThrow().presets().get(0);
+        ViewSpec.Preview preview = runtime.view(854, 480, 0, 0).previews().stream()
+                .filter(candidate -> candidate.skin().equals(preset.skin())).findFirst().orElseThrow();
+        runtime.loadSkinPreview(preview).join();
+        String id = "gallery.preset." + preset.id();
+        var marker = runtime.view(854, 480, 0, 0).widget(id + ".compatibility").orElseThrow();
+        assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_EXTENDED), marker.icon());
+        assertTrue(marker.label().arguments().toString().contains("customizable_player_models"));
+        runtime.dispatchWidget(id + ".edit");
+        assertEquals(marker.label(), runtime.view(854, 480, 0, 0).widget("editor.compatibility").orElseThrow().label());
+        runtime.dispatchWidget("editor.cancel");
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        assertEquals(marker.label(), runtime.view(854, 480, 0, 0).widget("providers.compatibility").orElseThrow().label());
+        assertEquals(preset.skin(), runtime.snapshot().account().orElseThrow().presets().get(0).skin());
+    }
+
+    @Test
     void unavailableEnvironmentRetriesOnlyOnReload() {
         StubOperations operations = new StubOperations();
         AtomicInteger reads = new AtomicInteger();
@@ -143,6 +948,27 @@ final class ClientRuntimeRegressionTest {
         assertEquals(2, reads.get());
     }
 
+    @Test void cancellingOrClosingDraftRetiresOnlyItsSyntheticSkinSource() {
+        ClientRuntime runtime = runtime(new StubOperations());
+        runtime.initialize();
+        AppearancePreset preset = runtime.snapshot().account().orElseThrow().presets().get(0);
+        runtime.dispatchWidget("gallery.preset." + preset.id() + ".edit");
+        UUID actor = UUID.randomUUID(), preview = UUID.randomUUID();
+        try (var registration = CapeProjection.installEvents(TestCapeProjection.events())) {
+            assertTrue(registration.active());
+            var world = CapeProjection.effectiveSkin(actor, actor, "nclskins:world-a", com.naocraftlab.skins.client.SkinModel.CLASSIC, false);
+            var draft = CapeProjection.effectiveSkin(preview, actor, "nclskins:draft-b", com.naocraftlab.skins.client.SkinModel.SLIM, true);
+            runtime.dispatchWidget("editor.cancel");
+            assertFalse(draft.active());
+            assertTrue(world.active());
+            runtime.dispatchWidget("gallery.preset." + preset.id() + ".edit");
+            var next = CapeProjection.effectiveSkin(preview, actor, "nclskins:draft-c", com.naocraftlab.skins.client.SkinModel.CLASSIC, true);
+            runtime.closeScreen();
+            assertFalse(next.active());
+            assertTrue(world.active());
+        }
+    }
+
     @Test
     void storedLegacyPaddingShowsWarningInGalleryAndEditorWhenPreviewIsReused() throws Exception {
         StubOperations operations = new StubOperations();
@@ -170,6 +996,7 @@ final class ClientRuntimeRegressionTest {
                 .orElseThrow().icon());
 
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
+        TestFixtures.confirmOrdinaryDisplay(runtime);
         ViewSpec editor = runtime.view(854, 480, 0, 0);
 
         assertEquals(1, operations.skinPreviewCalls.get());
@@ -756,6 +1583,155 @@ final class ClientRuntimeRegressionTest {
     }
 
     @Test
+    void uncheckedSessionWorkerCompletionPublishesWithoutClientTaskFailure() {
+        StubOperations operations = new StubOperations();
+        operations.session = new SessionValidation(
+                com.naocraftlab.skins.core.service.SessionStatus.UNCHECKED,
+                operations.session.sessionIdentity(), null, null, "Unchecked");
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        QueuedExecutor clientTasks = new QueuedExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientExecutor client = new ClientExecutor() {
+            @Override
+            public boolean isClientThread() { return false; }
+            @Override
+            public void execute(Runnable action) { clientTasks.execute(action); }
+        };
+        var runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client,
+                CANCELLED_PICKER, worker, TEXT, Optional.empty(), Optional.empty(),
+                DiagnosticSinks.discarding());
+        runtime.initialize();
+        clientTasks.runFirst();
+        assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, runtime.snapshot().lifecycle());
+        worker.runFirst();
+        assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, runtime.snapshot().lifecycle());
+        clientTasks.runFirst();
+        assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(UiMessage.info("nclskins.status.library_loaded"), runtime.snapshot().status());
+        runtime.close();
+        clientTasks.runFirst();
+    }
+
+    @Test
+    void uncheckedSessionPublishesReadyProvidersAndKeepsLayersThroughReopen() {
+        StubOperations operations = new StubOperations();
+        operations.session = new SessionValidation(
+                com.naocraftlab.skins.core.service.SessionStatus.UNCHECKED,
+                operations.session.sessionIdentity(), null, null, "Unchecked");
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE);
+        TestVisibility visibility = new TestVisibility();
+        var runtime = providerRuntime(operations, visibility);
+        runtime.initialize();
+        assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(UiMessage.info("nclskins.status.library_loaded"), runtime.snapshot().status());
+        assertEquals(ClientSnapshot.GallerySessionPresentation.HIDDEN, runtime.snapshot().gallerySessionPresentation());
+        assertTrue(runtime.snapshot().remoteControlsBlocked());
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isEmpty());
+        TestFixtures.confirmOrdinaryDisplay(runtime);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").orElseThrow().enabled());
+        runtime.dispatchWidget("providers.outer_layer.head");
+        var options = visibility.value;
+        assertFalse(options.visible(OuterLayerPart.HEAD));
+        runtime.closeScreen();
+        runtime.reopen(com.naocraftlab.skins.client.ScreenDestination.PROVIDERS);
+        assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(UiMessage.info("nclskins.status.library_loaded"), runtime.snapshot().status());
+        assertEquals(options, runtime.view(854, 480, 0, 0).previews().get(0).outerLayerVisibility());
+        runtime.close();
+    }
+
+    @Test
+    void reopeningRestrictedProvidersKeepsOptionsWithAnUnchangedActivePresetMask() {
+        StubOperations operations = new StubOperations();
+        operations.visibilityInResults = true;
+        TestVisibility visibility = new TestVisibility();
+        var runtime = providerRuntime(operations, visibility);
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        runtime.dispatchWidget("gallery.providers");
+        var account = operations.account;
+        TestFixtures.confirmOrdinaryDisplay(runtime);
+        runtime.dispatchWidget("providers.outer_layer.head");
+        var options = visibility.value;
+        assertFalse(options.visible(OuterLayerPart.HEAD));
+        int applies = visibility.applied.size();
+        for (boolean escape : List.of(false, true)) {
+            if (escape) runtime.escapePressed(); else runtime.dispatchWidget("providers.back");
+            assertEquals(options, runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
+            runtime.reopen(com.naocraftlab.skins.client.ScreenDestination.PROVIDERS);
+            assertEquals(options, runtime.view(854, 480, 0, 0).previews().get(0).outerLayerVisibility());
+            assertEquals(options, visibility.value);
+            assertEquals(applies, visibility.applied.size());
+            assertEquals(account, operations.account);
+        }
+        runtime.closeScreen();
+        operations.appearanceRevision++;
+        runtime.reopen(com.naocraftlab.skins.client.ScreenDestination.PROVIDERS);
+        assertEquals(account.presets().get(0).outerLayerVisibility(), visibility.value);
+        assertEquals(applies + 1, visibility.applied.size());
+        runtime.close();
+    }
+
+    @Test
+    void providersOptionsSurviveStartupWithoutActivePresetAndYieldToApplyOrActiveStartup() {
+        for (boolean active : List.of(false, true)) {
+            StubOperations operations = new StubOperations();
+            operations.visibilityInResults = active;
+            operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                    .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+            TestVisibility visibility = new TestVisibility();
+            var runtime = providerRuntime(operations, visibility);
+            runtime.initialize();
+            var account = operations.account;
+            TestFixtures.confirmOrdinaryDisplay(runtime);
+            runtime.dispatchWidget("providers.outer_layer.head");
+            assertFalse(visibility.value.visible(OuterLayerPart.HEAD));
+            assertEquals(account, operations.account);
+            runtime.close();
+            var restarted = providerRuntime(operations, visibility);
+            restarted.initialize();
+            assertEquals(active, visibility.value.visible(OuterLayerPart.HEAD));
+            TestFixtures.confirmOrdinaryDisplay(restarted);
+            restarted.dispatchWidget("providers.outer_layer.body");
+            var options = visibility.value;
+            operations.providers = AppearanceProviders.initial();
+            restarted.dispatchWidget("gallery.providers");
+            restarted.dispatchWidget("providers.back");
+            UUID id = operations.account.presets().get(0).id();
+            restarted.dispatchWidget("gallery.preset." + id + ".edit");
+            TestFixtures.confirmOrdinaryDisplay(restarted);
+            restarted.dispatchWidget("editor.outer_layer.head");
+            restarted.dispatchWidget("editor.cancel");
+            assertEquals(options, visibility.value);
+            assertEquals(account, operations.account);
+            if (active) {
+                restarted.dispatchWidget("gallery.preset." + id + ".apply");
+                assertEquals(account.presets().get(0).outerLayerVisibility(), visibility.value);
+                restarted.dispatchWidget("gallery.preset." + id + ".edit");
+                TestFixtures.confirmOrdinaryDisplay(restarted);
+                restarted.dispatchWidget("editor.outer_layer.legs");
+                restarted.dispatchWidget("editor.save");
+                assertEquals(operations.account.presets().get(0).outerLayerVisibility(), visibility.value);
+            }
+            restarted.close();
+        }
+    }
+
+    private static ClientRuntime providerRuntime(StubOperations operations, TestVisibility visibility) {
+        return new ClientRuntime(new DefaultRuntimeServices(), operations, CLIENT, CANCELLED_PICKER,
+                Runnable::run, TEXT, Optional.of(ClientRuntimeRegressionTest::menuPlayerAppearance),
+                Optional.empty(), Optional.of(visibility), Optional.empty(), DiagnosticSinks.discarding());
+    }
+
+    @Test
     void editorDraftIsSideEffectFreeAndOnlyActiveSaveAppliesItsMask() {
         StubOperations operations = new StubOperations();
         operations.visibilityInResults = true;
@@ -780,6 +1756,7 @@ final class ClientRuntimeRegressionTest {
         UUID inactive = operations.account.presets().get(1).id();
 
         runtime.dispatchWidget("gallery.preset." + inactive + ".edit");
+        TestFixtures.confirmOrdinaryDisplay(runtime);
         runtime.dispatchWidget("editor.outer_layer.body");
         assertEquals(1, applied.size());
         runtime.dispatchWidget("editor.save");
@@ -787,10 +1764,12 @@ final class ClientRuntimeRegressionTest {
 
         assertEquals(initialPreview, runtime.menuPreviewAppearance().orElseThrow());
         runtime.dispatchWidget("gallery.preset." + active + ".edit");
+        TestFixtures.confirmOrdinaryDisplay(runtime);
         runtime.dispatchWidget("editor.outer_layer.head");
         runtime.dispatchWidget("editor.cancel");
         assertEquals(initialPreview, runtime.menuPreviewAppearance().orElseThrow());
         runtime.dispatchWidget("gallery.preset." + active + ".edit");
+        TestFixtures.confirmOrdinaryDisplay(runtime);
         runtime.dispatchWidget("editor.outer_layer.head");
         assertEquals(1, applied.size());
         runtime.dispatchWidget("editor.save");
@@ -804,6 +1783,10 @@ final class ClientRuntimeRegressionTest {
         assertEquals(applied.get(2), runtime.menuPreviewAppearance().orElseThrow().outerLayerVisibility());
         assertFalse(applied.get(2).visible(OuterLayerPart.BODY));
         runtime.close();
+    }
+
+    private static boolean hasSneakyCard(ViewSpec view) {
+        return view.widgets().stream().anyMatch(widget -> widget.id().startsWith("editor.cape_item.SNEAKY.bundle."));
     }
 
     private static ClientRuntime runtime(StubOperations operations) {
@@ -849,10 +1832,11 @@ final class ClientRuntimeRegressionTest {
                     new com.naocraftlab.skins.core.png.PngValidator()).projectStandardImport(path);
         }
 
-        private final SessionValidation session = TestFixtures.validSession();
+        private SessionValidation session = TestFixtures.validSession();
         private AccountState account = TestFixtures.account(2);
         private AppearanceProviders providers = AppearanceProviders.initial();
         private boolean failEditorSave;
+        private EditorSaveRequest lastEditorRequest;
         private MutationResult mutationResult = MutationResult.APPLIED;
         private Set<RecoveryAction> recoveryActions = Set.of();
         private String lastCapeId;
@@ -863,6 +1847,73 @@ final class ClientRuntimeRegressionTest {
         private final AtomicInteger initializeCalls = new AtomicInteger();
         private final AtomicInteger skinPreviewCalls = new AtomicInteger();
         private final AtomicInteger capePreviewCalls = new AtomicInteger();
+        private final AtomicInteger preparedCapeReads = new AtomicInteger();
+        private final AtomicInteger editorCatalogReads = new AtomicInteger();
+        private final AtomicInteger capeRenames = new AtomicInteger();
+        private final AtomicInteger capeDeletes = new AtomicInteger();
+        private final AtomicInteger providerHttpCalls = new AtomicInteger();
+        private final AtomicInteger personalMaterializations = new AtomicInteger();
+        private final AtomicInteger observationAdoptions = new AtomicInteger();
+
+        @Override
+        public ProviderRefreshResult refreshProviderSources(ProviderRefreshUseCases.Scope scope) {
+            providerHttpCalls.incrementAndGet();
+            return new ProviderRefreshResult(scope, Optional.of(reloadProviders()), Map.of(), false);
+        }
+
+        @Override
+        public void refreshCapeProvider(ProviderRefreshUseCases.Scope scope, BuiltinProvider provider,
+                java.util.function.Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<com.naocraftlab.skins.core.provider.ProviderCape>> completion) {
+            providerHttpCalls.incrementAndGet();
+            completion.accept(null);
+        }
+
+        @Override
+        public void adoptSharedCapeObservation(UUID accountId, String canonicalName, AppearanceProviders providers) {
+            observationAdoptions.incrementAndGet();
+        }
+
+        @Override
+        public com.naocraftlab.skins.core.model.PersonalCapeEntry materializeResourceCape(UUID accountId, ResourceCapeSelection selection) {
+            personalMaterializations.incrementAndGet();
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(UUID accountId, java.nio.file.Path path, String fallbackName) {
+            personalMaterializations.incrementAndGet();
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public AccountState renameCape(UUID accountId, UUID entryId, String name) {
+            capeRenames.incrementAndGet();
+            account = account.withPersonalCapes(account.personalCapes().stream()
+                    .map(entry -> entryId.equals(entry.texture().entryId()) ? entry.renamed(name) : entry).toList());
+            return account;
+        }
+
+        @Override
+        public CapeDeletion deleteCape(UUID accountId, UUID entryId) {
+            capeDeletes.incrementAndGet();
+            account = account.withPersonalCapes(account.personalCapes().stream()
+                    .filter(entry -> !entryId.equals(entry.texture().entryId())).toList());
+            return new CapeDeletion(account, reloadProviders());
+        }
+
+        @Override
+        public CatalogRead.CapeEditorData loadCapeEditorData(UUID accountId) {
+            editorCatalogReads.incrementAndGet();
+            return new CatalogRead.CapeEditorData(account, List.of(), Map.of(), 1);
+        }
+
+        @Override
+        public Optional<CapePreviewSource> openPreparedCapePreview(UUID account,
+                Optional<CatalogRead.ResourceCapeSelection> resource, String capeId,
+                Executor worker, ClientExecutor clientExecutor, boolean thumbnail) {
+            preparedCapeReads.incrementAndGet();
+            return Optional.empty();
+        }
         private final AtomicInteger reconciliationCalls = new AtomicInteger();
         private final List<Trigger> reconciliationTriggers = new ArrayList<>();
         private boolean failNextSkinPreview;
@@ -872,6 +1923,13 @@ final class ClientRuntimeRegressionTest {
         private Map<UUID, byte[]> skinPreviewByAsset = Map.of();
         private boolean warmCheckpoint;
         private long appearanceRevision;
+
+        @Override
+        public DurableAppearance reloadProviders() {
+            return new DurableAppearance(account.accountId(), appearanceRevision, AppearanceSyncStatus.LOCAL_ONLY,
+                    visibilityInResults ? Optional.of(account.presets().get(0).id()) : Optional.empty(),
+                    Optional.empty(), Optional.empty(), providers);
+        }
 
         @Override
         public void warmSession() {
@@ -921,11 +1979,12 @@ final class ClientRuntimeRegressionTest {
                             : Optional.empty(),
                     com.naocraftlab.skins.core.model.OwnedCapeInventory.empty(account.accountId(),
                             java.time.Instant.EPOCH),
-                    0, AppearanceSyncStatus.LOCAL_ONLY, providers);
+                    appearanceRevision, AppearanceSyncStatus.LOCAL_ONLY, providers);
         }
 
         @Override
         public EditorSave saveEditor(EditorSaveRequest request) throws IOException {
+            lastEditorRequest = request;
             if (failEditorSave) {
                 throw new IOException("characterized save failure");
             }

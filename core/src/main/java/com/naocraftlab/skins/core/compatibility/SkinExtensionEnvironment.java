@@ -5,7 +5,12 @@ import java.util.Map;
 import java.util.Objects;
 
 
-public record SkinExtensionEnvironment(long generation, Map<SkinConsumer, SkinConsumerState> consumers) {
+public record SkinExtensionEnvironment(long generation, Map<SkinConsumer, SkinConsumerState> consumers,
+        boolean cpmPresent) {
+    public SkinExtensionEnvironment(long generation, Map<SkinConsumer, SkinConsumerState> consumers) {
+        this(generation, consumers, false);
+    }
+
     public SkinExtensionEnvironment {
         if (generation < 0) {
             throw new IllegalArgumentException("generation must be non-negative");

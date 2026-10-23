@@ -527,11 +527,12 @@ final class LocalizationVerifier {
                 'nclskins.standard_skins.authors'
         ])
         (1..8).each { keys.add("nclskins.compatibility.tooltip.${it}") }
-        ['ears', 'fresh_moves', 'just_expressions', 'sneaky_capes'].each {
+        ['ears', 'fresh_moves', 'just_expressions', 'sneaky_capes', 'customizable_player_models'].each {
             keys.add("nclskins.compatibility.feature.${it}")
         }
         ['malformed_ears_data', 'malformed_expressive_data', 'missing_expressive_runtime',
-                'sneaky_fresh_moves_overlap', 'sneaky_just_expressions_overlap'].each {
+                'sneaky_fresh_moves_overlap', 'sneaky_just_expressions_overlap',
+                'malformed_cpm_data', 'cpm_fresh_moves_overlap', 'cpm_just_expressions_overlap'].each {
             keys.add("nclskins.compatibility.reason.${it}")
         }
         List<String> importSources = [
@@ -544,6 +545,8 @@ final class LocalizationVerifier {
             keys.add("nclskins.external_import.invalid_folder.${source}")
         }
         keys.removeAll([
+                'nclskins.add.cpm_publication_',
+                'nclskins.add_source.cpm.',
                 'nclskins.compatibility.feature.',
                 'nclskins.compatibility.reason.',
                 'nclskins.compatibility.tooltip.',

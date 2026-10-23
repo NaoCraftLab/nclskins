@@ -40,10 +40,22 @@ public interface PlayerAppearanceSink<P> {
         return Optional.empty();
     }
 
+    default Optional<String> registerCapeFrame(UUID profileId, CapeSource provider,
+            String frameSha256, int width, int height, byte[] rgba8,
+            TextureRegistry.CpuLease cpuLease) {
+        cpuLease.close();
+        return Optional.empty();
+    }
+
     default void releaseCapeTexture(UUID profileId, CapeSource provider) {}
 
+    default TextureUseValidity captureCapeTexture(UUID profileId, CapeSource provider,
+            String installedLocation) {
+        return TextureUseValidity.INVALID;
+    }
+
     enum CapeSource {
-        OFFLINE, MINECRAFT, OPTIFINE, SKINMC, SNEAKY
+        OFFLINE, MINECRAFT, OPTIFINE, SKINMC, SNEAKY, MINECRAFTCAPES
     }
 
     record TrackedCapePlayer(UUID profileId, String canonicalName) {
@@ -55,6 +67,7 @@ public interface PlayerAppearanceSink<P> {
 
     enum ApplyResult {
         UPDATED,
-        DEFERRED
+        DEFERRED,
+        NOT_INSTALLED
     }
 }

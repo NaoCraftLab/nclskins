@@ -45,6 +45,8 @@ import com.naocraftlab.skins.core.model.SkinVariant;
 import com.naocraftlab.skins.core.provider.AppearanceProviders;
 import com.naocraftlab.skins.core.provider.BuiltinProvider;
 import com.naocraftlab.skins.core.provider.ProviderCape;
+import com.naocraftlab.skins.core.provider.ProviderObservation;
+import com.naocraftlab.skins.core.provider.ProviderSkin;
 import com.naocraftlab.skins.core.png.PngValidator;
 import com.naocraftlab.skins.core.storage.NclSkinsStorage;
 import com.naocraftlab.skins.core.storage.TextureCache;
@@ -93,6 +95,125 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ClientRuntimeTest {
+    @Test
+    void frozenIngressRenamedPngUsesActualBytesInProductionCaller(@TempDir Path directory) throws Exception {
+        Path source = Files.write(directory.resolve("renamed.cpmproject"), opaqueSkinPng(false));
+        var operations = new FakeOperations();
+        var runtime = runtime(operations, () -> CompletableFuture.completedFuture(Optional.of(source)));
+        try {
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            runtime.dispatchWidget("add.file.choose");
+            assertTrue(runtime.snapshot().editor().isPresent(), "Renamed PNG must reach the actual creation consumer");
+        } finally { runtime.close(); }
+    }
+
+    @Test
+    void frozenIngressExplicitUrlModelReachesActualAdmissionCaller(@TempDir Path directory) throws Exception {
+        var operations = new FakeOperations();
+        operations.acquiredImports = com.naocraftlab.skins.core.api.FrozenIngressNetworkFixture.imports(directory, validModel(false));
+        var runtime = runtime(operations, () -> CompletableFuture.completedFuture(Optional.empty()));
+        useBaseConverter(runtime, new BaseOnlyConverter(SkinModel.CLASSIC));
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        runtime.dispatchText("add.url.input", "https://example.com/renamed.PNG");
+        runtime.dispatchWidget("add.url.load");
+        assertEquals(AddSourceModel.Purpose.CPM_BASE, runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals(0, operations.editorSaveCalls);
+        runtime.close();
+    }
+
+    @Test
+    void frozenIngressFileAndUrlMatrixReachesActualTerminalConsumers(@TempDir Path directory) throws Exception {
+        var zipBytes = new java.io.ByteArrayOutputStream();
+        try (var zip = new java.util.zip.ZipOutputStream(zipBytes)) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("config.json"));
+            zip.write("{\"version\":1}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        byte[][] bodies = {opaqueSkinPng(false), validModel(false), zipBytes.toByteArray()};
+        for (boolean url : List.of(false, true)) for (int format = 0; format < bodies.length; format++) {
+            var operations = new FakeOperations();
+            var before = operations.account;
+            var picker = new ComposedReasonPicker(true);
+            var runtime = runtime(operations, picker);
+            var converter = new BaseOnlyConverter(SkinModel.CLASSIC);
+            useBaseConverter(runtime, converter);
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            if (url) {
+                operations.acquiredImports = com.naocraftlab.skins.core.api.FrozenIngressNetworkFixture.imports(directory, bodies[format]);
+                runtime.dispatchText("add.url.input", "https://example.com/source.PNG");
+                runtime.dispatchWidget("add.url.load");
+            } else {
+                Path source = Files.write(directory.resolve("source-" + format + ".data"), bodies[format]);
+                picker.selections.add(CompletableFuture.completedFuture(Optional.of(source)));
+                runtime.dispatchWidget("add.file.choose");
+            }
+            if (format == 0) assertTrue(runtime.snapshot().editor().isPresent());
+            else {
+                var input = runtime.snapshot().addSource().orElseThrow().importContext();
+                assertTrue(runtime.snapshot().editor().isEmpty());
+                if (format == 1) assertEquals(AddSourceModel.Purpose.CPM_BASE, input.purpose());
+                else assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.MODEL_UNSUPPORTED), input.failure());
+            }
+            assertEquals(before, operations.account);
+            assertEquals(0, operations.editorSaveCalls);
+            assertEquals(0, operations.applyCalls);
+            assertEquals(0, converter.conversions);
+            runtime.close();
+        }
+    }
+
+    @Test
+    void frozenIngressRenamedModelReachesOptionalAdmission(@TempDir Path directory) throws Exception {
+        Path source = Files.copy(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"),
+                directory.resolve("model.PNG"));
+        var operations = new FakeOperations();
+        var runtime = runtime(operations, () -> CompletableFuture.completedFuture(Optional.of(source)));
+        useBaseConverter(runtime, new com.naocraftlab.skins.client.CpmModelFileConversion() {
+            public Availability availability() { return Availability.READY; }
+            public AdmittedModel admitFile(Path path) { throw new AssertionError("Original path must not be reopened"); }
+            public AdmittedModel admit(java.io.InputStream input) throws Failure {
+                assertTrue(input instanceof com.naocraftlab.skins.client.FrozenImportInput.Reader);
+                try { assertEquals(83, input.read()); }
+                catch (java.io.IOException failure) { throw new Failure(Reason.IO_FAILED); }
+                return new AdmittedModel() {
+                    public Optional<SkinModel> requiredVariant() { return Optional.of(SkinModel.CLASSIC); }
+                    public Optional<Raster> automaticBase(SkinModel preferred) { return Optional.empty(); }
+                    public void close() { }
+                };
+            }
+            public Preparation prepare(AdmittedModel model, Raster base, long revision) { throw new AssertionError("Admission-only test"); }
+        });
+        try {
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            runtime.dispatchWidget("add.file.choose");
+            assertEquals(Optional.of(SkinModel.CLASSIC), runtime.snapshot().addSource().orElseThrow()
+                    .importContext().requiredVariant(), "Content-sniffed model must reach optional admission");
+        } finally { runtime.close(); }
+    }
+
+    @Test
+    void frozenIngressProjectGoesToNativeAdapterWithoutIndependentArchiveGate(@TempDir Path directory) throws Exception {
+        for (boolean traversal : List.of(false, true)) {
+            Path source = directory.resolve(traversal ? "unsafe.PNG" : "project.bin");
+            try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(source))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(traversal ? "../config.json" : "config.json"));
+                zip.write("{\"version\":1}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            var runtime = runtime(new FakeOperations(), () -> CompletableFuture.completedFuture(Optional.of(source)));
+            useBaseConverter(runtime, new BaseOnlyConverter(SkinModel.CLASSIC));
+            try {
+                runtime.reopen(ScreenDestination.SKIN_IMPORT);
+                runtime.dispatchWidget("add.file.choose");
+                assertTrue(runtime.snapshot().editor().isEmpty());
+                assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.MODEL_UNSUPPORTED),
+                        runtime.snapshot().addSource().orElseThrow().importContext().failure(),
+                        "Native test adapter receives the project; no NCL archive parser is an admission authority");
+            } finally { runtime.close(); }
+        }
+    }
+
     private static final DirectClientExecutor CLIENT = new DirectClientExecutor();
     private static final FilePicker CANCELLED_PICKER =
             () -> CompletableFuture.completedFuture(Optional.empty());
@@ -101,6 +222,1001 @@ final class ClientRuntimeTest {
         case "nclskins.gallery.copy_name" -> "Copy of " + message.arguments().get(0);
         default -> message.key();
     };
+
+    @Test
+    void sneakyCatalogProducerAndReusablePersonalVariantPublishExactBytes() throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.catalogPng = SneakyPreviewPreparationTest.skin(0x7f123456);
+        operations.skinPreviewPng = SneakyPreviewPreparationTest.skin(0x7f654321);
+        operations.personalCatalogPng = operations.skinPreviewPng;
+        String personalHash = operations.seedPersonalSkin("Reusable", PersonalSkinSource.FILE);
+        try (ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty())) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.add");
+            runtime.dispatchWidget("add.tab.catalog");
+            runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
+            var catalog = runtime.snapshot().editor().orElseThrow();
+            assertTrue(catalog.png().isPresent());
+            assertArrayEquals(operations.catalogPng, catalog.png().orElseThrow().bytes());
+            String first = catalog.capeCatalog().defaultBundle().texture().orElseThrow();
+            assertArrayEquals(new com.naocraftlab.skins.core.png.SneakyCapeDecoder().decode(operations.catalogPng).orElseThrow().bytes(),
+                    runtime.loadCapePreview(first).join().orElseThrow());
+            runtime.dispatchWidget("editor.model_choice.slim");
+            var slim = runtime.snapshot().editor().orElseThrow();
+            assertEquals(SkinVariant.SLIM, slim.variant());
+            assertTrue(slim.capeCatalog().sneakyTicket() > catalog.capeCatalog().sneakyTicket());
+            assertArrayEquals(operations.catalogPng, slim.png().orElseThrow().bytes());
+            assertTrue(runtime.loadCapePreview(first).join().isEmpty());
+            runtime.dispatchWidget("editor.cancel");
+            runtime.dispatchWidget("add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash);
+            var reusable = runtime.snapshot().editor().orElseThrow();
+            assertArrayEquals(operations.personalCatalogPng, reusable.png().orElseThrow().bytes());
+            assertEquals(operations.personalCatalogAssetId, reusable.skin().optionalAssetId().orElseThrow());
+            assertArrayEquals(new com.naocraftlab.skins.core.png.SneakyCapeDecoder().decode(operations.skinPreviewPng).orElseThrow().bytes(),
+                    runtime.loadCapePreview(reusable.capeCatalog().defaultBundle().texture().orElseThrow()).join().orElseThrow());
+            assertEquals(0, operations.skinPreviewCalls);
+            assertEquals(0, operations.applyCalls);
+            assertEquals(0, operations.resourceCapeMaterializations);
+        }
+    }
+
+    @Test
+    void sneakyResourceOfflineCandidateResolvesAtItsActualPriorityWithoutMaterialization() throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY);
+        operations.skinPreviewPng = SneakyPreviewPreparationTest.skin(0);
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        try (ClientRuntime runtime = runtime(operations, CANCELLED_PICKER)) {
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchWidget("editor.tab.cape");
+            runtime.dispatchWidget("editor.cape_item.RESOURCE.event.hero");
+            runtime.dispatchWidget("editor.tab.cape");
+            var before = runtime.snapshot().editor().orElseThrow().capeCatalog();
+            assertEquals(BuiltinProvider.OFFLINE, before.defaultBundle().source());
+            assertTrue(before.defaultBundle().texture().orElseThrow().startsWith("resource:cape:1:event:hero:"));
+            var accept = ClientRuntime.class.getDeclaredMethod("acceptProviderChange", ClientOperations.DurableAppearance.class);
+            accept.setAccessible(true);
+            operations.providers = operations.providers.move(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY, -1);
+            operations.providers = operations.providers.move(AppearanceProviders.Component.CAPE, BuiltinProvider.SNEAKY, -1);
+            accept.invoke(runtime, operations.providerState());
+            var after = runtime.snapshot().editor().orElseThrow().capeCatalog();
+            assertEquals(BuiltinProvider.SNEAKY, after.defaultBundle().source());
+            assertEquals(before.selectedResource(), after.selectedResource());
+            assertEquals(before.sneakyTicket(), after.sneakyTicket());
+            assertEquals(before.sneaky(), after.sneaky());
+            assertFalse(after.defaultBundle().hasElytra());
+            assertEquals(1, operations.skinPreviewCalls);
+            assertEquals(0, operations.resourceCapeMaterializations);
+            runtime.dispatchWidget("editor.cancel");
+            assertEquals(0, operations.resourceCapeMaterializations);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void providerFailureCaptionConnectsStoredProducerToChainAndSelectedSkin(boolean selected, @TempDir Path directory) throws Exception {
+        try (var fixture = new ProviderFailureFixture(directory, selected, CLIENT, Runnable::run)) {
+            var runtime = fixture.runtime;
+            var initial = runtime.view(854, 480, 0, 0);
+            assertEquals("providers", initial.screenId());
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            assertEquals(0, fixture.operations.skinPreviewCalls);
+            assertTrue(runtime.snapshot().assetEvidence().get(TestFixtures.CLASSIC_ID).supportedFeatures()
+                    .contains(com.naocraftlab.skins.core.compatibility.SkinFeature.CUSTOMIZABLE_PLAYER_MODELS));
+            assertEquals(fixture.cpm.sha256(), runtime.snapshot().account().orElseThrow().skinAssets().get(0).sha256());
+            if (selected) runtime.dispatchWidget("providers.row.MINECRAFT");
+            var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+            assertEquals("provider:skin:" + fixture.cpm.sha256(), preview.imageRevision());
+            var account = fixture.operations.account;
+            var providers = fixture.operations.providers;
+            int reads = fixture.operations.evidenceReads;
+            try (var projection = CapeProjection.installEvents(TestCapeProjection.events())) {
+                assertTrue(projection.active());
+                var source = CapeProjection.effectiveSkin(new UUID(0, 731), account.accountId(), preview.imageRevision(), SkinModel.CLASSIC, true);
+                var producer = CapeProjection.cpmObserver(source, "SyntheticPreview");
+                java.util.function.Supplier<com.naocraftlab.skins.client.PreviewAccessories> supplier = () ->
+                        CapeProjection.previewAccessories(source.cacheId(), preview.imageRevision(), SkinModel.CLASSIC, PreviewRenderer.LiveReason.AVAILABLE);
+                var callback = runtime.observePreviewAccessories(preview, supplier);
+                assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+                assertTrue(producer.publish(1, CpmAccessoryObservation.Availability.FAILED, false, false));
+                callback.accept(supplier.get());
+                var failed = runtime.view(854, 480, 0, 0);
+                assertTrue(hasFailureCaption(failed), "Current FAILED must reach caption for " + (selected ? "selected SKIN" : "chain-winning SKIN"));
+                assertEquals(preview, failed.previews().get(0));
+                assertFalse(runtime.waitsForCpmBody(failed.previews().get(0)));
+                var history = new ArrayList<ViewSpec>();
+                runtime.subscribe(ignored -> history.add(runtime.view(854, 480, 0, 0)));
+                int notifications = history.size();
+                for (int i = 0; i < 8; i++) {
+                    assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+                    callback.accept(supplier.get());
+                }
+                assertEquals(notifications, history.size(), "Repeated FAILED is not a publication loop");
+                history.clear();
+                runtime.dispatchWidget("providers.refresh");
+                assertFalse(history.isEmpty());
+                history.forEach(view -> {
+                    assertTrue(hasFailureCaption(view), "Refresh keeps every current failure projection");
+                    assertEquals(preview.imageRevision(), view.previews().get(0).imageRevision());
+                });
+                for (var availability : List.of(CpmAccessoryObservation.Availability.UNKNOWN, CpmAccessoryObservation.Availability.PENDING,
+                        CpmAccessoryObservation.Availability.BLOCKED, CpmAccessoryObservation.Availability.CONFIRMED)) {
+                    assertTrue(producer.publish(2, availability, false, false));
+                    callback.accept(supplier.get());
+                    assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)), availability.name());
+                }
+                producer.publish(3, CpmAccessoryObservation.Availability.FAILED, false, false);
+                callback.accept(supplier.get());
+                assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+                runtime.dispatchWidget("providers.row." + (selected ? "OFFLINE" : "MINECRAFT"));
+                assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)), "Ordinary inspection rejects old chain failure");
+                runtime.dispatchWidget("providers.tab.SKIN");
+                assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)), "Reset does not revive retained FAILED");
+                assertEquals(providers, fixture.operations.providers);
+                assertEquals(account, fixture.operations.account);
+                assertEquals(reads, fixture.operations.evidenceReads);
+                assertEquals(0, fixture.operations.skinPreviewCalls);
+                assertEquals(0, fixture.operations.applyCalls);
+                assertEquals(0, fixture.operations.editorSaveCalls);
+            }
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ordinary", "absent", "carrier-only", "worldless", "no-evidence", "cape-only"})
+    void providerFailureCaptionRequiresCarrierLibraryAndCurrentModelEvidence(String negative, @TempDir Path directory) throws Exception {
+        try (var fixture = new ProviderFailureFixture(directory, negative.equals("cape-only"), CLIENT, Runnable::run)) {
+            var runtime = fixture.runtime;
+            if (negative.equals("ordinary")) runtime.dispatchWidget("providers.row.MINECRAFT");
+            if (negative.equals("absent")) {
+                fixture.cpmPresent.set(false);
+                runtime.resourcesReloaded();
+            }
+            if (negative.equals("no-evidence")) {
+                var account = fixture.operations.account;
+                fixture.operations.account = new AccountState(AccountState.CURRENT_SCHEMA_VERSION, account.accountId(),
+                        List.of(), account.personalSkins(), account.presets(), account.updatedAt());
+                runtime.closeScreen();
+                runtime.reopen(ScreenDestination.PROVIDERS);
+                assertTrue(runtime.snapshot().account().orElseThrow().skinAssets().isEmpty());
+            }
+            if (negative.equals("cape-only")) {
+                runtime.dispatchWidget("providers.row.MINECRAFT");
+                runtime.dispatchWidget("providers.tab.CAPE");
+            }
+            var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+            int effects = fixture.operations.applyCalls;
+            var observed = negative.equals("carrier-only") || negative.equals("worldless")
+                    ? com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.WORLD_REQUIRED)
+                    : new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 735), 1,
+                            com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var callback = runtime.observePreviewAccessories(preview, () -> observed);
+            callback.accept(observed);
+            for (int i = 0; i < 5; i++) assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)), negative);
+            assertEquals(effects, fixture.operations.applyCalls);
+            assertEquals(0, fixture.operations.skinPreviewCalls);
+        }
+    }
+
+    @Test
+    void providerFailureCaptionIsIndependentOfCapeInspectionAndBodyAuthority(@TempDir Path directory) throws Exception {
+        try (var fixture = new ProviderFailureFixture(directory, false, CLIENT, Runnable::run)) {
+            var runtime = fixture.runtime;
+            fixture.operations.providers = new AppearanceProviders(fixture.operations.providers.skin(),
+                    fixture.operations.providers.cape().enable(BuiltinProvider.OFFLINE)
+                            .select(1, new ProviderCape("synthetic-cape", null, false)));
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.tab.CAPE");
+            runtime.dispatchWidget("providers.row.OFFLINE");
+            var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+            var failure = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 737), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var live = new AtomicReference<>(failure);
+            var callback = runtime.observePreviewAccessories(preview, live::get);
+            assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            var body = new AtomicReference<>(PreviewRenderer.DisplayKind.CPM);
+            var bodyCallback = runtime.observePreviewBody(preview, body::get);
+            bodyCallback.accept(PreviewRenderer.BodyStatus.READY);
+            assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            body.set(PreviewRenderer.DisplayKind.ORDINARY);
+            bodyCallback.accept(PreviewRenderer.BodyStatus.ORDINARY);
+            assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            live.set(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING));
+            callback.accept(failure);
+            assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)), "Old callback payload must not replace the current supplier observation");
+            assertEquals(0, fixture.operations.applyCalls);
+            assertEquals(0, fixture.operations.skinPreviewCalls);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"world", "resources", "model", "source", "roundtrip", "session", "account", "reopen"})
+    void providerFailedAccessoryRegistrationRejectsRetiredSameRevision(String transition, @TempDir Path directory) throws Exception {
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        QueuedExecutor nativeCallbacks = new QueuedExecutor();
+        try (var fixture = new ProviderFailureFixture(directory, false, client, worker)) {
+            drainRefreshQueues(worker, client);
+            var runtime = fixture.runtime;
+            var preview = refreshView(runtime, client).previews().get(0);
+            var failure = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 732), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var reads = new AtomicInteger();
+            var callback = new AtomicReference<java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories>>();
+            client.execute(() -> callback.set(runtime.observePreviewAccessories(preview, () -> { reads.incrementAndGet(); return failure; })));
+            drainRefreshQueues(worker, client);
+            assertTrue(hasFailureCaption(refreshView(runtime, client)));
+            nativeCallbacks.execute(() -> callback.get().accept(failure));
+            var originalSession = fixture.operations.session;
+            switch (transition) {
+                case "world" -> runtime.importWorldChanged();
+                case "resources" -> runtime.resourcesReloaded();
+                case "model" -> {
+                    fixture.operations.providers = new AppearanceProviders(fixture.operations.providers.skin().select(1,
+                            new ProviderSkin(fixture.cpm.sha256(), SkinVariant.SLIM)), fixture.operations.providers.cape());
+                    runtime.dispatchWidget("gallery.providers");
+                }
+                case "source" -> runtime.dispatchWidget("providers.row.MINECRAFT");
+                case "roundtrip" -> {
+                    runtime.dispatchWidget("providers.row.MINECRAFT");
+                    runtime.dispatchWidget("providers.row.OFFLINE");
+                }
+                case "session", "account" -> {
+                    fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                            new GameSessionTokenSource.SessionIdentity(transition.equals("session")
+                                    ? originalSession.sessionIdentity().profileId() : new UUID(0, 733), "SyntheticOther"),
+                            null, (SessionFailureContext) null, "synthetic");
+                    runtime.tick();
+                }
+                case "reopen" -> { runtime.closeScreen(); runtime.reopen(ScreenDestination.PROVIDERS); }
+                default -> throw new AssertionError(transition);
+            }
+            drainRefreshQueues(worker, client);
+            var history = new ArrayList<ViewSpec>();
+            runtime.subscribe(ignored -> history.add(refreshView(runtime, client)));
+            drainRefreshQueues(worker, client);
+            int beforeOldRead = reads.get();
+            assertFalse(hasFailureCaption(refreshView(runtime, client)), transition);
+            while (nativeCallbacks.size() > 0) nativeCallbacks.runFirst();
+            drainRefreshQueues(worker, client);
+            assertFalse(hasFailureCaption(refreshView(runtime, client)), transition);
+            assertEquals(beforeOldRead, reads.get(), "Retired supplier cannot execute: " + transition);
+            if (transition.equals("session") || transition.equals("account")) {
+                fixture.operations.session = originalSession; runtime.tick(); drainRefreshQueues(worker, client);
+                assertFalse(hasFailureCaption(refreshView(runtime, client)), "Account A-B-A does not revive failure");
+            }
+            history.forEach(view -> assertFalse(hasFailureCaption(view), "Stale subscriber caption: " + transition));
+            var fresh = refreshView(runtime, client).previews().get(0);
+            var next = new AtomicReference<java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories>>();
+            client.execute(() -> next.set(runtime.observePreviewAccessories(fresh,
+                    () -> com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING))));
+            drainRefreshQueues(worker, client);
+            callback.get().accept(failure); drainRefreshQueues(worker, client);
+            assertFalse(hasFailureCaption(refreshView(runtime, client)));
+            assertEquals(0, fixture.operations.applyCalls);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"world", "resources", "replace", "close"})
+    void providerFailedAccessorySupplierReentrancyCannotOverwriteReplacement(String transition, @TempDir Path directory) throws Exception {
+        try (var fixture = new ProviderFailureFixture(directory, false, CLIENT, Runnable::run)) {
+            var runtime = fixture.runtime;
+            var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+            var armed = new AtomicBoolean();
+            var oldFailure = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 734), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var replacement = com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING);
+            var nextReads = new AtomicInteger();
+            var old = runtime.observePreviewAccessories(preview, () -> {
+                if (armed.getAndSet(false)) {
+                    switch (transition) {
+                        case "world" -> runtime.importWorldChanged();
+                        case "resources" -> runtime.resourcesReloaded();
+                        case "close" -> runtime.closeScreen();
+                        case "replace" -> runtime.observePreviewAccessories(preview, () -> { nextReads.incrementAndGet(); return replacement; });
+                        default -> throw new AssertionError(transition);
+                    }
+                }
+                return oldFailure;
+            });
+            assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            armed.set(true);
+            var view = runtime.view(854, 480, 0, 0);
+            assertFalse(hasFailureCaption(view), "The same reentrant query must reject old failure: " + transition);
+            var publications = new AtomicInteger();
+            runtime.subscribe(ignored -> publications.incrementAndGet());
+            int before = publications.get();
+            old.accept(oldFailure);
+            for (int i = 0; i < 5; i++) assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            assertEquals(before, publications.get());
+            if (transition.equals("replace")) assertTrue(nextReads.get() >= 5, "Old result/release must not clear replacement");
+        }
+    }
+
+    @Test
+    void providerAccessoryRegistrationReentrancyPreservesNewCallbackIdentity(@TempDir Path directory) throws Exception {
+        try (var fixture = new ProviderFailureFixture(directory, false, CLIENT, Runnable::run)) {
+            var runtime = fixture.runtime;
+            var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+            java.util.function.Supplier<com.naocraftlab.skins.client.PreviewAccessories> newer = () ->
+                    com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING);
+            var replacement = new AtomicReference<java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories>>();
+            var identityCalls = new AtomicInteger();
+            fixture.operations.sessionIdentityHook = () -> {
+                if (identityCalls.incrementAndGet() == 2) {
+                    fixture.operations.sessionIdentityHook = null;
+                    replacement.set(runtime.observePreviewAccessories(preview, newer));
+                }
+            };
+            var failed = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 736), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var old = runtime.observePreviewAccessories(preview, () -> failed);
+            assertSame(replacement.get(), runtime.observePreviewAccessories(preview, newer), "Reentrant registration keeps its own callback");
+            old.accept(failed);
+            assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+        }
+    }
+
+    @Test
+    void queuedOldAccessoryReleaseCannotClearReopenedCurrentRegistration(@TempDir Path directory) throws Exception {
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        QueuedExecutor nativeRelease = new QueuedExecutor();
+        try (var fixture = new ProviderFailureFixture(directory, false, client, worker)) {
+            drainRefreshQueues(worker, client);
+            var runtime = fixture.runtime;
+            var oldFailure = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 738), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var old = new AtomicReference<java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories>>();
+            client.execute(() -> old.set(runtime.observePreviewAccessories(refreshView(runtime, client).previews().get(0), () -> oldFailure)));
+            drainRefreshQueues(worker, client);
+            assertTrue(hasFailureCaption(refreshView(runtime, client)));
+            var oldRegistration = old.get();
+            nativeRelease.execute(() -> client.execute(() -> runtime.invalidatePreviewAccessories(oldRegistration)));
+            runtime.closeScreen();
+            drainRefreshQueues(worker, client);
+            runtime.reopen(ScreenDestination.PROVIDERS);
+            drainRefreshQueues(worker, client);
+            var newFailure = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 739), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var current = new AtomicReference<java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories>>();
+            client.execute(() -> current.set(runtime.observePreviewAccessories(refreshView(runtime, client).previews().get(0), () -> newFailure)));
+            drainRefreshQueues(worker, client);
+            assertTrue(hasFailureCaption(refreshView(runtime, client)), "Reopened source has its own current FAILED");
+            old.get().accept(oldFailure);
+            drainRefreshQueues(worker, client);
+            assertTrue(hasFailureCaption(refreshView(runtime, client)), "Old callback cannot alter replacement");
+            nativeRelease.runFirst();
+            drainRefreshQueues(worker, client);
+            assertTrue(hasFailureCaption(refreshView(runtime, client)), "Old host release must not clear the new accessory registration");
+            current.get().accept(newFailure);
+            drainRefreshQueues(worker, client);
+            assertTrue(hasFailureCaption(refreshView(runtime, client)));
+        }
+    }
+
+    @Test
+    void accessoryReleaseRequiresCurrentIdentityAndDoesNotResurrectAfterReleaseOrClose(@TempDir Path directory) throws Exception {
+        try (var fixture = new ProviderFailureFixture(directory, false, CLIENT, Runnable::run)) {
+            var runtime = fixture.runtime;
+            var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+            var failure = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 740), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var registration = runtime.observePreviewAccessories(preview, () -> failure);
+            var history = new ArrayList<Boolean>();
+            runtime.subscribe(ignored -> history.add(hasFailureCaption(runtime.view(854, 480, 0, 0))));
+            int before = history.size();
+            runtime.invalidatePreviewAccessories(null);
+            runtime.invalidatePreviewAccessories(ignored -> {});
+            assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            assertEquals(before, history.size(), "Null/foreign release cannot publish");
+            runtime.invalidatePreviewAccessories(registration);
+            assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            assertEquals(before + 1, history.size(), "Current release publishes the cleared projection once");
+            assertFalse(history.get(history.size() - 1));
+            before = history.size();
+            runtime.invalidatePreviewAccessories(registration);
+            registration.accept(failure);
+            assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            assertEquals(before, history.size(), "Repeated release/callback cannot publish or resurrect");
+            var replacement = runtime.observePreviewAccessories(preview, () -> failure);
+            assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            runtime.closeScreen();
+            before = history.size();
+            runtime.invalidatePreviewAccessories(replacement);
+            replacement.accept(failure);
+            assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+            assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            assertEquals(before, history.size());
+            assertEquals(0, fixture.operations.applyCalls);
+            assertEquals(0, fixture.operations.skinPreviewCalls);
+        }
+    }
+
+    @Test
+    void accessoryReleasePublicationReentrancyKeepsReplacementRegistration(@TempDir Path directory) throws Exception {
+        try (var fixture = new ProviderFailureFixture(directory, false, CLIENT, Runnable::run)) {
+            var runtime = fixture.runtime;
+            var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+            var failure = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 741), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.FAILED, false, false, PreviewRenderer.LiveReason.AVAILABLE);
+            var registration = runtime.observePreviewAccessories(preview, () -> failure);
+            var armed = new AtomicBoolean();
+            var replacement = new AtomicReference<java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories>>();
+            var history = new ArrayList<Boolean>();
+            runtime.subscribe(ignored -> {
+                boolean caption = hasFailureCaption(runtime.view(854, 480, 0, 0));
+                history.add(caption);
+                if (!caption && armed.getAndSet(false)) {
+                    replacement.set(runtime.observePreviewAccessories(preview, () -> failure));
+                    runtime.invalidatePreviewAccessories(registration);
+                }
+            });
+            armed.set(true);
+            runtime.invalidatePreviewAccessories(registration);
+            org.junit.jupiter.api.Assertions.assertNotNull(replacement.get());
+            assertTrue(hasFailureCaption(runtime.view(854, 480, 0, 0)), "Reentrant replacement survives old cleanup");
+            assertEquals(List.of(true, false, true), history);
+            int before = history.size();
+            runtime.invalidatePreviewAccessories(registration);
+            registration.accept(failure);
+            assertEquals(before, history.size());
+            runtime.invalidatePreviewAccessories(replacement.get());
+            assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            replacement.get().accept(failure);
+            assertFalse(hasFailureCaption(runtime.view(854, 480, 0, 0)));
+            assertEquals(0, fixture.operations.applyCalls);
+            assertEquals(0, fixture.operations.skinPreviewCalls);
+        }
+    }
+
+    private static boolean hasFailureCaption(ViewSpec view) {
+        return view.texts().stream().anyMatch(text -> text.id().equals("editor.preview.error")
+                && text.message().equals(UiMessage.error("nclskins.editor.cpm_preview_failed")));
+    }
+
+    private static final class ProviderFailureFixture implements AutoCloseable {
+        final FakeOperations operations = new FakeOperations();
+        final ClientRuntime runtime;
+        final ProviderSkin cpm;
+        final ProviderSkin ordinary;
+        final AtomicBoolean cpmPresent = new AtomicBoolean(true);
+        ProviderFailureFixture(Path directory, boolean selected, ClientExecutor client, Executor worker) throws Exception {
+            var clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), java.time.ZoneOffset.UTC);
+            var store = new NclSkinsStorage(directory, new PngValidator(), clock);
+            store.initialize();
+            byte[] carrier = Files.readAllBytes(Path.of("../core/src/test/resources/cpm/classic-a.png"));
+            byte[] clean = skinPng();
+            cpm = new ProviderSkin(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(carrier)), SkinVariant.CLASSIC);
+            ordinary = new ProviderSkin(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(clean)), SkinVariant.CLASSIC);
+            Files.write(store.assetPath(cpm.sha256()), carrier);
+            Files.write(store.assetPath(ordinary.sha256()), clean);
+            var assets = List.of(new SkinAsset(TestFixtures.CLASSIC_ID, "Synthetic CPM", cpm.sha256(), SkinVariant.CLASSIC,
+                            SkinSource.IMPORTED, clock.instant(), clock.instant()),
+                    new SkinAsset(TestFixtures.SLIM_ID, "Synthetic ordinary", ordinary.sha256(), SkinVariant.CLASSIC,
+                            SkinSource.IMPORTED, clock.instant(), clock.instant()));
+            operations.account = store.updateAccount(TestFixtures.ACCOUNT_ID, current -> new AccountState(
+                    AccountState.CURRENT_SCHEMA_VERSION, TestFixtures.ACCOUNT_ID, assets, List.of(), List.of(), clock.instant()));
+            var skin = new com.naocraftlab.skins.core.provider.ProviderChannel<ProviderSkin>(
+                    List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT),
+                    ProviderObservation.observed(selected ? ordinary : cpm), ProviderObservation.observed(selected ? cpm : ordinary),
+                    0, 0, null, new com.naocraftlab.skins.core.provider.ProviderDelivery(0, 0,
+                    com.naocraftlab.skins.core.provider.ProviderDelivery.Status.IDLE));
+            operations.providers = new AppearanceProviders(skin, operations.providers.cape()
+                    .disable(BuiltinProvider.OFFLINE).disable(BuiltinProvider.MINECRAFT));
+            GameSessionTokenSource tokens = new GameSessionTokenSource() {
+                public SessionIdentity currentSession() { return operations.sessionIdentity(); }
+                public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) { throw new AssertionError("No token access"); }
+            };
+            var api = (com.naocraftlab.skins.core.api.ProfileApi) java.lang.reflect.Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class<?>[]{com.naocraftlab.skins.core.api.ProfileApi.class},
+                    (proxy, method, args) -> { throw new AssertionError("No network " + method.getName()); });
+            operations.evidenceProducer = TestClientGraph.operations(tokens, api, store,
+                    (com.naocraftlab.skins.client.BundledSkinSource) ignored -> { throw new AssertionError("No catalog warmup"); }, clock);
+            runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client, CANCELLED_PICKER, worker, TEXT,
+                    Optional.empty(), DiagnosticSinks.discarding());
+            runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), cpmPresent.get()));
+            runtime.reopen(ScreenDestination.PROVIDERS);
+        }
+        public void close() { runtime.close(); operations.evidenceProducer.close(); }
+    }
+
+    @Test
+    void cpmEmbeddedInspectionIsTransientAndRejectsLiveLossAndLateCallbacks() {
+        DuplicateFixture fixture = duplicateFixture(true, true);
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        operations.account = fixture.account();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.preset." + fixture.source().id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        var before = runtime.snapshot().editor().orElseThrow();
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var live = new java.util.concurrent.atomic.AtomicReference<>(new com.naocraftlab.skins.client.PreviewAccessories(
+                new UUID(0, 901), 1, com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED,
+                false, true, PreviewRenderer.LiveReason.AVAILABLE));
+        var observer = runtime.observePreviewAccessories(preview, live::get);
+        var view = runtime.view(854, 480, 0, 0);
+        String card = view.widgets().stream().filter(w -> w.id().startsWith("editor.cape_item.CPM.")).findFirst().orElseThrow().id();
+        runtime.dispatchWidget(card);
+        var inspected = runtime.snapshot().editor().orElseThrow();
+        assertEquals(before.capeCatalog().offline(), inspected.capeCatalog().offline());
+        assertEquals(before.capeCatalog().minecraft(), inspected.capeCatalog().minecraft());
+        assertEquals(before.skin(), inspected.skin());
+        assertTrue(runtime.view(854, 480, 0, 0).previews().get(0).nativeAccessories());
+        assertFalse(runtime.view(854, 480, 0, 0).widget("preview.inspection").isPresent());
+        runtime.dispatchWidget("editor.tab.cape");
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+        runtime.dispatchWidget(card);
+        live.set(new com.naocraftlab.skins.client.PreviewAccessories(live.get().scope(), 1,
+                live.get().availability(), false, true, PreviewRenderer.LiveReason.WORLD_REQUIRED));
+        view = runtime.view(854, 480, 0, 0);
+        assertFalse(view.previews().get(0).nativeAccessories());
+        assertTrue(view.widget(card).orElseThrow().enabled());
+        assertFalse(view.widget(card).orElseThrow().activationEnabled());
+        assertTrue(view.navigationNode(card).orElseThrow().activationActionId().isEmpty());
+        assertFalse(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, card));
+        runtime.dispatchWidget(card, false, InteractionOrigin.POINTER);
+        runtime.dispatchWidget(card, false, InteractionOrigin.KEYBOARD);
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+        live.set(new com.naocraftlab.skins.client.PreviewAccessories(live.get().scope(), 1,
+                live.get().availability(), false, true, PreviewRenderer.LiveReason.AVAILABLE));
+        assertFalse(runtime.view(854, 480, 0, 0).widget("preview.inspection").isPresent());
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, card));
+        runtime.invalidatePreviewAccessories(observer);
+        observer.accept(live.get());
+        assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
+        assertFalse(runtime.view(854, 480, 0, 0).previews().get(0).nativeAccessories());
+        live.set(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.WORLD_REQUIRED));
+        assertFalse(runtime.view(854, 480, 0, 0).widgets().stream().anyMatch(w -> w.id().contains("EMBEDDED")));
+        runtime.dispatchWidget("editor.cancel");
+        observer.accept(new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 901), 2,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true, PreviewRenderer.LiveReason.AVAILABLE));
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals(0, operations.applyCalls);
+        assertEquals(fixture.account(), runtime.snapshot().account().orElseThrow());
+        runtime.close();
+    }
+
+    @Test
+    void cpmInspectSavePayloadAndLateCallbackStayScoped() {
+        DuplicateFixture fixture = duplicateFixture(true, true);
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        operations.account = fixture.account();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.preset." + fixture.source().id() + ".edit");
+        runtime.dispatchWidget("editor.tab.cape");
+        var draft = runtime.snapshot().editor().orElseThrow();
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 903), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        var callback = runtime.observePreviewAccessories(runtime.view(854, 480, 0, 0).previews().get(0), () -> capability);
+        String card = runtime.view(854, 480, 0, 0).widgets().stream()
+                .filter(w -> w.id().startsWith("editor.cape_item.CPM.")).findFirst().orElseThrow().id();
+        runtime.dispatchWidget(card);
+        assertEquals(draft.saveRequest(), runtime.snapshot().editor().orElseThrow().saveRequest());
+        assertEquals(draft.preview(), runtime.snapshot().editor().orElseThrow().preview());
+        runtime.dispatchWidget("editor.save");
+        assertEquals(draft.saveRequest(), operations.lastEditorSaveRequest);
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        callback.accept(capability);
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals(0, operations.applyCalls);
+        runtime.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"direct", "queued", "failure", "null", "worker-rejected", "client-rejected"})
+    void cpmRefreshPreservesEveryPublishedInspectionWithOneLiveRegistration(String mode) {
+        boolean queued = !mode.equals("direct");
+        FakeOperations operations = new FakeOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().initializeCpm());
+        QueuedExecutor worker = new QueuedExecutor();
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        ClientRuntime runtime = queued
+                ? new ClientRuntime(new DefaultRuntimeServices(), operations, client,
+                        CANCELLED_PICKER, worker, TEXT, Optional.empty(), DiagnosticSinks.discarding())
+                : runtime(operations, Runnable::run, Optional.empty());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        drainRefreshQueues(worker, client);
+        runtime.dispatchWidget("gallery.providers");
+        drainRefreshQueues(worker, client);
+        runtime.dispatchWidget("providers.tab.CAPE");
+        drainRefreshQueues(worker, client);
+        var live = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 902), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        if (queued) {
+            client.execute(() -> runtime.observePreviewAccessories(runtime.view(320, 240, 0, 0).previews().get(0), () -> live));
+            client.runFirst();
+        } else runtime.observePreviewAccessories(runtime.view(320, 240, 0, 0).previews().get(0), () -> live);
+        runtime.dispatchWidget("providers.row.CPM");
+        drainRefreshQueues(worker, client);
+        assertCpmRefreshInspection(refreshView(runtime, client));
+        var delivered = new ArrayList<ViewSpec>();
+        runtime.subscribe(snapshot -> delivered.add(runtime.view(320, 240, 0, 0)));
+        drainRefreshQueues(worker, client);
+        operations.refreshSourceFailure = mode.equals("failure");
+        operations.refreshSourceNull = mode.equals("null");
+        worker.reject = mode.equals("worker-rejected");
+        runtime.dispatchWidget("providers.refresh");
+        while (!client.tasks.isEmpty()) client.runFirst();
+        assertCpmRefreshInspection(refreshView(runtime, client));
+        runtime.dispatchWidget("providers.refresh");
+        while (!client.tasks.isEmpty()) client.runFirst();
+        client.reject = mode.equals("client-rejected");
+        while (worker.size() > 0) worker.runFirst();
+        assertCpmRefreshInspection(refreshView(runtime, client));
+        client.reject = false;
+        worker.reject = false;
+        runtime.tick();
+        drainRefreshQueues(worker, client);
+        assertCpmRefreshInspection(refreshView(runtime, client));
+        assertFalse(delivered.isEmpty());
+        delivered.forEach(ClientRuntimeTest::assertCpmRefreshInspection);
+        assertTrue(refreshView(runtime, client).widget("providers.refresh").orElseThrow().enabled());
+        assertTrue(operations.providerRefreshRequests.stream().allMatch(request -> request.equals(
+                ProviderRefreshRequest.one(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM))));
+        assertEquals(0, operations.optifineRefreshes);
+        assertEquals(0, operations.skinMcRefreshes);
+        assertEquals(0, operations.applyCalls);
+        runtime.close();
+        drainRefreshQueues(worker, client);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"row", "tab", "live", "pending", "failed", "blocked", "empty", "mod", "disable", "remove", "reopen", "resources", "world", "session", "reload", "model", "source", "terminal-close"})
+    void cpmRefreshStillRejectsRealRetirementWithoutRestoringOldSelection(String transition) {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().initializeCpm());
+        QueuedExecutor worker = new QueuedExecutor();
+        var environment = new java.util.concurrent.atomic.AtomicBoolean(true);
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), environment.get()));
+        runtime.initialize();
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("gallery.providers");
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("providers.tab.CAPE");
+        var first = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 902), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        var live = new java.util.concurrent.atomic.AtomicReference<>(first);
+        var initialPreview = runtime.view(320, 240, 0, 0).previews().get(0);
+        String source = runtime.previewBodySource(initialPreview);
+        var callback = runtime.observePreviewAccessories(initialPreview, () -> source.equals(runtime.previewBodySource(initialPreview))
+                ? live.get() : com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING));
+        runtime.dispatchWidget("providers.row.CPM");
+        assertCpmRefreshInspection(runtime.view(320, 240, 0, 0));
+        runtime.dispatchWidget("providers.refresh");
+        switch (transition) {
+            case "row" -> runtime.dispatchWidget("providers.row.OFFLINE");
+            case "tab" -> runtime.dispatchWidget("providers.tab.SKIN");
+            case "live" -> live.set(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
+            case "pending" -> live.set(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING));
+            case "failed", "blocked" -> live.set(new com.naocraftlab.skins.client.PreviewAccessories(first.scope(), first.generation(),
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.valueOf(transition.toUpperCase(java.util.Locale.ROOT)),
+                    false, false, PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
+            case "empty" -> live.set(new com.naocraftlab.skins.client.PreviewAccessories(first.scope(), first.generation(),
+                    first.availability(), false, false, PreviewRenderer.LiveReason.AVAILABLE));
+            case "mod" -> { environment.set(false); runtime.resourcesReloaded(); }
+            case "disable" -> runtime.dispatchWidget("providers.remove.CPM");
+            case "remove" -> runtime.dispatchWidget("providers.remove.CPM");
+            case "reopen" -> {
+                runtime.closeScreen(); runtime.reopen();
+                while (worker.size() > 0) worker.runFirst();
+                runtime.dispatchWidget("gallery.providers");
+                while (worker.size() > 0) worker.runFirst();
+                runtime.dispatchWidget("providers.tab.CAPE");
+            }
+            case "resources" -> runtime.resourcesReloaded();
+            case "world" -> runtime.importWorldChanged();
+            case "terminal-close" -> runtime.close();
+            case "reload" -> {
+                runtime.dispatchWidget("gallery.providers");
+                worker.tasks.remove(worker.tasks.size() - 1).run();
+            }
+            case "model", "source" -> {
+                operations.providers = new AppearanceProviders(operations.providers.skin().select(1,
+                        new ProviderSkin("a".repeat(64), transition.equals("model") ? SkinVariant.SLIM : SkinVariant.CLASSIC)),
+                        operations.providers.cape());
+                runtime.dispatchWidget("gallery.providers");
+                worker.tasks.remove(worker.tasks.size() - 1).run();
+            }
+            case "session" -> {
+                var original = operations.session;
+                operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                        new GameSessionTokenSource.SessionIdentity(new UUID(0, 903), "SyntheticB"),
+                        null, (SessionFailureContext) null, "synthetic switch");
+                runtime.tick(); operations.session = original; runtime.tick();
+            }
+            default -> throw new AssertionError(transition);
+        }
+        while (worker.size() > 0) worker.runFirst();
+        if (transition.equals("terminal-close")) {
+            assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+            callback.accept(first);
+            assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+            assertTrue(operations.providerRefreshRequests.isEmpty());
+            return;
+        }
+        var view = runtime.view(320, 240, 0, 0);
+        if (transition.equals("empty")) {
+            assertEquals("nclskins.providers.refresh", view.widget("providers.refresh").orElseThrow().label().key());
+            assertFalse(view.previews().get(0).nativeAccessories());
+        } else if (transition.equals("tab")) {
+            assertEquals("nclskins.providers.refresh_all", view.widget("providers.refresh").orElseThrow().label().key());
+            runtime.dispatchWidget("providers.tab.CAPE");
+            callback.accept(first);
+            assertEquals("nclskins.providers.refresh_all", runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().label().key());
+        } else {
+            assertFalse(view.previews().get(0).nativeAccessories(), transition);
+            callback.accept(first);
+            if (!transition.equals("row")) assertFalse(runtime.view(320, 240, 0, 0).previews().get(0).nativeAccessories(), transition);
+        }
+        assertTrue(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled(), transition);
+        assertEquals(0, operations.optifineRefreshes);
+        assertEquals(0, operations.skinMcRefreshes);
+        assertEquals(0, operations.applyCalls);
+        runtime.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"throw", "null-future", "null-result", "exceptional", "rejected-null"})
+    void refreshSupplierTerminalsUseClientHandoffAndReleaseTheirOwnPendingToken(String terminal) throws Exception {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        ClientRuntime runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client,
+                CANCELLED_PICKER, worker, TEXT, Optional.empty(), DiagnosticSinks.discarding());
+        runtime.initialize(); drainRefreshQueues(worker, client);
+        runtime.dispatchWidget("gallery.providers"); drainRefreshQueues(worker, client);
+        var future = new CompletableFuture<ProviderRefreshResult>();
+        var submit = ClientRuntime.class.getDeclaredMethod("submitProviderRefresh", UiMessage.class, java.util.function.Supplier.class);
+        submit.setAccessible(true);
+        client.execute(() -> {
+            try {
+                submit.invoke(runtime, UiMessage.info("nclskins.providers.refresh"),
+                        (java.util.function.Supplier<CompletableFuture<ProviderRefreshResult>>) () -> {
+                            if (terminal.equals("throw")) throw new IllegalStateException("Synthetic admission failure");
+                            return terminal.equals("null-future") ? null : future;
+                        });
+            } catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+        });
+        client.runFirst();
+        if (!terminal.equals("throw") && !terminal.equals("null-future")) {
+            assertFalse(refreshView(runtime, client).widget("providers.refresh").orElseThrow().enabled());
+            client.reject = terminal.equals("rejected-null");
+            if (terminal.equals("exceptional")) future.completeExceptionally(new IllegalStateException("Synthetic completion failure"));
+            else future.complete(null);
+            assertFalse(refreshView(runtime, client).widget("providers.refresh").orElseThrow().enabled());
+            client.reject = false;
+            runtime.tick(); drainRefreshQueues(worker, client);
+        }
+        assertTrue(refreshView(runtime, client).widget("providers.refresh").orElseThrow().enabled());
+        assertEquals(UiMessage.Severity.ERROR, runtime.snapshot().status().severity());
+        runtime.close(); drainRefreshQueues(worker, client);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"same-generation", "reopen"})
+    void oldRefreshTerminalCannotClearNewSerialOrReplaceItsFeedback(String ordering) throws Exception {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize(); while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("gallery.providers"); while (worker.size() > 0) worker.runFirst();
+        var first = new CompletableFuture<ProviderRefreshResult>();
+        var next = new CompletableFuture<ProviderRefreshResult>();
+        var submit = ClientRuntime.class.getDeclaredMethod("submitProviderRefresh", UiMessage.class, java.util.function.Supplier.class);
+        submit.setAccessible(true);
+        submit.invoke(runtime, UiMessage.info("nclskins.providers.refresh"),
+                (java.util.function.Supplier<CompletableFuture<ProviderRefreshResult>>) () -> first);
+        var armed = new java.util.concurrent.atomic.AtomicBoolean(ordering.equals("same-generation"));
+        runtime.subscribe(snapshot -> {
+            if (snapshot.status().key().equals("nclskins.error.save") && armed.compareAndSet(true, false)) {
+                try { submit.invoke(runtime, UiMessage.info("nclskins.status.loading"),
+                        (java.util.function.Supplier<CompletableFuture<ProviderRefreshResult>>) () -> next); }
+                catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+            }
+        });
+        if (ordering.equals("reopen")) {
+            runtime.closeScreen(); runtime.reopen();
+            while (worker.size() > 0) worker.runFirst();
+            runtime.dispatchWidget("gallery.providers"); while (worker.size() > 0) worker.runFirst();
+            submit.invoke(runtime, UiMessage.info("nclskins.status.loading"),
+                    (java.util.function.Supplier<CompletableFuture<ProviderRefreshResult>>) () -> next);
+        }
+        first.complete(null);
+        assertEquals("nclskins.status.loading", runtime.snapshot().status().key());
+        assertFalse(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        next.complete(null);
+        assertEquals("nclskins.error.save", runtime.snapshot().status().key());
+        assertTrue(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        runtime.close();
+    }
+
+    private static ViewSpec refreshView(ClientRuntime runtime, TrackingClientExecutor client) {
+        boolean previous = client.clientThread;
+        client.clientThread = true;
+        try { return runtime.view(320, 240, 0, 0); }
+        finally { client.clientThread = previous; }
+    }
+
+    private static void assertCpmRefreshInspection(ViewSpec view) {
+        assertEquals("nclskins.providers.refresh", view.widget("providers.refresh").orElseThrow().label().key());
+        assertTrue(view.previews().get(0).nativeAccessories(), "Refresh must not retire the registered live inspection");
+    }
+
+    private static void drainRefreshQueues(QueuedExecutor worker, TrackingClientExecutor client) {
+        while (!client.tasks.isEmpty() || worker.size() > 0) {
+            if (!client.tasks.isEmpty()) client.runFirst();
+            else worker.runFirst();
+        }
+    }
+
+    @Test
+    void cpmProviderCanConfigureWorldlessButOnlyInspectCurrentLiveBundle() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().initializeCpm());
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        var preview = runtime.view(320, 240, 0, 0).previews().get(0);
+        var live = new java.util.concurrent.atomic.AtomicReference<>(com.naocraftlab.skins.client.PreviewAccessories.unavailable(
+                PreviewRenderer.LiveReason.WORLD_REQUIRED));
+        runtime.observePreviewAccessories(preview, live::get);
+        var view = runtime.view(320, 240, 0, 0);
+        assertTrue(view.widget("providers.row.CPM").orElseThrow().enabled());
+        assertFalse(view.widget("providers.row.CPM").orElseThrow().activationEnabled());
+        assertTrue(view.widget("providers.remove.CPM").orElseThrow().activationEnabled());
+        runtime.dispatchWidget("providers.row.CPM");
+        assertFalse(runtime.view(320, 240, 0, 0).widget("preview.inspection").isPresent());
+        live.set(new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 902), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, false, false,
+                PreviewRenderer.LiveReason.AVAILABLE));
+        runtime.view(320, 240, 0, 0);
+        runtime.dispatchWidget("providers.row.CPM");
+        assertFalse(runtime.view(320, 240, 0, 0).widget("preview.inspection").isPresent());
+        assertFalse(runtime.view(320, 240, 0, 0).previews().get(0).nativeAccessories());
+        live.set(new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 902), 2,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE));
+        assertFalse(runtime.view(320, 240, 0, 0).widget("preview.inspection").isPresent());
+        assertTrue(runtime.view(320, 240, 0, 0).widget("providers.row.CPM").orElseThrow().hint().isEmpty());
+        runtime.dispatchWidget("providers.row.CPM");
+        assertTrue(runtime.view(320, 240, 0, 0).previews().get(0).nativeAccessories());
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertFalse(runtime.view(320, 240, 0, 0).widget("preview.inspection").isPresent());
+        assertEquals(operations.providers, runtime.snapshot().providers());
+        assertEquals(0, operations.applyCalls);
+        runtime.close();
+    }
+
+    @Test
+    void readySavedProviderStateWarmsSkinWithoutFullCapePoster() {
+        FakeOperations operations = new FakeOperations();
+        String skinHash = "a".repeat(64);
+        String capeHash = "b".repeat(64);
+        operations.providers = new AppearanceProviders(
+                operations.providers.skin().select(1,
+                        new ProviderSkin(skinHash, SkinVariant.CLASSIC)),
+                operations.providers.cape().select(1,
+                        new ProviderCape("saved", capeHash)));
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        assertEquals(List.of("skin:" + skinHash), operations.providerPreviewLoads);
+        runtime.loadProviderTexture(new ViewSpec.ProviderTexture(skinHash, true, false)).join();
+        assertEquals(List.of("skin:" + skinHash), operations.providerPreviewLoads,
+                "opening the Providers screen must reuse the saved skin bytes");
+        runtime.close();
+    }
+
+    @Test
+    void savedCapePosterIsAvailableOnFirstReadyBeforeAnotherWorkerRun() {
+        FakeOperations operations = new FakeOperations();
+        String capeHash = "b".repeat(64);
+        operations.providers = new AppearanceProviders(operations.providers.skin(),
+                operations.providers.cape().select(1, new ProviderCape("saved", capeHash)));
+        operations.providerPosters = Map.of(capeHash,
+                new ProviderCapePoster(1, 1, new byte[]{1, 2, 3, (byte) 255},
+                        "0".repeat(64), CapePreparationQueue.tryReserveCpu(4)));
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        worker.runFirst();
+        var texture = new ViewSpec.ProviderTexture(capeHash, false, false);
+        assertTrue(runtime.loadProviderThumbnail(texture).isDone(),
+                "first READY must already contain the saved cape thumbnail");
+        assertEquals(1, runtime.loadProviderThumbnail(texture).join().orElseThrow().rgba8()[0]);
+        assertTrue(operations.providerPreviewLoads.isEmpty(),
+                "the bounded row thumbnail must not read full player cape bytes");
+        runtime.close();
+    }
+
+    @Test
+    void savedSkinIsAvailableOnFirstReadyBeforeAnotherWorkerRun() {
+        FakeOperations operations = new FakeOperations();
+        String skinHash = "a".repeat(64);
+        operations.providers = new AppearanceProviders(
+                operations.providers.skin().select(1,
+                        new ProviderSkin(skinHash, SkinVariant.CLASSIC)),
+                operations.providers.cape());
+        operations.savedSkinPreviews = Map.of("provider:skin:" + skinHash,
+                new byte[] {1, 2, 3});
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        worker.runFirst();
+        var texture = new ViewSpec.ProviderTexture(skinHash, true, false);
+        assertTrue(runtime.loadProviderTexture(texture).isDone(),
+                "first READY must contain saved skin preview bytes");
+        assertEquals(1, runtime.loadProviderTexture(texture).join().orElseThrow()[0]);
+        assertTrue(operations.providerPreviewLoads.isEmpty(),
+                "opening or switching the Providers tab must reuse warmed skin bytes");
+        runtime.close();
+    }
+
+    @Test
+    void discardedInitializationReleasesUninstalledSavedCapePoster() {
+        FakeOperations operations = new FakeOperations();
+        String capeHash = "b".repeat(64);
+        operations.providerPosters = Map.of(capeHash,
+                new ProviderCapePoster(1, 1, new byte[]{1, 2, 3, (byte) 255},
+                        "0".repeat(64), CapePreparationQueue.tryReserveCpu(4)));
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        runtime.closeScreen();
+        worker.runFirst();
+        runtime.close();
+        try (CapePreparationQueue.Reservation full =
+                CapePreparationQueue.tryReserveCpu(64L * 1024 * 1024)) {
+            assertTrue(full != null, "stale initialization must release its poster quota");
+        }
+    }
+
+    @Test
+    void disabledProviderObservationIsNotWarmedAcrossChannels() {
+        String skinHash = "a".repeat(64);
+        String capeHash = "b".repeat(64);
+        var skin = AppearanceProviders.initial().skin().select(1,
+                new ProviderSkin(skinHash, SkinVariant.CLASSIC));
+        var cape = AppearanceProviders.initial().cape().select(1,
+                new ProviderCape("saved", capeHash));
+        assertTrue(skin.disable(BuiltinProvider.OFFLINE)
+                .observation(BuiltinProvider.OFFLINE).value() != null);
+        assertTrue(cape.disable(BuiltinProvider.OFFLINE)
+                .observation(BuiltinProvider.OFFLINE).value() != null);
+
+        FakeOperations capeOnly = new FakeOperations();
+        capeOnly.providers = new AppearanceProviders(skin.disable(BuiltinProvider.OFFLINE), cape);
+        ClientRuntime capeRuntime = runtime(capeOnly, Runnable::run, Optional.empty());
+        capeRuntime.initialize();
+        assertTrue(capeOnly.providerPreviewLoads.isEmpty(),
+                "full-size cape bytes are not a bounded provider-row poster");
+        capeRuntime.close();
+
+        FakeOperations skinOnly = new FakeOperations();
+        skinOnly.providers = new AppearanceProviders(skin, cape.disable(BuiltinProvider.OFFLINE));
+        ClientRuntime skinRuntime = runtime(skinOnly, Runnable::run, Optional.empty());
+        skinRuntime.initialize();
+        assertEquals(List.of("skin:" + skinHash), skinOnly.providerPreviewLoads);
+        skinRuntime.close();
+    }
 
     @Test
     void externalCatalogEditorCancelReturnsToCatalogAndSaveExitsRoot() {
@@ -220,26 +1336,29 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void resourceCapeWarmupRunsOnReloadSignalAndNeverPollsFromClientTicks() {
+    void resourceCapeWarmupRunsOnStartupAndReloadSignalButNeverPollsFromClientTicks() {
         FakeOperations operations = new FakeOperations();
+        operations.startupResourceCapeWarmupSupported = true;
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
 
         for (int tick = 0; tick < 20; tick++) {
             runtime.tick();
         }
-        assertEquals(0, operations.capeCatalogGenerationCalls);
-        assertEquals(0, operations.capeCatalogWarmups);
+        assertEquals(1, operations.capeCatalogGenerationCalls);
+        assertEquals(1, operations.capeCatalogWarmups);
 
         runtime.resourcesReloaded();
-        assertEquals(1, operations.capeCatalogGenerationCalls);
-        assertEquals(1, operations.resourceCapeCatalogWarmups);
-        assertEquals(1, operations.capeCatalogWarmups);
+        assertEquals(2, operations.capeCatalogGenerationCalls);
+        assertEquals(0, operations.resourceCapeCatalogWarmups,
+                "account warmup already prepares the resource catalog once");
+        assertEquals(2, operations.capeCatalogWarmups);
     }
 
     @Test
     void initialResourceReloadWarmsDiscoveryBeforeAccountInitialization() {
         FakeOperations operations = new FakeOperations();
+        operations.startupResourceCapeWarmupSupported = true;
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
 
         runtime.resourcesReloaded();
@@ -247,6 +1366,109 @@ final class ClientRuntimeTest {
         assertEquals(1, operations.capeCatalogGenerationCalls);
         assertEquals(1, operations.resourceCapeCatalogWarmups);
         assertEquals(0, operations.capeCatalogWarmups);
+        runtime.initialize();
+        assertEquals(1, operations.capeCatalogWarmups,
+                "the account established after the reload must receive the prepared resource catalog");
+    }
+
+    @Test
+    void enabledResourceCapesAppearOnColdEditorOpenWithoutManualReload() {
+        FakeOperations operations = new FakeOperations();
+        operations.startupResourceCapeWarmupSupported = true;
+        operations.account = TestFixtures.account(2);
+        operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        operations.resourceCapeHashes = Map.of(
+                new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        operations.publishWarmedCapeEditorOnWarmup = true;
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+
+        initializeQueuedRuntime(runtime, worker);
+        assertEquals(1, operations.capeCatalogWarmups);
+        openQueuedCapeProviderEditor(runtime, worker);
+        assertTrue(runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                .anyMatch(card -> card.resource() != null),
+                "cold startup must publish the resource cape catalog before editor inspection");
+    }
+
+    @Test
+    void coldCapacityRecoveryUpdatesAlreadyOpenEditor() throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.startupResourceCapeWarmupSupported = true;
+        AtomicInteger packGeneration = new AtomicInteger(1);
+        BufferedImage image = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(1, 1, 0xff123456);
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", encoded);
+        byte[] sourceCape = encoded.toByteArray();
+        SkinCatalogSource source = new SkinCatalogSource() {
+            @Override public byte[] load(String collection, String skin, SkinModel model) {
+                throw new AssertionError("No skin source is selected");
+            }
+            @Override public List<CollectionDescriptor> collections() { return List.of(); }
+            @Override public long generation() { return packGeneration.get(); }
+            @Override public long capeGeneration() { return packGeneration.get(); }
+            @Override public List<CapeCatalogSource.CollectionDescriptor> capeCollections() {
+                return com.naocraftlab.skins.client.ResourcePackCapeCatalog.build(List.of(
+                        new com.naocraftlab.skins.client.ResourcePackCapeCatalog.Variant(
+                                "event", "hero", "pack", 0,
+                                "event:textures/entity/cape/hero.png")));
+            }
+            @Override public byte[] loadCape(String collection, String id) {
+                return sourceCape.clone();
+            }
+        };
+        CatalogAccountAccess accounts = new CatalogAccountAccess() {
+            @Override public UUID currentAccountId() { return operations.account.accountId(); }
+            @Override public AccountState load(UUID accountId) throws IOException {
+                requireCurrent(accountId);
+                return operations.account;
+            }
+            @Override public byte[] readAsset(String hash) throws IOException { throw new IOException("absent"); }
+            @Override public byte[] resolveSkin(AccountState account, UUID assetId) throws IOException {
+                throw new IOException("absent");
+            }
+            @Override public PersonalCapeEntry importCape(UUID accountId, String name, byte[] bytes,
+                    com.naocraftlab.skins.core.service.AccountWriteGuard guard) {
+                throw new AssertionError("No import in this scenario");
+            }
+            @Override public void requireCurrent(UUID accountId) throws IOException {
+                if (!operations.account.accountId().equals(accountId)) throw new IOException("stale account");
+            }
+        };
+        try (PreparedCatalogService catalog = new PreparedCatalogService(source, accounts,
+                new FileCapeStaging())) {
+            operations.preparedCatalog = catalog;
+            QueuedExecutor worker = new QueuedExecutor();
+            ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+            var pressure = CapePreparationQueue.tryReserveScratch(512L * 1024 * 1024);
+            assertTrue(pressure != null);
+            try (pressure) {
+                initializeQueuedRuntime(runtime, worker);
+                assertTrue(catalog.warmedCapeEditorData(operations.account.accountId()).isEmpty());
+                openQueuedCapeProviderEditor(runtime, worker);
+                drainWorker(worker);
+                assertTrue(runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                        .noneMatch(card -> card.resource() != null));
+            }
+            drainWorker(worker);
+            assertTrue(runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream()
+                    .anyMatch(card -> card.resource() != null),
+                    "an already-open editor must recover when cold capacity clears without F3+T");
+            packGeneration.incrementAndGet();
+            var closingPressure = CapePreparationQueue.tryReserveScratch(512L * 1024 * 1024);
+            assertTrue(closingPressure != null);
+            try (closingPressure) {
+                runtime.resourcesReloaded();
+                drainWorker(worker);
+                assertTrue(catalog.capeCatalogCapacityIncomplete());
+                runtime.close();
+            }
+            int warmupsAfterClose = operations.capeCatalogWarmups;
+            drainWorker(worker);
+            assertEquals(warmupsAfterClose, operations.capeCatalogWarmups,
+                    "a closed runtime must cancel its queued capacity recovery");
+        }
     }
 
     @Test
@@ -815,8 +2037,8 @@ final class ClientRuntimeTest {
             }
         };
         TextureCache cache = new TextureCache(storage);
-        var reader = new OptifineCapeReader((uri, timeout, maximum) ->
-                new OptifineCapeReader.Response(200, capeBytes), new PngValidator());
+        var reader = CapeTestComposition.optifine(storage, (uri, timeout, maximum) ->
+                new OptifineCapeReader.Response(200, capeBytes), java.time.Clock.systemUTC());
         operations.optifineCoordinator = CapeTestComposition.create(tokens, storage, cache,
                 sink, CLIENT, jobs::add, reader);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
@@ -901,6 +2123,176 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void readdingMinecraftCapesBehindOfflineKeepsMaterialTiedToInspectedSource() {
+        FakeOperations operations = new FakeOperations();
+        String hash = "a".repeat(64);
+        var capes = operations.providers.cape()
+                .select(1, new ProviderCape("offline", hash, true),
+                        new ProviderCape("offline", hash, true))
+                .enable(BuiltinProvider.MINECRAFTCAPES)
+                .observeMinecraftcapes(new ProviderCape("mc", hash, true, true))
+                .move(BuiltinProvider.MINECRAFTCAPES, -1)
+                .move(BuiltinProvider.MINECRAFTCAPES, -1);
+        operations.providers = new AppearanceProviders(operations.providers.skin(), capes);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        ViewSpec.Preview initial = runtime.view(854, 480, 0, 0).previews().get(0);
+        assertEquals(Optional.of("provider:cape:" + hash), initial.capeId());
+        assertTrue(runtime.previewCapeGlint(initial));
+
+        runtime.dispatchWidget("providers.remove.MINECRAFTCAPES");
+        ViewSpec.Preview without = runtime.view(854, 480, 0, 0).previews().get(0);
+        assertEquals(initial.capeId(), without.capeId(), "same pixels do not carry provider material");
+        assertFalse(runtime.previewCapeGlint(without));
+        runtime.dispatchWidget("providers.add");
+        runtime.dispatchWidget("providers.row.MINECRAFTCAPES");
+        ViewSpec.Preview restored = runtime.view(854, 480, 0, 0).previews().get(0);
+        assertEquals(initial.capeId(), restored.capeId());
+        assertFalse(runtime.previewCapeGlint(restored),
+                "the effective Offline source is still selected after append");
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        assertFalse(runtime.previewCapeGlint(runtime.view(854, 480, 0, 0).previews().get(0)));
+        runtime.dispatchWidget("providers.row.MINECRAFTCAPES");
+        assertTrue(runtime.previewCapeGlint(runtime.view(854, 480, 0, 0).previews().get(0)));
+    }
+
+    @Test
+    void durableMinecraftCapesRemoveAndReaddKeepsWorldAndSelectedPreviewGlint(
+            @TempDir Path directory) throws Exception {
+        FakeOperations operations = new FakeOperations();
+        UUID self = operations.account.accountId();
+        NclSkinsStorage storage = new NclSkinsStorage(directory, new PngValidator(), Clock.systemUTC());
+        operations.account = storage.loadOrCreateAccount(self);
+        operations.providerStorage = storage;
+        operations.providers = storage.updateAppearance(self, state -> state.withProviders(
+                state.providers().disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                        .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT)
+                        .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFTCAPES))).providers();
+        byte[] png = testCapePng();
+        String imageUri = "https://textures.minecraftcapes.net/sprite/" + "b".repeat(64);
+        var reader = new MinecraftCapesCapeReader(new MinecraftCapesCapeReader.Transport() {
+            @Override public MinecraftCapesCapeReader.ProfileResponse profile(
+                    java.net.URI uri, Duration timeout, long maxBytes) throws IOException {
+                byte[] body = ("{\"cape_url\":\"" + imageUri + "\",\"capeGlint\":true}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                return new MinecraftCapesCapeReader.ProfileResponse(200,
+                        MinecraftCapesCapeReader.parse(body), Map.of());
+            }
+            @Override public MinecraftCapesCapeReader.Response image(
+                    java.net.URI uri, Duration timeout, long maxBytes, Path destination) throws IOException {
+                Files.write(destination, png);
+                return new MinecraftCapesCapeReader.Response(200, new byte[0], Map.of());
+            }
+        }, new com.naocraftlab.skins.core.png.CapeAssetDecoder(), Clock.systemUTC(),
+                System::nanoTime, new java.security.SecureRandom(), directory.resolve("mc-staging"));
+        GameSessionTokenSource tokens = new GameSessionTokenSource() {
+            @Override public SessionIdentity currentSession() { return operations.sessionIdentity(); }
+            @Override public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) {
+                throw new AssertionError("Public cape observation cannot request a token");
+            }
+        };
+        var sink = new PlayerAppearanceSink<Object>() {
+            @Override public ApplyResult apply(SignedProfileResolver.ResolvedProfile<Object> profile) {
+                return ApplyResult.UPDATED;
+            }
+            @Override public Optional<String> registerCapeFrame(UUID profileId, CapeSource source,
+                    String sha256, int width, int height, byte[] rgba8,
+                    com.naocraftlab.skins.client.TextureRegistry.CpuLease cpuLease) {
+                cpuLease.close();
+                return Optional.of("nclskins:observed/" + sha256);
+            }
+        };
+        var jobs = new ArrayList<Runnable>();
+        operations.optifineCoordinator = CapeTestComposition.create(tokens, storage,
+                new TextureCache(storage), sink, CLIENT, jobs::add,
+                CapeTestComposition.optifine(storage,
+                        (uri, timeout, maximum) -> new OptifineCapeReader.Response(404, new byte[0]),
+                        Clock.systemUTC()),
+                new SkinMcCapeReader(directory.resolve("skinmc-staging")), reader,
+                (id, cape) -> Optional.empty());
+        try {
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            runtime.initialize();
+            while (!jobs.isEmpty()) jobs.remove(0).run();
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.tab.CAPE");
+            ViewSpec.Preview initial = runtime.view(854, 480, 0, 0).previews().get(0);
+            assertTrue(runtime.previewCapeGlint(initial));
+            assertTrue(CapeProjection.resolveSelf(self, operations.sessionIdentity().profileName())
+                    .orElseThrow().capeGlint());
+            runtime.dispatchWidget("providers.remove.MINECRAFTCAPES");
+            runtime.dispatchWidget("providers.add");
+            runtime.dispatchWidget("providers.row.MINECRAFTCAPES");
+            while (!jobs.isEmpty()) jobs.remove(0).run();
+            ViewSpec.Preview restored = runtime.view(854, 480, 0, 0).previews().get(0);
+            assertEquals(initial.capeId(), restored.capeId());
+            assertTrue(runtime.previewCapeGlint(restored));
+            assertTrue(CapeProjection.resolveSelf(self, operations.sessionIdentity().profileName())
+                    .orElseThrow().capeGlint());
+        } finally {
+            operations.optifineCoordinator.close();
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void removingExternalProviderThroughUiPreservesPendingPersistedMinecraftCandidate(boolean resourcesReloaded,
+            @TempDir Path directory) throws Exception {
+        FakeOperations operations = new FakeOperations();
+        UUID self = operations.account.accountId();
+        NclSkinsStorage storage = new NclSkinsStorage(directory, new PngValidator(), Clock.systemUTC());
+        operations.account = storage.loadOrCreateAccount(self);
+        operations.providerStorage = storage;
+        TextureCache cache = new TextureCache(storage);
+        String key = cache.storeObservedCape(new PngValidator().projectCape(testCapePng()));
+        operations.providers = storage.updateAppearance(self, state -> state.withProviders(
+                new AppearanceProviders(state.providers().skin(), state.providers().cape()
+                        .disable(BuiltinProvider.OFFLINE).enable(BuiltinProvider.OPTIFINE)
+                        .observeMinecraft(new ProviderCape("official", key))))).providers();
+        GameSessionTokenSource tokens = new GameSessionTokenSource() {
+            @Override public SessionIdentity currentSession() { return operations.sessionIdentity(); }
+            @Override public <T, E extends Exception> T withAccessToken(TokenRequest<T, E> request) {
+                throw new AssertionError("Candidate preparation cannot request a token");
+            }
+        };
+        AtomicInteger minecraftWrites = new AtomicInteger();
+        var sink = new PlayerAppearanceSink<Object>() {
+            @Override public ApplyResult apply(SignedProfileResolver.ResolvedProfile<Object> profile) {
+                return ApplyResult.UPDATED;
+            }
+            @Override public Optional<String> registerCapeTexture(UUID profileId, CapeSource source, String sha256, byte[] png) {
+                if (source == CapeSource.MINECRAFT) minecraftWrites.incrementAndGet();
+                return Optional.of("nclskins:observed/" + sha256);
+            }
+        };
+        var jobs = new ArrayList<Runnable>();
+        operations.optifineCoordinator = CapeTestComposition.create(tokens, storage, cache, sink, CLIENT, jobs::add,
+                CapeTestComposition.optifine(storage, (uri, timeout, maximum) ->
+                        new OptifineCapeReader.Response(404, new byte[0]), Clock.systemUTC()),
+                CapeTestComposition.skinMc(storage, (uri, timeout, maximum) ->
+                        new OptifineCapeReader.Response(404, new byte[0]), Clock.systemUTC()),
+                (id, cape) -> { throw new AssertionError("Cached candidate must not create HTTP demand"); });
+        try {
+            ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+            runtime.initialize();
+            long generation = operations.optifineCoordinator.observationGeneration();
+            runtime.dispatchWidget("gallery.providers");
+            runtime.dispatchWidget("providers.tab.CAPE");
+            if (resourcesReloaded) runtime.resourcesReloaded();
+            runtime.dispatchWidget("providers.remove.OPTIFINE");
+            assertFalse(storage.loadAppearance(self).providers().cape().enabled(BuiltinProvider.OPTIFINE));
+            assertTrue(operations.optifineCoordinator.observationGeneration() > generation);
+            while (!jobs.isEmpty()) jobs.remove(0).run();
+            assertEquals(1, minecraftWrites.get());
+            assertTrue(CapeProjection.resolveSelf(self, operations.sessionIdentity().profileName()).isPresent());
+        } finally {
+            operations.optifineCoordinator.close();
+        }
+    }
+
+    @Test
     void providerRowsFollowTheExistingCooldownAcrossTabsAndExpiry() {
         FakeOperations operations = new FakeOperations();
         operations.rateLimited = true;
@@ -977,6 +2369,659 @@ final class ClientRuntimeTest {
         assertEquals(0, runtime.view(320, 100, 0, 0).scrollSurface("providers.chooser").orElseThrow().offsetPixels());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"editor,false,false", "providers-skin,false,false", "providers-cape,false,false",
+            "editor,true,false", "providers-skin,true,false", "providers-cape,true,false",
+            "editor,false,true", "providers-skin,false,true", "providers-cape,false,true",
+            "editor,true,true", "providers-skin,true,true", "providers-cape,true,true"})
+    void openingAndRebindRequireActualCurrentOrdinaryDisplay(String route, boolean cpm, boolean queued) {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        if (!route.equals("editor")) operations.providers = operations.providers
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        var visibility = new ProviderTestVisibility();
+        var runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, queued ? client : CLIENT, CANCELLED_PICKER,
+                queued ? worker : Runnable::run, TEXT,
+                Optional.empty(), Optional.of(visibility), Optional.empty(), DiagnosticSinks.discarding());
+        runtime.initialize();
+        drainRefreshQueues(worker, client);
+        if (route.equals("editor")) runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        if (route.equals("providers-cape")) runtime.dispatchWidget("providers.tab.CAPE");
+        drainRefreshQueues(worker, client);
+        String prefix = route.equals("editor") ? "editor.outer_layer." : "providers.outer_layer.";
+        var history = new ArrayList<Long>();
+        runtime.subscribe(ignored -> history.add(refreshView(runtime, client).widgets().stream()
+                .filter(widget -> widget.id().startsWith(prefix)).count()));
+        var initial = refreshView(runtime, client);
+        assertEquals(0, initial.widgets().stream().filter(widget -> widget.id().startsWith(prefix)).count(),
+                "Opening before native registration must not show layers: " + route);
+        var initialDraft = runtime.snapshot().editor().map(PresetEditorModel::saveRequest);
+        var account = operations.account;
+        for (String group : List.of("head", "body", "legs")) {
+            runtime.dispatchWidget(prefix + group);
+            runtime.dispatchWidget(prefix + group, true, InteractionOrigin.KEYBOARD);
+            client.execute(() -> assertFalse(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, prefix + group)));
+        }
+        drainRefreshQueues(worker, client);
+        assertEquals(initialDraft, runtime.snapshot().editor().map(PresetEditorModel::saveRequest));
+        assertEquals(account, operations.account);
+        assertTrue(visibility.applied.isEmpty());
+        assertEquals(0, operations.editorSaveCalls);
+        var session = new com.naocraftlab.skins.client.EditorPreviewSession();
+        PreviewRenderer<Object> renderer = new PreviewRenderer<>() {
+            public void render(Object graphics, PreviewRequest request) { throw new AssertionError("Native queue is held"); }
+            public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return session.body(); }
+        };
+        var registration = new java.util.concurrent.atomic.AtomicReference<java.util.function.Consumer<PreviewRenderer.BodyStatus>>();
+        client.execute(() -> registration.set(runtime.observePreviewBody(initial.previews().get(0), renderer::displayKind)));
+        drainRefreshQueues(worker, client);
+        session.observeBody(registration.get());
+        session.beginBody("first", cpm, cpm);
+        assertEquals(0, refreshView(runtime, client).widgets().stream().filter(widget -> widget.id().startsWith(prefix)).count());
+        if (cpm) session.body(new com.naocraftlab.skins.client.PreviewModelFrames.Body(PreviewRenderer.BodyStatus.READY, () -> true));
+        java.util.function.Consumer<com.naocraftlab.skins.client.PreviewModelFrames.Body> complete = cpm
+                ? session.displayBody(() -> true) : session.ordinaryDisplay(() -> true);
+        var nativeQueue = new QueuedExecutor();
+        nativeQueue.execute(() -> complete.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                cpm ? PreviewRenderer.BodyStatus.READY : PreviewRenderer.BodyStatus.ORDINARY, () -> true)));
+        registration.get().accept(PreviewRenderer.BodyStatus.READY);
+        drainRefreshQueues(worker, client);
+        assertTrue(history.stream().allMatch(count -> count == 0), "Preparation/enqueue is not display: " + history);
+        nativeQueue.runFirst();
+        drainRefreshQueues(worker, client);
+        assertEquals(cpm ? 0 : 3, refreshView(runtime, client).widgets().stream().filter(widget -> widget.id().startsWith(prefix)).count());
+        var transitions = new ArrayList<Long>();
+        for (long count : history) if (transitions.isEmpty() || transitions.get(transitions.size() - 1) != count) transitions.add(count);
+        assertEquals(cpm ? List.of(0L) : List.of(0L, 3L), transitions, "Every published opening view: " + history);
+        int publications = history.size();
+        registration.get().accept(cpm ? PreviewRenderer.BodyStatus.READY : PreviewRenderer.BodyStatus.ORDINARY);
+        drainRefreshQueues(worker, client);
+        assertEquals(publications, history.size(), "Unchanged display must not publish");
+        runtime.resourcesReloaded();
+        drainRefreshQueues(worker, client);
+        assertEquals(0, refreshView(runtime, client).widgets().stream().filter(widget -> widget.id().startsWith(prefix)).count(),
+                "READY-to-READY replacement must close controls before native work");
+        registration.get().accept(PreviewRenderer.BodyStatus.READY);
+        drainRefreshQueues(worker, client);
+        assertEquals(0, refreshView(runtime, client).widgets().stream().filter(widget -> widget.id().startsWith(prefix)).count());
+        runtime.close();
+        drainRefreshQueues(worker, client);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"null", "failed-query", "unconfirmed", "cpm", "ordinary"})
+    void displayInputFailsClosedWithoutCpmInstallationOrLicensedSession(String outcome) {
+        FakeOperations operations = new FakeOperations();
+        operations.session = session(SessionStatus.UNCHECKED);
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        var visibility = new ProviderTestVisibility();
+        var runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(visibility), new AtomicInteger());
+        runtime.initialize();
+        assertFalse(runtime.snapshot().skinExtensionEnvironment().cpmPresent());
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var callback = runtime.observePreviewBody(preview, () -> switch (outcome) {
+            case "null" -> null;
+            case "failed-query" -> throw new IllegalStateException("synthetic query");
+            case "unconfirmed" -> PreviewRenderer.DisplayKind.UNCONFIRMED;
+            case "cpm" -> PreviewRenderer.DisplayKind.CPM;
+            case "ordinary" -> PreviewRenderer.DisplayKind.ORDINARY;
+            default -> throw new AssertionError(outcome);
+        });
+        callback.accept(PreviewRenderer.BodyStatus.READY);
+        assertEquals(outcome.equals("ordinary"), runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isPresent());
+        runtime.dispatchWidget("providers.outer_layer.head", true, InteractionOrigin.KEYBOARD);
+        assertEquals(outcome.equals("ordinary") ? 1 : 0, visibility.applied.size());
+        runtime.close();
+    }
+
+    @Test
+    void rebindDoesNotPublishUnconfirmedOrdinaryControls() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        var runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(new ProviderTestVisibility()), new AtomicInteger());
+        runtime.initialize();
+        var session = new com.naocraftlab.skins.client.EditorPreviewSession();
+        session.beginBody("first", false, false);
+        session.ordinaryDisplay(() -> true).accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        PreviewRenderer<Object> renderer = new PreviewRenderer<>() {
+            public void render(Object graphics, PreviewRequest request) { throw new AssertionError(); }
+            public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return session.body(); }
+        };
+        var callback = runtime.observePreviewBody(runtime.view(854, 480, 0, 0).previews().get(0), renderer::displayKind);
+        session.observeBody(callback);
+        callback.accept(PreviewRenderer.BodyStatus.ORDINARY);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isPresent());
+        var history = new ArrayList<Long>();
+        runtime.subscribe(ignored -> history.add(runtime.view(854, 480, 0, 0).widgets().stream()
+                .filter(widget -> widget.id().startsWith("providers.outer_layer.")).count()));
+        history.clear();
+        session.beginBody("replacement", false, false);
+        assertEquals(0, runtime.view(854, 480, 0, 0).widgets().stream()
+                .filter(widget -> widget.id().startsWith("providers.outer_layer.")).count(), "Rebind must hide unconfirmed display");
+        assertTrue(history.stream().allMatch(count -> count == 0));
+        runtime.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(AppearanceProviders.Component.class)
+    void displayedProviderBodyUsesCurrentSupplierInsteadOfPreparationPayload(AppearanceProviders.Component component) throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        var visibility = new ProviderTestVisibility();
+        var runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(visibility), new AtomicInteger());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        runtime.dispatchWidget("providers.tab." + component);
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var displayed = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.function.Supplier<PreviewRenderer.DisplayKind> supplier = () -> displayed.get()
+                ? PreviewRenderer.DisplayKind.CPM : PreviewRenderer.DisplayKind.ORDINARY;
+        var callback = runtime.observePreviewBody(preview, supplier);
+        callback.accept(PreviewRenderer.BodyStatus.READY);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isPresent());
+        runtime.dispatchWidget("providers.outer_layer.head", false, InteractionOrigin.KEYBOARD);
+        var applied = List.copyOf(visibility.applied);
+        displayed.set(true);
+        assertTrue(runtime.snapshot().skinExtensionEnvironment().cpmPresent());
+        callback.accept(PreviewRenderer.BodyStatus.ORDINARY);
+        var hidden = runtime.view(854, 480, 0, 0);
+        assertTrue(hidden.widget("providers.outer_layer.head").isEmpty(), "actual Providers body must hide controls independently of preparation enum");
+        assertTrue(hidden.navigationNodes().stream().noneMatch(node -> node.id().startsWith("providers.outer_layer.")));
+        assertEquals("providers.tab." + component, hidden.focusRequest().orElseThrow().widgetId());
+        for (String group : List.of("head", "body", "legs")) {
+            runtime.dispatchWidget("providers.outer_layer." + group);
+            runtime.dispatchWidget("providers.outer_layer." + group, true, InteractionOrigin.KEYBOARD);
+            runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.outer_layer." + group);
+        }
+        assertEquals(applied, visibility.applied);
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isEmpty());
+        displayed.set(false);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isPresent());
+        assertEquals(applied, visibility.applied);
+        runtime.close();
+    }
+
+    @Test
+    void editorFailureOverlayKeepsRuntimeDragScrollAndFocusAtCaptionCoordinates() {
+        for (var status : List.of(PreviewRenderer.BodyStatus.FAILED, PreviewRenderer.BodyStatus.BLOCKED,
+                PreviewRenderer.BodyStatus.TIMED_OUT)) {
+            for (int[] size : List.of(new int[]{854, 480}, new int[]{240, 240}, new int[]{854, 180}, new int[]{1280, 240})) {
+                FakeOperations first = new FakeOperations();
+                first.account = TestFixtures.account(1);
+                FakeOperations second = new FakeOperations();
+                second.account = first.account;
+                try (var baseline = runtime(first, Runnable::run, Optional.empty());
+                     var overlay = runtime(second, Runnable::run, Optional.empty())) {
+                    baseline.initialize(); overlay.initialize();
+                    String edit = "gallery.preset." + first.account.presets().get(0).id() + ".edit";
+                    baseline.dispatchWidget(edit); overlay.dispatchWidget(edit);
+                    var before = baseline.view(size[0], size[1], 0, 0);
+                    var preview = overlay.view(size[0], size[1], 0, 0).previews().get(0);
+                    overlay.observePreviewBody(preview, () -> PreviewRenderer.DisplayKind.UNCONFIRMED).accept(status);
+                    var failed = overlay.view(size[0], size[1], 0, 0);
+                    Bounds caption = failed.texts().stream().filter(t -> t.id().equals("editor.preview.error")).findFirst().orElseThrow().bounds();
+                    assertEquals(before.previews(), failed.previews());
+                    double x = caption.x() + caption.width() / 2.0;
+                    double y = caption.bottom() - 1;
+                    assertTrue(PointerRouting.hit(before, x, y).anyPreview());
+                    assertEquals(PointerRouting.hit(before, x, y), PointerRouting.hit(failed, x, y));
+                    baseline.pointerPressed(x, y, 0); overlay.pointerPressed(x, y, 0);
+                    baseline.pointerDragged(x + 12, y - 7, 0, 12, -7);
+                    overlay.pointerDragged(x + 12, y - 7, 0, 12, -7);
+                    baseline.pointerReleased(x + 12, y - 7, 0); overlay.pointerReleased(x + 12, y - 7, 0);
+                    baseline.pointerScrolled(x, y, 0, 1); overlay.pointerScrolled(x, y, 0, 1);
+                    var normalAfter = baseline.view(size[0], size[1], 0, 0);
+                    var failedAfter = overlay.view(size[0], size[1], 0, 0);
+                    assertEquals(normalAfter.previews(), failedAfter.previews());
+                    assertNotEquals(before.previews().get(0).yawDegrees(), normalAfter.previews().get(0).yawDegrees());
+                    assertNotEquals(before.previews().get(0).scale(), normalAfter.previews().get(0).scale());
+                    assertEquals(normalAfter.focusRequest(), failedAfter.focusRequest());
+                    assertEquals(normalAfter.widgets(), failedAfter.widgets());
+                    assertEquals(first.account, second.account);
+                    assertEquals(0, first.applyCalls + second.applyCalls);
+                }
+            }
+        }
+    }
+
+    @Test
+    void editorBodyHidesOnlyLayersRejectsStaleActionsAndRestoresDraftControls() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        var runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var body = new java.util.concurrent.atomic.AtomicReference<>(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
+                PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        PreviewRenderer<Object> renderer = new PreviewRenderer<>() {
+            public void render(Object graphics, PreviewRequest request) { throw new AssertionError("No rendering"); }
+            public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return body.get(); }
+        };
+        var callback = runtime.observePreviewBody(preview, renderer::displayKind);
+        callback.accept(PreviewRenderer.BodyStatus.READY);
+        runtime.dispatchWidget("editor.outer_layer.body", false, InteractionOrigin.KEYBOARD);
+        var focused = runtime.view(854, 480, 0, 0);
+        assertTrue(focused.focusRequest().isPresent(), "keyboard layer activation must preserve logical Editor focus");
+        assertEquals("editor.outer_layer.body", focused.focusRequest().orElseThrow().widgetId());
+        var draft = runtime.snapshot().editor().orElseThrow().saveRequest();
+        var account = operations.account;
+        body.set(new com.naocraftlab.skins.client.PreviewModelFrames.Body(PreviewRenderer.BodyStatus.READY, () -> true));
+        callback.accept(PreviewRenderer.BodyStatus.ORDINARY);
+        var hidden = runtime.view(854, 480, 0, 0);
+        assertTrue(hidden.widgets().stream().noneMatch(widget -> widget.id().startsWith("editor.outer_layer.")));
+        assertTrue(hidden.navigationNodes().stream().noneMatch(node -> node.id().startsWith("editor.outer_layer.")));
+        assertEquals("editor.tab.appearance", hidden.focusRequest().orElseThrow().widgetId());
+        assertTrue(hidden.widget("editor.save").isPresent());
+        assertTrue(hidden.widget("editor.cancel").isPresent());
+        assertTrue(hidden.widget("editor.model_choice.slim").isPresent());
+        assertEquals(preview.anchorBounds(), hidden.previews().get(0).anchorBounds());
+        for (String group : List.of("head", "body", "legs")) {
+            runtime.dispatchWidget("editor.outer_layer." + group);
+            runtime.dispatchWidget("editor.outer_layer." + group, true, InteractionOrigin.KEYBOARD);
+            assertFalse(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "editor.outer_layer." + group));
+        }
+        assertEquals(draft, runtime.snapshot().editor().orElseThrow().saveRequest());
+        assertEquals(account, operations.account);
+        for (var status : List.of(PreviewRenderer.BodyStatus.ORDINARY, PreviewRenderer.BodyStatus.PENDING,
+                PreviewRenderer.BodyStatus.FAILED, PreviewRenderer.BodyStatus.BLOCKED, PreviewRenderer.BodyStatus.TIMED_OUT)) {
+            body.set(new com.naocraftlab.skins.client.PreviewModelFrames.Body(status, () -> true));
+            callback.accept(status);
+            var fallback = runtime.view(854, 480, 0, 0);
+            assertEquals(status == PreviewRenderer.BodyStatus.ORDINARY,
+                    fallback.widget("editor.outer_layer.head").isPresent(), status.name());
+            assertEquals(draft, runtime.snapshot().editor().orElseThrow().saveRequest());
+            body.set(new com.naocraftlab.skins.client.PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+            callback.accept(status);
+            assertTrue(runtime.view(854, 480, 0, 0).widget("editor.outer_layer.head").isPresent(), "Actual fallback after " + status);
+        }
+        runtime.dispatchWidget("editor.cancel");
+        assertEquals(account, operations.account);
+        assertEquals(0, operations.editorSaveCalls);
+        runtime.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"resources", "world", "model-roundtrip", "reopen", "session"})
+    void oldEditorBodyRegistrationCannotCrossScopeRetirement(String transition) {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        var runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        String edit = "gallery.preset." + operations.account.presets().get(0).id() + ".edit";
+        runtime.dispatchWidget(edit);
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        AtomicInteger reads = new AtomicInteger();
+        var old = runtime.observePreviewBody(preview, () -> {
+            reads.incrementAndGet();
+            return PreviewRenderer.DisplayKind.CPM;
+        });
+        old.accept(PreviewRenderer.BodyStatus.READY);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("editor.outer_layer.head").isEmpty());
+        switch (transition) {
+            case "resources" -> runtime.resourcesReloaded();
+            case "world" -> runtime.importWorldChanged();
+            case "model-roundtrip" -> {
+                String originalVariant = preview.variant() == SkinVariant.SLIM ? "slim" : "classic";
+                runtime.dispatchWidget("editor.model_choice." + (preview.variant() == SkinVariant.SLIM ? "classic" : "slim"));
+                runtime.dispatchWidget("editor.model_choice." + originalVariant);
+            }
+            case "reopen" -> {
+                runtime.dispatchWidget("editor.cancel");
+                runtime.dispatchWidget(edit);
+            }
+            case "session" -> {
+                operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                        new GameSessionTokenSource.SessionIdentity(new UUID(0, 903), "SyntheticB"),
+                        null, (SessionFailureContext) null, "synthetic switch");
+            }
+            default -> throw new AssertionError(transition);
+        }
+        int retiredReads = reads.get();
+        old.accept(PreviewRenderer.BodyStatus.READY);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("editor.outer_layer.head").isEmpty(), transition);
+        assertEquals(retiredReads, reads.get(), "retired suppliers must not be queried");
+        runtime.close();
+    }
+
+    @Test
+    void queuedBodyCallbackAndOldReleaseCannotRetireNewRegistrationOrPublishAFrameLoop() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        var runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client, CANCELLED_PICKER, worker, TEXT,
+                Optional.empty(), DiagnosticSinks.discarding());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        drainRefreshQueues(worker, client);
+        var old = new java.util.concurrent.atomic.AtomicReference<java.util.function.Consumer<PreviewRenderer.BodyStatus>>();
+        var next = new java.util.concurrent.atomic.AtomicReference<java.util.function.Consumer<PreviewRenderer.BodyStatus>>();
+        var first = new java.util.concurrent.atomic.AtomicBoolean();
+        client.execute(() -> old.set(runtime.observePreviewBody(runtime.view(854, 480, 0, 0).previews().get(0),
+                () -> first.get() ? PreviewRenderer.DisplayKind.CPM : PreviewRenderer.DisplayKind.UNCONFIRMED)));
+        client.runFirst();
+        first.set(true);
+        old.get().accept(PreviewRenderer.BodyStatus.READY);
+        client.execute(() -> next.set(runtime.observePreviewBody(runtime.view(854, 480, 0, 0).previews().get(0), () -> PreviewRenderer.DisplayKind.CPM)));
+        client.runFirst();
+        client.runFirst();
+        client.execute(() -> runtime.reconcilePreviewBody(next.get()));
+        client.runFirst();
+        AtomicInteger publications = new AtomicInteger();
+        runtime.subscribe(snapshot -> publications.incrementAndGet());
+        drainRefreshQueues(worker, client);
+        int before = publications.get();
+        for (int index = 0; index < 5; index++) {
+            old.get().accept(PreviewRenderer.BodyStatus.FAILED);
+            next.get().accept(PreviewRenderer.BodyStatus.ORDINARY);
+            client.execute(() -> runtime.invalidatePreviewBody(old.get()));
+        }
+        drainRefreshQueues(worker, client);
+        assertTrue(refreshView(runtime, client).widget("providers.outer_layer.head").isEmpty());
+        assertEquals(before, publications.get());
+        client.execute(() -> runtime.invalidatePreviewBody(next.get()));
+        client.runFirst();
+        assertTrue(refreshView(runtime, client).widget("providers.outer_layer.head").isEmpty());
+        runtime.close();
+        drainRefreshQueues(worker, client);
+        old.get().accept(PreviewRenderer.BodyStatus.READY);
+        next.get().accept(PreviewRenderer.BodyStatus.READY);
+        drainRefreshQueues(worker, client);
+        assertTrue(runtime.closed());
+    }
+
+    @Test
+    void displayedBodyQueryRechecksScopeAndRegistrationAfterLiveInput() throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        var runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(new ProviderTestVisibility()), new AtomicInteger());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var retire = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var old = runtime.observePreviewBody(preview, () -> {
+            if (retire.getAndSet(false)) runtime.importWorldChanged();
+            return PreviewRenderer.DisplayKind.ORDINARY;
+        });
+        old.accept(PreviewRenderer.BodyStatus.READY);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isEmpty());
+        var replace = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var replacement = new java.util.concurrent.atomic.AtomicReference<java.util.function.Consumer<PreviewRenderer.BodyStatus>>();
+        var fresh = runtime.view(854, 480, 0, 0).previews().get(0);
+        var superseded = runtime.observePreviewBody(fresh, () -> {
+            if (replace.getAndSet(false)) replacement.set(runtime.observePreviewBody(fresh, () -> PreviewRenderer.DisplayKind.ORDINARY));
+            return PreviewRenderer.DisplayKind.CPM;
+        });
+        superseded.accept(PreviewRenderer.BodyStatus.READY);
+        runtime.invalidatePreviewBody(superseded);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isPresent());
+        replacement.get().accept(PreviewRenderer.BodyStatus.READY);
+        var capability = ClientRuntime.class.getDeclaredField("bodyCapability");
+        capability.setAccessible(true);
+        assertTrue(capability.get(runtime) != null);
+        runtime.invalidatePreviewBody(replacement.get());
+        assertNull(capability.get(runtime), "Retirement releases the live renderer input");
+        runtime.close();
+    }
+
+    @Test
+    void displayedBodyRetiresInputWhenSessionChangesInsideSupplier() throws Exception {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        var runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(new ProviderTestVisibility()), new AtomicInteger());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var callback = runtime.observePreviewBody(preview, () -> {
+            operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                    new GameSessionTokenSource.SessionIdentity(new UUID(0, 903), "SyntheticB"),
+                    null, (SessionFailureContext) null, "synthetic switch");
+            return PreviewRenderer.DisplayKind.ORDINARY;
+        });
+        callback.accept(PreviewRenderer.BodyStatus.READY);
+        var capability = ClientRuntime.class.getDeclaredField("bodyCapability");
+        capability.setAccessible(true);
+        assertNull(capability.get(runtime), "Post-query scope retirement must release the renderer immediately");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isEmpty());
+        runtime.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"resources", "world", "source", "model"})
+    void providerBodyRetirementRequiresNewCurrentDisplayEvenForReadyReplacement(String transition) {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        var visibility = new ProviderTestVisibility();
+        var runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(visibility), new AtomicInteger());
+        runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+        runtime.initialize();
+        var preview = runtime.view(854, 480, 0, 0).previews().get(0);
+        var reads = new AtomicInteger();
+        var old = runtime.observePreviewBody(preview, () -> { reads.incrementAndGet(); return PreviewRenderer.DisplayKind.CPM; });
+        old.accept(PreviewRenderer.BodyStatus.READY);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isEmpty());
+        switch (transition) {
+            case "resources" -> runtime.resourcesReloaded();
+            case "world" -> runtime.importWorldChanged();
+            case "source", "model" -> {
+                operations.providers = new AppearanceProviders(operations.providers.skin().select(1,
+                        new ProviderSkin("a".repeat(64), transition.equals("model") ? SkinVariant.SLIM : SkinVariant.CLASSIC)),
+                        operations.providers.cape());
+                runtime.dispatchWidget("gallery.providers");
+            }
+            default -> throw new AssertionError(transition);
+        }
+        int retiredReads = reads.get();
+        old.accept(PreviewRenderer.BodyStatus.READY);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isEmpty(), transition);
+        assertEquals(retiredReads, reads.get());
+        var replacement = runtime.observePreviewBody(runtime.view(854, 480, 0, 0).previews().get(0), () -> PreviewRenderer.DisplayKind.CPM);
+        replacement.accept(PreviewRenderer.BodyStatus.ORDINARY);
+        runtime.invalidatePreviewBody(old);
+        old.accept(PreviewRenderer.BodyStatus.FAILED);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isEmpty(), "Fresh actual READY is independent of preparation enum");
+        assertTrue(visibility.applied.isEmpty());
+        runtime.close();
+    }
+
+    @Test
+    void providerLayersUseFreshOptionsAndPreserveAppearanceThroughBackEscapeAndReopen() {
+        for (boolean connected : List.of(false, true)) {
+            FakeOperations operations = new FakeOperations();
+            operations.account = TestFixtures.account(1);
+            operations.localFirst = true;
+            operations.activePresetId = Optional.of(operations.account.presets().get(0).id());
+            operations.appearanceRevision = 7;
+            operations.appearanceSyncStatus = AppearanceSyncStatus.PARTIAL;
+            operations.providers = operations.providers.select(7,
+                    new com.naocraftlab.skins.core.provider.ProviderSkin("a".repeat(64), SkinVariant.CLASSIC), null);
+            operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                    .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+            operations.durable = Optional.of(new ClientOperations.DurableAppearance(
+                    operations.account.accountId(), operations.appearanceRevision, operations.appearanceSyncStatus,
+                    operations.activePresetId, Optional.empty(),
+                    Optional.of(operations.account.presets().get(0).outerLayerVisibility()), operations.providers));
+            if (!connected) operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+            var visibility = new ProviderTestVisibility();
+            AtomicInteger notifications = new AtomicInteger();
+            ClientRuntime runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(visibility), notifications);
+            runtime.initialize();
+            visibility.applied.clear();
+            runtime.view(854, 480, 0, 0);
+            runtime.dispatchWidget("providers.row.OFFLINE");
+            runtime.pointerScrolled(100, 100, 0, -1);
+            TestFixtures.confirmOrdinaryDisplay(runtime);
+            var beforeView = runtime.view(854, 480, 0, 0);
+            var before = runtime.snapshot();
+            var account = operations.account;
+            var durable = operations.durable;
+            int reconciliations = operations.reconciliationCalls;
+            int refreshes = notifications.get();
+            visibility.value = com.naocraftlab.skins.client.OuterLayerVisibility.noneVisible();
+            int reads = visibility.reads;
+            runtime.dispatchWidget("providers.outer_layer.body", true, InteractionOrigin.KEYBOARD);
+            assertTrue(visibility.reads > reads);
+            assertEquals(List.of(EditorOuterLayerCycle.cycle("body",
+                    com.naocraftlab.skins.client.OuterLayerVisibility.noneVisible(), -1)), visibility.applied);
+            var afterView = runtime.view(854, 480, 0, 0);
+            assertEquals(visibility.value, afterView.previews().get(0).outerLayerVisibility());
+            assertEquals("providers.outer_layer.body", afterView.focusRequest().orElseThrow().widgetId());
+            assertEquals(beforeView.previews().get(0).yawDegrees(), afterView.previews().get(0).yawDegrees());
+            assertEquals(beforeView.previews().get(0).pitchDegrees(), afterView.previews().get(0).pitchDegrees());
+            assertEquals(beforeView.previews().get(0).scale(), afterView.previews().get(0).scale());
+            assertEquals(beforeView.widget("providers.row.OFFLINE").orElseThrow().value(),
+                    afterView.widget("providers.row.OFFLINE").orElseThrow().value());
+            runtime.dispatchWidget("providers.outer_layer.head");
+            assertTrue(runtime.view(854, 480, 0, 0).iconDecorations().stream()
+                    .filter(icon -> icon.providerTexture().map(ViewSpec.ProviderTexture::skin).orElse(false))
+                    .allMatch(icon -> icon.providerTexture().orElseThrow().overlay()));
+            runtime.dispatchWidget("providers.tab.CAPE");
+            assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.outer_layer.legs"));
+            assertEquals(account, operations.account);
+            assertEquals(durable, operations.durable);
+            assertEquals(before.providers(), runtime.snapshot().providers());
+            assertEquals(before.activePresetId(), runtime.snapshot().activePresetId());
+            assertEquals(before.intentRevision(), runtime.snapshot().intentRevision());
+            assertEquals(before.syncStatus(), runtime.snapshot().syncStatus());
+            assertEquals(0, operations.applyCalls);
+            assertEquals(0, operations.editorSaveCalls);
+            assertNull(operations.providerRefresh);
+            assertEquals(0, operations.optifineRefreshes);
+            assertEquals(0, operations.skinMcRefreshes);
+            assertEquals(reconciliations, operations.reconciliationCalls);
+            assertEquals(refreshes, notifications.get());
+            var savedOptions = visibility.value;
+            for (boolean escape : List.of(false, true)) {
+                if (escape) runtime.escapePressed(); else runtime.dispatchWidget("providers.back");
+                assertEquals(savedOptions, visibility.value);
+                runtime.reopen();
+                assertEquals(savedOptions, runtime.view(854, 480, 0, 0).previews().get(0).outerLayerVisibility());
+            }
+            assertEquals(3, visibility.applied.size());
+            runtime.close();
+        }
+    }
+
+    @Test
+    void layerActionKeepsReadOnlyRowInspectionAndCapeMode() {
+        FakeOperations operations = new FakeOperations();
+        var restricted = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        operations.providers = new AppearanceProviders(restricted.skin(), restricted.cape().enable(BuiltinProvider.OPTIFINE)
+                .observeOptifine(new com.naocraftlab.skins.core.provider.ProviderCape("fixture", "b".repeat(64), true)));
+        var visibility = new ProviderTestVisibility();
+        var runtime = providerLayerRuntime(operations, Runnable::run, Optional.of(visibility), new AtomicInteger());
+        runtime.initialize();
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.row.OPTIFINE");
+        runtime.dispatchWidget("providers.preview_mode");
+        TestFixtures.confirmOrdinaryDisplay(runtime);
+        var before = runtime.view(854, 480, 0, 0);
+        var providers = runtime.snapshot().providers();
+        runtime.dispatchWidget("providers.outer_layer.head");
+        var after = runtime.view(854, 480, 0, 0);
+        assertEquals(before.widget("providers.row.OPTIFINE").orElseThrow().value(), after.widget("providers.row.OPTIFINE").orElseThrow().value());
+        assertEquals(before.previews().get(0).capeId(), after.previews().get(0).capeId());
+        assertEquals(before.previews().get(0).capeMode(), after.previews().get(0).capeMode());
+        assertEquals(providers, runtime.snapshot().providers());
+        assertEquals(1, visibility.applied.size());
+        assertFalse(after.previews().get(0).outerLayerVisibility().visible(OuterLayerPart.HEAD));
+        runtime.close();
+    }
+
+    @Test
+    void providerLayersRemainAvailableDuringRefreshAndRejectHiddenStaleChooserAndInvalidActions() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        var visibility = new ProviderTestVisibility();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = providerLayerRuntime(operations, worker, Optional.of(visibility), new AtomicInteger());
+        runtime.initialize();
+        runtime.dispatchWidget("providers.outer_layer.head");
+        assertTrue(visibility.applied.isEmpty());
+        drainWorker(worker);
+        TestFixtures.confirmOrdinaryDisplay(runtime);
+        runtime.dispatchWidget("providers.refresh");
+        runtime.dispatchWidget("providers.outer_layer.head");
+        assertEquals(1, visibility.applied.size());
+        drainWorker(worker);
+        runtime.dispatchWidget("providers.outer_layer.invalid");
+        runtime.dispatchWidget("providers.add");
+        runtime.dispatchWidget("providers.outer_layer.head");
+        assertEquals(1, visibility.applied.size());
+        runtime.escapePressed();
+        TestFixtures.confirmOrdinaryDisplay(runtime);
+        runtime.dispatchWidget("providers.outer_layer.head", false, InteractionOrigin.KEYBOARD);
+        assertEquals(2, visibility.applied.size());
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.add");
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        drainWorker(worker);
+        var visibleWriters = runtime.view(854, 480, 0, 0);
+        assertTrue(visibleWriters.widget("providers.outer_layer.head").isEmpty());
+        assertTrue(visibleWriters.focusRequest().stream().noneMatch(request -> request.widgetId().startsWith("providers.outer_layer.")));
+        assertTrue(visibleWriters.navigationNodes().stream().noneMatch(node -> node.id().startsWith("providers.outer_layer.")));
+        runtime.dispatchWidget("providers.outer_layer.head");
+        runtime.dispatchWidget("providers.back");
+        runtime.dispatchWidget("providers.outer_layer.head");
+        assertEquals(2, visibility.applied.size());
+        runtime.dispatchWidget("gallery.providers");
+        drainWorker(worker);
+        runtime.dispatchWidget("providers.remove.OFFLINE");
+        drainWorker(worker);
+        TestFixtures.confirmOrdinaryDisplay(runtime);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.outer_layer.head").isPresent());
+        assertEquals(2, visibility.applied.size());
+        runtime.close();
+        ClientRuntime withoutController = providerLayerRuntime(operations, Runnable::run, Optional.empty(), new AtomicInteger());
+        withoutController.initialize();
+        TestFixtures.confirmOrdinaryDisplay(withoutController);
+        assertFalse(withoutController.view(854, 480, 0, 0).widget("providers.outer_layer.head").orElseThrow().enabled());
+        withoutController.dispatchWidget("providers.outer_layer.head");
+        withoutController.close();
+    }
+
+    private static ClientRuntime providerLayerRuntime(FakeOperations operations, Executor worker,
+            Optional<com.naocraftlab.skins.client.OuterLayerVisibilityController> visibility, AtomicInteger notifications) {
+        return new ClientRuntime(new DefaultRuntimeServices(), operations, CLIENT, CANCELLED_PICKER, worker, TEXT,
+                Optional.of(new AppearanceRefresh() {
+                    public CompletableFuture<Result> afterMutation(PresetApplicationOutcome outcome, java.util.function.Consumer<Result> publisher) {
+                        notifications.incrementAndGet();
+                        return CompletableFuture.completedFuture(Result.NOT_APPLICABLE);
+                    }
+                    public CompletableFuture<Result> afterReconnect(AppliedAppearance appearance, java.util.function.Consumer<Result> publisher) {
+                        notifications.incrementAndGet();
+                        return CompletableFuture.completedFuture(Result.NOT_APPLICABLE);
+                    }
+                    public void providerVisibility(com.naocraftlab.skins.client.ProviderVisibility visibility) {}
+                    public void close() {}
+                }), visibility, Optional.of(notifications::incrementAndGet), DiagnosticSinks.discarding());
+    }
+
+    private static final class ProviderTestVisibility implements com.naocraftlab.skins.client.OuterLayerVisibilityController {
+        private com.naocraftlab.skins.client.OuterLayerVisibility value = com.naocraftlab.skins.client.OuterLayerVisibility.allVisible();
+        private final List<com.naocraftlab.skins.client.OuterLayerVisibility> applied = new ArrayList<>();
+        private int reads;
+        public com.naocraftlab.skins.client.OuterLayerVisibility current() { reads++; return value; }
+        public void applyDurable(com.naocraftlab.skins.client.OuterLayerVisibility mask) { value = mask; applied.add(mask); }
+    }
+
     @Test
     void persistedEmptyProvidersRouteDirectlyAndAddingWritersStaysOnProviders() {
         FakeOperations operations = new FakeOperations();
@@ -1019,6 +3064,274 @@ final class ClientRuntimeTest {
         assertEquals(AppearanceProviders.Component.CAPE, operations.providerRefresh);
         runtime.dispatchWidget("providers.tab.SKIN");
         assertTrue(runtime.view(854, 480, 0, 0).widget("providers.row.MINECRAFT").orElseThrow().value().isEmpty());
+    }
+
+    @Test
+    void refreshScopeTracksSelectionWithoutFollowingHoverOrFocusAndResetsWithTabRemoveReload() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        for (var component : AppearanceProviders.Component.values()) {
+            runtime.dispatchWidget("providers.tab." + component);
+            assertEquals("nclskins.providers.refresh_all", runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().label().key());
+            runtime.dispatchWidget("providers.refresh");
+            assertEquals(ProviderRefreshRequest.all(component), operations.providerRefreshRequests.get(operations.providerRefreshRequests.size() - 1));
+            runtime.dispatchWidget("providers.row.OFFLINE");
+            var other = runtime.view(320, 240, 0, 0).widget("providers.row.MINECRAFT").orElseThrow().bounds();
+            runtime.view(320, 240, other.x() + 1, other.y() + 1);
+            runtime.dispatchNavigation(ViewSpec.NavigationCommand.DOWN, "providers.row.OFFLINE");
+            assertEquals("nclskins.providers.refresh", runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().label().key());
+            runtime.dispatchWidget("providers.refresh");
+            assertEquals(ProviderRefreshRequest.one(component, BuiltinProvider.OFFLINE), operations.providerRefreshRequests.get(operations.providerRefreshRequests.size() - 1));
+            runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.tab." + component);
+            assertEquals("nclskins.providers.refresh_all", runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().label().key());
+            runtime.dispatchWidget("providers.row.OFFLINE");
+            runtime.dispatchWidget("providers.remove.OFFLINE");
+            assertEquals("nclskins.providers.refresh_all", runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().label().key());
+            runtime.dispatchWidget("providers.row.MINECRAFT");
+            operations.providers = operations.providers.disable(component, BuiltinProvider.MINECRAFT);
+            runtime.dispatchWidget("gallery.providers");
+            assertEquals("nclskins.providers.refresh_all", runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().label().key());
+            assertTrue(runtime.view(320, 240, 0, 0).widget("providers.row.MINECRAFT").isEmpty());
+        }
+        runtime.close();
+    }
+
+    @Test
+    void selectedCooldownExpiresOnTickWithoutNewDemandOrSelectionChange() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC);
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.row.SKINMC");
+        operations.capeCooldowns.put(BuiltinProvider.SKINMC, Duration.ofNanos(1));
+        runtime.tick();
+        var limited = runtime.view(200, 191, 0, 0).widget("providers.refresh").orElseThrow();
+        assertFalse(limited.enabled());
+        assertEquals("nclskins.providers.refresh", limited.label().key());
+        assertEquals("nclskins.providers.refresh_rate_limited", limited.hint().orElseThrow().key());
+        runtime.dispatchWidget("providers.refresh");
+        runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "providers.refresh");
+        assertTrue(operations.providerRefreshRequests.isEmpty());
+        assertEquals(0, operations.skinMcRefreshes);
+        operations.capeCooldowns.clear();
+        runtime.tick();
+        var available = runtime.view(200, 191, 0, 0).widget("providers.refresh").orElseThrow();
+        assertTrue(available.enabled());
+        assertEquals("nclskins.providers.refresh", available.hint().orElseThrow().key());
+        assertTrue(operations.providerRefreshRequests.isEmpty());
+        operations.capeCooldowns.put(BuiltinProvider.SKINMC, Duration.ofSeconds(2));
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        assertTrue(runtime.view(200, 191, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        runtime.dispatchWidget("providers.row.SKINMC");
+        runtime.tick();
+        assertFalse(runtime.view(200, 191, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        runtime.dispatchWidget("providers.tab.CAPE");
+        assertTrue(runtime.view(200, 191, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        runtime.close();
+    }
+
+    @Test
+    void cooldownHintExpiresDuringInitialRefreshWithoutReleasingRefreshOrSubmittingAnotherRequest() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC);
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("gallery.providers");
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.row.SKINMC");
+        runtime.dispatchWidget("providers.refresh");
+        assertFalse(runtime.snapshot().busy());
+        assertFalse(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        operations.capeCooldowns.put(BuiltinProvider.SKINMC, Duration.ofSeconds(1));
+        runtime.tick();
+        assertEquals("nclskins.providers.refresh_rate_limited", runtime.view(320, 240, 0, 0)
+                .widget("providers.refresh").orElseThrow().hint().orElseThrow().key());
+        operations.capeCooldowns.clear();
+        runtime.tick();
+        var button = runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow();
+        assertFalse(button.enabled());
+        assertEquals("nclskins.providers.refresh", button.hint().orElseThrow().key());
+        assertEquals(0, operations.skinMcRefreshes);
+        assertTrue(operations.providerRefreshRequests.isEmpty());
+        while (worker.size() > 0) worker.runFirst();
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(1, operations.skinMcRefreshes);
+        assertEquals(1, operations.providerRefreshRequests.size());
+        runtime.close();
+    }
+
+    @Test
+    void transientClientRejectionDefersOneTerminalRefreshUntilAcceptedTick() {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        ClientRuntime runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client,
+                CANCELLED_PICKER, worker, TEXT, Optional.empty(), DiagnosticSinks.discarding());
+        runtime.initialize();
+        while (!client.tasks.isEmpty() || worker.size() > 0) {
+            if (!client.tasks.isEmpty()) client.runFirst();
+            else worker.runFirst();
+        }
+        runtime.dispatchWidget("gallery.providers");
+        while (!client.tasks.isEmpty() || worker.size() > 0) {
+            if (!client.tasks.isEmpty()) client.runFirst();
+            else worker.runFirst();
+        }
+        var publishedRefreshEnabled = new java.util.concurrent.atomic.AtomicBoolean(true);
+        runtime.subscribe(snapshot -> publishedRefreshEnabled.set(runtime.view(320, 240, 0, 0)
+                .widget("providers.refresh").orElseThrow().enabled()));
+        client.runFirst();
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        client.runFirst();
+        runtime.dispatchWidget("providers.refresh");
+        client.runFirst();
+        assertFalse(runtime.snapshot().busy());
+        assertFalse(publishedRefreshEnabled.get());
+        client.reject = true;
+        while (worker.size() > 0) worker.runFirst();
+        assertFalse(runtime.snapshot().busy());
+        assertFalse(publishedRefreshEnabled.get());
+        assertEquals(1, operations.providerRefreshRequests.size());
+        client.reject = false;
+        runtime.tick();
+        client.runFirst();
+        assertFalse(runtime.snapshot().busy());
+        assertTrue(publishedRefreshEnabled.get());
+        assertEquals(1, operations.providerRefreshRequests.size());
+        runtime.tick();
+        client.runFirst();
+        assertEquals(1, operations.providerRefreshRequests.size());
+        runtime.close();
+        client.runFirst();
+    }
+
+    @Test
+    void allCooldownReleasesAtFirstExpiryWithoutPointerOrSelectionChange() {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
+                .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC);
+        operations.capeCooldowns.put(BuiltinProvider.OPTIFINE, Duration.ofSeconds(2));
+        operations.capeCooldowns.put(BuiltinProvider.SKINMC, Duration.ofSeconds(10));
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.tick();
+        assertFalse(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        runtime.dispatchWidget("providers.refresh");
+        assertTrue(operations.providerRefreshRequests.isEmpty());
+        operations.capeCooldowns.remove(BuiltinProvider.OPTIFINE);
+        runtime.tick();
+        var button = runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow();
+        assertTrue(button.enabled());
+        assertEquals("nclskins.providers.refresh_all", button.hint().orElseThrow().key());
+        assertEquals(0, operations.optifineRefreshes);
+        assertEquals(0, operations.skinMcRefreshes);
+        runtime.close();
+    }
+
+    @Test
+    void capeRefreshOffersOneScopedCandidateCheckpointWithUnchangedInputsAndSkinRefreshOffersNone() {
+        FakeOperations operations = new FakeOperations();
+        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
+        runtime.initialize();
+        runtime.dispatchWidget("gallery.providers");
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.row.MINECRAFT");
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(List.of(Set.of(BuiltinProvider.MINECRAFT)), operations.candidateCheckpoints);
+        runtime.tick(); runtime.view(320, 240, 0, 0);
+        assertEquals(1, operations.candidateCheckpoints.size(), "publishes and ticks do not replay the checkpoint");
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(2, operations.candidateCheckpoints.size(), "a later explicit checkpoint can recover failed preparation");
+        runtime.dispatchWidget("providers.tab.SKIN");
+        runtime.dispatchWidget("providers.row.MINECRAFT");
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(2, operations.candidateCheckpoints.size(), "skin observation cannot grant cape download permission");
+        runtime.closeScreen();
+        assertFalse(runtime.snapshot().busy());
+        runtime.close();
+    }
+
+    @Test
+    void refreshKeepsTheScreenAvailableAndPinsSelectionBeforeWorker() {
+        FakeOperations operations = new FakeOperations();
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("gallery.providers");
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        runtime.dispatchWidget("providers.refresh");
+        assertFalse(runtime.snapshot().busy());
+        assertFalse(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        runtime.dispatchWidget("providers.tab.CAPE");
+        while (worker.size() > 0) worker.runFirst();
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(ProviderRefreshRequest.one(AppearanceProviders.Component.SKIN, BuiltinProvider.OFFLINE), operations.providerRefreshRequests.get(operations.providerRefreshRequests.size() - 1));
+        assertEquals("nclskins.providers.refresh_all", runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().label().key());
+        runtime.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = BuiltinProvider.class,
+            names = {"OPTIFINE", "SKINMC", "MINECRAFTCAPES"})
+    void refreshLocksOnlyItsButtonUntilTheActualScopedOperationCompletes(BuiltinProvider provider) {
+        FakeOperations operations = new FakeOperations();
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, provider);
+        operations.deferCapeRefresh = true;
+        QueuedExecutor worker = new QueuedExecutor();
+        ClientRuntime runtime = runtime(operations, worker, Optional.empty());
+        runtime.initialize();
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("gallery.providers");
+        while (worker.size() > 0) worker.runFirst();
+        runtime.dispatchWidget("providers.tab.CAPE");
+        runtime.dispatchWidget("providers.row." + provider.name());
+        var delivered = new java.util.ArrayList<ViewSpec>();
+        runtime.subscribe(snapshot -> delivered.add(runtime.view(320, 240, 0, 0)));
+        runtime.dispatchWidget("providers.refresh");
+        assertFalse(runtime.snapshot().busy(), "Refresh must not set whole-screen busy");
+        var initial = runtime.view(320, 240, 0, 0);
+        assertFalse(initial.widget("providers.refresh").orElseThrow().enabled());
+        assertTrue(initial.widget("providers.add").orElseThrow().enabled());
+        assertTrue(initial.widget("providers.remove." + provider.name()).orElseThrow().enabled());
+        runtime.dispatchWidget("providers.add");
+        assertEquals("provider_chooser", runtime.view(320, 240, 0, 0).screenId());
+        runtime.dispatchWidget("providers.back");
+        assertEquals("providers", runtime.view(320, 240, 0, 0).screenId());
+        while (worker.size() > 0) worker.runFirst();
+        assertEquals(1, operations.providerRefreshRequests.size());
+        assertTrue(operations.capeRefreshCompletions.containsKey(provider));
+        assertFalse(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled());
+        runtime.dispatchWidget("providers.refresh");
+        runtime.dispatchWidget("providers.refresh");
+        assertEquals(0, worker.size());
+        assertEquals(1, operations.providerRefreshRequests.size());
+        assertTrue(delivered.stream().allMatch(view -> view.widget("providers.add")
+                .map(ViewSpec.Widget::enabled).orElse(true)));
+        runtime.dispatchWidget("providers.row.OFFLINE");
+        assertTrue(runtime.view(320, 240, 0, 0).widget("providers.refresh").orElseThrow().enabled(),
+                "A different scope is independent of the pending cape read");
+        runtime.dispatchWidget("providers.row." + provider.name());
+        runtime.tick();
+        assertFalse(delivered.get(delivered.size() - 1).widget("providers.refresh").orElseThrow().enabled());
+        operations.capeRefreshCompletions.remove(provider).accept(null);
+        runtime.tick();
+        assertTrue(delivered.get(delivered.size() - 1).widget("providers.refresh").orElseThrow().enabled(),
+                "The first client tick must publish terminal availability without another click");
+        assertEquals(1, operations.providerRefreshRequests.size());
+        runtime.close();
     }
 
     @Test
@@ -1257,21 +3570,6 @@ final class ClientRuntimeTest {
                 "add.catalog.delete.confirm", false, InteractionOrigin.POINTER);
         assertEquals(baselineFocus, runtime.view(854, 480, 0, 0).focusRequest());
         assertFalse(operations.account.personalSkins().get(0).visible());
-    }
-
-    @Test
-    void oversizedSkinImportDoesNotReachOperations() {
-        FakeOperations operations = new FakeOperations();
-        ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
-        runtime.initialize();
-        int before = runtime.snapshot().account().orElseThrow().skinAssets().size();
-
-        runtime.importSkin("Oversized", SkinVariant.CLASSIC,
-                new byte[EncodedTextureLimit.MAX_ENCODED_TEXTURE_BYTES + 1]);
-
-        assertEquals(before, runtime.snapshot().account().orElseThrow().skinAssets().size());
-        assertEquals(UiMessage.Severity.ERROR, runtime.snapshot().status().severity());
-        assertFalse(runtime.snapshot().busy());
     }
 
     @Test
@@ -3216,6 +5514,2189 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void cpmBaseReturnDoesNotResurrectConfirmedPersonalRemoval(@TempDir Path directory) throws Exception {
+        Path model=Files.write(directory.resolve("fixture.cpmmodel"),validModel(false));
+        var operations=new FakeOperations();String hash=operations.seedPersonalSkin("Fixture");
+        var runtime=runtime(operations,()->CompletableFuture.completedFuture(Optional.of(model)));
+        useBaseConverter(runtime,new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC));
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);runtime.dispatchWidget("add.file.choose");
+        runtime.dispatchWidget("add.catalog.delete:"+PersonalSkinCatalog.COLLECTION_ID+":"+hash);
+        runtime.dispatchWidget("add.catalog.delete.confirm");
+        assertFalse(operations.account.personalSkins().get(0).visible());
+        runtime.dispatchWidget("add.cancel");
+        assertEquals(AddSourceModel.Purpose.CREATE_PRESET,runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        assertTrue(runtime.snapshot().addSource().orElseThrow().collections().stream().noneMatch(c->PersonalSkinCatalog.isCollection(c.id())));
+        runtime.close();
+    }
+
+    @Test
+    void cpmBaseQueuedAutomaticProbeStopsAtRealRuntimeBoundary(@TempDir Path directory) throws Exception {
+        Path model=Files.write(directory.resolve("fixture.cpmmodel"),validModel(false));
+        var queued=new java.util.ArrayDeque<Runnable>();boolean[] hold={false};
+        Executor worker=action->{if(hold[0])queued.add(action);else action.run();};
+        var operations=new FakeOperations();
+        var runtime=new ClientRuntime(new DefaultRuntimeServices(),operations,CLIENT,
+                ()->CompletableFuture.completedFuture(Optional.of(model)),worker,TEXT,Optional.empty(),Optional.empty(),DiagnosticSinks.discarding());
+        useBaseConverter(runtime,new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC));
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        hold[0]=true;runtime.dispatchWidget("add.external.launcher");
+        assertFalse(queued.isEmpty());
+        runtime.escapePressed();hold[0]=false;runtime.dispatchWidget("add.file.choose");
+        assertEquals(AddSourceModel.Purpose.CPM_BASE,runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        assertEquals(null,operations.lastExternalSource);
+        queued.remove().run();
+        assertEquals(null,operations.lastExternalSource);
+        assertFalse(runtime.snapshot().busy());runtime.close();
+    }
+
+    @Test
+    void pickerReasonNestedSyncReachesActualChooser(@TempDir Path directory) throws Exception {
+        assertComposedNestedReason(directory, false);
+    }
+
+    @Test
+    void pickerReasonNestedAsyncReachesActualChooser(@TempDir Path directory) throws Exception {
+        assertComposedNestedReason(directory, true);
+    }
+
+    @Test
+    void pickerReasonMissingSyncReachesActualImport(@TempDir Path directory) throws Exception {
+        assertComposedDependencyReason(directory, false, false, false);
+    }
+
+    @Test
+    void pickerReasonMissingAsyncReachesActualImport(@TempDir Path directory) throws Exception {
+        assertComposedDependencyReason(directory, true, false, false);
+    }
+
+    @Test
+    void pickerReasonUnavailableSyncReachesActualImport(@TempDir Path directory) throws Exception {
+        assertComposedDependencyReason(directory, false, true, false);
+    }
+
+    @Test
+    void pickerReasonUnavailableAsyncReachesActualImport(@TempDir Path directory) throws Exception {
+        assertComposedDependencyReason(directory, true, true, false);
+    }
+
+    @Test
+    void pickerReasonDirectMissingUsesEnvironmentPresence(@TempDir Path directory) throws Exception {
+        assertComposedDependencyReason(directory, false, false, true);
+    }
+
+    @Test
+    void pickerReasonDirectUnavailableUsesEnvironmentPresence(@TempDir Path directory) throws Exception {
+        assertComposedDependencyReason(directory, false, true, true);
+    }
+
+    @Test
+    void pickerReasonHealthyModelAndBaseBeforeCorrection(@TempDir Path directory) throws Exception {
+        for (boolean async : List.of(false, true)) {
+            var picker = new ComposedReasonPicker(async);
+            var operations = new FakeOperations();
+            var runtime = runtime(operations, picker);
+            var adapter = new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC);
+            var carrier = javax.imageio.ImageIO.read(Path.of("../core/src/test/resources/cpm/classic-a.png").toFile());
+            adapter.output = carrier.getRGB(0, 0, 64, 64, null, 0, 64);
+            useBaseConverter(runtime, adapter);
+            try {
+                Path model = Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel");
+                Path png = Files.write(directory.resolve("healthy-" + async + ".PNG"), opaqueSkinPng(false));
+                var before = operations.account;
+                picker.selections.add(CompletableFuture.completedFuture(Optional.of(model)));
+                runtime.reopen(ScreenDestination.SKIN_IMPORT);
+                runtime.dispatchWidget("add.file.choose");
+                assertTrue(picker.allowModel);
+                assertEquals(AddSourceModel.Purpose.CPM_BASE, runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+                runtime.dispatchWidget("add.tab.file");
+                picker.selections.add(CompletableFuture.completedFuture(Optional.of(png)));
+                runtime.dispatchWidget("add.file.choose");
+                assertFalse(picker.last.isCompletedExceptionally());
+                assertTrue(runtime.snapshot().editor().isPresent());
+                assertEquals(1, adapter.conversions);
+                assertEquals(0, adapter.closes);
+                assertEquals(before, operations.account);
+                assertEquals(0, operations.editorSaveCalls);
+                assertEquals(0, operations.applyCalls);
+            } finally {
+                runtime.close();
+            }
+            assertEquals(1, adapter.closes);
+        }
+    }
+
+    @Test
+    void pickerReasonNativeAndInvalidSelectionsStayGeneric(@TempDir Path directory) throws Exception {
+        for (boolean async : List.of(false, true)) {
+            var picker = new ComposedReasonPicker(async);
+            var operations = new FakeOperations();
+            var runtime = runtime(operations, picker);
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            var before = operations.account;
+            var failure = new CompletableFuture<Optional<Path>>();
+            failure.completeExceptionally(new IllegalStateException("synthetic native failure"));
+            var nullResult = new CompletableFuture<Optional<Path>>();
+            nullResult.complete(null);
+            Path unsupported = Files.write(directory.resolve("unsupported-" + async + ".cpmproject"), new byte[]{1});
+            Path nonregular = Files.createDirectory(directory.resolve("directory-" + async + ".cpmmodel"));
+            for (var selection : List.of(failure, nullResult,
+                    CompletableFuture.completedFuture(Optional.of(unsupported)),
+                    CompletableFuture.completedFuture(Optional.of(nonregular)),
+                    CompletableFuture.completedFuture(Optional.of(directory.resolve("missing.cpmmodel"))))) {
+                picker.selections.add(selection);
+                runtime.dispatchWidget("add.file.choose");
+                assertTrue(picker.last.isCompletedExceptionally());
+                assertEquals("nclskins.error.picker", runtime.snapshot().status().key());
+                assertTrue(runtime.snapshot().addSource().orElseThrow().importContext().failure().isEmpty());
+                assertTrue(runtime.snapshot().editor().isEmpty());
+                assertFalse(runtime.snapshot().busy());
+                assertEquals(before, operations.account);
+            }
+            picker.selections.add(CompletableFuture.completedFuture(Optional.empty()));
+            runtime.dispatchWidget("add.file.choose");
+            assertEquals("nclskins.status.cancelled", runtime.snapshot().status().key());
+            runtime.close();
+        }
+    }
+
+    @Test
+    void pickerReasonStaleCoordinatorCompletionKeepsNativeGuardAndNewScope(@TempDir Path directory) throws Exception {
+        for (boolean async : List.of(false, true)) {
+            var queued = new java.util.ArrayDeque<Runnable>();
+            boolean[] hold = {false};
+            var picker = new ComposedReasonPicker(async, action -> { if (hold[0]) queued.add(action); else action.run(); });
+            var operations = new FakeOperations();
+            var work = new java.util.ArrayDeque<Runnable>();
+            boolean[] holdWork = {false};
+            var runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, CLIENT, picker,
+                    action -> { if (holdWork[0]) work.add(action); else action.run(); }, TEXT,
+                    Optional.empty(), Optional.empty(), DiagnosticSinks.discarding());
+            var adapter = new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC);
+            useBaseConverter(runtime, adapter);
+            Path model = Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel");
+            picker.selections.add(CompletableFuture.completedFuture(Optional.of(model)));
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            runtime.dispatchWidget("add.file.choose");
+            runtime.dispatchWidget("add.tab.file");
+            var nativeResult = async ? new CompletableFuture<Optional<Path>>()
+                    : CompletableFuture.completedFuture(Optional.of(model));
+            picker.selections.add(nativeResult);
+            if (!async) hold[0] = true;
+            runtime.dispatchWidget("add.file.choose");
+            assertTrue(runtime.snapshot().busy());
+            var stale = picker.last;
+            runtime.escapePressed();
+            assertFalse(stale.isDone(), "UI cancel does not close the native operation");
+            runtime.dispatchWidget("add.file.choose");
+            assertTrue(picker.last.isCompletedExceptionally(), "Still-open native operation blocks a second picker");
+            assertEquals("nclskins.error.picker", runtime.snapshot().status().key());
+            holdWork[0] = true;
+            runtime.dispatchText("add.url.input", "https://example.test/skin.png");
+            runtime.dispatchWidget("add.url.load");
+            assertEquals(1, work.size());
+            assertTrue(runtime.snapshot().busy());
+            if (async) nativeResult.complete(Optional.of(model)); else queued.remove().run();
+            hold[0] = false;
+            assertTrue(stale.isCompletedExceptionally());
+            assertTrue(runtime.snapshot().busy(), "Stale native rejection cannot unlock current URL preparation");
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            assertEquals(AddSourceModel.Purpose.CREATE_PRESET, runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+            assertTrue(runtime.snapshot().addSource().orElseThrow().importContext().failure().isEmpty(), "Old nested failure cannot enter the new parent scope");
+            holdWork[0] = false;
+            work.remove().run();
+            assertFalse(runtime.snapshot().busy());
+            assertTrue(runtime.snapshot().editor().isPresent(), "Current synthetic URL preparation still completes");
+            runtime.dispatchWidget("editor.cancel");
+            picker.selections.add(CompletableFuture.completedFuture(Optional.of(model)));
+            runtime.dispatchWidget("add.file.choose");
+            assertEquals(AddSourceModel.Purpose.CPM_BASE, runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+            assertEquals(1, adapter.closes);
+            assertEquals(0, adapter.conversions);
+            runtime.close();
+            assertEquals(2, adapter.closes);
+        }
+    }
+
+    private static void assertComposedNestedReason(Path directory, boolean async) throws Exception {
+        Path model = Files.copy(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"),
+                directory.resolve("fixture.CPMMODEL"));
+        Path base = Files.write(directory.resolve("base.PNG"), opaqueSkinPng(false));
+        var operations = new FakeOperations();
+        var picker = new ComposedReasonPicker(async);
+        var runtime = runtime(operations, picker);
+        var adapter = new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC);
+        var carrier = javax.imageio.ImageIO.read(Path.of("../core/src/test/resources/cpm/classic-a.png").toFile());
+        adapter.output = carrier.getRGB(0, 0, 64, 64, null, 0, 64);
+        useBaseConverter(runtime, adapter);
+        try {
+            picker.selections.add(CompletableFuture.completedFuture(Optional.of(model)));
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            var parent = runtime.snapshot().addSource().orElseThrow();
+            runtime.dispatchWidget("add.file.choose");
+            assertFalse(picker.last.isCompletedExceptionally(), "Actual outer coordinator admits the existing model file");
+            assertEquals(AddSourceModel.Purpose.CPM_BASE, runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+            runtime.dispatchWidget("add.tab.file");
+            var chooser = runtime.snapshot().addSource().orElseThrow();
+            var before = operations.account;
+            picker.selections.add(CompletableFuture.completedFuture(Optional.of(model)));
+            runtime.dispatchWidget("add.file.choose");
+            assertTrue(picker.last.isCompletedExceptionally(), "PNG-only coordinator must reject, never return a model as PNG");
+            assertFalse(runtime.snapshot().busy());
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            assertEquals(before, operations.account);
+            assertEquals(0, adapter.conversions);
+            assertEquals(0, adapter.closes);
+            assertEquals(chooser.importContext().requiredVariant(), runtime.snapshot().addSource().orElseThrow().importContext().requiredVariant());
+            assertEquals(chooser.filter(), runtime.snapshot().addSource().orElseThrow().filter());
+            assertEquals("nclskins.add_source.cpm.nested_file",
+                    runtime.view(240, 240, 0, 0).texts().stream().filter(text -> text.id().equals("add.import.status"))
+                            .findFirst().orElseThrow().message().key(),
+                    "Real coordinator rejection must reach the exact nested-model explanation");
+            assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.NESTED_MODEL),
+                    runtime.snapshot().addSource().orElseThrow().importContext().failure());
+            picker.selections.add(CompletableFuture.completedFuture(Optional.of(base)));
+            runtime.dispatchWidget("add.file.choose");
+            assertTrue(runtime.snapshot().editor().isPresent(), "Valid same-type PNG remains accepted after rejected nested selection");
+            assertEquals(1, adapter.conversions);
+            assertEquals(before, operations.account);
+            assertEquals(0, operations.editorSaveCalls);
+            runtime.dispatchWidget("editor.cancel");
+            runtime.dispatchWidget("add.cancel");
+            var returned = runtime.snapshot().addSource().orElseThrow();
+            assertEquals(parent.importContext(), returned.importContext());
+            assertEquals(parent.filter(), returned.filter());
+            assertEquals(parent.selectedTab(), returned.selectedTab());
+        } finally {
+            runtime.close();
+        }
+        assertEquals(1, adapter.closes);
+    }
+
+    private static void assertComposedDependencyReason(Path directory, boolean async, boolean present, boolean direct) throws Exception {
+        Path model = Files.copy(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/classic-embedded.cpmmodel"),
+                directory.resolve("fixture.cpmmodel"));
+        Path png = Files.write(directory.resolve("ordinary.PNG"), opaqueSkinPng(true));
+        var operations = new FakeOperations();
+        operations.providers = operations.providers.disable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
+        assertFalse(operations.providers.cape().enabled(BuiltinProvider.CPM));
+        var picker = new ComposedReasonPicker(async);
+        FilePicker selectedPicker = direct ? () -> CompletableFuture.completedFuture(Optional.of(model)) : picker;
+        var runtime = runtime(operations, selectedPicker);
+        runtime.useSkinExtensionEnvironmentSource(new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource() {
+            public Snapshot snapshot() {
+                return new Snapshot(1, Map.of(Consumer.CUSTOMIZABLE_PLAYER_MODELS, State.INACTIVE), present);
+            }
+            public Optional<com.naocraftlab.skins.client.CpmModelFileConversion> modelFileConversion() {
+                return Optional.empty();
+            }
+        });
+        try {
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            var before = operations.account;
+            if (!direct) {
+                picker.selections.add(CompletableFuture.completedFuture(Optional.of(png)));
+                runtime.dispatchWidget("add.file.choose");
+                assertFalse(picker.allowModel, "Unavailable/absent CPM never broadens native picker purpose");
+                assertTrue(runtime.snapshot().editor().isPresent(), "Ordinary PNG is a healthy setup control");
+                assertEquals(SkinVariant.SLIM, runtime.snapshot().editor().orElseThrow().variant());
+                runtime.dispatchWidget("editor.cancel");
+                picker.selections.add(CompletableFuture.completedFuture(Optional.of(model)));
+            }
+            runtime.dispatchWidget("add.file.choose");
+            if (!direct) assertTrue(picker.last.isCompletedExceptionally(), "Model stays rejected by real PNG-only admission");
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            assertFalse(runtime.snapshot().busy());
+            assertEquals(before, operations.account);
+            assertEquals(0, operations.editorSaveCalls);
+            assertEquals(0, operations.applyCalls);
+            assertEquals(present ? "nclskins.add_source.cpm.adapter_unavailable" : "nclskins.add_source.cpm.dependency_missing",
+                    runtime.view(240, 240, 0, 0).texts().stream().filter(text -> text.id().equals("add.import.status"))
+                            .findFirst().orElseThrow().message().key(),
+                    "Missing dependency and installed-but-unusable adapter need distinct visible reasons");
+            assertEquals(Optional.of(present ? com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CPM_UNAVAILABLE
+                            : com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CPM_MISSING),
+                    runtime.snapshot().addSource().orElseThrow().importContext().failure());
+        } finally {
+            runtime.close();
+        }
+    }
+
+    private static final class ComposedReasonPicker implements FilePicker {
+        final FilePickerCoordinator coordinator;
+        final java.util.ArrayDeque<CompletableFuture<Optional<Path>>> selections = new java.util.ArrayDeque<>();
+        final boolean async;
+        boolean allowModel;
+        CompletableFuture<Optional<Path>> last;
+        ComposedReasonPicker(boolean async) { this(async, Runnable::run); }
+        ComposedReasonPicker(boolean async, Executor worker) {
+            this.async = async;
+            coordinator = new FilePickerCoordinator(worker);
+        }
+        public CompletableFuture<Optional<Path>> chooseSkinPng() { return choose(false); }
+        public CompletableFuture<Optional<Path>> chooseSkinImportFile(boolean allow) {
+            allowModel = allow;
+            return choose(allow);
+        }
+        private CompletableFuture<Optional<Path>> choose(boolean allow) {
+            last = async ? allow ? coordinator.chooseSkinImportAsync(selections::remove, Runnable::run)
+                    : coordinator.chooseAsync(selections::remove, Runnable::run)
+                    : allow ? coordinator.chooseSkinImport(() -> selections.remove().join())
+                    : coordinator.choose(() -> selections.remove().join());
+            return last;
+        }
+    }
+
+    @Test
+    void cpmBaseNestedModelHasDistinctNeutralReasonAndKeepsOriginalHandle(@TempDir Path directory) throws Exception {
+        Path model=Files.write(directory.resolve("fixture.CPMMODEL"),validModel(false));
+        var operations=new FakeOperations();
+        var runtime=runtime(operations,()->CompletableFuture.completedFuture(Optional.of(model)));
+        var adapter=new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC);useBaseConverter(runtime,adapter);
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);runtime.dispatchWidget("add.file.choose");
+        runtime.dispatchWidget("add.tab.file");runtime.dispatchWidget("add.file.choose");
+        assertEquals("NESTED_MODEL",runtime.snapshot().addSource().orElseThrow().importContext().failure().orElseThrow().name());
+        assertEquals(0,adapter.closes);assertEquals(0,adapter.conversions);
+        runtime.close();assertEquals(1,adapter.closes);
+    }
+
+    @Test
+    void cpmBaseManualUnsupportedSuffixCannotBypassOuterPurposeAdmission(@TempDir Path directory) throws Exception {
+        Path disguised=Files.write(directory.resolve("fixture.cpmproject"),opaqueSkinPng(false));
+        var operations = new FakeOperations();
+        var before = operations.account;
+        var runtime=runtime(operations,()->CompletableFuture.completedFuture(Optional.of(disguised)));
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().editor().isPresent());
+        assertEquals(before, operations.account);
+        assertEquals(0, operations.editorSaveCalls);
+        runtime.close();
+    }
+
+    @Test
+    void cpmBasePendingEscapeReturnsToOrdinaryDirectImportWithoutClosingNativePicker(@TempDir Path directory) throws Exception {
+        Path model=Files.write(directory.resolve("fixture.cpmmodel"),validModel(true));
+        var pending=new CompletableFuture<Optional<Path>>();
+        var picks=new java.util.ArrayDeque<CompletableFuture<Optional<Path>>>();
+        picks.add(CompletableFuture.completedFuture(Optional.of(model)));picks.add(pending);
+        var operations=new FakeOperations();
+        var runtime=runtime(operations,()->picks.remove());
+        var adapter=new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.SLIM);
+        useBaseConverter(runtime,adapter);
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        runtime.dispatchWidget("add.file.choose");
+        assertEquals(AddSourceModel.Purpose.CPM_BASE,runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        runtime.dispatchWidget("add.tab.file");runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().busy());
+        runtime.escapePressed();
+        assertFalse(runtime.snapshot().busy());
+        assertEquals(AddSourceModel.Purpose.CREATE_PRESET,runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        assertFalse(pending.isDone());
+        assertEquals(1,adapter.closes);
+        pending.complete(Optional.of(model));
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals(AddSourceModel.Purpose.CREATE_PRESET,runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        runtime.close();
+    }
+
+    @Test
+    void cpmBaseMismatchProjectsRequiredTypeWithoutConverterOrPersonalWrites(@TempDir Path directory) throws Exception {
+        for(var required:com.naocraftlab.skins.client.SkinModel.values()) {
+            Path model=Files.write(directory.resolve(required+".cpmmodel"),validModel(required == SkinModel.SLIM));
+            Path wrong=Files.write(directory.resolve(required+".png"),opaqueSkinPng(required==com.naocraftlab.skins.client.SkinModel.CLASSIC));
+            var picks=new java.util.ArrayDeque<Path>();picks.add(model);picks.add(wrong);
+            var operations=new FakeOperations();
+            var runtime=runtime(operations,()->CompletableFuture.completedFuture(Optional.of(picks.remove())));
+            var adapter=new BaseOnlyConverter(required);useBaseConverter(runtime,adapter);
+            runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            runtime.dispatchWidget("add.file.choose");
+            var account=runtime.snapshot().account().orElseThrow();
+            var preferences=operations.uiPreferences;
+            runtime.dispatchWidget("add.tab.file");runtime.dispatchWidget("add.file.choose");
+            var projection=runtime.snapshot().addSource().orElseThrow().importContext();
+            assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED),projection.failure());
+            assertEquals(Optional.of(required),projection.requiredVariant());
+            assertTrue(projection.filterLocked());
+            assertEquals(0,adapter.conversions);
+            assertTrue(runtime.snapshot().editor().isEmpty());
+            assertEquals(account,runtime.snapshot().account().orElseThrow());
+            assertEquals(preferences,operations.uiPreferences);
+            runtime.close();
+        }
+    }
+
+    @Test
+    void cpmBaseRawIdentityTickRetiresPendingAdmissionAcrossDeliveredAtoBtoA(@TempDir Path directory) throws Exception {
+        Path model = Files.write(directory.resolve("fixture.cpmmodel"), validModel(false));
+        var queued = new java.util.ArrayDeque<Runnable>();
+        boolean[] hold = {false};
+        Executor worker = action -> { if (hold[0]) queued.add(action); else action.run(); };
+        var operations = new FakeOperations();
+        var runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, CLIENT,
+                () -> CompletableFuture.completedFuture(Optional.of(model)), worker, TEXT,
+                Optional.empty(), Optional.empty(), DiagnosticSinks.discarding());
+        var adapter = new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC);
+        useBaseConverter(runtime, adapter);
+        runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        var original = operations.session;
+        hold[0] = true;
+        runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().busy());
+        assertFalse(queued.isEmpty());
+        operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                new GameSessionTokenSource.SessionIdentity(UUID.fromString("00000000-0000-0000-0000-000000000002"), "Other"),
+                null, (SessionFailureContext) null, "synthetic switch");
+        runtime.tick();
+        operations.session = original;
+        runtime.tick();
+        hold[0] = false;
+        while (!queued.isEmpty()) queued.remove().run();
+        assertTrue(runtime.snapshot().addSource().isEmpty()
+                || runtime.snapshot().addSource().orElseThrow().importContext().purpose() == AddSourceModel.Purpose.CREATE_PRESET,
+                "Raw identity samples retire the original pending import even when A returns");
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertEquals(0, adapter.admissions, "Invalid queued work never creates native state even after delivered ABA");
+        assertEquals(0, adapter.closes, "No handle was acquired to release");
+        runtime.close();
+    }
+
+    @Test
+    void cpmBaseUnchangedEnvironmentReloadRejectsPendingBaseBeforeConversion(@TempDir Path directory) throws Exception {
+        Path model = Files.write(directory.resolve("fixture.cpmmodel"), validModel(false));
+        Path base = Files.write(directory.resolve("base.png"), opaqueSkinPng(false));
+        var picks = new java.util.ArrayDeque<Path>(); picks.add(model); picks.add(base);
+        var queued = new java.util.ArrayDeque<Runnable>(); boolean[] hold = {false};
+        Executor worker = action -> { if (hold[0]) queued.add(action); else action.run(); };
+        var runtime = new ClientRuntime(new DefaultRuntimeServices(), new FakeOperations(), CLIENT,
+                () -> CompletableFuture.completedFuture(Optional.of(picks.remove())), worker, TEXT,
+                Optional.empty(), Optional.empty(), DiagnosticSinks.discarding());
+        var adapter = new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC);
+        useBaseConverter(runtime, adapter);
+        runtime.reopen(ScreenDestination.SKIN_IMPORT); runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+        runtime.dispatchWidget("add.tab.file"); hold[0] = true; runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().busy());
+        runtime.resourcesReloaded();
+        hold[0] = false; while (!queued.isEmpty()) queued.remove().run();
+        assertEquals(0, adapter.conversions, "Reload must reach the actual pending base conversion guard");
+        assertFalse(runtime.snapshot().busy());
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        assertTrue(runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+        runtime.close();
+    }
+
+    @Test
+    void cpmBaseSameConnectionWorldSwitchRejectsPendingBaseThroughApplicationHost(@TempDir Path directory) throws Exception {
+        Path model = Files.write(directory.resolve("fixture.cpmmodel"), validModel(false));
+        Path base = Files.write(directory.resolve("base.png"), opaqueSkinPng(false));
+        var picks = new java.util.ArrayDeque<Path>(); picks.add(model); picks.add(base);
+        var queued = new java.util.ArrayDeque<Runnable>(); boolean[] hold = {false};
+        Executor worker = action -> { if (hold[0]) queued.add(action); else action.run(); };
+        var runtime = new ClientRuntime(new DefaultRuntimeServices(), new FakeOperations(), CLIENT,
+                () -> CompletableFuture.completedFuture(Optional.of(picks.remove())), worker, TEXT,
+                Optional.empty(), Optional.empty(), DiagnosticSinks.discarding());
+        var adapter = new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC);
+        useBaseConverter(runtime, adapter);
+        var host = new ClientApplicationHost<Object>(new DefaultRuntimeServices(), runtime, () -> {});
+        Object connection = new Object(), world = new Object();
+        tickWorld(host, connection, world);
+        runtime.reopen(ScreenDestination.SKIN_IMPORT); runtime.dispatchWidget("add.file.choose");
+        runtime.dispatchWidget("add.tab.file"); hold[0] = true; runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().busy());
+        tickWorld(host, connection, new Object());
+        hold[0] = false; while (!queued.isEmpty()) queued.remove().run();
+        assertEquals(0, adapter.conversions, "Same connection with a different world retires pending conversion");
+        assertFalse(runtime.snapshot().busy());
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        host.close();
+    }
+
+    private static void tickWorld(ClientApplicationHost<Object> host, Object connection, Object world) throws Exception {
+        host.tick(connection, world, true);
+    }
+
+    @Test
+    void cpmBaseQueuedSaveRejectsBeforeResourceCapeAndRetiresStaleDraft(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        fixture.operations.resourceCapeHashes = Map.of(new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+        fixture.openConverted();
+        fixture.runtime.dispatchWidget("editor.tab.cape");
+        fixture.runtime.dispatchWidget("editor.cape_item.RESOURCE.event.hero");
+        assertTrue(fixture.runtime.snapshot().editor().orElseThrow().capeCatalog().selectedResource().isPresent());
+        fixture.hold = true;
+        fixture.runtime.dispatchWidget("editor.save");
+        fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(), "Other"), null, (SessionFailureContext) null, "synthetic");
+        fixture.drain();
+        assertEquals(0, fixture.operations.resourceCapeMaterializations, "Worker admission precedes resource-cape persistence");
+        assertNull(fixture.operations.lastEditorSaveRequest);
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty(), "Stale draft cannot offer retry under B");
+        assertTrue(fixture.runtime.snapshot().addSource().isEmpty(), "Stale parent chooser must not reopen");
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmBaseSaveRequestCarriesInitiatingEditScopeAcrossCopies(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.openConverted();
+        fixture.runtime.dispatchText("editor.name", "Scoped result");
+        fixture.runtime.dispatchWidget("editor.save");
+        var request = fixture.operations.lastEditorSaveRequest;
+        assertTrue(request != null, "Healthy converted draft reaches the existing Save request consumer");
+        var scope = request.saveScope();
+        assertTrue(scope.isPresent(), "Actual converted Save request preserves initiating edit scope");
+        assertEquals(scope, request.withOfflineCape(null).withFrozenCatalogSelection(Optional.empty()).saveScope());
+        assertEquals(fixture.operations.account.accountId(), scope.orElseThrow().initiatingAccountId());
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmBaseReplacementCancelDoesNotDiscardPendingDraftCatalog(@TempDir Path directory) throws Exception {
+        for (int outcome = 0; outcome < 3; outcome++) {
+            var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+            byte[] before = fixture.runtime.snapshot().editor().orElseThrow().png().orElseThrow().bytes();
+            fixture.operations.resourceCapeCollections = List.of(resourceCapeCollection());
+            fixture.operations.resourceCapeHashes = Map.of(new ClientOperations.ResourceCapeKey("event", "hero"), "c".repeat(64));
+            fixture.hold = true; fixture.runtime.resourcesReloaded();
+            assertFalse(fixture.workers.isEmpty()); fixture.workers.remove().run();
+            assertFalse(fixture.workers.isEmpty(), "Actual Editor catalog publication is still pending");
+            assertTrue(fixture.runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream().noneMatch(card -> card.resource() != null));
+            fixture.picks.add(outcome == 0 ? CompletableFuture.completedFuture(Optional.empty())
+                    : outcome == 1 ? CompletableFuture.failedFuture(new IOException("synthetic picker failure"))
+                    : CompletableFuture.completedFuture(Optional.of(Files.write(directory.resolve("invalid.png"), new byte[]{1}))));
+            fixture.runtime.dispatchWidget("editor.png.choose");
+            assertTrue(fixture.picks.isEmpty(), "Replacement dispatch must reach the existing PNG picker owner");
+            fixture.drain();
+            assertFalse(fixture.runtime.snapshot().busy());
+            var editor = fixture.runtime.snapshot().editor().orElseThrow();
+            assertFalse(editor.busy()); assertArrayEquals(before, editor.png().orElseThrow().bytes());
+            assertFalse(editor.variantAvailable(SkinVariant.SLIM));
+            assertEquals(0, fixture.adapter.closes); assertEquals(1, fixture.adapter.conversions);
+            assertTrue(editor.capeCatalog().cards().stream().anyMatch(card -> card.resource() != null),
+                    "Independent replacement cancellation/failure must not discard unchanged draft publication");
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmBaseSuccessfulPngReplacementRetiresModelWithoutRetiringEditScope(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+        fixture.operations.failEditorSave = true;
+        fixture.runtime.dispatchWidget("editor.save");
+        var scope = fixture.operations.lastEditorSaveRequest.saveScope().orElseThrow();
+        assertTrue(scope.stillCurrent().getAsBoolean());
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+        fixture.runtime.dispatchWidget("editor.png.choose");
+        assertTrue(fixture.picks.isEmpty());
+        assertEquals(1, fixture.adapter.closes, "Successful ordinary replacement retires the old model handle");
+        assertTrue(fixture.runtime.snapshot().editor().orElseThrow().variantAvailable(SkinVariant.SLIM));
+        assertEquals(1, fixture.adapter.conversions, "Replacement must not reconvert");
+        assertTrue(scope.stillCurrent().getAsBoolean(), "Edit lifetime is not retained-model lifetime");
+        var original = fixture.operations.session;
+        fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(), "Other"), null, (SessionFailureContext) null, "synthetic");
+        fixture.runtime.tick(); fixture.operations.session = original; fixture.runtime.tick();
+        assertFalse(scope.stillCurrent().getAsBoolean());
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmBaseConvertedTransferRejectsMissingInitiatingScope(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+        var draft = fixture.runtime.snapshot().editor().orElseThrow();
+        assertThrows(IllegalArgumentException.class,
+                () -> new EditorDraftTransfer(draft, null, Optional.of(com.naocraftlab.skins.core.model.PersonalSkinSource.FILE), null),
+                "Converted continuation cannot take the ordinary unscoped transfer path");
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmBaseConvertedAlternateHasNeutralUnavailableReason(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+        var draft = fixture.runtime.snapshot().editor().orElseThrow();
+        var reason = draft.variantUnavailableReason(SkinVariant.SLIM);
+        assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED), reason,
+                "Unsupported converted alternate has an owner-projected neutral reason, not invented UI state");
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmBaseReadyBytesAndEditScopeSurviveWorldAndResourceChanges(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+        fixture.operations.failEditorSave = true; fixture.runtime.dispatchWidget("editor.save");
+        var scope = fixture.operations.lastEditorSaveRequest.saveScope().orElseThrow();
+        byte[] before = fixture.runtime.snapshot().editor().orElseThrow().png().orElseThrow().bytes();
+        fixture.runtime.resourcesReloaded();
+        var host = new ClientApplicationHost<Object>(new DefaultRuntimeServices(), fixture.runtime, () -> {});
+        Object connection = new Object();
+        host.tick(connection, new Object(), true); host.tick(connection, new Object(), true);
+        assertArrayEquals(before, fixture.runtime.snapshot().editor().orElseThrow().png().orElseThrow().bytes());
+        assertEquals(SkinVariant.CLASSIC, fixture.runtime.snapshot().editor().orElseThrow().variant());
+        assertTrue(scope.stillCurrent().getAsBoolean());
+        assertEquals(1, fixture.adapter.conversions);
+        assertEquals(0, fixture.adapter.closes);
+        fixture.runtime.dispatchWidget("editor.cancel");
+        assertFalse(scope.stillCurrent().getAsBoolean());
+        assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+        assertEquals(AddSourceTab.FILE, fixture.runtime.snapshot().addSource().orElseThrow().selectedTab());
+        host.close();
+    }
+
+    @Test
+    void cpmBaseReadOnlyScopeHasWorkerVisibilityAndFreshSessionCheck(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+        fixture.operations.failEditorSave = true; fixture.runtime.dispatchWidget("editor.save");
+        var scope = fixture.operations.lastEditorSaveRequest.saveScope().orElseThrow();
+        var ready = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var observed = new CompletableFuture<List<Boolean>>();
+        Thread worker = new Thread(() -> {
+            boolean active = scope.stillCurrent().getAsBoolean(); ready.countDown();
+            try { release.await(); observed.complete(List.of(active, scope.stillCurrent().getAsBoolean())); }
+            catch (InterruptedException failure) { Thread.currentThread().interrupt(); observed.completeExceptionally(failure); }
+        }, "synthetic-edit-scope-reader");
+        worker.start(); assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        var original = fixture.operations.session;
+        fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(), "Other"), null, (SessionFailureContext) null, "synthetic");
+        assertFalse(scope.stillCurrent().getAsBoolean(), "Read-only scope observes fresh neutral identity without a tick; not a storage gate");
+        fixture.operations.session = original;
+        fixture.runtime.dispatchWidget("editor.cancel");
+        release.countDown(); worker.join(5000); assertFalse(worker.isAlive());
+        assertEquals(List.of(true, false), observed.get(5, java.util.concurrent.TimeUnit.SECONDS));
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("editor.save");
+        var next = fixture.operations.lastEditorSaveRequest.saveScope().orElseThrow();
+        assertTrue(next.stillCurrent().getAsBoolean());
+        assertFalse(scope.stillCurrent().getAsBoolean(), "A later edit cannot revive an old scope");
+        fixture.runtime.close(); assertFalse(next.stillCurrent().getAsBoolean());
+    }
+
+    @Test
+    void cpmBaseFreshAccountBoundaryBeforeReplacementRetiresDraftWithoutPicker(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+        fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(), "Other"), null, (SessionFailureContext) null, "synthetic");
+        fixture.runtime.dispatchWidget("editor.png.choose");
+        assertEquals(1, fixture.picks.size(), "Stale initiating account must be observed before a new picker effect");
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+        assertFalse(fixture.runtime.snapshot().busy()); fixture.runtime.close();
+    }
+
+    @Test
+    void cpmBaseDelayedClientConversionAndPublicationCannotUnlockNewOperation(@TempDir Path directory) throws Exception {
+        for (boolean encoded : List.of(false, true)) {
+            var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+            fixture.runtime.dispatchWidget("editor.cancel"); fixture.hold = true;
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+            fixture.runtime.dispatchWidget("add.file.choose");
+            if (encoded) {
+                fixture.holdClient = true;
+                fixture.workers.remove().run();
+                assertFalse(fixture.clients.isEmpty(), "Valid converted/encoded result waits on the real client executor");
+            } else assertFalse(fixture.workers.isEmpty(), "Native preparation has not started");
+            assertTrue(fixture.runtime.snapshot().busy());
+            fixture.runtime.resourcesReloaded();
+            assertFalse(fixture.runtime.snapshot().busy());
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+            fixture.runtime.dispatchWidget("add.file.choose");
+            assertTrue(fixture.runtime.snapshot().busy());
+            if (!encoded) {
+                fixture.holdClient = true;
+                fixture.workers.remove().run();
+            }
+            fixture.clients.remove().run();
+            assertTrue(fixture.runtime.snapshot().busy(), "Old completion cannot unlock the newer base operation");
+            assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+            fixture.holdClient = false; fixture.drain();
+            assertTrue(fixture.runtime.snapshot().editor().isPresent(), "Current-scope explicit selection still publishes");
+            assertFalse(fixture.runtime.snapshot().busy());
+            assertEquals(encoded ? 3 : 2, fixture.adapter.conversions);
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmChooserImportWheelConsumesPresentedSurface(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+        assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+        fixture.runtime.dispatchWidget("add.tab.file");
+        var view = fixture.runtime.view(240, 240, 0, 0);
+        var surface = view.scrollSurface("add.import").orElseThrow();
+        assertTrue(surface.maximumPixels() > 16, "Valid scoped Import has overflow");
+        assertEquals(0, surface.offsetPixels());
+        fixture.runtime.pointerScrolled(surface.viewport().x() + 2, surface.viewport().y() + 2, 0, -0.5);
+        assertEquals(16, fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset(),
+                "Scoped Import wheel must use its presented surface, not ordinary Catalog clip");
+        assertEquals(16, fixture.runtime.view(240, 240, 0, 0).scrollSurface("add.import").orElseThrow().offsetPixels());
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmChooserNativeScrollUsesCurrentStatusAndRejectsOtherTab(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("add.tab.file");
+        Path invalid = Files.write(directory.resolve("invalid.png"), new byte[] {1});
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(invalid)));
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertEquals("nclskins.error.png", fixture.runtime.snapshot().status().key());
+        assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().importContext().failure().isEmpty());
+        var view = fixture.runtime.view(180, 180, 0, 0);
+        var surface = view.scrollSurface("add.import").orElseThrow();
+        assertTrue(surface.maximumPixels() > 0);
+        fixture.runtime.nativeScrollPositionChanged("add.catalog", 99);
+        assertEquals(0, fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset());
+        fixture.runtime.nativeScrollPositionChanged("add.import", 100000);
+        assertEquals((int) surface.maximumPixels(), fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset(),
+                "Native Import uses CURRENT supplied error geometry");
+        fixture.runtime.tick();
+        assertEquals((int) surface.maximumPixels(), fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset());
+        assertEquals("nclskins.error.png", fixture.runtime.snapshot().status().key());
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmChooserKeyboardReachesBlockedSourceTooltipWithoutImporting(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("add.tab.file");
+        var before = fixture.runtime.view(240, 240, 0, 0);
+        assertTrue(before.scrollSurface("add.import").orElseThrow().maximumPixels() > 0);
+        assertTrue(fixture.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, "add.file.choose"));
+        var after = fixture.runtime.view(240, 240, 0, 0);
+        assertEquals("add.external.launcher", after.focusRequest().orElseThrow().widgetId());
+        var node = after.navigationNode("add.external.launcher").orElseThrow();
+        var surface = after.scrollSurface("add.import").orElseThrow();
+        assertTrue(node.bounds().y() >= surface.viewport().y());
+        assertTrue(node.bounds().bottom() <= surface.viewport().bottom(), "Keyboard focus keeps the source tooltip anchor visible without a reserved reason row");
+        assertTrue(node.bounds().bottom() <= surface.viewport().bottom());
+        assertFalse(fixture.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, node.id()));
+        assertEquals(0, fixture.adapter.conversions);
+        assertNull(fixture.operations.lastExternalSource);
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmChooserScrollbarDragMatchesPresentedImportGeometry(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("add.tab.file");
+        for (int[] size : List.of(new int[] {240,240}, new int[] {180,180}, new int[] {480,160})) {
+            var view = fixture.runtime.view(size[0], size[1], 0, 0);
+            var surface = view.scrollSurface("add.import").orElseThrow();
+            var bar = view.scrollbar().orElseThrow();
+            assertTrue(surface.maximumPixels() > 0);
+            fixture.runtime.pointerPressed(bar.thumb().x()+1, bar.thumb().y()+1, 0);
+            fixture.runtime.pointerDragged(bar.thumb().x()+1, bar.track().bottom()+200, 0, 0, 200);
+            assertEquals((int) surface.maximumPixels(), fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset(),
+                    "Drag reaches presented Import maximum");
+            fixture.runtime.pointerDragged(bar.thumb().x()+1, bar.track().y()-200, 0, 0, -400);
+            assertEquals(0, fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset());
+            fixture.runtime.pointerReleased(0);
+        }
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmChooserDragUsesUntypedErrorPublishedDuringGesture(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("add.tab.file");
+        var initial = fixture.runtime.view(180, 180, 0, 0).scrollbar().orElseThrow();
+        fixture.runtime.pointerPressed(initial.thumb().x()+1, initial.thumb().y()+1, 0);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(
+                Files.write(directory.resolve("bad.png"), new byte[]{1}))));
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertEquals("nclskins.error.png", fixture.runtime.snapshot().status().key());
+        var current = fixture.runtime.view(180, 180, 0, 0);
+        var bar = current.scrollbar().orElseThrow();
+        var surface = current.scrollSurface("add.import").orElseThrow();
+        assertTrue(bar.maximum() > initial.maximum(), "Current error adds genuine overflow");
+        fixture.runtime.pointerDragged(bar.thumb().x()+1, bar.track().bottom()+100, 0, 0, 200);
+        assertEquals((int) surface.maximumPixels(), fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset(),
+                "Held gesture must map CURRENT error track/thumb/maximum");
+        fixture.runtime.pointerReleased(0);
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmChooserReturnRestoresIndependentParentAndChooserFocus(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        var parentFocus = fixture.runtime.view(240, 240, 0, 0).focusRequest();
+        assertTrue(parentFocus.isEmpty(), "Ordinary direct Import starts without a synthetic request");
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("add.tab.file");
+        fixture.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, "add.file.choose");
+        var chooser = fixture.runtime.snapshot().addSource().orElseThrow();
+        assertEquals("add.external.launcher", fixture.runtime.view(240,240,0,0).focusRequest().orElseThrow().widgetId());
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertTrue(fixture.runtime.snapshot().editor().isPresent());
+        fixture.runtime.dispatchWidget("editor.cancel");
+        var returned = fixture.runtime.view(240,240,0,0);
+        assertEquals(Optional.of("add.external.launcher"), returned.focusRequest().map(ViewSpec.FocusRequest::widgetId),
+                "Editor Cancel restores the chooser's actual keyboard focus");
+        assertEquals(chooser.scrollOffset(), fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset());
+        fixture.runtime.dispatchWidget("add.cancel");
+        assertEquals(AddSourceModel.Purpose.CREATE_PRESET, fixture.runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        assertEquals(parentFocus, fixture.runtime.view(240,240,0,0).focusRequest(),
+                "Chooser focus must not overwrite the captured ordinary parent focus");
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmChooserImportResizeClampsSingleOffsetOnTick(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("add.tab.file");
+        var small = fixture.runtime.view(180,180,0,0).scrollSurface("add.import").orElseThrow();
+        fixture.runtime.nativeScrollPositionChanged("add.import", small.maximumPixels());
+        assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset() > 0);
+        var enlarged = fixture.runtime.view(854,480,0,0).scrollSurface("add.import").orElseThrow();
+        assertEquals(0, enlarged.maximumPixels());
+        fixture.runtime.tick();
+        assertEquals(0, fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset(),
+                "Scoped Import resize clamps the real offset owner, not only the painted surface");
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmChooserBothTabsUseOnePresentedRuntimeGeometry(@TempDir Path directory) throws Exception {
+        for (var required : com.naocraftlab.skins.client.SkinModel.values()) {
+            Path model = Files.write(directory.resolve(required + ".cpmmodel"), validModel(required == SkinModel.SLIM));
+            Path mismatch = Files.write(directory.resolve(required + "-wrong.png"),
+                    opaqueSkinPng(required == com.naocraftlab.skins.client.SkinModel.CLASSIC));
+            var operations = new FakeOperations();
+            operations.uiPreferences = AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID)
+                    .withPreferredSkinVariant(required == com.naocraftlab.skins.client.SkinModel.CLASSIC ? SkinVariant.SLIM : SkinVariant.CLASSIC);
+            var picks = new java.util.ArrayDeque<Path>(); picks.add(model); picks.add(mismatch);
+            var runtime = runtime(operations, () -> CompletableFuture.completedFuture(Optional.of(picks.remove())));
+            var adapter = new BaseOnlyConverter(required); useBaseConverter(runtime, adapter);
+            runtime.reopen(ScreenDestination.SKIN_IMPORT); runtime.dispatchWidget("add.file.choose");
+            var preferences = operations.uiPreferences;
+            var first = runtime.view(240,240,0,0);
+            assertEquals(required.name(), runtime.snapshot().addSource().orElseThrow().filter().name());
+            assertFalse(first.widget("add.catalog.filter").orElseThrow().enabled());
+            for (var origin : InteractionOrigin.values()) {
+                runtime.dispatchWidget("add.catalog.filter", false, origin);
+                runtime.dispatchWidget("add.catalog.filter", true, origin);
+                assertEquals(required.name(), runtime.snapshot().addSource().orElseThrow().filter().name());
+            }
+            runtime.dispatchWidget("add.tab.file"); runtime.dispatchWidget("add.file.choose");
+            assertEquals(0, adapter.conversions);
+            for (var tab : AddSourceTab.values()) {
+                runtime.dispatchWidget(tab == AddSourceTab.FILE ? "add.tab.file" : "add.tab.catalog");
+                String surfaceId = tab == AddSourceTab.FILE ? "add.import" : "add.catalog";
+                String statusId = tab == AddSourceTab.FILE ? "add.import.status" : "add.catalog.status";
+                for (int[] size : List.of(new int[]{240,240},new int[]{180,180},new int[]{480,160},new int[]{427,240})) {
+                    if (tab == AddSourceTab.FILE) {
+                        picks.add(mismatch);
+                        runtime.dispatchWidget("add.file.choose");
+                    } else {
+                        adapter.failure = com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CONVERSION_FAILED;
+                        runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
+                        adapter.failure = null;
+                    }
+                    var view = runtime.view(size[0],size[1],0,0);
+                    var surface = view.scrollSurface(surfaceId).orElseThrow();
+                    var title = view.texts().stream().filter(t -> t.id().equals("add.context.title")).findFirst().orElseThrow();
+                    assertTrue(title.bounds().bottom() <= surface.viewport().y());
+                    assertEquals(tab == AddSourceTab.FILE ? "nclskins.add_source.cpm.required_"+required.name().toLowerCase(java.util.Locale.ROOT)
+                                    : "nclskins.add_source.cpm.conversion_failed",
+                            view.texts().stream().filter(text -> text.id().equals(statusId)).findFirst().orElseThrow().message().key());
+                    assertEquals(tab == AddSourceTab.CATALOG, view.widget(statusId+".info").isPresent());
+                    assertEquals(tab == AddSourceTab.CATALOG, view.navigationNode(statusId+".info").isPresent());
+                    runtime.nativeScrollPositionChanged(surfaceId, 0);
+                    runtime.pointerScrolled(surface.viewport().x()+2, surface.viewport().y()+2, 0, -0.5);
+                    assertEquals((int)Math.min(16,surface.maximumPixels()), runtime.snapshot().addSource().orElseThrow().scrollOffset());
+                    int beforeOutside = runtime.snapshot().addSource().orElseThrow().scrollOffset();
+                    runtime.pointerScrolled(2, size[1]-2, 0, -10);
+                    assertEquals(beforeOutside, runtime.snapshot().addSource().orElseThrow().scrollOffset());
+                    runtime.nativeScrollPositionChanged(surfaceId, 100000);
+                    var end = runtime.view(size[0],size[1],0,0);
+                    var status = end.texts().stream().filter(t -> t.id().equals(statusId)).findFirst().orElseThrow();
+                    assertTrue(status.bounds().bottom() <= surface.viewport().bottom());
+                    assertEquals(surface.viewport(), end.clipFor(statusId).orElseThrow());
+                    assertTrue(end.clipFor("add.cancel").isEmpty());
+                    assertFalse(ViewHostPolicy.pointerInsideClip(end, statusId+".info", 2, size[1]-2));
+                    end.scrollbar().ifPresent(bar -> {
+                        runtime.pointerPressed(bar.thumb().x()+1,bar.thumb().y()+1,0);
+                        var current = runtime.view(size[0],size[1],0,0).scrollSurface(surfaceId).orElseThrow();
+                        assertTrue(runtime.snapshot().addSource().orElseThrow().importContext().failure().isEmpty());
+                        runtime.pointerDragged(bar.thumb().x()+1,bar.track().y()-100,0,0,-200);
+                        assertEquals(0,runtime.snapshot().addSource().orElseThrow().scrollOffset());
+                        runtime.pointerDragged(bar.thumb().x()+1,bar.track().bottom()+100,0,0,400);
+                        assertEquals((int)current.maximumPixels(),runtime.snapshot().addSource().orElseThrow().scrollOffset());
+                        runtime.pointerReleased(0);
+                    });
+                    assertFalse(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, statusId+".info"));
+                    runtime.dispatchWidget(statusId+".info");
+                    assertTrue(runtime.snapshot().editor().isEmpty());
+                    assertEquals(0, adapter.conversions);
+                }
+            }
+            assertEquals(preferences, operations.uiPreferences);
+            runtime.close();
+        }
+    }
+
+    @Test
+    void cpmChooserConvertedDraftUsesPendingNameOrSafeModelFilename(@TempDir Path directory) throws Exception {
+        for (boolean pending : List.of(false,true)) {
+            var fixture = new CpmLifecycleFixture(directory);
+            Path named = Files.write(directory.resolve("snake_model.CPMMODEL"), validModel(false));
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(named)));
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+            if (pending) {
+                fixture.runtime.initialize();
+                fixture.runtime.dispatchText("gallery.search", "Pending creation");
+                fixture.runtime.dispatchWidget("gallery.add");
+                fixture.runtime.dispatchWidget("add.tab.file");
+            } else fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.runtime.dispatchWidget("add.file.choose");
+            fixture.runtime.dispatchWidget("add.tab.file"); fixture.runtime.dispatchWidget("add.file.choose");
+            var editor = fixture.runtime.snapshot().editor().orElseThrow();
+            assertEquals(pending ? "Pending creation" : "Snake Model", editor.name());
+            assertEquals("Snake Model.png", editor.png().orElseThrow().fileName());
+            assertEquals(EditorTab.APPEARANCE, editor.selectedEditorTab());
+            assertTrue(editor.originalPresetId().isEmpty()); assertTrue(editor.catalogOrigin().isEmpty());
+            assertEquals(SkinVariant.CLASSIC, editor.variant());
+            assertEquals(PersonalSkinSource.FILE, editor.saveRequest().personalSkinSource());
+            var view = fixture.runtime.view(240,240,0,0);
+            var request = view.focusRequest().orElseThrow();
+            assertEquals("editor.name", request.widgetId());
+            fixture.runtime.acknowledgeFocusApplied(view.screenId(), request);
+            assertTrue(fixture.runtime.view(240,240,0,0).focusRequest().isEmpty());
+            assertArrayEquals(editor.png().orElseThrow().bytes(), fixture.runtime.loadSkinPreview(view.previews().get(0)).join().orElseThrow());
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmChooserBusyCancelKeepsActualNativeCoordinatorGuard(@TempDir Path directory) throws Exception {
+        Path model = Files.write(directory.resolve("dialog.cpmmodel"), validModel(false));
+        var coordinator = new FilePickerCoordinator(Runnable::run);
+        var pending = new CompletableFuture<Optional<Path>>();
+        int[] opened = {0};
+        FilePicker picker = new FilePicker() {
+            public CompletableFuture<Optional<Path>> chooseSkinPng() {
+                return coordinator.chooseAsync(() -> { opened[0]++; return pending; }, Runnable::run);
+            }
+            public CompletableFuture<Optional<Path>> chooseSkinImportFile(boolean allowCpm) {
+                return coordinator.chooseSkinImportAsync(() -> { opened[0]++; return CompletableFuture.completedFuture(Optional.of(model)); }, Runnable::run);
+            }
+        };
+        var runtime = runtime(new FakeOperations(), picker);
+        useBaseConverter(runtime,new BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel.CLASSIC));
+        runtime.reopen(ScreenDestination.SKIN_IMPORT); runtime.dispatchWidget("add.file.choose");
+        runtime.dispatchWidget("add.tab.file"); runtime.dispatchWidget("add.file.choose");
+        assertTrue(runtime.snapshot().busy()); assertEquals(2,opened[0]);
+        assertTrue(runtime.view(240,240,0,0).widget("add.cancel").orElseThrow().enabled());
+        runtime.dispatchWidget("add.cancel");
+        assertFalse(runtime.snapshot().busy()); assertFalse(pending.isDone());
+        runtime.dispatchWidget("add.file.choose");
+        assertEquals(2,opened[0], "UI Cancel does not release the still-open native dialog");
+        assertFalse(runtime.snapshot().busy());
+        pending.complete(Optional.empty());
+        assertTrue(runtime.snapshot().editor().isEmpty());
+        runtime.dispatchWidget("add.file.choose");
+        assertEquals(3,opened[0], "Actual callback releases guard for the next explicit dialog");
+        assertTrue(runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+        runtime.close();
+    }
+
+    @Test
+    void cpmChooserCatalogFailureAndPendingCancelUseCurrentView(@TempDir Path directory) throws Exception {
+        for (boolean cancelPending : List.of(false,true)) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+            var view = fixture.runtime.view(240,240,0,0);
+            assertTrue(view.navigationNode("add.catalog.skin:minecraft:steve").isPresent());
+            var accountBefore = fixture.runtime.snapshot().account();
+            if (cancelPending) fixture.hold = true;
+            else fixture.operations.failedCatalogModels = Set.of(SkinModel.CLASSIC);
+            fixture.runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
+            if (cancelPending) {
+                assertTrue(fixture.runtime.snapshot().busy());
+                assertFalse(fixture.workers.isEmpty());
+                assertTrue(fixture.runtime.view(240,240,0,0).widget("add.cancel").orElseThrow().enabled());
+                fixture.runtime.dispatchWidget("add.cancel");
+                assertFalse(fixture.runtime.snapshot().busy());
+                fixture.drain();
+                assertEquals(AddSourceModel.Purpose.CREATE_PRESET, fixture.runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+            } else {
+                assertFalse(fixture.runtime.snapshot().busy());
+                var error = fixture.runtime.snapshot().status();
+                assertEquals(UiMessage.Severity.ERROR,error.severity());
+                var failed = fixture.runtime.view(180,180,0,0);
+                var surface = failed.scrollSurface("add.catalog").orElseThrow();
+                fixture.runtime.nativeScrollPositionChanged("add.catalog",100000);
+                var end = fixture.runtime.view(180,180,0,0);
+                var text = end.texts().stream().filter(t -> t.id().equals("add.catalog.status")).findFirst().orElseThrow();
+                assertEquals(error,text.message());
+                assertTrue(text.bounds().bottom() <= surface.viewport().bottom());
+                assertEquals((int)surface.maximumPixels(), fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset());
+                assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+            }
+            assertEquals(0,fixture.adapter.conversions);
+            assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+            assertEquals(accountBefore,fixture.runtime.snapshot().account());
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmChooserWheelStartsAtPresentedOffsetAfterTabChange(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+        var catalog = fixture.runtime.view(180,180,0,0).scrollSurface("add.catalog").orElseThrow();
+        fixture.runtime.nativeScrollPositionChanged("add.catalog",catalog.maximumPixels());
+        fixture.runtime.dispatchWidget("add.tab.file");
+        var surface = fixture.runtime.view(180,180,0,0).scrollSurface("add.import").orElseThrow();
+        assertTrue(catalog.maximumPixels()>surface.maximumPixels());
+        assertTrue(surface.offsetPixels()>16);
+        fixture.runtime.pointerScrolled(surface.viewport().x()+2,surface.viewport().y()+2,0,0.5);
+        assertEquals((int)surface.offsetPixels()-16,fixture.runtime.snapshot().addSource().orElseThrow().scrollOffset(),
+                "Wheel starts at current presented offset, not the stale larger Catalog driver");
+        fixture.runtime.close();
+    }
+
+    @Test
+    void finalCorrectionRetiredOuterPickerCannotCancelGalleryDelete(@TempDir Path directory) throws Exception {
+        for (int terminal = 0; terminal < 4; terminal++) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.operations.account = TestFixtures.account(1);
+            fixture.runtime.initialize();
+            UUID preset = fixture.operations.account.presets().get(0).id();
+            if (terminal != 0) {
+                fixture.runtime.dispatchWidget("gallery.add");
+                fixture.runtime.dispatchWidget("add.tab.file");
+                fixture.picks.add(terminal == 1 ? CompletableFuture.completedFuture(Optional.empty())
+                        : terminal == 2 ? CompletableFuture.failedFuture(new IOException("synthetic picker failure"))
+                        : CompletableFuture.completedFuture(Optional.of(Files.write(directory.resolve("bad.png"), new byte[]{1}))));
+                fixture.runtime.dispatchWidget("add.file.choose");
+                assertFalse(fixture.runtime.snapshot().busy());
+                fixture.runtime.dispatchWidget("add.cancel");
+                assertTrue(fixture.runtime.snapshot().addSource().isEmpty());
+            }
+            fixture.hold = true;
+            fixture.runtime.dispatchWidget("gallery.preset." + preset + ".delete");
+            fixture.runtime.dispatchWidget("gallery.preset." + preset + ".delete_confirm");
+            assertTrue(fixture.runtime.snapshot().busy(), "Confirmed Gallery delete is genuinely pending");
+            fixture.runtime.resourcesReloaded();
+            assertTrue(fixture.runtime.snapshot().busy(), "Retired import cannot unlock unrelated Gallery mutation");
+            fixture.drain();
+            assertFalse(fixture.runtime.snapshot().busy());
+            assertTrue(fixture.runtime.snapshot().account().orElseThrow().presets().stream().noneMatch(p -> p.id().equals(preset)),
+                    "Actual Gallery completion must publish its changed account");
+            assertEquals("nclskins.status.deleted", fixture.runtime.snapshot().status().key());
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void finalCorrectionManagementRetainsOwnerAcrossCancelAndReload(@TempDir Path directory) throws Exception {
+        for (boolean rename : List.of(false, true)) for (int attempt = 0; attempt < 5; attempt++) {
+            var fixture = new CpmLifecycleFixture(directory);
+            String hash = fixture.operations.seedPersonalSkin("Before");
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.runtime.dispatchWidget("add.file.choose");
+            String prefix = rename ? "add.catalog.rename:" : "add.catalog.delete:";
+            fixture.runtime.dispatchWidget(prefix + PersonalSkinCatalog.COLLECTION_ID + ":" + hash);
+            if (rename) fixture.runtime.dispatchText("add.catalog.rename.name", "After");
+            fixture.hold = true;
+            fixture.runtime.dispatchWidget(rename ? "add.catalog.rename.save" : "add.catalog.delete.confirm");
+            assertTrue(fixture.runtime.snapshot().busy(), "Actual confirmed management worker is held");
+            var pending = fixture.runtime.view(854,480,0,0);
+            assertFalse(pending.widget("add.cancel").orElseThrow().enabled(), "Footer Cancel must respect durable management phase");
+            if (attempt == 0) fixture.runtime.dispatchWidget("add.cancel");
+            else if (attempt == 1) fixture.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE,"add.cancel");
+            else if (attempt == 2) {
+                var b = pending.widget("add.cancel").orElseThrow().bounds();
+                fixture.runtime.pointerPressed(b.x()+1,b.y()+1,0);
+            } else if (attempt == 3) fixture.runtime.resourcesReloaded();
+            else fixture.runtime.importWorldChanged();
+            assertTrue(fixture.runtime.snapshot().busy(), "Cancel/reload/world cannot retire management completion");
+            assertEquals(AddSourceModel.Purpose.CPM_BASE,fixture.runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+            fixture.drain();
+            assertFalse(fixture.runtime.snapshot().busy());
+            var entry = fixture.runtime.snapshot().account().orElseThrow().personalSkins().stream().filter(s -> s.sha256().equals(hash)).findFirst().orElseThrow();
+            if (rename) assertEquals("After",entry.displayName()); else assertFalse(entry.visible());
+            fixture.runtime.dispatchWidget("add.cancel");
+            var parent = fixture.runtime.snapshot().addSource().orElseThrow();
+            assertEquals(AddSourceModel.Purpose.CREATE_PRESET,parent.importContext().purpose());
+            if (!rename) assertTrue(parent.collections().stream().noneMatch(c -> PersonalSkinCatalog.isCollection(c.id())),"Removed card must not resurrect in parent");
+            else assertTrue(parent.collections().stream().flatMap(c -> c.skins().stream()).anyMatch(s -> s.name().toString().contains("After")));
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void finalCorrectionTypedFeedbackDismissesWithoutLosingModel(@TempDir Path directory) throws Exception {
+        for (int interaction = 0; interaction < 3; interaction++) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+            fixture.runtime.dispatchWidget("add.tab.file");
+            Path slim = Files.write(directory.resolve("mismatch.png"),opaqueSkinPng(true));
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(slim)));
+            fixture.runtime.dispatchWidget("add.file.choose");
+            var before = fixture.runtime.snapshot().addSource().orElseThrow();
+            assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED),before.importContext().failure());
+            assertTrue(fixture.runtime.view(240,240,0,0).texts().stream().anyMatch(t -> t.id().equals("add.import.status")));
+            if (interaction == 0) fixture.runtime.dispatchText("add.player.input","Synthetic");
+            else if (interaction == 1) fixture.runtime.pointerPressed(239,239,0);
+            else fixture.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,"add.player.input");
+            var after = fixture.runtime.snapshot().addSource().orElseThrow();
+            assertTrue(after.importContext().failure().isEmpty(),"Next actual interaction dismisses transient typed feedback");
+            assertTrue(after.importContext().filterLocked());
+            assertEquals(before.importContext().requiredVariant(),after.importContext().requiredVariant());
+            assertEquals(0,fixture.adapter.closes);
+            assertTrue(fixture.runtime.view(240,240,0,0).texts().stream().noneMatch(t -> t.id().equals("add.import.status")));
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(slim)));
+            fixture.runtime.dispatchWidget("add.file.choose");
+            assertEquals(Optional.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.VARIANT_UNSUPPORTED),fixture.runtime.snapshot().addSource().orElseThrow().importContext().failure());
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+            fixture.runtime.dispatchWidget("add.file.choose");
+            assertTrue(fixture.runtime.snapshot().editor().isPresent(),"Same-type explicit Retry still converts");
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void ownedPreviewRequestCannotBorrowAReplacementDraft(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.openConverted();
+        var original = fixture.runtime.view(320, 240, 0, 0).previews().get(0);
+        byte[] converted = fixture.runtime.snapshot().editor().orElseThrow().saveRequest().pngBytes().orElseThrow();
+        assertTrue(original.requiresLoadedSkin());
+        assertArrayEquals(converted, fixture.runtime.loadSkinPreview(original).join().orElseThrow());
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+        fixture.runtime.dispatchWidget("editor.png.choose");
+        var replacement = fixture.runtime.view(320, 240, 0, 0).previews().get(0);
+        byte[] replacementBytes = fixture.runtime.snapshot().editor().orElseThrow().saveRequest().pngBytes().orElseThrow();
+        assertFalse(java.util.Arrays.equals(converted, replacementBytes));
+        assertNotEquals(original.imageRevision(), replacement.imageRevision());
+        assertTrue(fixture.runtime.loadSkinPreview(original).join().isEmpty(),
+                "Retired owned revision must not return the next draft under the old texture key");
+        assertArrayEquals(replacementBytes, fixture.runtime.loadSkinPreview(replacement).join().orElseThrow());
+        fixture.runtime.resourcesReloaded();
+        fixture.runtime.importWorldChanged();
+        assertArrayEquals(replacementBytes, fixture.runtime.loadSkinPreview(replacement).join().orElseThrow());
+        fixture.runtime.dispatchWidget("editor.cancel");
+        assertTrue(fixture.runtime.loadSkinPreview(replacement).join().isEmpty());
+        fixture.runtime.close();
+        assertTrue(fixture.runtime.loadSkinPreview(replacement).join().isEmpty());
+    }
+
+    @Test
+    void finalCorrectionCapeCatalogSurvivesReplacementAndVariantOrdering(@TempDir Path directory) throws Exception {
+        for (boolean ordinary : List.of(false,true)) for (boolean catalogFirst : List.of(true,false)) {
+            var fixture = new CpmLifecycleFixture(directory);
+            if (ordinary) {
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+                fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+                assertTrue(fixture.runtime.snapshot().editor().orElseThrow().variantAvailable(SkinVariant.SLIM));
+            } else fixture.openConverted();
+            fixture.operations.resourceCapeCollections = List.of(resourceCapeCollection());
+            fixture.operations.resourceCapeHashes = Map.of(new ClientOperations.ResourceCapeKey("event","hero"),"c".repeat(64));
+            fixture.hold = true; fixture.runtime.resourcesReloaded();
+            assertFalse(fixture.workers.isEmpty()); fixture.workers.remove().run();
+            assertFalse(fixture.workers.isEmpty(),"Real resource catalog producer is pending");
+            assertTrue(fixture.runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream().noneMatch(c -> c.resource()!=null));
+            if (catalogFirst) fixture.workers.remove().run();
+            if (ordinary) {
+                fixture.runtime.dispatchWidget("editor.model_choice.slim");
+                assertEquals(SkinVariant.SLIM,fixture.runtime.snapshot().editor().orElseThrow().variant());
+            } else {
+                byte[] before = fixture.runtime.snapshot().editor().orElseThrow().png().orElseThrow().bytes();
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+                fixture.runtime.dispatchWidget("editor.png.choose");
+                fixture.workers.removeLast().run();
+                assertFalse(java.util.Arrays.equals(before,fixture.runtime.snapshot().editor().orElseThrow().png().orElseThrow().bytes()));
+                assertEquals(0,fixture.adapter.closes, "Replacement does not wait on native retirement from client");
+            }
+            fixture.drain();
+            if (!ordinary) assertEquals(1,fixture.adapter.closes, "Owned retirement executes once on worker");
+            assertFalse(fixture.runtime.snapshot().busy());
+            assertEquals(1,fixture.runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream().filter(c -> c.resource()!=null).count(),
+                    "Skin-result revision cannot discard independent current cape catalog completion");
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void finalCorrectionTypedCategoriesDismissOnBothTabsAndOuter(@TempDir Path directory) throws Exception {
+        for (var reason : List.of(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.INVALID_MODEL,
+                com.naocraftlab.skins.client.CpmModelFileConversion.Reason.IO_FAILED,
+                com.naocraftlab.skins.client.CpmModelFileConversion.Reason.CONVERSION_FAILED)) {
+            for (boolean catalog : List.of(false,true)) {
+                var fixture = new CpmLifecycleFixture(directory);
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+                fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+                fixture.adapter.failure = reason;
+                if (catalog) fixture.runtime.dispatchWidget("add.catalog.skin:minecraft:steve");
+                else {
+                    fixture.runtime.dispatchWidget("add.tab.file");
+                    fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+                    fixture.runtime.dispatchWidget("add.file.choose");
+                }
+                String status = catalog ? "add.catalog.status" : "add.import.status";
+                assertEquals(Optional.of(reason),fixture.runtime.snapshot().addSource().orElseThrow().importContext().failure());
+                var feedback = fixture.runtime.view(180,180,0,0);
+                assertTrue(feedback.texts().stream().anyMatch(text -> text.id().equals(status)));
+                assertEquals(catalog, feedback.widget(status+".info").isPresent());
+                assertEquals(catalog, feedback.navigationNode(status+".info").isPresent());
+                var preferences = fixture.operations.uiPreferences;
+                fixture.runtime.dispatchText(catalog ? "add.catalog.search" : "add.url.input","Synthetic");
+                assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().importContext().failure().isEmpty());
+                assertTrue(fixture.runtime.view(180,180,0,0).widget(status+".info").isEmpty());
+                assertTrue(fixture.runtime.view(180,180,0,0).texts().stream().noneMatch(text -> text.id().equals(status)));
+                assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+                assertEquals(preferences,fixture.operations.uiPreferences);
+                assertEquals(0,fixture.adapter.closes);
+                fixture.adapter.failure = null;
+                fixture.runtime.dispatchWidget("add.cancel");
+                assertEquals(AddSourceModel.Purpose.CREATE_PRESET,fixture.runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+                fixture.runtime.close();
+            }
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.adapter.failure = reason;
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+            assertEquals(Optional.of(reason),fixture.runtime.snapshot().addSource().orElseThrow().importContext().failure());
+            fixture.runtime.dispatchText("add.player.input","Synthetic");
+            assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().importContext().failure().isEmpty());
+            assertFalse(fixture.runtime.snapshot().addSource().orElseThrow().importContext().filterLocked());
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void finalCorrectionCapeCatalogRejectsRetiredEditAccountResourceAndRequest(@TempDir Path directory) throws Exception {
+        for (int retirement = 0; retirement < 4; retirement++) {
+            var fixture = new CpmLifecycleFixture(directory); fixture.openConverted();
+            fixture.operations.resourceCapeCollections = List.of(resourceCapeCollection());
+            fixture.operations.resourceCapeHashes = Map.of(new ClientOperations.ResourceCapeKey("event","hero"),"c".repeat(64));
+            fixture.hold = true; fixture.runtime.resourcesReloaded(); fixture.workers.remove().run();
+            assertEquals(1,fixture.workers.size());
+            fixture.holdClient = true; fixture.workers.remove().run();
+            assertEquals(1,fixture.clients.size());
+            Runnable stale = fixture.clients.remove();
+            fixture.holdClient = false; fixture.hold = false;
+            fixture.operations.resourceCapeCollections = List.of();
+            if (retirement == 0 || retirement == 1) {
+                if (retirement == 1) {
+                    var original = fixture.operations.session;
+                    fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                            new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(),"Other"),null,(SessionFailureContext)null,"synthetic");
+                    fixture.runtime.tick(); fixture.operations.session = original; fixture.runtime.tick();
+                    assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+                }
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+                fixture.runtime.closeScreen();
+                fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+            } else if (retirement == 2) fixture.operations.resourceCapeGeneration++;
+            else {
+                fixture.operations.resourceCapeCollections = List.of();
+                fixture.runtime.resourcesReloaded();
+            }
+            assertTrue(fixture.runtime.snapshot().editor().isPresent(), "Current editor setup mode=" + retirement
+                    + " busy=" + fixture.runtime.snapshot().busy() + " status=" + fixture.runtime.snapshot().status().key()
+                    + " add=" + fixture.runtime.snapshot().addSource().isPresent() + " picks=" + fixture.picks.size());
+            assertTrue(fixture.runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream().noneMatch(c -> c.resource()!=null));
+            stale.run();
+            assertTrue(fixture.runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream().noneMatch(c -> c.resource()!=null),
+                    "Late catalog completion cannot cross edit/account/resource/superseded-request scope");
+            fixture.operations.resourceCapeCollections = List.of(resourceCapeCollection());
+            fixture.runtime.resourcesReloaded();
+            assertEquals(1,fixture.runtime.snapshot().editor().orElseThrow().capeCatalog().cards().stream().filter(c -> c.resource()!=null).count(),
+                    "A current actual reload remains admitted after stale rejection");
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void nativePreparationAndConversionStayOnWorkerWhileDraftPublishesOnClient(@TempDir Path directory) throws Exception {
+        for (boolean automatic : List.of(false, true)) {
+            var fixture = new CpmLifecycleFixture(directory);
+            var nativeLanes = new java.util.ArrayList<Boolean>();
+            fixture.adapter.nativeWork = () -> nativeLanes.add(fixture.clientLane);
+            fixture.adapter.automatic = automatic;
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.hold = true;
+            fixture.holdClient = true;
+            fixture.runtime.dispatchWidget("add.file.choose");
+            fixture.drain();
+            if (!automatic) {
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+                fixture.runtime.dispatchWidget("add.tab.file");
+                fixture.runtime.dispatchWidget("add.file.choose");
+                fixture.drain();
+            }
+            assertEquals(List.of(false, false), nativeLanes, "Native preparation/conversion must not run on client");
+            assertTrue(fixture.runtime.snapshot().editor().orElseThrow().convertedCreation());
+            assertEquals(1, fixture.adapter.conversions);
+            fixture.runtime.close();
+            fixture.drain();
+            assertEquals(1, fixture.adapter.closes);
+        }
+    }
+
+    @Test
+    void invalidQueuedNativeWorkNeverCreatesOrConvertsAndLateCompletionCannotPublish(@TempDir Path directory) throws Exception {
+        for (int phase = 0; phase < 3; phase++) for (int event = 0; event < 4; event++) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.hold = true;
+            fixture.runtime.dispatchWidget("add.file.choose");
+            if (phase > 0) {
+                fixture.drain();
+                assertEquals(1, fixture.adapter.admissions);
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+                fixture.runtime.dispatchWidget("add.tab.file");
+                fixture.runtime.dispatchWidget("add.file.choose");
+                if (phase == 2) {
+                    fixture.holdClient = true;
+                    fixture.workers.remove().run();
+                    assertEquals(1, fixture.adapter.conversions);
+                    assertFalse(fixture.clients.isEmpty());
+                }
+            }
+            assertTrue(fixture.runtime.snapshot().busy());
+            fixture.holdClient = false;
+            if (event == 0) fixture.runtime.closeScreen();
+            if (event == 1) {
+                fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                        new GameSessionTokenSource.SessionIdentity(UUID.randomUUID(), "Other"), null, (SessionFailureContext) null, "synthetic");
+                fixture.runtime.tick();
+            }
+            if (event == 2) fixture.runtime.resourcesReloaded();
+            if (event == 3) fixture.runtime.importWorldChanged();
+            fixture.drain();
+            assertEquals(phase == 0 ? 0 : 1, fixture.adapter.admissions, "Cancelled queued acquisition must never create SDK state");
+            assertEquals(phase == 2 ? 1 : 0, fixture.adapter.conversions, "Cancelled queued conversion must not execute");
+            assertTrue(fixture.runtime.snapshot().editor().isEmpty(), "Stale native completion cannot publish Editor");
+            fixture.runtime.close();
+            fixture.drain();
+            assertEquals(phase == 0 ? 0 : 1, fixture.adapter.closes, "Only admitted owned handle retires exactly once");
+        }
+    }
+
+    @Test
+    void unknownAutomaticModelKeepsBothPreparedPairsAcrossSelectionCopiesAndReplacement(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory, null);
+        fixture.adapter.automatic = true;
+        for (SkinModel type : SkinModel.values()) {
+            var image = javax.imageio.ImageIO.read(Path.of("../core/src/test/resources/cpm/"
+                    + (type == SkinModel.SLIM ? "slim-a.png" : "classic-a.png")).toFile());
+            fixture.adapter.outputs.put(type, image.getRGB(0, 0, 64, 64, null, 0, 64));
+        }
+        fixture.operations.uiPreferences = fixture.operations.uiPreferences.withPreferredSkinVariant(SkinVariant.SLIM);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        var preferences = fixture.operations.uiPreferences;
+        fixture.runtime.dispatchWidget("add.file.choose");
+        var draft = fixture.runtime.snapshot().editor().orElseThrow();
+        assertEquals(SkinVariant.SLIM, draft.variant());
+        assertTrue(draft.variantAvailable(SkinVariant.CLASSIC), "UNKNOWN exposes the actually prepared alternate pair");
+        byte[] slim = draft.png().orElseThrow().bytes();
+        fixture.runtime.dispatchText("editor.name", "Owned pair");
+        fixture.runtime.dispatchWidget("editor.model_choice.classic");
+        draft = fixture.runtime.snapshot().editor().orElseThrow();
+        assertEquals(SkinVariant.CLASSIC, draft.variant());
+        assertEquals("Owned pair", draft.name());
+        byte[] classic = draft.png().orElseThrow().bytes();
+        assertFalse(java.util.Arrays.equals(slim, classic), "Pair selection changes prepared bytes, never a retag");
+        assertTrue(draft.saveRequest().exactCarrierReuse());
+        assertTrue(draft.saveRequest().withSaveScope(draft.saveRequest().saveScope()).exactCarrierReuse());
+        assertEquals(2, fixture.adapter.conversions, "Selection and copies never reconvert");
+        fixture.runtime.dispatchWidget("editor.model_choice.slim");
+        assertArrayEquals(slim, fixture.runtime.snapshot().editor().orElseThrow().png().orElseThrow().bytes());
+        assertEquals(preferences, fixture.operations.uiPreferences, "Scoped pair selection does not persist ordinary preferences");
+        var replaced = draft.withImportedPng("ordinary.png", Files.readAllBytes(fixture.base), SkinVariant.CLASSIC);
+        assertFalse(replaced.saveRequest().exactCarrierReuse());
+        fixture.runtime.close();
+        assertEquals(1, fixture.adapter.closes);
+    }
+
+    @Test
+    void automaticEditorCancelReturnsOuterImportAndChosenBaseReturnsChooser(@TempDir Path directory) throws Exception {
+        for (boolean automatic : List.of(true, false)) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.adapter.automatic = automatic;
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.runtime.dispatchText("add.url.input", "https://example.com/outer");
+            fixture.runtime.dispatchWidget("add.file.choose");
+            if (!automatic) {
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+                fixture.runtime.dispatchWidget("add.tab.file");
+                fixture.runtime.dispatchWidget("add.file.choose");
+            }
+            assertTrue(fixture.runtime.snapshot().editor().orElseThrow().convertedCreation());
+            fixture.runtime.dispatchWidget("editor.cancel");
+            var parent = fixture.runtime.snapshot().addSource().orElseThrow();
+            assertEquals(automatic ? AddSourceModel.Purpose.CREATE_PRESET : AddSourceModel.Purpose.CPM_BASE,
+                    parent.importContext().purpose(), "Cancel returns the actual outer or chosen-base parent");
+            assertEquals("https://example.com/outer", parent.urlInput());
+            if (automatic) assertEquals(com.naocraftlab.skins.core.model.AddSourceTab.FILE, parent.selectedTab());
+            fixture.runtime.close();
+            assertEquals(1, fixture.adapter.closes);
+        }
+    }
+
+    @Test
+    void removedFallbackKeepsRetainedDraftAndSaveScopeAcrossReload(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.openConverted();
+        fixture.runtime.dispatchText("editor.name", "Retained draft");
+        fixture.operations.failEditorSave = true;
+        fixture.runtime.dispatchWidget("editor.save");
+        var before = fixture.runtime.snapshot().editor().orElseThrow();
+        var scope = fixture.operations.lastEditorSaveRequest.saveScope().orElseThrow();
+        for (int[] size : List.of(new int[]{240,240}, new int[]{854,180}, new int[]{1280,240}, new int[]{854,480})) {
+            var view = fixture.runtime.view(size[0], size[1], 0, 0);
+            assertTrue(view.widget("editor.cpm.fallback.choose").isEmpty());
+            assertTrue(view.navigationNode("editor.cpm.fallback.choose").isEmpty());
+            assertTrue(view.clipFor("editor.cpm.fallback.choose").isEmpty());
+            fixture.runtime.dispatchWidget("editor.cpm.fallback.choose");
+            assertSame(before, fixture.runtime.snapshot().editor().orElseThrow());
+        }
+        fixture.operations.resourceCapeCollections = List.of(resourceCapeCollection());
+        fixture.runtime.resourcesReloaded();
+        assertTrue(fixture.runtime.snapshot().editor().isPresent());
+        assertTrue(scope.stillCurrent().getAsBoolean());
+        assertEquals(1, fixture.adapter.conversions);
+        assertEquals(0, fixture.adapter.closes);
+        fixture.runtime.close();
+        assertEquals(1, fixture.adapter.closes);
+        assertFalse(scope.stillCurrent().getAsBoolean());
+    }
+
+    @Test
+    void cpmDependencyTabProjectsTheRequestedFocus(@TempDir Path directory) throws Exception {
+        var dependency = new CpmDependencyFixture(directory);
+        var fixture = dependency.fixture;
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        String confirm = fixture.runtime.view(240, 240, 0, 0).widgets().stream()
+                .filter(widget -> widget.id().startsWith("add.cpm.dependency.confirm.")).findFirst().orElseThrow().id();
+        String cancel = confirm.replace(".confirm.", ".cancel.");
+        assertTrue(fixture.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, confirm));
+        assertEquals(cancel, fixture.runtime.view(240, 240, 0, 0).focusRequest().orElseThrow().widgetId());
+        assertTrue(fixture.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_BACKWARD, cancel));
+        assertEquals(confirm, fixture.runtime.view(240, 240, 0, 0).focusRequest().orElseThrow().widgetId());
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmExplicitPublicationAndLocalRetryNeverPublishTwice(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.adapter.automatic = true;
+        fixture.adapter.publication = true;
+        fixture.adapter.linkFailures = 1;
+        var uploads = new AtomicInteger();
+        fixture.runtime.useCpmModelPublication((request, current) -> {
+            assertTrue(current.getAsBoolean());
+            uploads.incrementAndGet();
+            return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                    com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                    com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+        });
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertEquals(1, uploads.get());
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+        assertFalse(fixture.runtime.snapshot().busy());
+        String confirm = "add.cpm.publication.confirm.1";
+        fixture.runtime.dispatchWidget(confirm);
+        assertEquals(1, uploads.get());
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+        assertTrue(fixture.runtime.view(240, 240, 0, 0).widgets().stream()
+                .noneMatch(widget -> widget.id().startsWith("add.cpm.publication.")));
+        assertEquals(AddSourceModel.Purpose.CREATE_PRESET, fixture.runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        fixture.runtime.dispatchWidget(confirm);
+        assertEquals(1, fixture.adapter.links);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertEquals(1, uploads.get());
+        assertEquals(2, fixture.adapter.links);
+        assertEquals(2, fixture.adapter.publicationCloses);
+        assertTrue(fixture.runtime.snapshot().editor().orElseThrow().convertedCreation());
+        assertTrue(fixture.runtime.snapshot().editor().orElseThrow().saveRequest().exactCarrierReuse());
+        fixture.runtime.dispatchWidget("editor.save");
+        assertEquals(1, uploads.get());
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmPublicationForcedCloseAndResourceRetirementHaveNoRemoteEffect(@TempDir Path directory) throws Exception {
+        for (boolean reload : List.of(false, true)) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.adapter.automatic = true;
+            fixture.adapter.publication = true;
+            fixture.runtime.useCpmModelPublication((request, current) -> { throw new AssertionError("Retired before first effect"); });
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.hold = true;
+            fixture.runtime.dispatchWidget("add.file.choose");
+            fixture.workers.remove().run(); fixture.workers.remove().run();
+            String confirm = "add.cpm.publication.confirm.1";
+            if (reload) fixture.runtime.resourcesReloaded();
+            else fixture.runtime.closeScreen();
+            fixture.runtime.dispatchWidget(confirm);
+            fixture.drain();
+            assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+            assertFalse(fixture.runtime.snapshot().busy());
+            assertEquals(1, fixture.adapter.publicationCloses);
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmBatchUsesOriginalDeadlineAndQueuedSecondIsNotSent(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.adapter.automatic = true;
+        fixture.adapter.publication = true;
+        fixture.adapter.publicationSteps = 2;
+        var clock = new java.util.concurrent.atomic.AtomicLong();
+        fixture.runtime.importClock(clock::get);
+        var sent = new ArrayList<Integer>();
+        fixture.runtime.useCpmModelPublication((request, current) -> {
+            var control = (com.naocraftlab.skins.client.CpmModelPublication.Control) current;
+            assertTrue(control.beginSend());
+            sent.add((int) request.wire()[0]);
+            if (sent.size() == 1) clock.set(java.time.Duration.ofSeconds(40).toNanos());
+            return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                    com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                    com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+        });
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.hold = true;
+        fixture.runtime.dispatchWidget("add.file.choose");
+        for (int step = 0; step < 4; step++) fixture.workers.remove().run();
+        assertEquals(List.of(1), sent);
+        assertTrue(fixture.runtime.snapshot().busy());
+        clock.set(java.time.Duration.ofSeconds(60).toNanos());
+        fixture.runtime.view(240, 240, 0, 0);
+        assertFalse(fixture.runtime.snapshot().busy(), "Second payload cannot restart the first 60-second budget");
+        assertEquals("nclskins.add.cpm_publication_timeout", fixture.runtime.snapshot().status().key(),
+                "First confirmed send cannot make the queued second payload uncertain");
+        fixture.drain();
+        assertEquals(List.of(1), sent);
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.drain();
+        assertEquals(List.of(1, 2), sent, "Confirmed first reuses its link; definitely-unsent second needs only the new explicit import");
+        assertTrue(fixture.runtime.snapshot().editor().orElseThrow().convertedCreation());
+        fixture.assertPublicationHistory();
+        fixture.runtime.close(); fixture.drain();
+    }
+
+    @Test
+    void cpmLateSecondSettlementCannotUnlockNewImportOrOverwriteFirstSettlement(@TempDir Path directory) throws Exception {
+        for (boolean startB : List.of(false, true)) {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.adapter.automatic = true; fixture.adapter.publication = true; fixture.adapter.publicationSteps = 2;
+        var clock = new java.util.concurrent.atomic.AtomicLong();
+        fixture.runtime.importClock(clock::get);
+        var sent = new ArrayList<Integer>();
+        fixture.runtime.useCpmModelPublication((request, current) -> {
+            var control = (com.naocraftlab.skins.client.CpmModelPublication.Control) current;
+            assertTrue(control.beginSend()); sent.add((int) request.wire()[0]);
+            if (sent.size() == 1) clock.set(java.time.Duration.ofSeconds(40).toNanos());
+            else {
+                assertEquals(java.time.Duration.ofSeconds(20).toNanos(), control.remainingNanos());
+                clock.set(java.time.Duration.ofSeconds(60).toNanos());
+                fixture.runtime.tick();
+                assertFalse(fixture.runtime.snapshot().busy());
+                assertEquals("nclskins.add.cpm_publication_uncertain", fixture.runtime.snapshot().status().key());
+                if (startB) {
+                    fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+                    fixture.runtime.dispatchWidget("add.file.choose");
+                    assertTrue(fixture.runtime.snapshot().busy());
+                }
+            }
+            return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                    com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                    com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+        });
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.hold = true;
+        fixture.runtime.dispatchWidget("add.file.choose");
+        for (int step = 0; step < 5; step++) fixture.workers.remove().run();
+        assertEquals(List.of(1, 2), sent);
+        assertEquals(startB, fixture.runtime.snapshot().busy(), "Old accepted reply must not unlock B");
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+        if (!startB) {
+            assertEquals("nclskins.add.cpm_publication_uncertain", fixture.runtime.snapshot().status().key(),
+                    "Late accepted reply updates only its own settlement, not the terminal error");
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.dispatchWidget("add.file.choose");
+        }
+        fixture.drain();
+        assertEquals(List.of(1, 2), sent, "Both own confirmed settlements are reused by the new explicit import");
+        assertTrue(fixture.runtime.snapshot().editor().orElseThrow().convertedCreation());
+        fixture.runtime.close(); fixture.drain();
+        }
+    }
+
+    @Test
+    void cpmPublicationAlternatePairsAutomaticallyPublishOnlyDistinctPayloads(@TempDir Path directory) throws Exception {
+        for (boolean shared : List.of(false, true)) {
+            var fixture = new CpmLifecycleFixture(directory, null);
+            fixture.adapter.automatic = true;
+            fixture.adapter.publication = true;
+            fixture.adapter.sharedWire = shared;
+            var uploads = new AtomicInteger();
+            fixture.runtime.useCpmModelPublication((request, current) -> {
+                uploads.incrementAndGet();
+                return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                        com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                        com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+            });
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.runtime.dispatchWidget("add.file.choose");
+            var draft = fixture.runtime.snapshot().editor().orElseThrow();
+            assertTrue(draft.variantAvailable(SkinVariant.CLASSIC) && draft.variantAvailable(SkinVariant.SLIM));
+            assertEquals(shared ? 1 : 2, uploads.get());
+            assertEquals(2, fixture.adapter.links);
+            assertEquals(2, fixture.adapter.publicationCloses);
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmSequentialPublicationAutomaticallyContinuesAndReusesConfirmedWires(@TempDir Path directory) throws Exception {
+        for (int steps : List.of(2, 3)) for (boolean repeated : List.of(false, true)) for (boolean pairs : List.of(false, true)) {
+            var fixture = new CpmLifecycleFixture(directory, pairs ? null : SkinModel.CLASSIC);
+            fixture.adapter.automatic = true; fixture.adapter.publication = true;
+            fixture.adapter.publicationSteps = steps; fixture.adapter.repeatedWire = repeated; fixture.adapter.sharedWire = pairs;
+            if (!repeated) fixture.adapter.failLinkAt = pairs ? 3 : 2;
+            var sent = new ArrayList<byte[]>();
+            fixture.runtime.useCpmModelPublication((request, current) -> {
+                assertTrue(current.getAsBoolean()); sent.add(request.wire());
+                return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                        com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                        com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+            });
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+            if (!repeated) {
+                assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+                assertEquals(2, sent.size());
+                fixture.runtime.dispatchWidget("add.cpm.publication.confirm.1"); assertEquals(2, sent.size());
+                fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+                fixture.runtime.dispatchWidget("add.file.choose");
+            }
+            assertEquals(repeated ? 1 : steps, sent.size());
+            var editor = fixture.runtime.snapshot().editor().orElseThrow();
+            assertTrue(editor.convertedCreation());
+            if (pairs) assertTrue(editor.variantAvailable(SkinVariant.CLASSIC) && editor.variantAvailable(SkinVariant.SLIM));
+            fixture.assertPublicationHistory();
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmSequentialPublicationUncertainSecondCannotResendFirstOrSecond(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.adapter.automatic = true; fixture.adapter.publication = true; fixture.adapter.publicationSteps = 2;
+        var calls = new AtomicInteger();
+        fixture.runtime.useCpmModelPublication((request, current) -> calls.incrementAndGet() == 1
+                ? new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                    com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                    com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"))
+                : new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                    com.naocraftlab.skins.client.CpmModelPublication.Status.UNCERTAIN,
+                    com.naocraftlab.skins.client.CpmModelPublication.Reason.NETWORK, Optional.empty()));
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+        assertTrue(fixture.runtime.view(240, 240, 0, 0).widgets().stream()
+                .noneMatch(widget -> widget.id().startsWith("add.cpm.publication.")));
+        assertEquals("nclskins.add.cpm_publication_uncertain", fixture.runtime.snapshot().status().key());
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertEquals(2, calls.get()); assertEquals(2, fixture.adapter.links);
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+        fixture.runtime.close(); assertEquals(4, fixture.adapter.publicationCloses);
+    }
+
+    @Test
+    void cpmSequentialPublicationRetiresUnpublishedNextContinuationAfterDelayedClient(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        fixture.adapter.automatic = true; fixture.adapter.publication = true; fixture.adapter.publicationSteps = 2;
+        var calls = new AtomicInteger();
+        fixture.runtime.useCpmModelPublication((request, current) -> {
+            calls.incrementAndGet();
+            return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                    com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                    com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+        });
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.hold = true;
+        fixture.runtime.dispatchWidget("add.file.choose");
+        for (int step = 0; step < 3; step++) fixture.workers.remove().run();
+        assertEquals(1, calls.get()); assertEquals(0, fixture.adapter.links);
+        fixture.holdClient = true; fixture.workers.remove().run();
+        assertEquals(1, fixture.adapter.links); assertFalse(fixture.clients.isEmpty());
+        fixture.runtime.closeScreen(); fixture.holdClient = false; fixture.drain();
+        assertEquals(2, fixture.adapter.publicationCloses);
+        assertTrue(fixture.runtime.snapshot().editor().isEmpty()); assertEquals(1, calls.get());
+        fixture.runtime.close(); fixture.drain(); assertEquals(2, fixture.adapter.publicationCloses);
+    }
+
+    @Test
+    void cpmGenuineBaseWaitCannotRecreatePublicationIntentAfterResourceOrWorldRetirement(@TempDir Path directory) throws Exception {
+        for (boolean world : List.of(false, true)) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.adapter.publication = true;
+            var sends = new AtomicInteger();
+            fixture.runtime.useCpmModelPublication((request, current) -> {
+                sends.incrementAndGet();
+                return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                        com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                        com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+            });
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.runtime.dispatchWidget("add.file.choose");
+            if (world) fixture.runtime.importWorldChanged(); else fixture.runtime.resourcesReloaded();
+            fixture.runtime.dispatchWidget("add.tab.file"); fixture.runtime.dispatchWidget("add.file.choose");
+            assertEquals(0, sends.get(), "Choosing a base cannot authorize an old model after scope retirement");
+            assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+            assertFalse(fixture.runtime.snapshot().busy());
+            assertEquals(Optional.of(world ? com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_WORLD
+                    : com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_RESOURCES),
+                    fixture.runtime.snapshot().addSource().orElseThrow().importContext().failure());
+            fixture.runtime.dispatchWidget("add.cancel");
+            assertEquals(AddSourceModel.Purpose.CREATE_PRESET, fixture.runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+            fixture.runtime.close();
+        }
+    }
+
+    @Test
+    void cpmPublishedEditorCancelDoesNotResurrectManagedChooserCards(@TempDir Path directory) throws Exception {
+        var fixture = new CpmLifecycleFixture(directory);
+        String hash = fixture.operations.seedPersonalSkin("Synthetic managed card");
+        fixture.adapter.publication = true;
+        fixture.runtime.useCpmModelPublication((request, current) ->
+                new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                        com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                        com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id")));
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.base)));
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.file.choose");
+        fixture.runtime.dispatchWidget("add.catalog.delete:" + PersonalSkinCatalog.COLLECTION_ID + ":" + hash);
+        fixture.runtime.dispatchWidget("add.catalog.delete.confirm");
+        fixture.runtime.dispatchWidget("add.tab.file");
+        fixture.runtime.dispatchText("add.url.input", "https://example.invalid/chooser");
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertTrue(fixture.runtime.snapshot().editor().orElseThrow().convertedCreation());
+        fixture.runtime.dispatchWidget("editor.cancel");
+        var chooser = fixture.runtime.snapshot().addSource().orElseThrow();
+        assertEquals(AddSourceModel.Purpose.CPM_BASE, chooser.importContext().purpose());
+        assertEquals("https://example.invalid/chooser", chooser.urlInput());
+        assertTrue(chooser.collections().stream().noneMatch(collection -> PersonalSkinCatalog.isCollection(collection.id())));
+        fixture.runtime.dispatchWidget("add.cancel");
+        assertEquals(AddSourceModel.Purpose.CREATE_PRESET, fixture.runtime.snapshot().addSource().orElseThrow().importContext().purpose());
+        assertTrue(fixture.runtime.snapshot().addSource().orElseThrow().collections().stream()
+                .noneMatch(collection -> PersonalSkinCatalog.isCollection(collection.id())));
+        fixture.runtime.close();
+    }
+
+    @Test
+    void cpmPublicationIntentRetiresBeforeFirstOrSecondEffectAcrossEveryScopeFence(@TempDir Path directory) throws Exception {
+        for (boolean second : List.of(false, true)) for (int event = 0; event < 6; event++) {
+            var fixture = new CpmLifecycleFixture(directory);
+            fixture.adapter.automatic = true; fixture.adapter.publication = true; fixture.adapter.publicationSteps = 2;
+            var sends = new AtomicInteger();
+            fixture.runtime.useCpmModelPublication((request, current) -> {
+                assertTrue(current.getAsBoolean()); sends.incrementAndGet();
+                return new com.naocraftlab.skins.client.CpmModelPublication.Result(
+                        com.naocraftlab.skins.client.CpmModelPublication.Status.CONFIRMED,
+                        com.naocraftlab.skins.client.CpmModelPublication.Reason.NONE, Optional.of("fixture-id"));
+            });
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT); fixture.hold = true;
+            fixture.runtime.dispatchWidget("add.file.choose");
+            for (int step = 0; step < (second ? 4 : 2); step++) fixture.workers.remove().run();
+            var original = fixture.operations.session;
+            if (event == 0) fixture.runtime.closeScreen();
+            if (event == 1) fixture.runtime.resourcesReloaded();
+            if (event == 2) fixture.runtime.importWorldChanged();
+            if (event >= 3) {
+                fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                        new GameSessionTokenSource.SessionIdentity(event == 3 ? TestFixtures.ACCOUNT_ID : UUID.randomUUID(), "Changed"),
+                        null, (SessionFailureContext) null, "synthetic");
+                if (event != 5) fixture.runtime.tick();
+                if (event == 4) { fixture.operations.session = original; fixture.runtime.tick(); }
+            }
+            fixture.runtime.dispatchWidget("add.cpm.publication.confirm.1");
+            fixture.drain();
+            assertEquals(second ? 1 : 0, sends.get(), "scope fence " + event);
+            assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+            assertFalse(fixture.runtime.snapshot().busy());
+            assertEquals(1, fixture.adapter.closes, "Retire model at scope fence " + event + ", second=" + second);
+            assertEquals(second ? 2 : 1, fixture.adapter.publicationCloses, "Retire continuations at scope fence " + event);
+            fixture.runtime.close(); fixture.drain();
+        }
+    }
+
+    @Test
+    void cpmDependencyAccountChangeDuringResponseRetiresOnlyOnClient(@TempDir Path directory) throws Exception {
+        assertDependencyIdentityRetirement(directory, true);
+    }
+
+    @Test
+    void cpmDependencyAccountChangeBeforeRequestRetiresOnlyOnClient(@TempDir Path directory) throws Exception {
+        assertDependencyIdentityRetirement(directory, false);
+    }
+
+    @Test
+    void cpmDependencyDeliveredAbaPreservesNewWorkBeforeOldClientCompletion(@TempDir Path directory) throws Exception {
+        var dependency = new CpmDependencyFixture(directory);
+        var fixture = dependency.fixture;
+        var original = fixture.operations.session;
+        dependency.confirm();
+        dependency.response = dependency::switchAccount;
+        fixture.workers.remove().run();
+        assertEquals(1, dependency.fetches);
+        assertEquals(1, dependency.admissions);
+        assertEquals(1, fixture.clients.size());
+        fixture.runtime.tick();
+        fixture.operations.session = original;
+        fixture.runtime.tick();
+        assertTrue(fixture.runtime.snapshot().addSource().isEmpty());
+        dependency.response = () -> { };
+        fixture.hold = false;
+        fixture.holdClient = false;
+        fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+        fixture.runtime.closeScreen();
+        fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+        fixture.runtime.dispatchWidget("add.tab.file");
+        fixture.runtime.dispatchWidget("add.file.choose");
+        assertEquals(2, dependency.admissions);
+        fixture.hold = true;
+        fixture.holdClient = true;
+        dependency.confirmCurrent();
+        var newer = fixture.runtime.snapshot();
+        assertTrue(newer.busy());
+        fixture.clients.remove().run();
+        assertSame(newer, fixture.runtime.snapshot(), "Old completion cannot unlock or close new work after delivered ABA");
+        fixture.workers.remove().run();
+        assertSame(newer, fixture.runtime.snapshot(), "Old cleanup cannot publish into new work");
+        assertThrows(java.io.IOException.class, () -> dependency.inputs.get(0).open());
+        try (var reader = dependency.inputs.get(1).open()) { assertEquals(83, reader.read()); }
+        fixture.drain();
+        assertEquals(2, dependency.fetches);
+        assertEquals(3, dependency.admissions);
+        assertEquals(1, fixture.adapter.admissions);
+        assertEquals(1, fixture.adapter.conversions);
+        assertEquals(0, fixture.adapter.closes, "Old cleanup cannot close the new native model");
+        assertTrue(fixture.runtime.snapshot().editor().isPresent());
+        assertFalse(fixture.runtime.snapshot().busy());
+        fixture.runtime.close();
+        fixture.drain();
+        assertEquals(1, fixture.adapter.closes);
+    }
+
+    private static void assertDependencyIdentityRetirement(Path directory, boolean duringResponse) throws Exception {
+        var dependency = new CpmDependencyFixture(directory);
+        var fixture = dependency.fixture;
+        dependency.confirm();
+        var pending = fixture.runtime.snapshot();
+        var offClientPublications = new AtomicInteger();
+        fixture.runtime.subscribe(snapshot -> { if (!fixture.clientLane) offClientPublications.incrementAndGet(); });
+        try (var registration = CapeProjection.installEvents(new CapeProjection.Events() {
+            public void trackedPlayer(UUID id, String name) { }
+            public void playerInfoUpdated(UUID id, String name) { }
+            public void untrackedPlayer(UUID id) { }
+            public void worldChanged() { }
+            public void worldEntered() { }
+        })) {
+            assertTrue(registration.active());
+            var preview = CapeProjection.effectiveSkin(UUID.randomUUID(), UUID.randomUUID(),
+                    "nclskins:dependency-preview", SkinModel.CLASSIC, true);
+            assertTrue(preview != null);
+            if (duringResponse) dependency.response = dependency::switchAccount;
+            else dependency.switchAccount();
+            fixture.workers.remove().run();
+            assertEquals(duringResponse ? 1 : 0, dependency.fetches);
+            assertEquals(1, dependency.admissions, "A stale response must not replay native admission");
+            assertEquals(0, offClientPublications.get(), "Dependency currentness must not publish from the worker");
+            assertSame(pending, fixture.runtime.snapshot(), "Worker must leave busy, screens and lifecycle untouched");
+            assertTrue(preview.active(), "Worker must not retire native preview state");
+            assertFalse(fixture.clients.isEmpty(), "Retirement returns through the client completion");
+            fixture.drain();
+            assertFalse(fixture.runtime.snapshot().busy());
+            assertTrue(fixture.runtime.snapshot().editor().isEmpty());
+            assertTrue(fixture.runtime.snapshot().addSource().isEmpty());
+            assertFalse(preview.active());
+            assertThrows(java.io.IOException.class, () -> dependency.inputs.get(0).open());
+            assertEquals(0, fixture.adapter.admissions);
+            assertEquals(0, fixture.adapter.conversions);
+        } finally {
+            fixture.runtime.close();
+            fixture.drain();
+        }
+    }
+
+    private static final class CpmDependencyFixture {
+        final CpmLifecycleFixture fixture;
+        final List<com.naocraftlab.skins.client.ImportInput> inputs = new ArrayList<>();
+        int fetches, admissions;
+        Runnable response = () -> { };
+
+        CpmDependencyFixture(Path directory) throws Exception {
+            fixture = new CpmLifecycleFixture(directory);
+            fixture.adapter.automatic = true;
+            var converter = new com.naocraftlab.skins.client.CpmModelFileConversion.DependencyAdmission() {
+                public Availability availability() { return Availability.READY; }
+                public AdmittedModel admitFile(Path path) { throw new AssertionError("Use frozen input"); }
+                public AdmittedModel admit(java.io.InputStream input) { throw new AssertionError("Use dependency admission"); }
+                public Admission admit(java.io.InputStream input, Map<String, byte[]> dependencies) throws Failure {
+                    admissions++;
+                    return dependencies.isEmpty()
+                            ? new Dependency("synthetic", java.net.URI.create("https://example.invalid/dependency"))
+                            : new Ready(fixture.adapter.admit(input));
+                }
+                public Preparation prepare(AdmittedModel model, Raster base, long revision) throws Failure {
+                    return fixture.adapter.prepare(model, base, revision);
+                }
+            };
+            var images = new com.naocraftlab.skins.core.importing.PublicSkinImageSource() {
+                public Acquired acquireFile(Path path) throws Exception {
+                    var input = com.naocraftlab.skins.client.FrozenImportInput.capture(path);
+                    inputs.add(input);
+                    return new ModelInput(input);
+                }
+                public Acquired acquireUrl(String url) { throw new AssertionError("File fixture"); }
+                public com.naocraftlab.skins.core.png.NormalizedSkin loadVerified(
+                        com.naocraftlab.skins.core.importing.PublicProfileLookup.VerifiedTexture texture) {
+                    throw new AssertionError("No profile lookup");
+                }
+                public com.naocraftlab.skins.core.png.NormalizedSkin loadUntrusted(String url) {
+                    throw new AssertionError("No image lookup");
+                }
+            };
+            fixture.operations.dependencyImports = new PublicSkinImportService(Optional.empty(), images,
+                    (collection, skin, model) -> { throw new AssertionError("No catalog load"); },
+                    Optional.of((uri, timeout, maximum) -> {
+                        assertFalse(fixture.clientLane);
+                        fetches++;
+                        response.run();
+                        return new byte[]{1};
+                    }), System::nanoTime);
+            useBaseConverter(fixture.runtime, converter);
+        }
+
+        void confirm() {
+            fixture.picks.add(CompletableFuture.completedFuture(Optional.of(fixture.model)));
+            fixture.runtime.reopen(ScreenDestination.SKIN_IMPORT);
+            fixture.runtime.dispatchWidget("add.file.choose");
+            assertEquals(1, admissions);
+            assertEquals(0, fetches);
+            fixture.hold = true;
+            fixture.holdClient = true;
+            confirmCurrent();
+            assertTrue(fixture.runtime.snapshot().busy());
+            assertEquals(1, fixture.workers.size());
+        }
+
+        void confirmCurrent() {
+            fixture.runtime.dispatchWidget(fixture.runtime.view(854, 480, 0, 0).widgets().stream()
+                    .filter(widget -> widget.id().startsWith("add.cpm.dependency.confirm."))
+                    .findFirst().orElseThrow().id());
+        }
+
+        void switchAccount() {
+            fixture.operations.session = new SessionValidation(SessionStatus.OFFLINE_OR_INVALID,
+                    new GameSessionTokenSource.SessionIdentity(UUID.fromString("00000000-0000-0000-0000-000000000002"), "Other"),
+                    null, (SessionFailureContext) null, "synthetic switch");
+        }
+    }
+
+
+    private static final class CpmLifecycleFixture {
+        final FakeOperations operations = new FakeOperations();
+        final java.util.ArrayDeque<Runnable> workers = new java.util.ArrayDeque<>();
+        final java.util.ArrayDeque<CompletableFuture<Optional<Path>>> picks = new java.util.ArrayDeque<>();
+        boolean hold;
+        boolean holdClient;
+        boolean clientLane = true;
+        final java.util.ArrayDeque<Runnable> clients = new java.util.ArrayDeque<>();
+        final ClientRuntime runtime;
+        final List<ClientSnapshot> history = new ArrayList<>();
+        final BaseOnlyConverter adapter;
+        final Path model, base;
+        CpmLifecycleFixture(Path directory) throws Exception { this(directory, SkinModel.CLASSIC); }
+        CpmLifecycleFixture(Path directory, SkinModel required) throws Exception {
+            adapter = new BaseOnlyConverter(required);
+            model = Files.write(directory.resolve("fixture.cpmmodel"), validModel(false));
+            base = Files.write(directory.resolve("base.png"), opaqueSkinPng(false));
+            var carrier = javax.imageio.ImageIO.read(Path.of("../core/src/test/resources/cpm/classic-a.png").toFile());
+            adapter.output = carrier.getRGB(0, 0, 64, 64, null, 0, 64);
+            ClientExecutor client = new ClientExecutor() {
+                public boolean isClientThread() { return clientLane; }
+                public void execute(Runnable action) {
+                    Runnable admitted = () -> { boolean previous = clientLane; clientLane = true; try { action.run(); } finally { clientLane = previous; } };
+                    if (holdClient) clients.add(admitted); else admitted.run();
+                }
+            };
+            runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client, () -> picks.remove(),
+                    action -> {
+                        Runnable admitted = () -> { boolean previous = clientLane; clientLane = false; try { action.run(); } finally { clientLane = previous; } };
+                        if (hold) workers.add(admitted); else admitted.run();
+                    }, TEXT,
+                    Optional.empty(), Optional.empty(), DiagnosticSinks.discarding());
+            useBaseConverter(runtime, adapter);
+            runtime.subscribe(snapshot -> {
+                if (snapshot.addSource().isPresent()) {
+                    history.add(snapshot);
+                }
+            });
+        }
+        void assertPublicationHistory() {
+            boolean active = false;
+            int intervals = 0;
+            for (int index = 0; index < history.size(); index++) {
+                var snapshot = history.get(index);
+                var view = new AddSourcePresenter().present(snapshot.addSource().orElseThrow(), snapshot.busy(),
+                        Optional.of(snapshot.status()), 854, 480);
+                assertTrue(view.widgets().stream().noneMatch(widget -> widget.id().startsWith("add.cpm.publication.")));
+                if (snapshot.status().key().equals("nclskins.add.cpm_publication_loading") && snapshot.editor().isEmpty()) {
+                    if (!active) intervals++;
+                    active = true;
+                    assertTrue(snapshot.busy(), "No published unlock between payloads");
+                    assertEquals(AddSourceModel.Purpose.CREATE_PRESET, snapshot.addSource().orElseThrow().importContext().purpose());
+                    assertEquals(com.naocraftlab.skins.core.model.AddSourceTab.FILE, snapshot.addSource().orElseThrow().selectedTab());
+                    assertFalse(view.widget("add.cancel").orElseThrow().enabled());
+                } else if (active) {
+                    assertTrue(snapshot.editor().isPresent() || snapshot.status().severity() == UiMessage.Severity.ERROR,
+                            "A publication interval ends only in Editor or terminal error");
+                    active = false;
+                }
+            }
+            assertTrue(intervals > 0);
+        }
+        void openConverted() {
+            picks.add(CompletableFuture.completedFuture(Optional.of(model)));
+            picks.add(CompletableFuture.completedFuture(Optional.of(base)));
+            runtime.reopen(ScreenDestination.SKIN_IMPORT); runtime.dispatchWidget("add.file.choose");
+            runtime.dispatchWidget("add.tab.file"); runtime.dispatchWidget("add.file.choose");
+            assertTrue(runtime.snapshot().editor().isPresent(), "Valid carrier fixture reaches actual converted Editor");
+        }
+        void drain() {
+            int steps = 0;
+            while (!workers.isEmpty() || !clients.isEmpty()) {
+                assertTrue(++steps < 100);
+                if (!workers.isEmpty()) workers.remove().run();
+                if (!clients.isEmpty()) clients.remove().run();
+            }
+        }
+    }
+
+    private static void useBaseConverter(ClientRuntime runtime,com.naocraftlab.skins.client.CpmModelFileConversion adapter) {
+        runtime.useSkinExtensionEnvironmentSource(new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource() {
+            public Snapshot snapshot(){return new Snapshot(1,Map.of(),true);}
+            public Optional<com.naocraftlab.skins.client.CpmModelFileConversion> modelFileConversion(){return Optional.of(adapter);}
+        });
+    }
+
+    private static byte[] validModel(boolean slim) throws java.io.IOException {
+        return Files.readAllBytes(Path.of("../gradle/build-logic/src/cpmComposition/fixtures/model-conversion/"
+                + (slim ? "slim" : "classic") + "-embedded.cpmmodel"));
+    }
+
+    private static final class BaseOnlyConverter implements com.naocraftlab.skins.client.CpmModelFileConversion {
+        private final com.naocraftlab.skins.client.SkinModel required;
+        private int closes,conversions,admissions;
+        private int[] output;
+        private Reason failure;
+        private boolean automatic;
+        private boolean publication, sharedWire, repeatedWire;
+        private int publicationSteps = 1;
+        private int links, linkFailures, publicationCloses, failLinkAt;
+        private final Map<SkinModel, int[]> outputs = new java.util.EnumMap<>(SkinModel.class);
+        private Runnable nativeWork = () -> { };
+        BaseOnlyConverter(com.naocraftlab.skins.client.SkinModel required){this.required=required;}
+        public Availability availability(){return Availability.READY;}
+        public AdmittedModel admitFile(Path path) { throw new AssertionError("Original path must not be reopened"); }
+        public AdmittedModel admit(java.io.InputStream input) throws Failure {
+            admissions++;
+            assertTrue(input instanceof com.naocraftlab.skins.client.FrozenImportInput.Reader);
+            if (((com.naocraftlab.skins.client.ImportInput.Reader) input).kind() == com.naocraftlab.skins.client.ImportInput.Kind.PROJECT)
+                throw new Failure(Reason.MODEL_UNSUPPORTED);
+            try { assertEquals(83, input.read()); }
+            catch (java.io.IOException problem) { throw new Failure(Reason.IO_FAILED); }
+            if (failure != null) throw new Failure(failure);
+            return new AdmittedModel(){
+            public Optional<com.naocraftlab.skins.client.SkinModel> requiredVariant(){return Optional.ofNullable(required);}
+            public Optional<Raster> automaticBase(SkinModel preferred){nativeWork.run();return automatic ? Optional.of(new Raster(required == null ? preferred : required, outputs.getOrDefault(required == null ? preferred : required, output))) : Optional.empty();}
+            public void close(){closes++;}
+        };}
+        public Preparation prepare(AdmittedModel model,Raster base,long revision) throws Failure {
+            nativeWork.run();
+            if (failure != null) throw new Failure(failure);
+            conversions++;
+            if (publication) return publication(base, revision, 0);
+            if (output != null) return new Inline(new Raster(required == null ? base.variant() : required, outputs.getOrDefault(base.variant(), output)));
+            throw new AssertionError("Mismatch must stop before converter");
+        }
+        private Publication publication(Raster base, long revision, int step) {
+            return new Publication() {
+                private boolean closed;
+                public SkinModel variant() { return base.variant(); }
+                public long revision() { return revision; }
+                public byte[] wire() { return new byte[]{(byte) (repeatedWire ? 1 : step + 1), (byte) (sharedWire ? 0 : base.variant().ordinal())}; }
+                public Preparation link(String id) throws Failure {
+                    assertFalse(closed);
+                    assertEquals("fixture-id", id);
+                    links++;
+                    if (linkFailures-- > 0 || links == failLinkAt) throw new Failure(Reason.CONVERSION_FAILED);
+                    return step + 1 < publicationSteps ? publication(base, revision, step + 1)
+                            : new Inline(new Raster(base.variant(), outputs.getOrDefault(base.variant(), output)));
+                }
+                public void close() { assertFalse(closed); closed = true; publicationCloses++; }
+            };
+        }
+    }
+
+    @Test
     void invalidFileImportShowsDismissibleFormatFeedbackAndKeepsEditorClosed(@TempDir Path directory) throws Exception {
         Path selected = Files.write(directory.resolve("invalid.png"), new byte[]{1, 2, 3});
         ClientRuntime runtime = runtime(new FakeOperations(),
@@ -3754,6 +8235,7 @@ final class ClientRuntimeTest {
         UUID presetId = operations.account.presets().get(0).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
 
+        TestFixtures.confirmOrdinaryDisplay(runtime);
         PresetEditorModel before = runtime.snapshot().editor().orElseThrow();
         runtime.pointerPressed(215, 150, 0);
         runtime.pointerReleased(215, 150, 0);
@@ -4426,12 +8908,12 @@ final class ClientRuntimeTest {
         Object connection = new Object();
 
         for (int tick = 0; tick < 200; tick++) {
-            host.tick(connection, true);
+            host.tick(connection, null, true);
         }
 
         assertEquals(1, operations.reconciliationCalls);
 
-        host.tick(new Object(), true);
+        host.tick(new Object(), null, true);
 
         assertEquals(2, operations.reconciliationCalls);
     }
@@ -5182,9 +9664,11 @@ final class ClientRuntimeTest {
 
     private static final class QueuedExecutor implements Executor {
         private final List<Runnable> tasks = new ArrayList<>();
+        private boolean reject;
 
         @Override
         public void execute(Runnable command) {
+            if (reject) throw new java.util.concurrent.RejectedExecutionException();
             tasks.add(command);
         }
 
@@ -5199,6 +9683,7 @@ final class ClientRuntimeTest {
 
     private static final class TrackingClientExecutor implements ClientExecutor {
         private final List<Runnable> tasks = new ArrayList<>();
+        private boolean reject;
         private boolean clientThread;
 
         @Override
@@ -5208,6 +9693,7 @@ final class ClientRuntimeTest {
 
         @Override
         public void execute(Runnable action) {
+            if (reject) throw new java.util.concurrent.RejectedExecutionException();
             tasks.add(action);
         }
 
@@ -5223,6 +9709,33 @@ final class ClientRuntimeTest {
     }
 
     private static final class FakeOperations implements TestCapeOperations {
+        private DefaultClientOperations evidenceProducer;
+        private int evidenceReads;
+
+        @Override public boolean supportsAssetFeatureEvidence() { return evidenceProducer != null; }
+        @Override public Map<UUID, com.naocraftlab.skins.core.compatibility.SkinFeatureEvidence> assetFeatureEvidence() throws Exception {
+            evidenceReads++;
+            return evidenceProducer.assetFeatureEvidence();
+        }
+
+        private PublicSkinImports dependencyImports;
+
+        @Override
+        public AcquiredInput acquireFile(Path path,
+                Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+                com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+            return dependencyImports == null ? TestCapeOperations.super.acquireFile(path, converter, unavailable)
+                    : dependencyImports.acquireFile(path, converter, unavailable);
+        }
+
+        private final List<String> providerPreviewLoads = new ArrayList<>();
+        private Map<String, ProviderCapePoster> providerPosters = Map.of();
+        private Map<String, byte[]> savedSkinPreviews = Map.of();
+
+        @Override public Optional<byte[]> loadProviderTexture(String cacheKey, boolean skin) {
+            providerPreviewLoads.add((skin ? "skin:" : "cape:") + cacheKey);
+            return Optional.of(new byte[] {1, 2, 3});
+        }
         @Override
         public com.naocraftlab.skins.core.png.NormalizedSkin loadLocalSkin(java.nio.file.Path path)
                 throws java.io.IOException, com.naocraftlab.skins.core.png.PngValidationException {
@@ -5240,33 +9753,61 @@ final class ClientRuntimeTest {
         private int resourceCapeCatalogWarmups;
         private int capeCatalogWarmups;
         private boolean capeEditorDataWarmed;
+        private boolean publishWarmedCapeEditorOnWarmup;
+        private boolean startupResourceCapeWarmupSupported;
+        private CatalogRead preparedCatalog;
         private EditorSaveRequest lastEditorSaveRequest;
 
         @Override
-        public CapeEditorData loadCapeEditorData(UUID accountId) {
+        public CapeEditorData loadCapeEditorData(UUID accountId) throws Exception {
+            if (preparedCatalog != null) return preparedCatalog.loadCapeEditorData(accountId);
             return new CapeEditorData(
                     account, resourceCapeCollections, resourceCapeHashes, resourceCapeGeneration);
         }
 
         @Override
         public Optional<CapeEditorData> warmedCapeEditorData(UUID accountId) {
-            return capeEditorDataWarmed ? Optional.of(loadCapeEditorData(accountId)) : Optional.empty();
+            if (preparedCatalog != null) return preparedCatalog.warmedCapeEditorData(accountId);
+            return capeEditorDataWarmed
+                    ? Optional.of(new CapeEditorData(
+                            account, resourceCapeCollections, resourceCapeHashes, resourceCapeGeneration))
+                    : Optional.empty();
         }
 
         @Override
         public long capeCatalogGeneration() {
             capeCatalogGenerationCalls++;
+            if (preparedCatalog != null) return preparedCatalog.capeCatalogGeneration();
             return resourceCapeGeneration;
         }
 
         @Override
-        public void warmResourceCapeCatalog(long generation) {
-            resourceCapeCatalogWarmups++;
+        public boolean capeCatalogCapacityIncomplete() {
+            return preparedCatalog != null && preparedCatalog.capeCatalogCapacityIncomplete();
         }
 
         @Override
-        public void warmCapeCatalog(UUID accountId, long generation) {
+        public CapacityWatch capeCatalogCapacityWatch(java.util.function.Consumer<CapacityWatch> ready) {
+            if (preparedCatalog == null) throw new UnsupportedOperationException();
+            return preparedCatalog.capeCatalogCapacityWatch(ready);
+        }
+
+        @Override
+        public boolean supportsStartupResourceCapeWarmup() {
+            return startupResourceCapeWarmupSupported;
+        }
+
+        @Override
+        public void warmResourceCapeCatalog(long generation) throws Exception {
+            resourceCapeCatalogWarmups++;
+            if (preparedCatalog != null) preparedCatalog.warmResourceCapeCatalog(generation);
+        }
+
+        @Override
+        public void warmCapeCatalog(UUID accountId, long generation) throws Exception {
             capeCatalogWarmups++;
+            if (preparedCatalog != null) preparedCatalog.warmCapeCatalog(accountId, generation);
+            if (publishWarmedCapeEditorOnWarmup) capeEditorDataWarmed = true;
         }
 
         @Override
@@ -5369,11 +9910,13 @@ final class ClientRuntimeTest {
         private Duration rateLimitRemaining = Duration.ofSeconds(1);
         private int sequence = 100;
         private int applyCalls;
+        private int editorSaveCalls;
         private int restoreCalls;
         private int retrySessionCalls;
         private int reconciliationCalls;
         private int retryCapeCalls;
         private int skinPreviewCalls;
+        private byte[] skinPreviewPng = {7, 8, 9};
         private String lastCapeId;
         private final List<Trigger> reconciliationTriggers = new ArrayList<>();
         private final List<ReconciliationKey> reconciliationKeys = new ArrayList<>();
@@ -5384,6 +9927,7 @@ final class ClientRuntimeTest {
                 AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID);
         private Set<SkinModel> failedCatalogModels = Set.of();
         private byte[] catalogPng = skinPng();
+        private byte[] personalCatalogPng;
         private int catalogPreviewCalls;
         private int collapsedReplacementCalls;
         private Exception collapsedReplacementFailure;
@@ -5416,10 +9960,18 @@ final class ClientRuntimeTest {
         private boolean settledActiveSave;
         private AppearanceProviders providers = AppearanceProviders.initial();
         private AppearanceProviders.Component providerRefresh;
+        private boolean refreshSourceFailure;
+        private boolean refreshSourceNull;
+        private final List<ProviderRefreshRequest> providerRefreshRequests = new ArrayList<>();
         private final EnumMap<BuiltinProvider, Duration> capeCooldowns = new EnumMap<>(BuiltinProvider.class);
         private int optifineRefreshes;
         private int skinMcRefreshes;
         private CapeProviderCoordinator optifineCoordinator;
+        private boolean deferCapeRefresh;
+        private final List<Set<BuiltinProvider>> candidateCheckpoints = new java.util.ArrayList<>();
+        private final java.util.Map<BuiltinProvider, java.util.function.Consumer<ProviderObservation<ProviderCape>>> capeRefreshCompletions
+                = new java.util.EnumMap<>(BuiltinProvider.class);
+        private NclSkinsStorage providerStorage;
         private boolean presetUseProviders;
 
         @Override public void onCapeObservation(java.util.function.Consumer<CapeObservationPort.Observation> listener) {
@@ -5428,21 +9980,27 @@ final class ClientRuntimeTest {
         @Override public void startOptiFineCapes() {
             if (optifineCoordinator != null) optifineCoordinator.start();
         }
-        @Override public void refreshOptiFineCapes() {
-            if (optifineCoordinator != null) optifineCoordinator.refresh();
+        @Override public long capeObservationGeneration() {
+            return optifineCoordinator == null ? 0 : optifineCoordinator.observationGeneration();
         }
-        @Override public void refreshOptiFineCapes(
+        @Override public void refreshCapeProvider(ProviderRefreshUseCases.Scope scope, BuiltinProvider provider,
                 java.util.function.Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<ProviderCape>> completion) {
-            optifineRefreshes++;
-            completion.accept(null);
-        }
-        @Override public void refreshSkinMcCapes(
-                java.util.function.Consumer<com.naocraftlab.skins.core.provider.ProviderObservation<ProviderCape>> completion) {
-            skinMcRefreshes++;
-            completion.accept(null);
+            if (provider == BuiltinProvider.OPTIFINE) optifineRefreshes++;
+            if (provider == BuiltinProvider.SKINMC) skinMcRefreshes++;
+            if (deferCapeRefresh) capeRefreshCompletions.put(provider, completion);
+            else if (optifineCoordinator == null) completion.accept(null);
+            else optifineCoordinator.refreshScoped(scope, provider, completion);
         }
         @Override public Optional<Duration> capeProviderCooldown(BuiltinProvider provider) {
             return Optional.ofNullable(capeCooldowns.get(provider));
+        }
+        @Override public void optiFineConfigurationChanged() {
+            if (optifineCoordinator != null) optifineCoordinator.configurationChanged();
+        }
+        @Override public void adoptSharedCapeObservation(UUID accountId, String canonicalName,
+                AppearanceProviders snapshot) {
+            if (optifineCoordinator != null) optifineCoordinator.adoptSharedSnapshot(
+                    accountId, canonicalName, snapshot);
         }
         @Override public void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
                 AppearanceProviders next) {
@@ -5450,21 +10008,42 @@ final class ClientRuntimeTest {
                     accountId, canonicalName, next);
         }
 
+        @Override public void selfCapeCandidatesChanged(UUID accountId, String canonicalName,
+                AppearanceProviders next, Set<BuiltinProvider> allowedSources) {
+            candidateCheckpoints.add(Set.copyOf(allowedSources));
+            if (optifineCoordinator != null) optifineCoordinator.selfCapeCandidatesChanged(
+                    accountId, canonicalName, next, allowedSources);
+        }
+
         @Override public DurableAppearance reloadProviders() { return providerState(); }
         @Override public AppearanceProviders loadProviders() { return providers; }
 
         private DurableAppearance providerState() {
+            if (providerStorage != null) {
+                try { providers = providerStorage.loadAppearance(account.accountId()).providers(); }
+                catch (IOException failure) { throw new IllegalStateException(failure); }
+            }
             return new DurableAppearance(account.accountId(), appearanceRevision, appearanceSyncStatus,
                     activePresetId, Optional.empty(), Optional.empty(), providers);
         }
 
         @Override public DurableAppearance enableProvider(AppearanceProviders.Component component, BuiltinProvider provider) {
-            providers = providers.enable(component, provider);
+            if (providerStorage == null) providers = providers.enable(component, provider);
+            else {
+                try { providers = providerStorage.updateAppearance(account.accountId(),
+                        state -> state.withProviders(state.providers().enable(component, provider))).providers(); }
+                catch (IOException failure) { throw new IllegalStateException(failure); }
+            }
             return providerState();
         }
 
         @Override public DurableAppearance disableProvider(AppearanceProviders.Component component, BuiltinProvider provider) {
-            providers = providers.disable(component, provider);
+            if (providerStorage == null) providers = providers.disable(component, provider);
+            else {
+                try { providers = providerStorage.updateAppearance(account.accountId(),
+                        state -> state.withProviders(state.providers().disable(component, provider))).providers(); }
+                catch (IOException failure) { throw new IllegalStateException(failure); }
+            }
             return providerState();
         }
 
@@ -5473,9 +10052,12 @@ final class ClientRuntimeTest {
             return providerState();
         }
 
-        @Override public DurableAppearance refreshProviders(AppearanceProviders.Component component) {
-            providerRefresh = component;
-            return providerState();
+        @Override public ProviderRefreshResult refreshProviderSources(ProviderRefreshUseCases.Scope scope) {
+            providerRefresh = scope.request().component();
+            providerRefreshRequests.add(scope.request());
+            if (refreshSourceFailure) throw new IllegalStateException("Synthetic refresh failure");
+            if (refreshSourceNull) return null;
+            return new ProviderRefreshResult(scope, Optional.of(providerState()), Map.of(), false);
         }
 
         @Override
@@ -5556,7 +10138,8 @@ final class ClientRuntimeTest {
             if (failedCatalogModels.contains(model)) {
                 throw new IOException("catalog variant unavailable");
             }
-            return catalogPng.clone();
+            return PersonalSkinCatalog.isCollection(collectionId) && personalCatalogPng != null
+                    ? personalCatalogPng.clone() : catalogPng.clone();
         }
 
         @Override
@@ -5629,6 +10212,16 @@ final class ClientRuntimeTest {
             }
             return new ImportDraft(
                     "Player", playerImportVariant, skinPng(), PersonalSkinSource.PLAYER_NAME);
+        }
+
+        private PublicSkinImports acquiredImports;
+
+        @Override
+        public AcquiredInput acquireUrl(String url,
+                Optional<com.naocraftlab.skins.client.CpmModelFileConversion> converter,
+                com.naocraftlab.skins.client.CpmModelFileConversion.Reason unavailable) throws Exception {
+            return acquiredImports == null ? new AcquiredSkin(loadUrlSkin(url))
+                    : acquiredImports.acquireUrl(url, converter, unavailable);
         }
 
         @Override
@@ -5771,6 +10364,7 @@ final class ClientRuntimeTest {
 
         @Override
         public EditorSave saveEditor(EditorSaveRequest request) throws IOException {
+            editorSaveCalls++;
             lastEditorSaveRequest = request;
             if (failEditorSave) {
                 throw new IOException("editor save failed");
@@ -5998,7 +10592,7 @@ final class ClientRuntimeTest {
         @Override
         public byte[] loadSkinPreview(UUID skinId) {
             skinPreviewCalls++;
-            return new byte[] {7, 8, 9};
+            return skinPreviewPng.clone();
         }
 
         @Override
@@ -6025,8 +10619,11 @@ final class ClientRuntimeTest {
             return rateLimited ? Optional.of(rateLimitRemaining) : Optional.empty();
         }
 
+        private Runnable sessionIdentityHook;
+
         @Override
         public GameSessionTokenSource.SessionIdentity sessionIdentity() {
+            if (sessionIdentityHook != null) sessionIdentityHook.run();
             return session.sessionIdentity();
         }
 
@@ -6048,7 +10645,7 @@ final class ClientRuntimeTest {
                     durable.flatMap(DurableAppearance::outerLayerVisibility),
                     ownedCapes,
                     appearanceRevision,
-                    appearanceSyncStatus, providers);
+                    appearanceSyncStatus, providers, providerPosters, savedSkinPreviews);
         }
 
         private RemoteResult remote() {

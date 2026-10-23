@@ -69,6 +69,20 @@ class OfficialSkinClassifierTest {
                         .classify(new UUID(0, 0), SkinVariant.SLIM, reference));
     }
 
+    @Test
+    void defaultLookalikeWithTransparentCpmCarrierRemainsCustom() throws Exception {
+        byte[] carrier = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(
+                "../core/src/test/resources/cpm/slim-a.png"));
+        BufferedImage visible = ImageIO.read(new java.io.ByteArrayInputStream(carrier));
+        for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) {
+            if ((visible.getRGB(x, y) >>> 24) == 0) visible.setRGB(x, y, 0);
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(visible, "png", output);
+        OfficialSkinClassifier classifier = new OfficialSkinClassifier((collection, name, model) -> output.toByteArray());
+        assertEquals(OfficialSkinClassifier.Result.CUSTOM, classifier.classify(new UUID(0, 0), SkinVariant.SLIM, carrier));
+    }
+
     private static byte[] texture(String name, SkinModel model) throws IOException {
         return image(0, 0xff000000 | ((name.hashCode() ^ model.ordinal()) & 0xffffff));
     }
