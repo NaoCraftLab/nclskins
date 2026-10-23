@@ -172,6 +172,27 @@ final class ReleaseLogicTest {
     }
 
     @Test
+    void releaseSharedChecksInstallAndExportEveryCatalogBuildJdk() {
+        String workflow = new File(repository, '.github/workflows/release.yml').text
+        String checks = workflow.substring(workflow.indexOf('  checks:'), workflow.indexOf('  components:'))
+        Map<Integer, String> setupIds = [17: 'checks-java17', 21: 'checks-java21', 25: 'checks-java']
+        Set<Integer> required = ([17] + CatalogTools.loadCatalog(repository).targets.collect {
+            it.java.buildJdk as int
+        }).toSet()
+        assertEquals(required, setupIds.keySet())
+        setupIds.each { Integer version, String id ->
+            String marker = '- id: ' + id + '\n'
+            int start = checks.indexOf(marker)
+            assertTrue(start > 0, "JDK ${version} setup")
+            int end = checks.indexOf('\n      - ', start)
+            String step = checks.substring(start, end < 0 ? checks.length() : end)
+            assertTrue(step.contains("java-version: '${version}'"), "JDK ${version} version")
+            assertTrue(checks.contains('NCLSKINS_JAVA' + version + ': ${{ steps.' + id + '.outputs.path }}'),
+                    "JDK ${version} shared-check environment")
+        }
+    }
+
+    @Test
     void buildLogicFailuresExposeFullExceptionsAndStackTraces() {
         def project = ProjectBuilder.builder().build()
         project.plugins.apply('java')
