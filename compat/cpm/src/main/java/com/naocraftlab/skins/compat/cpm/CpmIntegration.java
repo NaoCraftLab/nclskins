@@ -56,11 +56,15 @@ public final class CpmIntegration {
             return body(com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.BLOCKED, active);
         var resolved = player.getModelDefinition();
         var raw = player.getModelDefinition0();
+        var rawState = raw == null ? null : raw.getResolveState();
+        if (resolved == null && raw instanceof OwnedCpmDefinition owned && owned.source() == source
+                && rawState == com.tom.cpm.shared.definition.ModelDefinition.ModelLoadingState.LOADED)
+            resolved = player.getModelDefinition();
         if (resolved != null && resolved instanceof OwnedCpmDefinition owned && owned.source() == source)
             return body(com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.READY,
-                    () -> source.active() && player.getModelDefinition0() == resolved && resolved.doRender()
+                    () -> source.active() && player.getModelDefinition0() == owned && owned.doRender()
                             && Player.isEnableRendering() && ConfigKeys.ENABLE_MODEL_LOADING.getValueFor(player));
-        if (raw != null) return body(switch (raw.getResolveState()) {
+        if (raw != null) return body(switch (rawState) {
             case NEW, RESOLVING -> com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.PENDING;
             case SAFETY_BLOCKED -> com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.BLOCKED;
             case LOADED -> com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.BLOCKED;

@@ -165,6 +165,21 @@ public final class CpmBehaviorProbe {
         check(CpmIntegration.preparePreview(id, appearance).status() == PreviewRenderer.BodyStatus.PENDING,
                 "hidden visible pass still observes pending native decode");
         player.setModelDefinition(CompletableFuture.completedFuture(definition), false);
+        check(definition.getResolveState() == ModelDefinition.ModelLoadingState.NEW,
+                "readiness fixture starts with a decoded native model before resolution");
+        AtomicInteger resolutionBetweenQueries = new AtomicInteger();
+        ((FakePlayer) player).afterModelQuery = resolved -> {
+            check(resolved == null, "first native query starts asynchronous resolution");
+            long publicationDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (definition.getResolveState() == ModelDefinition.ModelLoadingState.RESOLVING
+                    && System.nanoTime() < publicationDeadline) {
+                check(!Thread.currentThread().isInterrupted(), "native publication wait remains active");
+                java.util.concurrent.locks.LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+            }
+            check(definition.getResolveState() == ModelDefinition.ModelLoadingState.LOADED && definition.doRender(),
+                    "native resolve completes between resolved and raw readiness queries");
+            resolutionBetweenQueries.incrementAndGet();
+        };
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         com.naocraftlab.skins.client.PreviewModelFrames.Body ready;
         do {
@@ -174,6 +189,7 @@ public final class CpmBehaviorProbe {
         } while (ready.status() == PreviewRenderer.BodyStatus.PENDING && System.nanoTime() < deadline);
         check(ready.status() == PreviewRenderer.BodyStatus.READY && ready.current().getAsBoolean(),
                 "profile query advances real pinned CPM to body-ready without a drawing pass");
+        check(resolutionBetweenQueries.get() == 1, "readiness observes one controlled native completion between queries");
         int auxiliaryBefore = AUXILIARY.get(), resourceBefore = RESOURCE.get(), packetsBefore = NET.preview.get() + NET.world.get() + NET.events.get();
         try (var resources = ((OwnedCpmDefinition) definition).acquire()) {
             check(resources.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "resource lease does not prove body");
@@ -957,7 +973,15 @@ public final class CpmBehaviorProbe {
 
     private static final class FakePlayer extends Player<Object> {
         private final UUID id;
+        private java.util.function.Consumer<ModelDefinition> afterModelQuery;
         FakePlayer(UUID id) { this.id = id; }
+        @Override public ModelDefinition getModelDefinition() {
+            ModelDefinition result = super.getModelDefinition();
+            var observer = afterModelQuery;
+            afterModelQuery = null;
+            if (observer != null) observer.accept(result);
+            return result;
+        }
         public UUID getUUID() { return CpmIntegration.subject(this, id); }
         public String getName() { return "Fixture"; }
         public Object getGameProfile() { return id; }
