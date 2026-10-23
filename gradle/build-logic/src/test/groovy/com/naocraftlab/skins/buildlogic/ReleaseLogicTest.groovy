@@ -172,6 +172,48 @@ final class ReleaseLogicTest {
     }
 
     @Test
+    void buildLogicFailuresExposeFullExceptionsAndStackTraces() {
+        def project = ProjectBuilder.builder().build()
+        project.plugins.apply('java')
+        String build = new File(repository, 'gradle/build-logic/build.gradle').text
+        int start = build.indexOf('tasks.withType(Test).configureEach {')
+        int end = build.indexOf('\n}\n', start)
+        assertTrue(start >= 0 && end > start)
+        Binding binding = new Binding([
+                tasks: project.tasks,
+                file: { Object path -> project.file(path) }
+        ])
+        new GroovyShell(binding).evaluate('import org.gradle.api.tasks.testing.Test\n' +
+                'import org.gradle.api.tasks.PathSensitivity\n' + build.substring(start, end + 3))
+        def test = project.tasks.named('test', org.gradle.api.tasks.testing.Test).get()
+        assertEquals('false', test.systemProperties['junit.platform.stacktrace.pruning.enabled'])
+        def logging = test.testLogging
+        assertEquals(org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL, logging.exceptionFormat)
+        assertTrue(logging.showExceptions)
+        assertTrue(logging.showCauses)
+        assertTrue(logging.showStackTraces)
+        assertTrue(logging.stackTraceFilters.isEmpty())
+        assertFalse(logging.showStandardStreams)
+    }
+
+    @Test
+    void releaseCandidateFailuresPreserveBuildLogicTestReports() {
+        String workflow = new File(repository, '.github/workflows/release-candidate.yml').text
+        int start = workflow.indexOf('      - name: Upload failed build-logic test reports')
+        assertTrue(start > workflow.indexOf('run: ./gradlew fullCheck'))
+        String upload = workflow.substring(start)
+        assertTrue(upload.contains('if: failure()'))
+        assertTrue(upload.contains('uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'))
+        assertTrue(upload.contains('name: rc-test-reports-${{ github.sha }}-${{ github.run_attempt }}'))
+        assertTrue(upload.contains('gradle/build-logic/build/test-results/test/*.xml'))
+        assertTrue(upload.contains('gradle/build-logic/build/reports/tests/test/'))
+        assertTrue(upload.contains('retention-days: 7'))
+        assertTrue(upload.contains('if-no-files-found: ignore'))
+        assertFalse(upload.contains('secrets.'))
+        assertFalse(upload.contains('**/*'))
+    }
+
+    @Test
     void pagesWorkflowIsPinnedBoundedCredentialIsolatedAndReusable() {
         String pages = new File(
                 repository, '.github/workflows/publish-update-catalog.yml').text

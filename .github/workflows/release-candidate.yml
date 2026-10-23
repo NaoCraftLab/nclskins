@@ -81,3 +81,13 @@ jobs:
           NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}
           NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}
         run: ./gradlew fullCheck --no-daemon --console=plain --no-build-cache
+      - name: Upload failed build-logic test reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rc-test-reports-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            gradle/build-logic/build/test-results/test/*.xml
+            gradle/build-logic/build/reports/tests/test/
+          retention-days: 7
+          if-no-files-found: ignore

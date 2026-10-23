@@ -39,6 +39,14 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    systemProperty 'junit.platform.stacktrace.pruning.enabled', 'false'
+    testLogging {
+        exceptionFormat = 'full'
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        stackTraceFilters = []
+    }
     inputs.files(
             file('../../gradle/version.properties'),
             file('../../gradle/plugin-version.properties'),
