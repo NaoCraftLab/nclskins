@@ -12,6 +12,87 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ViewHostPolicyTest {
     @Test
+    void allNativeHostsConsumeSharedRequestProjectionAndPassiveCollectionHeader() throws Exception {
+        var root = java.nio.file.Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        while (!java.nio.file.Files.exists(root.resolve("gradle/targets.json"))) root = root.getParent();
+        for (String path : List.of(
+                "compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java",
+                "compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java",
+                "compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java")) {
+            String source = java.nio.file.Files.readString(root.resolve(path));
+            assertTrue(source.contains("ViewHostPolicy.previewRequest("), path);
+            int start = source.indexOf("text.layout() == ViewSpec.Text.Layout.COLLECTION_HEADER");
+            assertTrue(start >= 0, path);
+            String passive = source.substring(start, source.indexOf("return;", start));
+            assertTrue(passive.contains("CollectionHeaderStyle.maximumLabelWidth("), path);
+            assertTrue(passive.contains("font.width(visible)"), path);
+            assertTrue(passive.contains("CollectionHeaderStyle.geometry("), path);
+            assertTrue(passive.contains("CollectionHeaderStyle.palette(true, false)"), path);
+            assertFalse(passive.contains("isHovered"), path);
+        }
+    }
+
+    @Test
+    void galleryMainSelectsOwnedRendererWithoutPromotingItsBakedCards() {
+        var preview = new ViewSpec.Preview("main", new Bounds(0, 0, 48, 96),
+                com.naocraftlab.skins.core.model.SkinReference.accountDefault(), "revision",
+                com.naocraftlab.skins.core.model.SkinVariant.CLASSIC, Optional.empty(),
+                com.naocraftlab.skins.client.PreviewRenderer.CapeMode.OFF,
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(), 0, 0, 1,
+                Optional.empty(), Optional.empty(), com.naocraftlab.skins.client.PreviewRenderer.PreviewIntent.EDITOR_DRAFT);
+        var source = new ViewSpec.BodySource(ViewSpec.BodyRole.GALLERY_MAIN, UUID.randomUUID(),
+                1, 1, 1, 1, Optional.empty(), "revision", preview.variant(), 1, Optional.empty());
+        assertTrue(ViewHostPolicy.screenOwnedBody("gallery", preview.withBodySource(Optional.of(source))));
+        assertFalse(ViewHostPolicy.screenOwnedBody("gallery", preview));
+        var card = new ViewSpec.Preview("card", preview.bounds(), preview.skin(), "revision",
+                preview.variant(), Optional.empty(), preview.capeMode(), preview.outerLayerVisibility(),
+                0, 0, 1, Optional.empty());
+        assertFalse(ViewHostPolicy.screenOwnedBody("gallery", card));
+        assertFalse(ViewHostPolicy.screenOwnedBody("preset_editor", card));
+        assertTrue(ViewHostPolicy.screenOwnedBody("preset_editor", preview));
+        assertTrue(ViewHostPolicy.screenOwnedBody("providers", preview));
+    }
+
+    @Test
+    void everyNativeHostRoutesBodyPreparationAndDrawPerPreviewRatherThanPerScreen() throws Exception {
+        var root = java.nio.file.Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        while (!java.nio.file.Files.exists(root.resolve("gradle/targets.json"))) root = root.getParent();
+        for (String path : List.of(
+                "compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java",
+                "compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java")) {
+            String source = java.nio.file.Files.readString(root.resolve(path));
+            int start = source.indexOf("    private void renderPreviewPhase(");
+            String consumer = source.substring(start, source.indexOf("\n    private ", start + 1));
+            assertFalse(consumer.contains("\"preset_editor\".equals"), path);
+            assertFalse(consumer.contains("\"providers\".equals"), path);
+            assertTrue(consumer.contains("boolean ownedBody = ViewHostPolicy.screenOwnedBody("), path);
+            assertTrue(consumer.indexOf("if (ownedBody)") < consumer.indexOf("editorRenderer.prepareBody("), path);
+            assertTrue(consumer.substring(consumer.indexOf("PreviewRenderer.PreviewRequest request"))
+                    .contains("if (ownedBody)"), path);
+            if (path.contains("extraction-shared")) {
+                assertTrue(consumer.contains("if (!ownedBody) visibleIds.add(preview.id());"), path);
+            } else {
+                assertTrue(source.contains(".filter(preview -> !ViewHostPolicy.screenOwnedBody(current.screenId(), preview))"), path);
+            }
+        }
+    }
+
+    @Test
+    void selectedActiveAndFocusFramesHaveDistinctPriorityWithoutChangingDefaultCards() {
+        var card = new ViewSpec.Widget("card", ViewSpec.WidgetKind.CATALOG_CARD,
+                new Bounds(0, 0, 48, 96), UiMessage.literal("name", UiMessage.Severity.INFO),
+                Optional.of("selected_active"), Optional.empty(), true, true, 0);
+        assertEquals(0xFF80C8FF, ViewHostPolicy.cardFrameColor(card, false));
+        assertEquals(0xFFFFFFFF, ViewHostPolicy.cardFrameColor(card, true));
+        assertEquals(List.of(0xFF80C8FF, 0xFFFFFFFF), ViewHostPolicy.cardFrameColors(card, true));
+        assertEquals(List.of(0xFF80C8FF), ViewHostPolicy.cardFrameColors(card, false));
+        assertEquals(0, ViewHostPolicy.cardFrameColor(widget("default", card.bounds()), false));
+        assertEquals(0x88000000, ViewHostPolicy.panelOverlayColor(ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR));
+
+        assertEquals(0, ViewHostPolicy.panelOverlayColor(ViewSpec.Panel.Style.VANILLA_LIST));
+    }
+
+    @Test
     void blockedCpmRowRetainsHoverAndClipWithoutKeyboardActivation() {
         var row = new ViewSpec.Widget("providers.row.CPM", ViewSpec.WidgetKind.SELECTABLE_CARD,
                 new Bounds(0, 0, 64, 40), UiMessage.info("nclskins.compatibility.feature.customizable_player_models"),

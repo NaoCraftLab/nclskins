@@ -48,6 +48,12 @@ com/naocraftlab/skins/client/ResourcePackSkinCatalog	application	client	common	i
 com/naocraftlab/skins/client/ScreenDestination	application	client	common	pure
 com/naocraftlab/skins/client/ScreenKeybinding	application	client	common	pure
 com/naocraftlab/skins/client/ScreenOwnedRenderTarget	application	client	common	internal
+com/naocraftlab/skins/client/ScreenOwnedRenderTarget$Held	application	client	common	internal
+com/naocraftlab/skins/client/ScreenOwnedRenderTarget$Consumption	application	client	common	internal
+com/naocraftlab/skins/compat/client/identifier/extraction/PreviewTargetLease	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/client/identifier/preview/PreviewConsumerFrame	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/client/identifier/preview/mixin/GuiRendererMixin	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/client/identifier/extraction/mixin/GuiRendererMixin	infrastructure	client	native	internal
 com/naocraftlab/skins/client/ServerAppearanceRefreshNotifier	application	client	common	input
 com/naocraftlab/skins/client/SettingsOptionOrder	application	client	common	internal
 com/naocraftlab/skins/client/SignedProfileResolver	application	client	common	internal
@@ -583,6 +589,8 @@ com/naocraftlab/skins/runtime/PreparedCatalogService	application	client	common	i
 com/naocraftlab/skins/runtime/PreparedCatalogSnapshot	application	client	common	internal
 com/naocraftlab/skins/runtime/PresetEditorModel	presentation	client	common	internal
 com/naocraftlab/skins/runtime/PreviewAssetCache	application	client	common	internal
+com/naocraftlab/skins/runtime/PreviewAssetCache$CapeState	application	client	common	internal
+com/naocraftlab/skins/runtime/PreviewAssetCache$CapeStatus	application	client	common	pure
 com/naocraftlab/skins/runtime/PreviewAssetLoader	application	client	common	internal
 com/naocraftlab/skins/runtime/PreviewAssetSource	application	client	common	internal
 com/naocraftlab/skins/runtime/PreviewInteractionModel	presentation	client	common	internal
@@ -718,6 +726,7 @@ com/naocraftlab/skins/client/GameSessionTokenSource$SessionIdentity	application	
 com/naocraftlab/skins/client/PreviewRenderer$CapeMode	application	client	common	pure
 com/naocraftlab/skins/client/PreviewRenderer$PreviewAppearance	application	client	common	pure
 com/naocraftlab/skins/client/PreviewRenderer$PreviewIntent	application	client	common	pure
+com/naocraftlab/skins/client/PreviewRenderer$PreviewRequest	application	client	common	pure
 com/naocraftlab/skins/client/SkinCatalogSource$CollectionDescriptor	application	client	common	pure
 com/naocraftlab/skins/client/SkinCatalogSource$SkinDescriptor	application	client	common	pure
 com/naocraftlab/skins/client/TextureRegistry$TextureHandle	application	client	common	pure
@@ -750,6 +759,15 @@ com/naocraftlab/skins/compat/cpm/CpmPlayerAccess	infrastructure	client	native	in
 com/naocraftlab/skins/compat/cpm/CpmModelCacheAccess	infrastructure	client	native	internal
 com/naocraftlab/skins/compat/cpm/CpmMixinPlugin	infrastructure	client	native	internal
 com/naocraftlab/skins/compat/cpm/CpmIntegration	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/CpmAccessoryContent	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmResolvedPartsAccessor	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmResolvedOtherPartsAccessor	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmCopyTransformsAccessor	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmCopyVisibilityAccessor	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmAnimationStateAccessor	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmVisibilityTargetAccessor	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmLegacyAnimationsAccessor	infrastructure	client	native	internal
+com/naocraftlab/skins/compat/cpm/mixin/CpmLegacyVisibilityAccessor	infrastructure	client	native	internal
 com/naocraftlab/skins/compat/cpm/CpmModelFileAdapter	infrastructure	client	native	internal
 com/naocraftlab/skins/compat/cpm/CpmModelFileBindings	infrastructure	client	native	internal
 com/naocraftlab/skins/compat/cpm/mixin/CpmModelDefinitionPartsAccessor	infrastructure	client	native	internal

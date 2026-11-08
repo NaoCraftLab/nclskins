@@ -17,6 +17,14 @@ public interface PreviewRenderer<C> {
     enum DisplayKind { UNCONFIRMED, ORDINARY, CPM }
 
     default void prepareBody(String source, boolean cpm) {}
+    default boolean prepareGalleryBody(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) { return false; }
+    default void confirmGalleryBody(String source) {}
+    default PreviewAccessories galleryAccessories(String source, PreviewRequest request, java.util.function.BooleanSupplier inputCurrent) {
+        return PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
+    }
+    default void renderGallery(C graphicsContext, String source, PreviewRequest request) {
+        throw new UnsupportedOperationException("Gallery retained display is not implemented by this renderer");
+    }
     default void observeBody(java.util.function.Consumer<BodyStatus> observer) {}
     default PreviewModelFrames.Body body() { return new PreviewModelFrames.Body(BodyStatus.ORDINARY, () -> false); }
 

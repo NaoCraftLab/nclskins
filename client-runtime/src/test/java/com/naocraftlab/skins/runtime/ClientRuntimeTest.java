@@ -1472,6 +1472,40 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void bothWritableSkinProviderEntriesRepeatAfterFractionalScrollWithoutPreferenceWrites() {
+        for (BuiltinProvider provider : List.of(BuiltinProvider.MINECRAFT, BuiltinProvider.OFFLINE)) {
+            var operations = new FakeOperations();
+            operations.account = TestFixtures.account(80);
+            UUID active = operations.account.presets().get(45).id();
+            operations.activePresetId = Optional.of(active);
+            var preferences = operations.uiPreferences;
+            var account = operations.account;
+            var runtime = runtime(operations,Runnable::run,Optional.empty());
+            runtime.initialize();
+            runtime.view(320,240,0,0);
+            runtime.dispatchWidget("gallery.providers");
+            for (int repeat=0; repeat<2; repeat++) {
+                var providers = runtime.view(320,240,0,0);
+                var edit = providers.widget("providers.edit."+provider).orElseThrow();
+                assertTrue(edit.visible() && edit.enabled());
+                runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE,edit.id());
+                var gallery = runtime.view(320,240,0,0);
+                assertEquals("gallery",gallery.screenId());
+                assertInsideGalleryViewport(gallery,active);
+                var surface=gallery.scrollSurface("gallery.cards").orElseThrow();
+                assertTrue(surface.maximumPixels()>0);
+                runtime.pointerScrolled(surface.viewport().x()+3,surface.viewport().y()+3,0,-0.5);
+                assertTrue(runtime.view(320,240,0,0).scrollSurface("gallery.cards").orElseThrow().offsetPixels()>0);
+                runtime.dispatchWidget("gallery.back");
+                assertEquals("providers",runtime.view(320,240,0,0).screenId());
+            }
+            assertEquals(preferences,operations.uiPreferences);
+            assertEquals(account,operations.account);
+            runtime.close();
+        }
+    }
+
+    @Test
     void skinProviderGalleryDoneAndEscapeReturnToSkinProviders() {
         for (BuiltinProvider provider : BuiltinProvider.values()) {
             if (!provider.supportsSkin() || !provider.canWrite(AppearanceProviders.Component.SKIN)) continue;
@@ -3473,6 +3507,8 @@ final class ClientRuntimeTest {
         runtime.view(320, 240, 0, 0);
 
         assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, null));
+        assertEquals("gallery.add", runtime.view(320, 240, 0, 0).focusRequest().orElseThrow().widgetId());
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, "gallery.add"));
         ViewSpec searchFocused = runtime.view(320, 240, 0, 0);
         assertEquals(Optional.of("gallery.search"),
                 searchFocused.focusRequest().map(ViewSpec.FocusRequest::widgetId));
@@ -3489,14 +3525,17 @@ final class ClientRuntimeTest {
         String visibleAnchor = runtime.view(320, 240, 0, 0).focusRequest()
                 .orElseThrow().widgetId();
         assertTrue(visibleAnchor.startsWith("gallery.card."),
-                "Tab from Search must enter at the central visible card");
+                "Tab from Search must enter the eligible GRID anchor");
         assertTrue(runtime.dispatchNavigation(
                 ViewSpec.NavigationCommand.RIGHT, visibleAnchor));
         String presetAnchor = runtime.view(320, 240, 0, 0).focusRequest()
                 .orElseThrow().widgetId();
         assertTrue(presetAnchor.startsWith("gallery.card."));
-        assertFalse(runtime.dispatchNavigation(
+        assertTrue(runtime.dispatchNavigation(
                 ViewSpec.NavigationCommand.ACTIVATE, presetAnchor));
+        assertEquals(Optional.of(UUID.fromString(presetAnchor.substring("gallery.card.".length()))),
+                runtime.snapshot().selectedPresetId());
+        assertTrue(runtime.snapshot().activePresetId().isEmpty());
         assertTrue(runtime.snapshot().addSource().isEmpty());
         assertTrue(runtime.snapshot().editor().isEmpty());
         assertEquals(0, operations.applyCalls);
@@ -3516,6 +3555,8 @@ final class ClientRuntimeTest {
         runtime.initialize();
         runtime.view(854, 480, 0, 0);
         UUID pointerPreset = operations.account.presets().get(0).id();
+        runtime.dispatchWidget("gallery.preset." + pointerPreset + ".more", false, InteractionOrigin.POINTER);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("gallery.preset." + pointerPreset + ".delete").orElseThrow().enabled());
 
         runtime.dispatchWidget(
                 "gallery.preset." + pointerPreset + ".delete",
@@ -3530,6 +3571,8 @@ final class ClientRuntimeTest {
 
         UUID keyboardPreset = operations.account.presets().get(1).id();
         String prefix = "gallery.preset." + keyboardPreset;
+        runtime.dispatchWidget(prefix + ".more", false, InteractionOrigin.KEYBOARD);
+        assertTrue(runtime.view(854, 480, 0, 0).widget(prefix + ".delete").orElseThrow().enabled());
         runtime.dispatchWidget(prefix + ".delete", false, InteractionOrigin.KEYBOARD);
         assertEquals(Optional.of(prefix + ".delete_cancel"),
                 runtime.view(854, 480, 0, 0).focusRequest().map(ViewSpec.FocusRequest::widgetId));
@@ -4056,9 +4099,13 @@ final class ClientRuntimeTest {
                     .filter(text -> text.id().equals("gallery.offline")).findFirst().orElseThrow().message());
             assertTrue(view.widget("gallery.retry_session").orElseThrow().enabled());
             UUID presetId = operations.account.presets().get(0).id();
-            for (String action : List.of("apply", "edit", "duplicate", "delete")) {
+            runtime.dispatchWidget("gallery.preset." + presetId + ".more");
+            view = runtime.view(854, 480, 427, 180);
+            for (String action : List.of("edit", "duplicate", "delete")) {
                 assertTrue(view.widget("gallery.preset." + presetId + "." + action).orElseThrow().enabled());
             }
+            runtime.dispatchWidget("gallery.card." + presetId);
+            assertTrue(runtime.view(854, 480, 0, 0).widget("gallery.apply").orElseThrow().enabled());
             runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
             assertTrue(runtime.snapshot().editor().isPresent());
             runtime.escapePressed();
@@ -4068,6 +4115,58 @@ final class ClientRuntimeTest {
         }
         assertEquals(0, operations.reconciliationCalls);
         assertEquals(0, operations.retrySessionCalls);
+    }
+
+    @Test
+    void explicitSessionRetryCloseReopenRejectsOldClientCompletion() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        operations.localFirst = true;
+        operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
+        QueuedExecutor sessionWorker = new QueuedExecutor();
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        client.clientThread = true;
+        ClientRuntime runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client, CANCELLED_PICKER,
+                Runnable::run, Runnable::run, sessionWorker, TEXT, Optional.empty(), Optional.empty(),
+                DiagnosticSinks.discarding());
+        try {
+            runtime.initialize();
+            while (!client.tasks.isEmpty()) client.runFirst();
+            client.clientThread = true;
+            var initial = runtime.view(854, 480, 0, 0);
+            assertTrue(initial.widget("gallery.retry_session").orElseThrow().enabled());
+            runtime.dispatchWidget("gallery.retry_session", false, InteractionOrigin.KEYBOARD);
+            assertEquals(1, sessionWorker.size());
+            assertEquals(0, operations.retrySessionCalls);
+            assertEquals(ClientSnapshot.SessionActivity.RECONNECTING, runtime.snapshot().sessionActivity());
+            client.clientThread = false;
+            sessionWorker.runFirst();
+            client.clientThread = true;
+            assertEquals(1, operations.retrySessionCalls);
+            assertEquals(1, client.tasks.size(), "Hold the old client completion separately from worker execution");
+            Runnable oldCompletion = client.tasks.remove(0);
+            runtime.closeScreen();
+            long closedGeneration = runtime.snapshot().generation();
+            runtime.reopen();
+            assertTrue(runtime.snapshot().generation() > closedGeneration);
+            while (!client.tasks.isEmpty()) client.runFirst();
+            client.clientThread = true;
+            assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
+            runtime.dispatchText("gallery.search", "Preset");
+            var reopened = runtime.snapshot();
+            var view = runtime.view(854, 480, 0, 0);
+            oldCompletion.run();
+            assertEquals(reopened, runtime.snapshot());
+            assertEquals(view, runtime.view(854, 480, 0, 0));
+            assertEquals(ClientSnapshot.SessionActivity.NONE, reopened.sessionActivity());
+            assertTrue(view.widget("gallery.retry_session").orElseThrow().enabled());
+            assertEquals(1, operations.retrySessionCalls);
+            assertEquals(0, operations.reconciliationCalls);
+            assertEquals(0, sessionWorker.size());
+            assertEquals(operations.account, reopened.account().orElseThrow());
+            assertTrue(reopened.activePresetId().isEmpty());
+            assertFalse(reopened.busy());
+        } finally { runtime.close(); }
     }
 
     @Test
@@ -4101,8 +4200,11 @@ final class ClientRuntimeTest {
                 runtime.snapshot().sessionActivity());
         assertTrue(reconnecting.widget("gallery.done").orElseThrow().enabled());
         assertFalse(reconnecting.widget("gallery.retry_session").orElseThrow().enabled());
-        assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".apply")
-                .orElseThrow().enabled());
+        runtime.dispatchWidget("gallery.card." + firstPresetId);
+        reconnecting = runtime.view(1600, 720, 800, 200);
+        assertTrue(reconnecting.widget("gallery.apply").orElseThrow().enabled());
+        runtime.dispatchWidget("gallery.preset." + firstPresetId + ".more");
+        reconnecting = runtime.view(1600, 720, 800, 200);
         assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".edit")
                 .orElseThrow().enabled());
         assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".duplicate")
@@ -4110,10 +4212,15 @@ final class ClientRuntimeTest {
         assertTrue(reconnecting.widget("gallery.preset." + firstPresetId + ".delete")
                 .orElseThrow().enabled());
 
-        runtime.dispatchWidget("gallery.preset." + firstPresetId + ".apply");
-        runtime.dispatchWidget("gallery.preset." + secondPresetId + ".apply");
+        applyGallerySelection(runtime, firstPresetId);
+        runtime.reopen();
+        applyGallerySelection(runtime, secondPresetId);
+        runtime.reopen();
+        runtime.dispatchWidget("gallery.preset." + firstPresetId + ".more");
         assertEquals(Optional.of(secondPresetId), runtime.snapshot().activePresetId());
         assertEquals(2, runtime.snapshot().intentRevision());
+        assertEquals(ClientSnapshot.SessionActivity.NONE, runtime.snapshot().sessionActivity());
+        runtime.dispatchWidget("gallery.retry_session");
         assertEquals(ClientSnapshot.SessionActivity.RECONNECTING, runtime.snapshot().sessionActivity());
 
         runtime.dispatchWidget("gallery.preset." + firstPresetId + ".delete");
@@ -4126,6 +4233,8 @@ final class ClientRuntimeTest {
                 .isEmpty());
 
         operations.session = TestFixtures.validSession();
+        sessionWorker.runFirst();
+        assertEquals(ClientSnapshot.SessionActivity.RECONNECTING, runtime.snapshot().sessionActivity());
         sessionWorker.runFirst();
         runtime.acknowledgeViewRendered(runtime.view(1600, 720, 800, 200));
         advanceTicks(runtime, 6);
@@ -4901,15 +5010,15 @@ final class ClientRuntimeTest {
     @Test
     void addCancelPreservesTheFractionalGalleryPositionAndQuery() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
 
         runtime.initialize();
         ViewSpec before = runtime.view(320, 240, 0, 0);
-        int initialX = panelX(before, "gallery.card.add");
+        int initialX = panelY(before, "gallery.card." + operations.account.presets().get(39).id());
         runtime.dispatchText("gallery.search", "Preset");
         runtime.pointerScrolled(160, 100, 0.0, -0.5);
-        int preservedX = panelX(runtime.view(320, 240, 0, 0), "gallery.card.add");
+        int preservedX = panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id());
         assertTrue(preservedX < initialX);
 
         runtime.dispatchWidget("gallery.add");
@@ -4919,72 +5028,76 @@ final class ClientRuntimeTest {
         assertTrue(runtime.snapshot().editor().isEmpty());
         assertTrue(runtime.snapshot().addSource().isEmpty());
         ViewSpec restored = runtime.view(320, 240, 0, 0);
-        assertEquals(preservedX, panelX(restored, "gallery.card.add"));
+        assertEquals(preservedX, panelY(restored, "gallery.card." + operations.account.presets().get(39).id()));
         assertEquals("Preset", restored.widget("gallery.search").orElseThrow().value().orElseThrow());
-        assertEquals(5, runtime.snapshot().account().orElseThrow().presets().size());
+        assertEquals(40, runtime.snapshot().account().orElseThrow().presets().size());
     }
 
     @Test
     void duplicateDraftEscapePreservesFractionalGalleryPositionAndQuery() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
-        UUID sourceId = operations.account.presets().get(0).id();
+        UUID sourceId = operations.account.presets().get(39).id();
 
         runtime.dispatchText("gallery.search", "Preset");
         runtime.view(320, 240, 0, 0);
         runtime.pointerScrolled(160, 100, 0.0, -0.5);
         ViewSpec before = runtime.view(320, 240, 0, 0);
-        int fractionalX = panelX(before, "gallery.card.add");
+        int fractionalX = panelY(before, "gallery.card." + operations.account.presets().get(39).id());
         assertEquals("Preset", before.widget("gallery.search").orElseThrow().value().orElseThrow());
 
         runtime.dispatchWidget("gallery.preset." + sourceId + ".duplicate");
         runtime.escapePressed();
 
         ViewSpec restored = runtime.view(320, 240, 0, 0);
-        assertEquals(fractionalX, panelX(restored, "gallery.card.add"));
+        assertEquals(fractionalX, panelY(restored, "gallery.card." + operations.account.presets().get(39).id()));
         assertEquals("Preset", restored.widget("gallery.search").orElseThrow().value().orElseThrow());
-        assertEquals(5, runtime.snapshot().account().orElseThrow().presets().size());
+        assertEquals(40, runtime.snapshot().account().orElseThrow().presets().size());
     }
 
     @Test
     void galleryWheelPreservesMagnitudeAndAppliesFractionalBoundedPositionsImmediately() {
         FakeOperations halfOperations = new FakeOperations();
-        halfOperations.account = TestFixtures.account(5);
+        halfOperations.account = TestFixtures.account(40);
         ClientRuntime half = runtime(halfOperations, Runnable::run, Optional.empty());
         half.initialize();
-        int startX = panelX(half.view(320, 240, 0, 0), "gallery.card.add");
+        int startX = panelY(half.view(320, 240, 0, 0), "gallery.card." + halfOperations.account.presets().get(39).id());
 
         half.pointerScrolled(160, 100, 0.0, -0.5);
 
-        assertEquals(startX - 16, panelX(half.view(320, 240, 0, 0), "gallery.card.add"));
+        assertEquals(startX - 16, panelY(half.view(320, 240, 0, 0), "gallery.card." + halfOperations.account.presets().get(39).id()));
         assertEquals(16, half.snapshot().galleryOffset(),
                 "a fractional wheel target must remain an exact pixel position");
 
         FakeOperations fullOperations = new FakeOperations();
-        fullOperations.account = TestFixtures.account(5);
+        fullOperations.account = TestFixtures.account(40);
         ClientRuntime full = runtime(fullOperations, Runnable::run, Optional.empty());
         full.initialize();
         full.view(320, 240, 0, 0);
         full.pointerScrolled(160, 100, 0.0, -1.0);
 
-        assertEquals(startX - 32, panelX(full.view(320, 240, 0, 0), "gallery.card.add"));
+        assertEquals(startX - 32, panelY(full.view(320, 240, 0, 0), "gallery.card." + fullOperations.account.presets().get(39).id()));
     }
 
     @Test
     void nativeScrollFeedbackUsesAbsolutePixelsAndRejectsStaleSurfaceIds() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
-        int startX = panelX(runtime.view(320, 240, 0, 0), "gallery.card.add");
+        int startX = panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id());
 
         runtime.nativeScrollPositionChanged("gallery.cards", 16.0);
-        assertEquals(startX - 16, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        assertEquals(startX - 16, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()));
         runtime.nativeScrollPositionChanged("gallery.cards", 32.0);
-        assertEquals(startX - 32, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"),
+        assertEquals(startX - 32, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()),
                 "native feedback is an absolute pixel offset, not another wheel delta");
+
+        runtime.nativeScrollPositionChanged("gallery.cards", 32.25);
+        assertEquals(32.25, runtime.view(320, 240, 0, 0).scrollSurface("gallery.cards").orElseThrow().offsetPixels());
+        assertEquals(32, runtime.snapshot().galleryOffset());
 
         runtime.dispatchWidget("gallery.add");
         runtime.dispatchWidget("add.tab.catalog");
@@ -5006,28 +5119,29 @@ final class ClientRuntimeTest {
     @Test
     void nativeGalleryScrollKeepsPartialNeighborsWhenSmoothScrollingSettlesOnACardBoundary() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(80);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
 
         ViewSpec initial = runtime.view(854, 480, 0, 0);
         ViewSpec.ScrollSurface surface = initial.scrollSurface("gallery.cards").orElseThrow();
-        double cardStride = surface.maximumPixels()
-                / initial.scrollbar().orElseThrow().maximum();
-        runtime.nativeScrollPositionChanged("gallery.cards", cardStride * 20.0);
+        assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL, surface.orientation());
+        runtime.nativeScrollPositionChanged("gallery.cards", 20.25);
 
+        settleScroll(runtime);
         ViewSpec settled = runtime.view(854, 480, 0, 0);
+        assertEquals(20.25, settled.scrollSurface("gallery.cards").orElseThrow().offsetPixels());
         Bounds viewport = settled.scrollSurface("gallery.cards").orElseThrow().viewport();
         assertTrue(settled.panels().stream()
                 .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
                 .map(ViewSpec.Panel::bounds)
-                .anyMatch(bounds -> bounds.x() < viewport.x()
-                        && bounds.right() > viewport.x()));
+                .anyMatch(bounds -> bounds.y() < viewport.y()
+                        && bounds.bottom() > viewport.y()));
         assertTrue(settled.panels().stream()
                 .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
                 .map(ViewSpec.Panel::bounds)
-                .anyMatch(bounds -> bounds.x() < viewport.right()
-                        && bounds.right() > viewport.right()));
+                .anyMatch(bounds -> bounds.y() < viewport.bottom()
+                        && bounds.bottom() > viewport.bottom()));
     }
 
     @Test
@@ -5193,23 +5307,26 @@ final class ClientRuntimeTest {
     @Test
     void pressingTheFractionalGalleryThumbDoesNotJumpToTheRoundedSnapshotOffset() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
         runtime.view(320, 240, 0, 0);
-        runtime.pointerScrolled(160, 100, 0.0, -0.5);
+        runtime.pointerScrolled(160, 100, 0.0, -0.515625);
 
         ViewSpec before = runtime.view(320, 240, 0, 0);
+        assertEquals(16.5, before.scrollSurface("gallery.cards").orElseThrow().offsetPixels());
+        assertEquals(17, runtime.snapshot().galleryOffset());
         Bounds thumb = before.scrollbar().orElseThrow().thumb();
-        int cardX = panelX(before, "gallery.card.add");
-        double pressX = thumb.x() + thumb.width() * 0.37;
-        double pressY = thumb.y() + thumb.height() / 2.0;
+        int cardX = panelY(before, "gallery.card." + operations.account.presets().get(39).id());
+        double pressX = thumb.x() + thumb.width() / 2.0;
+        double pressY = thumb.y() + thumb.height() * 0.37;
 
         runtime.pointerPressed(pressX, pressY, 0);
         runtime.pointerReleased(0);
 
         ViewSpec after = runtime.view(320, 240, 0, 0);
-        assertEquals(cardX, panelX(after, "gallery.card.add"));
+        assertEquals(16.5, after.scrollSurface("gallery.cards").orElseThrow().offsetPixels());
+        assertEquals(cardX, panelY(after, "gallery.card." + operations.account.presets().get(39).id()));
         assertEquals(
                 before.scrollbar().orElseThrow().offset(),
                 after.scrollbar().orElseThrow().offset());
@@ -5218,28 +5335,25 @@ final class ClientRuntimeTest {
     @Test
     void applyingAnotherPresetKeepsItVisibleAndDiscardsTheFractionalGalleryTarget() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
+        operations.localFirst = true;
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
-        int initialX = panelX(runtime.view(320, 240, 0, 0), "gallery.card.add");
+        int initialX = panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id());
         runtime.pointerScrolled(160, 100, 0.0, -0.5);
-        assertEquals(initialX - 16, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        assertEquals(initialX - 16, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()));
 
-        UUID presetId = operations.account.presets().get(0).id();
-        runtime.dispatchWidget("gallery.preset." + presetId + ".apply");
+        UUID presetId = operations.account.presets().get(39).id();
+        applyGallerySelection(runtime, presetId);
+        assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle());
+        runtime.reopen();
 
         ViewSpec aligned = runtime.view(320, 240, 0, 0);
-        assertHorizontallyVisible(
-                aligned.panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card." + presetId))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds(),
-                320);
+        assertInsideGalleryViewport(aligned, presetId);
         assertEquals(0, runtime.snapshot().galleryOffset());
-        int alignedAddX = panelX(aligned, "gallery.card.add");
+        int alignedAddX = panelY(aligned, "gallery.card." + operations.account.presets().get(39).id());
         settleScroll(runtime);
-        assertEquals(alignedAddX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"),
+        assertEquals(alignedAddX, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()),
                 "the stale fractional target must not restore the previous scroll position");
     }
 
@@ -5309,7 +5423,7 @@ final class ClientRuntimeTest {
     @Test
     void warmedOpenPublishesCardsAndAnchorAtomicallyWithoutTransientOfflineChrome() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         UUID warmedActive = operations.account.presets().get(4).id();
         operations.activePresetId = Optional.of(warmedActive);
         operations.session = session(SessionStatus.OFFLINE_OR_INVALID);
@@ -5326,15 +5440,10 @@ final class ClientRuntimeTest {
         ClientSnapshot seeded = runtime.snapshot();
         assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, seeded.lifecycle());
         assertEquals(Optional.of(warmedActive), seeded.activePresetId());
-        assertEquals(0, seeded.galleryOffset());
+        assertEquals((int) new GalleryPresenter().initialScrollPosition(Optional.of(operations.account),
+                Optional.of(warmedActive), "", 320, 240), seeded.galleryOffset());
         ViewSpec seededView = runtime.view(320, 240, 0, 0);
-        assertHorizontallyVisible(
-                seededView.panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card." + warmedActive))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds(),
-                320);
+        assertInsideGalleryViewport(seededView, warmedActive);
         assertTrue(seededView.widget("gallery.retry_session").isEmpty());
         assertTrue(seededView.texts().stream().noneMatch(text ->
                 text.id().equals("gallery.offline")));
@@ -5345,11 +5454,12 @@ final class ClientRuntimeTest {
         assertEquals(ClientSnapshot.Lifecycle.READY, ready.lifecycle());
         assertTrue(ready.activePresetId().isEmpty());
         assertEquals(0, ready.galleryOffset());
-        assertEquals(12, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        assertEquals(63, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()));
         publications.stream()
                 .filter(snapshot -> snapshot.account().isPresent())
                 .forEach(snapshot -> assertEquals(
-                        0,
+                        (int) new GalleryPresenter().initialScrollPosition(snapshot.account(),
+                                snapshot.activePresetId(), "", 320, 240),
                         snapshot.galleryOffset(),
                         "account data and its gallery anchor must share one publication"));
     }
@@ -5357,7 +5467,7 @@ final class ClientRuntimeTest {
     @Test
     void repeatedOpenUsesTheLastReadyCardsAndFreshUnchangedDataDoesNotMoveThem() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         UUID active = operations.account.presets().get(4).id();
         operations.activePresetId = Optional.of(active);
         QueuedExecutor worker = new QueuedExecutor();
@@ -5374,26 +5484,19 @@ final class ClientRuntimeTest {
         assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, reopening.lifecycle());
         assertEquals(Optional.of(active), reopening.activePresetId());
         ViewSpec seeded = runtime.view(320, 240, 0, 0);
-        assertHorizontallyVisible(
-                seeded.panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card." + active))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds(),
-                320);
-        int seededAddX = panelX(seeded, "gallery.card.add");
+        assertInsideGalleryViewport(seeded, active);
+        double seededPosition = seeded.scrollSurface("gallery.cards").orElseThrow().offsetPixels();
 
         worker.runFirst();
 
         assertEquals(ClientSnapshot.Lifecycle.READY, runtime.snapshot().lifecycle());
-        assertEquals(seededAddX, panelX(
-                runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        assertEquals(seededPosition, runtime.view(320, 240, 0, 0).scrollSurface("gallery.cards").orElseThrow().offsetPixels());
     }
 
     @Test
     void identicalTextDispatchesDoNotPublishOrResetGalleryScroll() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         String personalHash = operations.seedPersonalSkin("Personal");
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         AtomicInteger publications = new AtomicInteger();
@@ -5403,7 +5506,7 @@ final class ClientRuntimeTest {
         runtime.dispatchText("gallery.search", "Preset");
         runtime.view(320, 240, 0, 0);
         runtime.pointerScrolled(160, 100, 0.0, -0.5);
-        int scrolledX = panelX(runtime.view(320, 240, 0, 0), "gallery.card.add");
+        int scrolledX = panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id());
         int afterScrollPublications = publications.get();
         long generation = runtime.snapshot().generation();
 
@@ -5411,9 +5514,9 @@ final class ClientRuntimeTest {
 
         assertEquals(afterScrollPublications, publications.get());
         assertEquals(generation, runtime.snapshot().generation());
-        assertEquals(scrolledX, panelX(runtime.view(320, 240, 0, 0), "gallery.card.add"));
+        assertEquals(scrolledX, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()));
 
-        UUID presetId = operations.account.presets().get(0).id();
+        UUID presetId = operations.account.presets().get(39).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
         String editorName = runtime.snapshot().editor().orElseThrow().name();
         assertNoPublication(publications, () -> runtime.dispatchText("editor.name", editorName));
@@ -6604,9 +6707,10 @@ final class ClientRuntimeTest {
             fixture.hold = true;
             fixture.runtime.dispatchWidget("gallery.preset." + preset + ".delete");
             fixture.runtime.dispatchWidget("gallery.preset." + preset + ".delete_confirm");
-            assertTrue(fixture.runtime.snapshot().busy(), "Confirmed Gallery delete is genuinely pending");
+            assertFalse(fixture.runtime.snapshot().busy(), "Gallery delete does not own global Busy");
+            assertFalse(fixture.workers.isEmpty(), "Confirmed delete has a held worker");
             fixture.runtime.resourcesReloaded();
-            assertTrue(fixture.runtime.snapshot().busy(), "Retired import cannot unlock unrelated Gallery mutation");
+            assertFalse(fixture.runtime.snapshot().busy(), "Retired import cannot globally block Gallery delete");
             fixture.drain();
             assertFalse(fixture.runtime.snapshot().busy());
             assertTrue(fixture.runtime.snapshot().account().orElseThrow().presets().stream().noneMatch(p -> p.id().equals(preset)),
@@ -8104,7 +8208,7 @@ final class ClientRuntimeTest {
     @Test
     void pixelGalleryRangeReclampsAcrossViewportExpansionLikeTheCapeRange() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         operations.ownedCapes = capeInventory(5);
         operations.session = new SessionValidation(
                 SessionStatus.OFFLINE_OR_INVALID,
@@ -8116,19 +8220,22 @@ final class ClientRuntimeTest {
         runtime.initialize();
         runtime.view(320, 240, 0, 0);
 
+        int narrowGalleryMaximum = runtime.view(320, 240, 0, 0).scrollbar().orElseThrow().maximum();
+        int expandedGalleryMaximum = new GalleryPresenter().maximumScroll(runtime.snapshot(), 854, 480, "");
+        assertTrue(expandedGalleryMaximum < narrowGalleryMaximum);
         runtime.pointerScrolled(160, 100, 0.0, -100.0);
         settleScroll(runtime);
-        assertEquals(370, runtime.snapshot().galleryOffset());
+        assertEquals(narrowGalleryMaximum, runtime.snapshot().galleryOffset());
 
         runtime.view(854, 480, 0, 0);
         runtime.tick();
-        assertEquals(370, runtime.snapshot().galleryOffset());
+        assertEquals(expandedGalleryMaximum, runtime.snapshot().galleryOffset());
         runtime.view(320, 240, 0, 0);
         settleScroll(runtime);
-        assertEquals(370, runtime.snapshot().galleryOffset(),
+        assertEquals(expandedGalleryMaximum, runtime.snapshot().galleryOffset(),
                 "returning to a narrower viewport must not resurrect a stale pixel target");
 
-        UUID presetId = operations.account.presets().get(0).id();
+        UUID presetId = operations.account.presets().get(39).id();
         runtime.dispatchWidget("gallery.preset." + presetId + ".edit");
         runtime.dispatchWidget("editor.tab.cape");
         PresetEditorModel editorModel = runtime.snapshot().editor().orElseThrow();
@@ -8173,25 +8280,27 @@ final class ClientRuntimeTest {
     }
 
     @Test
-    void pixelGalleryRangeReclampsWhenCardWidthChangesWithHeight() {
+    void pixelGalleryRangeReclampsWhenViewportHeightChanges() {
         FakeOperations operations = new FakeOperations();
-        operations.account = TestFixtures.account(5);
+        operations.account = TestFixtures.account(40);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
         runtime.view(320, 360, 0, 0);
 
+        int tallMaximum = new GalleryPresenter().maximumScroll(runtime.snapshot(), 320, 360, "");
+        int shortMaximum = new GalleryPresenter().maximumScroll(runtime.snapshot(), 320, 240, "");
         runtime.pointerScrolled(160, 160, 0.0, -100.0);
         settleScroll(runtime);
-        assertEquals(910, runtime.snapshot().galleryOffset());
+        assertEquals(tallMaximum, runtime.snapshot().galleryOffset());
 
         runtime.view(320, 240, 0, 0);
         runtime.tick();
-        assertEquals(370, runtime.snapshot().galleryOffset());
+        assertEquals(Math.min(tallMaximum, shortMaximum), runtime.snapshot().galleryOffset());
 
         runtime.view(320, 360, 0, 0);
         settleScroll(runtime);
         assertEquals(
-                370,
+                Math.min(tallMaximum, shortMaximum),
                 runtime.snapshot().galleryOffset(),
                 "restoring the taller viewport must not resurrect the stale pixel target");
     }
@@ -8356,11 +8465,13 @@ final class ClientRuntimeTest {
         UUID presetId = operations.account.presets().get(0).id();
         ViewSpec gallery = runtime.view(854, 480, 0, 0);
 
-        assertTrue(gallery.widget("gallery.preset." + presetId + ".apply")
+        runtime.dispatchWidget("gallery.card." + presetId);
+        gallery = runtime.view(854, 480, 0, 0);
+        assertTrue(gallery.widget("gallery.apply")
                 .orElseThrow()
                 .enabled());
 
-        runtime.dispatchWidget("gallery.preset." + presetId + ".apply");
+        runtime.dispatchWidget("gallery.apply");
         worker.runFirst();
 
         ClientSnapshot pending = runtime.snapshot();
@@ -8408,18 +8519,21 @@ final class ClientRuntimeTest {
         UUID first = operations.account.presets().get(0).id();
         UUID second = operations.account.presets().get(1).id();
         UUID third = operations.account.presets().get(2).id();
-        runtime.dispatchWidget("gallery.preset." + first + ".apply");
-        runtime.dispatchWidget("gallery.preset." + second + ".apply");
-        runtime.dispatchWidget("gallery.preset." + third + ".apply");
+        applyGallerySelection(runtime, first);
+        runtime.reopen();
+        applyGallerySelection(runtime, second);
+        runtime.reopen();
+        applyGallerySelection(runtime, third);
+        runtime.reopen();
 
         assertEquals(0, reconciliation.size());
         assertEquals(Optional.of(third), runtime.snapshot().activePresetId());
         assertEquals(3, runtime.snapshot().intentRevision());
+        runtime.tick();
         assertEquals(1.0, runtime.snapshot().rateLimitProgress().orElseThrow().fraction());
         ViewSpec latestGallery = runtime.view(854, 480, 0, 0);
-        assertTrue(latestGallery.progressDecorations().stream().anyMatch(progress ->
-                progress.ownerWidgetId().equals("gallery.preset." + third + ".apply")));
-        assertTrue(latestGallery.widget("gallery.preset." + third + ".apply").orElseThrow().hint().isPresent());
+        assertTrue(latestGallery.widget("gallery.done").orElseThrow().enabled());
+        assertTrue(latestGallery.widget("gallery.apply").isEmpty());
 
         operations.rateLimitRemaining = Duration.ofSeconds(30);
         runtime.tick();
@@ -8437,7 +8551,7 @@ final class ClientRuntimeTest {
         runtime.tick();
         assertEquals(0.5, runtime.snapshot().rateLimitProgress().orElseThrow().fraction());
 
-        runtime.dispatchWidget("gallery.preset." + third + ".apply");
+        runtime.dispatchWidget("gallery.done");
         assertEquals(3, runtime.snapshot().intentRevision());
         assertEquals(0, reconciliation.size());
 
@@ -8949,7 +9063,9 @@ final class ClientRuntimeTest {
                 Optional.of(notifications::incrementAndGet));
         runtime.initialize();
         UUID presetId = operations.account.presets().get(0).id();
-        runtime.dispatchWidget("gallery.preset." + presetId + ".apply");
+        applyGallerySelection(runtime, presetId);
+        runtime.reopen();
+        runtime.dispatchWidget("gallery.preset." + presetId + ".more");
 
         runtime.dispatchWidget("gallery.preset." + presetId + ".delete");
         runtime.dispatchWidget("gallery.preset." + presetId + ".delete_confirm");
@@ -8967,13 +9083,10 @@ final class ClientRuntimeTest {
         assertEquals(0, operations.applyCalls);
         assertEquals(2, operations.reconciliationCalls);
         assertEquals(0, notifications.get());
-        assertHorizontallyCentered(
-                runtime.view(320, 240, 0, 0).panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card.add"))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds(),
-                320);
+        ViewSpec empty = runtime.view(320, 240, 0, 0);
+        assertTrue(empty.widget("gallery.add").orElseThrow().enabled());
+        assertTrue(empty.widget("gallery.done").isPresent());
+        assertTrue(empty.panels().stream().noneMatch(panel -> panel.id().equals("gallery.card.add")));
     }
 
     private static void assertSessionRetryConnectingForFiveTicks(ClientRuntime runtime) {
@@ -9009,6 +9122,25 @@ final class ClientRuntimeTest {
         for (int index = 0; index < 80; index++) {
             runtime.tick();
         }
+    }
+
+    private static int panelY(ViewSpec view, String panelId) {
+        return view.panels().stream().filter(panel -> panel.id().equals(panelId))
+                .findFirst().orElseThrow().bounds().y();
+    }
+
+    private static void assertInsideGalleryViewport(ViewSpec view, UUID presetId) {
+        Bounds card = view.panels().stream().filter(panel -> panel.id().equals("gallery.card." + presetId))
+                .findFirst().orElseThrow().bounds();
+        Bounds viewport = view.scrollSurface("gallery.cards").orElseThrow().viewport();
+        assertTrue(card.x() >= viewport.x() && card.right() <= viewport.right());
+        assertTrue(card.y() >= viewport.y() && card.bottom() <= viewport.bottom());
+    }
+
+    private static void applyGallerySelection(ClientRuntime runtime, UUID presetId) {
+        runtime.dispatchWidget("gallery.card." + presetId);
+        assertTrue(runtime.view(854, 480, 0, 0).widget("gallery.apply").orElseThrow().enabled());
+        runtime.dispatchWidget("gallery.apply");
     }
 
     private static int panelX(ViewSpec view, String panelId) {
@@ -10437,7 +10569,7 @@ final class ClientRuntimeTest {
         }
 
         @Override
-        public PresetDelete deletePreset(UUID presetId) {
+        public PresetDelete deletePreset(GalleryScope scope, UUID presetId) {
             if (localFirst) {
                 account = copy(
                         account.skinAssets(),
@@ -10480,6 +10612,13 @@ final class ClientRuntimeTest {
                 throw new RemoteMutationSettlementException(settlementFailureImpact);
             }
             return remote();
+        }
+
+        @Override
+        public PresetUse applyGalleryDraft(GalleryApplyRequest request) throws Exception {
+            request.scope().requireCurrent(account.accountId(), request.scope().accountEpoch());
+            assertTrue(request.maskPatch().isEmpty());
+            return usePreset(request.presetId());
         }
 
         @Override

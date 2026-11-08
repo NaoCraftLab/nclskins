@@ -16,7 +16,37 @@ public record AccountUiPreferences(
         Optional<SkinVariant> preferredSkinVariant,
         Set<String> collapsedCollectionIds,
         Set<String> collapsedCapeCollections,
-        AppearanceProviders.Component selectedProvidersTab) {
+        AppearanceProviders.Component selectedProvidersTab,
+        Set<String> collapsedGallerySections) {
+    public static final String GALLERY_FAVORITES = "gallery.favorites";
+    public static final String GALLERY_YOUR_APPEARANCES = "gallery.your_appearances";
+
+    public AccountUiPreferences(int schemaVersion, UUID accountId, AddSourceTab selectedAddSourceTab,
+            EditorTab selectedEditorTab, Optional<SkinVariant> preferredSkinVariant,
+            Set<String> collapsedCollectionIds, Set<String> collapsedCapeCollections,
+            AppearanceProviders.Component selectedProvidersTab) {
+        this(schemaVersion, accountId, selectedAddSourceTab, selectedEditorTab, preferredSkinVariant,
+                collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab, Set.of());
+    }
+
+    public AccountUiPreferences withGallerySections(java.util.Map<String, Boolean> collapsed) {
+        Objects.requireNonNull(collapsed, "collapsed");
+        Set<String> replacement = new HashSet<>(collapsedGallerySections);
+        collapsed.forEach((id, value) -> {
+            requireGallerySectionId(id);
+            if (Objects.requireNonNull(value, "collapsed value")) replacement.add(id);
+            else replacement.remove(id);
+        });
+        return new AccountUiPreferences(schemaVersion, accountId, selectedAddSourceTab, selectedEditorTab,
+                preferredSkinVariant, collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab,
+                replacement);
+    }
+
+    public static void requireGallerySectionId(String id) {
+        if (!GALLERY_FAVORITES.equals(id) && !GALLERY_YOUR_APPEARANCES.equals(id)) {
+            throw new IllegalArgumentException("unknown Gallery section");
+        }
+    }
     public AccountUiPreferences(int schemaVersion, UUID accountId, AddSourceTab selectedAddSourceTab,
             EditorTab selectedEditorTab, Optional<SkinVariant> preferredSkinVariant,
             Set<String> collapsedCollectionIds, Set<String> collapsedCapeCollections) {
@@ -26,10 +56,10 @@ public record AccountUiPreferences(
 
     public AccountUiPreferences withSelectedProvidersTab(AppearanceProviders.Component tab) {
         return new AccountUiPreferences(schemaVersion, accountId, selectedAddSourceTab, selectedEditorTab,
-                preferredSkinVariant, collapsedCollectionIds, collapsedCapeCollections, tab);
+                preferredSkinVariant, collapsedCollectionIds, collapsedCapeCollections, tab, collapsedGallerySections);
     }
 
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public AccountUiPreferences(int schemaVersion, UUID accountId, AddSourceTab selectedAddSourceTab,
             EditorTab selectedEditorTab, Optional<SkinVariant> preferredSkinVariant, Set<String> collapsedCollectionIds) {
@@ -38,7 +68,7 @@ public record AccountUiPreferences(
 
     public AccountUiPreferences withCollapsedCapeCollections(Set<String> values) {
         return new AccountUiPreferences(schemaVersion, accountId, selectedAddSourceTab, selectedEditorTab,
-                preferredSkinVariant, collapsedCollectionIds, values, selectedProvidersTab);
+                preferredSkinVariant, collapsedCollectionIds, values, selectedProvidersTab, collapsedGallerySections);
     }
 
     public AccountUiPreferences {
@@ -60,6 +90,8 @@ public record AccountUiPreferences(
             requireCollectionId(collectionId);
         }
         collapsedCapeCollections = Set.copyOf(collapsedCapeCollections);
+        collapsedGallerySections = Set.copyOf(collapsedGallerySections);
+        collapsedGallerySections.forEach(AccountUiPreferences::requireGallerySectionId);
     }
 
 
@@ -109,7 +141,7 @@ public record AccountUiPreferences(
                 Objects.requireNonNull(selectedTab, "selectedTab"),
                 selectedEditorTab,
                 preferredSkinVariant,
-                collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab);
+                collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab, collapsedGallerySections);
     }
 
     public AccountUiPreferences withSelectedEditorTab(EditorTab selectedTab) {
@@ -119,7 +151,7 @@ public record AccountUiPreferences(
                 selectedAddSourceTab,
                 Objects.requireNonNull(selectedTab, "selectedTab"),
                 preferredSkinVariant,
-                collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab);
+                collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab, collapsedGallerySections);
     }
 
 
@@ -130,7 +162,7 @@ public record AccountUiPreferences(
                 selectedAddSourceTab,
                 selectedEditorTab,
                 Optional.of(Objects.requireNonNull(variant, "variant")),
-                collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab);
+                collapsedCollectionIds, collapsedCapeCollections, selectedProvidersTab, collapsedGallerySections);
     }
 
     public AccountUiPreferences withCollectionCollapsed(String collectionId, boolean collapsed) {
@@ -152,7 +184,7 @@ public record AccountUiPreferences(
                 selectedAddSourceTab,
                 selectedEditorTab,
                 preferredSkinVariant,
-                collectionIds, collapsedCapeCollections, selectedProvidersTab);
+                collectionIds, collapsedCapeCollections, selectedProvidersTab, collapsedGallerySections);
     }
 
     private static void requireCollectionId(String collectionId) {

@@ -1,3 +1,34 @@
+## 1.4.0-beta.1
+
+⚠️ The library and interface settings use an updated data format. Existing data is supported, but older mod versions may not be able to read it after it is saved in this version. If you plan to return to an older version, back up your data before updating!
+
+### Added
+
+- **Favorite looks**
+    - Star your favorite looks and keep them in a separate `Favorites` section without duplicating them among your other looks
+    - Collapse `Favorites` and `Your looks` separately or together. Their state is remembered between visits
+
+- **Preview and adjust looks before applying**
+    - Inspect the selected look in a large interactive preview, rotate it, and zoom in or out. After joining a world, the preview also displays Customizable Player Models (CPM) models and animations when the mod is installed
+    - Toggle the outer layers of regular skins directly in `My looks`. Changes to the selected look are saved only when you apply it. With no look selected, the controls update Minecraft's skin layer settings
+    - Inspect available capes from different providers and switch between cape and elytra views. Inspection does not replace the cape saved in the look
+
+- **Access CPM accessories from Providers**
+    - Open `My looks` directly from the CPM row on the `Capes` tab in `Providers` to inspect the model's built-in cape and elytra
+
+### Changed
+
+- **The `My looks` screen**
+    - Two areas replace the horizontal strip: a large preview on the left and a compact, vertically scrolling card grid on the right. The column count adapts to the window width
+    - Search and adding looks have moved to the top toolbar. Each card has an expandable menu for favorites, editing, duplication, and deletion
+    - Newer looks appear before older ones within each section. Opening the screen reveals the active look without moving it to the start of the list
+    - The active look has a green outline, while the selection waiting to be applied has a blue one. Keyboard focus is shown separately and does not linger on cards after mouse clicks
+
+- **Selecting and applying looks**
+    - Selecting a card changes only the preview. `Apply` saves the prepared changes, makes the selected look active, and closes the screen
+    - `Back` and Escape discard unapplied changes, while `Reset` restores the currently active look without closing the screen.
+    - When there are no changes, `Done` closes the screen without waiting for the network. If needed, the mod resumes unfinished synchronization of the active look with your account
+
 ## 1.3.0
 
 ### Added

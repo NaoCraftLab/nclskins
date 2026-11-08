@@ -18,653 +18,532 @@ import java.util.UUID;
 
 
 public final class GalleryPresenter {
-    private static final int CARD_GAP = 12;
-    private static final int CARD_ACTION_GAP = 2;
-    private static final int CARD_ACTION_SIDE_INSET = 2;
-    private static final int CARD_ACTION_BOTTOM_INSET = 2;
-    private static final int PREVIEW_ACTION_GAP = 4;
-    private static final int VIEWPORT_SCROLLBAR_GAP = 4;
-    private static final int ONE_ROW_ACTION_MIN_WIDTH = 122;
-    private static final int ACTION_HEIGHT = 20;
-    private static final int DECORATION_ICON_SIZE = 32;
-    private static final int ADD_ICON_LABEL_GAP = 8;
-    private static final int RECOVERY_BUTTON_WIDTH = 112;
-    private static final int SCROLLBAR_HEIGHT = 6;
+    public record DraftInput(Optional<UUID> selectedPresetId,
+            com.naocraftlab.skins.client.OuterLayerVisibility baselineMask,
+            com.naocraftlab.skins.client.OuterLayerVisibility draftMask, long generation,
+            Optional<String> inspectionIdentity, java.util.Set<String> collapsedSections,
+            Optional<String> temporarilyRevealedSection, PreviewRenderer.DisplayKind displayedBodyKind) {
+        public DraftInput {
+            Objects.requireNonNull(selectedPresetId, "selectedPresetId");
+            Objects.requireNonNull(baselineMask, "baselineMask");
+            Objects.requireNonNull(draftMask, "draftMask");
+            Objects.requireNonNull(inspectionIdentity, "inspectionIdentity");
+            Objects.requireNonNull(temporarilyRevealedSection, "temporarilyRevealedSection");
+            Objects.requireNonNull(displayedBodyKind, "displayedBodyKind");
+            collapsedSections = java.util.Set.copyOf(collapsedSections);
+            collapsedSections.forEach(com.naocraftlab.skins.core.model.AccountUiPreferences::requireGallerySectionId);
+            temporarilyRevealedSection.ifPresent(com.naocraftlab.skins.core.model.AccountUiPreferences::requireGallerySectionId);
+            if (generation < 0) throw new IllegalArgumentException("negative draft generation");
+        }
+
+        public boolean dirty(Optional<UUID> activePresetId) {
+            return !selectedPresetId.equals(Objects.requireNonNull(activePresetId, "activePresetId"))
+                    || !baselineMask.equals(draftMask);
+        }
+    }
+
+    private static final int CARD_WIDTH = 48;
+    private static final int CARD_HEIGHT = 96;
     private static final int FOOTER_HEIGHT = 33;
+    private static final int RECOVERY_BUTTON_WIDTH = 112;
     private static final int SESSION_STATE_TEXT_WIDTH = 84;
-    private static final int VIEWPORT_TOP = 58;
-    private static final int SCROLLBAR_BOTTOM_OFFSET = 43;
     private static final int RATE_LIMIT_PROGRESS_COLOR = 0xFF5A8FCB;
     private static final int RATE_LIMIT_PROGRESS_HEIGHT = 2;
 
-    public ViewSpec present(
-            ClientSnapshot snapshot,
-            int width,
-            int height,
-            int mouseX,
-            int mouseY,
-            PreviewRenderer.CapeMode capeMode) {
-        return present(
-                snapshot,
-                width,
-                height,
-                mouseX,
-                mouseY,
-                capeMode,
-                SkinVariant.CLASSIC);
+    public ViewSpec present(ClientSnapshot s, int w, int h, int mx, int my, PreviewRenderer.CapeMode mode) {
+        return present(s, w, h, mx, my, mode, SkinVariant.CLASSIC);
     }
 
-    public ViewSpec present(
-            ClientSnapshot snapshot,
-            int width,
-            int height,
-            int mouseX,
-            int mouseY,
-            PreviewRenderer.CapeMode capeMode,
-            SkinVariant currentPlayerVariant) {
-        return present(snapshot, width, height, mouseX, mouseY, capeMode,
-                currentPlayerVariant, "", Optional.empty());
+    public ViewSpec present(ClientSnapshot s, int w, int h, int mx, int my, PreviewRenderer.CapeMode mode,
+                            SkinVariant variant) {
+        return present(s, w, h, mx, my, mode, variant, "", Optional.empty());
     }
 
-    public ViewSpec present(
-            ClientSnapshot snapshot,
-            int width,
-            int height,
-            int mouseX,
-            int mouseY,
-            PreviewRenderer.CapeMode capeMode,
-            SkinVariant currentPlayerVariant,
-            String query,
-            Optional<UUID> pendingDeleteId) {
-        return present(snapshot, width, height, mouseX, mouseY, capeMode,
-                currentPlayerVariant, query, pendingDeleteId, snapshot.galleryOffset());
+    public ViewSpec present(ClientSnapshot s, int w, int h, int mx, int my, PreviewRenderer.CapeMode mode,
+                            SkinVariant variant, String query, Optional<UUID> deleting) {
+        return present(s, w, h, mx, my, mode, variant, query, deleting, s.galleryOffset());
     }
 
-    public ViewSpec present(
-            ClientSnapshot snapshot,
-            int width,
-            int height,
-            int mouseX,
-            int mouseY,
-            PreviewRenderer.CapeMode capeMode,
-            SkinVariant currentPlayerVariant,
-            String query,
-            Optional<UUID> pendingDeleteId,
-            double scrollPosition) {
-        return present(
-                snapshot,
-                width,
-                height,
-                mouseX,
-                mouseY,
-                capeMode,
-                currentPlayerVariant,
-                query,
-                pendingDeleteId,
-                scrollPosition,
-                normalizeSelectedCardId(snapshot, query, null));
+    public ViewSpec present(ClientSnapshot s, int w, int h, int mx, int my, PreviewRenderer.CapeMode mode,
+                            SkinVariant variant, String query, Optional<UUID> deleting, double scroll) {
+        return present(s, w, h, mx, my, mode, variant, query, deleting, scroll,
+                normalizeSelectedCardId(s, query, null));
     }
 
-    public ViewSpec present(
-            ClientSnapshot snapshot,
-            int width,
-            int height,
-            int mouseX,
-            int mouseY,
-            PreviewRenderer.CapeMode capeMode,
-            SkinVariant currentPlayerVariant,
-            String query,
-            Optional<UUID> pendingDeleteId,
-            double scrollPosition,
-            String selectedCardId) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        Objects.requireNonNull(capeMode, "capeMode");
-        Objects.requireNonNull(currentPlayerVariant, "currentPlayerVariant");
-        if (width <= 0 || height <= 0) {
-            throw new IllegalArgumentException("view dimensions must be positive");
+    public ViewSpec present(ClientSnapshot s, int w, int h, int mx, int my, PreviewRenderer.CapeMode mode,
+                            SkinVariant variant, String query, Optional<UUID> deleting, double scroll, String anchor) {
+        return present(s, w, h, mx, my, mode, variant, query, deleting, scroll, anchor, defaultDraft(s));
+    }
+
+    public ViewSpec present(ClientSnapshot s, int w, int h, int mx, int my, PreviewRenderer.CapeMode mode,
+                            SkinVariant variant, String query, Optional<UUID> deleting, double scroll, String anchor,
+                            DraftInput draft) {
+        return present(s,w,h,mx,my,mode,variant,query,deleting,scroll,anchor,draft,
+                new ControlsInput(false, com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                        PreviewInteractionModel.gallery().withCapeMode(mode), Optional.empty(), List.of(), 0, Optional.empty()));
+    }
+
+    public record CapeChoice(String id, UiMessage label, Optional<String> texture, boolean hasElytra, Content content) {
+        public enum Content { TEXTURE, NATIVE, NONE }
+        public CapeChoice(String id, UiMessage label, Optional<String> texture, boolean hasElytra) {
+            this(id,label,texture,hasElytra,texture.isPresent()?Content.TEXTURE:Content.NONE);
         }
-
-        query = Objects.requireNonNull(query, "query");
-        pendingDeleteId = Objects.requireNonNull(pendingDeleteId, "pendingDeleteId");
-        selectedCardId = normalizeSelectedCardId(snapshot, query, selectedCardId);
-        if (snapshot.lifecycle() == ClientSnapshot.Lifecycle.INITIALIZING
-                && snapshot.account().isEmpty()) {
-            return coldLoadingView(width, height);
+        public CapeChoice {
+            Objects.requireNonNull(id); Objects.requireNonNull(label); Objects.requireNonNull(texture); Objects.requireNonNull(content);
+            if ((content==Content.TEXTURE)!=texture.isPresent()) throw new IllegalArgumentException("Cape content/texture mismatch");
         }
-        GalleryLayout layout = layout(width, height);
-        List<GalleryCard> cards = cards(snapshot, query);
-        int cardWidth = layout.cardWidth();
-        int cardStep = cardWidth + CARD_GAP;
-        int contentWidth = contentWidth(cards.size(), cardWidth);
-        int maximum = maximumPixels(contentWidth, layout.endpointWidth());
-        double visualOffset = Math.max(0.0, Math.min(scrollPosition, maximum));
-        Bounds cardViewport = layout.viewport();
-        int unscrolledStart = maximum == 0
-                ? cardViewport.x() + (cardViewport.width() - contentWidth) / 2
-                : layout.endpointInset();
-        int stripStart = unscrolledStart - (int) Math.round(visualOffset);
+    }
 
-        List<ViewSpec.Panel> panels = new ArrayList<>();
-        panels.add(new ViewSpec.Panel(
-                "header", new Bounds(0, 0, width, 33), ViewSpec.Panel.Style.VANILLA_HEADER));
-        panels.add(new ViewSpec.Panel(
-                "footer",
-                new Bounds(0, Math.max(0, height - FOOTER_HEIGHT), width, FOOTER_HEIGHT),
-                ViewSpec.Panel.Style.VANILLA_FOOTER));
-        List<ViewSpec.Text> texts = new ArrayList<>();
-        List<ViewSpec.Widget> widgets = new ArrayList<>();
-        List<ViewSpec.Preview> previews = new ArrayList<>();
-        List<ViewSpec.IconDecoration> iconDecorations = new ArrayList<>();
-        widgets.add(ViewSpec.Widget.iconButton("gallery.providers", new Bounds(width - 28, 6, 20, 20),
-                UiMessage.info("nclskins.providers.title"), GuiIcon.ACTION_PROVIDERS, true));
-        widgets.add(ViewSpec.Widget.textField(
-                "gallery.search",
-                new Bounds(Math.max(8, width / 2 - 90), 36, Math.min(180, width - 16), 20),
-                UiMessage.info("nclskins.gallery.search"),
-                query,
-                UiMessage.info("nclskins.gallery.search_hint"),
-                !snapshot.busy(),
-                128,
-                true,
-                Optional.empty()));
+    public record LeftProjection(PlayerAppearanceStage.Appearance appearance,
+            com.naocraftlab.skins.client.OuterLayerVisibility mask, DraftInput draft, ControlsInput controls,
+            Optional<com.naocraftlab.skins.core.compatibility.SkinCompatibility> compatibility) {}
 
-        for (int index = 0; index < cards.size(); index++) {
-            GalleryCard card = cards.get(index);
-            int x = stripStart + index * cardStep;
-            Bounds panelBounds = new Bounds(
-                    x,
-                    layout.cardTop(),
-                    cardWidth,
-                    layout.cardHeight());
-            if (!AppearanceCollections.intersects(panelBounds, cardViewport)) {
-                continue;
+    public record ControlsInput(boolean controllerAvailable, com.naocraftlab.skins.client.OuterLayerVisibility liveOptions,
+            PreviewInteractionModel transform, Optional<UUID> actionPresetId, List<CapeChoice> capes,
+            double leftScroll, Optional<ViewSpec.BodySource> bodySource,
+            com.naocraftlab.skins.client.PreviewAccessories accessories, Optional<LeftProjection> retained,
+            boolean nativeCape, boolean nativeElytra) {
+        public ControlsInput(boolean controllerAvailable, com.naocraftlab.skins.client.OuterLayerVisibility liveOptions,
+                PreviewInteractionModel transform, Optional<UUID> actionPresetId, List<CapeChoice> capes,
+                double leftScroll, Optional<ViewSpec.BodySource> bodySource,
+                com.naocraftlab.skins.client.PreviewAccessories accessories, Optional<LeftProjection> retained) {
+            this(controllerAvailable, liveOptions, transform, actionPresetId, capes, leftScroll, bodySource, accessories,
+                    retained, accessories.canInspect() && accessories.cape(), accessories.canInspect() && accessories.elytra());
+        }
+        public ControlsInput(boolean controllerAvailable, com.naocraftlab.skins.client.OuterLayerVisibility liveOptions,
+                PreviewInteractionModel transform, Optional<UUID> actionPresetId, List<CapeChoice> capes,
+                double leftScroll, Optional<ViewSpec.BodySource> bodySource,
+                com.naocraftlab.skins.client.PreviewAccessories accessories) {
+            this(controllerAvailable, liveOptions, transform, actionPresetId, capes, leftScroll, bodySource, accessories, Optional.empty());
+        }
+        public ControlsInput(boolean controllerAvailable, com.naocraftlab.skins.client.OuterLayerVisibility liveOptions,
+                PreviewInteractionModel transform, Optional<UUID> actionPresetId, List<CapeChoice> capes,
+                double leftScroll, Optional<ViewSpec.BodySource> bodySource) {
+            this(controllerAvailable, liveOptions, transform, actionPresetId, capes, leftScroll, bodySource,
+                    com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
+        }
+        public ControlsInput {
+            Objects.requireNonNull(liveOptions); Objects.requireNonNull(transform); Objects.requireNonNull(actionPresetId);
+            capes = List.copyOf(capes); Objects.requireNonNull(bodySource); Objects.requireNonNull(accessories);
+            if (!Double.isFinite(leftScroll) || leftScroll < 0) throw new IllegalArgumentException("invalid stage offset");
+        }
+    }
+
+    public ViewSpec present(ClientSnapshot s, int w, int h, int mx, int my, PreviewRenderer.CapeMode mode,
+                            SkinVariant variant, String query, Optional<UUID> deleting, double scroll, String anchor,
+                            DraftInput draft, ControlsInput controls) {
+        Objects.requireNonNull(s, "snapshot");
+        Objects.requireNonNull(draft, "draft");
+        Objects.requireNonNull(mode, "capeMode");
+        Objects.requireNonNull(variant, "variant");
+        Objects.requireNonNull(deleting, "pendingDeleteId");
+        if (w <= 0 || h <= 0) throw new IllegalArgumentException("view dimensions must be positive");
+        if (s.lifecycle() == ClientSnapshot.Lifecycle.INITIALIZING && s.account().isEmpty()) return coldLoadingView(w, h);
+        Geometry g = geometry(w, h);
+        var entries = positioned(s, query, draft, g);
+        double maximum = Math.max(0, contentHeight(entries) - g.viewport().height() + 2);
+        double offset = Math.max(0, Math.min(scroll, maximum));
+        var panels = new ArrayList<ViewSpec.Panel>();
+        panels.add(new ViewSpec.Panel("header", new Bounds(0, 0, w, 33), ViewSpec.Panel.Style.VANILLA_HEADER));
+        panels.add(new ViewSpec.Panel("footer", new Bounds(0, Math.max(0, h - 33), w, 33), ViewSpec.Panel.Style.VANILLA_FOOTER));
+        panels.add(new ViewSpec.Panel("gallery.workspace", new Bounds(g.leftWidth(),33,w-g.leftWidth(),Math.max(1,h-66)), ViewSpec.Panel.Style.VANILLA_TAB_CONTENT));
+        var texts = new ArrayList<ViewSpec.Text>();
+        var widgets = new ArrayList<ViewSpec.Widget>();
+        var previews = new ArrayList<ViewSpec.Preview>();
+        var cardClips = new ArrayList<ViewSpec.ClipRegion>();
+        var nodes = new ArrayList<ViewSpec.NavigationNode>();
+        widgets.add(ViewSpec.Widget.iconButton("gallery.providers", new Bounds(w - 28, 6, 20, 20),
+                UiMessage.info("nclskins.providers.title"), GuiIcon.ACTION_PROVIDERS, !s.busy()));
+        widgets.add(ViewSpec.Widget.iconButton("gallery.add", new Bounds(g.viewport().x(), 37, 20, 20),
+                query.isBlank() || matchingPresetCount(s,query)>0 ? UiMessage.info("nclskins.gallery.add_hint") :
+                        UiMessage.info("nclskins.gallery.create_named",UntrustedDisplayName.sanitize(query,"")), GuiIcon.ACTION_ADD_LOOK, !s.busy() && s.account().isPresent()));
+        boolean sections = hasFavorites(s.account());
+        int searchX = g.viewport().x() + 22;
+        widgets.add(ViewSpec.Widget.textField("gallery.search", new Bounds(searchX, 37,
+                Math.max(1, g.viewport().right() - searchX - (sections ? 22 : 0)), 20),
+                UiMessage.info("nclskins.gallery.search"), query, UiMessage.info("nclskins.gallery.search_hint"),
+                !s.busy(), 128, true, Optional.empty()));
+        if (sections) widgets.add(ViewSpec.Widget.iconButton("gallery.sections", new Bounds(g.viewport().right() - 20, 37, 20, 20),
+                UiMessage.info(collapsed(draft,"gallery.favorites") && collapsed(draft,"gallery.your_appearances") ? "nclskins.collection.expand_all" : "nclskins.collection.collapse_all"),
+                collapsed(draft,"gallery.favorites") && collapsed(draft,"gallery.your_appearances") ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL, !s.busy()));
+        var recovery = addGlobalWidgets(s, w, h, widgets);
+        addHeader(s, w, recovery, texts);
+        if (draft.selectedPresetId().isPresent() && draft.dirty(s.activePresetId())) {
+            widgets.removeIf(widget -> widget.id().equals("gallery.done"));
+            int buttonWidth = Math.min(100, Math.max(1,(w-20)/3));
+            int x = (w-(buttonWidth*3+8))/2;
+            for (String action : List.of("apply","back","reset")) {
+                widgets.add(ViewSpec.Widget.button("gallery."+action,new Bounds(x,ViewChromeMetrics.STANDARD.footerRowTop(h,20),buttonWidth,20),
+                        UiMessage.info(action.equals("apply") ? "nclskins.gallery.apply" : action.equals("back") ? "gui.back" : "controls.reset"),
+                        action.equals("apply") ? rateLimitHint(s,true) : Optional.empty(), !s.busy()));
+                x += buttonWidth+4;
             }
-            var chrome = AppearanceCard.chrome(card.id(), card.anchorId(), panelBounds, ViewSpec.WidgetKind.CATALOG_CARD,
-                    card.accessibleLabel(), Optional.empty(), !snapshot.busy() && snapshot.account().isPresent() && pendingDeleteId.isEmpty());
-            panels.add(chrome.surface());
-            widgets.add(chrome.widget());
-            if (card.preset().isEmpty()) {
-                int iconX = x + (cardWidth - DECORATION_ICON_SIZE) / 2;
-                int hintY = layout.cardTop() + Math.max(44, layout.cardHeight() / 2 + 10);
-                int iconY = hintY - ADD_ICON_LABEL_GAP - DECORATION_ICON_SIZE;
-                iconDecorations.add(new ViewSpec.IconDecoration(
-                        "gallery.add.icon",
-                        new Bounds(iconX, iconY, DECORATION_ICON_SIZE, DECORATION_ICON_SIZE),
-                        GuiIcon.ACTION_ADD_LOOK,
-                        "gallery.add",
-                        0.65F,
-                        1.0F));
-                boolean nameSeed = matchingPresetCount(snapshot, query) == 0 && !query.isBlank();
-                texts.add(new ViewSpec.Text(
-                        "gallery.add.hint",
-                        new Bounds(
-                                x,
-                                hintY,
-                                cardWidth,
-                                10),
-                        nameSeed
-                                ? UiMessage.info(
-                                        "nclskins.gallery.create_named",
-                                        UntrustedDisplayName.sanitize(query, ""))
-                                : UiMessage.info("nclskins.gallery.add_hint"),
-                        ViewSpec.Text.Alignment.CENTER));
+        }
+        var equipment = new ArrayList<ViewSpec.BackEquipmentPreview>();
+        var decorations = new ArrayList<ViewSpec.IconDecoration>();
+        Bounds stageViewport = new Bounds(4,36,Math.max(1,g.leftWidth()-6),Math.max(1,h-73));
+        int oldLeft = Math.min(Math.max(64,(h-73)/4)+6,Math.max(70,w-60));
+        int stageWidth = Math.max(1,Math.min(Math.max(1,(h-73)/4),oldLeft-6));
+        int stageHeight = stageWidth*2;
+        int stageOffset = (int)Math.round(controls.leftScroll());
+        int areaHeight = (int)Math.round(stageHeight*1.1);
+        Bounds stage = new Bounds(stageViewport.x(),stageViewport.y(),stageViewport.width(),areaHeight);
+        Bounds lowerViewport = new Bounds(stageViewport.x(),stage.bottom(),stageViewport.width(),Math.max(1,h-33-stage.bottom()));
+        int contentX = lowerViewport.x()+8;
+        int contentWidth = Math.max(1,lowerViewport.width()-16);
+        Bounds fit = new Bounds(stage.x()+(stage.width()-stageWidth)/2,stage.y()+(stage.height()-stageHeight)/2,stageWidth,stageHeight);
+        var leftDraft = controls.retained().map(LeftProjection::draft).orElse(draft);
+        var leftControls = controls.retained().map(LeftProjection::controls).orElse(controls);
+        var selected = s.account().stream().flatMap(a -> a.presets().stream()).filter(p -> leftDraft.selectedPresetId().filter(p.id()::equals).isPresent()).findFirst();
+        var mask = controls.retained().map(LeftProjection::mask).orElseGet(() -> selected.isPresent() ? leftDraft.draftMask() : leftControls.liveOptions());
+        var appearance = controls.retained().map(LeftProjection::appearance).orElseGet(() -> mainAppearance(s, leftDraft, variant, leftControls.capes(),
+                leftControls.nativeCape() || leftControls.nativeElytra(), leftControls.nativeElytra()));
+        var selectedCape = appearance.capeId();
+        var main = PlayerAppearanceStage.present("gallery.preview",w,h,fit,appearance,controls.transform().withOuterLayerVisibility(mask));
+        boolean nativeAccessories = nativeAccessories(s, leftDraft, leftControls.capes(),
+                leftControls.nativeCape() || leftControls.nativeElytra());
+        if (nativeAccessories) main = main.withNativeAccessories(true, controls.transform().capeMode());
+        previews.add(main.withBodySource(leftControls.bodySource()));
+        if (selectedCape.isPresent() || nativeAccessories) {
+            var control = PlayerAppearanceStage.capeMode("gallery.preview_mode",controls.transform(),!s.busy()
+                    && (selectedCape.isPresent() || controls.accessories().canInspect()));
+            widgets.add(ViewSpec.Widget.iconOnlyButton(control.id(),new Bounds(stage.x()+2,stage.y()+2,20,20),control.label(),control.icon(),control.enabled()));
+        }
+        controls.retained().map(LeftProjection::compatibility).orElseGet(() -> selected.map(s::compatibilityFor))
+                .filter(c -> c.status()!=SkinCompatibilityStatus.ORDINARY).ifPresent(c ->
+                widgets.add(AppearanceCard.compatibility("gallery.preview.compatibility",stage,stage.bottom()-2,c)));
+        int leftY = stage.bottom()+4-stageOffset;
+        if (leftControls.controllerAvailable() && leftDraft.displayedBodyKind()==PreviewRenderer.DisplayKind.ORDINARY) {
+            texts.add(new ViewSpec.Text("gallery.layers",CollectionHeaderStyle.flushContentBounds(new Bounds(contentX,leftY,contentWidth,10)),UiMessage.info("nclskins.gallery.layers"),ViewSpec.Text.Alignment.LEFT,ViewSpec.Text.Layout.COLLECTION_HEADER));
+            leftY+=14;
+            int index=0;
+            for(var control : PlayerAppearanceStage.outerLayers(mask,"gallery.outer_layer.",!s.busy())) {
+                widgets.add(ViewSpec.Widget.iconOnlyButton(control.id(),new Bounds(stageViewport.x()+(stageViewport.width()-64)/2+index*22,leftY,20,20),control.label(),control.icon(),control.enabled()));index++;
+            }
+            leftY+=24;
+        }
+        if (!leftControls.capes().isEmpty()) {
+            texts.add(new ViewSpec.Text("gallery.capes",CollectionHeaderStyle.flushContentBounds(new Bounds(contentX,leftY,contentWidth,10)),UiMessage.info("nclskins.providers.capes"),ViewSpec.Text.Alignment.LEFT,ViewSpec.Text.Layout.COLLECTION_HEADER));leftY+=14;
+            int capeColumns=Math.max(1,(contentWidth+2)/34);
+            int capeSize=32;
+            var markedCape=leftDraft.inspectionIdentity().or(() -> nativeAccessories ? Optional.of("CPM")
+                    : leftControls.capes().stream().filter(c -> c.texture().isPresent()).map(CapeChoice::id).findFirst()
+                            .or(() -> leftControls.capes().stream().filter(c -> c.id().equals("none")).map(CapeChoice::id).findFirst()));
+            for(int i=0;i<leftControls.capes().size();i++) {
+                int rowCount=Math.min(capeColumns,leftControls.capes().size()-(i/capeColumns)*capeColumns);
+                int rowWidth=rowCount*(capeSize+2)-2;
+                var c=leftControls.capes().get(i);Bounds b=new Bounds(contentX+(contentWidth-rowWidth)/2+(i%capeColumns)*(capeSize+2),leftY+(i/capeColumns)*(capeSize+2),capeSize,capeSize);
+                var card=new ViewSpec.Widget("gallery.inspect."+c.id(),ViewSpec.WidgetKind.CAPE_CARD,b,c.label(),markedCape.filter(c.id()::equals).filter(id -> leftControls.capes().size()>1 || c.content()!=CapeChoice.Content.NONE).map(id -> "active"),Optional.of(c.label()),!s.busy(),true,0);
+                widgets.add(c.content()==CapeChoice.Content.NATIVE ? card.withActivation(!s.busy()&&leftControls.accessories().canInspect(),null) : card);
+                if(c.texture().isEmpty()) decorations.add(new ViewSpec.IconDecoration("gallery.inspect."+c.id()+(c.content()==CapeChoice.Content.NATIVE ? ".icon" : ".none"),b,c.content()==CapeChoice.Content.NATIVE ? GuiIcon.SOURCE_CPM : GuiIcon.APPEARANCE_CAPE_NONE,"gallery.inspect."+c.id(),0.8F,1.0F));
+                if(c.texture().isPresent()) equipment.add(new AppearanceCard.Cape(c.texture().orElseThrow(),com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.CAPE,c.hasElytra()).present("gallery.inspect."+c.id()+".preview",b).asProviderThumbnail());
+            }
+            leftY+=((leftControls.capes().size()+capeColumns-1)/capeColumns)*(capeSize+2);
+        }
+        if (controls.retained().isPresent()) widgets.replaceAll(widget -> widget.id().startsWith("gallery.outer_layer.")
+                || widget.id().startsWith("gallery.inspect.") || widget.id().equals("gallery.preview_mode")
+                        && !Objects.equals(leftControls.bodySource(),controls.bodySource())
+                ? widget.withActivation(false, null) : widget);
+        double leftMaximum=Math.max(0,leftY+stageOffset-lowerViewport.bottom());
+        if (controls.leftScroll()>leftMaximum) return present(s,w,h,mx,my,mode,variant,query,deleting,scroll,anchor,draft,
+                new ControlsInput(controls.controllerAvailable(),controls.liveOptions(),controls.transform(),controls.actionPresetId(),controls.capes(),leftMaximum,controls.bodySource(),controls.accessories(),controls.retained(),controls.nativeCape(),controls.nativeElytra()));
+        int tab = 0;
+        if (recovery.isPresent()) tab = addControl(nodes, widgets, recovery.orElseThrow().widgetId(), tab);
+        tab = addControl(nodes, widgets, "gallery.add", tab);
+        tab = addControl(nodes, widgets, "gallery.search", tab);
+        if (sections) tab = addControl(nodes, widgets, "gallery.sections", tab);
+
+        for (Entry entry : entries) {
+            Bounds b = new Bounds(g.viewport().x() + entry.bounds().x(),
+                    g.viewport().y() + entry.bounds().y() - (int)Math.round(offset), entry.bounds().width(), entry.bounds().height());
+            boolean visible = AppearanceCollections.intersects(b, g.viewport());
+            if (entry.preset().isEmpty()) {
+                if (visible) widgets.add(ViewSpec.Widget.collectionHeader(entry.id(), b,
+                        UiMessage.info("nclskins.capes.collection", collapsed(draft, entry.id()) ? "▶" : "▼",
+                                UiMessage.info(entry.id().equals("gallery.favorites") ? "nclskins.gallery.favorites" : "nclskins.gallery.your_appearances")),
+                        !s.busy(), false));
+                nodes.add(AppearanceCollections.navigation(entry.id(), b, "gallery.cards", nodes.size(), tab++,
+                        !s.busy(), ViewSpec.NavigationPattern.GRID, Optional.of(entry.id())));
             } else {
-                addPresetCard(
-                        snapshot,
-                        card.preset().orElseThrow(),
-                        x,
-                        layout.cardTop(),
-                        layout.cardTop() + layout.cardHeight(),
-                        cardWidth,
-                        mouseX,
-                        mouseY,
-                        capeMode,
-                        currentPlayerVariant,
-                        pendingDeleteId.filter(card.preset().orElseThrow().id()::equals).isPresent(),
-                        pendingDeleteId.isPresent(),
-                        cardViewport,
-                        texts,
-                        widgets,
-                        previews,
-                        iconDecorations);
-            }
-        }
-
-        Optional<RecoveryWidget> recovery = addGlobalWidgets(snapshot, width, height, widgets);
-        addHeader(snapshot, width, recovery, texts);
-        List<ViewSpec.NavigationNode> navigationNodes = galleryNavigationNodes(
-                cards,
-                selectedCardId,
-                stripStart,
-                cardStep,
-                layout,
-                widgets,
-                recovery,
-                !snapshot.busy() && snapshot.account().isPresent());
-        List<ViewSpec.ProgressDecoration> progressDecorations =
-                rateLimitProgressDecorations(snapshot, widgets);
-
-        Optional<ViewSpec.Scrollbar> scrollbar = Optional.of(scrollbar(
-                width,
-                layout.scrollbarY(),
-                layout.endpointWidth(),
-                contentWidth,
-                visualOffset,
-                maximum));
-        return new ViewSpec(
-                "gallery",
-                UiMessage.info("nclskins.gallery.title"),
-                width,
-                height,
-                panels,
-                texts,
-                widgets,
-                previews,
-                scrollbar,
-                List.of(),
-                Optional.empty(),
-                List.of(AppearanceCollections.clip(
-                        "gallery.cards",
-                        cardViewport,
-                        List.of("gallery.card.", "gallery.add", "gallery.preset."))),
-                List.of(),
-                iconDecorations,
-                List.of(new ViewSpec.ScrollSurface(
-                        "gallery.cards",
-                        cardViewport,
-                        ViewSpec.Scrollbar.Orientation.HORIZONTAL,
-                        visualOffset,
-                        maximum)),
-                List.of(),
-                progressDecorations).withNavigationNodes(navigationNodes);
-    }
-
-    public String normalizeSelectedCardId(
-            ClientSnapshot snapshot, String query, String selectedCardId) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        List<GalleryCard> available = cards(snapshot, Objects.requireNonNull(query, "query"));
-        if (selectedCardId != null
-                && available.stream().anyMatch(card -> card.anchorId().equals(selectedCardId))) {
-            return selectedCardId;
-        }
-        if (selectedCardId == null) {
-            Optional<String> active = snapshot.activePresetId()
-                    .map(id -> "gallery.card." + id)
-                    .filter(id -> available.stream().anyMatch(card -> card.anchorId().equals(id)));
-            if (active.isPresent()) {
-                return active.orElseThrow();
-            }
-            return "gallery.add";
-        }
-        return available.stream()
-                .filter(card -> card.preset().isPresent())
-                .map(GalleryCard::anchorId)
-                .findFirst()
-                .orElse("gallery.add");
-    }
-
-    public List<String> cardIds(ClientSnapshot snapshot, String query) {
-        return cards(snapshot, Objects.requireNonNull(query, "query")).stream()
-                .map(GalleryCard::anchorId)
-                .toList();
-    }
-
-    public List<String> cardIds(
-            Optional<AccountState> account, Optional<UUID> activePresetId, String query) {
-        return cards(
-                        Objects.requireNonNull(account, "account"),
-                        Objects.requireNonNull(activePresetId, "activePresetId"),
-                        Objects.requireNonNull(query, "query"))
-                .stream()
-                .map(GalleryCard::anchorId)
-                .toList();
-    }
-
-    private static List<ViewSpec.NavigationNode> galleryNavigationNodes(
-            List<GalleryCard> cards,
-            String selectedCardId,
-            int stripStart,
-            int cardStep,
-            GalleryLayout layout,
-            List<ViewSpec.Widget> widgets,
-            Optional<RecoveryWidget> recovery,
-            boolean cardsEnabled) {
-        List<ViewSpec.NavigationNode> nodes = new ArrayList<>();
-        int tabOrder = 0;
-        if (recovery.isPresent()) {
-            ViewSpec.Widget widget = widgets.stream()
-                    .filter(candidate -> candidate.id().equals(recovery.orElseThrow().widgetId()))
-                    .findFirst()
-                    .orElseThrow();
-            nodes.add(ViewSpec.NavigationNode.control(widget, 0, tabOrder++));
-        }
-        ViewSpec.Widget search = widgets.stream()
-                .filter(widget -> widget.id().equals("gallery.search"))
-                .findFirst()
-                .orElseThrow();
-        nodes.add(ViewSpec.NavigationNode.control(search, 1, tabOrder++));
-
-        ViewSpec.NavigationNode selected = null;
-        for (int index = 0; index < cards.size(); index++) {
-            GalleryCard card = cards.get(index);
-            Bounds bounds = new Bounds(
-                    stripStart + index * cardStep,
-                    layout.cardTop(),
-                    layout.cardWidth(),
-                    layout.cardHeight());
-            ViewSpec.NavigationNode node = AppearanceCollections.navigation(
-                    card.anchorId(),
-                    bounds,
-                    "gallery.cards",
-                    index,
-                    card.anchorId().equals(selectedCardId) ? tabOrder : -1,
-                    cardsEnabled,
-                    ViewSpec.NavigationPattern.HORIZONTAL_LIST,
-                    card.preset().isEmpty() ? Optional.of("gallery.add") : Optional.empty());
-            nodes.add(node);
-            if (card.anchorId().equals(selectedCardId)) {
-                selected = node;
-            }
-        }
-        if (selected != null) {
-            tabOrder++;
-        }
-        String selectedActionPrefix = selectedCardId.startsWith("gallery.card.")
-                ? "gallery.preset." + selectedCardId.substring("gallery.card.".length()) + "."
-                : "";
-        int documentOrder = cards.size() + 2;
-        if (!selectedActionPrefix.isEmpty()) {
-            for (ViewSpec.Widget widget : widgets) {
-                if (widget.id().startsWith(selectedActionPrefix)) {
-                    nodes.add(ViewSpec.NavigationNode.control(widget, documentOrder++, tabOrder++));
+                var preset = entry.preset().orElseThrow();
+                boolean menu = controls.actionPresetId().filter(preset.id()::equals).isPresent()
+                        || deleting.filter(preset.id()::equals).isPresent();
+                nodes.add(AppearanceCollections.navigation(entry.id(), b, "gallery.cards", nodes.size(),
+                        tab++, !s.busy() && s.account().isPresent() && deleting.isEmpty() && !menu,
+                        ViewSpec.NavigationPattern.GRID, Optional.of(entry.id())));
+                if (visible) {
+                    var chrome = AppearanceCard.chrome(entry.id(), entry.id(), b, ViewSpec.WidgetKind.CATALOG_CARD,
+                            UiMessage.literal(preset.name(), UiMessage.Severity.INFO), draft.selectedPresetId().filter(preset.id()::equals).isPresent() ? Optional.of(s.activePresetId().filter(preset.id()::equals).isPresent() ? "active" : "selected")
+                                    : s.activePresetId().filter(preset.id()::equals).isPresent() ? Optional.of("active") : menu ? Optional.of("menu") : Optional.empty(), !s.busy() && deleting.isEmpty() && !menu);
+                    panels.add(chrome.surface());
+                    panels.add(new ViewSpec.Panel("gallery.preset."+preset.id()+".namebar",
+                            menu ? new Bounds(b.x()+2,b.y()+2,b.width()-4,b.height()-4)
+                                    : new Bounds(b.x(),b.bottom()-16,b.width(),16),ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR));
+                    int clipLeft=Math.max(b.x(),g.viewport().x()), clipTop=Math.max(b.y(),g.viewport().y());
+                    cardClips.add(AppearanceCollections.clip("gallery.preset."+preset.id()+".preview.clip",
+                            new Bounds(clipLeft,clipTop,Math.min(b.right(),g.viewport().right())-clipLeft,
+                                    Math.min(b.bottom(),g.viewport().bottom())-clipTop),List.of("gallery.preset."+preset.id()+".preview")));
+                    widgets.add(menu ? chrome.widget().withActivation(false, null) : chrome.widget());
+                    addCard(s, preset, b, variant, controls.transform().capeMode(), menu, texts, widgets, previews);
+                    if (menu)
+                        cardActions(s,preset,b,deleting.filter(preset.id()::equals).isPresent(),texts,widgets);
+                }
+                var children = new ArrayList<ViewSpec.Widget>();
+                addCard(s,preset,b,variant,controls.transform().capeMode(),menu,new ArrayList<>(),children,new ArrayList<>());
+                if (menu) cardActions(s,preset,b,deleting.filter(preset.id()::equals).isPresent(),new ArrayList<>(),children);
+                for (var widget : children) {
+                    var control = ViewSpec.NavigationNode.control(widget,nodes.size(),tab++);
+                    nodes.add(new ViewSpec.NavigationNode(control.id(),control.bounds(),Optional.of("gallery.cards"),
+                            control.documentOrder(),control.tabOrder(),control.enabled(),control.pattern(),control.activationActionId()));
                 }
             }
         }
-        ViewSpec.Widget done = widgets.stream()
-                .filter(widget -> widget.id().equals("gallery.done"))
-                .findFirst()
-                .orElseThrow();
-        nodes.add(ViewSpec.NavigationNode.control(done, documentOrder++, tabOrder++));
-        ViewSpec.Widget providers = widgets.stream().filter(widget -> widget.id().equals("gallery.providers")).findFirst().orElseThrow();
-        nodes.add(ViewSpec.NavigationNode.control(providers, nodes.size(), tabOrder));
-        return List.copyOf(nodes);
+        for (var widget : widgets) if (widget.id().startsWith("gallery.outer_layer.") || widget.id().startsWith("gallery.inspect.")
+                || widget.id().equals("gallery.preview_mode") || widget.id().equals("gallery.preview.compatibility")) {
+            var node=ViewSpec.NavigationNode.control(widget,nodes.size(),tab++);
+            nodes.add(new ViewSpec.NavigationNode(node.id(),node.bounds(),Optional.of("gallery.stage"),node.documentOrder(),node.tabOrder(),node.enabled(),node.pattern(),node.activationActionId()));
+        }
+        tab = addControl(nodes, widgets, "gallery.providers", tab);
+        for(String id : List.of("gallery.done","gallery.apply","gallery.back","gallery.reset")) tab=addControl(nodes,widgets,id,tab);
+        Bounds track = new Bounds(w-6, g.viewport().y(), 6, g.viewport().height());
+        int thumbHeight = maximum == 0 ? track.height() : Math.min(track.height(), Math.max(12,
+                (int)(track.height() * track.height() / (track.height() + maximum))));
+        Bounds thumb = new Bounds(track.x(), track.y() + (maximum == 0 ? 0 : (int)Math.round((track.height()-thumbHeight)*offset/maximum)), track.width(), thumbHeight);
+        cardClips.add(AppearanceCollections.clip("gallery.cards", g.viewport(),
+                List.of("gallery.card.", "gallery.preset.", "gallery.favorites", "gallery.your_appearances")));
+        cardClips.add(AppearanceCollections.clip("gallery.stage",lowerViewport,List.of("gallery.layers","gallery.outer_layer.","gallery.capes","gallery.inspect.")));
+        return new ViewSpec("gallery", UiMessage.info("nclskins.gallery.title"), w, h, panels, texts, widgets, previews,
+                Optional.of(new ViewSpec.Scrollbar(track, thumb, (int)Math.round(offset), (int)maximum, ViewSpec.Scrollbar.Orientation.VERTICAL)),
+                List.of(), Optional.empty(), cardClips, equipment, decorations,
+                List.of(new ViewSpec.ScrollSurface("gallery.cards", g.viewport(), ViewSpec.Scrollbar.Orientation.VERTICAL, offset, maximum),
+                        new ViewSpec.ScrollSurface("gallery.stage",lowerViewport,ViewSpec.Scrollbar.Orientation.VERTICAL,Math.min(controls.leftScroll(),leftMaximum),leftMaximum)),
+                List.of(), rateLimitProgressDecorations(s, widgets)).withNavigationNodes(nodes);
     }
 
-    public int maximumScroll(ClientSnapshot snapshot, int width, int height, String query) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        int cardCount = cards(snapshot, Objects.requireNonNull(query, "query")).size();
-        GalleryLayout layout = layout(width, height);
-        return maximumPixels(
-                contentWidth(cardCount, layout.cardWidth()), layout.endpointWidth());
+    private static void addCard(ClientSnapshot s, AppearancePreset p, Bounds b, SkinVariant variant,
+                                PreviewRenderer.CapeMode mode, boolean menu, List<ViewSpec.Text> texts,
+                                List<ViewSpec.Widget> widgets, List<ViewSpec.Preview> previews) {
+        String prefix = "gallery.preset." + p.id();
+        var cape = cape(s, p);
+        if (!menu) previews.add(new AppearanceCard.Skin(p.skin(), revision(p), variantFor(s.account().orElseThrow(), p, variant),
+                cape, cape.isPresent() ? mode : PreviewRenderer.CapeMode.OFF, p.outerLayerVisibility(), -25, 0, 0.88F,
+                Optional.of(p.id()), Optional.empty(), Optional.empty(), PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL,
+                p.offlineCape() == null || p.offlineCape().hasElytra()).present(prefix + ".preview", b));
+        int barTop = menu ? b.y() : b.bottom()-16;
+        int nameTop=barTop+(menu ? 5 : 4);
+        texts.add(new ViewSpec.Text(prefix + ".name", new Bounds(b.x()+4,nameTop,b.width()-18,10),
+                UiMessage.literal(p.name(), UiMessage.Severity.INFO), ViewSpec.Text.Alignment.LEFT,
+                Optional.of(new ViewSpec.MarqueeActivation(b, List.of("gallery.card."+p.id(),prefix+".more"),
+                        Optional.of(new Bounds(b.x(),nameTop,b.width()-14,10))))));
+        widgets.add(new ViewSpec.Widget(prefix + ".more", ViewSpec.WidgetKind.TRANSPARENT_BUTTON,
+                new Bounds(b.x(),barTop,b.width(),16), UiMessage.info("nclskins.gallery.actions"),
+                Optional.of(menu ? "down" : "up"), Optional.empty(), !s.busy(), true, 0));
+        var compatibility = s.compatibilityFor(p);
+        if (!menu && compatibility.status() != SkinCompatibilityStatus.ORDINARY)
+            widgets.add(ViewSpec.Widget.compatibilityIndicator(prefix + ".compatibility", new Bounds(b.x(),b.y()+2,20,20),
+                    CompatibilityMessages.accessibleLabel(compatibility), CompatibilityMessages.icon(compatibility)));
     }
 
-    double initialScrollPosition(
-            Optional<AccountState> account,
-            Optional<UUID> activePresetId,
-            String query,
-            int width,
-            int height) {
-        List<GalleryCard> cards = cards(
-                Objects.requireNonNull(account, "account"),
-                Objects.requireNonNull(activePresetId, "activePresetId"),
-                Objects.requireNonNull(query, "query"));
-        GalleryLayout layout = layout(width, height);
-        int cardStep = layout.cardWidth() + CARD_GAP;
-        int maximum = maximumPixels(
-                contentWidth(cards.size(), layout.cardWidth()), layout.endpointWidth());
-        for (int index = 0; index < cards.size(); index++) {
-            if (cards.get(index).preset()
-                    .map(AppearancePreset::id)
-                    .filter(id -> activePresetId.filter(id::equals).isPresent())
-                    .isPresent()) {
-                int trailing = index * cardStep + layout.cardWidth();
-                return Math.max(0, Math.min(maximum, trailing - layout.viewport().width()));
+    private static void cardActions(ClientSnapshot s,AppearancePreset p,Bounds b,boolean deleting,List<ViewSpec.Text> texts,List<ViewSpec.Widget> widgets) {
+        String prefix="gallery.preset."+p.id();
+        int x=b.x()+2;int y=b.bottom()-44;
+        int leftWidth=(b.width()-6)/2;
+        int rightX=x+leftWidth+2;
+        int rightWidth=b.right()-2-rightX;
+        if(deleting) {
+            int promptTop = (b.y()+16+y-20)/2;
+            texts.add(new ViewSpec.Text(prefix+".confirmation",new Bounds(b.x()+2,promptTop,b.width()-4,20),
+                    UiMessage.info("nclskins.gallery.delete_confirmation"),ViewSpec.Text.Alignment.CENTER,ViewSpec.Text.Layout.WRAP));
+            widgets.add(ViewSpec.Widget.button(prefix+".delete_confirm",new Bounds(b.x()+2,y,b.width()-4,20),UiMessage.info("nclskins.gallery.delete"),!s.busy()));
+            widgets.add(ViewSpec.Widget.button(prefix+".delete_cancel",new Bounds(b.x()+2,y+22,b.width()-4,20),UiMessage.info("gui.cancel"),!s.busy()));
+        } else {
+            widgets.add(ViewSpec.Widget.button(prefix+".favorite",new Bounds(x,y,leftWidth,20),UiMessage.literal(p.favorite() ? "★" : "☆",UiMessage.Severity.INFO),
+                    Optional.of(UiMessage.info(p.favorite() ? "nclskins.gallery.unfavorite" : "nclskins.gallery.favorite")),!s.busy()));
+            widgets.add(ViewSpec.Widget.iconButton(prefix+".edit",new Bounds(rightX,y,rightWidth,20),UiMessage.info("nclskins.gallery.edit"),GuiIcon.ACTION_EDIT,!s.busy()));
+            widgets.add(ViewSpec.Widget.iconButton(prefix+".duplicate",new Bounds(x,y+22,leftWidth,20),UiMessage.info("nclskins.gallery.duplicate"),GuiIcon.ACTION_DUPLICATE,!s.busy()));
+            widgets.add(ViewSpec.Widget.iconButton(prefix+".delete",new Bounds(rightX,y+22,rightWidth,20),UiMessage.info("nclskins.gallery.delete"),GuiIcon.ACTION_DELETE,!s.busy()));
+        }
+    }
+
+    private static int addControl(List<ViewSpec.NavigationNode> nodes, List<ViewSpec.Widget> widgets, String id, int tab) {
+        var widget = widgets.stream().filter(w -> w.id().equals(id)).findFirst();
+        if (widget.isPresent()) nodes.add(ViewSpec.NavigationNode.control(widget.orElseThrow(), nodes.size(), tab++));
+        return tab;
+    }
+
+    static PlayerAppearanceStage.Appearance mainAppearance(ClientSnapshot s, DraftInput draft,
+            SkinVariant variant, List<CapeChoice> capes, boolean nativePresent, boolean nativeElytra) {
+        var selected = s.account().stream().flatMap(a -> a.presets().stream())
+                .filter(p -> draft.selectedPresetId().filter(p.id()::equals).isPresent()).findFirst();
+        var inspection = capes.stream().filter(c -> draft.inspectionIdentity().filter(c.id()::equals).isPresent()).findFirst();
+        var winner = capes.stream().filter(c -> c.texture().isPresent()).findFirst();
+        boolean nativeWinner = nativeAccessories(s, draft, capes, nativePresent);
+        var selectedCape = draft.inspectionIdentity().isPresent() ? inspection.flatMap(CapeChoice::texture)
+                : nativeWinner ? Optional.<String>empty() : winner.flatMap(CapeChoice::texture)
+                        .or(() -> capes.isEmpty() ? selected.flatMap(p -> cape(s, p)) : Optional.empty());
+        return new PlayerAppearanceStage.Appearance(selected.map(AppearancePreset::skin)
+                .orElse(com.naocraftlab.skins.core.model.SkinReference.accountDefault()),
+                selected.map(GalleryPresenter::revision).orElse("current-player"),
+                selected.map(p -> variantFor(s.account().orElseThrow(), p, variant)).orElse(variant),
+                selectedCape, selected.map(AppearancePreset::id), Optional.empty(), nativeWinner ? nativeElytra : inspection.or(() -> winner).map(CapeChoice::hasElytra)
+                        .orElseGet(() -> selected.map(p -> p.offlineCape() == null || p.offlineCape().hasElytra()).orElse(true)),
+                PreviewRenderer.PreviewIntent.EDITOR_DRAFT);
+    }
+
+    static boolean nativeAccessories(ClientSnapshot s, DraftInput draft, List<CapeChoice> capes, boolean nativePresent) {
+        if (!nativePresent || !s.providers().cape().enabled(com.naocraftlab.skins.core.provider.BuiltinProvider.CPM)) return false;
+        if (draft.inspectionIdentity().isPresent()) return draft.inspectionIdentity().filter("CPM"::equals).isPresent();
+        var order = s.providers().cape().order();
+        int nativePriority = order.indexOf(com.naocraftlab.skins.core.provider.BuiltinProvider.CPM);
+        if (nativePriority < 0) return false;
+        var winner = capes.stream().filter(c -> c.texture().isPresent()).findFirst();
+        if (winner.isPresent()) return nativePriority < order.stream().map(Enum::name).toList().indexOf(winner.orElseThrow().id());
+        return s.account().stream().flatMap(a -> a.presets().stream())
+                .filter(p -> draft.selectedPresetId().filter(p.id()::equals).isPresent()).findFirst().flatMap(p -> cape(s, p)).isEmpty();
+    }
+
+    private static String revision(AppearancePreset p) { return p.skin().optionalAssetId().map(id -> "asset:"+id).orElse("provider:default"); }
+
+    private static Optional<String> cape(ClientSnapshot s, AppearancePreset p) {
+        for (var provider : s.providers().cape().order()) {
+            if (!s.providers().cape().enabled(provider)) continue;
+            if (provider == com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE && p.offlineCape()!=null)
+                return Optional.of("provider:cape:"+p.offlineCape().sha256());
+            if (provider == com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT && p.capeId()!=null) return p.optionalCapeId();
+        }
+        return Optional.empty();
+    }
+
+    private static DraftInput defaultDraft(ClientSnapshot s) {
+        var mask = s.account().stream().flatMap(a -> a.presets().stream()).filter(p -> s.activePresetId().filter(p.id()::equals).isPresent())
+                .findFirst().map(AppearancePreset::outerLayerVisibility).orElse(com.naocraftlab.skins.client.OuterLayerVisibility.allVisible());
+        return new DraftInput(s.activePresetId(), mask, mask, 0, Optional.empty(), java.util.Set.of(), Optional.empty(), PreviewRenderer.DisplayKind.UNCONFIRMED);
+    }
+
+    private static boolean collapsed(DraftInput d, String id) {
+        return d.collapsedSections().contains(id) && !d.temporarilyRevealedSection().filter(id::equals).isPresent();
+    }
+
+    private static boolean hasFavorites(Optional<AccountState> account) {
+        return account.stream().flatMap(a -> a.presets().stream()).anyMatch(AppearancePreset::favorite);
+    }
+
+    private static List<AppearancePreset> ordered(Optional<AccountState> account, String query) {
+        String q = Objects.requireNonNull(query,"query").trim().toLowerCase(java.util.Locale.ROOT);
+        return PresetGalleryOrder.arrange(account.stream().flatMap(a -> a.presets().stream())
+                .filter(p -> p.name().toLowerCase(java.util.Locale.ROOT).contains(q)).toList());
+    }
+
+    private static List<Entry> positioned(ClientSnapshot s, String query, DraftInput draft, Geometry g) {
+        var presets = ordered(s.account(), query).stream().filter(p -> !s.hideIncompatibleGalleryLooks()
+                || s.activePresetId().filter(p.id()::equals).isPresent() || s.compatibilityFor(p).status()!=SkinCompatibilityStatus.INCOMPATIBLE).toList();
+        var entries = new ArrayList<Entry>();
+        int y = 2;
+        boolean sections = hasFavorites(s.account());
+        for (boolean favorite : sections ? List.of(true,false) : List.of(false)) {
+            var group = presets.stream().filter(p -> !sections || p.favorite()==favorite).toList();
+            if (sections) {
+                if (group.isEmpty() && !query.isBlank()) continue;
+                String id = favorite ? "gallery.favorites" : "gallery.your_appearances";
+                entries.add(new Entry(id,Optional.empty(),new Bounds(0,y,g.viewport().width(),CollectionGridLayout.COLLECTION_HEADER_HEIGHT)));
+                y += CollectionGridLayout.COLLECTION_HEADER_HEIGHT+2;
+                if (collapsed(draft,id)) continue;
+            }
+            for (int i=0;i<group.size();i++) {
+                var p = group.get(i);
+                entries.add(new Entry("gallery.card."+p.id(),Optional.of(p),AppearanceCollections.gridCard(i,g.columns(),0,y,g.cardWidth(),CARD_HEIGHT,2)));
+            }
+            y += ((group.size()+g.columns()-1)/g.columns())*(CARD_HEIGHT+2);
+        }
+        return List.copyOf(entries);
+    }
+
+    private static int contentHeight(List<Entry> entries) { return entries.stream().mapToInt(e -> e.bounds().bottom()).max().orElse(0); }
+    private static String normalizeAnchor(List<Entry> entries, String anchor) {
+        if (anchor!=null && entries.stream().anyMatch(e -> e.id().equals(anchor))) return anchor;
+        return entries.stream().filter(e -> e.preset().isPresent()).map(Entry::id).findFirst().orElse("gallery.add");
+    }
+    public String normalizeSelectedCardId(ClientSnapshot s,String query,String anchor) {
+        return normalizeAnchor(positioned(s,query,defaultDraft(s),geometry(854,480)),
+                anchor == null ? s.activePresetId().map(id -> "gallery.card."+id).orElse(null) : anchor);
+    }
+    public String normalizeSelectedCardId(ClientSnapshot s, String query, String anchor, DraftInput draft) {
+        var entries=positioned(s,query,draft,geometry(854,480));
+        if(anchor!=null && entries.stream().anyMatch(e->e.id().equals(anchor))) return anchor;
+        if(anchor!=null && anchor.startsWith("gallery.card.")) {
+            var hidden=s.account().stream().flatMap(a->a.presets().stream()).filter(p->anchor.equals("gallery.card."+p.id())).findFirst();
+            if(hidden.isPresent()) {
+                String section=hidden.orElseThrow().favorite() ? "gallery.favorites" : "gallery.your_appearances";
+                if(entries.stream().anyMatch(e->e.id().equals(section)) && collapsed(draft,section)) return section;
             }
         }
-        return 0.0;
+        return normalizeAnchor(entries,anchor);
     }
 
-    public int offsetFromScrollbar(
-            ClientSnapshot snapshot,
-            int width,
-            int height,
-            String query,
-            double desiredThumbLeft) {
-        return (int) Math.round(positionFromScrollbar(
-                snapshot, width, height, query, desiredThumbLeft));
+    public List<String> cardIds(ClientSnapshot s, String query, DraftInput draft) {
+        return positioned(s,query,draft,geometry(854,480)).stream().filter(e->e.preset().isPresent()).map(Entry::id).toList();
     }
 
-    public double positionFromScrollbar(
-            ClientSnapshot snapshot,
-            int width,
-            int height,
-            String query,
-            double desiredThumbLeft) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        int cardCount = cards(snapshot, query).size();
-        GalleryLayout layout = layout(width, height);
-        int contentWidth = contentWidth(cardCount, layout.cardWidth());
-        int maximum = maximumPixels(contentWidth, layout.endpointWidth());
-        if (maximum == 0) {
-            return 0.0;
+    public List<String> cardIds(ClientSnapshot s,String query) {
+        return positioned(s,query,defaultDraft(s),geometry(854,480)).stream().filter(e -> e.preset().isPresent()).map(Entry::id).toList();
+    }
+    public List<String> cardIds(Optional<AccountState> account,Optional<UUID> active,String query) {
+        var sorted=ordered(account,query);
+        return sorted.stream().sorted(java.util.Comparator.comparing(AppearancePreset::favorite).reversed())
+                .map(p -> "gallery.card."+p.id()).toList();
+    }
+    public int matchingPresetCount(ClientSnapshot s,String query) { return ordered(s.account(),query).size(); }
+    public int maximumScroll(ClientSnapshot s,int w,int h,String query) { return maximumScroll(s,w,h,query,defaultDraft(s)); }
+    public int maximumScroll(ClientSnapshot s,int w,int h,String query,DraftInput draft) {
+        Geometry g=geometry(w,h);return Math.max(0,contentHeight(positioned(s,query,draft,g))-g.viewport().height()+2);
+    }
+    double initialScrollPosition(Optional<AccountState> account,Optional<UUID> active,String query,int w,int h) {
+        Geometry g=geometry(w,h);var sorted=ordered(account,query);
+        if (active.isEmpty()) return 0;
+        boolean sections=hasFavorites(account);int y=2;
+        for (boolean favorite : sections ? List.of(true,false) : List.of(false)) {
+            var group=sorted.stream().filter(p -> !sections || p.favorite()==favorite).toList();
+            if (sections && group.isEmpty() && !query.isBlank()) continue;
+            if (sections) y+=CollectionGridLayout.COLLECTION_HEADER_HEIGHT+2;
+            for(int i=0;i<group.size();i++) if(active.filter(group.get(i).id()::equals).isPresent())
+                return Math.max(0,y+(i/g.columns())*98+CARD_HEIGHT+2-g.viewport().height());
+            y+=((group.size()+g.columns()-1)/g.columns())*98;
         }
-        int trackLeft = 40;
-        int trackRight = Math.max(trackLeft + 1, width - 40);
-        int thumbWidth = thumbWidth(
-                trackRight - trackLeft, layout.endpointWidth(), contentWidth);
-        int travel = Math.max(1, trackRight - trackLeft - thumbWidth);
-        double normalized = Math.max(0.0, Math.min(1.0, (desiredThumbLeft - trackLeft) / travel));
-        return normalized * maximum;
+        return 0;
     }
-
-    private static void addPresetCard(
-            ClientSnapshot snapshot,
-            AppearancePreset preset,
-            int x,
-            int top,
-            int bottom,
-            int cardWidth,
-            int mouseX,
-            int mouseY,
-            PreviewRenderer.CapeMode capeMode,
-            SkinVariant currentPlayerVariant,
-            boolean confirmingDelete,
-            boolean interactionLocked,
-            Bounds actionViewport,
-            List<ViewSpec.Text> texts,
-            List<ViewSpec.Widget> widgets,
-            List<ViewSpec.Preview> previews,
-            List<ViewSpec.IconDecoration> iconDecorations) {
-        String prefix = "gallery.preset." + preset.id();
-        boolean active = snapshot.activePresetId().filter(preset.id()::equals).isPresent();
-        SkinCompatibility compatibility = snapshot.compatibilityFor(preset);
-        boolean hasCompatibility = compatibility.status() != SkinCompatibilityStatus.ORDINARY;
-        texts.add(AppearanceCard.name(prefix + ".name",
-                new Bounds(x + 8, top + 8, Math.max(1, cardWidth - 16), 10),
-                UiMessage.literal(preset.name(), UiMessage.Severity.INFO),
-                new Bounds(x, top, cardWidth, Math.max(1, bottom - top)),
-                List.of(prefix + ".apply", prefix + ".edit", prefix + ".duplicate", prefix + ".delete",
-                        prefix + ".delete_confirm", prefix + ".delete_cancel")));
-        int innerWidth = cardWidth;
-        int applyRow = bottom - CARD_ACTION_BOTTOM_INSET - ACTION_HEIGHT;
-        int secondaryRow = !confirmingDelete && cardWidth < ONE_ROW_ACTION_MIN_WIDTH
-                ? applyRow - CARD_ACTION_GAP - ACTION_HEIGHT
-                : applyRow;
-        int previewTop = top + 20;
-        int previewBottom = (confirmingDelete ? applyRow : secondaryRow) - PREVIEW_ACTION_GAP;
-        float centerX = x + cardWidth / 2.0F;
-        float centerY = previewTop + (previewBottom - previewTop) * 0.38F;
-        float yaw = Math.max(-28.0F, Math.min(28.0F, (mouseX - centerX) * 0.22F));
-        float pitch = Math.max(-16.0F, Math.min(16.0F, (centerY - mouseY) * 0.16F));
-        SkinVariant variant = variantFor(snapshot.account().orElseThrow(), preset, currentPlayerVariant);
-        Optional<String> capeId = Optional.empty();
-        boolean hasElytra = true;
-        for (var provider : snapshot.providers().cape().order()) {
-            if (provider == com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE && preset.offlineCape() != null) {
-                capeId = Optional.of("provider:cape:" + preset.offlineCape().sha256());
-                hasElytra = preset.offlineCape().hasElytra();
-                break;
-            }
-            if (provider == com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT && preset.capeId() != null) {
-                capeId = preset.optionalCapeId();
-                break;
-            }
-        }
-        previews.add(new AppearanceCard.Skin(preset.skin(),
-                preset.skin().optionalAssetId().map(id -> "asset:" + id).orElse("current-player"), variant,
-                capeId, capeId.isPresent() ? capeMode : PreviewRenderer.CapeMode.OFF, preset.outerLayerVisibility(),
-                yaw, pitch, 0.88F, Optional.of(preset.id()), Optional.empty(), Optional.empty(),
-                PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL, hasElytra)
-                .present(prefix + ".preview", new Bounds(x + 8, previewTop, Math.max(1, cardWidth - 16), Math.max(1, previewBottom - previewTop))));
-
-        if (hasCompatibility) {
-            String indicatorId = prefix + ".compatibility";
-            int indicatorBottom = (confirmingDelete ? applyRow : secondaryRow) - 2;
-            widgets.add(AppearanceCard.compatibility(indicatorId,
-                    new Bounds(x, top, cardWidth, Math.max(1, bottom - top)), indicatorBottom, compatibility));
-        }
-
-        if (confirmingDelete) {
-            int confirmationX = x + CARD_ACTION_SIDE_INSET;
-            int confirmationWidth = innerWidth - CARD_ACTION_SIDE_INSET * 2;
-            int leftWidth = Math.max(1, (confirmationWidth - CARD_ACTION_GAP) / 2);
-            addIntersectingAction(widgets, ViewSpec.Widget.button(
-                    prefix + ".delete_confirm",
-                    new Bounds(confirmationX, applyRow, leftWidth, ACTION_HEIGHT),
-                    UiMessage.info("nclskins.gallery.delete"),
-                    !snapshot.busy()), actionViewport);
-            addIntersectingAction(widgets, ViewSpec.Widget.button(
-                    prefix + ".delete_cancel",
-                    new Bounds(
-                            confirmationX + leftWidth + CARD_ACTION_GAP,
-                            applyRow,
-                            confirmationWidth - leftWidth - CARD_ACTION_GAP,
-                            ACTION_HEIGHT),
-                    UiMessage.info("gui.cancel"),
-                    !snapshot.busy()), actionViewport);
-            return;
-        }
-        int actionX = x + CARD_ACTION_SIDE_INSET;
-        int actionWidth = innerWidth - CARD_ACTION_SIDE_INSET * 2;
-        if (cardWidth < ONE_ROW_ACTION_MIN_WIDTH) {
-            addTwoRowActions(
-                    snapshot,
-                    prefix,
-                    active,
-                    actionX,
-                    actionWidth,
-                    secondaryRow,
-                    applyRow,
-                    actionViewport,
-                    interactionLocked,
-                    widgets);
-            return;
-        }
-        int applyWidth = actionWidth - ACTION_HEIGHT * 3 - CARD_ACTION_GAP * 3;
-        addIntersectingAction(widgets, ViewSpec.Widget.button(
-                prefix + ".apply",
-                new Bounds(actionX, applyRow, applyWidth, ACTION_HEIGHT),
-                active
-                        ? UiMessage.info("nclskins.gallery.active")
-                        : UiMessage.info("nclskins.gallery.apply"),
-                rateLimitHint(snapshot, active),
-                !snapshot.busy()
-                        && !interactionLocked
-                        && (!active || rateLimitedPending(snapshot) || snapshot.syncStatus() == AppearanceSyncStatus.UNKNOWN || snapshot.syncStatus() == AppearanceSyncStatus.PARTIAL)), actionViewport);
-        int editX = actionX + applyWidth + CARD_ACTION_GAP;
-        addIntersectingAction(widgets, compactIconAction(
-                prefix + ".edit",
-                new Bounds(editX, applyRow, ACTION_HEIGHT, ACTION_HEIGHT),
-                GuiIcon.ACTION_EDIT,
-                UiMessage.info("nclskins.gallery.edit"),
-                !snapshot.busy() && !interactionLocked), actionViewport);
-        addIntersectingAction(widgets, compactIconAction(
-                prefix + ".duplicate",
-                new Bounds(
-                        editX + ACTION_HEIGHT + CARD_ACTION_GAP,
-                        applyRow,
-                        ACTION_HEIGHT,
-                        ACTION_HEIGHT),
-                GuiIcon.ACTION_DUPLICATE,
-                UiMessage.info("nclskins.gallery.duplicate"),
-                !snapshot.busy() && !interactionLocked), actionViewport);
-        addIntersectingAction(widgets, compactIconAction(
-                prefix + ".delete",
-                new Bounds(
-                        editX + (ACTION_HEIGHT + CARD_ACTION_GAP) * 2,
-                        applyRow,
-                        ACTION_HEIGHT,
-                        ACTION_HEIGHT),
-                GuiIcon.ACTION_DELETE,
-                UiMessage.info("nclskins.gallery.delete"),
-                !snapshot.busy() && !interactionLocked), actionViewport);
+    public int offsetFromScrollbar(ClientSnapshot s,int w,int h,String query,double thumbTop) {
+        return (int)Math.round(positionFromScrollbar(s,w,h,query,thumbTop));
     }
-
-    private static void addTwoRowActions(
-            ClientSnapshot snapshot,
-            String prefix,
-            boolean active,
-            int x,
-            int innerWidth,
-            int secondaryRow,
-            int applyRow,
-            Bounds actionViewport,
-            boolean interactionLocked,
-            List<ViewSpec.Widget> widgets) {
-        int availableSecondaryWidth = innerWidth - CARD_ACTION_GAP * 2;
-        int outerWidth = availableSecondaryWidth / 3;
-        int middleWidth = availableSecondaryWidth - outerWidth * 2;
-        int editX = x;
-        int duplicateX = editX + outerWidth + CARD_ACTION_GAP;
-        int deleteX = duplicateX + middleWidth + CARD_ACTION_GAP;
-        addIntersectingAction(widgets, ViewSpec.Widget.button(
-                prefix + ".apply",
-                new Bounds(x, applyRow, innerWidth, ACTION_HEIGHT),
-                active
-                        ? UiMessage.info("nclskins.gallery.active")
-                        : UiMessage.info("nclskins.gallery.apply"),
-                rateLimitHint(snapshot, active),
-                !snapshot.busy()
-                        && !interactionLocked
-                        && (!active || rateLimitedPending(snapshot) || snapshot.syncStatus() == AppearanceSyncStatus.UNKNOWN || snapshot.syncStatus() == AppearanceSyncStatus.PARTIAL)), actionViewport);
-        addIntersectingAction(widgets, compactIconAction(
-                prefix + ".edit",
-                new Bounds(editX, secondaryRow, outerWidth, ACTION_HEIGHT),
-                GuiIcon.ACTION_EDIT,
-                UiMessage.info("nclskins.gallery.edit"),
-                !snapshot.busy() && !interactionLocked), actionViewport);
-        addIntersectingAction(widgets, compactIconAction(
-                prefix + ".duplicate",
-                new Bounds(duplicateX, secondaryRow, middleWidth, ACTION_HEIGHT),
-                GuiIcon.ACTION_DUPLICATE,
-                UiMessage.info("nclskins.gallery.duplicate"),
-                !snapshot.busy() && !interactionLocked), actionViewport);
-        addIntersectingAction(widgets, compactIconAction(
-                prefix + ".delete",
-                new Bounds(deleteX, secondaryRow, outerWidth, ACTION_HEIGHT),
-                GuiIcon.ACTION_DELETE,
-                UiMessage.info("nclskins.gallery.delete"),
-                !snapshot.busy() && !interactionLocked), actionViewport);
+    public double positionFromScrollbar(ClientSnapshot s,int w,int h,String query,double thumbTop) {
+        return positionFromScrollbar(s,w,h,query,thumbTop,defaultDraft(s));
     }
-
-    private static void addIntersectingAction(
-            List<ViewSpec.Widget> widgets, ViewSpec.Widget widget, Bounds viewport) {
-        if (AppearanceCollections.intersects(widget.bounds(), viewport)) {
-            widgets.add(widget);
-        }
+    double positionFromScrollbar(ClientSnapshot s,int w,int h,String query,double thumbTop,DraftInput draft) {
+        ViewSpec view=present(s,w,h,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,query,Optional.empty(),0,null,draft);
+        var bar=view.scrollbar().orElseThrow();int travel=bar.track().height()-bar.thumb().height();
+        return travel<=0 ? 0 : Math.max(0,Math.min(1,(thumbTop-bar.track().y())/travel))*bar.maximum();
     }
-
-    private static ViewSpec.Widget compactIconAction(
-            String id, Bounds bounds, GuiIcon icon, UiMessage accessibleLabel, boolean enabled) {
-        return ViewSpec.Widget.iconButton(id, bounds, accessibleLabel, icon, enabled);
+    private static Geometry geometry(int w,int h) {
+        if(w<=0 || h<=0) throw new IllegalArgumentException("view dimensions must be positive");
+        int oldLeft=Math.min(Math.max(64,(h-73)/4)+6,Math.max(70,w-60));
+        int left=Math.min((int)Math.round(oldLeft*4.0/3),Math.max(70,w-60));
+        Bounds viewport=new Bounds(left+8,61,Math.max(1,w-left-16),Math.max(1,h-94));
+        int columns = Math.max(1, (viewport.width() - 2) / (CARD_WIDTH + 2));
+        int cardWidth = Math.max(CARD_WIDTH, Math.min(64, (viewport.width() - 4 - (columns - 1) * 2) / columns));
+        return new Geometry(viewport, columns, cardWidth, left);
     }
-
+    private static SkinVariant variantFor(AccountState a,AppearancePreset p,SkinVariant fallback) {
+        return p.skin().optionalAssetId().flatMap(id -> a.skinAssets().stream().filter(asset -> asset.id().equals(id)).findFirst())
+                .map(SkinAsset::variant).orElse(fallback);
+    }
+    private record Geometry(Bounds viewport,int columns,int cardWidth,int leftWidth) {}
+    private record Entry(String id,Optional<AppearancePreset> preset,Bounds bounds) {}
+    private record RecoveryWidget(String widgetId,Bounds bounds) {}
     private static Optional<RecoveryWidget> addGlobalWidgets(
             ClientSnapshot snapshot, int width, int height, List<ViewSpec.Widget> widgets) {
         int doneWidth = Math.min(200, Math.max(1, width - 32));
         widgets.add(ViewSpec.Widget.button(
                 "gallery.done",
-                new Bounds((width - doneWidth) / 2, height - 28, doneWidth, 20),
+                new Bounds((width - doneWidth) / 2, ViewChromeMetrics.STANDARD.footerRowTop(height,20), doneWidth, 20),
                 UiMessage.info("gui.done"),
                 !snapshot.busy()));
         ClientSnapshot.GallerySessionPresentation sessionPresentation =
@@ -698,31 +577,17 @@ public final class GalleryPresenter {
                         ? Optional.of(UiMessage.info("nclskins.recovery.retry_cape")) : Optional.empty();
     }
 
-    private static boolean rateLimitedPending(ClientSnapshot snapshot) {
-        if (snapshot.rateLimitProgress().isEmpty()) {
-            return false;
-        }
-        return snapshot.syncStatus() == AppearanceSyncStatus.PENDING
-                || snapshot.syncStatus() == AppearanceSyncStatus.ATTEMPTING
-                || snapshot.syncStatus() == AppearanceSyncStatus.PARTIAL;
-    }
-
     private static List<ViewSpec.ProgressDecoration> rateLimitProgressDecorations(
             ClientSnapshot snapshot, List<ViewSpec.Widget> widgets) {
         if (snapshot.rateLimitProgress().isEmpty()) {
             return List.of();
         }
         double fraction = snapshot.rateLimitProgress().orElseThrow().fraction();
-        String activeApply = rateLimitedPending(snapshot)
-                ? snapshot.activePresetId()
-                        .map(id -> "gallery.preset." + id + ".apply")
-                        .orElse(null)
-                : null;
         List<ViewSpec.ProgressDecoration> decorations = new ArrayList<>();
         for (ViewSpec.Widget widget : widgets) {
             boolean retry = widget.id().equals("gallery.retry_session")
                     || widget.id().equals("gallery.retry_cape");
-            if (!retry && !widget.id().equals(activeApply)) {
+            if (!retry && !widget.id().equals("gallery.apply")) {
                 continue;
             }
             decorations.add(new ViewSpec.ProgressDecoration(
@@ -829,176 +694,4 @@ public final class GalleryPresenter {
                 List.of());
     }
 
-    private static ViewSpec.Scrollbar scrollbar(
-            int width,
-            int y,
-            int viewportWidth,
-            int contentWidth,
-            double offset,
-            int maximum) {
-        int trackLeft = 40;
-        int trackRight = Math.max(trackLeft + 1, width - 40);
-        int trackWidth = trackRight - trackLeft;
-        int thumbWidth = maximum == 0
-                ? trackWidth
-                : thumbWidth(trackWidth, viewportWidth, contentWidth);
-        int travel = Math.max(0, trackWidth - thumbWidth);
-        int thumbLeft = maximum == 0
-                ? trackLeft
-                : trackLeft + (int) Math.round(travel * offset / maximum);
-        return new ViewSpec.Scrollbar(
-                new Bounds(trackLeft, y, trackWidth, SCROLLBAR_HEIGHT),
-                new Bounds(thumbLeft, y, thumbWidth, SCROLLBAR_HEIGHT),
-                (int) Math.round(offset),
-                maximum);
-    }
-
-    private static int thumbWidth(int trackWidth, int viewportWidth, int contentWidth) {
-        int proportional = Math.round(
-                trackWidth * Math.min(viewportWidth, contentWidth)
-                        / (float) Math.max(1, contentWidth));
-        return Math.min(trackWidth, Math.max(32, proportional));
-    }
-
-    private static int contentWidth(int cardCount, int cardWidth) {
-        long width = (long) cardCount * cardWidth
-                + (long) Math.max(0, cardCount - 1) * CARD_GAP;
-        return (int) Math.min(Integer.MAX_VALUE, width);
-    }
-
-    private static int maximumPixels(int contentWidth, int endpointWidth) {
-        return Math.max(0, contentWidth - endpointWidth);
-    }
-
-    public int matchingPresetCount(ClientSnapshot snapshot, String query) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        String normalized = Objects.requireNonNull(query, "query").trim().toLowerCase(java.util.Locale.ROOT);
-        if (normalized.isEmpty()) {
-            return snapshot.account().map(account -> account.presets().size()).orElse(0);
-        }
-        return (int) snapshot.account().stream()
-                .flatMap(account -> account.presets().stream())
-                .filter(preset -> preset.name().toLowerCase(java.util.Locale.ROOT).contains(normalized))
-                .count();
-    }
-
-    private static List<GalleryCard> cards(ClientSnapshot snapshot, String query) {
-        List<GalleryCard> cards = new ArrayList<>();
-        cards.add(new GalleryCard(Optional.empty()));
-        String normalized = query.trim().toLowerCase(java.util.Locale.ROOT);
-        snapshot.account().ifPresent(value -> PresetGalleryOrder.arrange(
-                        value.presets().stream()
-                                .filter(preset -> normalized.isEmpty()
-                                        || preset.name().toLowerCase(java.util.Locale.ROOT)
-                                                .contains(normalized))
-                                .filter(preset -> !snapshot.hideIncompatibleGalleryLooks()
-                                        || snapshot.activePresetId().filter(preset.id()::equals).isPresent()
-                                        || snapshot.compatibilityFor(preset).status()
-                                                != SkinCompatibilityStatus.INCOMPATIBLE)
-                                .toList(),
-                        snapshot.activePresetId().orElse(null))
-                .forEach(preset -> cards.add(new GalleryCard(Optional.of(preset)))));
-        return List.copyOf(cards);
-    }
-
-    private static List<GalleryCard> cards(
-            Optional<AccountState> account,
-            Optional<UUID> activePresetId,
-            String query) {
-        List<GalleryCard> cards = new ArrayList<>();
-        cards.add(new GalleryCard(Optional.empty()));
-        String normalized = query.trim().toLowerCase(java.util.Locale.ROOT);
-        account.ifPresent(value -> PresetGalleryOrder.arrange(
-                        value.presets().stream()
-                                .filter(preset -> normalized.isEmpty()
-                                        || preset.name().toLowerCase(java.util.Locale.ROOT).contains(normalized))
-                                .toList(),
-                        activePresetId.orElse(null))
-                .forEach(preset -> cards.add(new GalleryCard(Optional.of(preset)))));
-        return List.copyOf(cards);
-    }
-
-    private static GalleryLayout layout(int width, int height) {
-        if (width <= 0 || height <= 0) {
-            throw new IllegalArgumentException("view dimensions must be positive");
-        }
-        int scrollbarY = height - SCROLLBAR_BOTTOM_OFFSET;
-        int viewportBottom = scrollbarY - VIEWPORT_SCROLLBAR_GAP;
-        int viewportHeight = viewportBottom - VIEWPORT_TOP;
-        if (viewportHeight < 2) {
-            throw new IllegalArgumentException("gallery viewport is too short");
-        }
-        int cardWidth = Math.max(1, (int) ((long) viewportHeight * 3L / 4L));
-        int cardHeight = viewportHeight;
-        int cardTop = VIEWPORT_TOP;
-        int endpointInset = Math.min(CARD_GAP, Math.max(0, (width - 1) / 2));
-        return new GalleryLayout(
-                new Bounds(
-                        0,
-                        VIEWPORT_TOP,
-                        width,
-                        viewportHeight),
-                endpointInset,
-                Math.max(1, width - endpointInset * 2),
-                cardWidth,
-                cardHeight,
-                cardTop,
-                scrollbarY);
-    }
-
-    private static SkinVariant variantFor(
-            AccountState account, AppearancePreset preset, SkinVariant currentPlayerVariant) {
-        return preset.skin().optionalAssetId()
-                .flatMap(id -> account.skinAssets().stream().filter(asset -> asset.id().equals(id)).findFirst())
-                .map(SkinAsset::variant)
-                .orElse(currentPlayerVariant);
-    }
-
-    private record GalleryCard(Optional<AppearancePreset> preset) {
-        private GalleryCard {
-            preset = Objects.requireNonNull(preset, "preset");
-        }
-
-        private String id() {
-            return preset.map(value -> "gallery.card." + value.id()).orElse("gallery.card.add");
-        }
-
-        private String anchorId() {
-            return preset.map(value -> "gallery.card." + value.id()).orElse("gallery.add");
-        }
-
-        private UiMessage accessibleLabel() {
-            return preset
-                    .map(value -> UiMessage.literal(value.name(), UiMessage.Severity.INFO))
-                    .orElseGet(() -> UiMessage.info("nclskins.gallery.add_hint"));
-        }
-    }
-
-    private record GalleryLayout(
-            Bounds viewport,
-            int endpointInset,
-            int endpointWidth,
-            int cardWidth,
-            int cardHeight,
-            int cardTop,
-            int scrollbarY) {
-        private GalleryLayout {
-            Objects.requireNonNull(viewport, "viewport");
-            if (endpointInset < 0
-                    || endpointWidth <= 0
-                    || cardWidth <= 0
-                    || cardHeight <= 0
-                    || cardTop < viewport.y()
-                    || cardTop + cardHeight > viewport.bottom()) {
-                throw new IllegalArgumentException("invalid gallery layout");
-            }
-        }
-    }
-
-    private record RecoveryWidget(String widgetId, Bounds bounds) {
-        private RecoveryWidget {
-            Objects.requireNonNull(widgetId, "widgetId");
-            Objects.requireNonNull(bounds, "bounds");
-        }
-    }
 }

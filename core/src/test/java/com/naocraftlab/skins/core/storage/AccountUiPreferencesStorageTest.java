@@ -35,6 +35,27 @@ class AccountUiPreferencesStorageTest {
     Path temporaryDirectory;
 
     @Test
+    void gallerySectionsRoundTripWithoutRewritingLegacyOnRead() throws Exception {
+        NclSkinsStorage storage = storage();
+        UUID id = UUID.randomUUID();
+        var codec = new AccountUiPreferencesJson();
+        var desired = AccountUiPreferences.defaults(id).withGallerySections(java.util.Map.of(
+                AccountUiPreferences.GALLERY_FAVORITES, true));
+        assertEquals(desired, codec.decode(codec.encode(desired)));
+        assertEquals(2, desired.schemaVersion());
+        storage.initialize();
+        Path path = storage.layout().accountUiPreferences(id);
+        Files.createDirectories(path.getParent());
+        var legacy = com.google.gson.JsonParser.parseString(new String(codec.encode(desired), StandardCharsets.UTF_8)).getAsJsonObject();
+        legacy.addProperty("schemaVersion", 1);
+        legacy.remove("collapsedGallerySections");
+        byte[] bytes = legacy.toString().getBytes(StandardCharsets.UTF_8);
+        Files.write(path, bytes);
+        assertTrue(storage.loadUiPreferences(id).preferences().collapsedGallerySections().isEmpty());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(bytes, Files.readAllBytes(path));
+    }
+
+    @Test
     void providersTabSurvivesRestartAndOtherPreferenceUpdates() throws Exception {
         var cape = com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE;
         UUID account = UUID.randomUUID();
@@ -45,6 +66,29 @@ class AccountUiPreferencesStorageTest {
         assertEquals(cape, storage().loadUiPreferences(account).preferences().selectedProvidersTab());
         assertEquals(com.naocraftlab.skins.core.provider.AppearanceProviders.Component.SKIN,
                 storage().loadUiPreferences(UUID.randomUUID()).preferences().selectedProvidersTab());
+    }
+
+    @Test
+    void malformedGalleryArrayIsAnExplicitStorageErrorAndPreservesBytes() throws Exception {
+        var storage = storage();
+        UUID id = UUID.randomUUID();
+        storage.initialize();
+        Path path = storage.layout().accountUiPreferences(id);
+        Files.createDirectories(path.getParent());
+        var codec = new AccountUiPreferencesJson();
+        var document = com.google.gson.JsonParser.parseString(new String(codec.encode(AccountUiPreferences.defaults(id)), StandardCharsets.UTF_8)).getAsJsonObject();
+        for (String member : new String[] {"collapsedGallerySections", "collapsedCapeCollections"}) {
+            for (com.google.gson.JsonElement malformed : new com.google.gson.JsonElement[] {
+                    com.google.gson.JsonNull.INSTANCE, new com.google.gson.JsonObject()}) {
+                var damaged = document.deepCopy();
+                damaged.add(member, malformed);
+                byte[] bytes = damaged.toString().getBytes(StandardCharsets.UTF_8);
+                Files.write(path, bytes);
+                org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class, () -> storage.updateGallerySections(
+                        id, java.util.Map.of("gallery.favorites", true), () -> true));
+                org.junit.jupiter.api.Assertions.assertArrayEquals(bytes, Files.readAllBytes(path));
+            }
+        }
     }
 
     @Test

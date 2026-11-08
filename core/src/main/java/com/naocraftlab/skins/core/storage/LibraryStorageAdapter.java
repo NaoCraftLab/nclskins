@@ -41,11 +41,17 @@ public final class LibraryStorageAdapter implements LibraryStatePort, AssetStore
     @Override
     public AccountAppearanceMutationResult mutateAccountAndAppearance(UUID accountId,
             AccountAppearanceMutation mutation) throws IOException {
+        return mutateAccountAndAppearance(accountId, mutation, () -> true);
+    }
+
+    @Override
+    public AccountAppearanceMutationResult mutateAccountAndAppearance(UUID accountId,
+            AccountAppearanceMutation mutation, java.util.function.BooleanSupplier stillCurrent) throws IOException {
         var result = storage.mutateAccountAndAppearance(accountId, (account, appearance, revision) -> {
             var plan = mutation.apply(account, appearance, revision);
             return new NclSkinsStorage.AccountAppearanceMutationPlan(plan.account(), plan.appearance(),
                     plan.accountUpdated(), plan.appearanceUpdated());
-        });
+        }, stillCurrent);
         return new AccountAppearanceMutationResult(result.account(), result.appearance(),
                 result.accountUpdated(), result.appearanceUpdated());
     }
@@ -54,6 +60,19 @@ public final class LibraryStorageAdapter implements LibraryStatePort, AssetStore
     public PersonalCapeEntry importCape(UUID accountId, String name, byte[] bytes, AccountWriteGuard guard)
             throws IOException, PngValidationException {
         return storage.importCape(accountId, name, bytes, guard);
+    }
+
+    @Override
+    public AccountAppearanceMutationResult mutateAccountAndAppearanceRecoverably(UUID accountId,
+            AccountAppearanceMutation mutation, java.util.function.BooleanSupplier stillCurrent)
+            throws IOException {
+        var result = storage.mutateAccountAndAppearanceRecoverably(accountId, (account, appearance, revision) -> {
+            var plan = mutation.apply(account, appearance, revision);
+            return new NclSkinsStorage.AccountAppearanceMutationPlan(plan.account(), plan.appearance(),
+                    plan.accountUpdated(), plan.appearanceUpdated());
+        }, stillCurrent);
+        return new AccountAppearanceMutationResult(result.account(), result.appearance(),
+                result.accountUpdated(), result.appearanceUpdated());
     }
 
     @Override

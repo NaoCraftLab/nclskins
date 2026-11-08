@@ -51,10 +51,11 @@ public final class CpmModelMetadataTransformProbe {
         if (args.length > 1 && args[1].equals("shapes")) { shapes(); return; }
         boolean server = args.length > 1 && args[1].equals("server");
         Path output = Path.of(args[0]);
-        var required = List.of("CpmModelDefinitionPartsAccessor", "CpmModelSkinTextureAccessor", "CpmModelTextureAccessor", "CpmModelFileBackupAccessor");
+        var required = List.of("CpmModelDefinitionPartsAccessor", "CpmModelSkinTextureAccessor", "CpmModelTextureAccessor", "CpmModelFileBackupAccessor", "CpmResolvedPartsAccessor", "CpmCopyTransformsAccessor", "CpmCopyVisibilityAccessor", "CpmAnimationStateAccessor", "CpmVisibilityTargetAccessor", "CpmLegacyAnimationsAccessor", "CpmLegacyVisibilityAccessor");
         try (var in = ClassLoader.getSystemResourceAsStream("nclskins.cpm.mixins.json")) {
             var config = com.google.gson.JsonParser.parseReader(new java.io.InputStreamReader(in)).getAsJsonObject();
             for (String name : required) if (!config.getAsJsonArray("client").contains(new com.google.gson.JsonPrimitive(name))) throw new AssertionError("Missing production registration " + name);
+            if (!config.getAsJsonArray("client").contains(new com.google.gson.JsonPrimitive("CpmResolvedOtherPartsAccessor"))) throw new AssertionError("Missing resolved child registration");
         }
         if (!CpmModelFileBindings.supported(Thread.currentThread().getContextClassLoader())) throw new AssertionError("Original exact six fields unavailable");
         MixinBootstrap.init();
@@ -64,7 +65,7 @@ public final class CpmModelMetadataTransformProbe {
         var ctor = Class.forName("org.spongepowered.asm.mixin.transformer.MixinTransformer").getDeclaredConstructor(); ctor.setAccessible(true); ctor.newInstance();
         Mixins.addConfiguration("metadata-binding.json");
         var transformer = (IMixinTransformer) env.getActiveTransformer();
-        var owners = List.of("parts.ModelPartDefinition", "parts.ModelPartSkin", "parts.ModelPartTexture", "io.ModelFile");
+        var owners = List.of("parts.ModelPartDefinition", "parts.ModelPartSkin", "parts.ModelPartTexture", "io.ModelFile", "definition.ModelDefinition", "animation.AnimationRegistry", "model.CopyTransform", "parts.anim.ModelPartAnimationNew", "parts.anim.AnimatorChannel$CubeVisDriver", "parts.ModelPartAnimation", "parts.ModelPartAnimation$ResolvedData");
         for (int i = 0; i < owners.size(); i++) {
             String name = "com.tom.cpm.shared." + owners.get(i), entry = name.replace('.', '/') + ".class";
             var origin = ClassLoader.getSystemResource(entry);
@@ -76,6 +77,7 @@ public final class CpmModelMetadataTransformProbe {
                 System.out.println("PASS server client-only isolation " + name); continue;
             }
             if (!node.interfaces.contains("com/naocraftlab/skins/compat/cpm/mixin/" + required.get(i))) throw new AssertionError("Actual production accessor not applied");
+            if (i == 0 && !node.interfaces.contains("com/naocraftlab/skins/compat/cpm/mixin/CpmResolvedOtherPartsAccessor")) throw new AssertionError("Resolved child accessor not applied");
             Path file = output.resolve(entry); Files.createDirectories(file.getParent()); Files.write(file, after);
             System.out.println("TRANSFORM " + name + " ORIGIN " + origin + " " + before.length + " -> " + after.length);
         }

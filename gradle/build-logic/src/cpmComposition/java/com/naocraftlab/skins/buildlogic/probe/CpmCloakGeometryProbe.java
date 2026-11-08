@@ -18,11 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.lang.reflect.Method;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.ClassNode;
 
 public final class CpmCloakGeometryProbe {
     public static void run(CapeProjection.Registration registration, Player<?> player,
@@ -103,26 +98,7 @@ public final class CpmCloakGeometryProbe {
     private record Point(float x, float y, float z) {}
 
     private static Method consumerHandler(String owner) throws Exception {
-        var node = new ClassNode();
-        try (var input = ClassLoader.getSystemResourceAsStream(owner.replace('.', '/') + ".class")) {
-            new ClassReader(input).accept(node, 0);
-        }
-        var handlers = node.methods.stream().filter(method -> method.name.endsWith("$nclskins$accessoryPart")).toList();
-        check(handlers.size() <= 1, "consumer part handler cardinality");
-        if (handlers.isEmpty()) return null;
-        var handler = handlers.get(0);
-        check((handler.access & Opcodes.ACC_STATIC) != 0 && handler.desc.equals(
-                "(Ljava/lang/Object;Lcom/llamalad7/mixinextras/injector/wrapoperation/Operation;)Lcom/tom/cpm/shared/model/render/VanillaModelPart;"),
-                "exact transformed consumer handler descriptor");
-        String name = "com.naocraftlab.skins.buildlogic.probe.CpmCloakConsumer";
-        var writer = new ClassWriter(0);
-        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, name.replace('.', '/'), null, "java/lang/Object", null);
-        handler.accept(writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "select", handler.desc, null, null));
-        writer.visitEnd();
-        var bridge = new ClassLoader(CpmCloakGeometryProbe.class.getClassLoader()) {
-            Class<?> define() { byte[] bytes = writer.toByteArray(); return defineClass(name, bytes, 0, bytes.length); }
-        }.define();
-        return bridge.getMethod("select", Object.class, Operation.class);
+        return Class.forName(owner).getMethod("getPart");
     }
 
     private static final class ModelParts {
@@ -134,6 +110,8 @@ public final class CpmCloakGeometryProbe {
         private final ModelRenderManager.RedirectHolder<?, ?, ?, Object> holder;
         private final VanillaModelPart part;
         private final Method handler;
+        private final Object nativeRenderer;
+        private final ModelRenderManager.RedirectHolder<?,?,?,?> nativeHolder;
         private final Object parent;
         private final List<Point> vertices = new ArrayList<>();
         private Point position;
@@ -144,6 +122,33 @@ public final class CpmCloakGeometryProbe {
             this.parent = parent;
             this.part = part;
             this.handler = handler;
+            try {
+                var field=sun.misc.Unsafe.class.getDeclaredField("theUnsafe");field.setAccessible(true);
+                var unsafe=(sun.misc.Unsafe)field.get(null);
+                var owner = handler.getDeclaringClass();
+                var loader = owner.getClassLoader();
+                var holderField = owner.getDeclaredField("holder");
+                var partField = owner.getDeclaredField("part");
+                boolean playerModel = owner.getName().equals("com.tom.cpm.client.PlayerRenderManager$RedirectModelRendererBase");
+                var rendererType = Class.forName(playerModel
+                        ? "com.tom.cpm.client.PlayerRenderManager$RedirectModelRendererVanilla"
+                        : "com.tom.cpm.client.PlayerRenderManager$RedirectModelRenderer", false, loader);
+                var holderType = Class.forName(part == RootModelType.CAPE && !playerModel
+                        ? "com.tom.cpm.client.PlayerRenderManager$RedirectHolderCape"
+                        : "com.tom.cpm.client.PlayerRenderManager$RedirectHolderPlayer", false, loader);
+                check(holderField.getType() == Class.forName("com.tom.cpm.client.PlayerRenderManager$RDH", false, loader)
+                        && holderType.getSuperclass() == holderField.getType()
+                        && ModelRenderManager.RedirectHolder.class.isAssignableFrom(holderType)
+                        && partField.getType() == VanillaModelPart.class
+                        && handler.getReturnType() == VanillaModelPart.class
+                        && owner.isAssignableFrom(rendererType)
+                        && !java.lang.reflect.Modifier.isAbstract(rendererType.getModifiers())
+                        && !java.lang.reflect.Modifier.isAbstract(holderType.getModifiers()), "exact native receiver hierarchy");
+                nativeHolder = (ModelRenderManager.RedirectHolder<?,?,?,?>) unsafe.allocateInstance(holderType);
+                nativeRenderer = unsafe.allocateInstance(rendererType);
+                holderField.setAccessible(true);partField.setAccessible(true);
+                holderField.set(nativeRenderer,nativeHolder);partField.set(nativeRenderer,part);
+            } catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
         }
 
         private List<Point> geometry() {
@@ -162,9 +167,8 @@ public final class CpmCloakGeometryProbe {
         public ModelRenderManager.RedirectHolder<?, ?, ?, Object> getHolder() { return holder; }
         public Object getParent() { return parent; }
         public VanillaModelPart getPart() {
-            if (handler == null) return part;
-            Operation<VanillaModelPart> field = values -> part;
-            try { return (VanillaModelPart) handler.invoke(null, this, field); }
+            nativeHolder.playerObj=holder.playerObj;nativeHolder.def=holder.def;
+            try { return (VanillaModelPart) handler.invoke(nativeRenderer); }
             catch (ReflectiveOperationException failure) { throw new AssertionError("executing transformed native consumer", failure); }
         }
         public void renderParent() { vertices.addAll(parentGeometry()); }

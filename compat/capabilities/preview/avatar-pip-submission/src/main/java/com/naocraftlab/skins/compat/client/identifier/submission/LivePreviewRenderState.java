@@ -22,6 +22,7 @@ public final class LivePreviewRenderState
     private final PreviewFailureSink layerFailureSink;
     private final ScreenRectangle scissorArea;
     private final ScreenRectangle bounds;
+    private final com.naocraftlab.skins.client.ScreenOwnedRenderTarget target;
 
     LivePreviewRenderState(
             SubmissionPreviewRenderer.PreviewPlayer previewPlayer,
@@ -35,6 +36,17 @@ public final class LivePreviewRenderState
             PreviewFailureSink failureSink,
             PreviewFailureSink layerFailureSink,
             ScreenRectangle scissorArea) {
+        this(previewPlayer, previewContext, request, previewAge, translation, rotation, overrideCameraAngle,
+                scale, failureSink, layerFailureSink, scissorArea, null);
+    }
+
+    LivePreviewRenderState(
+            SubmissionPreviewRenderer.PreviewPlayer previewPlayer, PreviewContext previewContext,
+            PreviewRenderer.PreviewRequest request, float previewAge, Vector3f translation,
+            Quaternionf rotation, Quaternionf overrideCameraAngle, float scale,
+            PreviewFailureSink failureSink, PreviewFailureSink layerFailureSink, ScreenRectangle scissorArea,
+            com.naocraftlab.skins.client.ScreenOwnedRenderTarget target) {
+        this.target = target;
         this.previewPlayer = Objects.requireNonNull(previewPlayer, "previewPlayer");
         this.previewContext = Objects.requireNonNull(previewContext, "previewContext");
         this.request = Objects.requireNonNull(request, "request");
@@ -60,6 +72,8 @@ public final class LivePreviewRenderState
                 request.stageTop() + request.stageHeight(),
                 scissorArea);
     }
+
+    com.naocraftlab.skins.client.ScreenOwnedRenderTarget target() { return target; }
 
     SubmissionPreviewRenderer.PreviewPlayer previewPlayer() {
         return previewPlayer;
@@ -144,6 +158,7 @@ public final class LivePreviewRenderState
                 scale,
                 failureSink,
                 layerFailureSink,
-                scissor);
+                scissor,
+                target);
     }
 }

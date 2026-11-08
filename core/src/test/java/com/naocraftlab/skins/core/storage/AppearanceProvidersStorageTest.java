@@ -35,6 +35,132 @@ class AppearanceProvidersStorageTest {
     @TempDir Path directory;
 
     @Test
+    void guardedJournalRecoveryRetainsUnknownProvidersAtEveryFaultBoundary() throws Exception {
+        for (var stage : NclSkinsStorage.TransactionStage.values()) {
+            Path root = directory.resolve(stage.name());
+            var armed = new java.util.concurrent.atomic.AtomicBoolean(false);
+            var store = new NclSkinsStorage(root, new PngValidator(), Clock.systemUTC(), reached -> {
+                if (armed.get() && reached == stage) throw new java.io.IOException("transaction fault");
+            });
+            UUID id = UUID.randomUUID();
+            store.updateAccount(id, a -> a);
+            store.updateAppearance(id, a -> a);
+            Path path = store.layout().accountAppearance(id);
+            writeFutureFixture(path);
+            armed.set(true);
+            assertThrows(java.io.IOException.class, () -> store.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) ->
+                    NclSkinsStorage.AccountAppearanceMutationPlan.both(a, advanced(b, revision, null)), () -> true));
+            var reopened = new NclSkinsStorage(root, new PngValidator(), Clock.systemUTC());
+            reopened.loadAppearance(id);
+            reopened.loadOrCreateAccount(id);
+            assertFuturePreserved(path, java.util.List.of("OFFLINE", "FUTURE_CAPE", "MINECRAFT"));
+        }
+    }
+
+    @Test
+    void lastPublicationFenceRejectsRetiredScopeButCommittedJournalIgnoresIt() throws Exception {
+        for (var retireAt : java.util.List.of(NclSkinsStorage.TransactionStage.BEFORE_JOURNAL,
+                NclSkinsStorage.TransactionStage.AFTER_JOURNAL)) {
+            var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+            var store = new NclSkinsStorage(directory.resolve(retireAt.name()), new PngValidator(),
+                    Clock.fixed(Instant.EPOCH, java.time.ZoneOffset.UTC),
+                    stage -> { if (stage == retireAt) current.set(false); });
+            UUID id = UUID.randomUUID();
+            var before = store.updateAccount(id, a -> a);
+            var oldAppearance = store.loadAppearance(id);
+            if (retireAt == NclSkinsStorage.TransactionStage.BEFORE_JOURNAL) {
+                assertThrows(java.io.IOException.class, () -> store.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) ->
+                        NclSkinsStorage.AccountAppearanceMutationPlan.both(a, advanced(b, revision, null)), current::get));
+                assertEquals(oldAppearance, store.loadAppearance(id));
+                assertEquals(before, store.loadOrCreateAccount(id));
+            } else {
+                var result = store.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) ->
+                        NclSkinsStorage.AccountAppearanceMutationPlan.both(a, advanced(b, revision, null)), current::get);
+                assertEquals(1, result.appearance().intentRevision());
+                assertEquals(result.appearance(), store.loadAppearance(id));
+            }
+        }
+    }
+
+    @Test
+    void lockedLatestCallbackRejectsDeletedPresetAndMaskConflictWithoutCommit() throws Exception {
+        var store = storage();
+        UUID id = UUID.randomUUID();
+        UUID presetId = UUID.randomUUID();
+        var baseline = com.naocraftlab.skins.client.OuterLayerVisibility.allVisible();
+        var changed = com.naocraftlab.skins.client.OuterLayerVisibility.noneVisible();
+        var preset = new AppearancePreset(presetId, "Latest", SkinReference.accountDefault(), null,
+                changed, Instant.EPOCH, Instant.EPOCH).withFavorite(true);
+        store.updateAccount(id, a -> new AccountState(a.schemaVersion(), id, a.skinAssets(), a.personalSkins(),
+                java.util.List.of(preset), a.updatedAt(), a.personalCapes()));
+        byte[] before = Files.readAllBytes(store.layout().accountState(id));
+        for (UUID requested : java.util.List.of(presetId, UUID.randomUUID())) {
+            assertThrows(IllegalStateException.class, () -> store.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) -> {
+                var latest = a.presets().stream().filter(p -> p.id().equals(requested)).findFirst()
+                        .orElseThrow(() -> new IllegalStateException("deleted"));
+                if (!latest.outerLayerVisibility().equals(baseline)) throw new IllegalStateException("mask conflict");
+                throw new AssertionError("conflicting plan reached commit");
+            }, () -> true));
+        }
+        org.junit.jupiter.api.Assertions.assertArrayEquals(before, Files.readAllBytes(store.layout().accountState(id)));
+        assertTrue(store.loadOrCreateAccount(id).presets().get(0).favorite());
+    }
+
+    @Test
+    @SuppressWarnings("try")
+    void recoverableWriterRechecksAccountScopeAfterWaitingForExactAccountLock() throws Exception {
+        var store = storage();
+        store.initialize();
+        UUID id = UUID.randomUUID();
+        var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var callbacks = new java.util.concurrent.atomic.AtomicInteger();
+        var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        java.util.concurrent.Future<?> pending;
+        try {
+            try (var held = new InterProcessLockManager().acquire(store.layout().accountLock(id))) {
+                pending = worker.submit(() -> {
+                    entered.countDown();
+                    assertThrows(java.io.IOException.class, () -> store.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) -> {
+                        callbacks.incrementAndGet();
+                        return NclSkinsStorage.AccountAppearanceMutationPlan.accountOnly(a, b);
+                    }, current::get));
+                });
+                assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS));
+                current.set(false);
+            }
+            pending.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(0, callbacks.get());
+            assertTrue(!Files.exists(store.layout().accountState(id)));
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
+    void allSupportedAccountSchemasDecodeDirectlyWithFavoriteDefaults() throws Exception {
+        UUID id = UUID.randomUUID();
+        var preset = new AppearancePreset(UUID.randomUUID(), "B", SkinReference.accountDefault(), null,
+                Instant.EPOCH, Instant.EPOCH).withFavorite(true);
+        var state = new AccountState(AccountState.CURRENT_SCHEMA_VERSION, id, java.util.List.of(), java.util.List.of(preset), Instant.EPOCH);
+        var codec = new AccountStateJson();
+        for (int schema : new int[] {1, 2, 3, 4, 5}) {
+            var document = com.google.gson.JsonParser.parseString(new String(codec.encode(state), StandardCharsets.UTF_8)).getAsJsonObject();
+            document.addProperty("schemaVersion", schema);
+            if (schema == 1) document.remove("personalSkins");
+            if (schema < 5) document.getAsJsonArray("presets").get(0).getAsJsonObject().remove("favorite");
+            var decoded = codec.decode(document.toString().getBytes(StandardCharsets.UTF_8)).state();
+            assertEquals(5, decoded.schemaVersion());
+            assertEquals(schema == 5, decoded.presets().get(0).favorite());
+            assertEquals(Instant.EPOCH, decoded.presets().get(0).updatedAt());
+        }
+        var future = com.google.gson.JsonParser.parseString(new String(codec.encode(state), StandardCharsets.UTF_8)).getAsJsonObject();
+        future.addProperty("schemaVersion", 6);
+        assertEquals(StorageException.Code.UNSUPPORTED_SCHEMA, assertThrows(StorageException.class,
+                () -> codec.decode(future.toString().getBytes(StandardCharsets.UTF_8))).code());
+    }
+
+    @Test
     void optionalActivationThatLosesScopeDuringPreparationDoesNotCommit() throws Exception {
         var store = storage();
         UUID account = UUID.randomUUID();

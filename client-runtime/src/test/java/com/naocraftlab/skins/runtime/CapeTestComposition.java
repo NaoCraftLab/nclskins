@@ -78,4 +78,13 @@ final class CapeTestComposition {
                 new ProviderTextureStorageAdapter(storage, textures), sink, client, worker, reader, skinMc,
                 minecraftCapes, official);
     }
+
+    static CapeProviderCoordinator create(GameSessionTokenSource tokens, NclSkinsStorage storage,
+            TextureCache textures, PlayerAppearanceSink<?> sink, ClientExecutor client, Executor worker,
+            OptifineCapeReader reader, SkinMcCapeReader skinMc, MinecraftCapesCapeReader minecraftCapes,
+            BiFunction<UUID, String, Optional<URI>> official, java.util.function.LongSupplier now) {
+        return new CapeProviderCoordinator(tokens, new AccountAppearanceStorageAdapter(storage), new LibraryStorageAdapter(storage),
+                new ProviderTextureStorageAdapter(storage, textures), sink, client, worker, reader, skinMc,
+                minecraftCapes, official, now);
+    }
 }

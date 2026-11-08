@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.buildlogic.contract;
 
 import com.naocraftlab.skins.buildlogic.processor.CapeTerminalProvider.TerminalProcessor;
+import com.naocraftlab.skins.buildlogic.processor.CapeTerminalProvider.NativeDeviceTerminalProcessor;
 import com.naocraftlab.skins.buildlogic.terminal.CapeTerminalBindings;
 import java.nio.file.*;
 import java.util.*;
@@ -29,7 +30,7 @@ public final class TerminalContractProbe {
             public boolean handlesClass(SelectionContext context) { return false; }
             public ComputeFlags processClass(TransformationContext context) { return ComputeFlags.NO_REWRITE; }
         };
-        ClassProcessorSet.of(mixin, terminal).link(name -> null);
+        ClassProcessorSet.of(mixin, terminal, new NativeDeviceTerminalProcessor()).link(name -> null);
         var reversed = new LinkedHashMap<ProcessorName, ClassProcessor>();
         reversed.put(ClassProcessorIds.MIXIN, mixin); reversed.put(TerminalProcessor.NAME, terminal);
         try { terminal.link(new ClassProcessor.LinkContext(reversed, null)); throw new IllegalStateException("REVERSED_ORDER_ACCEPTED"); }

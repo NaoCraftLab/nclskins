@@ -14,6 +14,16 @@ final class PreviewInteractionModelTest {
     private static final Bounds PREVIEW = new Bounds(10, 10, 100, 180);
 
     @Test
+    void clippedGalleryPreviewCannotCapturePointerOutsideItsClip() {
+        var s=TestFixtures.ready(TestFixtures.account(1),null,0);
+        var view=new GalleryPresenter().present(s,320,180,0,0,com.naocraftlab.skins.client.PreviewRenderer.CapeMode.CAPE);
+        var preview=view.previews().get(0);
+        var clipped=new ViewSpec(view.screenId(),view.title(),view.width(),view.height(),view.panels(),view.texts(),view.widgets(),view.previews(),view.scrollbar(),view.tabGroups(),view.focusRequest(),
+                java.util.List.of(new ViewSpec.ClipRegion("deny",new Bounds(200,100,20,20),java.util.List.of("gallery.preview"))),view.backEquipmentPreviews(),view.iconDecorations(),view.scrollSurfaces(),view.tooltipRegions(),view.progressDecorations(),view.navigationNodes());
+        org.junit.jupiter.api.Assertions.assertFalse(PointerRouting.hit(clipped,preview.anchorBounds().x()+25,preview.anchorBounds().y()+25).anyPreview());
+    }
+
+    @Test
     void canonicalDragClampsPitchAndScrollClampsZoom() {
         PreviewInteractionModel model = PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE);
         assertSame(model, model.drag(20, 20));

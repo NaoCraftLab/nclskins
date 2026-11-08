@@ -65,12 +65,20 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]
-          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
-            [[ "$EVENT_REF" == refs/heads/main ]]
-          fi
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          git merge-base --is-ancestor HEAD origin/main
           printf 'catalog=%s\n' "$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          lane=origin/main
+          if [[ "$EVENT_NAME" == workflow_dispatch && "$EVENT_REF" != refs/heads/main ]] ||
+             ! git merge-base --is-ancestor HEAD origin/main; then
+            [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-(alpha|beta)\.[0-9]+$ ]]
+            branch="release/${BASH_REMATCH[1]}"
+            if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+              [[ "$EVENT_REF" == "refs/heads/$branch" ]]
+            fi
+            git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+            lane="origin/$branch"
+          fi
+          git merge-base --is-ancestor HEAD "$lane"
           if [[ -n "$RESUME_RUN" ]]; then
             [[ "$RESUME_RUN" =~ ^[0-9]+$ ]]
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RESUME_RUN" > source-run.json
@@ -83,7 +91,7 @@ jobs:
             [[ -f release-bundle/release-plan.json ]]
             source="$(jq -r '.sourceCommit' release-bundle/release-manifest.json)"
             [[ "$source" =~ ^[0-9a-f]{40}$ ]]
-            git merge-base --is-ancestor "$source" origin/main
+            git merge-base --is-ancestor "$source" "$lane"
             printf 'source=%s\nresumed=true\nbuild=false\nmatrix={"include":[]}\n' "$source" >> "$GITHUB_OUTPUT"
           else
             ./gradlew planRelease -PreleaseTag="$VERSION" --no-daemon --console=plain

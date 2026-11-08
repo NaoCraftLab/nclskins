@@ -33,6 +33,74 @@ final class PreviewAssetCacheTest {
     private static final DiagnosticSink DIAGNOSTICS = DiagnosticSinks.discarding();
 
     @Test
+    void exactCapeOutcomeNeverReturnsFallbackFlagsOrValidityForAnotherSource() {
+        var registry = new FakeRegistry();
+        var now = new AtomicLong();
+        try (var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, now::get)) {
+            cache.requestCape("main", "A", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), true, true, true, () -> {});
+            var a = cache.capeState("main", "A");
+            assertEquals(PreviewAssetCache.CapeStatus.READY, a.status());
+            assertTrue(a.handle().isPresent());
+            assertTrue(a.hasElytra()); assertTrue(a.glint());
+            var pending = new CompletableFuture<Optional<CapePreviewSource>>();
+            var staticB = new CompletableFuture<Optional<byte[]>>();
+            cache.requestCape("main", "B", () -> pending, () -> staticB, true, false, false, () -> {});
+            assertEquals(a.handle(), cache.handle("main"), "Legacy fallback remains available to other screens");
+            var b = cache.capeState("main", "B");
+            assertEquals(PreviewAssetCache.CapeStatus.PENDING, b.status());
+            assertTrue(b.handle().isEmpty()); assertFalse(b.hasElytra()); assertFalse(b.glint());
+            assertFalse(b.validity().isValid()); assertFalse(a.validity().isValid());
+            assertTrue(cache.capeState("main", "A").handle().isEmpty());
+            pending.complete(Optional.empty());
+            assertEquals(PreviewAssetCache.CapeStatus.PENDING, cache.capeState("main", "B").status(),
+                    "An empty prepared opener is not confirmed absence");
+            staticB.completeExceptionally(new IOException("fixture"));
+            for (int i = 0; i < 4; i++) {
+                now.addAndGet(TimeUnit.SECONDS.toNanos(6));
+                cache.requestCape("main", "B", CompletableFuture::new,
+                        () -> CompletableFuture.failedFuture(new IOException("fixture")), true, false, false, () -> {});
+            }
+            var failed = cache.capeState("main", "B");
+            assertEquals(PreviewAssetCache.CapeStatus.FAILED, failed.status());
+            assertTrue(failed.handle().isEmpty()); assertFalse(failed.validity().isValid());
+        }
+        assertEquals(1, registry.released.size());
+    }
+
+    @Test
+    void exactCapeLateReplacementAndCloseCannotReviveRetiredMaterial() {
+        for (String transition : List.of("replace", "remove", "close")) {
+            var registry = new FakeRegistry();
+            var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
+            var old = new CompletableFuture<Optional<byte[]>>();
+            cache.requestCape("main", "B", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> old, true, () -> {});
+            if (transition.equals("replace")) {
+                cache.requestCape("main", "C", () -> CompletableFuture.completedFuture(Optional.empty()),
+                        () -> CompletableFuture.completedFuture(Optional.of(new byte[]{3})), true, () -> {});
+                var c = cache.capeState("main", "C");
+                assertEquals(PreviewAssetCache.CapeStatus.READY,c.status());
+                old.complete(Optional.of(new byte[]{2}));
+                assertEquals(c.handle(),cache.capeState("main", "C").handle());
+                assertTrue(cache.capeState("main", "B").handle().isEmpty());
+                cache.requestCape("main", "B", () -> CompletableFuture.completedFuture(Optional.empty()),
+                        () -> CompletableFuture.completedFuture(Optional.of(new byte[]{4})), true, () -> {});
+                assertFalse(c.validity().isValid());
+                assertEquals(PreviewAssetCache.CapeStatus.READY,cache.capeState("main", "B").status());
+                assertFalse(c.handle().equals(cache.capeState("main", "B").handle()));
+            } else {
+                if (transition.equals("remove")) cache.retain(Set.of()); else cache.close();
+                old.complete(Optional.of(new byte[]{2}));
+                assertEquals(0,registry.registrations);
+                assertTrue(cache.capeState("main", "B").handle().isEmpty());
+            }
+            cache.close(); cache.close();
+            assertEquals(registry.registrations,registry.released.size());
+        }
+    }
+
+    @Test
     void unrelatedPosterInvalidationKeepsCurrentRowLoadAndSameKeyReplacementRejectsOldLoad() {
         FakeRegistry registry = new FakeRegistry();
         PreviewAssetCache<String> cache = new PreviewAssetCache<>(registry,

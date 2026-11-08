@@ -264,7 +264,8 @@ final class ProviderFlow {
                 String verb = action[1];
                 if (verb.equals("edit")) {
                     if (state.providerAdding || !context.providers().galleryAvailable()
-                            || !provider.canWrite(component)
+                            || !(provider.canWrite(component) || provider == BuiltinProvider.CPM
+                                    && component == AppearanceProviders.Component.CAPE && context.providerScreenVisible())
                             || !(component == AppearanceProviders.Component.SKIN ? context.providers().skin().order()
                             : context.providers().cape().order()).contains(provider)) return;
                     cancelOptiFineAccountLink();

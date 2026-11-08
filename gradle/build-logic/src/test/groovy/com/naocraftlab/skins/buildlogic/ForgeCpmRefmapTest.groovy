@@ -21,6 +21,8 @@ final class ForgeCpmRefmapTest {
     private final File repository = new File('../..').canonicalFile
     private final List<String> importBindings = [
             'CpmModelDefinitionPartsAccessor', 'CpmModelSkinTextureAccessor',
+            'CpmResolvedPartsAccessor', 'CpmResolvedOtherPartsAccessor', 'CpmCopyTransformsAccessor', 'CpmCopyVisibilityAccessor',
+            'CpmAnimationStateAccessor', 'CpmVisibilityTargetAccessor', 'CpmLegacyAnimationsAccessor', 'CpmLegacyVisibilityAccessor',
             'CpmModelTextureAccessor', 'CpmProjectExporterInvoker',
             'CpmProjectExporterMixin', 'CpmProjectTemplateMixin', 'CpmProjectTextureMixin',
             'CpmAnimatedTextureMixin', 'CpmDefinitionResourceMixin'

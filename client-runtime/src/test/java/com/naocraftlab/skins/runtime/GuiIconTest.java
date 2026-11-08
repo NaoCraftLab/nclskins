@@ -33,7 +33,7 @@ final class GuiIconTest {
                 Map.entry("action/select_folder", 16),
                 Map.entry("action/collapse_all", 16),
                 Map.entry("action/expand_all", 16),
-                Map.entry("action/add_look", 32),
+                Map.entry("action/add_look", 16),
                 Map.entry("action/refresh", 16),
                 Map.entry("action/providers", 16),
                 Map.entry("action/add_provider", 16),

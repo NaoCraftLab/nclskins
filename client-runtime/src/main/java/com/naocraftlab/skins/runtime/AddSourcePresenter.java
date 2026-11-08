@@ -295,7 +295,7 @@ public final class AddSourcePresenter {
         int cancelWidth = Math.min(200, Math.max(100, width - 32));
         widgets.add(ViewSpec.Widget.button(
                 "add.cancel",
-                new Bounds((width - cancelWidth) / 2, Math.max(0, height - 28), cancelWidth, 20),
+                new Bounds((width - cancelWidth) / 2, chromeMetrics.footerRowTop(height,20), cancelWidth, 20),
                 UiMessage.info("gui.cancel"),
                 !publishing && (!busy || (model.selectedTab() == AddSourceTab.FILE || model.importContext().canCancelPending())
                         && personalRename.isEmpty() && model.personalSkinDeletion().isEmpty())));
@@ -356,7 +356,7 @@ public final class AddSourcePresenter {
                 UiMessage.info("nclskins.add.cpm_dependency_confirm"),
                 Optional.of(warning), !busy);
         var cancel = ViewSpec.Widget.button(action + "cancel." + prompt.revision(),
-                new Bounds(16, Math.max(0, height - 28), contentWidth, 20), UiMessage.info("gui.cancel"), true);
+                new Bounds(16, chrome.footerRowTop(height,20), contentWidth, 20), UiMessage.info("gui.cancel"), true);
         Optional<ViewSpec.Scrollbar> scrollbar = Optional.empty();
         if (maximum > 0) {
             Bounds track = new Bounds(width - 12, viewport.y(), 6, viewport.height());

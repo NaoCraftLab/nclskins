@@ -184,7 +184,10 @@ if (prepared || buffered || combined || immediate != null) {
         mixinConfigurations.from(file("../../../compat/capabilities/appearance/${capture}/src/main/resources/nclskins.${capture}.mixins.json"))
         if (immediate == null) {
             probeSources.from(fileTree('../../../gradle/build-logic/src/waveyLoaderComposition/terminal/java') { include '**/*.java' })
-            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyLoaderComposition/contract/java') { include '**/BakedPreviewContract.java' })
+            probeSources.from(fileTree('../../../gradle/build-logic/src/waveyLoaderComposition/contract/java') {
+                include '**/BakedPreviewContract.java'
+                include '**/SubmissionPreviewContract.java'
+            })
             probeSources.from(fileTree('../../../gradle/build-logic/src/waveyPublicationComposition/java') {
                 include '**/*.java'
                 if (submissionPreview.get()) exclude '**/ExtractionPublicationProbe.java', '**/BindExtractionPublicationInputs.java', '**/ExtractionBakedPreviewProbe.java', '**/NativeElytraConsumptionProbe.java'

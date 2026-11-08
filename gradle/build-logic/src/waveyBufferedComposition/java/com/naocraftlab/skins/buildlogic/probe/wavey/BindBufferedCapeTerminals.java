@@ -23,6 +23,7 @@ public final class BindBufferedCapeTerminals {
         }
         if (changed != 6) throw new AssertionError("Buffered host terminal count=" + changed);
         if (ClassLoader.getSystemResource("com/naocraftlab/skins/buildlogic/probe/wavey/BakedPublicPreviewProbe.class") != null) {
+            com.naocraftlab.skins.buildlogic.contract.SubmissionPreviewContract.verify(Arrays.stream(System.getProperty("java.class.path").split(java.io.File.pathSeparator)).map(Path::of).toList());
             for (String owner : com.naocraftlab.skins.buildlogic.terminal.BakedPreviewBindings.OWNERS) {
                 ClassNode type = new ClassNode();
                 try (var in = ClassLoader.getSystemResourceAsStream(owner + ".class")) { new ClassReader(in.readAllBytes()).accept(type, 0); }
@@ -32,7 +33,9 @@ public final class BindBufferedCapeTerminals {
                 Files.createDirectories(output.getParent()); Files.write(output, writer.toByteArray());
             }
             System.out.println("BAKED_PRE_MIXIN_TERMINALS=2");
-            for (String owner : com.naocraftlab.skins.buildlogic.terminal.SubmissionPreviewBindings.OWNERS) {
+            var submissionOwners = new java.util.TreeSet<>(com.naocraftlab.skins.buildlogic.terminal.SubmissionPreviewBindings.OWNERS);
+            submissionOwners.addAll(com.naocraftlab.skins.buildlogic.terminal.SubmissionPreviewBindings.NATIVE_OWNERS);
+            for (String owner : submissionOwners) {
                 ClassNode type = new ClassNode();
                 try (var in = ClassLoader.getSystemResourceAsStream(owner + ".class")) { new ClassReader(in.readAllBytes()).accept(type, 0); }
                 if (com.naocraftlab.skins.buildlogic.terminal.SubmissionPreviewBindings.apply(type) == 0) throw new AssertionError("LIVE_BINDER_COUNT");

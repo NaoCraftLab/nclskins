@@ -540,6 +540,7 @@ public record ViewSpec(
 
     public enum WidgetKind {
         BUTTON,
+        TRANSPARENT_BUTTON,
         ICON_BUTTON,
         ICON_ONLY_BUTTON,
         TAB_BUTTON,
@@ -702,7 +703,8 @@ public record ViewSpec(
             VANILLA_LIST,
             VANILLA_TAB_CONTENT,
             VANILLA_HEADER,
-            VANILLA_FOOTER
+            VANILLA_FOOTER,
+            TRANSLUCENT_NAMEBAR
         }
     }
 
@@ -742,7 +744,7 @@ public record ViewSpec(
             Objects.requireNonNull(alignment, "alignment");
             marqueeActivation = Objects.requireNonNull(marqueeActivation, "marqueeActivation");
             Objects.requireNonNull(layout, "layout");
-            if (layout == Layout.WRAP && marqueeActivation.isPresent()) {
+            if (layout != Layout.SINGLE_LINE && marqueeActivation.isPresent()) {
                 throw new IllegalArgumentException("wrapped text cannot use marquee activation");
             }
         }
@@ -755,12 +757,18 @@ public record ViewSpec(
 
         public enum Layout {
             SINGLE_LINE,
-            WRAP
+            WRAP,
+            COLLECTION_HEADER
         }
     }
 
-    public record MarqueeActivation(Bounds hoverBounds, List<String> focusWidgetIds) {
+    public record MarqueeActivation(Bounds hoverBounds, List<String> focusWidgetIds, Optional<Bounds> movingClip) {
+        public MarqueeActivation(Bounds hoverBounds, List<String> focusWidgetIds) {
+            this(hoverBounds, focusWidgetIds, Optional.empty());
+        }
+
         public MarqueeActivation {
+            Objects.requireNonNull(movingClip, "movingClip");
             Objects.requireNonNull(hoverBounds, "hoverBounds");
             focusWidgetIds = List.copyOf(Objects.requireNonNull(focusWidgetIds, "focusWidgetIds"));
             if (focusWidgetIds.isEmpty() || focusWidgetIds.stream().anyMatch(String::isBlank)) {
@@ -1134,6 +1142,32 @@ public record ViewSpec(
     }
 
 
+    public enum BodyRole { EDITOR, PROVIDERS, GALLERY_MAIN }
+
+    public record BodySource(BodyRole role, UUID accountId, long accountEpoch,
+            long worldEpoch, long resourceEpoch, long screenGeneration, Optional<UUID> presetId,
+            String imageRevision, SkinVariant variant, long draftGeneration, Optional<String> inspectionIdentity, boolean cpmExpected) {
+        public BodySource(BodyRole role, UUID accountId, long accountEpoch,
+                long worldEpoch, long resourceEpoch, long screenGeneration, Optional<UUID> presetId,
+                String imageRevision, SkinVariant variant, long draftGeneration, Optional<String> inspectionIdentity) {
+            this(role,accountId,accountEpoch,worldEpoch,resourceEpoch,screenGeneration,presetId,imageRevision,variant,
+                    draftGeneration,inspectionIdentity,false);
+        }
+        public BodySource {
+            Objects.requireNonNull(role, "role");
+            Objects.requireNonNull(accountId, "accountId");
+            Objects.requireNonNull(presetId, "presetId");
+            Objects.requireNonNull(imageRevision, "imageRevision");
+            Objects.requireNonNull(variant, "variant");
+            Objects.requireNonNull(inspectionIdentity, "inspectionIdentity");
+            if (accountEpoch < 0 || worldEpoch < 0 || resourceEpoch < 0 || screenGeneration < 0
+                    || draftGeneration < 0 || imageRevision.isBlank()
+                    || inspectionIdentity.filter(String::isBlank).isPresent()) {
+                throw new IllegalArgumentException("invalid preview source identity");
+            }
+        }
+    }
+
     public record Preview(
             String id,
             Bounds bounds,
@@ -1150,7 +1184,23 @@ public record ViewSpec(
             Optional<UUID> presetId,
             Optional<CatalogImage> catalogImage,
             Optional<ExternalImage> externalImage,
-            PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories, boolean ownedPng) {
+            PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories, boolean ownedPng,
+            Optional<BodySource> bodySource) {
+        public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
+                SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
+                Optional<UUID> presetId, Optional<CatalogImage> catalogImage, Optional<ExternalImage> externalImage,
+                PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories, boolean ownedPng) {
+            this(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode, visibility,
+                    yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent,
+                    capeHasElytra, nativeAccessories, ownedPng, Optional.empty());
+        }
+
+        public Preview withBodySource(Optional<BodySource> source) {
+            return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
+                    intent, capeHasElytra, nativeAccessories, ownedPng, source);
+        }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
                 OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
@@ -1164,12 +1214,12 @@ public record ViewSpec(
         public Preview withOwnedPng(boolean value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, value);
+                    intent, capeHasElytra, nativeAccessories, value, bodySource);
         }
         public Preview withAnchorBounds(Bounds anchor) {
             return new Preview(id, bounds, anchor, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, ownedPng);
+                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1182,7 +1232,7 @@ public record ViewSpec(
         public Preview withNativeAccessories(boolean value, PreviewRenderer.CapeMode mode) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant,
                     value ? Optional.empty() : capeId, mode, outerLayerVisibility, yawDegrees, pitchDegrees,
-                    scale, presetId, catalogImage, externalImage, intent, capeHasElytra, value, ownedPng);
+                    scale, presetId, catalogImage, externalImage, intent, capeHasElytra, value, ownedPng, bodySource);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1194,7 +1244,7 @@ public record ViewSpec(
         }
         public Preview withCapeElytra(boolean value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
-                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value, nativeAccessories, ownedPng);
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value, nativeAccessories, ownedPng, bodySource);
         }
         public Preview(
                 String id,
@@ -1352,6 +1402,15 @@ public record ViewSpec(
         }
 
         public Preview {
+            Objects.requireNonNull(bodySource, "bodySource");
+            if (bodySource.isPresent()) {
+                BodySource source = bodySource.get();
+                if (intent != PreviewRenderer.PreviewIntent.EDITOR_DRAFT
+                        || !source.presetId().equals(presetId) || !source.imageRevision().equals(imageRevision)
+                        || source.variant() != variant) {
+                    throw new IllegalArgumentException("body source does not match main preview");
+                }
+            }
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");
             Objects.requireNonNull(anchorBounds, "anchorBounds");
@@ -1385,7 +1444,7 @@ public record ViewSpec(
         }
 
         public boolean requiresLoadedSkin() {
-            return ownedPng || skin.optionalAssetId().isPresent()
+            return ownedPng || imageRevision.startsWith("provider:skin:") || skin.optionalAssetId().isPresent()
                     || catalogImage.isPresent()
                     || externalImage.isPresent();
         }
@@ -1469,11 +1528,19 @@ public record ViewSpec(
             String id,
             Bounds bounds,
             String capeId,
-            BackEquipmentPreviewRenderer.Mode mode, boolean capeHasElytra) {
+            BackEquipmentPreviewRenderer.Mode mode, boolean capeHasElytra, Projection projection) {
+        public enum Projection { EQUIPMENT, PROVIDER_THUMBNAIL }
+        public BackEquipmentPreview(String id, Bounds bounds, String capeId, BackEquipmentPreviewRenderer.Mode mode, boolean capeHasElytra) {
+            this(id,bounds,capeId,mode,capeHasElytra,Projection.EQUIPMENT);
+        }
+        public BackEquipmentPreview asProviderThumbnail() {
+            return new BackEquipmentPreview(id,bounds,capeId,mode,capeHasElytra,Projection.PROVIDER_THUMBNAIL);
+        }
         public BackEquipmentPreview(String id, Bounds bounds, String capeId, BackEquipmentPreviewRenderer.Mode mode) {
             this(id, bounds, capeId, mode, true);
         }
         public BackEquipmentPreview {
+            Objects.requireNonNull(projection, "projection");
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(bounds, "bounds");
             Objects.requireNonNull(capeId, "capeId");

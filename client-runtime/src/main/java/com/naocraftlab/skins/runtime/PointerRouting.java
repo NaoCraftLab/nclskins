@@ -11,7 +11,7 @@ public final class PointerRouting {
         Objects.requireNonNull(view, "view");
         boolean chromeOwnsPointer = view.widgets().stream()
                 .filter(ViewSpec.Widget::visible)
-                .anyMatch(widget -> widget.bounds().contains(x, y))
+                .anyMatch(widget -> widget.bounds().contains(x, y) && view.clipFor(widget.id()).map(clip -> clip.contains(x,y)).orElse(true))
                 || view.panels().stream()
                 .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER
                         || panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER)
@@ -22,18 +22,28 @@ public final class PointerRouting {
         Optional<String> previewId = view.previews().stream()
                 .filter(ignored -> !chromeOwnsPointer)
                 .filter(preview -> preview.anchorBounds().contains(x, y))
+                .filter(preview -> view.clipFor(preview.id()).map(clip -> clip.contains(x,y)).orElse(true))
                 .map(ViewSpec.Preview::id)
                 .findFirst();
-        boolean scrollbar = view.scrollbar()
-                .map(candidate -> candidate.track().contains(x, y))
-                .orElse(false);
+        boolean scrollbar = ViewHostPolicy.scrollbars(view).stream().anyMatch(candidate -> candidate.track().contains(x,y));
         return new Hit(previewId, scrollbar);
     }
 
     public static Optional<ViewSpec.ScrollSurface> scrollSurface(
             ViewSpec view, double x, double y) {
         Objects.requireNonNull(view, "view");
-        return view.scrollSurfaceAt(x, y);
+        return view.scrollSurfaces().stream().filter(surface -> ViewHostPolicy.scrollbar(view,surface.id())
+                .filter(bar -> bar.track().contains(x,y)).isPresent()).findFirst().or(() -> view.scrollSurfaceAt(x,y));
+    }
+
+    public static boolean interactivePreview(ViewSpec view, double x, double y) {
+        return hit(view,x,y).previewId().flatMap(id -> view.previews().stream()
+                .filter(preview -> preview.id().equals(id)).findFirst())
+                .filter(preview -> ViewHostPolicy.screenOwnedBody(view.screenId(),preview)).isPresent();
+    }
+
+    public static boolean capturesPointer(ViewSpec view, double x, double y) {
+        return hit(view,x,y).scrollbar() || interactivePreview(view,x,y);
     }
 
 

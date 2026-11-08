@@ -11,7 +11,7 @@ widgets
 3|providers.row.SKINMC|BUTTON|16,-5,288,20|key:nclskins.providers.skinmc:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 4|providers.row.SNEAKY|BUTTON|16,19,288,20|key:nclskins.providers.sneaky:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 5|providers.row.MINECRAFTCAPES|BUTTON|16,43,288,20|key:nclskins.providers.minecraftcapes:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-6|providers.back|BUTTON|60,72,200,20|key:gui.back:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+6|providers.back|BUTTON|60,74,200,20|key:gui.back:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 previews
 back_equipment_previews
 icon_decorations

@@ -18,6 +18,11 @@ public final class CollectionHeaderStyle {
 
     private CollectionHeaderStyle() {}
 
+    public static Bounds flushContentBounds(Bounds content) {
+        return new Bounds(content.x()-HORIZONTAL_PADDING, content.y(),
+                content.width()+HORIZONTAL_PADDING*2, content.height());
+    }
+
 
     public static int maximumLabelWidth(Bounds bounds) {
         return maximumLabelWidth(bounds, 0);

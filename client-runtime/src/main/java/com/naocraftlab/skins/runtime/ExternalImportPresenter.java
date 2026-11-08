@@ -126,7 +126,7 @@ public final class ExternalImportPresenter {
         int backWidth = Math.min(200, Math.max(100, width - 32));
         widgets.add(ViewSpec.Widget.button(
                 "external.back",
-                new Bounds((width - backWidth) / 2, Math.max(0, height - 27), backWidth, 20),
+                new Bounds((width - backWidth) / 2, new ViewChromeMetrics(FOOTER_HEIGHT).footerRowTop(height,20), backWidth, 20),
                 UiMessage.info("gui.back"),
                 !busy));
         return new ViewSpec(
@@ -208,12 +208,12 @@ public final class ExternalImportPresenter {
         int footerX = (width - footerWidth) / 2;
         widgets.add(ViewSpec.Widget.button(
                 "external.review.commit",
-                new Bounds(footerX, height - 27, importWidth, 20),
+                new Bounds(footerX, new ViewChromeMetrics(FOOTER_HEIGHT).footerRowTop(height,20), importWidth, 20),
                 UiMessage.info("nclskins.external_import.import_selected", selected),
                 !busy && selected > 0));
         widgets.add(ViewSpec.Widget.button(
                 "external.review.cancel",
-                new Bounds(footerX + importWidth + 6, height - 27, footerWidth - importWidth - 6, 20),
+                new Bounds(footerX + importWidth + 6, new ViewChromeMetrics(FOOTER_HEIGHT).footerRowTop(height,20), footerWidth - importWidth - 6, 20),
                 UiMessage.info("gui.cancel"),
                 !busy));
         status.filter(message -> message.severity() == UiMessage.Severity.ERROR)

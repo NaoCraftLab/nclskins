@@ -22,6 +22,19 @@ public final class UiPreferencesStorageAdapter implements UiPreferencesPort {
     }
 
     @Override
+    public AccountUiPreferences updateGallerySections(GallerySectionsUpdate update) throws IOException {
+        Objects.requireNonNull(update, "update");
+        UUID accountId = update.scope().initiatingAccountId();
+        java.util.function.BooleanSupplier current = () -> {
+            try {
+                return accountId.equals(currentAccount.get()) && update.scope().stillCurrent().getAsBoolean();
+            } catch (IOException unavailable) { return false; }
+        };
+        if (!current.getAsBoolean()) throw new IOException("Gallery account retired");
+        return storage.updateGallerySections(accountId, update.collapsed(), current);
+    }
+
+    @Override
     public Optional<AccountUiPreferences> loadUiPreferences() throws IOException {
         UUID accountId = currentAccount.get();
         return Optional.of(storage.loadUiPreferences(accountId).preferences());

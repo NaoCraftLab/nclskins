@@ -14,6 +14,7 @@ import java.util.UUID;
 import static com.naocraftlab.skins.runtime.AccountReconciliationPort.*;
 
 interface AccountReconciliationEffects {
+    default void requireCurrent() throws IOException {}
     AccountAppearanceState load() throws IOException;
     SessionValidation cached();
     boolean automaticAllowed();

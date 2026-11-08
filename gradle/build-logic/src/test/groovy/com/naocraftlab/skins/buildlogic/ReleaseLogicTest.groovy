@@ -15,6 +15,124 @@ final class ReleaseLogicTest {
     private final File repository = new File('../..').canonicalFile
 
     @Test
+    void candidateAdmitsMatchingPrereleaseBranch() {
+        withBranchFixture { File work, String source ->
+            String script = workflowScript('release-candidate.yml', 'Require trusted branch and release version')
+            Map result = runShell(work, script, [VERSION: '1.4.0-beta.1',
+                    GITHUB_REF: 'refs/heads/release/1.4.0', GITHUB_SHA: source])
+            assertEquals(0, result.exit, result.output)
+        }
+    }
+
+    @Test
+    void publisherAdmitsMatchingPrereleaseTag() {
+        withBranchFixture { File work, String source ->
+            String script = workflowScript('release.yml', 'Resolve pinned plan or verified resume bundle')
+            script = script.substring(0, script.indexOf('if [[ -n "$RESUME_RUN" ]]'))
+            Map result = runShell(work, script, [VERSION: '1.4.0-beta.1', EVENT_NAME: 'push',
+                    EVENT_REF: 'refs/tags/1.4.0-beta.1', GITHUB_OUTPUT: new File(work, 'output').path])
+            assertEquals(0, result.exit, result.output)
+        }
+    }
+
+    @Test
+    void branchAdmissionRejectsMismatchesAndDrift() {
+        withBranchFixture { File work, String source ->
+            String candidate = workflowScript('release-candidate.yml', 'Require trusted branch and release version')
+            String publisher = workflowScript('release.yml', 'Resolve pinned plan or verified resume bundle')
+            String prefix = publisher.substring(0, publisher.indexOf('if [[ -n "$RESUME_RUN" ]]'))
+            String main = runShell(work, 'git rev-parse origin/main').output.trim()
+            def checkCandidate = { String version, String ref, String sha, boolean allowed ->
+                Map result = runShell(work, candidate, [VERSION: version, GITHUB_REF: ref, GITHUB_SHA: sha])
+                assertEquals(allowed, result.exit == 0, "candidate ${version} ${ref}: ${result.output}")
+            }
+            def checkPublisher = { String version, String event, String ref, boolean allowed ->
+                Map result = runShell(work, prefix, [VERSION: version, EVENT_NAME: event,
+                        EVENT_REF: ref, GITHUB_OUTPUT: new File(work, 'output').path])
+                assertEquals(allowed, result.exit == 0, "publisher ${version} ${ref}: ${result.output}")
+            }
+            checkCandidate('1.4.0-alpha.1', 'refs/heads/release/1.4.0', source, true)
+            checkCandidate('1.4.0', 'refs/heads/release/1.4.0', source, false)
+            checkCandidate('1.4.1-beta.1', 'refs/heads/release/1.4.0', source, false)
+            checkCandidate('1.4.0-beta.x', 'refs/heads/release/1.4.0', source, false)
+            checkCandidate('1.4.0-beta.1', 'refs/heads/other', source, false)
+            checkCandidate('1.4.0-beta.1', 'refs/heads/release/1.4.0', main, false)
+            checkPublisher('1.4.0-alpha.1', 'workflow_dispatch', 'refs/heads/release/1.4.0', true)
+            checkPublisher('1.4.0', 'push', 'refs/tags/1.4.0', false)
+            checkPublisher('1.4.1-beta.1', 'push', 'refs/tags/1.4.1-beta.1', false)
+            checkPublisher('1.4.0-beta.1', 'workflow_dispatch', 'refs/heads/other', false)
+            checkPublisher('1.4.0-beta.1', 'workflow_dispatch', 'refs/heads/main', false)
+            String ancestry = publisher.readLines().find { it.contains('git merge-base --is-ancestor "$source"') }
+            assertNotNull(ancestry)
+            Map resumed = runShell(work, prefix + "\nsource='${main}'\n" + ancestry,
+                    [VERSION: '1.4.0-beta.1', EVENT_NAME: 'push', EVENT_REF: 'refs/tags/1.4.0-beta.1',
+                     GITHUB_OUTPUT: new File(work, 'output').path])
+            assertEquals(0, resumed.exit, resumed.output)
+            assertEquals(0, runShell(work, 'git checkout --orphan unrelated >/dev/null; git commit --allow-empty -m unrelated >/dev/null').exit)
+            String unrelated = runShell(work, 'git rev-parse HEAD').output.trim()
+            checkPublisher('1.4.0-beta.1', 'push', 'refs/tags/1.4.0-beta.1', false)
+            assertEquals(0, runShell(work, "git checkout --detach ${source} >/dev/null").exit)
+            resumed = runShell(work, prefix + "\nsource='${unrelated}'\n" + ancestry,
+                    [VERSION: '1.4.0-beta.1', EVENT_NAME: 'push', EVENT_REF: 'refs/tags/1.4.0-beta.1',
+                     GITHUB_OUTPUT: new File(work, 'output').path])
+            assertNotEquals(0, resumed.exit, resumed.output)
+            assertEquals(0, runShell(work, "git checkout --detach ${main} >/dev/null").exit)
+            checkCandidate('1.4.0', 'refs/heads/main', main, true)
+            checkCandidate('1.4.0-beta.1', 'refs/heads/main', main, true)
+            checkPublisher('1.4.0', 'workflow_dispatch', 'refs/heads/main', true)
+            checkPublisher('1.4.0-beta.1', 'push', 'refs/tags/1.4.0-beta.1', true)
+            assertEquals(0, runShell(work, "git checkout release/1.4.0 >/dev/null; git commit --allow-empty -m drift >/dev/null; git push origin release/1.4.0 >/dev/null; git checkout --detach ${source} >/dev/null").exit)
+            checkCandidate('1.4.0-beta.1', 'refs/heads/release/1.4.0', source, false)
+        }
+    }
+
+    private String workflowScript(String file, String step) {
+        String workflow = new File(repository, ".github/workflows/${file}").text
+        int start = workflow.indexOf('        run: |', workflow.indexOf("      - name: ${step}"))
+        assertTrue(start >= 0)
+        int end = workflow.indexOf('\n      - ', start)
+        String block = end < 0 ? workflow.substring(start) : workflow.substring(start, end)
+        block.readLines().drop(1).collect { it.startsWith('          ') ? it.substring(10) : it }.join('\n') + '\n'
+    }
+
+    private static Map runShell(File dir, String script, Map env = [:]) {
+        ProcessBuilder builder = new ProcessBuilder('bash', '-c', script).directory(dir).redirectErrorStream(true)
+        builder.environment().putAll(env.collectEntries { k, v -> [(k.toString()): v.toString()] })
+        Process process = builder.start()
+        String output = process.inputStream.text
+        [exit: process.waitFor(), output: output]
+    }
+
+    private static void withBranchFixture(Closure body) {
+        File root = Files.createTempDirectory('release-branch-').toFile()
+        try {
+            File origin = new File(root, 'origin.git')
+            File work = new File(root, 'work')
+            work.mkdirs()
+            assertEquals(0, runShell(work, '[[ ${BASH_VERSINFO[0]} -ge 4 ]] || exit 70').exit,
+                    'Workflow fixtures require Bash 4 or later')
+            Map setup = runShell(work, '''set -eu
+git init --bare "$1" >/dev/null
+git init -b main >/dev/null
+git config user.email fixture@example.invalid
+git config user.name fixture
+git remote add origin "$1"
+git commit --allow-empty -m main >/dev/null
+git push origin main >/dev/null
+git checkout -b release/1.4.0 >/dev/null
+git commit --allow-empty -m release >/dev/null
+git push origin release/1.4.0 >/dev/null
+git rev-parse HEAD
+'''.replace('$1', "'${origin.path}'"))
+            assertEquals(0, setup.exit, setup.output)
+            String source = setup.output.readLines().last().trim()
+            body(work, source)
+        } finally {
+            root.deleteDir()
+        }
+    }
+
+    @Test
     void currentDevelopmentVersionMatchesTheModChangelogSection() {
         File versionFile = new File(repository, 'gradle/version.properties')
         File changelog = new File(repository, 'CHANGELOG.md')
@@ -138,7 +256,7 @@ final class ReleaseLogicTest {
         String workflow = new File(repository, '.github/workflows/release-candidate.yml').text
 
         assertTrue(workflow.contains('workflow_dispatch:'))
-        assertTrue(workflow.contains('[[ "$GITHUB_REF" == refs/heads/main ]]'))
+        assertTrue(workflow.contains('[[ "$GITHUB_REF" != refs/heads/main ]]'))
         assertTrue(workflow.contains('ref: ${{ github.sha }}'))
         assertTrue(workflow.contains('persist-credentials: false'))
         assertTrue(workflow.contains('contents: read'))

@@ -247,11 +247,41 @@ final class LocalizationVerifierTest {
     }
 
     @Test
+    void galleryCopyMatchesReviewedSemanticGroupsWithoutRetiredActiveLabel() {
+        List<String> suffixes = ['favorites', 'your_appearances', 'layers', 'favorite',
+                'unfavorite', 'delete_confirmation', 'actions']
+        Map<String, List<String>> expected = [
+                en_us: ['Favorites', 'Your looks', 'Layers', 'Add to favorites',
+                        'Remove from favorites', 'Delete look?', 'Card actions'],
+                ru_ru: ['Избранное', 'Ваши образы', 'Слои', 'В избранное',
+                        'Убрать из избранного', 'Удалить образ?', 'Действия образа'],
+                de_de: ['Favoriten', 'Deine Looks', 'Ebenen', 'Zu Favoriten hinzufügen',
+                        'Aus Favoriten entfernen', 'Look löschen?', 'Look-Aktionen'],
+                pt_br: ['Favoritos', 'Seus visuais', 'Camadas', 'Adicionar aos favoritos',
+                        'Remover dos favoritos', 'Excluir visual?', 'Ações do visual'],
+                es_mx: ['Favoritos', 'Tus aspectos', 'Capas del skin', 'Añadir a favoritos',
+                        'Quitar de favoritos', '¿Eliminar aspecto?', 'Acciones del aspecto'],
+                es_es: ['Favoritos', 'Tus aspectos', 'Capas del skin', 'Añadir a favoritos',
+                        'Quitar de favoritos', '¿Eliminar aspecto?', 'Acciones del aspecto']]
+        assertEquals(LocalizationVerifier.sourceLocales(catalog) as Set, expected.keySet())
+        LocalizationVerifier.sourceLocales(catalog).each { String locale ->
+            Map language = CatalogTools.loadJson(new File(repository,
+                    "compat/resources/canonical/src/main/resources/assets/nclskins/lang/${locale}.json"))
+            suffixes.eachWithIndex { String suffix, int index ->
+                assertEquals(expected[locale][index], language['nclskins.gallery.' + suffix],
+                        locale + ':' + suffix)
+            }
+            assertFalse(language.containsKey('nclskins.gallery.active'), locale)
+        }
+        assertFalse(LocalizationVerifier.productionKeys(repository).contains('nclskins.gallery.active'))
+    }
+
+    @Test
     void canonicalSourcesMatchProductionInventoryAndArgumentContract() {
         File directory = new File(repository,
                 'compat/resources/canonical/src/main/resources/assets/nclskins/lang')
         Map baseline = CatalogTools.loadJson(new File(directory, 'en_us.json'))
-        assertEquals(360, baseline.size())
+        assertEquals(366, baseline.size())
         assertEquals('Embedded', baseline['nclskins.capes.embedded'])
         assertEquals('%s: %s', baseline['nclskins.inspection.source'])
         assertEquals('NCL Skins', baseline['key.category.nclskins.main'])

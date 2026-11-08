@@ -16,7 +16,7 @@ public enum GuiIcon implements WidgetIcon {
     ACTION_SELECT_FOLDER("action/select_folder", 16),
     ACTION_COLLAPSE_ALL("action/collapse_all", 16),
     ACTION_EXPAND_ALL("action/expand_all", 16),
-    ACTION_ADD_LOOK("action/add_look", 32),
+    ACTION_ADD_LOOK("action/add_look", 16),
     ACTION_ADD_CAPE("action/add_cape", 32),
 
     EDITOR_TAB_APPEARANCE("editor/tab/appearance", 16),

@@ -55,6 +55,25 @@ public final class LibraryService {
         return storage.loadOrCreateAccount(accountId);
     }
 
+    public AccountState setPresetFavorite(UUID accountId, UUID presetId, boolean desired,
+            AccountWriteGuard guard, java.util.function.BooleanSupplier stillCurrent) throws IOException {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(presetId, "presetId");
+        Objects.requireNonNull(guard, "guard");
+        Objects.requireNonNull(stillCurrent, "stillCurrent");
+        return storage.updateAccount(accountId, latest -> {
+            List<AppearancePreset> presets = new ArrayList<>(latest.presets());
+            int index = indexOfPreset(presets, presetId);
+            presets.set(index, presets.get(index).withFavorite(desired));
+            return new AccountState(latest.schemaVersion(), latest.accountId(), latest.skinAssets(),
+                    latest.personalSkins(), presets, latest.updatedAt(), latest.personalCapes());
+        }, latest -> {
+            if (!accountId.equals(latest.accountId())) throw new IOException("Favorite account changed");
+            guard.verify(latest);
+            requireCurrent(stillCurrent);
+        }, stillCurrent);
+    }
+
     public com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(
             UUID accountId, String name, byte[] bytes) throws IOException, PngValidationException {
         return storage.importCape(accountId, name, bytes, current -> {});
@@ -247,7 +266,7 @@ public final class LibraryService {
                         capeId,
                         outerLayerVisibility,
                         existing.createdAt(),
-                        mutationTime).withOfflineCape(validCape(current, offlineCape));
+                        mutationTime).withOfflineCape(validCape(current, offlineCape)).withFavorite(existing.favorite());
                 presets.set(presetIndex, preset);
             }
             return new AccountState(
@@ -450,7 +469,7 @@ public final class LibraryService {
                         capeId,
                         outerLayerVisibility,
                         existingPreset.createdAt(),
-                        mutationTime).withOfflineCape(validCape(current, offlineCape));
+                        mutationTime).withOfflineCape(validCape(current, offlineCape)).withFavorite(existingPreset.favorite());
                 presets.set(presetIndex, preset);
             }
             return new AccountState(
@@ -907,7 +926,8 @@ public final class LibraryService {
             int index = indexOfPreset(presets, presetId);
             AppearancePreset existing = presets.get(index);
             presets.set(index, new AppearancePreset(
-                    existing.id(), name, skin, capeId, outerLayerVisibility, existing.createdAt(), now).withOfflineCape(validCape(current, offlineCape)));
+                    existing.id(), name, skin, capeId, outerLayerVisibility, existing.createdAt(), now)
+                    .withOfflineCape(validCape(current, offlineCape)).withFavorite(existing.favorite()));
             return copy(current, current.skinAssets(), presets, now);
         }, guard);
     }
@@ -916,7 +936,8 @@ public final class LibraryService {
     public PresetDeletion deletePreset(
             UUID accountId,
             UUID presetId,
-            LibraryStatePort.AppearanceIntentFromAccount accountDefaultIntent) throws IOException {
+            LibraryStatePort.AppearanceIntentFromAccount accountDefaultIntent,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(presetId, "presetId");
         Objects.requireNonNull(accountDefaultIntent, "accountDefaultIntent");
@@ -939,7 +960,7 @@ public final class LibraryService {
                             "account default intent");
                     return LibraryStatePort.AccountAppearanceMutationPlan.both(
                             deleted, accountDefault);
-                });
+                }, stillCurrent);
         return new PresetDeletion(
                 result.account(),
                 result.appearance(),

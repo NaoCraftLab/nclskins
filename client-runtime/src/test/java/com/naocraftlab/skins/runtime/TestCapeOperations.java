@@ -38,6 +38,21 @@ import java.util.UUID;
 
 interface TestCapeOperations extends ClientOperations {
     @Override
+    default AccountUiPreferences updateGallerySections(GallerySectionsUpdate update) throws Exception {
+        throw new UnsupportedOperationException("Gallery preferences unavailable in this fixture");
+    }
+
+    @Override
+    default AccountState setPresetFavorite(PresetFavoriteUpdate update) throws Exception {
+        throw new UnsupportedOperationException("Gallery metadata unavailable in this fixture");
+    }
+
+    @Override
+    default PresetUse applyGalleryDraft(GalleryApplyRequest request) throws Exception {
+        throw new UnsupportedOperationException("Gallery Apply unavailable in this fixture");
+    }
+
+    @Override
     default Optional<DurableAppearance> durableAppearance() throws Exception {
         return Optional.empty();
     }

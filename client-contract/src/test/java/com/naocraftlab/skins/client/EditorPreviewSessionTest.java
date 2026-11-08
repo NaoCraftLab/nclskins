@@ -13,6 +13,53 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EditorPreviewSessionTest {
+    @Test void galleryActualPassRemainsProvisionalUntilExactCommonAcknowledgement() {
+        try (var gallery = new EditorPreviewSession.Gallery()) {
+            var a = gallery.prepare("A",false,true,() -> true);
+            a.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+            gallery.confirm("A");
+            var predecessor = a.body();
+            var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+            var b = gallery.prepare("B",false,true,current::get);
+            b.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+            assertTrue(predecessor.current().getAsBoolean(),"Actual candidate pass alone cannot retire common-confirmed A");
+            current.set(false);
+            gallery.confirm("B");
+            assertTrue(predecessor.current().getAsBoolean(),"Superseded B has no acknowledgement authority");
+            assertTrue(gallery.retains(a));
+            assertFalse(gallery.retains(b));
+            var c = gallery.prepare("C",false,true,() -> true);
+            gallery.confirm("C");
+            assertTrue(predecessor.current().getAsBoolean(),"Preparation without own pass is not confirmation");
+            c.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+            gallery.confirm("C");
+            assertFalse(predecessor.current().getAsBoolean());
+            assertTrue(gallery.retains(c));
+        }
+    }
+
+    @Test void gallerySameContentRegistrationReplacementRetainsExactSessionAndTerminalCloseNeverRecreates() {
+        var gallery = new EditorPreviewSession.Gallery();
+        var old = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var a = gallery.prepare("A",false,true,old::get);
+        a.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+        gallery.confirm("A");
+        old.set(false);
+        var replacement = gallery.prepare("A",false,true,() -> true);
+        org.junit.jupiter.api.Assertions.assertSame(a,replacement);
+        assertTrue(a.body().current().getAsBoolean());
+        gallery.close();
+        org.junit.jupiter.api.Assertions.assertNull(gallery.prepare("A",false,true,() -> true));
+        assertFalse(gallery.retains(a));
+        assertFalse(gallery.body().current().getAsBoolean());
+    }
+
+    @Test void galleryReentrantAdmissionCloseCannotReturnAReplacementOrDisplayedWitness() {
+        var gallery = new EditorPreviewSession.Gallery();
+        org.junit.jupiter.api.Assertions.assertNull(gallery.prepare("A",false,true,() -> { gallery.close(); return true; }));
+        assertFalse(gallery.body().current().getAsBoolean());
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({"ORDINARY,current,false", "ORDINARY,result,false", "READY,current,false", "READY,result,false",
             "ORDINARY,current,true", "ORDINARY,result,true", "READY,current,true", "READY,result,true"})

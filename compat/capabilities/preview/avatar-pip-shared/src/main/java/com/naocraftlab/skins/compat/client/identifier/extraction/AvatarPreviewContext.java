@@ -17,6 +17,10 @@ public final class AvatarPreviewContext {
     private final java.util.function.BooleanSupplier current;
     private final java.util.function.Consumer<PreviewModelFrames.Body> displayed;
     private Attempt attempt;
+    private com.naocraftlab.skins.client.ScreenOwnedRenderTarget target;
+
+    public com.naocraftlab.skins.client.ScreenOwnedRenderTarget target() { return target; }
+    void target(com.naocraftlab.skins.client.ScreenOwnedRenderTarget target) { this.target = target; }
 
     AvatarPreviewContext(
             AbstractClientPlayer player,

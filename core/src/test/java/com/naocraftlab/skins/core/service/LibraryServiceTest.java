@@ -51,6 +51,40 @@ class LibraryServiceTest {
     Path temporaryDirectory;
 
     @Test
+    void editorUpdatePreservesLatestFavorite() throws Exception {
+        LibraryService library = library();
+        UUID id = UUID.randomUUID();
+        AccountState created = library.createPreset(id, "B", SkinReference.accountDefault(), null);
+        UUID presetId = created.presets().get(0).id();
+        var storage = new NclSkinsStorage(temporaryDirectory.resolve("nclskins"), new PngValidator(), Clock.fixed(NOW, ZoneOffset.UTC));
+        storage.updateAccount(id, current -> new AccountState(current.schemaVersion(), id, current.skinAssets(),
+                current.personalSkins(), current.presets().stream().map(p -> p.withFavorite(true)).toList(), current.updatedAt(), current.personalCapes()));
+        AccountState saved = library.updatePreset(id, presetId, "Edited", SkinReference.accountDefault(), null);
+        assertTrue(saved.presets().get(0).favorite());
+        assertEquals(created.presets().get(0).createdAt(), saved.presets().get(0).createdAt());
+    }
+
+    @Test
+    void importedEditorSavesPreserveLatestFavoriteAndCopiesDefaultFalse() throws Exception {
+        var library = library();
+        UUID id = UUID.randomUUID();
+        var created = library.createPreset(id, "B", SkinReference.accountDefault(), null);
+        UUID preset = created.presets().get(0).id();
+        library.setPresetFavorite(id, preset, true, current -> {}, () -> true);
+        var origin = new CatalogOrigin("synthetic", "collection", "skin");
+        library.savePresetWithImportedSkin(id, Optional.of(preset), "Catalog", "Asset", SkinVariant.CLASSIC,
+                SkinSource.IMPORTED, TestPng.create(64, 64), origin, null);
+        assertTrue(library.findPreset(library.load(id), preset).favorite());
+        library.savePresetWithPersonalSkin(id, Optional.of(preset), "Personal", "Asset", SkinVariant.SLIM,
+                PersonalSkinSource.FILE, TestPng.create(64, 64), OuterLayerVisibility.allVisible(), null);
+        assertTrue(library.findPreset(library.load(id), preset).favorite());
+        var copied = library.savePresetWithPersonalSkin(id, Optional.empty(), "Copy", "Asset", SkinVariant.SLIM,
+                PersonalSkinSource.FILE, TestPng.create(64, 64), OuterLayerVisibility.allVisible(), null);
+        assertEquals(2, copied.state().presets().size());
+        assertFalse(copied.state().presets().stream().filter(p -> !p.id().equals(preset)).findFirst().orElseThrow().favorite());
+    }
+
+    @Test
     void supportsCompleteSkinAndPresetCrud() throws Exception {
         LibraryService library = library();
         UUID accountId = UUID.randomUUID();
@@ -91,7 +125,7 @@ class LibraryServiceTest {
         LibraryService.PresetDeletion deletion = library.deletePreset(
                 accountId,
                 presetId,
-                (account, appearance, revision) -> pendingDefault(accountId, revision));
+                (account, appearance, revision) -> pendingDefault(accountId, revision), () -> true);
         assertTrue(deletion.appearanceUpdated());
         AccountState withoutPreset = deletion.state();
         assertTrue(withoutPreset.presets().isEmpty());
@@ -112,7 +146,7 @@ class LibraryServiceTest {
         LibraryService.PresetDeletion deletion = library.deletePreset(
                 accountId,
                 presetId,
-                (account, appearance, revision) -> pendingDefault(accountId, revision));
+                (account, appearance, revision) -> pendingDefault(accountId, revision), () -> true);
         assertTrue(deletion.appearanceUpdated());
         AccountState emptyAgain = deletion.state();
 
@@ -218,14 +252,14 @@ class LibraryServiceTest {
             return library().deletePreset(
                     accountId,
                     firstId,
-                    (account, appearance, revision) -> pendingDefault(accountId, revision));
+                    (account, appearance, revision) -> pendingDefault(accountId, revision), () -> true);
         };
         Callable<LibraryService.PresetDeletion> deleteSecond = () -> {
             start.await();
             return library().deletePreset(
                     accountId,
                     secondId,
-                    (account, appearance, revision) -> pendingDefault(accountId, revision));
+                    (account, appearance, revision) -> pendingDefault(accountId, revision), () -> true);
         };
 
         ExecutorService executor = Executors.newFixedThreadPool(2);

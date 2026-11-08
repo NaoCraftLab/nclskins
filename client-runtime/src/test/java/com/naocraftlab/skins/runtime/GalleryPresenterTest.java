@@ -29,6 +29,487 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class GalleryPresenterTest {
     private final GalleryPresenter presenter = new GalleryPresenter();
 
+    @Test void capeGridKeepsCenteredStandardCellsAndMarksSourceNotPixels() {
+        var account = TestFixtures.account(1);
+        var snapshot = TestFixtures.ready(account,account.presets().get(0).id(),0);
+        var draft = draft(snapshot.activePresetId(),PreviewRenderer.DisplayKind.ORDINARY);
+        for (int height : List.of(240,480,720)) for (int count : List.of(0,1,2,3,4,5,9)) {
+            var choices = java.util.stream.IntStream.range(0,count).mapToObj(i -> new GalleryPresenter.CapeChoice(
+                    "source"+i,UiMessage.literal("Cape",UiMessage.Severity.INFO),Optional.of("same-pixels"),true)).toList();
+            var controls = new GalleryPresenter.ControlsInput(true,com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                    PreviewInteractionModel.gallery(),Optional.empty(),choices,0,Optional.empty());
+            var view = presenter.present(snapshot,854,height,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                    "",Optional.empty(),0,null,draft,controls);
+            var cells = view.widgets().stream().filter(w -> w.id().startsWith("gallery.inspect.")).toList();
+            int width = view.scrollSurface("gallery.stage").orElseThrow().viewport().width()-16;
+            int columns = Math.max(1,(width+2)/34);
+            int expected = 32;
+            for (int i=0;i<cells.size();i++) {
+                var cell = cells.get(i);
+                assertEquals(expected,cell.bounds().width()); assertEquals(expected,cell.bounds().height());
+                int rowCount=Math.min(columns,count-(i/columns)*columns);
+                assertEquals(12+(width-(rowCount*34-2))/2+(i%columns)*34,cell.bounds().x());
+                assertEquals(i==0?Optional.of("active"):Optional.empty(),cell.value(),"provenance, not shared PNG");
+                assertTrue(ViewHostPolicy.cardFrameSegments(cell,false).stream().allMatch(s -> s.color()==0xFF80C880));
+            }
+            if (count>1) {
+                var inspect = new GalleryPresenter.DraftInput(draft.selectedPresetId(),draft.baselineMask(),draft.draftMask(),draft.generation(),
+                        Optional.of("source1"),draft.collapsedSections(),draft.temporarilyRevealedSection(),draft.displayedBodyKind());
+                var inspected = presenter.present(snapshot,854,height,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                        "",Optional.empty(),0,null,inspect,controls);
+                assertEquals(Optional.empty(),inspected.widget("gallery.inspect.source0").orElseThrow().value());
+                assertEquals(Optional.of("active"),inspected.widget("gallery.inspect.source1").orElseThrow().value());
+            }
+        }
+    }
+
+    @Test
+    void leftColumnKeepsThreeLayersAndCenteredHeightDerivedPortraitFit() {
+        var account = TestFixtures.account(3);
+        var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+        Bounds previous = null;
+        for (int[] size : List.of(new int[]{854,480},new int[]{1200,480},new int[]{320,240},new int[]{240,150},new int[]{120,480})) {
+            var d = draft(s.activePresetId(),PreviewRenderer.DisplayKind.ORDINARY);
+            var c = new GalleryPresenter.ControlsInput(true,com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                    PreviewInteractionModel.gallery(),Optional.empty(),List.of(),0,Optional.empty());
+            var v = presenter.present(s,size[0],size[1],0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                    "",Optional.empty(),0,null,d,c);
+            var viewport = v.scrollSurface("gallery.stage").orElseThrow().viewport();
+            var anchor = v.previews().get(0).anchorBounds();
+            int oldLeft = Math.min(Math.max(64,(size[1]-73)/4)+6,Math.max(70,size[0]-60));
+            int expandedLeft = Math.min((int)Math.round(oldLeft*4.0/3),Math.max(70,size[0]-60));
+            assertEquals(expandedLeft, v.panels().stream().filter(p -> p.id().equals("gallery.workspace")).findFirst().orElseThrow().bounds().x());
+            assertEquals(anchor.width()*2,anchor.height());
+            assertEquals(Math.max(1,Math.min((size[1]-73)/4,oldLeft-6)),anchor.width(),"larger area retains the old fit");
+            assertTrue(Math.abs((viewport.x()*2+viewport.width())-(anchor.x()*2+anchor.width())) <= 1);
+            assertTrue(anchor.x()>=viewport.x() && anchor.right()<=viewport.right());
+            var buttons = v.widgets().stream().filter(w -> w.id().startsWith("gallery.outer_layer.")).toList();
+            assertEquals(3,buttons.size());
+            assertEquals(buttons.get(0).bounds().y(),buttons.get(2).bounds().y(),"layers must not wrap");
+            assertEquals(2,buttons.get(1).bounds().x()-buttons.get(0).bounds().right());
+            assertTrue(Math.abs(buttons.get(0).bounds().x()+buttons.get(2).bounds().right()-viewport.x()-viewport.right())<=1);
+            assertEquals(viewport.y()+18,buttons.get(0).bounds().y());
+            var header = v.texts().stream().filter(t -> t.id().equals("gallery.layers")).findFirst().orElseThrow();
+            var headerGeometry = CollectionHeaderStyle.geometry(header.bounds(),9,16);
+            assertEquals(viewport.x()+8,headerGeometry.textX());
+            assertEquals(viewport.right()-8,headerGeometry.lineEndExclusive());
+            var workspace = v.panels().stream().filter(p -> p.id().equals("gallery.workspace")).findFirst().orElseThrow().bounds();
+            assertEquals(8,v.widget("gallery.add").orElseThrow().bounds().x()-workspace.x());
+            assertEquals(4,v.widget("gallery.add").orElseThrow().bounds().y()-workspace.y());
+            assertEquals(8,size[0]-v.scrollSurface("gallery.cards").orElseThrow().viewport().right());
+            assertTrue(buttons.get(2).bounds().right()<=viewport.right());
+            if (size[0]==1200) assertEquals(previous,anchor,"width-only change must not grow height-derived fit");
+            previous=anchor;
+            var pending = presenter.present(s,size[0],size[1],0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                    "",Optional.empty(),0,null,draft(s.activePresetId(),PreviewRenderer.DisplayKind.UNCONFIRMED),c);
+            assertEquals(anchor,pending.previews().get(0).anchorBounds());
+            assertEquals(viewport,pending.scrollSurface("gallery.stage").orElseThrow().viewport());
+        }
+    }
+
+    @Test
+    void galleryCardNamebarIsTranslucentAndPermanentMoreActionIsTransparent() {
+        var account = TestFixtures.account(3);
+        var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+        var view = presenter.present(s, 854, 480, 0, 0, PreviewRenderer.CapeMode.CAPE);
+        var more = view.widgets().stream().filter(w -> w.id().endsWith(".more")).findFirst().orElseThrow();
+        assertEquals("TRANSPARENT_BUTTON", more.kind().name());
+        assertTrue(view.panels().stream().filter(p -> p.id().endsWith(".namebar"))
+                .allMatch(p -> p.style().name().equals("TRANSLUCENT_NAMEBAR")));
+        var workspace = view.panels().stream().filter(p -> p.id().equals("gallery.workspace")).findFirst().orElseThrow();
+        assertEquals(ViewSpec.Panel.Style.VANILLA_TAB_CONTENT, workspace.style());
+        assertEquals(33,workspace.bounds().y());assertEquals(447,workspace.bounds().bottom());
+        assertTrue(view.tabGroups().isEmpty());
+        assertEquals(GuiIcon.ACTION_ADD_LOOK,view.widget("gallery.add").orElseThrow().icon().orElseThrow());
+    }
+
+
+    @Test
+    void confirmedGeometryOnlyAndElytraOnlyAccessoriesEnableMainToggleWithoutLeakingToCards() {
+        var account = TestFixtures.account(3);
+        var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+        s = new ClientSnapshot(s.lifecycle(),s.account(),s.session(),s.remoteProfile(),s.lastMutation(),s.selectedSkinId(),
+                s.selectedPresetId(),s.selectedCapeId(),s.currentOfficialSkinId(),s.activePresetId(),s.editor(),s.addSource(),
+                s.status(),s.busy(),s.rateLimited(),s.rateLimitProgress(),s.capeProviderCooldowns(),s.galleryOffset(),s.generation(),
+                s.intentRevision(),s.syncStatus(),s.syncInProgress(),s.sessionActivity(),s.skinExtensionEnvironment(),s.assetEvidence(),
+                s.catalogEvidence(),s.hideIncompatibleCatalogSkins(),s.hideIncompatibleGalleryLooks(),s.providers().enable(
+                        com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                        com.naocraftlab.skins.core.provider.BuiltinProvider.CPM));
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        for (boolean cape : List.of(true, false)) {
+            var accessories = new com.naocraftlab.skins.client.PreviewAccessories(UUID.randomUUID(), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED,
+                    cape, !cape, PreviewRenderer.LiveReason.AVAILABLE);
+            var c = new GalleryPresenter.ControlsInput(true,
+                    com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(), PreviewInteractionModel.gallery(),
+                    Optional.empty(), List.of(), 0, Optional.empty(), accessories);
+            var view = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                    "",Optional.empty(),0,null,d,c);
+            assertTrue(view.widget("gallery.preview_mode").isPresent());
+            assertTrue(view.previews().get(0).nativeAccessories());
+            assertTrue(view.previews().stream().skip(1).noneMatch(ViewSpec.Preview::nativeAccessories));
+            var header = view.texts().stream().filter(t -> t.id().equals("gallery.layers")).findFirst().orElseThrow();
+            assertEquals("COLLECTION_HEADER", header.layout().name());
+            assertTrue(header.marqueeActivation().isEmpty());
+            assertTrue(view.panels().stream().noneMatch(p -> p.id().equals("gallery.layers.divider")));
+            assertTrue(view.widget(header.id()).isEmpty());
+            assertTrue(view.navigationNodes().stream().noneMatch(n -> n.id().equals(header.id())));
+            assertTrue(view.tooltipRegions().stream().noneMatch(t -> t.id().equals(header.id())));
+        }
+    }
+
+    @Test
+    void observedNativeAvailabilityNeverReplacesSelectedPresetCapeTexture() {
+        var account = TestFixtures.account(2);
+        var selected = account.presets().get(1);
+        var s = TestFixtures.ready(account, selected.id(), 0);
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        var baseline = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE).previews().get(0);
+        assertEquals(selected.optionalCapeId(), baseline.capeId());
+        var accessories = new com.naocraftlab.skins.client.PreviewAccessories(UUID.randomUUID(), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED,
+                true, true, PreviewRenderer.LiveReason.AVAILABLE);
+        var c = new GalleryPresenter.ControlsInput(true,
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(), PreviewInteractionModel.gallery(),
+                Optional.empty(), List.of(), 0, Optional.empty(), accessories);
+        var preview = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                "",Optional.empty(),0,null,d,c).previews().get(0);
+        assertEquals(selected.optionalCapeId(), preview.capeId());
+        assertFalse(preview.nativeAccessories());
+    }
+
+    @Test
+    void inspectedCapeCarriesItsOwnElytraAdmission() {
+        var account = TestFixtures.account(1);
+        var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+        var base = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        var d = new GalleryPresenter.DraftInput(base.selectedPresetId(), base.baselineMask(), base.draftMask(),
+                base.generation(), Optional.of("choice"), base.collapsedSections(), base.temporarilyRevealedSection(), base.displayedBodyKind());
+        var c = new GalleryPresenter.ControlsInput(true,
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(), PreviewInteractionModel.gallery(),
+                Optional.empty(), List.of(new GalleryPresenter.CapeChoice("choice", UiMessage.info("provider"),
+                        Optional.of("provider:cape:" + "c".repeat(64)), false)), 0, Optional.empty());
+        var view = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                "",Optional.empty(),0,null,d,c);
+        var header = view.texts().stream().filter(t -> t.id().equals("gallery.capes")).findFirst().orElseThrow();
+        assertEquals(ViewSpec.Text.Layout.COLLECTION_HEADER, header.layout());
+        assertTrue(header.marqueeActivation().isEmpty());
+        assertTrue(view.widget(header.id()).isEmpty());
+        assertTrue(view.navigationNodes().stream().noneMatch(n -> n.id().equals(header.id())));
+        assertTrue(view.tooltipRegions().stream().noneMatch(t -> t.id().equals(header.id())));
+        assertTrue(view.panels().stream().noneMatch(p -> p.id().equals("gallery.capes.divider")));
+        var main = view.previews().get(0);
+        assertEquals(Optional.of("provider:cape:" + "c".repeat(64)), main.capeId());
+        assertFalse(main.capeHasElytra());
+    }
+
+    @Test
+    void unavailableNativeAccessoriesDoNotCreateGhostToggle() {
+        var account = TestFixtures.account(1);
+        var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        for (var availability : com.naocraftlab.skins.client.PreviewAccessories.Availability.values()) {
+            var c = new GalleryPresenter.ControlsInput(true,
+                    com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(), PreviewInteractionModel.gallery(),
+                    Optional.empty(), List.of(), 0, Optional.empty(),
+                    new com.naocraftlab.skins.client.PreviewAccessories(UUID.randomUUID(), 1,
+                            availability, false, false, PreviewRenderer.LiveReason.AVAILABLE));
+            var view = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,
+                    "",Optional.empty(),0,null,d,c);
+            assertTrue(view.widget("gallery.preview_mode").isEmpty());
+            assertFalse(view.previews().get(0).nativeAccessories());
+        }
+    }
+
+    @Test
+    void leftColumnAndPortraitStayHeightDerivedWhenWindowWidens() {
+        var account = TestFixtures.account(80);
+        var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        var reference = project(s, 854, 480, d, Optional.empty(), Optional.empty(), 0);
+        var wide = project(s, 1600, 480, d, Optional.empty(), Optional.empty(), 0);
+        assertEquals(reference.scrollSurface("gallery.stage").orElseThrow().viewport().width(),
+                wide.scrollSurface("gallery.stage").orElseThrow().viewport().width());
+        var portrait = reference.previews().get(0).anchorBounds();
+        assertEquals(portrait.width() * 2, portrait.height());
+        assertEquals(portrait, wide.previews().get(0).anchorBounds());
+        assertTrue(wide.scrollSurface("gallery.cards").orElseThrow().viewport().width()
+                > reference.scrollSurface("gallery.cards").orElseThrow().viewport().width());
+    }
+
+    @Test
+    void narrowAndLowPortraitPreservesAspectWithIndependentSafeScroll() {
+        var account = TestFixtures.account(80);
+        var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        for (int[] size : List.of(new int[]{120, 480}, new int[]{320, 180})) {
+            var capes = List.of(new GalleryPresenter.CapeChoice("OFFLINE",UiMessage.literal("Offline",UiMessage.Severity.INFO),Optional.of("fixture-offline"),true),
+                    new GalleryPresenter.CapeChoice("MINECRAFT",UiMessage.literal("Minecraft",UiMessage.Severity.INFO),Optional.of("fixture-official"),true));
+            var view = presenter.present(s,size[0],size[1],0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"",Optional.empty(),0,null,d,
+                    new GalleryPresenter.ControlsInput(true,com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),PreviewInteractionModel.gallery(),Optional.empty(),capes,0,Optional.empty()));
+            assertEquals(2,view.backEquipmentPreviews().size());
+            assertTrue(view.backEquipmentPreviews().stream().allMatch(p -> p.projection()==ViewSpec.BackEquipmentPreview.Projection.PROVIDER_THUMBNAIL
+                    && p.bounds().width()==p.bounds().height()));
+            var stage = view.scrollSurface("gallery.stage").orElseThrow();
+            var portrait = view.previews().get(0).anchorBounds();
+            assertEquals(portrait.width() * 2, portrait.height());
+            assertTrue(portrait.width() > 0);
+            assertTrue(portrait.right() <= stage.viewport().right());
+            assertTrue(stage.viewport().x() >= 0);
+            assertTrue(stage.viewport().bottom() <= view.widget("gallery.done").orElseThrow().bounds().y());
+            assertTrue(view.clipFor("gallery.preview").isEmpty());
+            var cards = view.scrollSurface("gallery.cards").orElseThrow();
+            assertTrue(cards.viewport().x() >= stage.viewport().right());
+            assertTrue(cards.viewport().right() <= size[0]);
+            assertTrue(cards.maximumPixels() > 0);
+            if (size[1] == 180) assertTrue(stage.maximumPixels() > 0);
+        }
+    }
+
+    @Test
+    void cardModesKeepBoundsAndExactTwentyPixelTwoByTwoActions() {
+        var account=TestFixtures.account(3);var p=account.presets().get(2);var s=TestFixtures.ready(account,p.id(),0);
+        var d=draft(Optional.of(p.id()),PreviewRenderer.DisplayKind.ORDINARY);
+        var normal=project(s,854,480,d,Optional.empty(),Optional.empty(),0);
+        var actions=project(s,854,480,d,Optional.of(p.id()),Optional.empty(),0);
+        String prefix="gallery.preset."+p.id();
+        var star=actions.widget(prefix+".favorite").orElseThrow().bounds();
+        var edit=actions.widget(prefix+".edit").orElseThrow().bounds();
+        var copy=actions.widget(prefix+".duplicate").orElseThrow().bounds();
+        var delete=actions.widget(prefix+".delete").orElseThrow().bounds();
+        var bounds=actions.widget("gallery.card."+p.id()).orElseThrow().bounds();
+        assertTrue(Math.abs(star.x()+edit.right()-bounds.x()-bounds.right())<=1);
+        for(var b:List.of(star,edit,copy,delete)) {assertTrue(b.width()>=20);assertEquals(20,b.height());}
+        assertEquals(bounds.x()+2,star.x());assertEquals(bounds.right()-2,edit.right());
+        assertEquals(2,edit.x()-star.right());assertEquals(2,copy.y()-star.bottom());assertEquals(copy.y(),delete.y());
+        var confirm=project(s,854,480,d,Optional.of(p.id()),Optional.of(p.id()),0);
+        assertEquals(normal.widget("gallery.card."+p.id()).orElseThrow().bounds(),confirm.widget("gallery.card."+p.id()).orElseThrow().bounds());
+        var cancel=confirm.widget(prefix+".delete_cancel").orElseThrow().bounds();
+        var accept=confirm.widget(prefix+".delete_confirm").orElseThrow().bounds();
+        assertEquals(20,cancel.height());assertEquals(20,accept.height());assertEquals(2,cancel.y()-accept.bottom());
+        assertTrue(confirm.widget(prefix+".favorite").isEmpty());assertTrue(confirm.widget(prefix+".more").isPresent());
+    }
+
+    @Test
+    void cardCaptionAndMovingClipRiseWithoutMovingArrowOrHitBounds() {
+        var account = TestFixtures.account(3);
+        var p = account.presets().get(2);
+        var s = TestFixtures.ready(account, p.id(), 0);
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        String prefix = "gallery.preset." + p.id();
+        for (int mode = 0; mode < 3; mode++) {
+            var view = project(s,854,480,d,mode == 0 ? Optional.empty() : Optional.of(p.id()),
+                    mode == 2 ? Optional.of(p.id()) : Optional.empty(),0);
+            var card = view.widget("gallery.card."+p.id()).orElseThrow().bounds();
+            var arrow = view.widget(prefix+".more").orElseThrow();
+            int barTop = mode == 0 ? card.bottom()-16 : card.y();
+            assertEquals(new Bounds(card.x(),barTop,card.width(),16),arrow.bounds());
+            var name = view.texts().stream().filter(v -> v.id().equals(prefix+".name")).findFirst().orElseThrow();
+            int nameTop = barTop+(mode == 0 ? 4 : 5);
+            assertEquals(new Bounds(card.x()+4,nameTop,card.width()-18,10),name.bounds());
+            var marquee = name.marqueeActivation().orElseThrow();
+            assertEquals(card,marquee.hoverBounds());
+            assertEquals(List.of("gallery.card."+p.id(),prefix+".more"),marquee.focusWidgetIds());
+            assertEquals(Optional.of(new Bounds(card.x(),nameTop,card.width()-14,10)),marquee.movingClip());
+        }
+    }
+
+    @Test
+    void overlayBarOwnsWholeNameAndMenuRemovesBodyAndBadgeWithoutMovingCards() {
+        var account = TestFixtures.account(3);
+        var p = account.presets().get(2);
+        var s = TestFixtures.ready(account, p.id(), 0);
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY);
+        String prefix = "gallery.preset." + p.id();
+        var normal = project(s,854,480,d,Optional.empty(),Optional.empty(),0);
+        var b = normal.widget("gallery.card." + p.id()).orElseThrow().bounds();
+        var preview = normal.previews().stream().filter(v -> v.id().equals(prefix + ".preview")).findFirst().orElseThrow();
+        assertEquals(b,preview.bounds());
+        assertEquals(b,ViewHostPolicy.paintClip(normal,preview.id()).orElseThrow());
+        var strip=normal.panels().stream().filter(v -> v.id().equals(prefix+".namebar")).findFirst().orElseThrow().bounds();
+        assertEquals(new Bounds(b.x(),b.bottom()-16,b.width(),16),strip);
+        assertEquals(0x6D000000,ViewHostPolicy.panelOverlayColor("gallery",ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR));
+        assertEquals(0x88000000,ViewHostPolicy.panelOverlayColor("catalog",ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR));
+        var bar = normal.widget(prefix + ".more").orElseThrow();
+        assertEquals(new Bounds(b.x(),b.bottom()-16,b.width(),16),bar.bounds());
+        assertEquals(Optional.of("up"),bar.value());
+        assertEquals(UiMessage.info("nclskins.gallery.actions"),bar.label());
+        assertEquals(bar.id(),ViewHostPolicy.pointerOwnerAt(normal,b.x()+3,b.bottom()-8).orElseThrow().id());
+        for (boolean deleting : List.of(false,true)) {
+            var menu = project(s,854,480,d,Optional.of(p.id()),deleting ? Optional.of(p.id()) : Optional.empty(),0);
+            assertEquals(b,menu.widget("gallery.card."+p.id()).orElseThrow().bounds());
+            assertTrue(menu.previews().stream().noneMatch(v -> v.id().startsWith(prefix)));
+            assertTrue(menu.widgets().stream().noneMatch(v -> v.id().equals(prefix+".compatibility")));
+            assertTrue(menu.navigationNodes().stream().noneMatch(v -> v.id().equals(prefix+".compatibility")));
+            assertFalse(menu.widget("gallery.card."+p.id()).orElseThrow().activationEnabled());
+            assertEquals(Optional.of("down"),menu.widget(prefix+".more").orElseThrow().value());
+            assertEquals(new Bounds(b.x(),b.y(),b.width(),16),menu.widget(prefix+".more").orElseThrow().bounds());
+            assertEquals(new Bounds(b.x()+2,b.y()+2,b.width()-4,b.height()-4),menu.panels().stream().filter(v -> v.id().equals(prefix+".namebar")).findFirst().orElseThrow().bounds());
+            var name = menu.texts().stream().filter(v -> v.id().equals(prefix+".name")).findFirst().orElseThrow();
+            assertEquals(4,name.bounds().x()-b.x());
+            assertEquals(5,name.bounds().y()-b.y());
+            assertEquals(ViewSpec.Text.Alignment.LEFT,name.alignment());
+            if (deleting) {
+                var accept = menu.widget(prefix+".delete_confirm").orElseThrow().bounds();
+                var cancel = menu.widget(prefix+".delete_cancel").orElseThrow().bounds();
+                assertEquals(2,cancel.y()-accept.bottom());
+                assertEquals(b.bottom()-2,cancel.bottom());
+                var prompt = menu.texts().stream().filter(v -> v.id().equals(prefix+".confirmation")).findFirst().orElseThrow().bounds();
+                assertEquals((b.y()+16+accept.y())/2,prompt.y()+prompt.height()/2);
+            } else assertEquals(b.bottom()-2,menu.widget(prefix+".delete").orElseThrow().bounds().bottom());
+        }
+    }
+
+    @Test
+    void normalNamebarsReachCardBottomAcrossColumnsAndPartialScrollClips() {
+        for (int count : List.of(1, 12)) {
+            var account = TestFixtures.account(count);
+            var snapshot = TestFixtures.ready(account, account.presets().get(0).id(), 0);
+            for (int width : List.of(120, 320, 854)) for (double scroll : List.of(0.0, 37.5)) {
+                var view = project(snapshot,width,180,draft(snapshot.activePresetId(),PreviewRenderer.DisplayKind.ORDINARY),
+                        Optional.empty(),Optional.empty(),scroll);
+                var cards = view.widgets().stream().filter(w -> w.id().startsWith("gallery.card.")).toList();
+                assertFalse(cards.isEmpty());
+                if (count > 1 && width == 854) assertTrue(cards.stream().filter(w -> w.bounds().y()==cards.get(0).bounds().y()).count()>1);
+                for (var card : cards) {
+                    String prefix = card.id().replace("gallery.card.","gallery.preset.");
+                    var bounds = card.bounds();
+                    var strip = view.panels().stream().filter(p -> p.id().equals(prefix+".namebar")).findFirst().orElseThrow();
+                    assertEquals(new Bounds(bounds.x(),bounds.bottom()-16,bounds.width(),16),strip.bounds());
+                    assertEquals(strip.bounds(),view.widget(prefix+".more").orElseThrow().bounds());
+                    assertEquals(bounds.bottom()-12,view.texts().stream().filter(t -> t.id().equals(prefix+".name")).findFirst().orElseThrow().bounds().y());
+                    assertEquals(view.scrollSurface("gallery.cards").orElseThrow().viewport(),ViewHostPolicy.paintClip(view,strip.id()).orElseThrow());
+                }
+            }
+        }
+    }
+
+    @Test
+    void spatialFocusRevealAndActivationUseLogicalGridWithoutApplying() {
+        var account=TestFixtures.account(80);var s=TestFixtures.ready(account,account.presets().get(0).id(),0);
+        var d=draft(s.activePresetId(),PreviewRenderer.DisplayKind.UNCONFIRMED);
+        var view=project(s,320,180,d,Optional.empty(),Optional.empty(),0);
+        String first="gallery.card."+account.presets().get(79).id();
+        var down=ViewNavigationPolicy.target(view,first,ViewSpec.NavigationCommand.DOWN).orElseThrow();
+        assertTrue(down.bounds().y()>view.navigationNode(first).orElseThrow().bounds().y());
+        double offset=ViewNavigationPolicy.ensureVisibleOffset(view,down).orElseThrow();
+        var revealed=project(s,320,180,d,Optional.empty(),Optional.empty(),offset);
+        assertTrue(revealed.widget(down.id()).isPresent());
+        assertEquals(Optional.of(down.id()),ViewNavigationPolicy.activationAction(revealed,down.id()));
+        assertEquals(s.activePresetId(),d.selectedPresetId());
+        assertTrue(ViewNavigationPolicy.target(view,first,ViewSpec.NavigationCommand.UP).isEmpty());
+    }
+
+    @Test
+    void portraitGridStaysFixedTopLeftAndFitsThreeRowsWithSectionsAtStandardScale() {
+        var base=TestFixtures.account(80);var ps=new java.util.ArrayList<>(base.presets());ps.set(79,ps.get(79).withFavorite(true));
+        var a=new AccountState(base.schemaVersion(),base.accountId(),base.skinAssets(),ps,base.updatedAt());
+        var s=TestFixtures.ready(a,ps.get(0).id(),0);
+        for(int[] size:List.of(new int[]{854,480},new int[]{427,240},new int[]{320,180},new int[]{160,120},new int[]{120,480},new int[]{1600,900})) {
+            var view=project(s,size[0],size[1],draft(s.activePresetId(),PreviewRenderer.DisplayKind.UNCONFIRMED),Optional.empty(),Optional.empty(),0);
+            var cards=view.navigationNodes().stream().filter(n->n.id().startsWith("gallery.card.")).toList();
+            assertTrue(cards.stream().allMatch(n->n.bounds().width()>=48 && n.bounds().width()<=64 && n.bounds().height()==96));
+            var viewport = view.scrollSurface("gallery.cards").orElseThrow().viewport();
+            assertEquals(size[1] - 33, viewport.bottom());
+            int columns = Math.max(1, (viewport.width() - 2) / 50);
+            int expectedWidth = Math.min(64, (viewport.width() - 4 - (columns - 1) * 2) / columns);
+            assertEquals(Math.max(48, expectedWidth), cards.get(0).bounds().width());
+            assertEquals(80,cards.size());
+            assertTrue(view.scrollSurface("gallery.cards").orElseThrow().maximumPixels()>=0);
+            if(size[0]==854) assertTrue(cards.stream().filter(n->n.bounds().bottom()<=view.scrollSurface("gallery.cards").orElseThrow().viewport().bottom()).map(n->n.bounds().y()).distinct().count()>=3);
+        }
+    }
+
+    @Test
+    void noSelectedUsesLiveOptionsWithCleanFooterAndControllerActualDrawGate() {
+        var s=TestFixtures.ready(TestFixtures.account(0),null,0);
+        for(var kind:PreviewRenderer.DisplayKind.values()) for(boolean controller:List.of(false,true)) {
+            var mask=com.naocraftlab.skins.client.OuterLayerVisibility.noneVisible();
+            var d=draft(Optional.empty(),kind);
+            var c=new GalleryPresenter.ControlsInput(controller,mask,PreviewInteractionModel.gallery(),Optional.empty(),List.of(),0,Optional.empty());
+            var view=presenter.present(s,320,180,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"",Optional.empty(),0,null,d,c);
+            assertEquals(mask,view.previews().get(0).outerLayerVisibility());
+            assertEquals(controller && kind==PreviewRenderer.DisplayKind.ORDINARY,view.widget("gallery.outer_layer.head").isPresent());
+            assertEquals(controller && kind==PreviewRenderer.DisplayKind.ORDINARY,view.texts().stream().anyMatch(t->t.id().equals("gallery.layers")));
+            assertTrue(view.widget("gallery.done").isPresent());assertTrue(view.widget("gallery.apply").isEmpty());
+        }
+    }
+
+    private static GalleryPresenter.DraftInput draft(Optional<UUID> selected,PreviewRenderer.DisplayKind kind) {
+        var mask=com.naocraftlab.skins.client.OuterLayerVisibility.allVisible();
+        return new GalleryPresenter.DraftInput(selected,mask,mask,1,Optional.empty(),java.util.Set.of(),Optional.empty(),kind);
+    }
+
+    private ViewSpec project(ClientSnapshot s,int w,int h,GalleryPresenter.DraftInput d,Optional<UUID> action,Optional<UUID> deleting,double scroll) {
+        return presenter.present(s,w,h,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"",deleting,scroll,
+                d.selectedPresetId().map(id->"gallery.card."+id).orElse(null),d,
+                new GalleryPresenter.ControlsInput(true,com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),PreviewInteractionModel.gallery(),action,List.of(),0,Optional.empty()));
+    }
+
+    @Test
+    void selectedDraftOwnsMainPreviewAndDirtyFooterNotCardApply() {
+        var account = TestFixtures.account(2);
+        var a = account.presets().get(0);
+        var b = account.presets().get(1);
+        var input = new GalleryPresenter.DraftInput(Optional.of(b.id()), b.outerLayerVisibility(),
+                com.naocraftlab.skins.client.OuterLayerVisibility.noneVisible(), 7, Optional.empty(),
+                java.util.Set.of(), Optional.empty(), PreviewRenderer.DisplayKind.UNCONFIRMED);
+        var view = presenter.present(TestFixtures.ready(account, a.id(), 0), 854, 480, 0, 0,
+                PreviewRenderer.CapeMode.CAPE, SkinVariant.CLASSIC, "", Optional.empty(), 0,
+                "gallery.card."+b.id(), input);
+        var main = view.previews().stream().filter(p -> p.id().equals("gallery.preview")).findFirst().orElseThrow();
+        assertEquals(Optional.of(b.id()), main.presetId());
+        assertEquals(b.skin(), main.skin());
+        assertEquals(input.draftMask(), main.outerLayerVisibility());
+        assertEquals(PreviewRenderer.PreviewIntent.EDITOR_DRAFT, main.intent());
+        assertTrue(view.widget("gallery.done").isEmpty());
+        assertEquals(4,view.widget("gallery.back").orElseThrow().bounds().x()-view.widget("gallery.apply").orElseThrow().bounds().right());
+        assertEquals(4,view.widget("gallery.reset").orElseThrow().bounds().x()-view.widget("gallery.back").orElseThrow().bounds().right());
+        assertEquals(List.of("gallery.apply", "gallery.back", "gallery.reset"),
+                view.widgets().stream().filter(w -> List.of("gallery.apply","gallery.back","gallery.reset").contains(w.id())).map(ViewSpec.Widget::id).toList());
+        assertTrue(view.widgets().stream().noneMatch(w -> w.id().startsWith("gallery.outer_layer.")));
+    }
+
+    @Test
+    void favoritesTopologyPrecedesQueryAndExplicitCollapseIsPureProjection() {
+        var base = TestFixtures.account(4);
+        var presets = new java.util.ArrayList<>(base.presets());
+        presets.set(0, presets.get(0).withFavorite(true));
+        var account = new AccountState(base.schemaVersion(), base.accountId(), base.skinAssets(), presets, base.updatedAt());
+        var s = TestFixtures.ready(account, presets.get(0).id(), 0);
+        var d = new GalleryPresenter.DraftInput(s.activePresetId(), presets.get(0).outerLayerVisibility(), presets.get(0).outerLayerVisibility(),
+                1, Optional.empty(), java.util.Set.of("gallery.favorites"), Optional.empty(), PreviewRenderer.DisplayKind.UNCONFIRMED);
+        var collapsed = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"",Optional.empty(),0,"gallery.card."+presets.get(0).id(),d);
+        assertTrue(collapsed.navigationNode("gallery.card."+presets.get(0).id()).isEmpty());
+        assertTrue(collapsed.navigationNode("gallery.favorites").isPresent());
+        var filtered = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"PRESET 2",Optional.empty(),0,null,d);
+        assertTrue(filtered.widget("gallery.sections").isPresent());
+        assertTrue(filtered.navigationNode("gallery.favorites").isEmpty());
+        assertTrue(filtered.navigationNode("gallery.your_appearances").isPresent());
+        assertEquals(java.util.Set.of("gallery.favorites"),d.collapsedSections());
+        var reveal=new GalleryPresenter.DraftInput(d.selectedPresetId(),d.baselineMask(),d.draftMask(),d.generation(),d.inspectionIdentity(),d.collapsedSections(),Optional.of("gallery.favorites"),d.displayedBodyKind());
+        var revealed=presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"",Optional.empty(),0,null,reveal);
+        assertTrue(revealed.navigationNode("gallery.card."+presets.get(0).id()).isPresent());
+        assertEquals(java.util.Set.of("gallery.favorites"),reveal.collapsedSections());
+        assertEquals("gallery.favorites",presenter.normalizeSelectedCardId(s,"","gallery.card."+presets.get(0).id(),d));
+    }
+
+    @Test
+    void compactGridReplacesStripAndAddCard() {
+        var account = TestFixtures.account(40);
+        var view = presenter.present(TestFixtures.ready(account, account.presets().get(0).id(), 0),
+                854, 480, 0, 0, PreviewRenderer.CapeMode.CAPE);
+        assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL,
+                view.scrollSurface("gallery.cards").orElseThrow().orientation());
+        assertTrue(view.widget("gallery.add").isPresent());
+        assertTrue(view.panels().stream().noneMatch(p -> p.id().equals("gallery.card.add")));
+        var cards = view.navigationNodes().stream().filter(n -> n.id().startsWith("gallery.card.")).toList();
+        assertEquals(40, cards.size());
+        assertTrue(cards.stream().allMatch(n -> n.bounds().height() == 96 && n.bounds().width() >= 48 && n.bounds().width() <= 64));
+        assertTrue(cards.stream().map(n -> n.bounds().y()).distinct().count() >= 3);
+        assertTrue(view.widgets().stream().noneMatch(w -> w.id().endsWith(".apply")));
+    }
+
     @Test
     void galleryHideFlagKeepsOnlyMatchingActiveIncompatibleLookAfterAdd() {
         AccountState account = TestFixtures.account(2);
@@ -44,7 +525,7 @@ final class GalleryPresenterTest {
                 true);
 
         assertEquals(
-                List.of("gallery.add", "gallery.card." + active),
+                List.of("gallery.card." + active),
                 presenter.cardIds(hidden, "Preset"));
         ViewSpec view = presenter.present(
                 hidden, 854, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
@@ -57,16 +538,15 @@ final class GalleryPresenterTest {
         assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE), indicator.icon());
         assertEquals(20, indicator.bounds().width());
         assertEquals(20, indicator.bounds().height());
-        ViewSpec.Widget apply = view.widget("gallery.preset." + active + ".apply").orElseThrow();
         Bounds card = view.widget("gallery.card." + active).orElseThrow().bounds();
-        assertEquals(card.x() + 2, indicator.bounds().x());
-        assertEquals(apply.bounds().y() - 2, indicator.bounds().bottom());
+        assertEquals(card.x(), indicator.bounds().x());
+        assertEquals(card.y() + 2, indicator.bounds().y());
         assertTrue(view.iconDecorations().stream()
                 .noneMatch(icon -> icon.ownerWidgetId().equals(indicatorId)));
 
         ClientSnapshot visible = withCompatibility(
                 base, hidden.skinExtensionEnvironment(), hidden.assetEvidence(), false);
-        assertEquals(3, presenter.cardIds(visible, "Preset").size());
+        assertEquals(2, presenter.cardIds(visible, "Preset").size());
     }
 
     @Test
@@ -81,7 +561,7 @@ final class GalleryPresenterTest {
                 new SkinExtensionEnvironment(5,
                         Map.of(SkinConsumer.FRESH_MOVES, SkinConsumerState.ACTIVE)),
                 Map.of(TestFixtures.CLASSIC_ID, sneaky, TestFixtures.SLIM_ID, sneaky), true);
-        assertEquals(List.of("gallery.add", "gallery.card." + active), presenter.cardIds(hidden, "Preset"));
+        assertEquals(List.of("gallery.card." + active), presenter.cardIds(hidden, "Preset"));
         assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_INCOMPATIBLE),
                 presenter.present(hidden, 854, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
                         SkinVariant.CLASSIC, "Preset", Optional.empty())
@@ -134,428 +614,25 @@ final class GalleryPresenterTest {
         assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
     }
 
-    @Test
-    void fittingStripCentersAsAGroupAndPublishesFullTrackScrollbar() {
-        AccountState account = TestFixtures.account(2);
-        UUID active = account.presets().get(0).id();
-        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
 
-        ViewSpec view = presenter.present(
-                snapshot, 854, 240, 0, 0, PreviewRenderer.CapeMode.CAPE);
 
-        List<ViewSpec.Panel> cards = view.panels().stream()
-                .filter(panel -> panel.id().startsWith("gallery.card."))
-                .toList();
-        assertEquals(3, cards.size());
-        int contentLeft = cards.get(0).bounds().x();
-        int contentRight = cards.get(cards.size() - 1).bounds().right();
-        assertTrue(Math.abs((854 - contentRight) - contentLeft) <= 1);
-        ViewSpec.Scrollbar scrollbar = view.scrollbar().orElseThrow();
-        assertEquals(scrollbar.track(), scrollbar.thumb());
-        assertEquals(0, scrollbar.maximum());
-        ViewSpec.ScrollSurface surface = view.scrollSurface("gallery.cards").orElseThrow();
-        assertEquals(0.0, surface.offsetPixels());
-        assertEquals(0.0, surface.maximumPixels());
-        assertTrue(cards.stream().allMatch(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
-    }
 
-    @Test
-    void overflowStripUsesExactLeftAndRightEdgeEndpoints() {
-        AccountState account = TestFixtures.account(5);
-        ClientSnapshot snapshot = TestFixtures.ready(account, account.presets().get(0).id(), 0);
 
-        ViewSpec start = presenter.present(
-                snapshot, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC, "", Optional.empty(), 0.0);
-        double maximum = start.scrollSurface("gallery.cards").orElseThrow().maximumPixels();
-        ViewSpec end = presenter.present(
-                snapshot, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC, "", Optional.empty(), maximum);
 
-        assertEquals(12, panelX(start, "gallery.card.add"));
-        Bounds lastBounds = end.panels().stream()
-                .filter(panel -> panel.id().startsWith("gallery.card."))
-                .max(java.util.Comparator.comparingInt(panel -> panel.bounds().x()))
-                .orElseThrow()
-                .bounds();
-        assertEquals(308, lastBounds.right());
-        assertTrue(maximum > 0.0);
-        assertEquals((int) maximum, end.scrollbar().orElseThrow().maximum());
-    }
 
-    @Test
-    void overflowUsesScreenClipWhileTwelvePixelGuttersBelongOnlyToEndpoints() {
-        AccountState account = TestFixtures.account(5);
-        ClientSnapshot snapshot = TestFixtures.ready(account, account.presets().get(0).id(), 0);
 
-        ViewSpec start = presenter.present(
-                snapshot, 320, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC, "", Optional.empty(), 0.0);
-        ViewSpec moving = presenter.present(
-                snapshot, 320, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC, "", Optional.empty(), 20.0);
 
-        assertEquals(new Bounds(0, 58, 320, 375), galleryViewport(start));
-        assertEquals(12, panelX(start, "gallery.card.add"));
-        assertEquals(-8, panelX(moving, "gallery.card.add"));
-        assertEquals(Optional.of(galleryViewport(moving)),
-                moving.clipFor("gallery.card.add"));
-    }
 
-    @Test
-    void highNarrowWindowKeepsFullHeightThreeByFourCardsBehindTheScreenClip() {
-        AccountState account = TestFixtures.account(2);
-        ClientSnapshot snapshot = TestFixtures.ready(account, null, 0);
 
-        ViewSpec view = presenter.present(
-                snapshot, 120, 480, 0, 0, PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC, "", Optional.empty(), 0.0);
-        Bounds add = view.panels().stream()
-                .filter(panel -> panel.id().equals("gallery.card.add"))
-                .findFirst()
-                .orElseThrow()
-                .bounds();
 
-        assertEquals(new Bounds(0, 58, 120, 375), galleryViewport(view));
-        assertEquals(12, add.x());
-        assertEquals(58, add.y());
-        assertEquals(281, add.width());
-        assertEquals(375, add.height());
-        assertTrue(add.right() > view.width());
-        assertEquals(add.height() * 3 / 4, add.width());
-    }
 
-    @Test
-    void initialPositionKeepsActiveOrAddVisibleAndEndpointsEdgeBounded() {
-        AccountState account = TestFixtures.account(5);
-        UUID active = account.presets().get(4).id();
-        ClientSnapshot activeSnapshot = TestFixtures.ready(account, active, 0);
-        List<int[]> viewports = List.of(
-                new int[]{240, 240},
-                new int[]{320, 240},
-                new int[]{427, 240},
-                new int[]{854, 480});
 
-        for (int[] viewport : viewports) {
-            double activePosition = presenter.initialScrollPosition(
-                    activeSnapshot.account(), activeSnapshot.activePresetId(), "",
-                    viewport[0], viewport[1]);
-            ViewSpec view = presentAt(
-                    activeSnapshot, viewport[0], viewport[1], activePosition);
-            Bounds activeBounds = view.panels().stream()
-                    .filter(panel -> panel.id().equals("gallery.card." + active))
-                    .findFirst()
-                    .orElseThrow()
-                    .bounds();
-            assertTrue(activeBounds.x() >= 0 && activeBounds.right() <= viewport[0]);
-        }
 
-        ClientSnapshot emptyActive = TestFixtures.ready(account, null, 0);
-        UUID staleActive = UUID.randomUUID();
-        for (int[] viewport : viewports) {
-            for (ClientSnapshot snapshot : List.of(
-                    emptyActive, TestFixtures.ready(account, staleActive, 0))) {
-                assertEquals(0.0, presenter.initialScrollPosition(
-                        snapshot.account(), snapshot.activePresetId(), "",
-                        viewport[0], viewport[1]));
-                ViewSpec addAtStart = presentAt(snapshot, viewport[0], viewport[1], 0.0);
-                Bounds add = addAtStart.panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card.add"))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds();
-                assertTrue(add.x() >= 0 && add.right() <= viewport[0]);
-            }
 
-            double lastPosition = presenter.maximumScroll(
-                    emptyActive, viewport[0], viewport[1], "");
-            ViewSpec atEnd = presentAt(
-                    emptyActive, viewport[0], viewport[1], lastPosition);
-            Bounds lastCard = atEnd.panels().stream()
-                    .filter(panel -> panel.id().startsWith("gallery.card."))
-                    .filter(panel -> !panel.id().equals("gallery.card.add"))
-                    .max(java.util.Comparator.comparingInt(panel -> panel.bounds().x()))
-                    .orElseThrow()
-                    .bounds();
-            assertEquals(viewport[0] - 12, lastCard.right());
-        }
 
-        ViewSpec addCentered = presentAt(emptyActive, 320, 240, 0.0);
-        ViewSpec.Widget search = addCentered.widget("gallery.search").orElseThrow();
-        assertTrue(search.selectAllOnFocusAcquire());
-        assertEquals(Optional.empty(), search.submitActionId());
 
-        String filteredQuery = "does-not-match";
-        assertEquals(0.0, presenter.initialScrollPosition(
-                activeSnapshot.account(), activeSnapshot.activePresetId(), filteredQuery,
-                320, 240));
-        ViewSpec filtered = presenter.present(
-                activeSnapshot,
-                320,
-                240,
-                0,
-                0,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                filteredQuery,
-                Optional.empty(),
-                0.0);
-        assertHorizontallyCentered(
-                filtered.panels().stream()
-                        .filter(panel -> panel.id().equals("gallery.card.add"))
-                        .findFirst()
-                        .orElseThrow()
-                        .bounds(),
-                320);
-    }
 
-    @Test
-    void portraitLayoutsAreHeightDrivenAcrossRequestedViewportSizes() {
-        AccountState account = TestFixtures.account(4);
-        ViewSpec wide = presenter.present(
-                TestFixtures.ready(account, null, 0),
-                427,
-                240,
-                213,
-                100,
-                PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(12, 58, 101, 135), wide.panels().get(2).bounds());
-        assertEquals(new Bounds(125, 58, 101, 135), wide.panels().get(3).bounds());
-        assertEquals(new Bounds(238, 58, 101, 135), wide.panels().get(4).bounds());
-        assertEquals(new Bounds(0, 58, 427, 135), galleryViewport(wide));
-        assertEquals(new Bounds(40, 197, 347, 6), wide.scrollbar().orElseThrow().track());
-        assertEquals(new Bounds(40, 197, 253, 6), wide.scrollbar().orElseThrow().thumb());
 
-        ViewSpec medium = presenter.present(
-                TestFixtures.ready(account, null, 0),
-                320,
-                240,
-                160,
-                100,
-                PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(12, 58, 101, 135), medium.panels().get(2).bounds());
-        assertEquals(new Bounds(125, 58, 101, 135), medium.panels().get(3).bounds());
-        assertEquals(new Bounds(0, 58, 320, 135), galleryViewport(medium));
-        assertEquals(new Bounds(60, 212, 200, 20), medium.widget("gallery.done").orElseThrow().bounds());
-        assertEquals(new Bounds(40, 197, 240, 6), medium.scrollbar().orElseThrow().track());
-        assertEquals(new Bounds(40, 197, 128, 6), medium.scrollbar().orElseThrow().thumb());
-        assertEquals(4, medium.scrollbar().orElseThrow().track().y() - galleryViewport(medium).bottom());
-        assertEquals(
-                4,
-                medium.panels().get(1).bounds().y()
-                        - medium.scrollbar().orElseThrow().track().bottom());
-
-        ViewSpec narrow = presenter.present(
-                TestFixtures.ready(account, null, 0),
-                240,
-                240,
-                120,
-                100,
-                PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(12, 58, 101, 135), narrow.panels().get(2).bounds());
-        assertEquals(new Bounds(125, 58, 101, 135), narrow.panels().get(3).bounds());
-        assertEquals(new Bounds(0, 58, 240, 135), galleryViewport(narrow));
-
-        ViewSpec tall = presenter.present(
-                TestFixtures.ready(account, null, 0),
-                320,
-                360,
-                160,
-                120,
-                PreviewRenderer.CapeMode.CAPE);
-        assertEquals(new Bounds(12, 58, 191, 255), tall.panels().get(2).bounds());
-        assertEquals(new Bounds(215, 58, 191, 255), tall.panels().get(3).bounds());
-        assertEquals(new Bounds(0, 58, 320, 255), galleryViewport(tall));
-
-        for (ViewSpec view : List.of(wide, medium, narrow, tall)) {
-            Bounds card = view.panels().get(2).bounds();
-            assertEquals((card.width() * 4 + 2) / 3, card.height());
-            Bounds viewport = galleryViewport(view);
-            assertEquals(
-                    viewport.y() + (viewport.height() - card.height()) / 2,
-                    card.y());
-        }
-        assertEquals(wide.panels().get(2).bounds().width(), medium.panels().get(2).bounds().width());
-        assertEquals(medium.panels().get(2).bounds().width(), narrow.panels().get(2).bounds().width());
-    }
-
-    @Test
-    void narrowCardsUseFullWidthTwoRowActionsWithTwoPixelGaps() {
-        AccountState account = TestFixtures.account(4);
-        ViewSpec view = presenter.present(
-                TestFixtures.ready(account, null, 0),
-                427,
-                240,
-                213,
-                100,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.empty(),
-                1.0);
-        ViewSpec.Panel card = view.panels().get(3);
-        UUID presetId = UUID.fromString(card.id().substring("gallery.card.".length()));
-        String prefix = "gallery.preset." + presetId;
-        ViewSpec.Widget apply = view.widget(prefix + ".apply").orElseThrow();
-        ViewSpec.Widget edit = view.widget(prefix + ".edit").orElseThrow();
-        ViewSpec.Widget duplicate = view.widget(prefix + ".duplicate").orElseThrow();
-        ViewSpec.Widget delete = view.widget(prefix + ".delete").orElseThrow();
-
-        assertEquals(new Bounds(card.bounds().x() + 2, 171, 97, 20), apply.bounds());
-        assertEquals(UiMessage.info("nclskins.gallery.apply"), apply.label());
-        assertTrue(apply.bounds().width() >= vanillaLabelBudget("Apply"));
-        assertTrue(apply.bounds().width() >= vanillaLabelBudget("Применить"));
-        assertEquals(new Bounds(card.bounds().x() + 2, 149, 31, 20), edit.bounds());
-        assertEquals(new Bounds(card.bounds().x() + 35, 149, 31, 20), duplicate.bounds());
-        assertEquals(new Bounds(card.bounds().x() + 68, 149, 31, 20), delete.bounds());
-        assertEquals(edit.bounds().width(), delete.bounds().width());
-        assertEquals(2, edit.bounds().x() - card.bounds().x());
-        assertEquals(2, duplicate.bounds().x() - edit.bounds().right());
-        assertEquals(2, delete.bounds().x() - duplicate.bounds().right());
-        assertEquals(2, card.bounds().right() - delete.bounds().right());
-        assertEquals(2, apply.bounds().x() - card.bounds().x());
-        assertEquals(2, card.bounds().right() - apply.bounds().right());
-        assertEquals(2, apply.bounds().y() - edit.bounds().bottom());
-        assertEquals(2, card.bounds().bottom() - apply.bounds().bottom());
-        ViewSpec.Preview preview = view.previews().stream()
-                .filter(candidate -> candidate.id().equals(prefix + ".preview"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(new Bounds(card.bounds().x() + 8, 78, 85, 67), preview.bounds());
-        assertEquals(4, edit.bounds().y() - preview.bounds().bottom());
-
-        ViewSpec confirming = presenter.present(
-                TestFixtures.ready(account, null, 0),
-                427,
-                240,
-                213,
-                100,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.of(presetId),
-                1.0);
-        ViewSpec.Widget confirm = confirming.widget(prefix + ".delete_confirm").orElseThrow();
-        ViewSpec.Widget cancel = confirming.widget(prefix + ".delete_cancel").orElseThrow();
-        assertEquals(new Bounds(card.bounds().x() + 2, 171, 47, 20), confirm.bounds());
-        assertEquals(new Bounds(card.bounds().x() + 51, 171, 48, 20), cancel.bounds());
-        assertEquals(2, confirm.bounds().x() - card.bounds().x());
-        assertEquals(2, cancel.bounds().x() - confirm.bounds().right());
-        assertEquals(2, card.bounds().right() - cancel.bounds().right());
-        assertEquals(2, card.bounds().bottom() - cancel.bounds().bottom());
-        assertTrue(confirm.enabled());
-        assertTrue(cancel.enabled());
-        assertTrue(confirming.widgets().stream()
-                .filter(widget -> widget.id().startsWith("gallery.preset."))
-                .filter(widget -> widget.id().endsWith(".apply")
-                        || widget.id().endsWith(".edit")
-                        || widget.id().endsWith(".duplicate")
-                        || widget.id().endsWith(".delete"))
-                .allMatch(widget -> !widget.enabled()));
-        assertTrue(confirming.widgets().stream()
-                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.CATALOG_CARD)
-                .allMatch(widget -> !widget.enabled()));
-    }
-
-    @Test
-    void canonicalDefaultLayoutShowsThreeCenteredCards() {
-        AccountState account = TestFixtures.account(4);
-        UUID active = account.presets().get(3).id();
-        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
-        ViewSpec view = presenter.present(
-                snapshot,
-                854,
-                480,
-                427,
-                180,
-                PreviewRenderer.CapeMode.ELYTRA,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.empty(),
-                presenter.initialScrollPosition(
-                        snapshot.account(), snapshot.activePresetId(), "", 854, 480));
-
-        assertEquals(new Bounds(12, 58, 281, 375), view.panels().get(2).bounds());
-        assertEquals(new Bounds(305, 58, 281, 375), view.panels().get(3).bounds());
-        assertEquals(new Bounds(598, 58, 281, 375), view.panels().get(4).bounds());
-        assertEquals(623, view.scrollbar().orElseThrow().maximum());
-        assertEquals(new Bounds(40, 437, 774, 6), view.scrollbar().orElseThrow().track());
-        ViewSpec.ScrollSurface surface = view.scrollSurface("gallery.cards").orElseThrow();
-        assertEquals(galleryViewport(view), surface.viewport());
-        assertEquals(ViewSpec.Scrollbar.Orientation.HORIZONTAL, surface.orientation());
-        assertEquals(0.0, surface.offsetPixels());
-        assertEquals(623.0, surface.maximumPixels());
-        assertTrue(view.widget("gallery.preset." + active + ".apply").isPresent());
-        assertFalse(view.widget("gallery.preset." + active + ".apply").orElseThrow().enabled());
-        assertTrue(view.previews().stream().allMatch(preview -> preview.scale() == 0.88F));
-
-        ViewSpec.Text activeName = view.texts().stream()
-                .filter(text -> text.id().equals("gallery.preset." + active + ".name"))
-                .findFirst()
-                .orElseThrow();
-        ViewSpec.MarqueeActivation marquee = activeName.marqueeActivation().orElseThrow();
-        assertTrue(marquee.focusWidgetIds().contains("gallery.preset." + active + ".apply"));
-        assertTrue(marquee.focusWidgetIds().contains("gallery.preset." + active + ".delete"));
-    }
-
-    @Test
-    void restingIntegerOffsetsKeepIntersectingNeighborCardsInsideTheClip() {
-        AccountState account = TestFixtures.account(5);
-        ClientSnapshot snapshot = TestFixtures.ready(account, null, 0);
-
-        ViewSpec start = presenter.present(
-                snapshot,
-                854,
-                480,
-                0,
-                0,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.empty(),
-                0.0);
-        Bounds startViewport = galleryViewport(start);
-        assertTrue(start.panels().stream()
-                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
-                .map(ViewSpec.Panel::bounds)
-                .anyMatch(bounds -> bounds.x() < startViewport.right()
-                        && bounds.right() > startViewport.right()));
-
-        ViewSpec settled = presenter.present(
-                snapshot,
-                854,
-                480,
-                0,
-                0,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.empty(),
-                20.0);
-        Bounds settledViewport = galleryViewport(settled);
-        assertTrue(settled.panels().stream()
-                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
-                .map(ViewSpec.Panel::bounds)
-                .anyMatch(bounds -> bounds.x() < settledViewport.x()
-                        && bounds.right() > settledViewport.x()));
-        assertTrue(settled.panels().stream()
-                .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
-                .map(ViewSpec.Panel::bounds)
-                .anyMatch(bounds -> bounds.x() < settledViewport.right()
-                        && bounds.right() > settledViewport.right()));
-    }
-
-    @Test
-    void activePresetLabelIsGenericForEverySyncStatusAndProgressState() {
-        AccountState account = TestFixtures.account(1);
-        UUID active = account.presets().get(0).id();
-        ClientSnapshot base = TestFixtures.ready(account, active, 0);
-
-        for (AppearanceSyncStatus status : AppearanceSyncStatus.values()) {
-            assertActiveLabel(base, active, status, false);
-            assertActiveLabel(base, active, status, true);
-        }
-    }
 
     @Test
     void headerShowsOnlyOfflineAndTheApplicableRecoveryAction() {
@@ -568,7 +645,7 @@ final class GalleryPresenterTest {
         assertTrue(healthy.widget("gallery.retry_cape").isEmpty());
         assertEquals(new Bounds(32, 12, 790, 10), text(healthy, "gallery.title").bounds());
         assertEquals(
-                List.of("gallery.search", "gallery.add", "gallery.done", "gallery.providers"),
+                List.of("gallery.add", "gallery.search", "gallery.card." + valid.account().orElseThrow().presets().get(0).id(), "gallery.preset." + valid.account().orElseThrow().presets().get(0).id() + ".more", "gallery.providers", "gallery.done"),
                 tabIds(healthy));
 
         ViewSpec missing = presenter.present(
@@ -578,7 +655,7 @@ final class GalleryPresenterTest {
         assertTrue(missing.widget("gallery.retry_session").isEmpty());
         assertEquals(new Bounds(32, 12, 790, 10), text(missing, "gallery.title").bounds());
         assertEquals(
-                List.of("gallery.search", "gallery.add", "gallery.done", "gallery.providers"),
+                List.of("gallery.add", "gallery.search", "gallery.card." + valid.account().orElseThrow().presets().get(0).id(), "gallery.preset." + valid.account().orElseThrow().presets().get(0).id() + ".more", "gallery.providers", "gallery.done"),
                 tabIds(missing));
 
         SessionValidation invalidSession = new SessionValidation(
@@ -706,448 +783,29 @@ final class GalleryPresenterTest {
         assertTrue(validUnknownReconciling.widget("gallery.retry_session").isEmpty());
     }
 
-    @Test
-    void rateLimitProgressDecoratesOnlyPendingApplyAndVisibleRetry() {
-        AccountState account = TestFixtures.account(2);
-        UUID active = account.presets().get(0).id();
-        UUID other = account.presets().get(1).id();
-        ClientSnapshot base = TestFixtures.ready(account, active, 0);
-        SessionValidation invalidSession = new SessionValidation(
-                SessionStatus.OFFLINE_OR_INVALID,
-                TestFixtures.validSession().sessionIdentity(),
-                null,
-                null,
-                "offline");
-        ClientSnapshot snapshot = new ClientSnapshot(
-                base.lifecycle(),
-                base.account(),
-                Optional.of(invalidSession),
-                base.remoteProfile(),
-                base.lastMutation(),
-                base.selectedSkinId(),
-                Optional.of(active),
-                base.selectedCapeId(),
-                base.currentOfficialSkinId(),
-                Optional.of(active),
-                base.editor(),
-                base.addSource(),
-                base.status(),
-                false,
-                true,
-                Optional.of(new ClientSnapshot.RateLimitProgress(
-                        Duration.ofSeconds(30), Duration.ofSeconds(60), 0.5)),
-                base.galleryOffset(),
-                base.generation(),
-                7,
-                AppearanceSyncStatus.PENDING,
-                false);
 
-        ViewSpec view = presenter.present(
-                snapshot, 854, 480, 427, 180, PreviewRenderer.CapeMode.CAPE);
-        String activeApplyId = "gallery.preset." + active + ".apply";
-        String otherApplyId = "gallery.preset." + other + ".apply";
-        ViewSpec.Widget activeApply = view.widget(activeApplyId).orElseThrow();
 
-        assertTrue(activeApply.enabled());
-        assertEquals(
-                Optional.of(UiMessage.info("nclskins.rate_limit.delayed")),
-                activeApply.hint());
-        assertTrue(view.texts().stream().noneMatch(text -> text.id().equals("gallery.offline")));
-        assertTrue(view.widget("gallery.retry_session").isEmpty());
-        assertTrue(view.widget(otherApplyId).orElseThrow().hint().isEmpty());
-        assertEquals(
-                List.of(activeApplyId),
-                view.progressDecorations().stream()
-                        .map(ViewSpec.ProgressDecoration::ownerWidgetId)
-                        .toList());
-        assertTrue(view.progressDecorations().stream()
-                .allMatch(decoration -> decoration.fraction() == 0.5
-                        && decoration.color() == 0xFF5A8FCB
-                        && decoration.height() == 2));
-    }
 
-    @Test
-    void durableRecoveryUsesApplyWithoutASeparateCapeButton() {
-        AccountState account = TestFixtures.account(1);
-        UUID active = account.presets().get(0).id();
-        ClientSnapshot base = TestFixtures.ready(account, active, 0);
-        ClientSnapshot partial = withDurableStatus(base, AppearanceSyncStatus.PARTIAL);
 
-        ViewSpec partialView = presenter.present(
-                partial,
-                854,
-                480,
-                427,
-                180,
-                PreviewRenderer.CapeMode.CAPE);
 
-        assertTrue(partial.selectedPreset().isEmpty());
-        assertTrue(partial.recoveryActions().contains(
-                com.naocraftlab.skins.core.service.RecoveryAction.RETRY_CAPE));
-        assertTrue(partialView.widget("gallery.retry_cape").isEmpty());
-        assertTrue(partialView.widget("gallery.preset." + active + ".apply").orElseThrow().enabled());
-        assertTrue(partialView.widget("gallery.retry_session").isEmpty());
 
-        ClientSnapshot unknown = withDurableStatus(base, AppearanceSyncStatus.UNKNOWN);
-        ViewSpec unknownView = presenter.present(
-                unknown,
-                854,
-                480,
-                427,
-                180,
-                PreviewRenderer.CapeMode.CAPE);
-        assertTrue(unknown.recoveryActions().contains(
-                com.naocraftlab.skins.core.service.RecoveryAction.REFRESH_REMOTE_PROFILE));
-        assertTrue(unknownView.widget("gallery.retry_session").isEmpty());
-        assertTrue(unknownView.texts().stream()
-                .noneMatch(text -> text.id().equals("gallery.offline")));
-    }
 
-    @Test
-    void canonicalWideLayoutUsesFullHeightCardsAndVisibleCounts() {
-        AccountState account = TestFixtures.account(6);
-        UUID active = account.presets().get(5).id();
-        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
-        ViewSpec view = presenter.present(
-                snapshot,
-                1600,
-                720,
-                800,
-                200,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.empty(),
-                presenter.initialScrollPosition(
-                        snapshot.account(), snapshot.activePresetId(), "", 1600, 720));
 
-        assertEquals(new Bounds(12, 58, 461, 615), view.panels().get(2).bounds());
-        assertEquals(new Bounds(485, 58, 461, 615), view.panels().get(3).bounds());
-        assertEquals(new Bounds(958, 58, 461, 615), view.panels().get(4).bounds());
-        assertEquals(3, view.previews().size());
-        assertTrue(view.widget("gallery.previous").isEmpty());
-        assertTrue(view.widget("gallery.next").isEmpty());
-    }
 
-    @Test
-    void fractionalScrollKeepsAnchorRowAndMovesCardsMonotonically() {
-        AccountState account = TestFixtures.account(6);
-        ClientSnapshot snapshot = TestFixtures.ready(account, null, 0);
-        ViewSpec start = presentAt(snapshot, 0.0);
-        String trackedCard = start.panels().get(3).id();
 
-        int startX = panelX(start, trackedCard);
-        int halfX = panelX(presentAt(snapshot, 20.5), trackedCard);
-        int nearEndX = panelX(presentAt(snapshot, 40.25), trackedCard);
-        int endX = panelX(presentAt(snapshot, 41.0), trackedCard);
 
-        assertEquals(startX - 21, halfX);
-        assertEquals(startX - 40, nearEndX);
-        assertEquals(startX - 41, endX);
-        assertTrue(startX > halfX);
-        assertTrue(halfX > nearEndX);
-        assertTrue(nearEndX >= endX);
-    }
 
-    @Test
-    void scrollingUsesTheSameHeightAwareCardGeometryAsPresentation() {
-        ClientSnapshot snapshot = TestFixtures.ready(TestFixtures.account(5), null, 0);
 
-        assertEquals(370, presenter.maximumScroll(snapshot, 320, 240, ""));
-        assertEquals(910, presenter.maximumScroll(snapshot, 320, 360, ""));
-        assertEquals(263, presenter.maximumScroll(snapshot, 427, 240, ""));
-        assertEquals(
-                0.0,
-                presenter.positionFromScrollbar(snapshot, 320, 240, "", 40.0));
-        assertEquals(
-                910.0,
-                presenter.positionFromScrollbar(snapshot, 320, 360, "", 10_000.0));
-    }
 
-    @Test
-    void fractionalGalleryDoesNotExposeDiscreteArrowWidgets() {
-        ViewSpec view = presentAt(TestFixtures.ready(TestFixtures.account(6), null, 0), 1.5);
 
-        assertTrue(view.widget("gallery.previous").isEmpty());
-        assertTrue(view.widget("gallery.next").isEmpty());
-    }
 
-    @Test
-    void fractionalCardsRetainClippedActionsWhilePartiallyVisible() {
-        ViewSpec view = presentAt(TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 82.0);
-        Bounds viewport = galleryViewport(view);
 
-        assertEquals(new Bounds(0, 58, 320, 135), viewport);
-        assertEquals(Optional.of(viewport), view.clipFor("gallery.card.add"));
-        assertEquals(Optional.of(viewport), view.clipFor("gallery.add.icon"));
-        ViewSpec.Widget outgoingAdd = view.widget("gallery.add").orElseThrow();
-        assertTrue(outgoingAdd.bounds().x() < viewport.x());
-        assertEquals(Optional.of(viewport), view.clipFor(outgoingAdd.id()));
 
-        ViewSpec.Panel incoming = view.panels().stream()
-                .filter(panel -> panel.id().startsWith("gallery.card."))
-                .filter(panel -> panel.bounds().right() > viewport.right())
-                .findFirst()
-                .orElseThrow();
-        String presetId = incoming.id().substring("gallery.card.".length());
-        String prefix = "gallery.preset." + presetId;
-        assertTrue(view.previews().stream().anyMatch(preview -> preview.id().equals(prefix + ".preview")));
-        assertEquals(Optional.of(viewport), view.clipFor(prefix + ".preview"));
-        assertTrue(incoming.bounds().right() > viewport.right());
-        ViewSpec.Widget intersectingApply = view.widget(prefix + ".apply").orElseThrow();
-        assertTrue(intersects(intersectingApply.bounds(), viewport));
-        assertEquals(Optional.of(viewport), view.clipFor(intersectingApply.id()));
-        for (String action : List.of("edit", "duplicate")) {
-            assertTrue(view.widget(prefix + "." + action).isPresent());
-        }
-        assertTrue(view.widget(prefix + ".delete").isEmpty());
 
-        ViewSpec outgoing = presentAt(
-                TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 140.0);
-        ViewSpec.Panel outgoingPreset = outgoing.panels().stream()
-                .filter(panel -> panel.id().startsWith("gallery.card."))
-                .filter(panel -> panel.bounds().x() < viewport.x())
-                .findFirst()
-                .orElseThrow();
-        String outgoingPrefix = "gallery.preset."
-                + outgoingPreset.id().substring("gallery.card.".length());
-        for (String action : List.of("apply", "edit", "duplicate", "delete")) {
-            ViewSpec.Widget widget = outgoing.widget(outgoingPrefix + "." + action).orElseThrow();
-            assertTrue(intersects(widget.bounds(), viewport));
-            assertEquals(Optional.of(viewport), outgoing.clipFor(widget.id()));
-        }
 
-        ViewSpec resting = presentAt(
-                TestFixtures.ready(TestFixtures.account(4), null, 0), 320, 240, 113.0);
-        ViewSpec.Panel fullyVisible = resting.panels().stream()
-                .filter(panel -> panel.id().startsWith("gallery.card."))
-                .filter(panel -> panel.bounds().x() >= viewport.x())
-                .filter(panel -> panel.bounds().right() <= viewport.right())
-                .filter(panel -> !panel.id().equals("gallery.card.add"))
-                .findFirst()
-                .orElseThrow();
-        String fullPresetId = fullyVisible.id().substring("gallery.card.".length());
-        assertTrue(resting.widget("gallery.preset." + fullPresetId + ".edit").isPresent());
-    }
 
-    @Test
-    void fractionalDeleteConfirmationOmitsOnlyTheFullyClippedButton() {
-        ClientSnapshot snapshot = TestFixtures.ready(TestFixtures.account(4), null, 0);
-        ViewSpec ordinary = presentAt(snapshot, 320, 240, 70.0);
-        Bounds viewport = galleryViewport(ordinary);
-        ViewSpec.Panel incoming = ordinary.panels().stream()
-                .filter(panel -> panel.id().startsWith("gallery.card."))
-                .filter(panel -> panel.bounds().right() > viewport.right())
-                .findFirst()
-                .orElseThrow();
-        UUID presetId = UUID.fromString(incoming.id().substring("gallery.card.".length()));
-        String prefix = "gallery.preset." + presetId;
 
-        ViewSpec confirming = presenter.present(
-                snapshot,
-                320,
-                240,
-                160,
-                100,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.of(presetId),
-                70.0);
 
-        ViewSpec.Widget confirm = confirming.widget(prefix + ".delete_confirm").orElseThrow();
-        assertTrue(intersects(confirm.bounds(), viewport));
-        assertEquals(Optional.of(viewport), confirming.clipFor(confirm.id()));
-        assertTrue(confirming.widget(prefix + ".delete_cancel").isEmpty());
-    }
-
-    @Test
-    void compactActionsUseApprovedIconsWhileDeleteConfirmationStaysTextual() {
-        AccountState account = TestFixtures.account(4);
-        UUID presetId = account.presets().get(3).id();
-        String prefix = "gallery.preset." + presetId;
-        ViewSpec view = presenter.present(
-                TestFixtures.ready(account, presetId, 0),
-                854,
-                480,
-                427,
-                180,
-                PreviewRenderer.CapeMode.ELYTRA,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.empty(),
-                1.0);
-
-        ViewSpec.Widget edit = view.widget(prefix + ".edit").orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, edit.kind());
-        assertEquals(UiMessage.info("nclskins.gallery.edit"), edit.label());
-        assertEquals(Optional.of(UiMessage.info("nclskins.gallery.edit")), edit.hint());
-        assertEquals(Optional.of(GuiIcon.ACTION_EDIT), edit.icon());
-
-        ViewSpec.Widget duplicate = view.widget(prefix + ".duplicate").orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, duplicate.kind());
-        assertEquals(UiMessage.info("nclskins.gallery.duplicate"), duplicate.label());
-        assertEquals(Optional.of(UiMessage.info("nclskins.gallery.duplicate")), duplicate.hint());
-        assertEquals(Optional.of(GuiIcon.ACTION_DUPLICATE), duplicate.icon());
-
-        ViewSpec.Widget delete = view.widget(prefix + ".delete").orElseThrow();
-        assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, delete.kind());
-        assertEquals(UiMessage.info("nclskins.gallery.delete"), delete.label());
-        assertEquals(Optional.of(UiMessage.info("nclskins.gallery.delete")), delete.hint());
-        assertEquals(Optional.of(GuiIcon.ACTION_DELETE), delete.icon());
-
-        ViewSpec.Widget apply = view.widget(prefix + ".apply").orElseThrow();
-        Bounds card = view.panels().stream()
-                .filter(panel -> panel.id().equals("gallery.card." + presetId))
-                .findFirst()
-                .orElseThrow()
-                .bounds();
-        int applyWidth = card.width() - 70;
-        assertEquals(new Bounds(card.x() + 2, card.bottom() - 22, applyWidth, 20), apply.bounds());
-        assertEquals(new Bounds(card.x() + applyWidth + 4, card.bottom() - 22, 20, 20), edit.bounds());
-        assertEquals(new Bounds(card.x() + applyWidth + 26, card.bottom() - 22, 20, 20), duplicate.bounds());
-        assertEquals(new Bounds(card.x() + applyWidth + 48, card.bottom() - 22, 20, 20), delete.bounds());
-        assertEquals(2, apply.bounds().x() - card.x());
-        assertEquals(2, edit.bounds().x() - apply.bounds().right());
-        assertEquals(2, duplicate.bounds().x() - edit.bounds().right());
-        assertEquals(2, delete.bounds().x() - duplicate.bounds().right());
-        assertEquals(2, card.right() - delete.bounds().right());
-        assertEquals(2, card.bottom() - delete.bounds().bottom());
-        ViewSpec.Preview preview = view.previews().stream()
-                .filter(candidate -> candidate.id().equals(prefix + ".preview"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(4, apply.bounds().y() - preview.bounds().bottom());
-
-        ViewSpec confirming = presenter.present(
-                TestFixtures.ready(account, presetId, 0),
-                854,
-                480,
-                427,
-                180,
-                PreviewRenderer.CapeMode.ELYTRA,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.of(presetId),
-                1.0);
-        assertEquals(
-                ViewSpec.WidgetKind.BUTTON,
-                confirming.widget(prefix + ".delete_confirm").orElseThrow().kind());
-        assertEquals(
-                ViewSpec.WidgetKind.BUTTON,
-                confirming.widget(prefix + ".delete_cancel").orElseThrow().kind());
-        ViewSpec.Widget confirm = confirming.widget(prefix + ".delete_confirm").orElseThrow();
-        ViewSpec.Widget cancel = confirming.widget(prefix + ".delete_cancel").orElseThrow();
-        int confirmWidth = (card.width() - 6) / 2;
-        assertEquals(
-                new Bounds(card.x() + 2, card.bottom() - 22, confirmWidth, 20),
-                confirm.bounds());
-        assertEquals(
-                new Bounds(
-                        card.x() + confirmWidth + 4,
-                        card.bottom() - 22,
-                        card.width() - confirmWidth - 6,
-                        20),
-                cancel.bounds());
-        assertEquals(2, confirm.bounds().x() - card.x());
-        assertEquals(2, cancel.bounds().x() - confirm.bounds().right());
-        assertEquals(2, card.right() - cancel.bounds().right());
-        assertEquals(2, card.bottom() - cancel.bounds().bottom());
-    }
-
-    @Test
-    void addCardOwnsOneNonInteractivePlusDecoration() {
-        ViewSpec view = presenter.present(
-                TestFixtures.ready(TestFixtures.account(2), null, 0),
-                320,
-                240,
-                160,
-                100,
-                PreviewRenderer.CapeMode.CAPE);
-
-        ViewSpec.Widget add = view.widget("gallery.add").orElseThrow();
-        assertTrue(add.visible());
-        assertEquals(ViewSpec.WidgetKind.CATALOG_CARD, add.kind());
-        assertEquals(1, view.iconDecorations().size());
-        ViewSpec.IconDecoration addLook = view.iconDecorations().get(0);
-        assertEquals("gallery.add.icon", addLook.id());
-        assertEquals("gallery.add", addLook.ownerWidgetId());
-        assertEquals(GuiIcon.ACTION_ADD_LOOK, addLook.icon());
-        assertEquals(32, addLook.bounds().width());
-        assertEquals(32, addLook.bounds().height());
-        assertEquals(add.bounds().x() + (add.bounds().width() - addLook.bounds().width()) / 2,
-                addLook.bounds().x());
-        ViewSpec.Text hint = view.texts().stream()
-                .filter(text -> text.id().equals("gallery.add.hint"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(8, hint.bounds().y() - addLook.bounds().bottom());
-        assertEquals(0.65F, addLook.idleOpacity());
-        assertEquals(1.0F, addLook.activeOpacity());
-        assertEquals(Optional.of(galleryViewport(view)), view.clipFor(addLook.id()));
-    }
-
-    @Test
-    void activeSelectedCardOwnsOnlyItsEnabledActionsInTabGraph() {
-        AccountState account = TestFixtures.account(3);
-        UUID active = account.presets().get(2).id();
-        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
-        String selected = "gallery.card." + active;
-
-        ViewSpec view = presenter.present(
-                snapshot,
-                854,
-                480,
-                427,
-                180,
-                PreviewRenderer.CapeMode.CAPE,
-                SkinVariant.CLASSIC,
-                "",
-                Optional.empty(),
-                presenter.initialScrollPosition(
-                        snapshot.account(), snapshot.activePresetId(), "", 854, 480),
-                selected);
-
-        assertEquals(
-                List.of(
-                        "gallery.search",
-                        selected,
-                        "gallery.preset." + active + ".edit",
-                        "gallery.preset." + active + ".duplicate",
-                        "gallery.preset." + active + ".delete",
-                        "gallery.done", "gallery.providers"),
-                tabIds(view));
-        assertTrue(view.navigationNodes().stream().anyMatch(node ->
-                node.id().equals("gallery.add") && node.tabOrder() < 0));
-        ViewSpec.Widget edit = view.widget("gallery.preset." + active + ".edit").orElseThrow();
-        assertEquals(edit.id(), ViewHostPolicy.pointerOwnerAt(
-                view,
-                edit.bounds().x() + edit.bounds().width() / 2.0,
-                edit.bounds().y() + edit.bounds().height() / 2.0).orElseThrow().id());
-    }
-
-    @Test
-    void selectedCardNormalizationPreservesMatchesAndFallsBackDeterministically() {
-        AccountState account = TestFixtures.account(3);
-        UUID first = account.presets().get(0).id();
-        UUID active = account.presets().get(2).id();
-        ClientSnapshot snapshot = TestFixtures.ready(account, active, 0);
-
-        assertEquals("gallery.card." + active,
-                presenter.normalizeSelectedCardId(snapshot, "", null));
-        assertEquals("gallery.card." + first,
-                presenter.normalizeSelectedCardId(
-                        snapshot, "Preset 1", "gallery.card." + first));
-        assertEquals("gallery.card." + first,
-                presenter.normalizeSelectedCardId(
-                        snapshot, "Preset 1", "gallery.card." + active));
-        assertEquals("gallery.add",
-                presenter.normalizeSelectedCardId(
-                        snapshot, "does-not-match", "gallery.card." + active));
-        assertEquals("gallery.add",
-                presenter.normalizeSelectedCardId(
-                        TestFixtures.ready(TestFixtures.account(0), null, 0), "", null));
-    }
 
     @Test
     void disabledGalleryDoesNotPublishEligibleCardAnchors() {
@@ -1192,45 +850,6 @@ final class GalleryPresenterTest {
 
     private static int vanillaLabelBudget(String label) {
         return label.codePointCount(0, label.length()) * 6 + 8;
-    }
-
-    private void assertActiveLabel(
-            ClientSnapshot base,
-            UUID active,
-            AppearanceSyncStatus status,
-            boolean syncInProgress) {
-        ClientSnapshot snapshot = new ClientSnapshot(
-                base.lifecycle(),
-                base.account(),
-                base.session(),
-                base.remoteProfile(),
-                base.lastMutation(),
-                base.selectedSkinId(),
-                base.selectedPresetId(),
-                base.selectedCapeId(),
-                base.currentOfficialSkinId(),
-                base.activePresetId(),
-                base.editor(),
-                base.addSource(),
-                base.status(),
-                base.busy(),
-                base.rateLimited(),
-                base.galleryOffset(),
-                base.generation(),
-                7,
-                status,
-                syncInProgress);
-        ViewSpec view = presenter.present(
-                snapshot,
-                854,
-                480,
-                427,
-                180,
-                PreviewRenderer.CapeMode.CAPE);
-
-        ViewSpec.Widget apply = view.widget("gallery.preset." + active + ".apply").orElseThrow();
-        assertEquals(UiMessage.info("nclskins.gallery.active"), apply.label());
-        assertEquals(status == AppearanceSyncStatus.UNKNOWN || status == AppearanceSyncStatus.PARTIAL, apply.enabled());
     }
 
     private static ClientSnapshot withState(

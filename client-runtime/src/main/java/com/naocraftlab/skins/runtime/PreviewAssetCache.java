@@ -397,6 +397,35 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         if (previous != null && !previous.equals(entry.firstFrameHandle)) releaseHandle(previous);
     }
 
+    public enum CapeStatus { PENDING, READY, FAILED }
+
+    public record CapeState(CapeStatus status, Optional<TextureHandle> handle,
+            com.naocraftlab.skins.client.TextureUseValidity validity, boolean hasElytra, boolean glint) {}
+
+    public synchronized CapeState capeState(K key, Object expectedAssetIdentity) {
+        Objects.requireNonNull(expectedAssetIdentity, "expectedAssetIdentity");
+        Entry entry = entries.get(Objects.requireNonNull(key, "key"));
+        if (closed || entry == null || !expectedAssetIdentity.equals(entry.assetIdentity)) {
+            return new CapeState(CapeStatus.PENDING, Optional.empty(),
+                    com.naocraftlab.skins.client.TextureUseValidity.INVALID, false, false);
+        }
+        if (entry.handle != null) {
+            TextureHandle own = entry.handle;
+            var captured = textures.capture(own);
+            return new CapeState(CapeStatus.READY, Optional.of(own), () -> {
+                synchronized (PreviewAssetCache.this) {
+                    return !closed && entries.get(key) == entry
+                            && expectedAssetIdentity.equals(entry.assetIdentity)
+                            && own.equals(entry.handle) && captured.isValid();
+                }
+            }, entry.installedElytra, entry.installedGlint);
+        }
+        boolean failed = entry.invalidPrepared || entry.openFailures > 3
+                || entry.frameFailures > 3 || entry.failures > 3;
+        return new CapeState(failed ? CapeStatus.FAILED : CapeStatus.PENDING, Optional.empty(),
+                com.naocraftlab.skins.client.TextureUseValidity.INVALID, false, false);
+    }
+
     public synchronized Optional<TextureHandle> handle(K key) {
         Entry entry = entries.get(Objects.requireNonNull(key, "key"));
         if (entry == null) {

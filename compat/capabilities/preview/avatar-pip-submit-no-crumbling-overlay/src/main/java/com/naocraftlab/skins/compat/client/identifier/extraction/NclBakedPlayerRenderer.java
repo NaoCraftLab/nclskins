@@ -43,6 +43,7 @@ public final class NclBakedPlayerRenderer
                     return new TargetRenderer();
                 },
                 TargetRenderer.class);
+        target.retain();
         renderer.primaryRendered = false;
         renderer.prepare(state, guiRenderState, featureRenderDispatcher, guiScale);
         if (completion != null && renderer.primaryRendered) completion.accept(

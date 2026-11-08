@@ -100,7 +100,7 @@ final class ExternalImportPresenterTest {
                         .findFirst()
                         .orElseThrow()
                         .bounds());
-        assertEquals(213, chooser.widget("external.back").orElseThrow().bounds().y());
+        assertEquals(214, chooser.widget("external.back").orElseThrow().bounds().y());
         assertTrue(chooser.texts().stream().noneMatch(text ->
                 text.id().equals("external.source.minecraft_launcher.state")));
         assertTrue(chooser.texts().stream().noneMatch(text ->
@@ -282,8 +282,8 @@ final class ExternalImportPresenterTest {
         assertTrue(review.panels().stream().anyMatch(panel ->
                 panel.id().startsWith("external.review.card:")
                         && panel.style() == ViewSpec.Panel.Style.VANILLA_LIST));
-        assertEquals(453, review.widget("external.review.commit").orElseThrow().bounds().y());
-        assertEquals(453, review.widget("external.review.cancel").orElseThrow().bounds().y());
+        assertEquals(454, review.widget("external.review.commit").orElseThrow().bounds().y());
+        assertEquals(454, review.widget("external.review.cancel").orElseThrow().bounds().y());
         assertEquals(
                 UiMessage.info("nclskins.external_import.new_expanded", 1),
                 review.widget("external.review.collection.new").orElseThrow().label());

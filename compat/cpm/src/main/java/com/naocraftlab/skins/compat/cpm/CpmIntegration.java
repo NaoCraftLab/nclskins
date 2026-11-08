@@ -104,7 +104,7 @@ public final class CpmIntegration {
 
     public static void observe(Player<?> player, com.tom.cpm.shared.definition.ModelDefinition resolved,
             com.tom.cpm.shared.definition.ModelDefinition raw,
-            com.naocraftlab.skins.runtime.CpmAccessoryObserver observer, long revision) {
+            com.naocraftlab.skins.runtime.CpmAccessoryObserver observer, long revision, CpmAccessoryContent content) {
         var availability = com.naocraftlab.skins.runtime.CpmAccessoryObservation.Availability.UNKNOWN;
         boolean cape = false;
         boolean elytra = false;
@@ -132,7 +132,9 @@ public final class CpmIntegration {
                     ? com.naocraftlab.skins.runtime.CpmAccessoryObservation.Availability.FAILED
                     : com.naocraftlab.skins.runtime.CpmAccessoryObservation.Availability.CONFIRMED;
         }
-        observer.publish(revision, availability, cape, elytra);
+        boolean confirmed = availability == com.naocraftlab.skins.runtime.CpmAccessoryObservation.Availability.CONFIRMED;
+        observer.publish(revision, availability, cape, elytra,
+                confirmed && content.capeEmpty(), confirmed && content.elytraEmpty());
     }
 
     public static boolean accessories(Player<?> player, com.tom.cpm.shared.definition.ModelDefinition definition) {

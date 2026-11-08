@@ -6,8 +6,22 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class PreviewRendererTest {
+    @Test void uiOnlyContentFactsPreserveNativePresenceAndCannotConfirmUnavailableAbsence() {
+        var value=new PreviewAccessories(new java.util.UUID(0,1),1,PreviewAccessories.Availability.CONFIRMED,
+                true,true,PreviewRenderer.LiveReason.AVAILABLE,true,true);
+        assertTrue(value.present());assertTrue(value.canInspect());
+        for(var availability:PreviewAccessories.Availability.values()) {
+            if(availability==PreviewAccessories.Availability.CONFIRMED)continue;
+            assertThrows(IllegalArgumentException.class,()->new PreviewAccessories(null,1,availability,
+                    false,false,PreviewRenderer.LiveReason.AVAILABLE,true,true));
+        }
+        var unknown=PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING);
+        assertFalse(unknown.capeContentEmpty());assertFalse(unknown.elytraContentEmpty());
+    }
     @Test
     void displayedBodyQueryReadsCurrentWitnessWithoutPreparingOrRendering() {
         var witness = new java.util.concurrent.atomic.AtomicReference<PreviewModelFrames.Body>();

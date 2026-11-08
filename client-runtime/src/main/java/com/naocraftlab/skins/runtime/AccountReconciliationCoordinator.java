@@ -19,7 +19,7 @@ final class AccountReconciliationCoordinator implements AccountReconciliation {
     private final Completion completion;
     private final Runnable idle;
     private final BiConsumer<DiagnosticEvent, Throwable> diagnose;
-    private final Map<ReconciliationKey, Trigger> pending = new LinkedHashMap<>();
+    private final Map<ReconciliationKey, Request> pending = new LinkedHashMap<>();
     private Request active;
     private boolean running;
     private volatile boolean closed;
@@ -36,17 +36,23 @@ final class AccountReconciliationCoordinator implements AccountReconciliation {
     }
 
     public void request(ReconciliationKey key, Trigger trigger) {
+        request(new Request(key, trigger));
+    }
+
+    public void request(Request request) {
+        ReconciliationKey key = request.key();
+        Trigger trigger = request.trigger();
         Objects.requireNonNull(key);
         Objects.requireNonNull(trigger);
         boolean start;
         synchronized (this) {
             if (closed) return;
-            Trigger previous = pending.get(key);
+            Request previous = pending.get(key);
             if (previous != null) {
-                if (trigger.ordinal() > previous.ordinal()) pending.put(key, trigger);
+                if (trigger.ordinal() > previous.trigger().ordinal()) pending.put(key, request);
             } else if (active == null || !active.key().equals(key)
                     || trigger.ordinal() > active.trigger().ordinal()) {
-                pending.put(key, trigger);
+                pending.put(key, request);
             }
             start = !running;
             if (start) running = true;
@@ -69,7 +75,7 @@ final class AccountReconciliationCoordinator implements AccountReconciliation {
                     return;
                 }
                 var next = pending.entrySet().iterator().next();
-                request = new Request(next.getKey(), next.getValue());
+                request = next.getValue();
                 pending.remove(next.getKey());
                 active = request;
             }
@@ -77,9 +83,12 @@ final class AccountReconciliationCoordinator implements AccountReconciliation {
             Optional<DurableAppearance> durable = Optional.empty();
             Throwable failure = null;
             try {
-                if (operations.reconciliationKey().filter(request.key()::equals).isPresent()) {
+                if (request.stillCurrent().getAsBoolean()
+                        && operations.reconciliationKey().filter(request.key()::equals).isPresent()) {
                     result = Objects.requireNonNull(
-                            operations.reconcileAppearance(request.key(), request.trigger()));
+                            request.existingIntentOnly()
+                                    ? operations.reconcileAppearance(request.key(), request.trigger(), request.stillCurrent())
+                                    : operations.reconcileAppearance(request.key(), request.trigger()));
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();

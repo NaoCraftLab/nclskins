@@ -12,6 +12,7 @@ import static com.naocraftlab.skins.runtime.AccountDeliveryService.*;
 import static com.naocraftlab.skins.runtime.AccountReconciliationPort.*;
 
 interface AccountMutationEffects {
+    default void requireCurrent() throws IOException {}
     PresetApplicationOutcome apply(PresetApplicationRequest request, java.util.function.BooleanSupplier current);
     PresetApplicationOutcome retryCape(String capeId, java.util.function.BooleanSupplier current);
     ReconciliationResult result(AccountAppearanceState state, SessionValidation validation) throws IOException;

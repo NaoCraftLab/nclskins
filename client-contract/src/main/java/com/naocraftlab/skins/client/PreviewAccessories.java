@@ -4,13 +4,19 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record PreviewAccessories(UUID scope, long generation, Availability availability,
-        boolean cape, boolean elytra, PreviewRenderer.LiveReason liveReason) {
+        boolean cape, boolean elytra, PreviewRenderer.LiveReason liveReason,
+        boolean capeContentEmpty, boolean elytraContentEmpty) {
     public enum Availability { UNKNOWN, PENDING, FAILED, BLOCKED, CONFIRMED }
+
+    public PreviewAccessories(UUID scope, long generation, Availability availability,
+            boolean cape, boolean elytra, PreviewRenderer.LiveReason liveReason) {
+        this(scope, generation, availability, cape, elytra, liveReason, false, false);
+    }
 
     public PreviewAccessories {
         Objects.requireNonNull(availability);
         Objects.requireNonNull(liveReason);
-        if (generation < 0 || availability != Availability.CONFIRMED && (cape || elytra)
+        if (generation < 0 || availability != Availability.CONFIRMED && (cape || elytra || capeContentEmpty || elytraContentEmpty)
                 || availability == Availability.CONFIRMED && scope == null)
             throw new IllegalArgumentException("Invalid preview accessories");
     }

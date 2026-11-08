@@ -15,7 +15,19 @@ public record AppearancePreset(
         OuterLayerVisibility outerLayerVisibility,
         Instant createdAt,
         Instant updatedAt,
-        LocalCapeReference offlineCape) {
+        LocalCapeReference offlineCape,
+        boolean favorite) {
+
+    public AppearancePreset(UUID id, String name, SkinReference skin, String capeId,
+            OuterLayerVisibility outerLayerVisibility, Instant createdAt, Instant updatedAt,
+            LocalCapeReference offlineCape) {
+        this(id, name, skin, capeId, outerLayerVisibility, createdAt, updatedAt, offlineCape, false);
+    }
+
+    public AppearancePreset withFavorite(boolean value) {
+        return new AppearancePreset(id, name, skin, capeId, outerLayerVisibility, createdAt, updatedAt,
+                offlineCape, value);
+    }
 
     public AppearancePreset(UUID id, String name, SkinReference skin, String capeId,
             OuterLayerVisibility outerLayerVisibility, Instant createdAt, Instant updatedAt) {
@@ -23,7 +35,7 @@ public record AppearancePreset(
     }
 
     public AppearancePreset withOfflineCape(LocalCapeReference value) {
-        return new AppearancePreset(id, name, skin, capeId, outerLayerVisibility, createdAt, updatedAt, value);
+        return new AppearancePreset(id, name, skin, capeId, outerLayerVisibility, createdAt, updatedAt, value, favorite);
     }
 
     public AppearancePreset {

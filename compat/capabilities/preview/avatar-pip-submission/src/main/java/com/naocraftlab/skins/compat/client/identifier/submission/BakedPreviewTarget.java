@@ -12,6 +12,10 @@ public final class BakedPreviewTarget implements AutoCloseable {
         return target.acquire(expectedOwner, factory, type);
     }
 
+    public void retain() {
+        com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.retain(target);
+    }
+
     public void release(Object expectedOwner) {
         target.release(expectedOwner);
     }

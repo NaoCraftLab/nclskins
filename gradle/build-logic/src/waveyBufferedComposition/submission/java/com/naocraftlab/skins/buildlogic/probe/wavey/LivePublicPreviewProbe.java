@@ -54,14 +54,35 @@ public final class LivePublicPreviewProbe {
             new dev.tr7zw.waveycapes.render.CapeNodeCollector().submitCape(collector, actor, pose, light, 0.25F);
         }
     }
+    private static void verifyMainTargetFailureScope(Minecraft minecraft) throws Exception {
+        var previous = minecraft.getMainRenderTarget();
+        int devices = SubmissionRawInputs.deviceReads();
+        var input = new SubmissionRawInputs.MainTargetInput(minecraft);
+        RuntimeException sentinel = new RuntimeException("CPU_DEPTH_SCOPE_TEST");
+        try (input) {
+            check(minecraft.getMainRenderTarget() != previous
+                    && minecraft.getMainRenderTarget().getDepthTexture().getFormat() == com.mojang.blaze3d.textures.TextureFormat.DEPTH32,
+                    "LIVE_MAIN_TARGET_NATIVE_DEPTH_FORMAT");
+            check(!input.depthClosed(), "LIVE_MAIN_TARGET_PREMATURE_DEPTH_CLOSE");
+            throw sentinel;
+        } catch (RuntimeException failure) {
+            check(failure == sentinel && failure.getSuppressed().length == 0, "LIVE_MAIN_TARGET_FAILURE_IDENTITY");
+        }
+        check(minecraft.getMainRenderTarget() == previous, "LIVE_MAIN_TARGET_FAILURE_RESTORATION");
+        check(input.depthClosed(), "LIVE_MAIN_TARGET_FAILURE_DEPTH_CLOSE");
+        check(SubmissionRawInputs.deviceReads() == devices, "LIVE_MAIN_TARGET_NO_EAGER_DEVICE");
+        System.out.println("MAIN_TARGET_INPUT_SCOPE_PASS native getter/depth format; exact nested restoration and owned CPU depth close after thrown sentinel; zero eager device operations");
+    }
     public static void runCase(String[] args) throws Exception {
         try (HeadlessCapeClient host = HeadlessCapeClient.open(true);
+                var mainTarget = new SubmissionRawInputs.MainTargetInput(Minecraft.getInstance());
                 WaveyProducerFixture producer = new WaveyProducerFixture(Path.of(args[0]));
                 CapeRegistry registry = new CapeRegistry();
                 PreviewAssetCache<String> cache = new PreviewAssetCache<>(registry, TextureRegistry.TextureKind.IMAGE, DiagnosticSinks.discarding());
                 WaveyCapesSupport support = WaveyCapesSupport.register();
                 SubmissionPreviewRenderer preview = new SubmissionPreviewRenderer(DiagnosticSinks.discarding())) {
             Minecraft minecraft = Minecraft.getInstance();
+            verifyMainTargetFailureScope(minecraft);
             minecraft.player = CapePublicationProbe.allocate(LocalPlayer.class);
             SubmissionRawInputs.set(net.minecraft.world.entity.Entity.class, minecraft.player, "uuid", producer.self);
             SubmissionRawInputs.set(Minecraft.class, minecraft, "user", new User("Self", producer.self, "", Optional.empty(), Optional.empty()));
@@ -108,11 +129,21 @@ public final class LivePublicPreviewProbe {
                 Buffers buffers = new Buffers();
                 FeatureRenderDispatcher features = new FeatureRenderDispatcher(new SubmitNodeStorage(), null, buffers, null, null, buffers, null);
                 SubmissionRawInputs.set(GameRenderer.class, game, "featureRenderDispatcher", features);
-                LivePreviewRenderer consumer = CapePublicationProbe.allocate(LivePreviewRenderer.class);
-                var render = LivePreviewRenderer.class.getDeclaredMethod("renderToTexture", LivePreviewRenderState.class, PoseStack.class); render.setAccessible(true);
                 int calls = layer.calls, geometry = BufferedCapeHost.geometry;
-                render.invoke(consumer, emitted, new PoseStack());
-                buffers.endBatch();
+                try (LivePreviewRenderer consumer = new LivePreviewRenderer(buffers);
+                        var frame = com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.open()) {
+                    consumer.prepare(emitted, gui, 1);
+                    List<net.minecraft.client.gui.render.state.BlitRenderState> blits = new ArrayList<>();
+                    gui.forEachElement(element -> { if (element instanceof net.minecraft.client.gui.render.state.BlitRenderState blit) blits.add(blit); }, GuiRenderState.TraverseRange.ALL);
+                    check(blits.size() == 1, "LIVE_NATIVE_BLIT_MISSING_OR_DUPLICATED");
+                    var texture = blits.getFirst().textureSetup().texure0().texture();
+                    check(!texture.isClosed() && texture.getWidth(0) == 100 && texture.getHeight(0) == 160, "LIVE_NATIVE_TARGET_NOT_READY");
+                    com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.submitted();
+                    consumer.close();
+                    check(!texture.isClosed(), "LIVE_TARGET_CLOSED_BEFORE_CONSUMER_FENCE");
+                    SubmissionRawInputs.completeConsumers();
+                    check(texture.isClosed(), "LIVE_TARGET_NOT_RELEASED_AFTER_CONSUMER_FENCE");
+                }
                 check(layer.calls == calls + 1 && layer.consumed == CapePublicationProbe.lastRawState()
                         && value(emitted, "previewPlayer") == CapePublicationProbe.lastRawActor(), "LIVE_EXTRACT_CONFIGURE_SUBMIT_NOT_REACHED");
                 var state = layer.consumed;
@@ -142,6 +173,6 @@ public final class LivePublicPreviewProbe {
             List<PictureInPictureRenderState> closed = new ArrayList<>(); gui.forEachPictureInPicture(closed::add);
             check(closed.isEmpty(), "LIVE_CLOSED_PUBLIC_PREVIEW_PUBLISHED");
         }
-        System.out.println("PUBLIC_LIVE_PREVIEW_PASS public render/session/readiness -> normal GUI Mixin/same LivePreviewRenderState -> real LivePreviewRenderer/extract/configure/native submit -> same AvatarRenderState/native layer loop/genuine collector/FeatureRenderDispatcher/native buffer drain; raw inputs+CPU geometry+lighting sinks; test layer bridge, not Wavey lifecycle/simulation");
+        System.out.println("PUBLIC_LIVE_PREVIEW_PASS public render/session/readiness -> normal GUI Mixin/same LivePreviewRenderState -> initialized dispatcher/per-target native prepare/blit/shared consumer frame/fence -> real extract/configure/native submit -> same AvatarRenderState/native layer loop/genuine collector/FeatureRenderDispatcher/native buffer drain; raw inputs+CPU device/geometry/lighting sinks; test layer bridge, not Wavey lifecycle/simulation/GPU");
     }
 }

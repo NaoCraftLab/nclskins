@@ -412,7 +412,7 @@ final class EditorTabRuntimeTest {
         }
 
         @Override
-        public PresetDelete deletePreset(UUID presetId) {
+        public PresetDelete deletePreset(GalleryScope scope, UUID presetId) {
             throw unavailable();
         }
 

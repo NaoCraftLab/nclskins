@@ -308,8 +308,8 @@ final class PresetEditorModelTest {
         assertEquals(new Bounds(176, 52, 128, 20), name.bounds());
         assertTrue(name.selectAllOnFocusAcquire());
         assertEquals(Optional.empty(), name.submitActionId());
-        assertEquals(new Bounds(83, 212, 75, 20), view.widget("editor.save").orElseThrow().bounds());
-        assertEquals(new Bounds(162, 212, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
+        assertEquals(new Bounds(83, 214, 75, 20), view.widget("editor.save").orElseThrow().bounds());
+        assertEquals(new Bounds(162, 214, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
         assertEquals(new Bounds(0, 0, 320, 240), view.previews().get(0).bounds());
         assertEquals(new Bounds(0, 0, 160, 240), view.previews().get(0).anchorBounds());
         assertEquals(0.6958763F, view.previews().get(0).scale(), 0.000001F);
@@ -329,7 +329,7 @@ final class PresetEditorModelTest {
         assertEquals(new Bounds(443, 52, 395, 20), defaultView.widget("editor.name").orElseThrow().bounds());
         assertEquals(new Bounds(0, 0, 854, 480), defaultView.previews().get(0).bounds());
         assertEquals(new Bounds(0, 0, 427, 480), defaultView.previews().get(0).anchorBounds());
-        assertEquals(new Bounds(297, 452, 128, 20), defaultView.widget("editor.save").orElseThrow().bounds());
+        assertEquals(new Bounds(297, 454, 128, 20), defaultView.widget("editor.save").orElseThrow().bounds());
 
         PresetEditorModel wide = PresetEditorModel.open(
                 TestFixtures.account(0),

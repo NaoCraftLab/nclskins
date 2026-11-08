@@ -789,7 +789,7 @@ public final class PresetEditorModel {
         int footerWidth = Math.min(260, Math.max(154, width / 2 - 28));
         int footerX = (width - footerWidth) / 2;
         int half = Math.max(54, (footerWidth - 4) / 2);
-        int bottom = height - 28;
+        int bottom = new ViewChromeMetrics(FOOTER_HEIGHT).footerRowTop(height,20);
 
         List<ViewSpec.Panel> panels = new ArrayList<>();
         panels.add(new ViewSpec.Panel(

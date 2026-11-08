@@ -3337,7 +3337,7 @@ final class DefaultClientOperationsTest {
         UUID presetId = firstOpen.appearance().activePresetId().orElseThrow();
         assertEquals(1, api.profileGets.get());
 
-        LibraryEditorPort.PresetDelete deletion = firstClient.deletePreset(presetId);
+        LibraryEditorPort.PresetDelete deletion = firstClient.deletePreset(new LibraryEditorPort.GalleryScope(firstClient.sessionIdentity().profileId(), 0, () -> true), presetId);
 
         assertTrue(deletion.account().presets().isEmpty());
         assertTrue(deletion.remoteReset().isEmpty());
@@ -3387,7 +3387,7 @@ final class DefaultClientOperationsTest {
         UUID transientPreset = created.presets().get(0).id();
         DefaultClientOperations otherOperations = TestClientGraph.operations(
                 tokens(), api, storage(), ignored -> skin.clone(), fixedClock());
-        AccountState externallyEmpty = otherOperations.deletePreset(transientPreset).account();
+        AccountState externallyEmpty = otherOperations.deletePreset(new LibraryEditorPort.GalleryScope(otherOperations.sessionIdentity().profileId(), 0, () -> true), transientPreset).account();
         assertTrue(externallyEmpty.presets().isEmpty());
         assertNotEquals(initial.account().updatedAt(), externallyEmpty.updatedAt());
 
@@ -3425,7 +3425,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty()));
         LibraryEditorPort.PresetUse selected = operations.usePreset(active.presetId());
 
-        LibraryEditorPort.PresetDelete deletion = operations.deletePreset(inactive.presetId());
+        LibraryEditorPort.PresetDelete deletion = operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), inactive.presetId());
 
         assertEquals(List.of(active.presetId()), deletion.account().presets().stream()
                 .map(preset -> preset.id())
@@ -3466,10 +3466,10 @@ final class DefaultClientOperationsTest {
         operations.usePreset(active.presetId());
 
         ClientOperations.DurableAppearance firstDefault = operations
-                .deletePreset(active.presetId())
+                .deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), active.presetId())
                 .appearance()
                 .orElseThrow();
-        LibraryEditorPort.PresetDelete finalDeletion = operations.deletePreset(inactive.presetId());
+        LibraryEditorPort.PresetDelete finalDeletion = operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), inactive.presetId());
         ClientOperations.DurableAppearance finalDefault = finalDeletion.appearance().orElseThrow();
 
         assertTrue(finalDeletion.account().presets().isEmpty());
@@ -3503,7 +3503,7 @@ final class DefaultClientOperationsTest {
         Files.deleteIfExists(blockedBackup);
         Files.createDirectories(blockedBackup);
 
-        assertThrows(IOException.class, () -> operations.deletePreset(saved.presetId()));
+        assertThrows(IOException.class, () -> operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), saved.presetId()));
 
         assertEquals(List.of(saved.presetId()), shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID)
                 .presets()
@@ -3516,7 +3516,7 @@ final class DefaultClientOperationsTest {
         assertNull(pendingDefault.skinSha256());
         Files.delete(blockedBackup);
 
-        LibraryEditorPort.PresetDelete retry = operations.deletePreset(saved.presetId());
+        LibraryEditorPort.PresetDelete retry = operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), saved.presetId());
 
         assertTrue(retry.account().presets().isEmpty());
         assertTrue(retry.appearance().orElseThrow().intentRevision()
@@ -3546,7 +3546,7 @@ final class DefaultClientOperationsTest {
         Files.delete(blockedAppearance);
         Files.createDirectories(blockedAppearance);
 
-        assertThrows(IOException.class, () -> operations.deletePreset(saved.presetId()));
+        assertThrows(IOException.class, () -> operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), saved.presetId()));
 
         assertEquals(List.of(saved.presetId()), shared.loadOrCreateAccount(TestFixtures.ACCOUNT_ID)
                 .presets()
@@ -3555,7 +3555,7 @@ final class DefaultClientOperationsTest {
                 .toList());
         Files.delete(blockedAppearance);
 
-        LibraryEditorPort.PresetDelete retry = operations.deletePreset(saved.presetId());
+        LibraryEditorPort.PresetDelete retry = operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), saved.presetId());
 
         assertTrue(retry.account().presets().isEmpty());
         assertTrue(retry.appearance().orElseThrow().activePresetId().isEmpty());
@@ -3587,7 +3587,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         LibraryEditorPort.PresetUse selected = operations.usePreset(kept.presetId());
-        operations.deletePreset(removed.presetId());
+        operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), removed.presetId());
 
         LibraryOperationException failure = assertThrows(
                 LibraryOperationException.class,
@@ -3630,7 +3630,7 @@ final class DefaultClientOperationsTest {
         try {
             Future<LibraryEditorPort.PresetDelete> deletion = executor.submit(() -> {
                 start.await();
-                return first.deletePreset(raced.presetId());
+                return first.deletePreset(new LibraryEditorPort.GalleryScope(first.sessionIdentity().profileId(), 0, () -> true), raced.presetId());
             });
             Future<Boolean> selection = executor.submit(() -> {
                 start.await();
@@ -3685,7 +3685,7 @@ final class DefaultClientOperationsTest {
                 .orElseThrow();
         UUID presetId = initial.account().presets().get(0).id();
 
-        LibraryEditorPort.PresetDelete deleted = operations.deletePreset(presetId);
+        LibraryEditorPort.PresetDelete deleted = operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), presetId);
 
         assertEquals(0, api.skinResets.get());
         assertTrue(deleted.account().presets().isEmpty());
@@ -3727,7 +3727,7 @@ final class DefaultClientOperationsTest {
                 Optional.empty(),
                 Optional.empty()));
         firstClient.usePreset(preset.presetId());
-        firstClient.deletePreset(preset.presetId());
+        firstClient.deletePreset(new LibraryEditorPort.GalleryScope(firstClient.sessionIdentity().profileId(), 0, () -> true), preset.presetId());
 
         DefaultClientOperations secondClient = TestClientGraph.operations(
                 tokens(), api, storage, ignored -> skin.clone(), fixedClock());
@@ -5651,7 +5651,7 @@ final class DefaultClientOperationsTest {
                 .id();
 
         tokens.atomicIdentity = accountB;
-        LibraryEditorPort.PresetDelete deletion = operations.deletePreset(presetId);
+        LibraryEditorPort.PresetDelete deletion = operations.deletePreset(new LibraryEditorPort.GalleryScope(operations.sessionIdentity().profileId(), 0, () -> true), presetId);
 
         assertTrue(deletion.account().presets().isEmpty());
         assertTrue(deletion.remoteReset().isEmpty());

@@ -333,7 +333,7 @@ final class AddSourceModelPresenterTest {
                     assertTrue(status.bounds().bottom() > surface.viewport().y());
                     assertEquals(surface.viewport(), end.clipFor(status.id()).orElseThrow());
                     assertEquals(surface.viewport(), end.clipFor(tab == AddSourceTab.FILE ? "add.file.choose" : "add.catalog.search").orElseThrow());
-                    assertEquals(new Bounds((size[0] - Math.min(200, Math.max(100, size[0] - 32))) / 2, size[1] - 28,
+                    assertEquals(new Bounds((size[0] - Math.min(200, Math.max(100, size[0] - 32))) / 2, size[1] - 26,
                             Math.min(200, Math.max(100, size[0] - 32)), 20), end.widget("add.cancel").orElseThrow().bounds());
                     assertTrue(end.clipFor("add.cancel").isEmpty());
                     assertEquals(surface.maximumPixels(), end.scrollSurfaces().get(0).maximumPixels());

@@ -46,13 +46,100 @@ public final class SubmissionPreviewRenderer
     private static final AtomicInteger NEXT_ENTITY_ID = new AtomicInteger(-1);
     private static final float MODEL_HEIGHT = 2.125F;
 
-    private final EditorPreviewSession session = new EditorPreviewSession();
+    private EditorPreviewSession session = new EditorPreviewSession();
+    private EditorPreviewSession.Gallery gallery;
+    private final java.util.Map<String, NativeSlot> gallerySlots = new java.util.LinkedHashMap<>();
+    private String activeGallerySource;
+    private java.util.function.Consumer<BodyStatus> bodyObserver = value -> {};
+    private com.naocraftlab.skins.client.ScreenOwnedRenderTarget liveTarget = new com.naocraftlab.skins.client.ScreenOwnedRenderTarget();
+
+    private record NativeSlot(EditorPreviewSession session, GameProfile profile, PreviewPlayer player,
+            ClientLevel level, EditorPreviewClock clock, EditorPreviewTickGate tickGate, SimplePreviewRenderer baked,
+            com.naocraftlab.skins.client.ScreenOwnedRenderTarget target) {}
+
+    private void saveGallerySlot() {
+        if (activeGallerySource != null && gallerySlots.containsKey(activeGallerySource)) gallerySlots.put(activeGallerySource,
+                new NativeSlot(session, profile, previewPlayer, previewLevel, previewClock, previewTickGate, baked, liveTarget));
+    }
+
+    private void selectGallerySlot(String source) {
+        saveGallerySlot();
+        var slot = gallerySlots.get(source);
+        if (slot == null) throw new IllegalStateException("Retired Gallery source");
+        activeGallerySource = source;
+        session = slot.session(); profile = slot.profile(); previewPlayer = slot.player(); previewLevel = slot.level();
+        previewClock = slot.clock(); previewTickGate = slot.tickGate(); baked = slot.baked(); liveTarget = slot.target();
+    }
+
+    private void retireGallerySlots() {
+        saveGallerySlot();
+        gallerySlots.entrySet().removeIf(entry -> {
+            var slot = entry.getValue();
+            if (gallery.retains(slot.session())) return false;
+            CapeProjection.retireSkin(slot.profile().id());
+            try { slot.baked().close(); } finally { slot.target().close(); }
+            return true;
+        });
+    }
+
+    @Override public boolean prepareGalleryBody(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
+        if (closed || !candidateCurrent.getAsBoolean() || closed) return false;
+        if (gallery == null) {
+            session.invalidateDisplayedBody();
+            if (closed) return false;
+            baked.close(); liveTarget.close(); CapeProjection.retireSkin(profile.id());
+            gallery = new EditorPreviewSession.Gallery();
+            gallery.observeBody(status -> { retireGallerySlots(); bodyObserver.accept(status); });
+        }
+        var client = Minecraft.getInstance();
+        var candidate = gallery.prepare(source, cpm, client.level != null && client.player != null, candidateCurrent);
+        if (candidate == null || closed || gallery == null || !gallery.retains(candidate)) return false;
+        saveGallerySlot();
+        retireGallerySlots();
+        gallerySlots.computeIfAbsent(source, ignored -> new NativeSlot(candidate,
+                new GameProfile(UUID.randomUUID(), "NCLSkinPreview"), null, null, new EditorPreviewClock(),
+                new EditorPreviewTickGate(), new SimplePreviewRenderer(), new com.naocraftlab.skins.client.ScreenOwnedRenderTarget()));
+        selectGallerySlot(source); retireGallerySlots();
+        accessoryPreparation = candidate;
+        return true;
+    }
+
+    @Override public void confirmGalleryBody(String source) {
+        if (closed || gallery == null) return;
+        gallery.confirm(source);
+        if (!closed && gallery != null) retireGallerySlots();
+    }
+
+    @Override public void renderGallery(GuiGraphics graphics, String source, PreviewRequest request) {
+        selectGallerySlot(source);
+        render(graphics, request);
+        saveGallerySlot();
+    }
+
+    @Override public PreviewAccessories galleryAccessories(String source, PreviewRequest request, java.util.function.BooleanSupplier inputCurrent) {
+        if (closed || !inputCurrent.getAsBoolean() || closed)
+            return PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
+        saveGallerySlot();
+        var slot = gallerySlots.get(source);
+        if (closed || slot == null || gallery == null)
+            return PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
+        var owner = gallery;
+        var client = Minecraft.getInstance();
+        var reason = slot.session().liveReason(request.intent(), client.level != null && client.player != null,
+                NativePlayerSkinLifecycle.isReady(request.appearance().skin().location()), slot.player() != null && slot.level() == client.level);
+        var value = CapeProjection.previewAccessories(slot.profile().id(), request.appearance().skin().location(), request.appearance().model(), reason);
+        return inputCurrent.getAsBoolean() && !closed && gallery == owner && gallerySlots.get(source) == slot
+                ? value : PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
+    }
     private java.util.function.Consumer<PreviewAccessories> accessoryObserver = value -> {};
+    private EditorPreviewSession accessoryObserverSession;
+    private EditorPreviewSession accessoryPreparation;
     private boolean closed;
 
     @Override
     public void observeAccessories(java.util.function.Consumer<PreviewAccessories> observer) {
         accessoryObserver = Objects.requireNonNull(observer);
+        accessoryObserverSession = accessoryPreparation == null ? session : accessoryPreparation;
     }
 
     @Override
@@ -66,16 +153,25 @@ public final class SubmissionPreviewRenderer
                 request.appearance().model(), reason);
     }
 
+    private java.util.function.Consumer<PreviewAccessories> accessoryObserverFor(EditorPreviewSession source) {
+        var observer = accessoryObserver;
+        var owner = accessoryObserverSession;
+        return value -> {
+            if (!closed && source == owner && accessoryObserverSession == owner && accessoryObserver == observer)
+                observer.accept(value);
+        };
+    }
+
     private void clearAccessoryInspection() {
-        accessoryObserver.accept(PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE));
+        accessoryObserverFor(session).accept(PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE));
     }
 
     private final DiagnosticSink diagnostics;
-    private final EditorPreviewClock previewClock = new EditorPreviewClock();
-    private final EditorPreviewTickGate previewTickGate = new EditorPreviewTickGate();
-    private final SimplePreviewRenderer baked =
+    private EditorPreviewClock previewClock = new EditorPreviewClock();
+    private EditorPreviewTickGate previewTickGate = new EditorPreviewTickGate();
+    private SimplePreviewRenderer baked =
             new SimplePreviewRenderer();
-    private final GameProfile profile = new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
+    private GameProfile profile = new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
     private boolean layerFailureLogged;
     private PreviewPlayer previewPlayer;
     private ClientLevel previewLevel;
@@ -84,17 +180,35 @@ public final class SubmissionPreviewRenderer
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
-    @Override public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return session.body(); }
+    @Override public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return gallery == null ? session.body() : gallery.body(); }
 
-    @Override public void observeBody(java.util.function.Consumer<BodyStatus> observer) { session.observeBody(observer); }
+    @Override public void observeBody(java.util.function.Consumer<BodyStatus> observer) {
+        bodyObserver = Objects.requireNonNull(observer);
+        if (gallery == null) session.observeBody(observer);
+    }
 
     @Override public void prepareBody(String source, boolean cpm) {
+        if (closed) return;
+        if (gallery != null) {
+            gallery.close(); retireGallerySlots(); gallery = null; activeGallerySource = null;
+            if (closed) return;
+            session = new EditorPreviewSession(); session.observeBody(bodyObserver);
+            profile = new GameProfile(UUID.randomUUID(), "NCLSkinPreview"); previewPlayer = null; previewLevel = null;
+            previewClock = new EditorPreviewClock(); previewTickGate = new EditorPreviewTickGate();
+            baked = new SimplePreviewRenderer(); liveTarget = new com.naocraftlab.skins.client.ScreenOwnedRenderTarget();
+        }
         var client = Minecraft.getInstance();
+        accessoryObserverSession = null;
+        accessoryPreparation = session;
         session.beginBody(source, cpm, !closed && client.level != null && client.player != null);
     }
 
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
+        var session = this.session;
+        var frameGallery = gallery;
+        var frameTarget = liveTarget;
+        var frameAccessoryObserver = accessoryObserverFor(session);
         Objects.requireNonNull(graphics, "graphics");
         Objects.requireNonNull(request, "request");
         if (closed) { session.invalidateDisplayedBody(); return; }
@@ -110,7 +224,7 @@ public final class SubmissionPreviewRenderer
         if (session.path(request.intent(), minecraft.level != null && minecraft.player != null)
                         == EditorPreviewSession.Path.BAKED
                 || !NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) {
-            accessoryObserver.accept(accessories(request));
+            accessoryObserverFor(session).accept(accessories(request));
             renderFallback(graphics, request);
             return;
         }
@@ -123,7 +237,7 @@ public final class SubmissionPreviewRenderer
             PreviewPlayer renderPlayer = previewPlayer(
                     minecraft, appearance, skin, chestEquipment);
             if (renderPlayer == null) {
-                accessoryObserver.accept(accessories(request));
+                accessoryObserverFor(session).accept(accessories(request));
                 renderFallback(graphics, request);
                 return;
             }
@@ -137,7 +251,8 @@ public final class SubmissionPreviewRenderer
             var frameTexture = NativePlayerSkinLifecycle.registration(appearance.skin().location());
             var framePlayer = minecraft.player;
             PreviewContext context = new PreviewContext(minecraft.player, appearance, skin, chestEquipment,
-                    () -> !closed && minecraft.level == frameWorld && minecraft.player == framePlayer && previewPlayer == renderPlayer && previewLevel == frameWorld
+                    () -> !closed && minecraft.level == frameWorld && minecraft.player == framePlayer
+                            && (frameGallery == null ? previewPlayer == renderPlayer && previewLevel == frameWorld : frameGallery.retains(session))
                             && NativePlayerSkinLifecycle.isReady(appearance.skin().location())
                             && NativePlayerSkinLifecycle.registration(appearance.skin().location()).equals(frameTexture)
                             && frameCurrent.getAsBoolean(),
@@ -166,9 +281,10 @@ public final class SubmissionPreviewRenderer
                             modelRotation,
                             cameraPitch,
                             scale,
-                            this::onLiveRenderFailure,
+                            failure -> onLiveRenderFailure(session, frameAccessoryObserver, failure),
                             this::onLiveLayerFailure,
-                            null);
+                            null,
+                            frameTarget);
             try (LivePreviewSubmission submission =
                     LivePreviewSubmission.open(graphics, state)) {
                 graphics.submitEntityRenderState(
@@ -184,13 +300,14 @@ public final class SubmissionPreviewRenderer
                 submission.requireConsumed();
             }
         } catch (RuntimeException failure) {
-            onLiveRenderFailure(failure);
-            accessoryObserver.accept(accessories(request));
+            onLiveRenderFailure(session, frameAccessoryObserver, failure);
+            accessoryObserverFor(session).accept(accessories(request));
             renderFallback(graphics, request);
         }
     }
 
     private void renderFallback(GuiGraphics graphics, PreviewRequest request) {
+        var session = this.session;
         var client = Minecraft.getInstance();
         var world = client.level;
         var local = client.player;
@@ -258,9 +375,10 @@ public final class SubmissionPreviewRenderer
         }
     }
 
-    private void onLiveRenderFailure(RuntimeException failure) {
+    private void onLiveRenderFailure(EditorPreviewSession session,
+            java.util.function.Consumer<PreviewAccessories> observer, RuntimeException failure) {
         boolean firstFailure = session.disableLive(failure);
-        clearAccessoryInspection();
+        observer.accept(PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE));
         if (firstFailure) {
             diagnostics.report(
                     DiagnosticEvent.CLIENT_PREVIEW_LIVE_DISABLED,
@@ -368,12 +486,15 @@ public final class SubmissionPreviewRenderer
 
     @Override
     public void close() {
-        session.invalidateDisplayedBody();
+        if (closed) return;
         closed = true;
+        session.invalidateDisplayedBody();
+        if (gallery != null) { gallery.close(); retireGallerySlots(); activeGallerySource = null; }
         clearAccessoryInspection();
         accessoryObserver = value -> {};
         CapeProjection.retireSkin(profile.id());
         baked.close();
+        liveTarget.close();
         previewPlayer = null;
         previewLevel = null;
     }

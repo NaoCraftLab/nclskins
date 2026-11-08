@@ -39,6 +39,9 @@ final class AccountUiPreferencesJson {
         JsonArray capeCollections = new JsonArray();
         preferences.collapsedCapeCollections().stream().sorted().forEach(capeCollections::add);
         root.add("collapsedCapeCollections", capeCollections);
+        JsonArray gallerySections = new JsonArray();
+        preferences.collapsedGallerySections().stream().sorted().forEach(gallerySections::add);
+        root.add("collapsedGallerySections", gallerySections);
         return (GSON.toJson(root) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
     }
 
@@ -47,7 +50,7 @@ final class AccountUiPreferencesJson {
             JsonObject root = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8))
                     .getAsJsonObject();
             int schemaVersion = required(root, "schemaVersion").getAsInt();
-            if (schemaVersion != AccountUiPreferences.CURRENT_SCHEMA_VERSION) {
+            if (schemaVersion != 1 && schemaVersion != AccountUiPreferences.CURRENT_SCHEMA_VERSION) {
                 throw new StorageException(
                         StorageException.Code.UNSUPPORTED_SCHEMA,
                         "Unsupported UI preferences schema: " + schemaVersion);
@@ -74,16 +77,30 @@ final class AccountUiPreferencesJson {
             }
             Set<String> capeCollections = new LinkedHashSet<>();
             if (root.has("collapsedCapeCollections")) root.getAsJsonArray("collapsedCapeCollections").forEach(value -> capeCollections.add(value.getAsString()));
+            Set<String> gallerySections = new LinkedHashSet<>();
+            if (schemaVersion >= 2 && root.has("collapsedGallerySections")) {
+                JsonElement sections = root.get("collapsedGallerySections");
+                if (!sections.isJsonArray()) {
+                    throw new JsonParseException("Gallery sections must be an array");
+                }
+                for (JsonElement value : sections.getAsJsonArray()) {
+                    if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+                        throw new JsonParseException("Gallery section id must be a string");
+                    }
+                    gallerySections.add(value.getAsString());
+                }
+            }
             return new AccountUiPreferences(
-                    schemaVersion,
+                    AccountUiPreferences.CURRENT_SCHEMA_VERSION,
                     UUID.fromString(required(root, "accountId").getAsString()),
                     AddSourceTab.valueOf(required(root, "selectedAddSourceTab").getAsString()),
                     optionalEditorTab(root),
                     preferredSkinVariant,
-                    collapsedCollectionIds, capeCollections, optionalProvidersTab(root));
+                    collapsedCollectionIds, capeCollections, optionalProvidersTab(root), gallerySections);
         } catch (StorageException exception) {
             throw exception;
-        } catch (JsonParseException | IllegalArgumentException | IllegalStateException exception) {
+        } catch (JsonParseException | IllegalArgumentException | IllegalStateException
+                | NullPointerException | ClassCastException exception) {
             throw new StorageException(
                     StorageException.Code.INVALID_STATE,
                     "UI preferences are malformed",

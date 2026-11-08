@@ -98,6 +98,7 @@ final class AccountStateJson {
             JsonObject json = new JsonObject();
             json.addProperty("id", preset.id().toString());
             json.addProperty("name", preset.name());
+            json.addProperty("favorite", preset.favorite());
             JsonObject skin = new JsonObject();
             skin.addProperty("kind", preset.skin().kind().name());
             preset.skin().optionalAssetId().ifPresent(assetId -> skin.addProperty("assetId", assetId.toString()));
@@ -133,13 +134,13 @@ final class AccountStateJson {
             } else {
                 throw invalid("Account state has no schema version");
             }
-            if (schemaVersion != 1 && schemaVersion != 2 && schemaVersion != 3
+            if (schemaVersion != 1 && schemaVersion != 2 && schemaVersion != 3 && schemaVersion != 4
                     && schemaVersion != AccountState.CURRENT_SCHEMA_VERSION) {
                 throw new StorageException(
                         StorageException.Code.UNSUPPORTED_SCHEMA,
                         "Unsupported account state schema: " + schemaVersion);
             }
-            if (schemaVersion != AccountState.CURRENT_SCHEMA_VERSION) {
+            if (schemaVersion != AccountState.CURRENT_SCHEMA_VERSION && schemaVersion != 4) {
                 migrated = true;
             }
             UUID accountId = UUID.fromString(requiredString(root, "accountId"));
@@ -285,7 +286,8 @@ final class AccountStateJson {
                     outerLayer,
                     instant(json, "createdAt"),
                     instant(json, "updatedAt"),
-                    json.has("offlineCape") ? decodeLocalCape(requiredObject(json, "offlineCape")) : null));
+                    json.has("offlineCape") ? decodeLocalCape(requiredObject(json, "offlineCape")) : null,
+                    schemaVersion >= 5 && json.has("favorite") && requiredBoolean(json, "favorite")));
         }
         return List.copyOf(presets);
     }

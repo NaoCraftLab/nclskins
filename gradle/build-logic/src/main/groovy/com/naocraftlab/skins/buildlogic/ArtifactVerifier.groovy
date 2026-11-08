@@ -1004,6 +1004,8 @@ final class ArtifactVerifier {
          'ModelRenderManagerMixin', 'RenderManagerMixin', 'RedirectRendererMixin',
          'CapeBranchBoundPlayerMixin', 'CapeBranchRenderStateMixin',
          'CpmModelDefinitionPartsAccessor', 'CpmModelSkinTextureAccessor', 'CpmModelTextureAccessor', 'CpmModelFileBackupAccessor',
+         'CpmResolvedPartsAccessor', 'CpmResolvedOtherPartsAccessor', 'CpmCopyTransformsAccessor', 'CpmCopyVisibilityAccessor',
+         'CpmAnimationStateAccessor', 'CpmVisibilityTargetAccessor', 'CpmLegacyAnimationsAccessor', 'CpmLegacyVisibilityAccessor',
          'CpmProjectExporterInvoker', 'CpmProjectExporterMixin', 'CpmProjectTemplateMixin', 'CpmProjectTextureMixin',
          'CpmAnimatedTextureMixin', 'CpmDefinitionResourceMixin'].each { String name ->
             String mixin = 'com/naocraftlab/skins/compat/cpm/mixin/' + name

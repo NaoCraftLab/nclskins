@@ -577,6 +577,11 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
+    public AccountUiPreferences updateGallerySections(GallerySectionsUpdate update) throws Exception {
+        return uiPreferences.updateGallerySections(update);
+    }
+
+    @Override
     public Optional<AccountUiPreferences> loadUiPreferences() throws Exception {
         return uiPreferences.loadUiPreferences();
     }
@@ -1592,14 +1597,19 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
-    public PresetDelete deletePreset(UUID presetId) throws IOException, PngValidationException {
+    public PresetDelete deletePreset(GalleryScope scope, UUID presetId) throws IOException, PngValidationException {
+        Objects.requireNonNull(scope, "scope");
+        scope.requireCurrent(scope.initiatingAccountId(), scope.accountEpoch());
         OperationContext context = pinCurrentSession();
-        UUID accountId = resolveAccountId(context.identity());
+        UUID accountId = scope.initiatingAccountId();
+        java.util.function.BooleanSupplier current = () -> accountId.equals(context.identity().profileId())
+                && context.identity().equals(tokenSource.currentSession()) && scope.stillCurrent().getAsBoolean();
+        if (!current.getAsBoolean()) throw new IOException("Gallery account retired");
         LibraryService.PresetDeletion deletion = library.deletePreset(
                 accountId,
                 Objects.requireNonNull(presetId, "presetId"),
-                (ignoredAccount, current, revision) -> accountDefaultAppearance(
-                        accountId, revision, AppearanceSyncStatus.PENDING, current.providers()));
+                (ignoredAccount, appearance, revision) -> accountDefaultAppearance(
+                        accountId, revision, AppearanceSyncStatus.PENDING, appearance.providers()), current);
         AccountState deleted = deletion.state();
         if (!deletion.resetsAppearance()) {
             return PresetDelete.local(deleted);
@@ -1623,6 +1633,64 @@ public final class DefaultClientOperations implements ClientOperations {
                 .orElseThrow(() -> new IllegalStateException(
                         "Minecraft session or local appearance changed before reconciliation"));
         return legacyRemoteResult(reconciled, "Preset reconciliation completed without a remote mutation.");
+    }
+
+    @Override
+    public AccountState setPresetFavorite(PresetFavoriteUpdate update) throws IOException {
+        Objects.requireNonNull(update, "update");
+        var identity = tokenSource.currentSession();
+        UUID accountId = update.scope().initiatingAccountId();
+        java.util.function.BooleanSupplier current = () -> accountId.equals(identity.profileId())
+                && identity.equals(tokenSource.currentSession()) && update.scope().stillCurrent().getAsBoolean();
+        if (!current.getAsBoolean()) throw new IOException("Gallery account retired");
+        return library.setPresetFavorite(accountId, update.presetId(), update.desired(), latest -> {
+            if (!accountId.equals(latest.accountId()) || !current.getAsBoolean())
+                throw new IOException("Gallery account retired");
+        }, current);
+    }
+
+    @Override
+    public PresetUse applyGalleryDraft(GalleryApplyRequest request) throws IOException, PngValidationException {
+        Objects.requireNonNull(request, "request");
+        OperationContext context = pinCurrentSession();
+        UUID accountId = request.scope().initiatingAccountId();
+        java.util.function.BooleanSupplier current = () -> request.scope().stillCurrent().getAsBoolean()
+                && accountId.equals(context.identity().profileId())
+                && context.identity().equals(tokenSource.currentSession());
+        if (!current.getAsBoolean()) throw new IOException("Gallery account retired");
+        OwnedCapeInventory inventory = storage.loadOwnedCapes(accountId);
+        SessionValidation validation = sessions.cachedStatus(context.identity());
+        var selectionAssignment = new java.util.concurrent.atomic.AtomicBoolean();
+        var saved = libraryState.mutateAccountAndAppearanceRecoverably(accountId, (account, appearance, revision) -> {
+            if (!accountId.equals(account.accountId()) || !accountId.equals(appearance.accountId())) {
+                throw new IllegalArgumentException("Gallery account changed");
+            }
+            AppearancePreset latest = library.findPreset(account, request.presetId());
+            AppearancePreset patched = request.maskPatch().map(patch -> {
+                AppearancePreset candidate = patch.applyTo(latest, clock.instant());
+                return candidate.outerLayerVisibility().equals(latest.outerLayerVisibility()) ? latest : candidate;
+            })
+                    .orElse(latest);
+            boolean accountUpdated = !patched.equals(latest);
+            AccountState updated = accountUpdated ? new AccountState(account.schemaVersion(), accountId,
+                    account.skinAssets(), account.personalSkins(), account.presets().stream()
+                            .map(preset -> preset.id().equals(patched.id()) ? patched : preset).toList(),
+                    clock.instant(), account.personalCapes()) : account;
+            boolean selection = !request.presetId().equals(appearance.activePresetId());
+            selectionAssignment.set(selection);
+            AccountAppearanceState selected = selection
+                    ? pendingAppearanceForPreset(accountId, updated, request.presetId(), revision,
+                            appearance, inventory, validation)
+                    : accountUpdated ? revisedAppearanceForPreset(accountId, updated, request.presetId(), revision,
+                            appearance, inventory, validation) : appearance;
+            return new com.naocraftlab.skins.core.service.LibraryStatePort.AccountAppearanceMutationPlan(
+                    updated, selected, accountUpdated, selection || accountUpdated);
+        }, current);
+        AccountAppearanceState appearance = saved.appearance();
+        return new PresetUse(saved.account(), validation, request.presetId(),
+                materializeLocalAppearance(accountId, context.identity().profileId(), appearance, validation),
+                Optional.empty(), appearance.pendingOfficialSync(), true, appearance.optionalOuterLayerVisibility(),
+                appearance.intentRevision(), appearance.syncStatus(), appearance.providers(), selectionAssignment.get());
     }
 
     @Override
@@ -1677,22 +1745,44 @@ public final class DefaultClientOperations implements ClientOperations {
         return reconcileAppearance(context, expected, trigger);
     }
 
-    @SuppressWarnings("try")
     private Optional<ReconciliationResult> reconcileAppearance(OperationContext context,
             ReconciliationKey expected, Trigger trigger) throws IOException, PngValidationException {
+        return reconcileAppearance(context, expected, trigger, () -> true, false);
+    }
+
+    @Override
+    public Optional<ReconciliationResult> reconcileAppearance(ReconciliationKey expected, Trigger trigger,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException, PngValidationException {
+        if (!stillCurrent.getAsBoolean()) return Optional.empty();
+        OperationContext context = pinCurrentSession();
+        if (!expected.accountId().equals(context.identity().profileId())) return Optional.empty();
+        return reconcileAppearance(context, expected, trigger, stillCurrent, true);
+    }
+
+    @SuppressWarnings("try")
+    private Optional<ReconciliationResult> reconcileAppearance(OperationContext context,
+            ReconciliationKey expected, Trigger trigger, java.util.function.BooleanSupplier stillCurrent, boolean existingIntentOnly)
+            throws IOException, PngValidationException {
         UUID accountId = resolveAccountId(context.identity());
         bootstrap.initialize();
         try (var ignored = storage.acquireRemoteMutationLock(accountId)) {
-            return new AccountReconciliationExecutor().execute(new ReconciliationEffectsAdapter(context), expected, trigger);
+            if (!stillCurrent.getAsBoolean()) return Optional.empty();
+            return new AccountReconciliationExecutor().execute(new ReconciliationEffectsAdapter(context, stillCurrent), expected, trigger, existingIntentOnly);
         }
     }
 
     private final class ReconciliationEffectsAdapter implements AccountReconciliationEffects, AccountMutationEffects {
         private final OperationContext context;
         private final UUID accountId;
-        private ReconciliationEffectsAdapter(OperationContext context) {
+        private final java.util.function.BooleanSupplier stillCurrent;
+
+        private ReconciliationEffectsAdapter(OperationContext context, java.util.function.BooleanSupplier stillCurrent) {
             this.context = context;
             this.accountId = context.identity().profileId();
+            this.stillCurrent = stillCurrent;
+        }
+        public void requireCurrent() throws IOException {
+            if (!stillCurrent.getAsBoolean()) throw new IOException("Reconciliation authorization retired");
         }
         public AccountAppearanceState load() throws IOException { return storage.loadAppearance(accountId); }
         public SessionValidation cached() { return sessions.cachedStatus(context.identity()); }
@@ -1711,7 +1801,8 @@ public final class DefaultClientOperations implements ClientOperations {
         public Optional<ReconciliationResult> withSession(AccountAppearanceState checkpoint, Scoped operation)
                 throws IOException, PngValidationException {
             return withRequestScopedToken(context, accountId, checkpoint,
-                    scoped -> operation.execute(new ReconciliationEffectsAdapter(scoped)));
+                    stillCurrent,
+                    scoped -> operation.execute(new ReconciliationEffectsAdapter(scoped, stillCurrent)));
         }
         public ObservedAccount observe(SessionValidation validation, AppearanceProviders expected) throws IOException, PngValidationException {
             return observeCheckpointAccount(accountId, validation, expected);
@@ -1747,6 +1838,7 @@ public final class DefaultClientOperations implements ClientOperations {
                         });
         }
         public AccountAppearanceState settle(AccountAppearanceState expected, AppearanceSyncStatus status) throws IOException {
+            requireCurrent();
             return delivery.settleAppearance(accountId, expected.intentRevision(), expected.syncStatus(), status);
         }
         public ReconciliationResult full(AccountAppearanceState state, SessionValidation validation) throws IOException, PngValidationException {
@@ -1758,10 +1850,12 @@ public final class DefaultClientOperations implements ClientOperations {
                     : accountMutations.applyPendingCapeDelta(accountId, this, state, validation);
         }
         public PresetApplicationOutcome apply(PresetApplicationRequest request, java.util.function.BooleanSupplier current) {
-            return mutations.applyPresetWhileLockedAfterSameTokenValidation(context.tokens(), request, current);
+            return mutations.applyPresetWhileLockedAfterSameTokenValidation(context.tokens(), request,
+                    () -> stillCurrent.getAsBoolean() && current.getAsBoolean());
         }
         public PresetApplicationOutcome retryCape(String capeId, java.util.function.BooleanSupplier current) {
-            return mutations.retryCapeWhileLockedAfterSameTokenValidation(context.tokens(), capeId, current);
+            return mutations.retryCapeWhileLockedAfterSameTokenValidation(context.tokens(), capeId,
+                    () -> stillCurrent.getAsBoolean() && current.getAsBoolean());
         }
         public ReconciliationResult result(AccountAppearanceState state, SessionValidation validation) throws IOException {
             return result(state, validation, observed());
@@ -1788,6 +1882,7 @@ public final class DefaultClientOperations implements ClientOperations {
             OperationContext context,
             UUID accountId,
             AccountAppearanceState checkpointAppearance,
+            java.util.function.BooleanSupplier stillCurrent,
             ScopedReconciliation reconciliation) throws IOException, PngValidationException {
         if (!(context.tokens() instanceof PinnedTokenSource pinned)) {
             throw new IllegalStateException("Remote reconciliation requires a pinned game session");
@@ -1809,14 +1904,17 @@ public final class DefaultClientOperations implements ClientOperations {
         } catch (ScopedCallbackRuntimeFailure callbackFailure) {
             throw callbackFailure.original();
         } catch (GameSessionIdentityChangedException identityChanged) {
+            if (!stillCurrent.getAsBoolean()) return Optional.empty();
             SessionValidation validation = sessions.rememberIdentityMismatch(context.identity());
             return sessionFailureResult(context, accountId, checkpointAppearance, validation,
                     com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.SessionFailure.IDENTITY_CHANGED);
         } catch (GameSessionTokenUnavailableException unavailableToken) {
+            if (!stillCurrent.getAsBoolean()) return Optional.empty();
             return sessionFailureResult(context, accountId, checkpointAppearance,
                     sessions.rememberTokenUnavailable(context.identity()),
                     com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.SessionFailure.TOKEN_UNAVAILABLE);
         } catch (RuntimeException unavailableToken) {
+            if (!stillCurrent.getAsBoolean()) return Optional.empty();
             return sessionFailureResult(context, accountId, checkpointAppearance,
                     sessions.rememberTokenSourceFailure(context.identity()),
                     com.naocraftlab.skins.core.reconciliation.ReconciliationPolicy.SessionFailure.SOURCE_FAILED);

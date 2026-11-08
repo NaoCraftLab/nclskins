@@ -81,6 +81,45 @@ class ScreenOwnedRenderTargetTest {
         assertEquals(2, closes.get());
     }
 
+    @Test
+    void queuedMaterialSurvivesCandidatePreparationAndLogicalRetirementUntilConsumerRelease() throws Exception {
+        var a = new ScreenOwnedRenderTarget();
+        var b = new ScreenOwnedRenderTarget();
+        Object dispatcher = new Object();
+        AtomicInteger closes = new AtomicInteger();
+        var visible = a.acquire(dispatcher, () -> new Material("A", closes), Material.class);
+        AutoCloseable consumer;
+        try {
+            consumer = (AutoCloseable) ScreenOwnedRenderTarget.class.getMethod("retain").invoke(a);
+        } catch (NoSuchMethodException missingLifetime) {
+            consumer = () -> {};
+        }
+        var hidden = b.acquire(dispatcher, () -> new Material("B", closes), Material.class);
+        a.close();
+        org.junit.jupiter.api.Assertions.assertFalse(a.owns(dispatcher, visible));
+        assertEquals("B", hidden.read());
+        assertEquals("A", visible.read());
+        assertEquals(0, closes.get());
+        consumer.close();
+        consumer.close();
+        assertEquals(1, closes.get());
+        assertThrows(IllegalStateException.class, visible::read);
+        b.close();
+        assertEquals(2, closes.get());
+    }
+
+    private static final class Material implements AutoCloseable {
+        private final String data;
+        private final AtomicInteger closes;
+        private boolean closed;
+        private Material(String data, AtomicInteger closes) { this.data = data; this.closes = closes; }
+        String read() {
+            if (closed) throw new IllegalStateException("Queued material closed before GUI consumption");
+            return data;
+        }
+        public void close() { closed = true; closes.incrementAndGet(); }
+    }
+
     private record Resource(AtomicInteger closes) implements AutoCloseable {
         @Override
         public void close() {

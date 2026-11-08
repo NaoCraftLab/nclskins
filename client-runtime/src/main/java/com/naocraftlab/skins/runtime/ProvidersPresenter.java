@@ -210,7 +210,8 @@ public final class ProvidersPresenter {
                                 ? "nclskins.providers.open_sneaky_editor"
                                 : "nclskins.providers.open_account"), GuiIcon.ACTION_OPEN_ACCOUNT,
                         !busy && (provider != BuiltinProvider.OPTIFINE || !linkPreparing)));
-            } else if (provider.canWrite(component) && providers.galleryAvailable()) widgets.add(ViewSpec.Widget.iconButton("providers.edit." + provider.name(),
+            } else if ((provider.canWrite(component) || provider == BuiltinProvider.CPM
+                    && component == AppearanceProviders.Component.CAPE && cpmPresent) && providers.galleryAvailable()) widgets.add(ViewSpec.Widget.iconButton("providers.edit." + provider.name(),
                     new Bounds(x + contentWidth - 48, actionY, 20, 20), UiMessage.info("nclskins.providers.edit"), GuiIcon.ACTION_EDIT, !busy));
             widgets.add(ViewSpec.Widget.iconButton("providers.remove." + provider.name(),
                     new Bounds(x + contentWidth - 24, actionY, 20, 20), UiMessage.info("nclskins.providers.remove"), GuiIcon.ACTION_REMOVE, !busy));
@@ -221,7 +222,7 @@ public final class ProvidersPresenter {
                     new Bounds(x, feedbackY, contentWidth, feedbackHeight),
                     linkFeedback, ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP));
         }
-        widgets.add(ViewSpec.Widget.button("providers.back", new Bounds((width - backWidth(width)) / 2, height - 28, backWidth(width), 20), UiMessage.info("gui.back"), true));
+        widgets.add(ViewSpec.Widget.button("providers.back", new Bounds((width - backWidth(width)) / 2, ViewChromeMetrics.STANDARD.footerRowTop(height,20), backWidth(width), 20), UiMessage.info("gui.back"), true));
         var skin = selectedSkin == null ? providers.skin().resolve().map(ProviderChannel.Resolved::value) : Optional.ofNullable(providers.skin().observation(selectedSkin).value());
         var cape = selectedCape == null ? providers.cape().resolve().map(ProviderChannel.Resolved::value) : Optional.ofNullable(providers.cape().observation(selectedCape).value());
         widgets.addAll(PlayerAppearanceStage.controls(new Bounds(0, 0, divider, height),
@@ -314,7 +315,7 @@ public final class ProvidersPresenter {
             y += 24;
         }
         var back = ViewSpec.Widget.button("providers.back", new Bounds((width - backWidth(width)) / 2,
-                height - 28, backWidth(width), 20), UiMessage.info("gui.back"), !busy);
+                ViewChromeMetrics.STANDARD.footerRowTop(height,20), backWidth(width), 20), UiMessage.info("gui.back"), !busy);
         widgets.add(back);
         nodes.add(ViewSpec.NavigationNode.control(back, nodes.size(), nodes.size()));
         Optional<ViewSpec.Scrollbar> scrollbar = Optional.empty();

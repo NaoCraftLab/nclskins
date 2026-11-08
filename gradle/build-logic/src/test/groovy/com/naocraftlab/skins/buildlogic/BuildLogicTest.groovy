@@ -1131,6 +1131,24 @@ public final class TmpProbe {
     }
 
     @Test
+    void pipConsumersSelectOneLifetimeAndTheirExactNativeHookOnly() {
+        Set<String> buffered = ['fabric-1.21.11', 'neoforge-1.21.11', 'fabric-26.1', 'neoforge-26.1'] as Set
+        Set<String> modern = ['fabric-26.2', 'neoforge-26.2', 'fabric-26.3', 'neoforge-26.3'] as Set
+        catalog.targets.each { Map target ->
+            Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
+            boolean pip = buffered.contains(target.id) || modern.contains(target.id)
+            assertEquals(pip, (resolved.bundles as List).contains('pip-consumer-lifetime'), target.id.toString())
+            assertEquals(buffered.contains(target.id), (resolved.bundles as List).contains('pip-consumer-buffer'), target.id.toString())
+            assertEquals(buffered.contains(target.id), target.metadata.mixins.contains('nclskins.preview-consumer.mixins.json'), target.id.toString())
+            assertEquals(modern.contains(target.id), target.metadata.mixins.contains('nclskins.preview-target-lifetime.mixins.json'), target.id.toString())
+            List<File> frames = (resolved.java as List).collect { new File(repository, it + '/com/naocraftlab/skins/compat/client/identifier/preview/PreviewConsumerFrame.java') }.findAll { it.isFile() }
+            assertEquals(pip ? 1 : 0, frames.size(), target.id.toString())
+            List<File> adapters = (resolved.java as List).collect { new File(repository, it + '/com/naocraftlab/skins/compat/client/identifier/extraction/PreviewTargetLease.java') }.findAll { it.isFile() }
+            assertEquals(pip && !target.id.endsWith('-1.21.11') ? 1 : 0, adapters.size(), target.id.toString())
+        }
+    }
+
+    @Test
     void everyPipTargetSelectsExactlyOneLoaderNativeRegistration() {
         Map<String, String> expected = [
                 'fabric-1.21.11'  : 'avatar-pip-submission-fabric',
@@ -2519,6 +2537,25 @@ public final class TmpProbe {
     }
 
     @Test
+    void galleryNameConsumersUseTheirCapturedViewAndNativeFont() {
+        File repository = new File('../..').canonicalFile
+        [
+                ['compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java', 'private void renderText(', 'view'],
+                ['compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java', 'private void renderText(', 'current'],
+                ['compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java', 'private void drawText(', 'view']
+        ].each { entry ->
+            String source = new File(repository, entry[0]).text
+            int start = source.indexOf(entry[1])
+            String method = source.substring(start, source.indexOf('private ', start + 1))
+            assertTrue(method.contains('ViewSpec ' + entry[2]), entry[0])
+            assertTrue(method.contains('var arrow=' + entry[2] + '.widget('), entry[0])
+            assertTrue(method.contains('ViewHostPolicy.galleryNameText(' + entry[2] + ',text,font.width('), entry[0])
+            assertFalse(method.contains('this.view'), entry[0])
+            if (entry[2] == 'current') assertFalse(method.contains('view.widget('), entry[0])
+        }
+    }
+
+    @Test
     void identifierSubmissionOwnsNativeUiAndExactSettingsHooks() {
         File screen = new File(
                 repository,
@@ -2599,15 +2636,19 @@ public final class TmpProbe {
                 ]
         ].each { List<String> host ->
             String source = new File(repository, host[0]).text
-            String renderer = source.substring(source.indexOf(host[1]), source.indexOf(host[2]))
-            assertTrue(renderer.contains('text.layout() == ViewSpec.Text.Layout.WRAP'), host[0])
+            String textRenderer = sourceSection(source, host[1], host[2])
+            String wrapGuard = 'text.layout() == ViewSpec.Text.Layout.WRAP'
+            assertTrue(textRenderer.contains(wrapGuard), host[0])
+            String renderer = textRenderer.substring(textRenderer.indexOf(wrapGuard))
             assertTrue(renderer.contains('font.split('), host[0])
             assertTrue(renderer.contains('lineY + font.lineHeight'), host[0])
             assertTrue(renderer.contains('lineY += font.lineHeight'), host[0])
             assertTrue(renderer.contains('enableScissor('), host[0])
             assertTrue(renderer.contains('disableScissor()'), host[0])
-            assertTrue(renderer.indexOf('text.layout() == ViewSpec.Text.Layout.WRAP')
-                    < renderer.indexOf('plainSubstrByWidth('), host[0])
+            assertSourceStagesWithNegatives(renderer,
+                    [wrapGuard, 'enableScissor(', 'font.split(', 'lineY + font.lineHeight',
+                     'lineY += font.lineHeight', 'disableScissor()', 'plainSubstrByWidth('],
+                    ['font.split(': 'plainSubstrByWidth('])
         }
     }
 
@@ -2637,14 +2678,15 @@ public final class TmpProbe {
         assertTrue(immediateIndicator.contains('renderActionIcon('))
         assertTrue(immediateIndicator.contains('ViewHostPolicy.passiveIndicatorOpacity('))
         assertTrue(immediateIndicator.contains('icon, isHovered || (keyboardNavigation && isFocused())'))
-        assertTrue(immediateIndicator.contains('isHoveredOrFocused()'))
+        assertTrue(immediateIndicator.contains('if (isHovered || (keyboardNavigationActive() && isFocused()))'))
+        assertFalse(immediateIndicator.contains('isHoveredOrFocused()'))
         assertTrue(immediateIndicator.contains('drawCardFocusFrame('))
         assertFalse(immediateIndicator.contains('super.renderWidget('))
         String immediateIconButton = immediate.substring(
                 immediate.indexOf('private final class IconButtonWidget'),
                 immediate.indexOf('private final class PassiveIndicatorWidget'))
         assertTrue(immediateIconButton.contains('if (!iconOnly)'))
-        assertTrue(immediateIconButton.contains('if (iconOnly && isHoveredOrFocused())'))
+        assertTrue(immediateIconButton.contains('if (iconOnly && (isHovered || (keyboardNavigationActive() && isFocused())))'))
         assertTrue(immediateIconButton.contains('dispatchNativeWidget(widgetId, hasShiftDown())'))
         assertTrue(immediate.count('renderActionIcon(') >= 3)
         assertTrue(submission.contains('spec.hint()'))
@@ -2655,17 +2697,19 @@ public final class TmpProbe {
                 'renderWidgetIcon(graphics, icon.orElseThrow(), getX(), getY(), getWidth(), getHeight());'))
         assertTrue(submissionIndicator.contains('case PASSIVE_INDICATOR -> renderWidgetIcon('))
         assertTrue(submissionIndicator.contains('Math.round(ViewHostPolicy.passiveIndicatorOpacity(icon.orElseThrow(),'))
-        assertTrue(submissionIndicator.contains('isHovered || (keyboardNavigation && isFocused())) * 255.0F) << 24'))
+        assertTrue(submissionIndicator.contains('isHovered || (keyboardNavigationActive() && isFocused())) * 255.0F) << 24'))
         assertFalse(submissionIndicator.contains('renderDefaultSprite('))
         assertTrue(submission.contains('boolean iconOnlyFrame = kind == ViewSpec.WidgetKind.ICON_ONLY_BUTTON'))
-        assertTrue(submission.contains('if ((iconOnlyFrame && isHoveredOrFocused())'))
+        assertTrue(submission.contains('if ((iconOnlyFrame && (isHovered || (keyboardNavigationActive() && isFocused())))'))
+        assertTrue(submission.contains('setOverrideRenderHighlightedSprite(() -> isHovered || (keyboardNavigationActive() && isFocused()))'))
+        assertTrue(submission.contains('return Minecraft.getInstance().getLastInputType().isKeyboard();'))
         assertTrue(submission.contains('spec.kind() != ViewSpec.WidgetKind.PASSIVE_INDICATOR'))
         extraction.each { String source ->
             String iconButton = source.substring(
                     source.indexOf('private final class IconButtonWidget'),
                     source.indexOf('private final class PassiveIndicatorWidget'))
             assertTrue(iconButton.contains('if (!iconOnly)'))
-            assertTrue(iconButton.contains('if (iconOnly && isHoveredOrFocused())'))
+            assertTrue(iconButton.contains('if (iconOnly && (isHovered || (keyboardNavigationActive() && isFocused())))'))
             assertTrue(iconButton.contains('onPress.accept(input)'))
             String indicator = source.substring(
                     source.indexOf('private final class PassiveIndicatorWidget'),
@@ -2673,7 +2717,8 @@ public final class TmpProbe {
             assertTrue(indicator.contains('extractActionIcon('))
             assertTrue(indicator.contains('Math.round(ViewHostPolicy.passiveIndicatorOpacity(icon,'))
             assertTrue(indicator.contains('isHovered || (keyboardNavigation && isFocused())) * 255.0F) << 24'))
-            assertTrue(indicator.contains('isHoveredOrFocused()'))
+            assertTrue(indicator.contains('if (isHovered || (keyboardNavigationActive() && isFocused()))'))
+            assertFalse(indicator.contains('isHoveredOrFocused()'))
             assertTrue(indicator.contains('extractCardFocusFrame('))
             assertFalse(indicator.contains('extractDefaultSprite('))
             assertTrue(source.count('extractActionIcon(') >= 3)
@@ -2857,11 +2902,11 @@ public final class TmpProbe {
                 'synchronizePreviews(previewView);', 'if (editor) {',
                 'renderPreviews(graphics, previewView);', 'if (!previewView.previews().isEmpty()) {',
                 'capabilities.finishPreviewPass(graphics);',
-                'ViewSpec view = currentView();', 'synchronizeWidgets(view);',
+                'ViewSpec view = galleryFrame ? previewView : currentView();', 'synchronizeWidgets(view);',
                 'renderCardBackgrounds(graphics, view, mouseX, mouseY);'
         ], [
                 'capabilities.finishPreviewPass(graphics);': 'renderCardBackgrounds(graphics, view, mouseX, mouseY);',
-                'ViewSpec view = currentView();': 'renderCardBackgrounds(graphics, view, mouseX, mouseY);',
+                'ViewSpec view = galleryFrame ? previewView : currentView();': 'renderCardBackgrounds(graphics, view, mouseX, mouseY);',
                 'synchronizeWidgets(view);': 'renderCardBackgrounds(graphics, view, mouseX, mouseY);'
         ])
         assertSourceStages(immediateFrame, [

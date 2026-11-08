@@ -28,6 +28,11 @@ public interface AccountReconciliationPort {
         return reconcileAppearance(trigger);
     }
 
+    default Optional<ReconciliationResult> reconcileAppearance(ReconciliationKey expected, Trigger trigger,
+            java.util.function.BooleanSupplier stillCurrent) throws Exception {
+        return stillCurrent.getAsBoolean() ? reconcileAppearance(expected, trigger) : Optional.empty();
+    }
+
     default Optional<ReconciliationKey> reconciliationKey() throws Exception {
         UUID currentAccountId = sessionIdentity().profileId();
         Optional<DurableAppearance> durable = durableAppearance();

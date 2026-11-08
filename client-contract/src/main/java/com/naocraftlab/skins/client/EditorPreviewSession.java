@@ -3,6 +3,92 @@ package com.naocraftlab.skins.client;
 import java.util.Objects;
 
 public final class EditorPreviewSession {
+    public static final class Gallery implements AutoCloseable {
+        private final java.util.function.LongSupplier clock;
+        private Slot desired;
+        private Slot displayed;
+        private boolean closed;
+        private java.util.function.Consumer<PreviewRenderer.BodyStatus> observer = value -> {};
+
+        private static final class Slot {
+            private final String source;
+            private final EditorPreviewSession session;
+            private java.util.function.BooleanSupplier current;
+            private Slot(String source, EditorPreviewSession session, java.util.function.BooleanSupplier current) {
+                this.source = source; this.session = session; this.current = current;
+            }
+            String source() { return source; }
+            EditorPreviewSession session() { return session; }
+            java.util.function.BooleanSupplier current() { return current; }
+        }
+
+        public Gallery() { this(System::nanoTime); }
+        public Gallery(java.util.function.LongSupplier clock) { this.clock = Objects.requireNonNull(clock); }
+
+        public EditorPreviewSession prepare(String source, boolean cpm, boolean world,
+                java.util.function.BooleanSupplier candidateCurrent) {
+            Objects.requireNonNull(candidateCurrent);
+            if (closed || !candidateCurrent.getAsBoolean() || closed) return null;
+            if (desired == null || !desired.source().equals(source)) {
+                if (desired != null && desired != displayed) desired.session().invalidateDisplayedBody();
+                if (closed || !candidateCurrent.getAsBoolean() || closed) return null;
+                var next = new Slot(Objects.requireNonNull(source), new EditorPreviewSession(clock), candidateCurrent);
+                desired = next;
+                next.session().observeBody(status -> {
+                    if (closed || desired != next || !next.current().getAsBoolean() || closed || desired != next) return;
+                    observer.accept(status);
+                });
+            }
+            var selected = desired;
+            selected.current = candidateCurrent;
+            selected.session().beginBody(source, cpm, world);
+            return !closed && desired == selected && candidateCurrent.getAsBoolean() && !closed && desired == selected
+                    ? selected.session() : null;
+        }
+
+        public void confirm(String source) {
+            var selected = desired;
+            if (closed || selected == null || !selected.source().equals(source) || !selected.current().getAsBoolean()) return;
+            var body = selected.session().body();
+            if (!body.current().getAsBoolean() || closed || desired != selected || !selected.current().getAsBoolean()
+                    || closed || desired != selected) return;
+            var previous = displayed;
+            displayed = selected;
+            if (previous != null && previous != selected) previous.session().invalidateDisplayedBody();
+        }
+
+        public void observeBody(java.util.function.Consumer<PreviewRenderer.BodyStatus> observer) {
+            this.observer = Objects.requireNonNull(observer);
+        }
+
+        public PreviewModelFrames.Body body() {
+            var selected = desired;
+            if (!closed && selected != null && selected.current().getAsBoolean() && !closed && desired == selected) {
+                var body = selected.session().body();
+                if (!closed && desired == selected) return body;
+            }
+            return new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> false);
+        }
+
+        public boolean retains(EditorPreviewSession session) {
+            if (closed) return false;
+            if (displayed != null && displayed.session() == session) return true;
+            var selected = desired;
+            return selected != null && selected.session() == session && selected.current().getAsBoolean()
+                    && !closed && desired == selected;
+        }
+
+        @Override public void close() {
+            closed = true;
+            var oldDesired = desired;
+            var oldDisplayed = displayed;
+            desired = null;
+            displayed = null;
+            if (oldDesired != null) oldDesired.session().invalidateDisplayedBody();
+            if (oldDisplayed != null && oldDisplayed != oldDesired) oldDisplayed.session().invalidateDisplayedBody();
+        }
+    }
+
     public static final int SETTLING_TICKS = 6;
     private static final float SETTLING_HEIGHT = 0.35F;
 

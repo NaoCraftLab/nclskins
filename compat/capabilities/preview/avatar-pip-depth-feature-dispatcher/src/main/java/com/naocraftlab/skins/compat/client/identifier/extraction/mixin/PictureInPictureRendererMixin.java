@@ -35,6 +35,12 @@ abstract class PictureInPictureRendererMixin {
                 && guiState.renderState() instanceof NclSkinsWideDepthState previewState ? previewState : null;
         AvatarPreviewContext context = owned == null ? null : owned.nclskins$previewContext();
         if (context != null && !context.current()) return;
+        if (context != null && context.target() != null
+                && !com.naocraftlab.skins.compat.client.identifier.extraction.PreviewTargetLease.delegating()) {
+            com.naocraftlab.skins.compat.client.identifier.extraction.PreviewTargetLease.prepare(
+                    context.target(), this, (GuiEntityRenderState) state, guiRenderState, featureRenderDispatcher, guiScale);
+            return;
+        }
         float previous = NCLSKINS_DEPTH_EXTENT.get();
         NCLSKINS_DEPTH_EXTENT.set(nclskins$physicalDepthExtent(state, guiScale));
         AvatarPreviewContext.Attempt attempt = null;

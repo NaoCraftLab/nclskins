@@ -1,13 +1,14 @@
-BackEquipmentPreview:id,bounds,capeId,mode,capeHasElytra
+BackEquipmentPreview:id,bounds,capeId,mode,capeHasElytra,projection
+BodySource:role,accountId,accountEpoch,worldEpoch,resourceEpoch,screenGeneration,presetId,imageRevision,variant,draftGeneration,inspectionIdentity,cpmExpected
 CatalogImage:collectionId,skinId
 ClipRegion:id,bounds,elementPrefixes
 ExternalImage:candidateId
 FocusRequest:widgetId,token
 IconDecoration:id,bounds,icon,ownerWidgetId,idleOpacity,activeOpacity,providerTexture
-MarqueeActivation:hoverBounds,focusWidgetIds
+MarqueeActivation:hoverBounds,focusWidgetIds,movingClip
 NavigationNode:id,bounds,surfaceId,documentOrder,tabOrder,enabled,pattern,activationActionId
 Panel:id,bounds,style
-Preview:id,bounds,anchorBounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent,capeHasElytra,nativeAccessories,ownedPng
+Preview:id,bounds,anchorBounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent,capeHasElytra,nativeAccessories,ownedPng,bodySource
 ProgressDecoration:id,ownerWidgetId,fraction,color,height,leftInset,bottomInset
 ProviderTexture:cacheKey,skin,overlay,capeGlint
 ScrollSurface:id,viewport,orientation,offsetPixels,maximumPixels,wheelStepPixels

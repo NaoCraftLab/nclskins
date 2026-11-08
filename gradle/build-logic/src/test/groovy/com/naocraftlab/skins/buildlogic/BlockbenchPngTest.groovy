@@ -14,6 +14,19 @@ final class BlockbenchPngTest {
     private final File repository = new File('../..').canonicalFile
 
     @Test
+    void semanticAddLookUsesExactExistingProviderBitmap() {
+        File source = new File(repository,'compat/resources/canonical/src/main/blockbench/assets/nclskins/textures/gui/icons/action')
+        byte[] provider = BlockbenchPng.decode(new File(source,'add_provider.bbmodel'))
+        byte[] look = BlockbenchPng.decode(new File(source,'add_look.bbmodel'))
+        assertArrayEquals(provider,look)
+        assertEquals('38dfac4cf68a672f789f8b3b0202aba2c2d2ba454ca7080d0244b3c8c12b6d27',
+                java.security.MessageDigest.getInstance('SHA-256').digest(provider).encodeHex().toString())
+        def image = javax.imageio.ImageIO.read(new ByteArrayInputStream(look))
+        assertEquals(16,image.width)
+        assertEquals(16,image.height)
+    }
+
+    @Test
     void decodesTheSavedCompositeWithoutReadingLayers() {
         Path directory = Files.createTempDirectory('nclskins-blockbench-composite-')
         try {

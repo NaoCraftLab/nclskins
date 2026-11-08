@@ -47,6 +47,7 @@ public final class NclSkinsStorage {
     private final Clock clock;
     private final InterProcessLockManager lockManager = new InterProcessLockManager();
     private final StoragePreflight storagePreflight;
+    private final TransactionObserver transactionObserver;
     private final AccountStateJson stateJson = new AccountStateJson();
     private final AccountAppearanceStateJson appearanceStateJson = new AccountAppearanceStateJson();
     private final AccountUiPreferencesJson uiPreferencesJson = new AccountUiPreferencesJson();
@@ -72,10 +73,27 @@ public final class NclSkinsStorage {
             PngValidator pngValidator,
             Clock clock,
             StoragePreflight storagePreflight) {
+        this(root, pngValidator, clock, storagePreflight, stage -> {});
+    }
+
+    NclSkinsStorage(Path root, PngValidator pngValidator, Clock clock, TransactionObserver observer) {
+        this(root, pngValidator, clock, NclSkinsStorage::verifyStorageSemantics, observer);
+    }
+
+    private NclSkinsStorage(Path root, PngValidator pngValidator, Clock clock,
+            StoragePreflight storagePreflight, TransactionObserver observer) {
         this.layout = StorageLayout.at(root);
         this.pngValidator = Objects.requireNonNull(pngValidator, "pngValidator");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.storagePreflight = Objects.requireNonNull(storagePreflight, "storagePreflight");
+        this.transactionObserver = Objects.requireNonNull(observer, "observer");
+    }
+
+    enum TransactionStage { BEFORE_JOURNAL, AFTER_JOURNAL, AFTER_APPEARANCE }
+
+    @FunctionalInterface
+    interface TransactionObserver {
+        void reached(TransactionStage stage) throws IOException;
     }
 
     public StorageLayout layout() {
@@ -191,6 +209,9 @@ public final class NclSkinsStorage {
             Path statePath = layout.accountState(accountId);
             Path backupPath = layout.accountBackup(accountId);
             if (!Files.exists(statePath) && !Files.exists(backupPath)) {
+                recoverAccountTransaction(accountId);
+            }
+            if (!Files.exists(statePath) && !Files.exists(backupPath)) {
                 if (!Files.isDirectory(layout.accounts())) {
                     throw new StorageException(
                             StorageException.Code.INVALID_STATE,
@@ -225,6 +246,7 @@ public final class NclSkinsStorage {
         try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
             Path statePath = layout.accountState(accountId);
             Path backupPath = layout.accountBackup(accountId);
+            recoverAccountTransaction(accountId);
             AccountState current = !Files.exists(statePath) && !Files.exists(backupPath)
                     ? AccountState.empty(accountId, clock.instant())
                     : loadAccountLocked(accountId);
@@ -363,6 +385,7 @@ public final class NclSkinsStorage {
         Objects.requireNonNull(update, "update");
         ensureInitialized();
         try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            recoverAccountTransaction(accountId);
             Path statePath = layout.accountState(accountId);
             Path backupPath = layout.accountBackup(accountId);
             AccountState account = !Files.exists(statePath) && !Files.exists(backupPath)
@@ -425,10 +448,32 @@ public final class NclSkinsStorage {
     @SuppressWarnings("try")
     private AccountAppearanceMutationResult mutateAccountAndAppearance(
             UUID accountId, AccountAppearanceMutation mutation, boolean recoverable) throws IOException {
+        return mutateAccountAndAppearance(accountId, mutation, recoverable, () -> true);
+    }
+
+    public AccountAppearanceMutationResult mutateAccountAndAppearanceRecoverably(
+            UUID accountId, AccountAppearanceMutation mutation,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
+        return mutateAccountAndAppearance(accountId, mutation, true, stillCurrent);
+    }
+
+    public AccountAppearanceMutationResult mutateAccountAndAppearance(
+            UUID accountId, AccountAppearanceMutation mutation,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
+        return mutateAccountAndAppearance(accountId, mutation, false, stillCurrent);
+    }
+
+    @SuppressWarnings("try")
+    private AccountAppearanceMutationResult mutateAccountAndAppearance(
+            UUID accountId, AccountAppearanceMutation mutation, boolean recoverable,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(mutation, "mutation");
+        Objects.requireNonNull(stillCurrent, "stillCurrent");
         ensureInitialized();
         try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            requireCurrent(stillCurrent);
+            recoverAccountTransaction(accountId);
             Path statePath = layout.accountState(accountId);
             Path backupPath = layout.accountBackup(accountId);
             AccountState currentAccount = !Files.exists(statePath) && !Files.exists(backupPath)
@@ -443,22 +488,25 @@ public final class NclSkinsStorage {
                     "mutation result");
             validateAccountAppearanceMutation(
                     accountId, currentAccount, currentAppearance, nextRevision, plan);
+            requireCurrent(stillCurrent);
 
-            if (recoverable && plan.accountUpdated()) {
+            if (recoverable && (plan.accountUpdated() || plan.appearanceUpdated())) {
                 com.google.gson.JsonObject transaction = new com.google.gson.JsonObject();
                 transaction.add("account", com.google.gson.JsonParser.parseString(new String(stateJson.encode(plan.account()), java.nio.charset.StandardCharsets.UTF_8)));
                 transaction.add("appearance", com.google.gson.JsonParser.parseString(new String(encodeAppearanceLocked(accountId, plan.appearance()), java.nio.charset.StandardCharsets.UTF_8)));
-                AtomicFileWriter.replace(transactionPath(accountId), transaction.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                transactionObserver.reached(TransactionStage.BEFORE_JOURNAL);
+                AtomicFileWriter.replace(transactionPath(accountId), transaction.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), stillCurrent);
+                transactionObserver.reached(TransactionStage.AFTER_JOURNAL);
                 recoverAccountTransaction(accountId);
-                return new AccountAppearanceMutationResult(plan.account(), plan.appearance(), true, true);
+                return new AccountAppearanceMutationResult(plan.account(), plan.appearance(), plan.accountUpdated(), plan.appearanceUpdated());
             }
             if (plan.appearanceUpdated()) {
                 AtomicFileWriter.replace(
                         layout.accountAppearance(accountId),
-                        encodeAppearanceLocked(accountId, plan.appearance()));
+                        encodeAppearanceLocked(accountId, plan.appearance()), stillCurrent);
             }
             if (plan.accountUpdated()) {
-                saveAccountLocked(plan.account());
+                saveAccountLocked(plan.account(), stillCurrent);
             }
             return new AccountAppearanceMutationResult(
                     plan.account(),
@@ -596,6 +644,29 @@ public final class NclSkinsStorage {
         ensureInitialized();
         try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
             return loadUiPreferencesLocked(accountId);
+        }
+    }
+
+    @SuppressWarnings("try")
+    public AccountUiPreferences updateGallerySections(UUID accountId, java.util.Map<String, Boolean> collapsed,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
+        Objects.requireNonNull(accountId, "accountId");
+        var patch = java.util.Map.copyOf(Objects.requireNonNull(collapsed, "collapsed"));
+        if (patch.isEmpty()) throw new IllegalArgumentException("Empty Gallery sections patch");
+        patch.keySet().forEach(AccountUiPreferences::requireGallerySectionId);
+        Objects.requireNonNull(stillCurrent, "stillCurrent");
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            requireCurrent(stillCurrent);
+            Path path = layout.accountUiPreferences(accountId);
+            AccountUiPreferences latest = Files.exists(path)
+                    ? uiPreferencesJson.decode(readBoundedState(path)) : AccountUiPreferences.defaults(accountId);
+            if (!accountId.equals(latest.accountId())) {
+                throw new StorageException(StorageException.Code.INVALID_STATE, "UI preferences UUID does not match their directory");
+            }
+            AccountUiPreferences replacement = latest.withGallerySections(patch);
+            AtomicFileWriter.replace(path, uiPreferencesJson.encode(replacement), stillCurrent);
+            return replacement;
         }
     }
 
@@ -1138,6 +1209,7 @@ public final class NclSkinsStorage {
             if (!accountId.equals(appearance.accountId())) throw new IllegalArgumentException("Transaction account mismatch");
             AtomicFileWriter.replace(layout.accountAppearance(accountId),
                     boundedAppearanceBytes(appearanceStateJson.encode(appearance, appearanceBytes)));
+            transactionObserver.reached(TransactionStage.AFTER_APPEARANCE);
             AtomicFileWriter.replace(layout.accountState(accountId), stateJson.encode(account));
             AtomicFileWriter.replace(layout.accountBackup(accountId), stateJson.encode(account));
             Files.delete(path);

@@ -24,6 +24,14 @@ public final class ProviderRowClippingProbe {
     private static final String PREFIX = "com/naocraftlab/skins/buildlogic/probe/";
     private static final String SLICE = PREFIX + "CompiledProviderFrame";
     private static String widgetField;
+    private static boolean nativeModality;
+
+    public static final class InputClient {
+        private static final InputClient INSTANCE = new InputClient();
+        private net.minecraft.client.InputType inputType = net.minecraft.client.InputType.MOUSE;
+        public static InputClient getInstance() { return INSTANCE; }
+        public net.minecraft.client.InputType getLastInputType() { return inputType; }
+    }
 
     public static final class FocusWidget {
         private final boolean focused;
@@ -83,13 +91,16 @@ public final class ProviderRowClippingProbe {
                 ? "net/minecraft/client/gui/GuiGraphicsExtractor" : "net/minecraft/client/gui/GuiGraphics";
         Map<String, String> mapping = Map.of(source.name, SLICE, graphics,
                 PREFIX + "ProviderRowClippingProbe$RecordingGraphics",
-                "net/minecraft/client/gui/components/AbstractWidget", PREFIX + "ProviderRowClippingProbe$FocusWidget");
+                "net/minecraft/client/gui/components/AbstractWidget", PREFIX + "ProviderRowClippingProbe$FocusWidget",
+                "net/minecraft/client/Minecraft", PREFIX + "ProviderRowClippingProbe$InputClient");
         Remapper names = new Remapper(Opcodes.ASM9) {
             @Override public String map(String name) { return mapping.getOrDefault(name, name); }
         };
         Map<String, MethodNode> available = new LinkedHashMap<>();
         List<String> bindings = new ArrayList<>();
-        for (String nativeName : List.of(graphics, "net/minecraft/client/gui/components/AbstractWidget")) {
+        List<String> nativeNames = new ArrayList<>(List.of(graphics, "net/minecraft/client/gui/components/AbstractWidget"));
+        if (family.equals("submission")) nativeNames.addAll(List.of("net/minecraft/client/Minecraft", "net/minecraft/client/InputType"));
+        for (String nativeName : nativeNames) {
             String resource = nativeName + ".class";
             try (var stream = ProviderRowClippingProbe.class.getClassLoader().getResourceAsStream(resource)) {
                 require(stream != null, "native dependency class missing: " + resource);
@@ -97,7 +108,13 @@ public final class ProviderRowClippingProbe {
                 ClassNode nativeClass = read(nativeBytes);
                 require((nativeClass.access & Opcodes.ACC_INTERFACE) == 0, "native ABI is not the expected class: " + nativeName);
                 List<String> methods = nativeName.equals(graphics)
-                        ? List.of("fill(IIIII)V", "enableScissor(IIII)V", "disableScissor()V") : List.of("isFocused()Z");
+                        ? List.of("fill(IIIII)V", "enableScissor(IIII)V", "disableScissor()V")
+                        : switch (nativeName) {
+                            case "net/minecraft/client/Minecraft" -> List.of("getInstance()Lnet/minecraft/client/Minecraft;",
+                                    "getLastInputType()Lnet/minecraft/client/InputType;");
+                            case "net/minecraft/client/InputType" -> List.of("isKeyboard()Z");
+                            default -> List.of("isFocused()Z");
+                        };
                 for (String signature : methods) require(nativeClass.methods.stream()
                         .anyMatch(m -> (m.name + m.desc).equals(signature)), "exact native ABI missing: " + nativeName + "." + signature);
                 bindings.add(resource + " origin=" + ProviderRowClippingProbe.class.getClassLoader().getResource(resource)
@@ -119,7 +136,9 @@ public final class ProviderRowClippingProbe {
                 for (AbstractInsnNode insn : m.instructions) {
                     if (insn instanceof MethodInsnNode call && mapping.containsKey(call.owner)
                             && !call.owner.equals(source.name)) {
-                        require(call.getOpcode() == Opcodes.INVOKEVIRTUAL && !call.itf,
+                        boolean singleton = call.owner.equals("net/minecraft/client/Minecraft")
+                                && call.name.equals("getInstance") && call.desc.equals("()Lnet/minecraft/client/Minecraft;");
+                        require(call.getOpcode() == (singleton ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL) && !call.itf,
                                 "native binding opcode/interface mismatch: " + call.owner + "." + call.name);
                     }
                     if (insn instanceof MethodInsnNode call && call.owner.equals(source.name))
@@ -140,7 +159,9 @@ public final class ProviderRowClippingProbe {
                 if (insn instanceof FieldInsnNode f && f.owner.equals(source.name)) fields.add(f.name);
             }
         }
-        require(fields.equals(Set.of(family.equals("submission") ? "widgets" : "nativeWidgets", "keyboardNavigation")),
+        nativeModality = keep.contains("keyboardNavigationActive()Z");
+        require(nativeModality == family.equals("submission"), "DESIGN_FAILURE: unexpected native modality owner");
+        require(fields.equals(nativeModality ? Set.of("widgets") : Set.of("nativeWidgets", "keyboardNavigation")),
                 "DESIGN_FAILURE: unexpected frame state " + fields);
         ClassNode selected = new ClassNode();
         selected.version = source.version;
@@ -217,18 +238,28 @@ public final class ProviderRowClippingProbe {
         var field = host.getDeclaredField(widgetField);
         field.setAccessible(true);
         field.set(instance, focus == null ? Map.of() : Map.of(focus, new FocusWidget(true)));
-        var keyboardField = host.getDeclaredField("keyboardNavigation");
-        keyboardField.setAccessible(true);
-        keyboardField.setBoolean(instance, keyboard);
-        RecordingGraphics graphics = new RecordingGraphics();
-        Object result = method.invoke(instance, graphics, view, -1000, -1000);
-        if (method.getReturnType() == boolean.class) require(Boolean.TRUE.equals(result)
-                || graphics.fills.isEmpty(), "rendered return contract");
-        graphics.fill(10, 130, 30, 140, 0xFF123456);
-        Fill following = graphics.fills.remove(graphics.fills.size() - 1);
-        require(following.covers(10, 130) && following.clip == null, "C5 following control clipped by leaked scissor");
-        require(graphics.clips.isEmpty(), "clip restoration");
-        return graphics;
+        net.minecraft.client.InputType previous = null;
+        if (nativeModality) {
+            previous = InputClient.INSTANCE.inputType;
+            InputClient.INSTANCE.inputType = keyboard ? net.minecraft.client.InputType.KEYBOARD_TAB : net.minecraft.client.InputType.MOUSE;
+        } else {
+            var keyboardField = host.getDeclaredField("keyboardNavigation");
+            keyboardField.setAccessible(true);
+            keyboardField.setBoolean(instance, keyboard);
+        }
+        try {
+            RecordingGraphics graphics = new RecordingGraphics();
+            Object result = method.invoke(instance, graphics, view, -1000, -1000);
+            if (method.getReturnType() == boolean.class) require(Boolean.TRUE.equals(result)
+                    || graphics.fills.isEmpty(), "rendered return contract");
+            graphics.fill(10, 130, 30, 140, 0xFF123456);
+            Fill following = graphics.fills.remove(graphics.fills.size() - 1);
+            require(following.covers(10, 130) && following.clip == null, "C5 following control clipped by leaked scissor");
+            require(graphics.clips.isEmpty(), "clip restoration");
+            return graphics;
+        } finally {
+            if (nativeModality) InputClient.INSTANCE.inputType = previous;
+        }
     }
 
     private static ViewSpec ordinaryControl(ViewSpec source) {

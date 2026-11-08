@@ -20,6 +20,13 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
     @InputDirectory abstract DirectoryProperty getCarrierFixtures()
     @OutputDirectory abstract DirectoryProperty getWorkDirectory()
 
+    static boolean declaresExtendableClass(String accessRules, String owner) {
+        accessRules.readLines().any { line ->
+            List<String> tokens = line.tokenize()
+            tokens == ['extendable', 'class', owner] || tokens == ['public-f', owner.replace('/', '.')]
+        }
+    }
+
     @TaskAction void verify() {
         File work = workDirectory.get().asFile
         project.delete(work)
@@ -38,17 +45,40 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
             }
         }
         if (cpm.size() != 1) throw new IllegalStateException('Expected one pinned CPM compile API')
+        String modelPart='net/minecraft/client/model/geom/ModelPart'
+        boolean extendable=new ZipFile(cpm.first()).withCloseable { zip ->
+            ['cpm.accesswidener', 'META-INF/accesstransformer.cfg'].any { resource ->
+                def entry = zip.getEntry(resource)
+                entry != null && declaresExtendableClass(zip.getInputStream(entry).getText('UTF-8'), modelPart)
+            }
+        }
+        if (extendable) {
+            byte[] original=inputs.findResult { File input ->
+                if(input.isDirectory()) { File file=new File(input,modelPart+'.class');return file.isFile()?file.bytes:null }
+                if(!input.name.endsWith('.jar')) return null
+                new ZipFile(input).withCloseable { zip -> def entry=zip.getEntry(modelPart+'.class');entry==null?null:zip.getInputStream(entry).bytes }
+            }
+            if(original==null) throw new IllegalStateException('Pinned CPM extendable ModelPart prerequisite missing')
+            def node=new org.objectweb.asm.tree.ClassNode();new org.objectweb.asm.ClassReader(original).accept(node,0)
+            node.access &= ~org.objectweb.asm.Opcodes.ACC_FINAL
+            def writer=new org.objectweb.asm.ClassWriter(0);node.accept(writer)
+            File access=new File(work,'loader-access');File file=new File(access,modelPart+'.class');file.parentFile.mkdirs();file.bytes=writer.toByteArray()
+            inputs.add(0,access)
+        }
         List<File> runtimeMixins = inputs.findAll { it.name.contains('sponge-mixin') || it.name.startsWith('mixinextras-') }
         List<File> hostClasspath = [compiled, work, new File(probe, 'resources')] + runtimeMixins + probeClasspath.files + inputs
         File modelTransforms = new File(work, 'model-transformed')
         new File(work, 'metadata-binding.json').text = groovy.json.JsonOutput.toJson([
                 required: true, package: 'com.naocraftlab.skins.compat.cpm.mixin',
                 plugin: 'com.naocraftlab.skins.compat.cpm.CpmMixinPlugin', compatibilityLevel: 'JAVA_17',
-                client: ['CpmModelDefinitionPartsAccessor', 'CpmModelSkinTextureAccessor', 'CpmModelTextureAccessor', 'CpmModelFileBackupAccessor']])
+                client: ['CpmModelDefinitionPartsAccessor', 'CpmModelSkinTextureAccessor', 'CpmModelTextureAccessor', 'CpmModelFileBackupAccessor',
+                         'CpmResolvedPartsAccessor', 'CpmResolvedOtherPartsAccessor', 'CpmCopyTransformsAccessor', 'CpmCopyVisibilityAccessor',
+                         'CpmAnimationStateAccessor', 'CpmVisibilityTargetAccessor', 'CpmLegacyAnimationsAccessor', 'CpmLegacyVisibilityAccessor']])
         runProbe(work, 'model-metadata-transform', hostClasspath, 'CpmModelMetadataTransformProbe', [modelTransforms.absolutePath])
         runProbe(work, 'model-metadata-shapes', hostClasspath, 'CpmModelMetadataTransformProbe', [modelTransforms.absolutePath, 'shapes'])
         runProbe(work, 'model-metadata-server', hostClasspath, 'CpmModelMetadataTransformProbe', [modelTransforms.absolutePath, 'server'])
         hostClasspath = [modelTransforms] + hostClasspath
+
         runProbe(work, 'model-metadata-native', hostClasspath, 'CpmModelMetadataProbe',
                 [new File(probe, 'fixtures/model-conversion').absolutePath, new File(work, 'model-metadata-output').absolutePath])
         File sessionHost = new File(work, 'session-host'); sessionHost.mkdirs()
@@ -204,6 +234,13 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
                 [previewResourceTransforms.absolutePath])
         runProbe(work, 'preview-resource-server', hostClasspath, 'CpmPreviewResourceTransformProbe',
                 [previewResourceTransforms.absolutePath, 'server'])
+        for (String mode : ['hidden', 'copy', 'copy-position', 'mapped-null', 'animated', 'legacy-null', 'legacy-animated',
+                            'visible', 'visible-anchor', 'cape-hidden', 'cape-visible', 'default', 'retexture', 'empty-root', 'unused-sheet', 'body-only', 'unknown',
+                            'rootless-sheet', 'cape-rootless-sheet', 'left-sheet', 'right-sheet', 'pack', 'null-part', 'memo-owned', 'memo-world']) {
+            runProbe(work, 'accessory-content-' + mode,
+                    [previewResourceTransforms, new File(work, 'transformed')] + hostClasspath, 'CpmAccessoryContentProbe',
+                    [new File(work, 'content-' + mode + '-config.json').absolutePath, carrierFixtures.get().asFile.absolutePath, mode])
+        }
         String rawFamily = appearanceFamily == 'identifier' ? null : appearanceFamily
         if (rawFamily != null) {
             runProbe(work, 'preview-scope', hostClasspath, 'CpmPreviewScopeProbe', [rawFamily]);
@@ -217,7 +254,7 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
             new File(seams, 'raw-capture.json').text = groovy.json.JsonOutput.toJson([
                     required: true, package: "com.naocraftlab.skins.compat.client.resourcelocation.${rawFamily}.mixin",
                     compatibilityLevel: 'JAVA_17', client: ['HttpTextureSneakyMixin'], injectors: [defaultRequire: 1]])
-            List<File> rawClasspath = [seams, compiled, new File(probe, 'resources')] + probeClasspath.files + inputs
+            List<File> rawClasspath = [modelTransforms, seams, compiled, new File(probe, 'resources')] + probeClasspath.files + inputs
             runProbe(work, 'raw-transform', rawClasspath, 'CpmCompositionProbe', ['raw-' + rawFamily],
                     ['-Dnclskins.cpm.transformed=' + new File(work, 'raw-transformed').absolutePath])
             runProbe(work, 'raw-behavior', [previewResourceTransforms, new File(work, 'raw-transformed'), new File(work, 'transformed')] + rawClasspath,
@@ -252,7 +289,7 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
             String equipment = 'net/minecraft/client/renderer/entity/layers/EquipmentLayerRenderer.class'
             File fixtureClass = new File(fixture, equipment); fixtureClass.parentFile.mkdirs()
             java.nio.file.Files.move(new File(seams, equipment).toPath(), fixtureClass.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            List<File> materialClasspath = [seams, compiled, new File(probe, 'resources')] + probeClasspath.files + inputs
+            List<File> materialClasspath = [modelTransforms, seams, compiled, new File(probe, 'resources')] + probeClasspath.files + inputs
             runProbe(work, 'material-host', [compiled] + probeClasspath.files + inputs, 'CpmMaterialSetup', [seams.absolutePath])
             new File(seams, 'material-capture.json').text = groovy.json.JsonOutput.toJson([
                     required: true, package: 'com.tom.cpm.mixin.render', compatibilityLevel: 'JAVA_17',
@@ -311,7 +348,7 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
                 [new File(probe, 'fixtures/import-feasibility').absolutePath,
                  new File(work, 'project-defaults-uuid-preview-output').absolutePath, 'uuid-preview'],
                 ['-Dnclskins.cpm.original=' + cpm.first().absolutePath])
-        List<File> behaviorClasspath = [previewResourceTransforms, new File(work, 'transformed'), compiled] + runtimeMixins
+        List<File> behaviorClasspath = [previewResourceTransforms, new File(work, 'transformed'), modelTransforms, compiled] + runtimeMixins
         behaviorClasspath.addAll(probeClasspath.files)
         behaviorClasspath.addAll(inputs)
         runProbe(work, 'behavior', behaviorClasspath, 'CpmBehaviorProbe',

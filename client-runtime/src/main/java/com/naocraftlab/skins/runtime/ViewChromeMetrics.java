@@ -17,6 +17,10 @@ public record ViewChromeMetrics(int catalogFooterHeight) {
         }
     }
 
+    public int footerRowTop(int screenHeight, int rowHeight) {
+        return Math.max(0,screenHeight-catalogFooterHeight)+Math.round((catalogFooterHeight-rowHeight)*0.5F);
+    }
+
     int catalogContentBottom(int screenHeight) {
         return Math.max(CATALOG_CONTENT_TOP + 1, screenHeight - catalogFooterHeight);
     }

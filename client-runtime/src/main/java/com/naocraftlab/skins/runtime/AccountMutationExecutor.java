@@ -31,6 +31,7 @@ public final class AccountMutationExecutor {
         long revision = appearance.intentRevision();
 
         PresetApplicationRequest request = requestFromAppearance(appearance);
+        effects.requireCurrent();
         AccountAppearanceState claimed = delivery.claimAppearance(
                 accountId, appearance, expectedStatus, request.writeSkin(), request.writeCape());
         if (claimed.intentRevision() != revision
@@ -38,6 +39,7 @@ public final class AccountMutationExecutor {
             return effects.result(claimed, validation);
         }
         PresetApplicationOutcome outcome = effects.apply(request, () -> appearanceStillCurrent(accountId, appearance));
+        effects.requireCurrent();
         AccountAppearanceState settled = delivery.settleAfterMutation(
                 accountId,
                 claimed,
@@ -53,6 +55,7 @@ public final class AccountMutationExecutor {
             AccountAppearanceState appearance,
             SessionValidation validation) throws IOException {
         long revision = appearance.intentRevision();
+        effects.requireCurrent();
         AccountAppearanceState claimed = delivery.claimAppearance(
                 accountId, appearance, AppearanceSyncStatus.PARTIAL, false, true);
         if (claimed.intentRevision() != revision
@@ -65,6 +68,7 @@ public final class AccountMutationExecutor {
             case UNKNOWN -> AppearanceSyncStatus.UNKNOWN;
             case PARTIAL, FAILED, SESSION_EXPIRED -> AppearanceSyncStatus.PARTIAL;
         };
+        effects.requireCurrent();
         AccountAppearanceState settled = delivery.settleAfterMutation(
                 accountId,
                 claimed,
@@ -80,6 +84,7 @@ public final class AccountMutationExecutor {
             AccountAppearanceState appearance,
             SessionValidation validation) throws IOException {
         long revision = appearance.intentRevision();
+        effects.requireCurrent();
         AccountAppearanceState claimed = delivery.claimAppearance(
                 accountId, appearance, AppearanceSyncStatus.PENDING, false, true);
         if (claimed.intentRevision() != revision
@@ -87,6 +92,7 @@ public final class AccountMutationExecutor {
             return effects.result(claimed, validation);
         }
         PresetApplicationOutcome outcome = effects.retryCape(claimed.capeId(), () -> appearanceStillCurrent(accountId, appearance));
+        effects.requireCurrent();
         AccountAppearanceState settled = delivery.settleAfterMutation(
                 accountId,
                 claimed,

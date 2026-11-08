@@ -18,7 +18,7 @@ public record AccountState(
         List<AppearancePreset> presets,
         Instant updatedAt,
         List<PersonalCapeEntry> personalCapes) {
-    public static final int CURRENT_SCHEMA_VERSION = 4;
+    public static final int CURRENT_SCHEMA_VERSION = 5;
 
     public AccountState(int schemaVersion, UUID accountId, List<SkinAsset> skinAssets,
             List<PersonalSkinEntry> personalSkins, List<AppearancePreset> presets, Instant updatedAt) {

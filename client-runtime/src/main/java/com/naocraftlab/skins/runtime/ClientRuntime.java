@@ -126,6 +126,10 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void presetUsed(LibraryEditorPort.PresetUse use) {
+        presetUsed(use, true);
+    }
+
+    private CompletableFuture<AppearanceRefresh.Result> presetUsed(LibraryEditorPort.PresetUse use, boolean reconcile) {
         state.account = use.account();
         state.session = use.session();
         state.activePresetId = use.activePresetId();
@@ -143,19 +147,24 @@ public final class ClientRuntime implements AutoCloseable {
             state.remoteProfile = use.session().profile();
             state.rateLimited = state.providers.minecraftEnabled() && operations.rateLimited();
             state.status = UiMessage.info("nclskins.status.local_only");
-            if (automaticCheckpointEligible(use.syncStatus()) || use.syncStatus() == AppearanceSyncStatus.UNKNOWN || use.syncStatus() == AppearanceSyncStatus.PARTIAL) {
+            if (reconcile && use.selectionAssignment() && (automaticCheckpointEligible(use.syncStatus()) || use.syncStatus() == AppearanceSyncStatus.UNKNOWN || use.syncStatus() == AppearanceSyncStatus.PARTIAL)) {
                 reconcileAfterLocalRebind(
                         localRebind,
                         use.syncStatus() == AppearanceSyncStatus.UNKNOWN || use.syncStatus() == AppearanceSyncStatus.PARTIAL
                                 ? Trigger.EXPLICIT_RETRY : Trigger.LOCAL_INTENT);
             }
         }
+        return localRebind;
     }
 
     private void presetDeletionCompleted(UUID presetId, LibraryEditorPort.PresetDelete deletion) {
-        state.account = deletion.account();
+        var current = state.account;
+        state.account = new AccountState(current.schemaVersion(), current.accountId(), current.skinAssets(),
+                current.personalSkins(), current.presets().stream().filter(p -> !presetId.equals(p.id())).toList(),
+                deletion.account().updatedAt(), current.personalCapes());
         if (state.account.presets().stream().anyMatch(preset -> preset.id().equals(presetId))) return;
         deletion.appearance().ifPresent(appearance -> {
+            if (appearance.intentRevision() < state.intentRevision) return;
             state.activePresetId = appearance.activePresetId().orElse(null);
             state.providers = appearance.providers();
             state.intentRevision = appearance.intentRevision();
@@ -175,11 +184,15 @@ public final class ClientRuntime implements AutoCloseable {
     private void editProvider(ProviderFlow.EditRequest request) {
         state.providersOpen = false;
         clearRuntimeFocus("providers");
-        if (request.component() == AppearanceProviders.Component.CAPE) {
+        if (request.component() == AppearanceProviders.Component.CAPE && request.provider() != BuiltinProvider.CPM) {
             openEditor(state.activePresetId);
             state.editorReturnsToProviders = editorFlow.editor() != null;
             editorFlow.inspectProviderCape(request.provider());
         } else {
+            galleryFlow.discardDraft();
+            galleryFlow.resetGalleryScroll();
+            galleryFlow.prepareDraft();
+            galleryFlow.centerGalleryOnActive();
             state.galleryReturnsToProviders = true;
         }
     }
@@ -188,6 +201,55 @@ public final class ClientRuntime implements AutoCloseable {
     private static final int SESSION_RETRY_FEEDBACK_TICKS = 6;
 
     private final GalleryFlow galleryFlow = new GalleryFlow(new GalleryFlow.Context() {
+        public PreviewAssets previewAssets() { return previewAssets; }
+        public CompletableFuture<Optional<byte[]>> loadSkinPreview(SkinReference skin) { return ClientRuntime.this.loadSkinPreview(skin); }
+        public void onClient(Runnable action) { ClientRuntime.this.onClient(action); }
+        public Optional<OuterLayerVisibilityController> outerLayerVisibilityController() { return outerLayerVisibilityController; }
+        public PreviewRenderer.DisplayKind currentDisplayKind() { return ClientRuntime.this.currentDisplayKind(); }
+        public Optional<ViewSpec.BodySource> previewSource(String revision, SkinVariant variant, Optional<UUID> presetId, long draftGeneration) {
+            if (!galleryMainOpen() || state.account == null || importIdentity == null
+                    || !state.account.accountId().equals(importIdentity.profileId())) return Optional.empty();
+            try { if (!importIdentity.equals(operations.sessionIdentity())) return Optional.empty(); }
+            catch (RuntimeException unavailable) { return Optional.empty(); }
+            return Optional.of(new ViewSpec.BodySource(ViewSpec.BodyRole.GALLERY_MAIN, state.account.accountId(),
+                    importAccountEpoch, importWorldEpoch, importResourceEpoch, state.galleryScreenGeneration, presetId,
+                    revision, variant, draftGeneration, Optional.empty(), skinExtensionEnvironment.cpmPresent()
+                            && snapshot.account().stream().flatMap(a -> a.presets().stream())
+                                    .filter(p -> presetId.filter(p.id()::equals).isPresent())
+                                    .map(snapshot::compatibilityFor).anyMatch(c -> c.supportedFeatures().contains(
+                                            com.naocraftlab.skins.core.compatibility.SkinFeature.CUSTOMIZABLE_PLAYER_MODELS))));
+        }
+        public boolean galleryReady() { return state.lifecycle == ClientSnapshot.Lifecycle.READY && state.readyData; }
+        public AccountUiPreferences uiPreferences() { return state.uiPreferences; }
+        public void submitSections(UiPreferencesPort.GallerySectionsUpdate update, InteractionOrigin origin) {
+            submitGalleryMetadata(update.scope(), () -> operations.updateGallerySections(update), preferences -> {
+                if (state.uiPreferences != null) state.uiPreferences = state.uiPreferences.withGallerySections(
+                        update.collapsed().keySet().stream().collect(java.util.stream.Collectors.toMap(
+                                Function.identity(), preferences.collapsedGallerySections()::contains)));
+            }, (success, currentDraft) -> {
+                if (success) galleryFlow.sectionsConfirmed(update.collapsed().keySet(), origin, currentDraft);
+            }, () -> galleryFlow.sectionsSettled(update));
+        }
+        public Optional<LibraryEditorPort.GalleryScope> captureGalleryMetadataScope() { return ClientRuntime.this.captureGalleryMetadataScope(); }
+        public void submitDelete(LibraryEditorPort.GalleryScope scope, UUID presetId,
+                java.util.function.BiConsumer<LibraryEditorPort.PresetDelete, Boolean> completion) {
+            ClientRuntime.this.submitGalleryDelete(scope, presetId, completion);
+        }
+        public void submitFavorite(LibraryEditorPort.PresetFavoriteUpdate update, InteractionOrigin origin) {
+            submitGalleryMetadata(update.scope(), () -> operations.setPresetFavorite(update), account -> {
+                var favorite = account.presets().stream().filter(p -> p.id().equals(update.presetId()))
+                        .findFirst().orElseThrow().favorite();
+                var current = state.account;
+                state.account = new AccountState(current.schemaVersion(), current.accountId(), current.skinAssets(),
+                        current.personalSkins(), current.presets().stream().map(p -> p.id().equals(update.presetId())
+                                ? p.withFavorite(favorite) : p).toList(), current.updatedAt(), current.personalCapes());
+            }, (success, currentDraft) -> {
+                if (success && currentDraft) galleryFlow.favoriteConfirmed(update.presetId(), origin);
+            }, () -> galleryFlow.favoriteSettled(update));
+        }
+        public Optional<LibraryEditorPort.GalleryScope> captureGalleryScope(long generation) { return ClientRuntime.this.captureGalleryScope(generation); }
+        public void submitGalleryApply(LibraryEditorPort.GalleryApplyRequest request) { ClientRuntime.this.submitGalleryApply(request); }
+        public void resetGalleryDraft(LibraryEditorPort.GalleryScope scope) { ClientRuntime.this.resetGalleryDraft(scope); }
         public void acceptDraft(EditorDraftTransfer transfer) { catalogImportFlow.leaveForDuplicate(); editorFlow.acceptDraft(transfer); galleryFlow.acceptDraftSelection(transfer.selectedPresetId()); }
         public ClientSnapshot snapshot() { return snapshot; }
         public boolean busy() { return state.busy; }
@@ -202,6 +264,7 @@ public final class ClientRuntime implements AutoCloseable {
         public int viewportWidth() { return viewportWidth; }
         public boolean galleryReturnsToProviders() { return state.galleryReturnsToProviders; }
         public void closeScreen() { ClientRuntime.this.closeScreen(); }
+        public void doneGallery() { ClientRuntime.this.doneGallery(); }
         public void armRateLimitRecovery() { ClientRuntime.this.armRateLimitRecovery(); }
         public void requestRuntimeFocus(String screenId, String widgetId) { ClientRuntime.this.requestRuntimeFocus(screenId, widgetId); }
         public void diagnose(DiagnosticEvent event, Throwable failure) { ClientRuntime.this.diagnose(event, failure); }
@@ -237,7 +300,6 @@ public final class ClientRuntime implements AutoCloseable {
         public AppearancePreset findPreset(UUID id) { return ClientRuntime.this.findPreset(id); }
         public void showFeedback(UiMessage message) { state.status = message; }
         public void presetUsed(LibraryEditorPort.PresetUse use) { ClientRuntime.this.presetUsed(use); }
-        public void presetDeletionCompleted(UUID presetId, LibraryEditorPort.PresetDelete deletion) { ClientRuntime.this.presetDeletionCompleted(presetId, deletion); }
     });
     private final EditorFlow editorFlow = new EditorFlow(new EditorFlow.Context() {
 
@@ -495,8 +557,8 @@ public final class ClientRuntime implements AutoCloseable {
         public void showFeedback(UiMessage message) { state.status = message; }
         public void providersTabSelected(AppearanceProviders.Component tab) { state.uiPreferences = state.uiPreferences.withSelectedProvidersTab(tab); sessionActivityBaselineGeneration = -1; }
         public void providerPreviewModeChanged(PreviewRenderer.CapeMode mode) { preferredCapeMode = mode; PreviewPreferences.setCapeMode(mode); editorFlow.acceptPreviewMode(mode); }
-        public void showProviders() { state.providersOpen = true; }
-        public void returnToGallery() { state.providersOpen = false; }
+        public void showProviders() { if (!state.providersOpen) galleryFlow.discardDraft(); state.providersOpen = true; }
+        public void returnToGallery() { state.providersOpen = false; galleryFlow.prepareDraft(); }
         public void editProvider(ProviderFlow.EditRequest request) { ClientRuntime.this.editProvider(request); }
         public void acceptProviderSnapshot(ClientOperations.DurableAppearance appearance) { ClientRuntime.this.acceptProviderSnapshot(appearance); }
         public CompletableFuture<AppearanceRefresh.Result> acceptProviderChange(ClientOperations.DurableAppearance appearance) { return ClientRuntime.this.acceptProviderChange(appearance); }
@@ -541,7 +603,10 @@ public final class ClientRuntime implements AutoCloseable {
     private int sessionRetryFeedbackTicksRemaining;
     private SessionRetrySettlement pendingSessionRetrySettlement;
     private boolean rateLimitRecoveryArmed;
+    private boolean rateLimitRecoveryExplicit;
     private UUID rateLimitRecoveryAccountId;
+    private volatile DoneRecovery doneRecovery;
+    private boolean doneCooldownSuppressed;
     private Duration rateLimitTotal;
 
     private volatile ClientSnapshot snapshot = ClientSnapshot.initial();
@@ -555,6 +620,7 @@ public final class ClientRuntime implements AutoCloseable {
     private long runtimeFocusToken;
     private String runtimeFocusScreenId;
     private String runtimeFocusWidgetId;
+    private int runtimeFocusTabOrder = -1;
 
     private PreviewRenderer.CapeMode preferredCapeMode = PreviewPreferences.capeMode();
     private boolean capeCatalogWarmupRunning;
@@ -1183,6 +1249,8 @@ public final class ClientRuntime implements AutoCloseable {
         editorFlow.acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
         providerFlow.acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
         state.generation++;
+        galleryFlow.discardDraft();
+        state.galleryScreenGeneration++;
         clearProviderRefresh();
         state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
         state.editorReturnsToProviders = false;
@@ -1193,6 +1261,7 @@ public final class ClientRuntime implements AutoCloseable {
         state.busy = false;
         state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
         galleryFlow.dismissDeletion();
+        galleryFlow.discardDraft();
         clearRuntimeFocus("gallery");
         clearSessionRetryFeedback();
         editorFlow.closeDraft();
@@ -1229,6 +1298,271 @@ public final class ClientRuntime implements AutoCloseable {
     private volatile long importResourceEpoch;
     private volatile long importWorldEpoch;
 
+    private Optional<LibraryEditorPort.GalleryScope> captureGalleryMetadataScope() {
+        observeImportIdentity();
+        var identity = importIdentity;
+        if (disposed || state.busy || !state.readyData || state.lifecycle != ClientSnapshot.Lifecycle.READY
+                || state.account == null || state.providersOpen || editorFlow.editor() != null
+                || catalogImportFlow.addSource() != null || identity == null
+                || !state.account.accountId().equals(identity.profileId())) return Optional.empty();
+        long epoch = importAccountEpoch;
+        var retired = new java.util.concurrent.atomic.AtomicBoolean();
+        return Optional.of(new LibraryEditorPort.GalleryScope(identity.profileId(), epoch, () -> {
+            if (retired.get()) return false;
+            boolean current = !disposed && epoch == importAccountEpoch && identity.equals(importIdentity);
+            try { current &= identity.equals(operations.sessionIdentity()); }
+            catch (RuntimeException unavailable) { current = false; }
+            if (!current) retired.set(true);
+            return current;
+        }));
+    }
+
+    private final java.util.Map<UUID, LibraryEditorPort.GalleryScope> pendingGalleryDeletes = new java.util.HashMap<>();
+
+    private void submitGalleryDelete(LibraryEditorPort.GalleryScope scope, UUID presetId,
+            java.util.function.BiConsumer<LibraryEditorPort.PresetDelete, Boolean> completion) {
+        var previous = pendingGalleryDeletes.get(presetId);
+        if (previous != null && previous.initiatingAccountId().equals(scope.initiatingAccountId())
+                && previous.accountEpoch() == scope.accountEpoch()) return;
+        pendingGalleryDeletes.put(presetId, scope);
+        var deletion = new java.util.concurrent.atomic.AtomicReference<LibraryEditorPort.PresetDelete>();
+        submitGalleryMetadata(scope, () -> operations.deletePreset(scope, presetId), result -> {
+            deletion.set(result);
+            presetDeletionCompleted(presetId, result);
+        }, (success, currentIntent) -> {
+            if (success) completion.accept(deletion.get(), currentIntent);
+        }, () -> pendingGalleryDeletes.remove(presetId, scope));
+        publish();
+    }
+
+    private <T> void submitGalleryMetadata(LibraryEditorPort.GalleryScope scope, ThrowingSupplier<T> operation,
+            Consumer<T> confirmed, java.util.function.BiConsumer<Boolean, Boolean> screenCompletion,
+            Runnable settled) {
+        long screen = state.galleryScreenGeneration;
+        long opening = galleryFlow.openingGeneration();
+        long draft = galleryFlow.draftGeneration();
+        long uiIntent = galleryFlow.uiIntent();
+        var pending = new CompletableFuture<Void>();
+        var predecessor = uiPreferenceWrite;
+        uiPreferenceWrite = pending;
+        predecessor.handle((ignored, failure) -> null).thenRunAsync(() -> {
+            try {
+                scope.requireCurrent(scope.initiatingAccountId(), scope.accountEpoch());
+                T result = operation.get();
+                onClient(() -> {
+                    settled.run();
+                    observeImportIdentity();
+                    if (!scope.stillCurrent().getAsBoolean() || state.account == null
+                            || !state.account.accountId().equals(scope.initiatingAccountId())
+                            || state.lifecycle != ClientSnapshot.Lifecycle.READY || !state.readyData) return;
+                    confirmed.accept(result);
+                    if (screen == state.galleryScreenGeneration && opening == galleryFlow.openingGeneration() && galleryMainOpen())
+                        screenCompletion.accept(true, draft == galleryFlow.draftGeneration() && uiIntent == galleryFlow.uiIntent());
+                    publish();
+                });
+            } catch (Exception failure) {
+                if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+                diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure);
+                onClient(() -> {
+                    settled.run();
+                    observeImportIdentity();
+                    if (scope.stillCurrent().getAsBoolean() && screen == state.galleryScreenGeneration
+                            && opening == galleryFlow.openingGeneration()
+                            && galleryMainOpen()) {
+                        screenCompletion.accept(false, draft == galleryFlow.draftGeneration() && uiIntent == galleryFlow.uiIntent());
+                        state.status = operationFailure(failure);
+                        publish();
+                    }
+                });
+            } finally { pending.complete(null); }
+        }, worker).whenComplete((ignored, rejection) -> {
+            if (rejection == null) return;
+            pending.complete(null);
+            onClient(() -> {
+                settled.run();
+                if (screen == state.galleryScreenGeneration && opening == galleryFlow.openingGeneration()
+                        && galleryMainOpen()) {
+                    state.status = operationFailure(rejection);
+                    publish();
+                }
+            });
+        });
+    }
+
+    private Optional<LibraryEditorPort.GalleryScope> captureGalleryScope(long draftGeneration) {
+        observeImportIdentity();
+        var identity = importIdentity;
+        if (disposed || state.busy || !state.readyData || state.lifecycle != ClientSnapshot.Lifecycle.READY || state.account == null
+                || state.providersOpen || editorFlow.editor() != null || catalogImportFlow.addSource() != null
+                || identity == null || !state.account.accountId().equals(identity.profileId())) return Optional.empty();
+        long epoch = importAccountEpoch;
+        var retired = new java.util.concurrent.atomic.AtomicBoolean();
+        return Optional.of(new LibraryEditorPort.GalleryScope(identity.profileId(), epoch, () -> {
+            if (retired.get()) return false;
+            boolean current = !disposed && epoch == importAccountEpoch && identity.equals(importIdentity)
+                    && draftGeneration == galleryFlow.draftGeneration();
+            try { current &= identity.equals(operations.sessionIdentity()); }
+            catch (RuntimeException unavailable) { current = false; }
+            if (!current) retired.set(true);
+            return current;
+        }));
+    }
+
+    private void submitGalleryApply(LibraryEditorPort.GalleryApplyRequest request) {
+        submit(UiMessage.info("nclskins.status.applying"), () -> operations.applyGalleryDraft(request), use -> {
+            if (!request.scope().stillCurrent().getAsBoolean()) { observeImportIdentity(); return; }
+            CompletableFuture<AppearanceRefresh.Result> localRebind = presetUsed(use, false);
+            var key = new ClientOperations.ReconciliationKey(use.account().accountId(), use.intentRevision(),
+                    use.providers().skin().minecraftDelivery().activation(), use.providers().cape().minecraftDelivery().activation());
+            if (state.galleryReturnsToProviders) closeToProviders(); else closeScreenOnClient();
+            if (use.selectionAssignment() && (automaticCheckpointEligible(use.syncStatus())
+                    || use.syncStatus() == AppearanceSyncStatus.UNKNOWN || use.syncStatus() == AppearanceSyncStatus.PARTIAL))
+                reconcileAfterLocalRebind(localRebind, key, use.syncStatus() == AppearanceSyncStatus.UNKNOWN
+                        || use.syncStatus() == AppearanceSyncStatus.PARTIAL ? Trigger.EXPLICIT_RETRY : Trigger.LOCAL_INTENT);
+        });
+    }
+
+    private void resetGalleryDraft(LibraryEditorPort.GalleryScope scope) {
+        submit(UiMessage.info("nclskins.status.loading"), () -> {
+            scope.requireCurrent(scope.initiatingAccountId(), scope.accountEpoch());
+            var account = operations.reloadEditorAccount(scope.initiatingAccountId()).orElseThrow();
+            var appearance = operations.durableAppearance().filter(a -> a.accountId().equals(scope.initiatingAccountId()));
+            scope.requireCurrent(scope.initiatingAccountId(), scope.accountEpoch());
+            return new java.util.AbstractMap.SimpleImmutableEntry<>(account, appearance);
+        }, latest -> {
+            if (!scope.stillCurrent().getAsBoolean()) { observeImportIdentity(); return; }
+            state.account = latest.getKey();
+            state.activePresetId = latest.getValue().flatMap(ClientOperations.DurableAppearance::activePresetId).orElse(null);
+            latest.getValue().ifPresent(a -> { state.intentRevision = a.intentRevision(); state.providers = a.providers(); state.syncStatus = a.syncStatus(); });
+            galleryFlow.resetToActive();
+        });
+    }
+
+    private void doneGallery() {
+        var scope = captureGalleryMetadataScope();
+        var key = currentReconciliationKey();
+        long skinConfiguration = state.providers.skin().configurationRevision();
+        long capeConfiguration = state.providers.cape().configurationRevision();
+        if (state.galleryReturnsToProviders) closeToProviders(); else closeScreenOnClient();
+        if (scope.isEmpty() || key.isEmpty()) return;
+        DoneRecovery previous = doneRecovery;
+        if (previous != null && previous.key.equals(key.orElseThrow())
+                && previous.skinConfiguration == skinConfiguration && previous.capeConfiguration == capeConfiguration
+                && previous.clientCurrent()) return;
+        if (previous != null) previous.retired.set(true);
+        DoneRecovery authorization = new DoneRecovery(scope.orElseThrow(), key.orElseThrow(),
+                skinConfiguration, capeConfiguration, state.generation);
+        doneRecovery = authorization;
+        doneCooldownSuppressed = true;
+        if (!rateLimitRecoveryExplicit) {
+            rateLimitRecoveryArmed = false;
+            rateLimitRecoveryAccountId = null;
+        }
+        scheduleDoneRecovery(authorization);
+    }
+
+    private void scheduleDoneRecovery(DoneRecovery authorization) {
+        CompletableFuture.runAsync(() -> {
+            boolean waiting = false;
+            boolean requested = false;
+            try {
+                if (!authorization.workerCurrent()) return;
+                if (operations.durableAppearance().filter(ClientRuntime::unresolvedDoneAppearance).isEmpty()) return;
+                waiting = operations.rateLimitRemaining().isPresent();
+                if (!waiting && authorization.workerCurrent()) {
+                    reconciliation.request(authorization.request);
+                    requested = true;
+                }
+            } catch (Exception failure) {
+                diagnose(DiagnosticEvent.CLIENT_RECONCILIATION_FAILED, failure);
+            } finally {
+                boolean cooldown = waiting;
+                boolean dispatched = requested;
+                onClient(() -> {
+                    if (doneRecovery != authorization || disposed) return;
+                    if (cooldown && authorization.clientCurrent()) {
+                        doneCooldownSuppressed = true;
+                        if (!authorization.continuationUsed) authorization.waiting = true;
+                        else doneRecovery = null;
+                    } else if (!dispatched) {
+                        doneRecovery = null;
+                    }
+                });
+            }
+        }, worker);
+    }
+
+    private void serviceDoneRecovery() {
+        DoneRecovery authorization = doneRecovery;
+        if (authorization == null || !authorization.waiting) return;
+        if (!authorization.clientCurrent()) {
+            authorization.retired.set(true);
+            authorization.waiting = false;
+            return;
+        }
+        if (operations.rateLimitRemaining().isPresent()) return;
+        authorization.waiting = false;
+        authorization.continuationUsed = true;
+        scheduleDoneRecovery(authorization);
+    }
+
+    private final class DoneRecovery {
+        private final LibraryEditorPort.GalleryScope scope;
+        private final ClientOperations.ReconciliationKey key;
+        private final long skinConfiguration;
+        private final long capeConfiguration;
+        private final java.util.concurrent.atomic.AtomicBoolean retired = new java.util.concurrent.atomic.AtomicBoolean();
+        private final AccountReconciliation.Request request;
+        private boolean waiting;
+        private boolean continuationUsed;
+
+        private DoneRecovery(LibraryEditorPort.GalleryScope scope, ClientOperations.ReconciliationKey key,
+                long skinConfiguration, long capeConfiguration, long publicationGeneration) {
+            this.scope = scope;
+            this.key = key;
+            this.skinConfiguration = skinConfiguration;
+            this.capeConfiguration = capeConfiguration;
+            this.request = new AccountReconciliation.Request(key, Trigger.EXPLICIT_RETRY, this::workerCurrent,
+                    () -> clientCurrent() && state.generation == publicationGeneration);
+        }
+
+        private boolean clientCurrent() {
+            if (retired.get()) return false;
+            boolean current = scope.stillCurrent().getAsBoolean()
+                    && currentReconciliationKey().filter(key::equals).isPresent()
+                    && state.providers.skin().configurationRevision() == skinConfiguration
+                    && state.providers.cape().configurationRevision() == capeConfiguration;
+            if (!current) retired.set(true);
+            return current;
+        }
+
+        private boolean workerCurrent() {
+            if (retired.get()) return false;
+            boolean current = scope.stillCurrent().getAsBoolean();
+            if (!current) { retired.set(true); return false; }
+            try {
+                current &= operations.durableAppearance().filter(a -> a.reconciliationKey().equals(key)
+                        && a.providers().skin().configurationRevision() == skinConfiguration
+                        && a.providers().cape().configurationRevision() == capeConfiguration).isPresent();
+            } catch (Exception unavailable) { current = false; }
+            if (!current) retired.set(true);
+            return current;
+        }
+    }
+
+    private static boolean unresolvedDoneAppearance(ClientOperations.DurableAppearance appearance) {
+        if (appearance.intentRevision() == 0 || appearance.syncStatus() == AppearanceSyncStatus.OFFICIAL) return false;
+        return unresolvedDoneChannel(appearance.providers().skin()) || unresolvedDoneChannel(appearance.providers().cape());
+    }
+
+    private static boolean unresolvedDoneChannel(com.naocraftlab.skins.core.provider.ProviderChannel<?> channel) {
+        var delivery = channel.minecraftDelivery();
+        return channel.enabled(BuiltinProvider.MINECRAFT) && delivery.intentRevision() > 0
+                && (delivery.status() == com.naocraftlab.skins.core.provider.ProviderDelivery.Status.PENDING
+                    || delivery.status() == com.naocraftlab.skins.core.provider.ProviderDelivery.Status.ATTEMPTING
+                    || delivery.status() == com.naocraftlab.skins.core.provider.ProviderDelivery.Status.UNKNOWN);
+    }
+
     private boolean currentPublicationScope(CatalogImportFlow.ImportScope scope) {
         if (disposed || scope == null || scope.accountId() == null || importIdentity == null
                 || scope.accountEpoch() != importAccountEpoch || scope.resourceEpoch() != importResourceEpoch
@@ -1242,6 +1576,7 @@ public final class ClientRuntime implements AutoCloseable {
         try { observed = operations.sessionIdentity(); }
         catch (RuntimeException unavailable) { observed = null; }
         if (!Objects.equals(importIdentity, observed)) {
+            if (importIdentity != null) CapeProjection.retirePreviewSkins();
             importIdentity = observed;
             importAccountEpoch++;
             clearPreviewBody();
@@ -1252,6 +1587,7 @@ public final class ClientRuntime implements AutoCloseable {
                 catalogImportFlow.closeScreens();
                 publish();
             }
+            refreshGalleryAdmission();
         }
     }
 
@@ -1304,6 +1640,7 @@ public final class ClientRuntime implements AutoCloseable {
             if (providerFlow.expireAccountLink()) {
                 publish();
             }
+            serviceDoneRecovery();
             boolean rateLimitChanged = observeRateLimit();
             boolean capeCooldownChanged = observeCapeProviderCooldowns();
             boolean refreshChanged = publishedProviderRefreshPending != providerFlow.refreshPending();
@@ -1458,18 +1795,20 @@ public final class ClientRuntime implements AutoCloseable {
                     new ClientSnapshot.RateLimitProgress(current, rateLimitTotal, fraction);
             changed |= !Optional.of(progress).equals(state.rateLimitProgress);
             state.rateLimitProgress = Optional.of(progress);
-            armRateLimitRecovery();
+            if (!doneCooldownSuppressed) armRateLimitRecovery(false);
             return changed;
         }
 
         changed |= state.rateLimitProgress.isPresent();
         state.rateLimitProgress = Optional.empty();
         rateLimitTotal = null;
+        doneCooldownSuppressed = false;
         if (!rateLimitRecoveryArmed) {
             return changed;
         }
         UUID accountId = state.providers.minecraftEnabled() ? rateLimitRecoveryAccountId : null;
         rateLimitRecoveryArmed = false;
+        rateLimitRecoveryExplicit = false;
         rateLimitRecoveryAccountId = null;
         if (accountId != null && accountId.equals(currentSessionAccountId())) {
             currentReconciliationKey()
@@ -1502,15 +1841,21 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void armRateLimitRecovery() {
+        armRateLimitRecovery(true);
+    }
+
+    private void armRateLimitRecovery(boolean explicit) {
         UUID currentAccountId = currentSessionAccountId();
         if (currentAccountId == null
                 || state.account == null
                 || !state.account.accountId().equals(currentAccountId)) {
             rateLimitRecoveryArmed = false;
+            rateLimitRecoveryExplicit = false;
             rateLimitRecoveryAccountId = null;
             return;
         }
         rateLimitRecoveryArmed = true;
+        rateLimitRecoveryExplicit |= explicit;
         rateLimitRecoveryAccountId = currentAccountId;
     }
 
@@ -1593,12 +1938,89 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private ViewSpec.Preview accessoryPreview;
+    private boolean galleryMainOpen() {
+        return !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED && !destinationLoading()
+                && !state.providersOpen && state.providers.galleryAvailable() && editorFlow.editor() == null
+                && catalogImportFlow.externalImport() == null && catalogImportFlow.addSource() == null;
+    }
+
+    private boolean galleryPreview(ViewSpec.Preview preview) {
+        return galleryMainOpen() && galleryFlow.previewStillCurrent(preview);
+    }
+
+    private boolean previewObserverAdmitted(ViewSpec.Preview preview) {
+        if (preview.bodySource().filter(source -> source.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent()
+                || galleryMainOpen()) return galleryPreview(preview);
+        return preview.intent() == PreviewRenderer.PreviewIntent.EDITOR_DRAFT;
+    }
+
     public boolean waitsForCpmBody(ViewSpec.Preview preview) {
         return !state.providersOpen && state.providers.galleryAvailable() && skinExtensionEnvironment.cpmPresent()
-                && editorFlow.expectedCpmBody(preview);
+                && (galleryMainOpen() ? galleryFlow.expectedCpmBody(preview) : editorFlow.expectedCpmBody(preview));
+    }
+
+    public Optional<ViewSpec.Preview> galleryPreviewCandidate() {
+        var candidate = galleryMainOpen() ? galleryFlow.candidatePreview() : Optional.<ViewSpec.Preview>empty();
+        galleryAdmissionSource = candidate.filter(p -> p.bodySource().isPresent()).map(this::previewBodySource).orElse(null);
+        return candidate;
+    }
+
+    private String galleryAdmissionSource;
+    private String galleryAccessoryInput;
+
+    private void refreshGalleryAdmission() {
+        galleryAccessoryInput = galleryMainOpen() && clientExecutor.isClientThread() ? galleryFlow.accessoryInput() : null;
+        galleryAdmissionSource = galleryMainOpen() && clientExecutor.isClientThread()
+                ? galleryFlow.admissionPreview().filter(p -> p.bodySource().isPresent()).map(this::previewBodySource).orElse(null)
+                : null;
+    }
+
+    public boolean galleryPreviewFrameCurrent(ViewSpec.Preview preview) {
+        var source = preview.bodySource().orElse(null);
+        return source != null && source.role() == ViewSpec.BodyRole.GALLERY_MAIN && !disposed
+                && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED && !state.providersOpen
+                && editorFlow.editor() == null && catalogImportFlow.addSource() == null
+                && source.accountEpoch() == importAccountEpoch && source.worldEpoch() == importWorldEpoch
+                && source.resourceEpoch() == importResourceEpoch && source.screenGeneration() == state.galleryScreenGeneration
+                && state.account != null && source.accountId().equals(state.account.accountId());
+    }
+
+    public java.util.function.BooleanSupplier galleryPreviewAdmission(ViewSpec.Preview preview) {
+        String source = previewBodySource(preview);
+        long draft = galleryFlow.draftGeneration(), opening = galleryFlow.openingGeneration();
+        long account = importAccountEpoch, world = importWorldEpoch, resource = importResourceEpoch;
+        long screen = state.galleryScreenGeneration;
+        Object registration = bodyRegistration;
+        var identity = importIdentity;
+        return () -> !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED
+                && !state.providersOpen && editorFlow.editor() == null && catalogImportFlow.addSource() == null
+                && account == importAccountEpoch && world == importWorldEpoch && resource == importResourceEpoch
+                && screen == state.galleryScreenGeneration && opening == galleryFlow.openingGeneration()
+                && draft == galleryFlow.draftGeneration() && Objects.equals(identity, importIdentity)
+                && registration == bodyRegistration && source.equals(galleryAdmissionSource);
+    }
+
+    public java.util.function.BooleanSupplier galleryAccessoryAdmission(ViewSpec.Preview preview) {
+        String input = galleryFlow.accessoryStillCurrent(preview) ? galleryFlow.accessoryInput() : null;
+        long draft = galleryFlow.draftGeneration(), opening = galleryFlow.openingGeneration();
+        long account = importAccountEpoch, world = importWorldEpoch, resource = importResourceEpoch;
+        long screen = state.galleryScreenGeneration;
+        var identity = importIdentity;
+        return () -> input != null && !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED
+                && !state.providersOpen && editorFlow.editor() == null && catalogImportFlow.addSource() == null
+                && account == importAccountEpoch && world == importWorldEpoch && resource == importResourceEpoch
+                && screen == state.galleryScreenGeneration && opening == galleryFlow.openingGeneration()
+                && draft == galleryFlow.draftGeneration() && Objects.equals(identity, importIdentity)
+                && skinExtensionEnvironment.cpmPresent() && input.equals(galleryAccessoryInput);
     }
 
     public String previewBodySource(ViewSpec.Preview preview) {
+        if (preview.bodySource().filter(source -> source.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent())
+            return "gallery:" + preview.bodySource().orElseThrow()
+                    + ":" + preview.skin() + ":" + preview.outerLayerVisibility() + ":" + preview.capeId()
+                    + ":" + preview.capeHasElytra() + ":" + preview.nativeAccessories() + ":" + preview.capeMode()
+                    + ":" + preview.variant() + ":" + preview.requiresLoadedSkin() + ":" + preview.ownedPng()
+                    + ":" + preview.intent();
         return (state.providersOpen || !state.providers.galleryAvailable() ? "providers:" : "editor:")
                 + state.generation + ":" + importAccountEpoch + ":" + importWorldEpoch + ":" + importResourceEpoch
                 + ":" + importEditLifetime + ":" + preview.imageRevision() + ":" + preview.variant();
@@ -1608,39 +2030,51 @@ public final class ClientRuntime implements AutoCloseable {
     private java.util.function.Supplier<PreviewRenderer.DisplayKind> bodyCapability;
     private java.util.function.Consumer<PreviewRenderer.BodyStatus> bodyCallback;
     private Object bodyRegistration;
+    private Runnable bodyAccepted;
     private String bodySource;
     private long bodyGeneration;
     private boolean bodyProviders;
+    private boolean bodyGallery;
     private PreviewRenderer.DisplayKind displayedBodyKind = PreviewRenderer.DisplayKind.UNCONFIRMED;
     private GameSessionTokenSource.SessionIdentity bodyIdentity;
 
     public java.util.function.Consumer<PreviewRenderer.BodyStatus> observePreviewBody(ViewSpec.Preview preview,
             java.util.function.Supplier<PreviewRenderer.DisplayKind> capability) {
+        return observePreviewBody(preview, capability, () -> {});
+    }
+
+    public java.util.function.Consumer<PreviewRenderer.BodyStatus> observePreviewBody(ViewSpec.Preview preview,
+            java.util.function.Supplier<PreviewRenderer.DisplayKind> capability, Runnable accepted) {
         Objects.requireNonNull(preview, "preview");
         Objects.requireNonNull(capability, "capability");
         observeImportIdentity();
         String source = previewBodySource(preview);
         if (bodyCapability == capability && source.equals(bodySource) && bodyPreviewCurrent()) return bodyCallback;
+        if (!previewObserverAdmitted(preview)) return ignored -> {};
         Object registration = new Object();
         bodyRegistration = registration;
         bodyPreview = preview;
         bodyCapability = capability;
+        bodyAccepted = Objects.requireNonNull(accepted);
         bodySource = source;
-        bodyGeneration = state.generation;
+        bodyGeneration = galleryMainOpen() ? state.galleryScreenGeneration : state.generation;
         bodyProviders = state.providersOpen || !state.providers.galleryAvailable();
+        bodyGallery = galleryMainOpen();
         try { bodyIdentity = operations.sessionIdentity(); }
         catch (RuntimeException unavailable) { bodyIdentity = null; }
         displayedBodyKind = PreviewRenderer.DisplayKind.UNCONFIRMED;
+        if (bodyGallery) galleryFlow.acceptBody(preview, PreviewRenderer.DisplayKind.UNCONFIRMED);
         bodyCallback = value -> onClient(() -> {
             if (bodyRegistration != registration) return;
             if (!bodyPreviewCurrent()) {
+                if (retainedGalleryContextCurrent()) return;
                 if (bodyRegistration == registration) invalidatePreviewBody(bodyCallback);
                 return;
             }
             if (bodyRegistration != registration) return;
             boolean changed = reconcilePreviewBody();
             if (bodyRegistration != registration) return;
-            if (!bodyProviders) changed |= editorFlow.acceptBody(preview, value);
+            if (!bodyProviders && !bodyGallery) changed |= editorFlow.acceptBody(preview, value);
             if (changed) publish();
         });
         return bodyCallback;
@@ -1660,9 +2094,11 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void clearPreviewBody() {
+        galleryFlow.clearBody();
         bodyRegistration = null;
         bodyCallback = null;
         bodyCapability = null;
+        bodyAccepted = null;
         bodyPreview = null;
         bodySource = null;
         bodyIdentity = null;
@@ -1681,11 +2117,12 @@ public final class ClientRuntime implements AutoCloseable {
 
     private boolean bodyContextCurrent() {
         if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || destinationLoading()
-                || bodyGeneration != state.generation || bodyPreview == null
+                || bodyGeneration != (bodyGallery ? state.galleryScreenGeneration : state.generation) || bodyPreview == null
                 || !Objects.equals(bodySource, previewBodySource(bodyPreview))
                 || bodyProviders != (state.providersOpen || !state.providers.galleryAvailable())
+                || bodyGallery != galleryMainOpen()
                 || (bodyProviders ? providerFlow.providerAdding() || !providerFlow.previewStillCurrent(bodyPreview)
-                        : !editorFlow.editorPreviewStillCurrent(bodyPreview))) return false;
+                        : bodyGallery ? !galleryPreview(bodyPreview) : !editorFlow.editorPreviewStillCurrent(bodyPreview))) return false;
         return true;
     }
 
@@ -1694,7 +2131,7 @@ public final class ClientRuntime implements AutoCloseable {
         var capability = bodyCapability;
         if (capability == null) return PreviewRenderer.DisplayKind.UNCONFIRMED;
         if (!bodyPreviewCurrent()) {
-            if (registration == bodyRegistration) clearPreviewBody();
+            if (registration == bodyRegistration && !retainedGalleryContextCurrent()) clearPreviewBody();
             return PreviewRenderer.DisplayKind.UNCONFIRMED;
         }
         if (registration != bodyRegistration) return PreviewRenderer.DisplayKind.UNCONFIRMED;
@@ -1712,13 +2149,32 @@ public final class ClientRuntime implements AutoCloseable {
         return registration == bodyRegistration && displayed != null ? displayed : PreviewRenderer.DisplayKind.UNCONFIRMED;
     }
 
+    private boolean retainedGalleryContextCurrent() {
+        if (!bodyGallery || !galleryMainOpen() || bodyPreview == null
+                || bodyGeneration != state.galleryScreenGeneration
+                || !Objects.equals(bodySource, previewBodySource(bodyPreview))) return false;
+        var source = bodyPreview.bodySource().orElse(null);
+        if (source == null || source.accountEpoch() != importAccountEpoch
+                || source.worldEpoch() != importWorldEpoch || source.resourceEpoch() != importResourceEpoch
+                || source.screenGeneration() != state.galleryScreenGeneration || state.account == null
+                || !source.accountId().equals(state.account.accountId())) return false;
+        try { return Objects.equals(bodyIdentity, operations.sessionIdentity()); }
+        catch (RuntimeException unavailable) { return false; }
+    }
+
     private boolean reconcilePreviewBody() {
         Object registration = bodyRegistration;
         var previous = displayedBodyKind;
         var next = currentDisplayKind();
         if (bodyRegistration != null && registration != bodyRegistration) return false;
+        if (next != PreviewRenderer.DisplayKind.UNCONFIRMED && bodyGallery && bodyAccepted != null) {
+            bodyAccepted.run();
+            if (registration != bodyRegistration || !bodyPreviewCurrent() || registration != bodyRegistration) return false;
+        }
         displayedBodyKind = next;
-        return previous != next;
+        boolean changed = previous != next;
+        if (bodyGallery && bodyPreview != null) changed |= galleryFlow.acceptBody(bodyPreview, next);
+        return changed;
     }
     private java.util.function.Supplier<com.naocraftlab.skins.client.PreviewAccessories> accessoryCapability;
     private java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories> accessoryCallback;
@@ -1727,6 +2183,7 @@ public final class ClientRuntime implements AutoCloseable {
     private GameSessionTokenSource.SessionIdentity accessoryIdentity;
     private long accessoryGeneration;
     private boolean accessoryProviders;
+    private boolean accessoryGallery;
 
     public java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories> observePreviewAccessories(
             ViewSpec.Preview preview,
@@ -1734,15 +2191,19 @@ public final class ClientRuntime implements AutoCloseable {
         Objects.requireNonNull(preview, "preview");
         Objects.requireNonNull(capability, "capability");
         observeImportIdentity();
-        String source = previewBodySource(preview);
-        if (accessoryCapability == capability && source.equals(accessorySource) && accessoryPreviewCurrent()) return accessoryCallback;
+        boolean gallerySource = preview.bodySource().filter(s -> s.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent();
+        String source = gallerySource ? galleryFlow.accessoryInput() : previewBodySource(preview);
+        if (accessoryCapability == capability && Objects.equals(source, accessorySource) && accessoryPreviewCurrent()) return accessoryCallback;
+        if (gallerySource ? !galleryMainOpen() || !galleryFlow.accessoryStillCurrent(preview)
+                : !previewObserverAdmitted(preview)) return ignored -> {};
         Object registration = new Object();
         accessoryRegistration = registration;
         accessoryPreview = preview;
         accessoryCapability = capability;
         accessorySource = source;
-        accessoryGeneration = state.generation;
+        accessoryGeneration = galleryMainOpen() ? state.galleryScreenGeneration : state.generation;
         accessoryProviders = state.providersOpen || !state.providers.galleryAvailable();
+        accessoryGallery = galleryMainOpen();
         java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories> callback = value -> onClient(() -> {
             if (accessoryRegistration == registration) reconcilePreviewAccessories();
         });
@@ -1760,16 +2221,27 @@ public final class ClientRuntime implements AutoCloseable {
             java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories> registration) {
         onClient(() -> {
             if (registration == null || registration != accessoryCallback) return;
+            boolean gallery = accessoryGallery;
+            boolean hadGalleryAccessories = gallery && accessoryPreview != null;
             clearPreviewAccessories();
             var unavailable = com.naocraftlab.skins.client.PreviewAccessories.unavailable(
                     PreviewRenderer.LiveReason.LIVE_UNAVAILABLE);
-            boolean changed = providerFlow.acceptAccessories(unavailable);
-            changed |= editorFlow.acceptAccessories(unavailable);
+            boolean changed = hadGalleryAccessories;
+            if (!gallery) {
+                changed |= providerFlow.acceptAccessories(unavailable);
+                changed |= editorFlow.acceptAccessories(unavailable);
+            }
             if (changed && !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED) publish();
         });
     }
 
     private void clearPreviewAccessories() {
+        clearPreviewAccessories(false);
+    }
+
+    private void clearPreviewAccessories(boolean preserveGalleryKnowledge) {
+        if (preserveGalleryKnowledge) galleryFlow.clearAccessoryObservation();
+        else galleryFlow.clearAccessories();
         accessoryRegistration = null;
         accessoryCallback = null;
         accessoryCapability = null;
@@ -1790,11 +2262,13 @@ public final class ClientRuntime implements AutoCloseable {
 
     private boolean accessoryContextCurrent() {
         return !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED && !destinationLoading()
-                && accessoryGeneration == state.generation && accessoryPreview != null
-                && Objects.equals(accessorySource, previewBodySource(accessoryPreview))
+                && accessoryGeneration == (accessoryGallery ? state.galleryScreenGeneration : state.generation) && accessoryPreview != null
+                && Objects.equals(accessorySource, accessoryGallery ? galleryFlow.accessoryInput() : previewBodySource(accessoryPreview))
                 && accessoryProviders == (state.providersOpen || !state.providers.galleryAvailable())
+                && accessoryGallery == galleryMainOpen()
                 && (accessoryProviders ? !providerFlow.providerAdding() && providerFlow.previewStillCurrent(accessoryPreview)
-                        : editorFlow.editorPreviewStillCurrent(accessoryPreview));
+                        : accessoryGallery ? galleryMainOpen() && galleryFlow.accessoryStillCurrent(accessoryPreview)
+                                : editorFlow.editorPreviewStillCurrent(accessoryPreview));
     }
 
     private void reconcilePreviewAccessories() {
@@ -1802,6 +2276,8 @@ public final class ClientRuntime implements AutoCloseable {
         var capability = accessoryCapability;
         if (capability == null) return;
         boolean providers = accessoryProviders;
+        boolean gallery = accessoryGallery;
+        var preview = accessoryPreview;
         var value = com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING);
         boolean current = accessoryPreviewCurrent();
         if (registration != accessoryRegistration) return;
@@ -1813,10 +2289,13 @@ public final class ClientRuntime implements AutoCloseable {
             if (registration != accessoryRegistration) return;
         }
         if (!current) {
-            clearPreviewAccessories();
+            clearPreviewAccessories(gallery);
             value = com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING);
         }
-        boolean changed = providers ? providerFlow.acceptAccessories(value) : editorFlow.acceptAccessories(value);
+        boolean retiredKnowledge = gallery && !skinExtensionEnvironment.cpmPresent() && galleryFlow.clearAccessoryKnowledge();
+        boolean changed = gallery ? current && galleryFlow.acceptAccessories(preview, value)
+                : providers ? providerFlow.acceptAccessories(value) : editorFlow.acceptAccessories(value);
+        changed |= retiredKnowledge;
         if (changed && !disposed) publish();
     }
 
@@ -1855,6 +2334,26 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private ViewSpec withRuntimeFocus(ViewSpec view) {
+        if ("gallery".equals(view.screenId()) && view.screenId().equals(runtimeFocusScreenId)
+                && runtimeFocusWidgetId != null && runtimeFocusTabOrder >= 0
+                && view.navigationNode(runtimeFocusWidgetId).filter(ViewSpec.NavigationNode::enabled).isEmpty()) {
+            int previousOrder = runtimeFocusTabOrder;
+            var nearest = view.navigationNodes().stream().filter(ViewSpec.NavigationNode::enabled)
+                    .filter(node -> node.tabOrder() >= 0)
+                    .min(java.util.Comparator.comparingInt((ViewSpec.NavigationNode node) -> Math.abs(node.tabOrder() - previousOrder))
+                            .thenComparingInt(ViewSpec.NavigationNode::documentOrder));
+            if (nearest.isEmpty()) clearRuntimeFocus(view.screenId());
+            else {
+                var node = nearest.orElseThrow();
+                requestRuntimeFocus(view.screenId(), node.id());
+                runtimeFocusTabOrder = node.tabOrder();
+                var offset = ViewNavigationPolicy.ensureVisibleOffset(view, node);
+                if (offset.isPresent()) {
+                    applyNavigationScroll(node, offset.orElseThrow());
+                    return viewInternal(view.width(), view.height(), 0, 0);
+                }
+            }
+        }
         if (runtimeFocusWidgetId != null
                 && (runtimeFocusWidgetId.startsWith("editor.cape_item.CPM.")
                     || runtimeFocusWidgetId.equals("editor.cape_header.EMBEDDED")
@@ -1917,8 +2416,10 @@ public final class ClientRuntime implements AutoCloseable {
     public String previewCapeSurfaceKey(ViewSpec.Preview preview) {
         Objects.requireNonNull(preview, "preview");
         UUID accountId = state.account == null ? currentSessionAccountId() : state.account.accountId();
-        return ViewHostPolicy.playerCapeKey(preview,
+        String key = ViewHostPolicy.playerCapeKey(preview,
                 Objects.requireNonNull(accountId, "preview account"));
+        return preview.id().equals("gallery.preview") && preview.capeId().isPresent()
+                ? key + ":" + preview.capeId().orElseThrow() : key;
     }
 
     public String previewDecorationCapeSurfaceKey(ViewSpec.IconDecoration decoration) {
@@ -2016,18 +2517,6 @@ public final class ClientRuntime implements AutoCloseable {
                     action.orElseThrow(), false, InteractionOrigin.KEYBOARD);
             return true;
         }
-        if ("gallery".equals(current.screenId())
-                && command == ViewSpec.NavigationCommand.TAB_FORWARD
-                && "gallery.search".equals(focusedWidgetId)) {
-            Optional<ViewSpec.NavigationNode> visible = galleryVisibleEntryTarget(current);
-            if (visible.isPresent()) {
-                ViewSpec.NavigationNode node = visible.orElseThrow();
-                galleryFlow.focusCard(node.id());
-                requestRuntimeFocus(current.screenId(), node.id());
-                publish();
-                return true;
-            }
-        }
         Optional<ViewSpec.NavigationNode> target = command == ViewSpec.NavigationCommand.TAB_FORWARD
                 && "editor.cape_disclosure".equals(focusedWidgetId)
                 ? visibleCapeEntryTarget(current).or(() -> ViewNavigationPolicy.target(current, focusedWidgetId, command))
@@ -2036,41 +2525,19 @@ public final class ClientRuntime implements AutoCloseable {
             return false;
         }
         ViewSpec.NavigationNode node = target.orElseThrow();
+
+        ViewSpec.NavigationNode focusTarget = node;
+        if ("gallery".equals(current.screenId())) galleryFlow.uiIntentChanged();
         if ("gallery".equals(current.screenId())
-                && node.pattern() == ViewSpec.NavigationPattern.HORIZONTAL_LIST) {
+                && node.pattern() == ViewSpec.NavigationPattern.GRID) {
             galleryFlow.focusCard(node.id());
         }
         ViewNavigationPolicy.ensureVisibleOffset(current, node)
-                .ifPresent(offset -> applyNavigationScroll(node, offset));
+                .ifPresent(offset -> applyNavigationScroll(focusTarget, offset));
         requestRuntimeFocus(current.screenId(), node.id());
+        runtimeFocusTabOrder = node.tabOrder();
         publish();
         return true;
-    }
-
-    private static Optional<ViewSpec.NavigationNode> galleryVisibleEntryTarget(ViewSpec view) {
-        ViewSpec.ScrollSurface surface = view.scrollSurface("gallery.cards").orElse(null);
-        if (surface == null) {
-            return Optional.empty();
-        }
-        Bounds viewport = surface.viewport();
-        List<ViewSpec.NavigationNode> entries = view.navigationNodes().stream()
-                .filter(ViewSpec.NavigationNode::enabled)
-                .filter(node -> node.pattern() == ViewSpec.NavigationPattern.HORIZONTAL_LIST)
-                .filter(node -> node.surfaceId().filter("gallery.cards"::equals).isPresent())
-                .filter(node -> node.bounds().right() > viewport.x()
-                        && node.bounds().x() < viewport.right())
-                .toList();
-        int viewportCenter = viewport.x() + viewport.width() / 2;
-        Optional<ViewSpec.NavigationNode> centered = entries.stream()
-                .filter(node -> node.bounds().x() >= viewport.x()
-                        && node.bounds().right() <= viewport.right())
-                .min(java.util.Comparator
-                        .comparingInt((ViewSpec.NavigationNode node) -> Math.abs(
-                                node.bounds().x() + node.bounds().width() / 2 - viewportCenter))
-                        .thenComparingInt(node -> node.bounds().x()));
-        return centered.isPresent()
-                ? centered
-                : entries.stream().min(java.util.Comparator.comparingInt(node -> node.bounds().x()));
     }
 
     private static Optional<ViewSpec.NavigationNode> visibleCapeEntryTarget(ViewSpec view) {
@@ -2091,6 +2558,7 @@ public final class ClientRuntime implements AutoCloseable {
         runtimeFocusToken = Math.max(1, runtimeFocusToken + 1);
         runtimeFocusScreenId = Objects.requireNonNull(screenId, "screenId");
         runtimeFocusWidgetId = Objects.requireNonNull(widgetId, "widgetId");
+        runtimeFocusTabOrder = -1;
     }
 
     private void clearRuntimeFocus(String screenId) {
@@ -2105,6 +2573,8 @@ public final class ClientRuntime implements AutoCloseable {
         if ("gallery.cards".equals(surfaceId)) {
             double bounded = Math.max(0.0, Math.min(galleryMaximum(), offsetPixels));
             galleryFlow.navigateToOffset(bounded);
+        } else if ("gallery.stage".equals(surfaceId) && galleryMainOpen()) {
+            galleryFlow.scrollStageTo(galleryView(viewportWidth, viewportHeight, 0, 0), offsetPixels);
         } else if (("add.catalog".equals(surfaceId) || "add.import".equals(surfaceId))
                 && catalogImportFlow.addSource() != null) {
             catalogImportFlow.addSourceSurface().filter(surface -> surface.id().equals(surfaceId))
@@ -2251,15 +2721,20 @@ public final class ClientRuntime implements AutoCloseable {
             }
             ViewSpec gallery = galleryView(
                     viewportWidth, viewportHeight, (int) mouseX, (int) mouseY);
+            galleryFlow.beginPreviewRotation(gallery, mouseX, mouseY);
+            var stageBar=ViewHostPolicy.scrollbar(gallery,"gallery.stage").filter(bar -> bar.track().contains(mouseX,mouseY));
+            if (stageBar.isPresent()) {
+                galleryFlow.grabStageScrollbar(gallery,stageBar.orElseThrow(),mouseX,mouseY);
+                return;
+            }
             gallery.scrollbar().ifPresent(scrollbar -> {
                 if (!scrollbar.track().contains(mouseX, mouseY)) {
                     return;
                 }
                 boolean grabbedThumb = galleryFlow.grabScrollbar(scrollbar, mouseX, mouseY);
                 if (!grabbedThumb) {
-                    setGalleryPosition(galleryFlow.galleryPresenter().positionFromScrollbar(
-                            snapshot, viewportWidth, viewportHeight, galleryFlow.galleryQuery(),
-                            mouseX - galleryFlow.galleryScrollbarGrabOffset()));
+                    setGalleryPosition(galleryFlow.positionFromScrollbar(
+                            mouseY - galleryFlow.galleryScrollbarGrabOffset()));
                 }
             });
         });
@@ -2268,6 +2743,10 @@ public final class ClientRuntime implements AutoCloseable {
     public void pointerDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         onClient(() -> {
             if (button != 0) {
+                return;
+            }
+            if (galleryMainOpen() && galleryFlow.dragPreview(deltaX, deltaY)) {
+                publish();
                 return;
             }
             if (providerFlow.draggingProviderRowsScrollbar()) {
@@ -2292,9 +2771,7 @@ public final class ClientRuntime implements AutoCloseable {
                         .ifPresent(scrollbar -> catalogImportFlow.setAddSourceFromScrollbar(scrollbar,
                                 mouseY - catalogImportFlow.addSourceScrollbarGrabOffset()));
             } else if (galleryFlow.draggingGalleryScrollbar()) {
-                setGalleryPosition(galleryFlow.galleryPresenter().positionFromScrollbar(
-                        snapshot, viewportWidth, viewportHeight, galleryFlow.galleryQuery(),
-                        mouseX - galleryFlow.galleryScrollbarGrabOffset()));
+                galleryFlow.dragScrollbar(galleryView(viewportWidth,viewportHeight,(int)mouseX,(int)mouseY),mouseY);
             }
         });
     }
@@ -2311,6 +2788,7 @@ public final class ClientRuntime implements AutoCloseable {
             providerFlow.endPreviewRotation();
             providerFlow.releaseScrollbar();
             galleryFlow.releaseScrollbar();
+            galleryFlow.endPreviewRotation();
             editorFlow.releaseScrollbar();
             catalogImportFlow.releaseScrollbar();
             if (editorFlow.editor() != null && editorFlow.editor().preview().rotating()) {
@@ -2395,9 +2873,13 @@ public final class ClientRuntime implements AutoCloseable {
                 }
                 return;
             }
-            int bottom = Math.max(150, viewportHeight - 64);
+            if (!galleryMainOpen() || state.busy) return;
+            var gallery = galleryView(viewportWidth, viewportHeight, (int) mouseX, (int) mouseY);
             double amount = dominantScrollAmount(horizontalAmount, verticalAmount);
-            if (mouseY >= 38 && mouseY <= bottom && amount != 0.0) {
+            if (gallery.scrollSurface("gallery.stage").orElseThrow().viewport().contains(mouseX, mouseY)
+                    || PointerRouting.interactivePreview(gallery,mouseX,mouseY)) {
+                galleryFlow.scrollPreview(gallery, mouseX, mouseY, verticalAmount, -amount * WHEEL_SCROLL_PIXELS);
+            } else if (gallery.scrollSurface("gallery.cards").orElseThrow().viewport().contains(mouseX, mouseY) && amount != 0.0) {
                 queueGalleryScroll(-amount * WHEEL_SCROLL_PIXELS);
             }
         });
@@ -2410,6 +2892,10 @@ public final class ClientRuntime implements AutoCloseable {
         }
         onClient(() -> {
             switch (surfaceId) {
+                case "gallery.stage" -> {
+                    if (!galleryMainOpen() || state.busy) return;
+                    galleryFlow.scrollStageTo(galleryView(viewportWidth, viewportHeight, 0, 0), offsetPixels);
+                }
                 case "gallery.cards" -> {
                     if (editorFlow.editor() != null || catalogImportFlow.addSource() != null) {
                         return;
@@ -2601,7 +3087,8 @@ public final class ClientRuntime implements AutoCloseable {
 
     public CompletableFuture<Optional<byte[]>> loadCapePreview(String capeId) {
         Objects.requireNonNull(capeId, "capeId");
-        if (capeId.startsWith("sneaky:preview:")) return previewAssets.publishPreview(editorFlow.sneakyPreview(capeId));
+        if (capeId.startsWith("sneaky:preview:")) return previewAssets.publishPreview(
+                capeId.startsWith("sneaky:preview:gallery:") ? galleryFlow.sneakyPreview(capeId) : editorFlow.sneakyPreview(capeId));
         if (capeId.startsWith("provider:cape:")) {
             return loadProviderTexture(new ViewSpec.ProviderTexture(capeId.substring(14), false, false));
         }
@@ -3161,7 +3648,14 @@ public final class ClientRuntime implements AutoCloseable {
         }
         reconcilePreviewAccessories();
         var currentWidget = viewInternal(viewportWidth, viewportHeight, 0, 0).widget(widgetId);
+        boolean galleryMetadata = widgetId.equals("gallery.sections") || widgetId.equals("gallery.favorites")
+                || widgetId.equals("gallery.your_appearances")
+                || widgetId.startsWith("gallery.preset.") && widgetId.endsWith(".favorite");
+        if (galleryMetadata && (currentWidget.isEmpty() || !currentWidget.orElseThrow().enabled())) return;
+        if (widgetId.equals("providers.edit.CPM") && currentWidget.filter(ViewSpec.Widget::visible)
+                .filter(ViewSpec.Widget::enabled).filter(ViewSpec.Widget::activationEnabled).isEmpty()) return;
         if (currentWidget.isPresent() && currentWidget.orElseThrow().enabled() && !currentWidget.orElseThrow().activationEnabled()) return;
+        if (galleryMainOpen() && currentWidget.filter(ViewSpec.Widget::enabled).filter(ViewSpec.Widget::visible).isPresent()) galleryFlow.uiIntentChanged();
         if (dispatchProviderAction(widgetId, reverse, origin)) return;
         if (dispatchGalleryAction(widgetId, reverse, origin)) return;
         if (dispatchCatalogImportAction(widgetId, reverse, origin)) return;
@@ -3184,14 +3678,6 @@ public final class ClientRuntime implements AutoCloseable {
         }
     }
 
-    private void dispatchPresetWidget(String widgetId, InteractionOrigin origin) {
-        galleryFlow.dispatchPresetWidget(widgetId, origin);
-    }
-
-    private void selectGalleryCard(String widgetId, InteractionOrigin origin) {
-        galleryFlow.selectGalleryCard(widgetId, origin);
-    }
-
     private void openAddSource() {
         openAddSource(null);
     }
@@ -3201,6 +3687,7 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         galleryFlow.dismissDeletion();
+        galleryFlow.discardDraft();
         clearRuntimeFocus("gallery");
         editorFlow.prepareNewPresetName(galleryFlow.suggestedPresetName());
         previewAssets.invalidateCatalogPreviews();
@@ -3455,6 +3942,7 @@ public final class ClientRuntime implements AutoCloseable {
             return;
         }
         galleryFlow.dismissDeletion();
+        galleryFlow.discardDraft();
         clearRuntimeFocus("gallery");
         PresetEditorModel editor = createEditor(presetId);
         if (editor == null) {
@@ -3523,6 +4011,7 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void closeToProviders() {
+        galleryFlow.discardDraft();
         state.galleryReturnsToProviders = false;
         galleryFlow.dismissDeletion();
         galleryFlow.clearFocusedCard();
@@ -3539,28 +4028,8 @@ public final class ClientRuntime implements AutoCloseable {
         return editorFlow.applyPendingPresetName(editor);
     }
 
-    private void requestPresetDeletion(UUID presetId, InteractionOrigin origin) {
-        galleryFlow.requestPresetDeletion(presetId, origin);
-    }
-
     private void cancelPresetDeletion(UUID presetId, InteractionOrigin origin) {
         galleryFlow.cancelPresetDeletion(presetId, origin);
-    }
-
-    private void duplicatePreset(UUID presetId) {
-        galleryFlow.duplicatePreset(presetId);
-    }
-
-    private void deletePreset(UUID presetId, InteractionOrigin origin) {
-        galleryFlow.deletePreset(presetId, origin);
-    }
-
-    private void applyPreset(UUID presetId, boolean preserveGalleryOffset) {
-        galleryFlow.applyPreset(presetId, preserveGalleryOffset);
-    }
-
-    private void acceptPresetUse(LibraryEditorPort.PresetUse use, boolean preserveGalleryOffset) {
-        galleryFlow.acceptPresetUse(use, preserveGalleryOffset);
     }
 
     private static boolean automaticCheckpointEligible(AppearanceSyncStatus status) {
@@ -3644,6 +4113,17 @@ public final class ClientRuntime implements AutoCloseable {
             Optional<ClientOperations.ReconciliationResult> result,
             Optional<ClientOperations.DurableAppearance> durableAfterFailure,
             Throwable failure) {
+        DoneRecovery authorization = doneRecovery;
+        if (authorization != null && authorization.request == request) {
+            boolean cooldown = operations.rateLimitRemaining().isPresent();
+            if (cooldown) doneCooldownSuppressed = true;
+            if (authorization.clientCurrent() && !authorization.continuationUsed && cooldown) {
+                authorization.waiting = true;
+            } else if (!authorization.waiting) {
+                doneRecovery = null;
+            }
+        }
+        if (!request.publicationCurrent().getAsBoolean()) return;
         UUID currentUserId;
         try {
             currentUserId = operations.sessionIdentity().profileId();
@@ -3707,7 +4187,6 @@ public final class ClientRuntime implements AutoCloseable {
         state.syncStatus = appearance.syncStatus();
         adoptSharedCapeObservation(state.providers);
         appearance.localAppearance().ifPresent(this::refreshLocalAppearance);
-        appearance.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
         reconciled.outcome().ifPresent(outcome -> {
             PresetApplicationOutcome visible = withoutLegacyRestore(outcome);
             state.lastMutation = visible;
@@ -3743,7 +4222,6 @@ public final class ClientRuntime implements AutoCloseable {
         state.syncStatus = appearance.syncStatus();
         adoptSharedCapeObservation(state.providers);
         appearance.localAppearance().ifPresent(this::refreshLocalAppearance);
-        appearance.outerLayerVisibility().ifPresent(this::applyDurableOuterLayerVisibility);
         centerGalleryIfActiveChanged(previousActivePresetId);
         publish();
     }
@@ -4007,10 +4485,6 @@ public final class ClientRuntime implements AutoCloseable {
         galleryFlow.queueGalleryScroll(pixelDelta);
     }
 
-    private void setGalleryOffset(int offset) {
-        galleryFlow.setGalleryOffset(offset);
-    }
-
     private void setGalleryPosition(double position) {
         galleryFlow.setGalleryPosition(position);
     }
@@ -4029,6 +4503,7 @@ public final class ClientRuntime implements AutoCloseable {
 
     private ViewSpec galleryView(
             int width, int height, int mouseX, int mouseY) {
+        observeImportIdentity();
         return galleryFlow.galleryView(width, height, mouseX, mouseY);
     }
 
@@ -4375,7 +4850,13 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void publish() {
-        if (editorFlow.editor() == null && (!state.providersOpen || snapshot.editor().isPresent())) {
+        galleryAdmissionSource = null;
+        if (state.account != null && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED
+                && !state.providersOpen && editorFlow.editor() == null && catalogImportFlow.addSource() == null)
+            galleryFlow.prepareDraft();
+        if (editorFlow.editor() == null
+                && (!galleryMainOpen() || snapshot.editor().isPresent() || snapshot.addSource().isPresent())
+                && (!state.providersOpen || snapshot.editor().isPresent())) {
             CapeProjection.retirePreviewSkins();
         }
         publishedProviderRefreshPending = providerFlow.refreshPending();
@@ -4421,6 +4902,7 @@ public final class ClientRuntime implements AutoCloseable {
                 catalogImportFlow.catalogEvidence(),
                 configuration.compatibility().hideIncompatibleCatalogSkins(),
                 configuration.compatibility().hideIncompatibleGalleryLooks(), state.providers);
+        refreshGalleryAdmission();
         ClientSnapshot published = snapshot;
         listeners.forEach(listener -> listener.accept(published));
     }
@@ -4722,6 +5204,7 @@ public final class ClientRuntime implements AutoCloseable {
         private boolean galleryReturnsToProviders;
 
         private long generation;
+        private long galleryScreenGeneration;
         private boolean readyData;
         private final Map<UUID, SkinFeatureEvidence> assetEvidence = new LinkedHashMap<>();
 
@@ -4735,6 +5218,7 @@ public final class ClientRuntime implements AutoCloseable {
             readyData = retainReadyData;
             generation++;
             lifecycle = ClientSnapshot.Lifecycle.NEW;
+            galleryScreenGeneration++;
             if (!retainReadyData) {
                 account = null;
                 session = null;

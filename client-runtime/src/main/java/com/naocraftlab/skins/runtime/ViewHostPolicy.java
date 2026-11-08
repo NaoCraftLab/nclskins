@@ -7,6 +7,54 @@ import java.util.UUID;
 
 
 public final class ViewHostPolicy {
+    public static UiMessage transparentLabel(ViewSpec.Widget widget) {
+        return widget.id().startsWith("gallery.preset.") && widget.id().endsWith(".more")
+                ? UiMessage.literal(widget.value().filter("down"::equals).isPresent() ? "▼" : "▲", UiMessage.Severity.INFO)
+                : widget.label();
+    }
+
+    public static int transparentTextY(ViewSpec.Widget widget, int lineHeight) {
+        return widget.bounds().y()+Math.max(0,(widget.bounds().height()-lineHeight)/2)
+                +(widget.id().startsWith("gallery.preset.") && widget.id().endsWith(".more") ? 2 : 0);
+    }
+
+    public static ViewSpec.Text galleryNameText(ViewSpec view, ViewSpec.Text text, int arrowAdvance) {
+        if (!view.screenId().equals("gallery") || !text.id().startsWith("gallery.preset.")
+                || !text.id().endsWith(".name") || text.marqueeActivation().isEmpty()) return text;
+        var activation=text.marqueeActivation().orElseThrow();
+        var card=activation.hoverBounds();
+        int left=card.right()-6-Math.max(0,arrowAdvance)/2;
+        int right=Math.max(text.bounds().x()+1,Math.min(card.right(),left-(card.right()-left-Math.max(0,arrowAdvance))));
+        var bounds=new Bounds(text.bounds().x(),text.bounds().y(),right-text.bounds().x(),text.bounds().height());
+        var moving=new Bounds(card.x(),bounds.y(),right-card.x(),bounds.height());
+        return new ViewSpec.Text(text.id(),bounds,text.message(),text.alignment(),Optional.of(
+                new ViewSpec.MarqueeActivation(card,activation.focusWidgetIds(),Optional.of(moving))),text.layout());
+    }
+
+    public static Optional<ViewSpec.Scrollbar> scrollbar(ViewSpec view, String surfaceId) {
+        if (!surfaceId.equals("gallery.stage")) return view.scrollbar();
+        return view.scrollSurface(surfaceId).filter(surface -> surface.maximumPixels()>0).map(surface -> {
+            Bounds viewport=surface.viewport();
+            int right=view.panels().stream().filter(panel -> panel.id().equals("gallery.workspace"))
+                    .mapToInt(panel -> panel.bounds().x()).findFirst().orElse(viewport.right());
+            Bounds track=new Bounds(right-6,viewport.y(),6,viewport.height());
+            int height=Math.min(track.height(),Math.max(12,(int)(track.height()*track.height()/(track.height()+surface.maximumPixels()))));
+            int top=track.y()+(int)Math.round((track.height()-height)*surface.offsetPixels()/surface.maximumPixels());
+            return new ViewSpec.Scrollbar(track,new Bounds(track.x(),top,6,height),(int)Math.round(surface.offsetPixels()),(int)Math.ceil(surface.maximumPixels()),ViewSpec.Scrollbar.Orientation.VERTICAL);
+        });
+    }
+
+    public static List<ViewSpec.Scrollbar> scrollbars(ViewSpec view) {
+        var bars=new java.util.ArrayList<ViewSpec.Scrollbar>();
+        view.scrollbar().filter(bar -> !view.screenId().equals("gallery") || bar.maximum()>0).ifPresent(bars::add);
+        if (view.screenId().equals("gallery")) scrollbar(view,"gallery.stage").ifPresent(bars::add);
+        return List.copyOf(bars);
+    }
+
+    public static Optional<ViewSpec.ScrollSurface> nativeScrollSurface(ViewSpec view, Optional<String> current) {
+        return current.flatMap(view::scrollSurface).or(() -> view.scrollSurfaces().stream().findFirst());
+    }
+
     private static final List<String> PROVIDER_ROW_WIDGET_KINDS =
             List.of("row", "up", "down", "edit", "remove", "account");
 
@@ -64,7 +112,7 @@ public final class ViewHostPolicy {
             ViewSpec view, double pointerX, double pointerY, String focusedWidgetId) {
         Objects.requireNonNull(view, "view");
         Optional<ViewSpec.Widget> hovered = pointerOwnerAt(view, pointerX, pointerY)
-                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR || widget.id().equals("gallery.inspect.CPM"))
                 .filter(ViewSpec.Widget::enabled)
                 .filter(widget -> visibleIntersection(view, widget.id()));
         if (hovered.isPresent()) {
@@ -72,7 +120,7 @@ public final class ViewHostPolicy {
         }
         return Optional.ofNullable(focusedWidgetId)
                 .flatMap(view::widget)
-                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR)
+                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.PASSIVE_INDICATOR || widget.id().equals("gallery.inspect.CPM"))
                 .filter(ViewSpec.Widget::visible)
                 .filter(ViewSpec.Widget::enabled)
                 .filter(widget -> visibleIntersection(view, widget.id()))
@@ -243,6 +291,93 @@ public final class ViewHostPolicy {
                     widget.selectAllOnFocusAcquire(),
                     widget.submitActionId());
         }
+    }
+
+    public static Optional<com.naocraftlab.skins.client.PreviewRenderer.PreviewRequest> previewRequest(
+            ViewSpec.Preview preview,
+            Optional<com.naocraftlab.skins.client.PreviewRenderer.PreviewAppearance> loaded,
+            Optional<com.naocraftlab.skins.client.PreviewRenderer.PreviewAppearance> borrowed) {
+        var appearance = preview.requiresLoadedSkin() ? loaded : borrowed;
+        Bounds anchor = preview.anchorBounds();
+        Bounds stage = preview.bounds();
+        return appearance.map(value -> new com.naocraftlab.skins.client.PreviewRenderer.PreviewRequest(
+                value, anchor.x(), anchor.y(), anchor.width(), anchor.height(),
+                preview.yawDegrees(), preview.pitchDegrees(), preview.scale(), preview.intent(),
+                stage.x(), stage.y(), stage.width(), stage.height()));
+    }
+
+    public static boolean screenOwnedBody(String screenId, ViewSpec.Preview preview) {
+        if (preview.intent() != com.naocraftlab.skins.client.PreviewRenderer.PreviewIntent.EDITOR_DRAFT) return false;
+        return preview.bodySource().map(source -> switch (source.role()) {
+            case EDITOR, PROVIDERS, GALLERY_MAIN -> true;
+        }).orElseGet(() -> "preset_editor".equals(screenId) || "providers".equals(screenId));
+    }
+
+    public static Optional<Bounds> paintClip(ViewSpec view, String elementId) {
+        var body = view.previews().stream().filter(preview -> preview.id().equals(elementId))
+                .filter(preview -> preview.bodySource().filter(source -> source.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent())
+                .findFirst();
+        return body.map(ViewSpec.Preview::bounds).or(() -> view.clipFor(elementId));
+    }
+
+    public static int panelOverlayColor(ViewSpec.Panel.Style style) {
+        return switch (style) {
+            case TRANSLUCENT_NAMEBAR -> 0x88000000;
+            default -> 0;
+        };
+    }
+
+    public static int panelOverlayColor(String screenId, ViewSpec.Panel.Style style) {
+        return "gallery".equals(screenId) && style == ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR
+                ? 0x6D000000 : panelOverlayColor(style);
+    }
+
+    public static List<Integer> cardFrameColors(ViewSpec.Widget widget, boolean focused) {
+        int state = cardFrameColor(widget, false);
+        if (focused) return List.of(state == 0 ? CatalogCardStyle.FOCUS_FRAME_SHADOW_COLOR : state,
+                CatalogCardStyle.FOCUS_FRAME_COLOR);
+        return state == 0 ? List.of() : List.of(state);
+    }
+
+    public record CardFrameSegment(Bounds bounds, int color) {}
+
+    public static List<CardFrameSegment> galleryCapePaint(ViewSpec view, ViewSpec.Widget widget,
+            double pointerX, double pointerY, boolean focused) {
+        var paint=new java.util.ArrayList<CardFrameSegment>();
+        if (hoverInside(view,widget,pointerX,pointerY)) paint.add(new CardFrameSegment(widget.bounds(),CatalogCardStyle.HIGHLIGHT_BACKGROUND_COLOR));
+        paint.addAll(cardFrameSegments(widget,focused));
+        return List.copyOf(paint);
+    }
+
+    public static List<CardFrameSegment> cardFrameSegments(ViewSpec.Widget widget, boolean focused) {
+        var segments = new java.util.ArrayList<CardFrameSegment>();
+        var colors = cardFrameColors(widget, focused);
+        Bounds b = widget.bounds();
+        for (int inset = 0; inset < colors.size(); inset++) {
+            int color = colors.get(inset);
+            int leading = inset == 0 && widget.value().filter("selected_active"::equals).isPresent()
+                    ? 0xFF80C880 : color;
+            int left = b.x() + inset;
+            int top = b.y() + inset;
+            int width = b.width() - inset * 2;
+            int height = b.height() - inset * 2;
+            if (width <= 0 || height <= 0) continue;
+            segments.add(new CardFrameSegment(new Bounds(left, top, width, 1), leading));
+            segments.add(new CardFrameSegment(new Bounds(left, top, 1, height), leading));
+            segments.add(new CardFrameSegment(new Bounds(left, top + height - 1, width, 1), color));
+            segments.add(new CardFrameSegment(new Bounds(left + width - 1, top, 1, height), color));
+        }
+        return List.copyOf(segments);
+    }
+
+    public static int cardFrameColor(ViewSpec.Widget widget, boolean focused) {
+        if (focused) return 0xFFFFFFFF;
+        return widget.value().map(value -> switch (value) {
+            case "selected", "selected_active" -> 0xFF80C8FF;
+            case "active" -> 0xFF80C880;
+            case "menu" -> 0xFFA0A0A0;
+            default -> 0;
+        }).orElse(0);
     }
 
     private ViewHostPolicy() {

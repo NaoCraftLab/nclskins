@@ -8,7 +8,10 @@ import java.util.*;
 import net.neoforged.neoforgespi.transformation.*;
 
 public final class CapeTerminalProvider implements ClassProcessorProvider {
-    @Override public void createProcessors(Context context, Collector collector) { collector.add(new TerminalProcessor()); }
+    @Override public void createProcessors(Context context, Collector collector) {
+        collector.add(new TerminalProcessor());
+        collector.add(new NativeDeviceTerminalProcessor());
+    }
     public static final class TerminalProcessor implements ClassProcessor {
         public static final ProcessorName NAME = new ProcessorName("nclskins", "verification_terminals");
         @Override public ProcessorName name() { return NAME; }
@@ -24,7 +27,7 @@ public final class CapeTerminalProvider implements ClassProcessorProvider {
             int count = CapeTerminalBindings.apply(context.node());
             if (count == 0 && Boolean.getBoolean("nclskins.wavey.extraction")) count = ExtractionTerminalBindings.apply(context.node(), null);
             if (count == 0) count = BakedPreviewBindings.apply(context.node());
-            if (count == 0 && !Boolean.getBoolean("nclskins.wavey.extraction")) count = SubmissionPreviewBindings.apply(context.node());
+            if (count == 0 && !Boolean.getBoolean("nclskins.wavey.extraction")) count = SubmissionPreviewBindings.applyRaw(context.node());
             if (count == 0) throw new AssertionError("UNLISTED_TERMINAL");
             context.audit("test-only CPU terminal substitution", Integer.toString(count));
             return ComputeFlags.COMPUTE_FRAMES;
@@ -39,6 +42,40 @@ public final class CapeTerminalProvider implements ClassProcessorProvider {
         }
         @Override public void afterProcessing(AfterProcessingContext context) {
             System.out.println("CANONICAL_TERMINAL_APPLIED " + context.type().getInternalName());
+        }
+    }
+    public static final class NativeDeviceTerminalProcessor implements ClassProcessor {
+        public static final ProcessorName NAME = new ProcessorName("nclskins", "verification_native_device_terminals");
+        @Override public ProcessorName name() { return NAME; }
+        @Override public Set<ProcessorName> runsAfter() { return Set.of(ClassProcessorIds.COMPUTING_FRAMES, ClassProcessorIds.MIXIN); }
+        @Override public boolean handlesClass(SelectionContext context) {
+            return !context.empty() && !Boolean.getBoolean("nclskins.wavey.extraction")
+                    && SubmissionPreviewBindings.NATIVE_OWNERS.contains(context.type().getInternalName());
+        }
+        @Override public ComputeFlags processClass(TransformationContext context) {
+            if (context.node().name.equals(SubmissionPreviewBindings.PIP)) {
+                SubmissionPreviewBindings.verifyProjectionAnchor(context.node(), false);
+                SubmissionPreviewBindings.verifyInjectedDepth(context.node());
+            }
+            int count = SubmissionPreviewBindings.applyNative(context.node());
+            if (count == 0) throw new AssertionError("UNLISTED_NATIVE_DEVICE_TERMINAL");
+            if (context.node().name.equals(SubmissionPreviewBindings.PIP)) {
+                SubmissionPreviewBindings.verifyProjectionAnchor(context.node(), true);
+                SubmissionPreviewBindings.verifyInjectedDepth(context.node());
+                System.out.println("CANONICAL_POST_MIXIN_DEPTH_PASS injected handler/Args and constructor call retained; projection remapped");
+            }
+            context.audit("test-only post-Mixin CPU device terminals", Integer.toString(count));
+            return ComputeFlags.COMPUTE_FRAMES;
+        }
+        @Override public void link(LinkContext context) {
+            List<ProcessorName> names = new ArrayList<>(context.processors().keySet());
+            int frames = names.indexOf(ClassProcessorIds.COMPUTING_FRAMES), raw = names.indexOf(TerminalProcessor.NAME);
+            int mixin = names.indexOf(ClassProcessorIds.MIXIN), own = names.indexOf(NAME);
+            if (frames < 0 || raw <= frames || mixin <= raw || own <= mixin) throw new AssertionError("NATIVE_DEVICE_ORDER " + names);
+            System.out.println("CANONICAL_POST_MIXIN_ORDER_PASS " + names);
+        }
+        @Override public void afterProcessing(AfterProcessingContext context) {
+            System.out.println("CANONICAL_NATIVE_DEVICE_APPLIED " + context.type().getInternalName());
         }
     }
 }

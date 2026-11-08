@@ -116,7 +116,8 @@ public final class CapeProjection {
         var observation = source.accessories();
         return new com.naocraftlab.skins.client.PreviewAccessories(source.inspectionScope(),
                 observation.generation(), com.naocraftlab.skins.client.PreviewAccessories.Availability.valueOf(
-                        observation.availability().name()), observation.cape(), observation.elytra(), reason);
+                        observation.availability().name()), observation.cape(), observation.elytra(), reason,
+                observation.capeContentEmpty(), observation.elytraContentEmpty());
     }
 
     public static EffectiveSkinSource skinSource(UUID cacheId) {

@@ -34,6 +34,16 @@ final class PreviewSkinSourceTest {
         }
     }
 
+    @Test
+    void providerSkinRevisionUsesLoadedBytesInsteadOfBorrowingActiveAppearance() {
+        var provider = new ViewSpec.Preview("provider", new Bounds(0, 0, 48, 96),
+                SkinReference.accountDefault(), "provider:skin:" + "b".repeat(64), SkinVariant.SLIM,
+                Optional.empty(), PreviewRenderer.CapeMode.OFF, OuterLayerVisibility.allVisible(),
+                0, 0, 1, Optional.empty());
+        assertTrue(provider.requiresLoadedSkin());
+        assertFalse(preview(SkinReference.accountDefault()).requiresLoadedSkin());
+    }
+
     private static ViewSpec.Preview preview(SkinReference skin) {
         return new ViewSpec.Preview(
                 "preview",

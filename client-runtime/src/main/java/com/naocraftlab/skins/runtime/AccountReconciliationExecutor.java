@@ -17,7 +17,15 @@ final class AccountReconciliationExecutor {
 
     Optional<ReconciliationResult> execute(AccountReconciliationEffects effects,
             ReconciliationKey expected, Trigger trigger) throws IOException, PngValidationException {
+        return execute(effects, expected, trigger, false);
+    }
+
+    Optional<ReconciliationResult> execute(AccountReconciliationEffects effects,
+            ReconciliationKey expected, Trigger trigger, boolean existingIntentOnly) throws IOException, PngValidationException {
+        effects.requireCurrent();
         AccountAppearanceState checkpoint = effects.load();
+        if (existingIntentOnly && (!checkpoint.hasIntent() || checkpoint.syncStatus() == AppearanceSyncStatus.OFFICIAL
+                || !unresolved(checkpoint.providers().skin()) && !unresolved(checkpoint.providers().cape()))) return Optional.empty();
         Revision current = revision(checkpoint);
         Revision requested = expected == null ? null : new Revision(expected.accountId(), expected.intentRevision(),
                 expected.skinActivation(), expected.capeActivation(), current.skinEnabled(), current.capeEnabled());
@@ -34,11 +42,12 @@ final class AccountReconciliationExecutor {
             };
             return Optional.of(effects.result(settled, cached, effects.observed()));
         }
-        return effects.withSession(checkpoint, scoped -> observe(scoped, checkpoint, trigger));
+        return effects.withSession(checkpoint, scoped -> observe(scoped, checkpoint, trigger, existingIntentOnly));
     }
 
     private Optional<ReconciliationResult> observe(AccountReconciliationEffects effects,
-            AccountAppearanceState checkpoint, Trigger trigger) throws IOException, PngValidationException {
+            AccountAppearanceState checkpoint, Trigger trigger, boolean existingIntentOnly) throws IOException, PngValidationException {
+        effects.requireCurrent();
         boolean explicit = policy.explicit(trigger);
         SessionValidation validation = explicit ? validate(effects, trigger, checkpoint.syncStatus()) : null;
         if (checkpoint.hasIntent() && (checkpoint.syncStatus() == AppearanceSyncStatus.OFFICIAL
@@ -46,6 +55,7 @@ final class AccountReconciliationExecutor {
             return Optional.of(effects.result(checkpoint, validation == null ? effects.cached() : validation, effects.observed()));
         }
         if (validation == null) validation = validate(effects, trigger, checkpoint.syncStatus());
+        effects.requireCurrent();
         var observed = effects.observe(validation, checkpoint.providers());
         AccountAppearanceState state = effects.load();
         if (!revision(state).equals(revision(checkpoint)) || !state.hasIntent()) {
@@ -56,6 +66,7 @@ final class AccountReconciliationExecutor {
                 && state.providers().cape().enabled(BuiltinProvider.MINECRAFT)
                 && state.capeId() != null && state.syncStatus() != AppearanceSyncStatus.OFFICIAL
                 && !validation.profile().ownsCape(state.capeId())) {
+            if (existingIntentOnly) return Optional.of(effects.result(state, validation, observed));
             var normalized = effects.normalizeCape(state);
             state = normalized.state();
             if (!normalized.updated()) return Optional.of(effects.result(state, validation, observed));
@@ -76,6 +87,7 @@ final class AccountReconciliationExecutor {
     private ReconciliationResult finish(AccountReconciliationEffects effects, AccountAppearanceState state,
             SessionValidation validation, AccountReconciliationEffects.ObservedAccount observed, Action decision)
             throws IOException, PngValidationException {
+        effects.requireCurrent();
         return switch (decision) {
             case SETTLE_OFFICIAL, SETTLE_UNKNOWN -> effects.result(effects.settle(state,
                     decision == Action.SETTLE_OFFICIAL ? AppearanceSyncStatus.OFFICIAL : AppearanceSyncStatus.UNKNOWN), validation, observed);
@@ -83,6 +95,14 @@ final class AccountReconciliationExecutor {
             case ATTEMPT_CAPE -> effects.cape(state, validation);
             default -> effects.result(state, validation, observed);
         };
+    }
+
+    private static boolean unresolved(com.naocraftlab.skins.core.provider.ProviderChannel<?> channel) {
+        var delivery = channel.minecraftDelivery();
+        return channel.enabled(BuiltinProvider.MINECRAFT) && delivery.intentRevision() > 0
+                && (delivery.status() == com.naocraftlab.skins.core.provider.ProviderDelivery.Status.PENDING
+                    || delivery.status() == com.naocraftlab.skins.core.provider.ProviderDelivery.Status.ATTEMPTING
+                    || delivery.status() == com.naocraftlab.skins.core.provider.ProviderDelivery.Status.UNKNOWN);
     }
 
     private static Revision revision(AccountAppearanceState state) {

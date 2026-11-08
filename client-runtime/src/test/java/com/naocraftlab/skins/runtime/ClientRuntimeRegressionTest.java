@@ -2113,7 +2113,7 @@ final class ClientRuntimeRegressionTest {
         }
 
         @Override
-        public PresetDelete deletePreset(UUID presetId) {
+        public PresetDelete deletePreset(GalleryScope scope, UUID presetId) {
             throw new UnsupportedOperationException();
         }
 

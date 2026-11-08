@@ -26,6 +26,11 @@ public interface LibraryStatePort {
     }
     AccountAppearanceMutationResult mutateAccountAndAppearance(UUID accountId,
             AccountAppearanceMutation mutation) throws IOException;
+    AccountAppearanceMutationResult mutateAccountAndAppearance(UUID accountId,
+            AccountAppearanceMutation mutation, java.util.function.BooleanSupplier stillCurrent) throws IOException;
+    AccountAppearanceMutationResult mutateAccountAndAppearanceRecoverably(UUID accountId,
+            AccountAppearanceMutation mutation, java.util.function.BooleanSupplier stillCurrent)
+            throws IOException;
     PersonalCapeEntry importCape(UUID accountId, String name, byte[] bytes, AccountWriteGuard guard)
             throws IOException, PngValidationException;
     default PersonalCapeEntry importCape(UUID accountId, String name, Path source,
@@ -68,6 +73,9 @@ public interface LibraryStatePort {
         public AccountAppearanceMutationPlan {
             Objects.requireNonNull(account, "account");
             Objects.requireNonNull(appearance, "appearance");
+            if (!account.accountId().equals(appearance.accountId())) {
+                throw new IllegalArgumentException("Account and appearance UUIDs differ");
+            }
         }
 
         public static AccountAppearanceMutationPlan accountOnly(

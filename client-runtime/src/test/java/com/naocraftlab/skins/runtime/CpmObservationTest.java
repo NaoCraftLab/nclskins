@@ -11,6 +11,37 @@ import static org.junit.jupiter.api.Assertions.*;
 class CpmObservationTest {
     private static final UUID PLAYER = new UUID(0, 71);
 
+    @Test void contentOnlyPublicationUpdatesUiFactsWithoutChangingNativePresenceAndDeduplicatesRepeats() {
+        try (var registration = CapeProjection.installEvents(TestCapeProjection.events())) {
+            assertTrue(registration.active());
+            var source = CapeProjection.effectiveSkin(PLAYER, PLAYER, "fixture:content", SkinModel.CLASSIC, true);
+            var observer = CapeProjection.cpmObserver(source, "fixture");
+            assertTrue(observer.publish(1, CpmAccessoryObservation.Availability.CONFIRMED, false, true, true, false));
+            long first = source.accessories().generation();
+            assertTrue(observer.publish(1, CpmAccessoryObservation.Availability.CONFIRMED, false, true, true, true));
+            assertEquals(first + 1, source.accessories().generation());
+            assertTrue(source.accessories().present());
+            assertFalse(source.accessories().empty());
+            var value = CapeProjection.previewAccessories(PLAYER, source.location(), source.model(),
+                    com.naocraftlab.skins.client.PreviewRenderer.LiveReason.AVAILABLE);
+            assertTrue(value.present()); assertTrue(value.canInspect());
+            assertTrue(value.capeContentEmpty()); assertTrue(value.elytraContentEmpty());
+            assertFalse(observer.publish(1, CpmAccessoryObservation.Availability.CONFIRMED, false, true, true, true));
+            assertEquals(first + 1, source.accessories().generation());
+            CapeProjection.retireSkin(PLAYER);
+            assertFalse(observer.publish(2, CpmAccessoryObservation.Availability.CONFIRMED, false, true, false, false));
+        }
+    }
+
+    @Test void unavailableMetadataCannotAssertEmptyContent() {
+        for (var availability : CpmAccessoryObservation.Availability.values()) {
+            if (availability == CpmAccessoryObservation.Availability.CONFIRMED) continue;
+            assertThrows(IllegalArgumentException.class, () -> new CpmAccessoryObservation(1, availability, false, false, true, true));
+        }
+        assertFalse(CpmAccessoryObservation.unknown().capeContentEmpty());
+        assertFalse(CpmAccessoryObservation.unknown().elytraContentEmpty());
+    }
+
     @Test void auxiliaryMaterialLookupPreservesAuthoritativeInputsAndEmptyReplacesThem() {
         var demands = new java.util.concurrent.atomic.AtomicInteger();
         try (var registration = CapeProjection.installEvents(new CapeProjection.Events() {

@@ -1185,11 +1185,23 @@
       "side": "client",
       "requires": []
     },
+    "pip-consumer-lifetime": {
+      "java": ["compat/capabilities/preview/pip-consumer-lifetime/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "pip-consumer-buffer": {
+      "java": ["compat/capabilities/preview/pip-consumer-buffer/src/main/java"],
+      "resources": ["compat/capabilities/preview/pip-consumer-buffer/src/main/resources"],
+      "side": "client",
+      "requires": ["pip-consumer-lifetime"]
+    },
     "avatar-pip-shared": {
       "java": ["compat/capabilities/preview/avatar-pip-shared/src/main/java"],
       "resources": ["compat/capabilities/preview/avatar-pip-shared/src/main/resources"],
       "side": "client",
-      "requires": []
+      "requires": ["pip-consumer-lifetime"]
     },
     "avatar-pip-pose-mul-pose": {
       "java": ["compat/capabilities/preview/avatar-pip-pose-mul-pose/src/main/java"],
@@ -1207,11 +1219,11 @@
       "java": ["compat/capabilities/preview/avatar-pip-depth-gui-render-state/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-shared"]
+      "requires": ["avatar-pip-shared", "pip-consumer-buffer"]
     },
     "avatar-pip-depth-feature-dispatcher": {
       "java": ["compat/capabilities/preview/avatar-pip-depth-feature-dispatcher/src/main/java"],
-      "resources": [],
+      "resources": ["compat/capabilities/preview/avatar-pip-depth-feature-dispatcher/src/main/resources"],
       "side": "client",
       "requires": ["avatar-pip-shared"]
     },
@@ -1237,7 +1249,7 @@
       "java": ["compat/capabilities/preview/avatar-pip-submission/src/main/java"],
       "resources": ["compat/capabilities/preview/avatar-pip-submission/src/main/resources"],
       "side": "client",
-      "requires": []
+      "requires": ["pip-consumer-lifetime", "pip-consumer-buffer"]
     },
     "avatar-pip-extraction-simple-model-attack-time-core": {
       "java": ["compat/capabilities/preview/avatar-pip-render-simple-model/src/main/java"],
@@ -2264,7 +2276,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.identifier-submission-fabric.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.identifier-submission-fabric.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-consumer.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2336,7 +2348,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-consumer.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2417,7 +2429,7 @@
           "nclskins.cape-foil-pipeline.mixins.json",
           "nclskins.cape-pass-buffered.mixins.json",
           "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"
-        ],
+        , "nclskins.preview-consumer.mixins.json"],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
         ]
@@ -2519,7 +2531,7 @@
           "nclskins.cape-foil-pipeline.mixins.json",
           "nclskins.cape-pass-buffered.mixins.json",
           "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"
-        ],
+        , "nclskins.preview-consumer.mixins.json"],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
         ]
@@ -2608,7 +2620,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2680,7 +2692,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2750,7 +2762,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2822,7 +2834,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {

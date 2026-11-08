@@ -115,7 +115,8 @@ public final class CpmPreviewScopeProbe {
         System.out.println("Actual production PreviewScope methods passed: native/Sneaky bundle, exact atlas, default elytra, isolation and cleanup; synthetic host ABI, not native game rendering");
     }
 
-    static void bodyProducer(PreviewRenderer.PreviewAppearance appearance, Runnable binding, Runnable cleanupFailure) throws Exception {
+    static void bodyProducer(PreviewRenderer.PreviewAppearance appearance, Runnable binding, Runnable cleanupFailure,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture gallery) throws Exception {
         String family = CpmPreviewScopeProbe.class.getClassLoader().getResource(
                 "com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/RemotePlayerPreviewRenderer.class") != null
                 ? "playerinfo" : "skinlookup";
@@ -155,7 +156,7 @@ public final class CpmPreviewScopeProbe {
         types.put("com/mojang/blaze3d/systems/RenderSystem", CpmBakedDisplayProbe.ImmediateLighting.class);
         var loader = new ClassLoader(CpmPreviewScopeProbe.class.getClassLoader()) {
             @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-                if (!name.equals(owner) && !name.startsWith(prefix + "PreviewScope")
+                if (!name.equals(owner) && !name.equals(owner + "$NativeSlot") && !name.startsWith(prefix + "PreviewScope")
                         && !name.startsWith(prefix + "BakedPlayerPose") && !name.startsWith(prefix + "BakedPreviewLighting")) return super.loadClass(name, resolve);
                 Class<?> result = findLoadedClass(name);
                 if (result == null) {
@@ -164,9 +165,10 @@ public final class CpmPreviewScopeProbe {
                         var node = new org.objectweb.asm.tree.ClassNode();
                         new ClassReader(input).accept(node, 0);
                         if (name.equals(owner)) {
-                            node.methods.removeIf(method -> !method.name.equals("render") && !method.name.equals("body")
-                                    && !java.util.Set.of("renderFallback", "location", "parseTexture", "configureLayers").contains(method.name)
-                                    && !method.name.startsWith("lambda$render"));
+                            node.methods.removeIf(method -> !java.util.Set.of("render", "renderBody", "body", "prepareBody", "observeBody", "close",
+                                    "renderFallback", "location", "parseTexture", "configureLayers", "saveGallerySlot", "selectGallerySlot",
+                                    "retireGallerySlots", "prepareGalleryBody", "confirmGalleryBody", "renderGallery", "galleryAccessories", "observeAccessories", "clearAccessoryInspection", "accessoryObserverFor").contains(method.name)
+                                    && !method.name.startsWith("lambda$"));
                             var init = new org.objectweb.asm.tree.MethodNode(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
                             init.visitVarInsn(Opcodes.ALOAD, 0);
                             init.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
@@ -175,7 +177,7 @@ public final class CpmPreviewScopeProbe {
                             node.methods.add(init);
                             String self = owner.replace('.', '/');
                             String avatar = "L" + self + "$PreviewPlayer;";
-                            for (String helper : java.util.List.of("configureEntity", "renderBackEquipment", "onLiveLayerFailure", "clearAccessoryInspection")) {
+                            for (String helper : java.util.List.of("configureEntity", "renderBackEquipment", "onLiveLayerFailure")) {
                                 String descriptor = helper.equals("configureEntity") ? "(" + avatar + "Lcom/naocraftlab/skins/client/PreviewRenderer$PreviewRequest;)V"
                                         : helper.equals("renderBackEquipment") ? "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;"
                                                 + (family.equals("playerinfo") ? "Lnet/minecraft/client/model/PlayerModel;" : "")
@@ -186,8 +188,12 @@ public final class CpmPreviewScopeProbe {
                             }
                             var proxy = new org.objectweb.asm.tree.MethodNode(Opcodes.ACC_PRIVATE, "previewPlayer",
                                     "(Lcom/naocraftlab/skins/client/PreviewRenderer$PreviewAppearance;)" + avatar, null, null);
-                            proxy.visitVarInsn(Opcodes.ALOAD, 0); proxy.visitFieldInsn(Opcodes.GETFIELD, self, "previewPlayer", avatar);
-                            proxy.visitInsn(Opcodes.ARETURN); proxy.visitMaxs(1, 2); node.methods.add(proxy);
+                            proxy.visitVarInsn(Opcodes.ALOAD, 0); proxy.visitVarInsn(Opcodes.ALOAD, 0);
+                            proxy.visitFieldInsn(Opcodes.GETFIELD, self, "minecraft", "Lnet/minecraft/client/Minecraft;");
+                            proxy.visitVarInsn(Opcodes.ALOAD, 1);
+                            proxy.visitMethodInsn(Opcodes.INVOKESTATIC, CpmPreviewScopeProbe.class.getName().replace('.', '/'), "nativePreviewPlayer",
+                                    "(Ljava/lang/Object;L" + Client.class.getName().replace('.', '/') + ";Lcom/naocraftlab/skins/client/PreviewRenderer$PreviewAppearance;)L" + Avatar.class.getName().replace('.', '/') + ";", false);
+                            proxy.visitInsn(Opcodes.ARETURN); proxy.visitMaxs(3, 2); node.methods.add(proxy);
                             var accessories = new org.objectweb.asm.tree.MethodNode(Opcodes.ACC_PUBLIC, "accessories",
                                     "(Lcom/naocraftlab/skins/client/PreviewRenderer$PreviewRequest;)Lcom/naocraftlab/skins/client/PreviewAccessories;", null, null);
                             accessories.visitFieldInsn(Opcodes.GETSTATIC, "com/naocraftlab/skins/client/PreviewRenderer$LiveReason", "LIVE_UNAVAILABLE",
@@ -195,11 +201,10 @@ public final class CpmPreviewScopeProbe {
                             accessories.visitMethodInsn(Opcodes.INVOKESTATIC, "com/naocraftlab/skins/client/PreviewAccessories", "unavailable",
                                     "(Lcom/naocraftlab/skins/client/PreviewRenderer$LiveReason;)Lcom/naocraftlab/skins/client/PreviewAccessories;", false);
                             accessories.visitInsn(Opcodes.ARETURN); accessories.visitMaxs(1, 2); node.methods.add(accessories);
-                            node.fields.removeIf(field -> !java.util.Set.of("session", "minecraft", "closed", "previewPlayer", "previewLevel",
-                                    "diagnostics", "accessoryObserver", "previewProfile", "classicModel", "slimModel", "classic", "slim",
-                                    "classicCloak", "slimCloak", "POSE_OPERATIONS").contains(field.name));
+                            node.fields.removeIf(field -> (field.access & Opcodes.ACC_STATIC) != 0 && !field.name.equals("POSE_OPERATIONS"));
                             for (var field : node.fields) if (field.name.equals("POSE_OPERATIONS")) field.access &= ~Opcodes.ACC_FINAL;
-                            node.innerClasses.clear(); node.nestMembers = null;
+                            node.innerClasses.clear();
+                            if (node.nestMembers != null) node.nestMembers.removeIf(member -> !member.endsWith("$NativeSlot"));
                         }
                         var writer = new ClassWriter(0);
                         node.accept(new ClassRemapper(writer, terminalNames(types)));
@@ -220,6 +225,12 @@ public final class CpmPreviewScopeProbe {
             field.setAccessible(true);
             Object value = switch (field.getName()) {
                 case "session" -> session;
+                case "gallerySlots" -> new java.util.LinkedHashMap<>();
+                case "previewClock" -> new com.naocraftlab.skins.client.EditorPreviewClock();
+                case "previewTickGate" -> new com.naocraftlab.skins.client.EditorPreviewTickGate();
+                case "bodyObserver" -> (java.util.function.Consumer<PreviewRenderer.BodyStatus>) ignored -> {};
+                case "previewProfile" -> Class.forName("com.mojang.authlib.GameProfile").getConstructor(java.util.UUID.class, String.class)
+                        .newInstance(java.util.UUID.randomUUID(), "Fixture");
                 case "minecraft" -> client;
                 case "previewPlayer" -> client.player;
                 case "previewLevel" -> client.level;
@@ -304,8 +315,493 @@ public final class CpmPreviewScopeProbe {
             check(((PreviewRenderer<?>) target).displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED,
                     "Failed actual pass is not positive ordinary display");
             CpmBakedDisplayProbe.immediateFallback(renderer, target, client, appearance);
+            closed.setBoolean(target, false);
+            check(((PreviewRenderer<?>) target).prepareGalleryBody("fixture:gallery-A", false, () -> true),
+                    "actual immediate Gallery opt-in must retain source-specific displayed/candidate bodies");
+            immediateGallery(renderer, target, client, appearance, binding, gallery);
         } finally { Inventory.draw = () -> {}; }
         System.out.println("Actual immediate body producer passed: " + family + "; remapped host/GPU terminals, genuine CPM bind and native scope/session path");
+    }
+
+    private static Object nativeField(Object target, String name) throws Exception {
+        var field = target.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(target);
+    }
+
+    private static void nativeField(Object target, String name, Object value) throws Exception {
+        var field = target.getClass().getDeclaredField(name); field.setAccessible(true); field.set(target,value);
+    }
+
+    public static Avatar nativePreviewPlayer(Object renderer, Client client, PreviewRenderer.PreviewAppearance appearance) {
+        try {
+            var profile = nativeField(renderer, "previewProfile");
+            java.util.UUID id;
+            try { id = (java.util.UUID) profile.getClass().getMethod("getId").invoke(profile); }
+            catch (NoSuchMethodException modern) { id = (java.util.UUID) profile.getClass().getMethod("id").invoke(profile); }
+            com.naocraftlab.skins.runtime.CapeProjection.effectiveSkin(id, new java.util.UUID(0, 801),
+                    appearance.skin().location(), appearance.model(), true);
+            var previous = (Avatar) nativeField(renderer, "previewPlayer");
+            var player = previous != null && previous.level() == client.level ? previous : new Avatar(client.level);
+            nativeField(renderer, "previewPlayer", player);
+            nativeField(renderer, "previewLevel", client.level);
+            return player;
+        } catch (Exception failure) { throw new AssertionError(failure); }
+    }
+
+    private static void immediateGallery(Class<?> type, Object target, Client client,
+            PreviewRenderer.PreviewAppearance appearance, Runnable binding,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture root) throws Exception {
+        @SuppressWarnings("unchecked") var renderer = (PreviewRenderer<Graphics>) target;
+        client.level = new Level(); client.player = new Avatar(client.level); Client.current = client;
+        try (var fixture = root.fresh()) {
+            var selected = fixture.preview();
+            String a = fixture.runtime.previewBodySource(selected);
+            var observer = fixture.observeBody(selected, renderer);
+            renderer.observeBody(observer);
+            check(renderer.prepareGalleryBody(a,false, fixture.runtime.galleryPreviewAdmission(selected)), "immediate source A admission");
+            Inventory.draw = () -> {};
+            renderer.renderGallery(new Graphics(), a, fixture.request());
+            check(fixture.displayed() == PreviewRenderer.DisplayKind.ORDINARY, "actual immediate ordinary -> Gallery callback");
+            fixture.layersVisible(true);
+            var before = renderer.body();
+            var slots = (Map<?,?>) nativeField(target,"gallerySlots");
+            Object aSlot = slots.get(a);
+            fixture.selectC();
+            var desired = fixture.runtime.galleryPreviewCandidate().orElseThrow();
+            String b = fixture.runtime.previewBodySource(desired);
+            var next = fixture.observeBody(desired, renderer);
+            renderer.observeBody(next);
+            check(renderer.prepareGalleryBody(b,false, fixture.runtime.galleryPreviewAdmission(desired)), "immediate B preparation");
+            check(before.current().getAsBoolean(), "A witness retained while B prepared");
+            check(slots.size() == 2 && slots.get(a).equals(aSlot), "A native slot not mutated by B preparation");
+            check(!renderer.body().current().getAsBoolean(), "prepared B is not its completed pass");
+            Inventory.draw = binding;
+            renderer.renderGallery(new Graphics(), b, fixture.request());
+            check(fixture.displayed() == PreviewRenderer.DisplayKind.CPM, "actual immediate CPM -> selected B callback");
+            check(!before.current().getAsBoolean() && slots.size() == 1 && !slots.containsKey(a), "completed B retires A");
+            fixture.runtime.invalidatePreviewBody(observer);
+            check(fixture.displayed() == PreviewRenderer.DisplayKind.CPM, "stale A cleanup cannot revoke B");
+            Inventory.draw = () -> {};
+            renderer.renderGallery(new Graphics(), b, fixture.request());
+            fixture.layersVisible(true);
+            check(fixture.displayed() == PreviewRenderer.DisplayKind.ORDINARY, "CPM to ordinary actual own pass");
+            fixture.fallback();
+            var fallback = fixture.runtime.galleryPreviewCandidate().orElseThrow();
+            String worldless = fixture.runtime.previewBodySource(fallback);
+            renderer.observeBody(fixture.observeBody(fallback, renderer));
+            client.level = null; client.player = null;
+            check(renderer.prepareGalleryBody(worldless,false, fixture.runtime.galleryPreviewAdmission(fallback)),"worldless Gallery admission");
+            CpmBakedDisplayProbe.flushed = () -> check(renderer.displayKind() != PreviewRenderer.DisplayKind.ORDINARY,
+                    "flush cannot publish worldless display early");
+            renderer.renderGallery(new Graphics(), worldless, fixture.request());
+            CpmBakedDisplayProbe.flushed = () -> {};
+            check(fixture.displayed() == PreviewRenderer.DisplayKind.ORDINARY,"worldless actual baked flush -> Gallery observer");
+            fixture.layersVisible(true);
+            immediateCaller(type, target, fixture);
+
+        } finally { Client.current = null; Inventory.draw = () -> {}; CpmBakedDisplayProbe.flushed = () -> {}; }
+        try (var owned = root.freshOwned()) { immediateRootFrame(type,target,owned); }
+        try (var subject = root.fresh()) {
+            Object owner = reopenedNative(type, target);
+            @SuppressWarnings("unchecked") var rebound = (PreviewRenderer<Graphics>) owner;
+            Client.current = client; client.level = new Level(); client.player = new Avatar(client.level);
+            try {
+                var a = subject.runtime.galleryPreviewCandidate().orElseThrow();
+                String sourceA = subject.runtime.previewBodySource(a);
+                var requestA = subject.request();
+                rebound.observeBody(subject.observeBody(a, rebound));
+                check(rebound.prepareGalleryBody(sourceA,false,subject.runtime.galleryPreviewAdmission(a)), "N2 immediate A admitted");
+                Inventory.draw = () -> {};
+                rebound.renderGallery(new Graphics(), sourceA, requestA);
+                check(rebound.body().current().getAsBoolean(), "N2 immediate own A native body");
+                subject.selectC();
+                var b = subject.runtime.galleryPreviewCandidate().orElseThrow();
+                String sourceB = subject.runtime.previewBodySource(b);
+                var requestB = subject.request();
+                rebound.observeBody(subject.observeBody(b, rebound));
+                check(rebound.prepareGalleryBody(sourceB,false,subject.runtime.galleryPreviewAdmission(b)), "N2 immediate B admitted");
+                int[] publications = {0};
+                var inputB = subject.runtime.galleryAccessoryAdmission(b);
+                var common = subject.runtime.observePreviewAccessories(b, () -> rebound.galleryAccessories(sourceB,requestB,inputB));
+                rebound.observeAccessories(value -> { publications[0]++; common.accept(value); });
+                Inventory.draw = () -> { throw new IllegalStateException("synthetic retained immediate A failure"); };
+                rebound.renderGallery(new Graphics(), sourceA, requestA);
+                check(publications[0] == 0, "N2 immediate retained A cannot notify registered successor B");
+                Inventory.draw = () -> {};
+                rebound.renderGallery(new Graphics(), sourceB, requestB);
+                check(rebound.body().current().getAsBoolean() && subject.displayed() == PreviewRenderer.DisplayKind.ORDINARY,
+                        "N2 immediate B owns successful native body after A failure");
+                Inventory.draw = () -> { throw new IllegalStateException("synthetic own immediate B failure"); };
+                rebound.renderGallery(new Graphics(), sourceB, requestB);
+                check(publications[0] > 0, "N2 immediate own B notifies registered B observer");
+                System.out.println("PASS N2 immediate prepare/register B -> actual retained A failure -> zero B publications -> own B native body and observer positive");
+            } finally { Inventory.draw = () -> {}; ((AutoCloseable) owner).close(); Client.current = null; }
+        }
+        System.out.println("PASS immediate Gallery actual ordinary/CPM/worldless source A/B isolation, flush, retirement and stale callback");
+    }
+
+    private static void immediateCaller(Class<?> rendererType, Object target,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture fixture) throws Exception {
+        String owner = CpmPreviewScreenSlice.availableOwner();
+        Class<?> screenType = CpmPreviewScreenSlice.loadNative(owner, rendererType);
+        Object screen = screenType.getConstructor().newInstance();
+        var registry = new CpmOwnedPreviewDispatchProbe.Registry();
+        try (var skins = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,
+                    TextureRegistry.TextureKind.PLAYER_SKIN, com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding());
+             var capes = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,
+                    TextureRegistry.TextureKind.IMAGE, com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+            for (var field : screenType.getDeclaredFields()) {
+                field.setAccessible(true);
+                Object value = switch (field.getName()) {
+                    case "runtime" -> fixture.runtime;
+                    case "width" -> 854;
+                    case "height" -> 480;
+                    case "skinTextures" -> skins;
+                    case "capeTextures" -> capes;
+                    case "capabilities" -> new CpmOwnedPreviewDispatchProbe.Capabilities() {
+                        @SuppressWarnings({"unchecked", "rawtypes"}) public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createEditorPreviewRenderer() {
+                            return (PreviewRenderer) target;
+                        }
+                        public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createSimplePreviewRenderer() {
+                            return new CpmOwnedPreviewDispatchProbe.RenderTerminal();
+                        }
+                    };
+                    default -> field.getType() == Map.class ? new java.util.HashMap<>() : null;
+                };
+                if (value != null) field.set(screen,value);
+            }
+            var view = fixture.runtime.view(854,480,0,0);
+            var sync = screenType.getDeclaredMethod("synchronizePreviews", com.naocraftlab.skins.runtime.ViewSpec.class);
+            sync.setAccessible(true); sync.invoke(screen,view);
+            var render = screenType.getDeclaredMethod("renderPreview", Graphics.class, com.naocraftlab.skins.runtime.ViewSpec.Preview.class);
+            render.setAccessible(true); render.invoke(screen,new Graphics(),fixture.preview());
+            check(nativeField(target,"gallery") != null,
+                    "actual immediate GUI must dispatch Gallery candidate through frozen source-specific port, not legacy prepareBody");
+            fixture.selectC();
+            var callbackField = com.naocraftlab.skins.runtime.ClientRuntime.class.getDeclaredField("bodyCallback"); callbackField.setAccessible(true);
+            @SuppressWarnings("unchecked") var registration = (java.util.function.Consumer<PreviewRenderer.BodyStatus>)callbackField.get(fixture.runtime);
+            fixture.runtime.invalidatePreviewBody(registration);
+            fixture.offlineCapeCapability(true);
+            sync.invoke(screen,fixture.runtime.view(854,480,0,0));
+            fixture.drainWorkers(); sync.invoke(screen,fixture.runtime.view(854,480,0,0)); fixture.drainWorkers();
+            render.invoke(screen,new Graphics(),fixture.preview());
+            var capabilityA = fixture.preview();
+            check(capabilityA.capeHasElytra(),"COMMON-02 immediate real account predecessor capability");
+            fixture.offlineCapeCapability(false);
+            var capabilityB = fixture.runtime.galleryPreviewCandidate().orElseThrow();
+            check(capabilityA.bodySource().equals(capabilityB.bodySource())
+                    && !fixture.runtime.previewBodySource(capabilityA).equals(fixture.runtime.previewBodySource(capabilityB)),
+                    "COMMON-02 immediate equal BodySource distinct exact identity");
+            sync.invoke(screen,fixture.runtime.view(854,480,0,0));
+            render.invoke(screen,new Graphics(),fixture.preview());
+            check(!fixture.preview().capeHasElytra(),"COMMON-02 immediate actual same-ID successor pass");
+            System.out.println("PASS COMMON-02 immediate actual host same-ID real account capability replacement");
+            Object reentrant = reopenedNative(rendererType,target);
+            @SuppressWarnings("unchecked") var closing = (PreviewRenderer<Graphics>)reentrant;
+            try {
+                for (int i=0;i<2;i++) {
+                    String gallerySource = "fixture:live-gallery-return-" + i;
+                    check(closing.prepareGalleryBody(gallerySource,false,() -> true),"N3 immediate live Gallery admission");
+                    closing.renderGallery(new Graphics(),gallerySource,fixture.request());
+                    check(closing.body().current().getAsBoolean(),"N3 immediate own Gallery material");
+                    Object galleryProfile = nativeField(reentrant,"previewProfile");
+                    closing.prepareBody("fixture:ordinary-before-entry-close-" + i,false);
+                    closing.render(new Graphics(),fixture.request());
+                    check(closing.body().current().getAsBoolean() && nativeField(reentrant,"previewProfile") != galleryProfile,
+                            "N3 immediate Gallery to fresh Providers ordinary actual material");
+                }
+                check(closing.body().current().getAsBoolean(),"N3 immediate starts from own actual ordinary pass");
+                Object session = nativeField(reentrant,"session"), profile = nativeField(reentrant,"previewProfile");
+                boolean[] called = {false};
+                closing.observeBody(status -> {
+                    called[0] = true;
+                    try { ((AutoCloseable)reentrant).close(); } catch (Exception failure) { throw new AssertionError(failure); }
+                });
+                check(!closing.prepareGalleryBody("fixture:reentrant-entry-close",false,() -> true) && called[0],
+                        "N3 immediate reentrant invalidation close rejects Gallery recreation");
+                closing.prepareBody("fixture:after-reentrant-close",false);
+                check(nativeField(reentrant,"gallery") == null && nativeField(reentrant,"session") == session
+                        && nativeField(reentrant,"previewProfile") == profile,"N3 immediate terminal identities unchanged");
+                System.out.println("PASS N3 immediate own ordinary native pass -> entry invalidation close -> no Gallery/ordinary recreation");
+            } finally { ((AutoCloseable)reentrant).close(); }
+        }
+        System.out.println("PASS actual immediate GUI -> Gallery native renderer port");
+    }
+
+    private static final java.util.List<String> framePainted = new java.util.ArrayList<>();
+    private static final java.util.List<String> frameBodies = new java.util.ArrayList<>();
+
+    public static class FrameWidget extends CpmOwnedPreviewDispatchProbe.WidgetTerminal {
+        public String id;
+        public void update(com.naocraftlab.skins.runtime.ViewSpec.Widget widget) {}
+        public void setSelected(boolean value) {}
+        public void setTrailingInfo(boolean value) {}
+        public void setIcon(com.naocraftlab.skins.runtime.WidgetIcon icon) {}
+        public void setIcon(com.naocraftlab.skins.runtime.GuiIcon icon) {}
+        public void setIcon(CpmOwnedPreviewDispatchProbe.Text icon) {}
+        public void setNarrationDescription(Optional<CpmOwnedPreviewDispatchProbe.TextValue> text) {}
+    }
+
+    public static CpmOwnedPreviewDispatchProbe.WidgetTerminal frameWidget(com.naocraftlab.skins.runtime.ViewSpec.Widget widget) {
+        var value = new FrameWidget(); value.id = widget.id(); return value;
+    }
+
+    public static void framePaint(CpmOwnedPreviewDispatchProbe.WidgetTerminal widget) {
+        var value = (FrameWidget) widget;
+        framePainted.add(value.id + ":" + value.x + ":" + value.y + ":" + value.width + ":" + value.message.getString());
+    }
+
+    public record FrameTab(FrameWidget navigation) {}
+    public static final class FrameTooltip {
+        public static FrameTooltip create(CpmOwnedPreviewDispatchProbe.TextValue value) { return new FrameTooltip(); }
+    }
+
+    private static java.util.List<String> frameControls(com.naocraftlab.skins.runtime.ViewSpec view) {
+        return view.widgets().stream().map(w -> w.id() + ":" + w.bounds().x() + ":" + w.bounds().y() + ":" + w.bounds().width()
+                + ":" + w.label().key()).toList();
+    }
+
+    private static java.util.UUID nativeProfile(Object target) throws Exception {
+        var profile = nativeField(target,"previewProfile");
+        try { return (java.util.UUID) profile.getClass().getMethod("getId").invoke(profile); }
+        catch (NoSuchMethodException modern) { return (java.util.UUID) profile.getClass().getMethod("id").invoke(profile); }
+    }
+
+    private static Object reopenedNative(Class<?> type, Object previous) throws Exception {
+        Object target = type.getConstructor().newInstance();
+        for (var field : type.getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+            field.setAccessible(true);
+            Object value = switch (field.getName()) {
+                case "session" -> new com.naocraftlab.skins.client.EditorPreviewSession();
+                case "gallery", "activeGallerySource", "previewPlayer", "previewLevel" -> null;
+                case "gallerySlots" -> new java.util.LinkedHashMap<>();
+                case "closed" -> false;
+                case "renderDepth" -> 0;
+                case "previewClock" -> new com.naocraftlab.skins.client.EditorPreviewClock();
+                case "previewTickGate" -> new com.naocraftlab.skins.client.EditorPreviewTickGate();
+                case "bodyObserver" -> (java.util.function.Consumer<PreviewRenderer.BodyStatus>) ignored -> {};
+                case "accessoryObserver" -> (java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories>) ignored -> {};
+                case "previewProfile" -> Class.forName("com.mojang.authlib.GameProfile").getConstructor(java.util.UUID.class,String.class).newInstance(java.util.UUID.randomUUID(),"Fixture");
+                default -> field.get(previous);
+            };
+            field.set(target,value);
+        }
+        return target;
+    }
+
+    private static void immediateRootFrame(Class<?> rendererType, Object target,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture fixture) throws Exception {
+        fixture.enableCpmCape();
+        var screenType = CpmPreviewScreenSlice.loadNativeLifecycle(CpmPreviewScreenSlice.availableOwner(), rendererType);
+        var screen = screenType.getConstructor().newInstance();
+        var terminal = (CpmOwnedPreviewDispatchProbe.ScreenTerminal) screen;
+        terminal.width = 854; terminal.height = 480;
+        terminal.minecraft = new CpmOwnedPreviewDispatchProbe.ClientTerminal(); terminal.minecraft.screen = terminal;
+        var registry = new CpmOwnedPreviewDispatchProbe.Registry();
+        try (var skins = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,
+                TextureRegistry.TextureKind.PLAYER_SKIN, com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding());
+             var capes = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,
+                TextureRegistry.TextureKind.IMAGE, com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+            for (var field : screenType.getDeclaredFields()) {
+                field.setAccessible(true);
+                Object value = switch (field.getName()) {
+                    case "runtime" -> fixture.runtime;
+                    case "skinTextures" -> skins;
+                    case "capeTextures" -> capes;
+                    case "initialized" -> true;
+                    case "widgetShapes", "tabGroupShapes" -> java.util.List.of();
+                    case "scrollController" -> new CpmOwnedPreviewDispatchProbe.ScrollTerminal();
+                    case "capabilities" -> new CpmOwnedPreviewDispatchProbe.Capabilities() {
+                        @SuppressWarnings({"unchecked", "rawtypes"}) public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createEditorPreviewRenderer() { return (PreviewRenderer) target; }
+                        public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createSimplePreviewRenderer() { return new CpmOwnedPreviewDispatchProbe.RenderTerminal(); }
+                    };
+                    default -> field.getType() == Map.class ? new java.util.LinkedHashMap<>() : null;
+                };
+                if (value != null) field.set(screen,value);
+            }
+            var changed = screenType.getDeclaredMethod("snapshotChanged", com.naocraftlab.skins.runtime.ClientSnapshot.class); changed.setAccessible(true);
+            var render = screenType.getMethod("render", Graphics.class, int.class, int.class, float.class);
+            try (var subscription = fixture.runtime.subscribe(snapshot -> {
+                try { changed.invoke(screen,snapshot); }
+                catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+            })) {
+                Client client = (Client) nativeField(target,"minecraft");
+                client.level = new Level(); client.player = new Avatar(client.level); Client.current = client;
+                var frameIdentities = new java.util.ArrayList<Map<?,?>>();
+                Inventory.draw = () -> {
+                    try {
+                        if (frameIdentities.isEmpty()) frameIdentities.add(new java.util.LinkedHashMap<>((Map<?,?>) nativeField(screen,"nativeWidgets")));
+                        frameBodies.add((String) nativeField(target,"activeGallerySource")); }
+                    catch (Exception failure) { throw new AssertionError(failure); }
+                };
+                var sync = screenType.getDeclaredMethod("synchronizePreviews", com.naocraftlab.skins.runtime.ViewSpec.class); sync.setAccessible(true);
+                var assetKey = screenType.getDeclaredMethod("previewAssetKey", com.naocraftlab.skins.runtime.ViewSpec.Preview.class); assetKey.setAccessible(true);
+                var loadingA = fixture.preview(); Object loadingAKey = assetKey.invoke(screen,loadingA);
+                sync.invoke(screen,fixture.runtime.view(854,480,0,0));
+                while (skins.handle(loadingAKey).isEmpty() && fixture.runNextWorker()) sync.invoke(screen,fixture.runtime.view(854,480,0,0));
+                render.invoke(screen,new Graphics(),0,0,0f);
+                var ownedA = fixture.preview();
+                var inputA = fixture.runtime.galleryAccessoryAdmission(ownedA);
+                Object keyA = assetKey.invoke(screen,ownedA);
+                var handleA = skins.handle(keyA).orElseThrow();
+                check(java.util.Arrays.equals(fixture.ownedBytes(ownedA),registry.registered.get(handleA)), "actual A import/storage/load/cache bytes");
+                String a = fixture.runtime.previewBodySource(fixture.preview());
+                var requestMethodA = screenType.getDeclaredMethod("galleryRequest",com.naocraftlab.skins.runtime.ViewSpec.Preview.class); requestMethodA.setAccessible(true);
+                @SuppressWarnings("unchecked") var requestA = ((Optional<PreviewRenderer.PreviewRequest>) requestMethodA.invoke(screen,ownedA)).orElseThrow();
+                @SuppressWarnings("unchecked") var rendererA = (PreviewRenderer<Graphics>) target;
+                var sourceA = com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target));
+                com.naocraftlab.skins.client.PreviewAccessories accessoryA;
+                try (var decodedA = CpmBehaviorProbe.nativeAccessoryObservation(sourceA)) {
+                    accessoryA = rendererA.galleryAccessories(a,requestA,inputA);
+                    check(accessoryA.canInspect() && accessoryA.present(),"actual A matching profile/appearance accessories positive");
+                }
+                int[] staleReadsA = {0};
+                var registrationA = fixture.runtime.observePreviewAccessories(ownedA,() -> { staleReadsA[0]++; return rendererA.galleryAccessories(a,requestA,inputA); });
+                fixture.selectC();
+                var before = fixture.runtime.view(854,480,0,0);
+                String b = fixture.runtime.previewBodySource(fixture.runtime.galleryPreviewCandidate().orElseThrow());
+                check(!a.equals(b) && before.previews().stream().anyMatch(p -> fixture.runtime.previewBodySource(p).equals(a)),
+                        "root fixture must retain actual A while distinct B is candidate");
+                var hidden = fixture.runtime.galleryPreviewCandidate().orElseThrow();
+                var inputB = fixture.runtime.galleryAccessoryAdmission(hidden);
+                check(!before.previews().contains(hidden) && hidden.requiresLoadedSkin(),"distinct owned B must be hidden outside view.previews");
+                Object keyB = assetKey.invoke(screen,hidden);
+                sync.invoke(screen,before);
+                check(!keyA.equals(keyB), "hidden candidate uses its own real asset cache key");
+                check(skins.handle(keyB).isEmpty(), "distinct owned hidden candidate is cold/queued while A remains displayed");
+                fixture.drainWorkers(); sync.invoke(screen,before);
+                var handleB = skins.handle(keyB).orElseThrow();
+                check(!handleA.equals(handleB) && hidden.variant() == com.naocraftlab.skins.core.model.SkinVariant.SLIM
+                        && java.util.Arrays.equals(fixture.ownedBytes(hidden),registry.registered.get(handleB)), "distinct imported B bytes/model reached real hidden cache/relookup");
+                check(fixture.preview().bodySource().equals(ownedA.bodySource()) && fixture.preview().presetId().equals(ownedA.presetId()), "loaded hidden B cannot publish before its actual pass");
+                frameIdentities.clear();
+                framePainted.clear(); frameBodies.clear();
+                render.invoke(screen,new Graphics(),0,0,0f);
+                check(frameBodies.equals(java.util.List.of(a,b)), "root must execute actual retained A and B candidate native passes: " + frameBodies);
+                check(frameIdentities.size() == 1 && frameIdentities.get(0).equals(nativeField(screen,"nativeWidgets")), "root snapshot must not rebuild native collections during paint");
+                var sourceB = com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target));
+                @SuppressWarnings("unchecked") var requestB = ((Optional<PreviewRenderer.PreviewRequest>) requestMethodA.invoke(screen,hidden)).orElseThrow();
+                try (var decodedB = CpmBehaviorProbe.nativeAccessoryObservation(sourceB)) {
+                    var accessoryB = rendererA.galleryAccessories(b,requestB,inputB);
+                    check(accessoryB.canInspect() && accessoryB.present() && !accessoryA.scope().equals(accessoryB.scope()),"actual B profile has distinct matching positive accessory scope");
+                    int readsBeforeStale = staleReadsA[0]; registrationA.accept(accessoryA);
+                    check(staleReadsA[0] == readsBeforeStale && !sourceA.active(),"stale A callback after B never reads retired source supplier");
+                }
+                var after = fixture.runtime.view(854,480,0,0);
+                check(!frameControls(before).equals(frameControls(after)), "root producer must change real widget labels/geometry");
+                check(framePainted.equals(frameControls(before)), "ROOT_FRAME_MIXED_A_BODY_B_CONTROLS expected=" + frameControls(before) + " actual=" + framePainted);
+                var metadataCandidate = fixture.runtime.galleryPreviewCandidate().orElseThrow();
+                String metadataSource = fixture.runtime.previewBodySource(metadataCandidate);
+                check(!metadataSource.equals(b) && metadataCandidate.nativeAccessories(), "decoded B metadata produces a distinct full-key successor");
+                check(fixture.runtime.previewBodySource(fixture.preview()).equals(b), "metadata alone retains B0 until B1 own native pass");
+                framePainted.clear(); frameBodies.clear();
+                render.invoke(screen,new Graphics(),0,0,0f);
+                check(frameBodies.equals(java.util.List.of(b,metadataSource)), "next root draws retained B0 then its own metadata-derived B1");
+                check(framePainted.equals(frameControls(after)), "root keeps B0 controls throughout B1 native completion");
+                check(fixture.runtime.previewBodySource(fixture.preview()).equals(metadataSource), "only B1 actual pass commits its own projection");
+                var metadataView = fixture.runtime.view(854,480,0,0);
+                framePainted.clear(); frameBodies.clear();
+                render.invoke(screen,new Graphics(),0,0,0f);
+                check(frameBodies.equals(java.util.List.of(metadataSource)), "stable successor draws only its own native body");
+                check(framePainted.equals(frameControls(metadataView)), "stable successor paints its own coherent controls");
+                check(skins.handle(keyA).isEmpty(), "old Gallery A cache key retired after B publication");
+                fixture.selectB();
+                sync.invoke(screen,fixture.runtime.view(854,480,0,0)); fixture.drainWorkers();
+                sync.invoke(screen,fixture.runtime.view(854,480,0,0));
+                frameBodies.clear(); render.invoke(screen,new Graphics(),0,0,0f);
+                check(frameBodies.size() == 2 && !frameBodies.get(0).equals(frameBodies.get(1)), "B-C-B return uses new source authority");
+                check(fixture.preview().presetId().equals(ownedA.presetId()), "B-C-B actual pass returns original selected preset");
+                var requestMethod = screenType.getDeclaredMethod("galleryRequest",com.naocraftlab.skins.runtime.ViewSpec.Preview.class); requestMethod.setAccessible(true);
+                var current = fixture.preview(); String currentSource = fixture.runtime.previewBodySource(current);
+                @SuppressWarnings("unchecked") var projected = (Optional<PreviewRenderer.PreviewRequest>) requestMethod.invoke(screen,current);
+                var request = projected.orElseThrow();
+                @SuppressWarnings("unchecked") var nativeRenderer = (PreviewRenderer<Graphics>) target;
+                var inputCurrent = fixture.runtime.galleryAccessoryAdmission(current);
+                var profile = nativeField(target,"previewProfile");
+                java.util.UUID profileId;
+                try { profileId = (java.util.UUID) profile.getClass().getMethod("getId").invoke(profile); }
+                catch (NoSuchMethodException modern) { profileId = (java.util.UUID) profile.getClass().getMethod("id").invoke(profile); }
+                var source = com.naocraftlab.skins.runtime.CapeProjection.skinSource(profileId);
+                check(source != null && source.active() && source.location().equals(request.appearance().skin().location())
+                        && source.model() == request.appearance().model(),"actual slot profile/appearance source prerequisite");
+                try (var decoded = CpmBehaviorProbe.nativeAccessoryObservation(source)) {
+                    var positive = nativeRenderer.galleryAccessories(currentSource,request,inputCurrent);
+                    check(positive.canInspect() && positive.cape() && positive.elytra() && positive.scope() != null,
+                            "actual source-specific Gallery accessories positive from decoded model");
+                    check(!nativeRenderer.galleryAccessories(a,request,inputA).canInspect() && !nativeRenderer.galleryAccessories(b,request,inputB).canInspect(),
+                            "stale A and C cannot expose current source accessories after B return");
+                    check(!nativeRenderer.galleryAccessories(currentSource,new PreviewRenderer.PreviewRequest(
+                            new PreviewRenderer.PreviewAppearance(request.appearance().skin(),SkinModel.SLIM,Optional.empty(),PreviewRenderer.CapeMode.OFF,true),
+                            0,0,160,180,0,0,1,PreviewRenderer.PreviewIntent.EDITOR_DRAFT),inputCurrent).canInspect(),"mismatched appearance cannot borrow current profile accessories");
+                    int[] reads = {0,0};
+                    var stale = fixture.runtime.observePreviewAccessories(current,() -> { reads[0]++; return nativeRenderer.galleryAccessories(currentSource,request,inputCurrent); });
+                    var live = fixture.runtime.observePreviewAccessories(current,() -> { reads[1]++; return nativeRenderer.galleryAccessories(currentSource,request,inputCurrent); });
+                    reads[0] = 0; reads[1] = 0; stale.accept(positive); live.accept(positive);
+                    check(reads[0] == 0 && reads[1] > 0,"replaced registration rejects stale supplier before reading; positive current supplier executes");
+                    framePainted.clear();
+                    Inventory.draw = () -> { throw new AssertionError("frame-terminal-failure"); };
+                    boolean failed = false;
+                    try { render.invoke(screen,new Graphics(),0,0,0f); }
+                    catch (java.lang.reflect.InvocationTargetException expected) { failed = expected.getCause() instanceof AssertionError && "frame-terminal-failure".equals(expected.getCause().getMessage()); }
+                    check(failed && ((Integer) nativeField(screen,"galleryFrameDepth")) == 0,"root exception settles frame guard");
+                    Inventory.draw = () -> {
+                        check(source.active(),"native reentrant close starts with actual current source");
+                        try { ((AutoCloseable) target).close(); } catch (Exception failure) { throw new AssertionError(failure); }
+                        check(source.active(),"source resource retained until immediate native call really returns");
+                        fixture.runtime.closeScreen();
+                    };
+                    render.invoke(screen,new Graphics(),0,0,0f);
+                    check(!source.active() && ((Map<?,?>) nativeField(target,"gallerySlots")).isEmpty(),"native return retires closed source/profile slots");
+                    check(framePainted.isEmpty() && ((Integer) nativeField(screen,"galleryFrameDepth")) == 0,"reentrant screen close has no after-close widgets and settles frame guard");
+                    int oldReads = reads[1]; live.accept(positive);
+                    check(reads[1] == oldReads,"closed screen rejects accessory supplier before read");
+                    render.invoke(screen,new Graphics(),0,0,0f);
+                    check(framePainted.isEmpty(),"closed root cannot revive widgets");
+                    fixture.runtime.reopen(); fixture.drainWorkers();
+                    check(fixture.runtime.snapshot().lifecycle() == com.naocraftlab.skins.runtime.ClientSnapshot.Lifecycle.READY,"real same runtime reopen reaches READY");
+                    live.accept(positive); check(reads[1] == oldReads,"pre-close accessory callback stays retired after reopen");
+                    check(!nativeRenderer.prepareGalleryBody(currentSource,false, () -> true),"closed native owner cannot be resurrected by reopen");
+                    Object terminalSession = nativeField(target,"session");
+                    nativeRenderer.prepareBody("fixture:ordinary-after-terminal-close",false);
+                    check(nativeField(target,"session") == terminalSession,"N3 closed immediate owner cannot recreate ordinary session");
+                    Object reopened = reopenedNative(rendererType,target);
+                    @SuppressWarnings("unchecked") var nextRenderer = (PreviewRenderer<Graphics>) reopened;
+                    var nextPreview = fixture.preview();
+                    var inputNext = fixture.runtime.galleryAccessoryAdmission(nextPreview);
+                    String nextSource = fixture.runtime.previewBodySource(nextPreview);
+                    check(!nextSource.equals(currentSource),"reopen creates new source generation");
+                    nextRenderer.observeBody(fixture.observeBody(nextPreview, nextRenderer));
+                    check(nextRenderer.prepareGalleryBody(nextSource,false, fixture.runtime.galleryPreviewAdmission(nextPreview)),"fresh native owner admits reopened source");
+                    Inventory.draw = () -> {};
+                    nextRenderer.renderGallery(new Graphics(),nextSource,requestA);
+                    check(fixture.displayed() == PreviewRenderer.DisplayKind.ORDINARY,"reopened actual native pass positively publishes new source");
+                    var nextSkin = com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(reopened));
+                    try (var nextDecoded = CpmBehaviorProbe.nativeAccessoryObservation(nextSkin)) {
+                        var nextAccessory = nextRenderer.galleryAccessories(nextSource,requestA,inputNext);
+                        check(nextAccessory.canInspect() && !nextAccessory.scope().equals(positive.scope()),"reopened actual owner has new positive accessory scope");
+                        int[] accountReads = {0};
+                        var accountCallback = fixture.runtime.observePreviewAccessories(nextPreview,() -> { accountReads[0]++; return nextRenderer.galleryAccessories(nextSource,requestA,inputNext); });
+                        int beforeAccount = accountReads[0]; fixture.sessionAccount = new java.util.UUID(0,899);
+                        accountCallback.accept(nextAccessory); check(accountReads[0] == beforeAccount,"account scope rejects supplier before reading");
+                        fixture.sessionAccount = new java.util.UUID(0,801);
+                        var lease = nextSkin;
+                        client.level = null; client.player = null;
+                        CpmBakedDisplayProbe.flushed = () -> {
+                            check(lease.active(),"source remains retained inside actual endBatch/flush terminal");
+                            try { ((AutoCloseable) reopened).close(); } catch (Exception failure) { throw new AssertionError(failure); }
+                            check(lease.active(),"reentrant baked close cannot retire source before actual native flush returns");
+                        };
+                        try { nextRenderer.renderGallery(new Graphics(),nextSource,requestA); }
+                        finally { CpmBakedDisplayProbe.flushed = () -> {}; }
+                        check(!lease.active() && ((Map<?,?>) nativeField(reopened,"gallerySlots")).isEmpty(),"actual endBatch/flush return settles closed resources");
+                    }
+                    System.out.println("PASS REOPEN_ACCOUNT fresh native owner/same runtime positive, old callback retirement, account scope, actual endBatch/flush reentrant retention");
+                }
+                System.out.println("PASS SOURCE_ACCESSORIES decoded matching profile/appearance, stale A/C, replaced registration, native reentrant close retains resource until return, root exception/close guards");
+                System.out.println("PASS DISTINCT_OWNED hidden candidate actual import/storage/load/cache/relookup, model/bytes/no-borrow, old-key retirement and B-C-B");
+            }
+        }
+        System.out.println("PASS ROOT_FRAME actual A body/B candidate completion -> snapshotChanged -> unchanged A widgets; next frame B body/controls");
     }
 
     private static Remapper terminalNames(Map<String, Class<?>> types) {
@@ -372,6 +868,8 @@ public final class CpmPreviewScopeProbe {
     }
 
     public static final class Graphics {
+        public void enableScissor(int x, int y, int right, int bottom) {}
+        public void disableScissor() {}
         public Pose pose() { return new Pose(); }
         public CpmBakedDisplayProbe.Buffers bufferSource() { return new CpmBakedDisplayProbe.Buffers(); }
         public void flush() { CpmBakedDisplayProbe.flush(); }
@@ -391,133 +889,12 @@ public final class CpmPreviewScopeProbe {
                 org.joml.Quaternionf rotation, org.joml.Quaternionf camera, Entity entity) { draw.run(); }
     }
 
-    static void submissionBodyProducer(PreviewRenderer.PreviewAppearance appearance, Runnable binding, Runnable cleanupFailure) throws Exception {
-        String prefix = "com.naocraftlab.skins.compat.client.identifier.submission.";
-        if (CpmPreviewScopeProbe.class.getClassLoader().getResource(prefix.replace('.', '/') + "LivePreviewRenderer.class") == null) return;
-        var types = new java.util.HashMap<String, Class<?>>();
-        types.put("net/minecraft/client/Minecraft", Client.class);
-        types.put("net/minecraft/client/player/AbstractClientPlayer", Avatar.class);
-        types.put("net/minecraft/client/player/LocalPlayer", Avatar.class);
-        types.put("net/minecraft/world/entity/Entity", Entity.class);
-        types.put("net/minecraft/world/entity/Avatar", Player.class);
-        types.put("net/minecraft/world/entity/LivingEntity", Entity.class);
-        types.put("net/minecraft/world/entity/EquipmentSlot", Slot.class);
-        types.put("net/minecraft/world/entity/player/PlayerModelPart", Part.class);
-        types.put("net/minecraft/world/entity/player/PlayerSkin", SubmissionSkin.class);
-        types.put("net/minecraft/world/item/ItemStack", Stack.class);
-        types.put("net/minecraft/client/gui/render/pip/PictureInPictureRenderer", Pip.class);
-        types.put("net/minecraft/client/renderer/MultiBufferSource$BufferSource", Buffers.class);
-        types.put("net/minecraft/client/renderer/entity/state/EntityRenderState", AvatarState.class);
-        types.put("net/minecraft/client/renderer/entity/state/AvatarRenderState", AvatarState.class);
-        types.put("net/minecraft/client/entity/ClientAvatarState", Physics.class);
-        types.put("net/minecraft/world/phys/Vec3", Vector.class);
-        types.put("net/minecraft/client/DeltaTracker", Delta.class);
-        types.put("net/minecraft/client/renderer/entity/EntityRenderDispatcher", Dispatcher.class);
-        types.put("net/minecraft/client/renderer/GameRenderer", GameRenderer.class);
-        types.put("com/mojang/blaze3d/platform/Lighting", Light.class);
-        types.put("com/mojang/blaze3d/platform/Lighting$Entry", Light.Entry.class);
-        types.put("com/mojang/blaze3d/vertex/PoseStack", Pose.class);
-        types.put("net/minecraft/client/renderer/state/CameraRenderState", Camera.class);
-        types.put("net/minecraft/client/renderer/feature/FeatureRenderDispatcher", Features.class);
-        types.put("net/minecraft/client/renderer/SubmitNodeStorage", Storage.class);
-        types.put("net/minecraft/client/renderer/SubmitNodeCollector", Collector.class);
-        types.put((prefix + "SubmissionPreviewRenderer").replace('.', '/'), Submission.class);
-        types.put((prefix + "SubmissionPreviewRenderer$PreviewPlayer").replace('.', '/'), Avatar.class);
-        var loader = new ClassLoader(CpmPreviewScopeProbe.class.getClassLoader()) {
-            @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-                if (!name.startsWith(prefix) || name.endsWith("SubmissionPreviewRenderer")) return super.loadClass(name, resolve);
-                Class<?> result = findLoadedClass(name);
-                if (result == null) {
-                    try (var input = getParent().getResourceAsStream(name.replace('.', '/') + ".class")) {
-                        if (input == null) throw new ClassNotFoundException(name);
-                        var node = new org.objectweb.asm.tree.ClassNode();
-                        new ClassReader(input).accept(node, 0);
-                        if (name.endsWith("LivePreviewRenderState")) {
-                            node.interfaces.clear(); node.innerClasses.clear(); node.nestMembers = null;
-                            node.methods.removeIf(method -> !java.util.Set.of("previewPlayer", "previewContext", "request", "previewAge",
-                                    "translation", "rotation", "overrideCameraAngle", "failureSink", "layerFailureSink").contains(method.name));
-                            node.fields.removeIf(field -> field.name.equals("bounds") || field.name.equals("scissorArea"));
-                            var init = new org.objectweb.asm.tree.MethodNode(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
-                            init.visitVarInsn(Opcodes.ALOAD, 0); init.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
-                            init.visitInsn(Opcodes.RETURN); init.visitMaxs(1, 1); node.methods.add(init);
-                        }
-                        if (name.endsWith("LivePreviewRenderer")) node.methods.removeIf(method ->
-                                method.name.equals("renderToTexture") && (method.access & Opcodes.ACC_BRIDGE) != 0);
-                        var writer = new ClassWriter(0);
-                        node.accept(new ClassRemapper(writer, new Remapper(Opcodes.ASM9) {
-                            @Override public String map(String internalName) {
-                                Class<?> mapped = types.get(internalName);
-                                return mapped == null ? internalName : mapped.getName().replace('.', '/');
-                            }
-                        }));
-                        byte[] bytes = writer.toByteArray(); result = defineClass(name, bytes, 0, bytes.length);
-                    } catch (IOException failure) { throw new ClassNotFoundException(name, failure); }
-                }
-                if (resolve) resolveClass(result);
-                return result;
-            }
-        };
-        Client client = new Client(); client.player = new Avatar(client.level); Client.current = client;
-        Class<?> contextType = loader.loadClass(prefix + "PreviewContext");
-        var constructor = contextType.getDeclaredConstructors()[0]; constructor.setAccessible(true);
-        var session = new com.naocraftlab.skins.client.EditorPreviewSession();
-        boolean[] current = {true};
-        Object context = constructor.newInstance(client.player, appearance, new SubmissionSkin(), Stack.EMPTY,
-                (java.util.function.BooleanSupplier) () -> current[0], session.displayBody(() -> current[0]));
-        Class<?> stateType = loader.loadClass(prefix + "LivePreviewRenderState");
-        Object state = stateType.getConstructor().newInstance();
-        Object failureSink = java.lang.reflect.Proxy.newProxyInstance(loader, new Class<?>[]{loader.loadClass(prefix + "PreviewFailureSink")},
-                (proxy, method, args) -> null);
-        for (var field : stateType.getDeclaredFields()) {
-            field.setAccessible(true);
-            Object value = switch (field.getName()) {
-                case "previewPlayer" -> client.player;
-                case "previewContext" -> context;
-                case "request" -> new PreviewRenderer.PreviewRequest(appearance, 0, 0, 160, 180, 0, 0, 1, PreviewRenderer.PreviewIntent.EDITOR_DRAFT);
-                case "translation" -> new org.joml.Vector3f();
-                case "rotation", "overrideCameraAngle" -> new org.joml.Quaternionf();
-                case "failureSink", "layerFailureSink" -> failureSink;
-                default -> null;
-            };
-            if (value != null) field.set(state, value);
-        }
-        Class<?> rendererType = loader.loadClass(prefix + "LivePreviewRenderer");
-        Object renderer = rendererType.getConstructor(Buffers.class).newInstance(new Buffers());
-        var render = rendererType.getDeclaredMethod("renderToTexture", stateType, Pose.class); render.setAccessible(true);
-        Inventory.draw = binding;
-        try {
-            check(session.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "queued submission/context is not completed display");
-            render.invoke(renderer, state, new Pose());
-            check(session.body().status() == PreviewRenderer.BodyStatus.READY,
-                    "actual submission features -> genuine bind -> captured context -> post-cleanup body commit");
-            Inventory.draw = () -> {};
-            render.invoke(renderer, state, new Pose());
-            check(session.body().status() == PreviewRenderer.BodyStatus.ORDINARY && session.body().current().getAsBoolean(),
-                    "actual submission ordinary feature execution and cleanup retain positive ordinary proof");
-            Inventory.draw = () -> {
-                binding.run();
-                check(com.naocraftlab.skins.client.EditorPreviewLayerGuard.handle(new IllegalStateException("synthetic handled feature failure")),
-                        "submission layer guard is installed");
-            };
-            render.invoke(renderer, state, new Pose());
-            check(session.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "handled layer failure is not successful submission display");
-            check(!session.body().current().getAsBoolean(), "handled submission failure is unconfirmed, not ordinary");
-            Inventory.draw = cleanupFailure;
-            render.invoke(renderer, state, new Pose());
-            check(session.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "owned submission cleanup failure never commits candidate");
-            Inventory.draw = () -> { binding.run(); throw new IllegalStateException("synthetic feature failure"); };
-            render.invoke(renderer, state, new Pose());
-            check(session.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "handled actual feature failure clears body");
-            Inventory.draw = () -> { binding.run(); current[0] = false; };
-            render.invoke(renderer, state, new Pose());
-            check(session.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "retired deferred context cannot publish body");
-        } finally { Inventory.draw = () -> {}; Client.current = null; }
-        System.out.println("Actual submission body producer passed: remapped host/GPU terminals, genuine CPM bind and actual context/scope/session path");
+    static void submissionBodyProducer(PreviewRenderer.PreviewAppearance appearance, Runnable binding, Runnable cleanupFailure,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture gallery) throws Exception {
+        if (CpmPreviewScopeProbe.class.getClassLoader().getResource("com/naocraftlab/skins/compat/client/identifier/submission/LivePreviewRenderer.class") == null) return;
+        CpmBakedDisplayProbe.submissionBodyProducer(appearance, binding, cleanupFailure, gallery);
     }
 
-    public static class Pip { public Pip(Buffers buffers) {} }
-    public static final class Buffers {}
-    public static final class SubmissionSkin { public Object cape() { return null; } }
     public static final class AvatarState { public float ageInTicks; }
     public static final class Physics { public void tick(Vector position, Vector motion) {} }
     public static final class Vector { public static final Vector ZERO = new Vector(); }
@@ -538,10 +915,6 @@ public final class CpmPreviewScopeProbe {
         public Storage getSubmitNodeStorage() { return new Storage(); }
         public void renderAllFeatures() { Inventory.draw.run(); }
     }
-    public static final class Submission {
-        public static void configure(AvatarState state, PreviewRenderer.PreviewRequest request) {}
-    }
-
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }

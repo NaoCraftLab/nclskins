@@ -11,6 +11,18 @@ import java.util.Set;
 import java.util.UUID;
 
 public interface UiPreferencesPort {
+    AccountUiPreferences updateGallerySections(GallerySectionsUpdate update) throws Exception;
+
+    record GallerySectionsUpdate(LibraryEditorPort.GalleryScope scope,
+            java.util.Map<String, Boolean> collapsed) {
+        public GallerySectionsUpdate {
+            java.util.Objects.requireNonNull(scope, "scope");
+            collapsed = java.util.Map.copyOf(collapsed);
+            if (collapsed.isEmpty()) throw new IllegalArgumentException("empty Gallery patch");
+            collapsed.keySet().forEach(AccountUiPreferences::requireGallerySectionId);
+        }
+    }
+
     Optional<AccountUiPreferences> loadUiPreferences() throws Exception;
 
     void setSelectedProvidersTab(UUID accountId, AppearanceProviders.Component tab) throws Exception;

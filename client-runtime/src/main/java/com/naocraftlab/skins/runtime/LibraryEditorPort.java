@@ -22,6 +22,62 @@ import com.naocraftlab.skins.runtime.ClientOperations.RemoteResult;
 import com.naocraftlab.skins.runtime.CatalogMaterialization.FrozenCatalogSelection;
 
 public interface LibraryEditorPort {
+    AccountState setPresetFavorite(PresetFavoriteUpdate update) throws Exception;
+
+    PresetUse applyGalleryDraft(GalleryApplyRequest request) throws Exception;
+
+    record GalleryScope(UUID initiatingAccountId, long accountEpoch,
+            java.util.function.BooleanSupplier stillCurrent) {
+        public GalleryScope {
+            Objects.requireNonNull(initiatingAccountId, "initiatingAccountId");
+            Objects.requireNonNull(stillCurrent, "stillCurrent");
+            if (accountEpoch < 0) throw new IllegalArgumentException("negative account epoch");
+        }
+
+        public boolean admits(UUID accountId, long epoch) {
+            return initiatingAccountId.equals(accountId) && accountEpoch == epoch && stillCurrent.getAsBoolean();
+        }
+
+        public void requireCurrent(UUID accountId, long epoch) {
+            if (!admits(accountId, epoch)) throw new IllegalStateException("stale Gallery scope");
+        }
+    }
+
+    record GalleryMaskPatch(OuterLayerVisibility expected, OuterLayerVisibility desired) {
+        public GalleryMaskPatch {
+            Objects.requireNonNull(expected, "expected");
+            Objects.requireNonNull(desired, "desired");
+        }
+
+        public com.naocraftlab.skins.core.model.AppearancePreset applyTo(
+                com.naocraftlab.skins.core.model.AppearancePreset latest, java.time.Instant updatedAt) {
+            Objects.requireNonNull(latest, "latest");
+            if (!expected.equals(latest.outerLayerVisibility())) {
+                throw new IllegalStateException("Gallery mask conflict");
+            }
+            return new com.naocraftlab.skins.core.model.AppearancePreset(latest.id(), latest.name(),
+                    latest.skin(), latest.capeId(), desired, latest.createdAt(), updatedAt,
+                    latest.offlineCape(), latest.favorite());
+        }
+    }
+
+    record GalleryApplyRequest(GalleryScope scope, UUID presetId,
+            Optional<GalleryMaskPatch> maskPatch, long draftGeneration) {
+        public GalleryApplyRequest {
+            Objects.requireNonNull(scope, "scope");
+            Objects.requireNonNull(presetId, "presetId");
+            Objects.requireNonNull(maskPatch, "maskPatch");
+            if (draftGeneration < 0) throw new IllegalArgumentException("negative draft generation");
+        }
+    }
+
+    record PresetFavoriteUpdate(GalleryScope scope, UUID presetId, boolean desired) {
+        public PresetFavoriteUpdate {
+            Objects.requireNonNull(scope, "scope");
+            Objects.requireNonNull(presetId, "presetId");
+        }
+    }
+
     Optional<AccountState> reloadEditorAccount(UUID accountId) throws Exception;
 
     Optional<AccountState> discardCapeIfUnreferenced(UUID accountId, UUID entryId)
@@ -57,7 +113,7 @@ public interface LibraryEditorPort {
 
     EditorSave saveEditor(EditorSaveRequest request) throws Exception;
 
-    PresetDelete deletePreset(UUID presetId) throws Exception;
+    PresetDelete deletePreset(GalleryScope scope, UUID presetId) throws Exception;
 
     RemoteResult applyPreset(UUID presetId) throws Exception;
 
@@ -74,7 +130,17 @@ public interface LibraryEditorPort {
             Optional<OuterLayerVisibility> outerLayerVisibility,
             long intentRevision,
             AppearanceSyncStatus syncStatus,
-            AppearanceProviders providers) {
+            AppearanceProviders providers,
+            boolean selectionAssignment) {
+        public PresetUse(AccountState account, SessionValidation session, UUID activePresetId,
+                Optional<AppliedAppearance> localAppearance, Optional<RemoteResult> remoteResult,
+                boolean pendingOfficialSync, boolean durableSelection,
+                Optional<OuterLayerVisibility> outerLayerVisibility, long intentRevision,
+                AppearanceSyncStatus syncStatus, AppearanceProviders providers) {
+            this(account, session, activePresetId, localAppearance, remoteResult, pendingOfficialSync,
+                    durableSelection, outerLayerVisibility, intentRevision, syncStatus, providers, true);
+        }
+
         public PresetUse(
                 AccountState account,
                 SessionValidation session,

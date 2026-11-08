@@ -55,6 +55,30 @@ class NclSkinsStorageTest {
     Path temporaryDirectory;
 
     @Test
+    void favoriteRoundTripsAndSchemaFourOpenDoesNotRewrite() throws Exception {
+        NclSkinsStorage storage = storage();
+        UUID id = UUID.randomUUID();
+        var preset = new com.naocraftlab.skins.core.model.AppearancePreset(UUID.randomUUID(), "B",
+                com.naocraftlab.skins.core.model.SkinReference.accountDefault(), null, NOW, NOW).withFavorite(true);
+        AccountState state = new AccountState(AccountState.CURRENT_SCHEMA_VERSION, id, List.of(), List.of(preset), NOW);
+        AccountStateJson codec = new AccountStateJson();
+        assertTrue(codec.decode(codec.encode(state)).state().presets().get(0).favorite());
+        assertEquals(5, state.schemaVersion());
+        var legacy = com.google.gson.JsonParser.parseString(new String(codec.encode(state), StandardCharsets.UTF_8)).getAsJsonObject();
+        legacy.addProperty("schemaVersion", 4);
+        legacy.getAsJsonArray("presets").get(0).getAsJsonObject().remove("favorite");
+        byte[] bytes = legacy.toString().getBytes(StandardCharsets.UTF_8);
+        storage.initialize();
+        Path path = storage.layout().accountState(id);
+        Files.createDirectories(path.getParent());
+        Files.write(path, bytes);
+        assertFalse(storage.loadOrCreateAccount(id).presets().get(0).favorite());
+        assertArrayEquals(bytes, Files.readAllBytes(path));
+        storage.updateAccount(id, current -> current);
+        assertEquals(5, com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject().get("schemaVersion").getAsInt());
+    }
+
+    @Test
     void guardedAccountWriteRechecksAfterMutationWithoutPublishingStaleState() throws Exception {
         NclSkinsStorage storage = storage();
         UUID accountId = UUID.randomUUID();
@@ -72,6 +96,256 @@ class NclSkinsStorageTest {
         assertEquals(2, guards.get());
         assertEquals(1, mutations.get());
         assertEquals(before, storage.loadOrCreateAccount(accountId));
+    }
+
+    @Test
+    void favoritePatchPreservesLatestFieldsTimestampsAndAppearance() throws Exception {
+        var storage = storage();
+        var adapter = new LibraryStorageAdapter(storage);
+        var library = new LibraryService(adapter, adapter, CLOCK);
+        UUID id = UUID.randomUUID();
+        var before = library.createPreset(id, "B", com.naocraftlab.skins.core.model.SkinReference.accountDefault(), null);
+        UUID preset = before.presets().get(0).id();
+        var appearance = storage.loadAppearance(id);
+        var favorite = library.setPresetFavorite(id, preset, true, current -> assertEquals(before, current), () -> true);
+        assertTrue(favorite.presets().get(0).favorite());
+        assertEquals(before.updatedAt(), favorite.updatedAt());
+        assertEquals(before.presets().get(0).updatedAt(), favorite.presets().get(0).updatedAt());
+        library.updatePreset(id, preset, "Edited", com.naocraftlab.skins.core.model.SkinReference.accountDefault(), null);
+        var latest = library.setPresetFavorite(id, preset, false, current -> {}, () -> true);
+        assertEquals("Edited", latest.presets().get(0).name());
+        assertFalse(latest.presets().get(0).favorite());
+        assertEquals(appearance, storage.loadAppearance(id));
+        byte[] bytes = Files.readAllBytes(storage.layout().accountState(id));
+        assertThrows(java.io.IOException.class, () -> library.setPresetFavorite(id, preset, true, current -> {}, () -> false));
+        assertThrows(RuntimeException.class, () -> library.setPresetFavorite(id, UUID.randomUUID(), true, current -> {}, () -> true));
+        assertArrayEquals(bytes, Files.readAllBytes(storage.layout().accountState(id)));
+    }
+
+    @Test
+    void galleryPreferencesBulkPreservesUnrelatedFieldsAndRefusesUnreadableBytes() throws Exception {
+        var storage = storage();
+        UUID id = UUID.randomUUID();
+        storage.setCollectionCollapsed(id, "future:collection", true);
+        storage.setSelectedAddSourceTab(id, com.naocraftlab.skins.core.model.AddSourceTab.FILE);
+        storage.setCollapsedCapeCollections(id, Set.of("future:cape"));
+        var result = storage.updateGallerySections(id, java.util.Map.of("gallery.favorites", true,
+                "gallery.your_appearances", true), () -> true);
+        assertEquals(Set.of("gallery.favorites", "gallery.your_appearances"), result.collapsedGallerySections());
+        assertEquals(Set.of("future:collection"), result.collapsedCollectionIds());
+        assertEquals(Set.of("future:cape"), result.collapsedCapeCollections());
+        assertEquals(com.naocraftlab.skins.core.model.AddSourceTab.FILE, result.selectedAddSourceTab());
+        assertEquals(result, storage().loadUiPreferences(id).preferences());
+        storage.setSelectedEditorTab(id, com.naocraftlab.skins.core.model.EditorTab.APPEARANCE);
+        assertEquals(result.collapsedGallerySections(), storage.loadUiPreferences(id).preferences().collapsedGallerySections());
+        Path path = storage.layout().accountUiPreferences(id);
+        byte[] valid = Files.readAllBytes(path);
+        assertThrows(java.io.IOException.class, () -> storage.updateGallerySections(id, java.util.Map.of("gallery.favorites", false), () -> false));
+        assertArrayEquals(valid, Files.readAllBytes(path));
+        for (String bad : List.of("{broken", "{\"schemaVersion\":999}", "{\"schemaVersion\":2,\"accountId\":\"bad\"}")) {
+            byte[] bytes = bad.getBytes(StandardCharsets.UTF_8);
+            Files.write(path, bytes);
+            assertEquals(1, storage.loadUiPreferences(id).warnings().size());
+            assertThrows(java.io.IOException.class, () -> storage.updateGallerySections(id, java.util.Map.of("gallery.favorites", false), () -> true));
+            assertArrayEquals(bytes, Files.readAllBytes(path));
+        }
+    }
+
+    @Test
+    void recoverableMutationRejectsStaleAndForeignPlansBeforeCommit() throws Exception {
+        var storage = storage();
+        UUID id = UUID.randomUUID();
+        var account = storage.updateAccount(id, current -> current);
+        byte[] bytes = Files.readAllBytes(storage.layout().accountState(id));
+        var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+        assertThrows(java.io.IOException.class, () -> storage.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) -> {
+            current.set(false);
+            return NclSkinsStorage.AccountAppearanceMutationPlan.accountOnly(a, b);
+        }, current::get));
+        UUID foreign = UUID.randomUUID();
+        assertThrows(IllegalArgumentException.class, () -> storage.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) ->
+                NclSkinsStorage.AccountAppearanceMutationPlan.both(AccountState.empty(foreign, NOW), AccountAppearanceState.empty(foreign, NOW)), () -> true));
+        assertArrayEquals(bytes, Files.readAllBytes(storage.layout().accountState(id)));
+        assertFalse(Files.exists(storage.layout().accountState(id).resolveSibling("cape-transaction.json")));
+        assertEquals(account, storage.loadOrCreateAccount(id));
+    }
+
+    @Test
+    void recoverableMutationFaultsReopenConsistentPairAfterCommitEvenWhenRetired() throws Exception {
+        for (var stage : NclSkinsStorage.TransactionStage.values()) {
+            Path root = temporaryDirectory.resolve(stage.name());
+            var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+            var armed = new java.util.concurrent.atomic.AtomicBoolean(false);
+            var storage = new NclSkinsStorage(root, new PngValidator(), CLOCK, reached -> {
+                if (armed.get() && reached == stage) {
+                    current.set(false);
+                    throw new java.io.IOException("injected transaction boundary");
+                }
+            });
+            UUID id = UUID.randomUUID();
+            var p = new com.naocraftlab.skins.core.model.AppearancePreset(UUID.randomUUID(), "B",
+                    com.naocraftlab.skins.core.model.SkinReference.accountDefault(), null, NOW, NOW).withFavorite(true);
+            var before = storage.updateAccount(id, a -> new AccountState(a.schemaVersion(), id, List.of(), List.of(p), NOW));
+            var oldAppearance = storage.loadAppearance(id);
+            armed.set(true);
+            assertThrows(java.io.IOException.class, () -> storage.mutateAccountAndAppearanceRecoverably(id, (a, b, revision) -> {
+                var latest = a.presets().get(0);
+                var mask = OuterLayerVisibility.noneVisible();
+                var patched = new com.naocraftlab.skins.core.model.AppearancePreset(latest.id(), latest.name(), latest.skin(), latest.capeId(),
+                        mask, latest.createdAt(), NOW.plusSeconds(1), latest.offlineCape(), latest.favorite());
+                var updated = new AccountState(a.schemaVersion(), id, a.skinAssets(), a.personalSkins(), List.of(patched), NOW.plusSeconds(1), a.personalCapes());
+                var appearance = new AccountAppearanceState(b.schemaVersion(), id, revision, latest.id(), null, null, null,
+                        mask, AppearanceSyncStatus.PENDING, 0, NOW, b.providers());
+                return NclSkinsStorage.AccountAppearanceMutationPlan.both(updated, appearance);
+            }, current::get));
+            var reopened = new NclSkinsStorage(root, new PngValidator(), CLOCK);
+            var recovered = reopened.loadOrCreateAccount(id);
+            var appearance = reopened.loadAppearance(id);
+            if (stage == NclSkinsStorage.TransactionStage.BEFORE_JOURNAL) {
+                assertEquals(before, recovered);
+                assertEquals(oldAppearance, appearance);
+            } else {
+                assertEquals(p.id(), appearance.activePresetId());
+                assertEquals(OuterLayerVisibility.noneVisible(), appearance.outerLayerVisibility());
+                assertEquals(appearance.outerLayerVisibility(), recovered.presets().get(0).outerLayerVisibility());
+                assertTrue(recovered.presets().get(0).favorite());
+            }
+            assertFalse(Files.exists(reopened.layout().accountState(id).resolveSibling("cape-transaction.json")));
+        }
+    }
+
+    @Test
+    void coldJournalIsRecoveredBeforeAccountUpdateAndSuccessfulChangeSurvivesReopen() throws Exception {
+        UUID id = UUID.randomUUID();
+        var committed = publishColdJournal(id);
+        var reopened = storage();
+        var callbacks = new AtomicInteger();
+        var updated = reopened.updateAccount(id, current -> {
+            callbacks.incrementAndGet();
+            assertEquals(committed.account(), current, "published account must be recovered before callback");
+            assertFalse(Files.exists(reopened.layout().accountState(id).resolveSibling("cape-transaction.json")));
+            return new AccountState(current.schemaVersion(), id, current.skinAssets(), current.personalSkins(),
+                    List.of(current.presets().get(0).withFavorite(true)), NOW.plusSeconds(2), current.personalCapes());
+        });
+        assertEquals(1, callbacks.get());
+        assertTrue(updated.presets().get(0).favorite());
+        assertEquals(updated, reopened.loadOrCreateAccount(id));
+        assertEquals(committed.appearance(), reopened.loadAppearance(id));
+        var again = storage();
+        assertEquals(updated, again.loadOrCreateAccount(id));
+        assertEquals(committed.appearance(), again.loadAppearance(id));
+        assertEquals(committed.account(), new AccountStateJson().decode(Files.readAllBytes(again.layout().accountBackup(id))).state());
+    }
+
+    @Test
+    void coldPublishedJournalSurvivesStaleAccountUpdateWithoutPublishingNewMutation() throws Exception {
+        UUID id = UUID.randomUUID();
+        var committed = publishColdJournal(id);
+        var reopened = storage();
+        Path journal = reopened.layout().accountState(id).resolveSibling("cape-transaction.json");
+        byte[] published = Files.readAllBytes(journal);
+        var callbacks = new AtomicInteger();
+        assertThrows(java.io.IOException.class, () -> reopened.updateAccount(id, current -> {
+            callbacks.incrementAndGet();
+            return current;
+        }, current -> {}, () -> false));
+        assertEquals(0, callbacks.get());
+        assertArrayEquals(published, Files.readAllBytes(journal));
+        assertFalse(Files.exists(reopened.layout().accountState(id)));
+        assertFalse(Files.exists(reopened.layout().accountBackup(id)));
+        var currentScope = new java.util.concurrent.atomic.AtomicBoolean(true);
+        assertThrows(java.io.IOException.class, () -> reopened.updateAccount(id, current -> {
+            callbacks.incrementAndGet();
+            assertEquals(committed.account(), current, "stale new intent must not undo published commit");
+            currentScope.set(false);
+            return new AccountState(current.schemaVersion(), id, current.skinAssets(), current.personalSkins(),
+                    List.of(current.presets().get(0).withFavorite(true)), NOW.plusSeconds(2), current.personalCapes());
+        }, current -> {}, currentScope::get));
+        assertEquals(1, callbacks.get());
+        assertFalse(Files.exists(journal));
+        var again = storage();
+        assertEquals(committed.account(), again.loadOrCreateAccount(id));
+        assertEquals(committed.appearance(), again.loadAppearance(id));
+        assertFalse(again.loadOrCreateAccount(id).presets().get(0).favorite());
+        assertEquals(committed.account(), new AccountStateJson().decode(Files.readAllBytes(again.layout().accountBackup(id))).state());
+    }
+
+    @Test
+    void coldJournalIsRecoveredBeforeActivePresetAppearanceEdit() throws Exception {
+        UUID id = UUID.randomUUID();
+        var committed = publishColdJournal(id);
+        var reopened = storage();
+        var callbacks = new AtomicInteger();
+        var result = reopened.updateAppearanceIntentIfPresetActive(id, committed.appearance().activePresetId(),
+                (account, appearance, revision) -> {
+                    callbacks.incrementAndGet();
+                    assertEquals(committed.account(), account);
+                    assertEquals(committed.appearance(), appearance);
+                    assertEquals(appearance.intentRevision() + 1, revision);
+                    assertFalse(Files.exists(reopened.layout().accountState(id).resolveSibling("cape-transaction.json")));
+                    return new AccountAppearanceState(appearance.schemaVersion(), id, revision, appearance.activePresetId(),
+                            appearance.skinSha256(), appearance.skinVariant(), appearance.capeId(),
+                            OuterLayerVisibility.allVisible(), AppearanceSyncStatus.PENDING,
+                            appearance.settledRevision(), NOW.plusSeconds(2), appearance.providers());
+                });
+        assertEquals(1, callbacks.get(), "recovered active preset must admit the edit callback");
+        assertTrue(result.updated());
+        assertEquals(committed.account(), result.account());
+        assertEquals(committed.appearance().intentRevision() + 1, result.state().intentRevision());
+        assertEquals(OuterLayerVisibility.allVisible(), result.state().outerLayerVisibility());
+        var again = storage();
+        assertEquals(committed.account(), again.loadOrCreateAccount(id));
+        assertEquals(committed.account().presets(), again.loadOrCreateAccount(id).presets());
+        assertEquals(committed.account().presets().get(0).favorite(), again.loadOrCreateAccount(id).presets().get(0).favorite());
+        assertEquals(result.state(), again.loadAppearance(id));
+    }
+
+    @Test
+    void coldJournalRecoveryRejectsUnknownPresetWithoutChangingDurablePair() throws Exception {
+        UUID id = UUID.randomUUID();
+        var committed = publishColdJournal(id);
+        var reopened = storage();
+        var callbacks = new AtomicInteger();
+        var result = reopened.updateAppearanceIntentIfPresetActive(id, UUID.randomUUID(), (account, appearance, revision) -> {
+            callbacks.incrementAndGet();
+            return appearance;
+        });
+        assertFalse(result.updated());
+        assertEquals(0, callbacks.get());
+        assertEquals(committed.account(), result.account(), "rejection must still return the recovered account snapshot");
+        assertEquals(committed.appearance(), result.state());
+        assertFalse(Files.exists(reopened.layout().accountState(id).resolveSibling("cape-transaction.json")));
+        var again = storage();
+        assertEquals(committed.account(), again.loadOrCreateAccount(id));
+        assertEquals(committed.appearance(), again.loadAppearance(id));
+    }
+
+    private NclSkinsStorage.AccountAppearanceMutationPlan publishColdJournal(UUID id) throws Exception {
+        var reached = new AtomicInteger();
+        var writer = new NclSkinsStorage(temporaryDirectory.resolve("nclskins"), new PngValidator(), CLOCK, stage -> {
+            if (stage == NclSkinsStorage.TransactionStage.AFTER_JOURNAL) {
+                reached.incrementAndGet();
+                throw new java.io.IOException("injected cold journal boundary");
+            }
+        });
+        var plan = new NclSkinsStorage.AccountAppearanceMutationPlan[1];
+        assertThrows(java.io.IOException.class, () -> writer.mutateAccountAndAppearanceRecoverably(id, (account, appearance, revision) -> {
+            assertEquals(AccountState.empty(id, NOW), account);
+            var mask = OuterLayerVisibility.noneVisible();
+            var preset = new com.naocraftlab.skins.core.model.AppearancePreset(UUID.randomUUID(), "Cold",
+                    com.naocraftlab.skins.core.model.SkinReference.accountDefault(), null, mask, NOW, NOW, null, false);
+            var updated = new AccountState(account.schemaVersion(), id, List.of(), List.of(preset), NOW.plusSeconds(1));
+            var selected = new AccountAppearanceState(appearance.schemaVersion(), id, revision, preset.id(), null, null, null,
+                    mask, AppearanceSyncStatus.PENDING, 0, NOW, appearance.providers());
+            plan[0] = NclSkinsStorage.AccountAppearanceMutationPlan.both(updated, selected);
+            return plan[0];
+        }, () -> true));
+        assertEquals(1, reached.get());
+        assertNotNull(plan[0]);
+        assertTrue(Files.exists(writer.layout().accountState(id).resolveSibling("cape-transaction.json")));
+        assertFalse(Files.exists(writer.layout().accountState(id)));
+        assertFalse(Files.exists(writer.layout().accountBackup(id)));
+        return plan[0];
     }
 
     @Test
@@ -395,7 +669,7 @@ class NclSkinsStorageTest {
     }
 
     @Test
-    void migratesLegacyVersionAndSkinsMemberToCanonicalV4() throws Exception {
+    void migratesLegacyVersionAndSkinsMemberToCurrentSchema() throws Exception {
         NclSkinsStorage storage = storage();
         storage.initialize();
         UUID accountId = UUID.randomUUID();
@@ -417,7 +691,7 @@ class NclSkinsStorageTest {
 
         assertEquals(accountId, loaded.accountId());
         assertEquals(AccountState.CURRENT_SCHEMA_VERSION, loaded.schemaVersion());
-        assertTrue(rewritten.contains("\"schemaVersion\": 4"));
+        assertTrue(rewritten.contains("\"schemaVersion\": " + AccountState.CURRENT_SCHEMA_VERSION));
         assertTrue(rewritten.contains("\"skinAssets\""));
         assertTrue(rewritten.contains("\"personalSkins\""));
         assertFalse(rewritten.contains("\"version\""));

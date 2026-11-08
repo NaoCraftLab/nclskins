@@ -57,6 +57,19 @@ public final class CpmBehaviorProbe {
     private static FakePlayer world;
     private static AllTagManagers tags;
     private static ModConfigFile config;
+    private static com.naocraftlab.skins.runtime.GalleryNativePassFixture gallery;
+    private static File accessoryFixtures;
+
+    static AutoCloseable nativeAccessoryObservation(com.naocraftlab.skins.runtime.EffectiveSkinSource source) throws Exception {
+        var player = fixturePlayer(source.cacheId());
+        ((CpmPlayerAccess) player).nclskins$source(source);
+        com.tom.cpl.util.Image image;
+        try (var input = new java.io.FileInputStream(new File(accessoryFixtures,"accessory-geometry-sheet.png"))) { image = Image.loadFrom(input); }
+        var definition = loader.loadModel(image,player); definition.resolveAll();
+        player.setModelDefinition(CompletableFuture.completedFuture(definition),false); player.getModelDefinition();
+        check(source.accessories().present(),"native source receives decoded production accessory observation");
+        return definition::cleanup;
+    }
 
     static void initializeHost(File configuration) {
         config = new ModConfigFile(configuration);
@@ -107,12 +120,30 @@ public final class CpmBehaviorProbe {
 
     public static void main(String[] args) throws Exception {
         initializeHost(new File(args[0]));
+        UUID profileControl = new UUID(0, 811);
+        check(nativeProfileId(profileControl) == profileControl, "raw profile UUID is preserved");
+        check(nativeProfileId(new com.mojang.authlib.GameProfile(profileControl, "Fixture")).equals(profileControl),
+                "actual pinned Authlib profile exposes its unchanged UUID");
+        boolean foreignProfileRejected = false;
+        try { nativeProfileId(new Object()); }
+        catch (AssertionError expected) { foreignProfileRejected = true; }
+        check(foreignProfileRejected, "foreign profile cannot supply native identity");
+        System.out.println("PASS exact native profile UUID accessor and foreign receiver rejection");
+        accessoryFixtures = new File(args[1]);
         carrierSemantics(new File(args[1]));
         CpmIntegration.initialize((collection, name, model) -> {
             RESOURCE.incrementAndGet();
             throw new IOException("Resource input unavailable in fake host");
         });
-        try (var registration = CapeProjection.installEvents(events())) {
+        try (var ownedGallery = CpmBehaviorProbe.class.getClassLoader().getResource("com/naocraftlab/skins/compat/client/identifier/extraction/AvatarPreviewContext.class") == null
+                && CpmBehaviorProbe.class.getClassLoader().getResource("com/naocraftlab/skins/compat/client/resourcelocation/playerinfo/PreviewScope.class") == null
+                && CpmBehaviorProbe.class.getClassLoader().getResource("com/naocraftlab/skins/compat/client/resourcelocation/skinlookup/PreviewScope.class") == null
+                && CpmBehaviorProbe.class.getClassLoader().getResource("com/naocraftlab/skins/compat/client/identifier/submission/PreviewContext.class") == null ? null
+                : new com.naocraftlab.skins.runtime.GalleryNativePassFixture(new PreviewRenderer.PreviewAppearance(
+                        new TextureHandle("fixture:body-readiness", 64, 64), SkinModel.CLASSIC, Optional.empty(), PreviewRenderer.CapeMode.OFF, true),
+                        java.nio.file.Files.readAllBytes(new File(args[1], "classic-a.png").toPath()));
+                var registration = CapeProjection.installEvents(events())) {
+            gallery = ownedGallery;
             if (args.length > 2 && args[2].equals("body")) {
                 nonDrawingBodyReadinessAndPreviewStatus();
                 System.out.println("PASS focused actual primary binding and displayed-body producers");
@@ -139,6 +170,101 @@ public final class CpmBehaviorProbe {
         MinecraftCapeFallbackProbe.lifecycle(loader, CpmBehaviorProbe::drain, new File(args[1]));
         lateDecodeCannotSignalNewConnection();
         System.out.println("Transformed CPM behavior passed: textures, priority, subject policy, packets, decode/resolve/frame retirement");
+    }
+
+    static AutoCloseable nativeProfileScope() {
+        var previous = MinecraftClientAccess.get();
+        var profiles = new ModelDefinitionLoader<Object>(value -> { throw new AssertionError("Profile facade must delegate"); },
+                CpmBehaviorProbe::nativeProfileId, value -> "Fixture") {
+            @Override public Player<?> loadPlayer(Object value, String unique) {
+                return loader.loadPlayer(nativeProfileId(value), unique);
+            }
+            public void nclskins$refresh(UUID cacheId, com.naocraftlab.skins.runtime.EffectiveSkinSource current) {
+                ((com.naocraftlab.skins.compat.cpm.CpmModelCacheAccess) loader).nclskins$refresh(cacheId, current);
+            }
+        };
+        var scoped = (MinecraftClientAccess) Proxy.newProxyInstance(CpmBehaviorProbe.class.getClassLoader(),
+                new Class<?>[]{MinecraftClientAccess.class}, (p,m,a) -> m.getName().equals("getDefinitionLoader") ? profiles : m.invoke(previous,a));
+        MinecraftObjectHolder.setClientObject(scoped);
+        return () -> { check(MinecraftClientAccess.get() == scoped, "own profile scope retains exact client authority"); MinecraftObjectHolder.setClientObject(previous); };
+    }
+
+    static UUID nativeProfileId(Object value) {
+        if (value instanceof UUID id) return id;
+        if (!(value instanceof com.mojang.authlib.GameProfile)) throw new AssertionError("Native profile requires its exact Authlib receiver");
+        try {
+            java.lang.reflect.Method getter;
+            try { getter = value.getClass().getMethod("getId"); }
+            catch (NoSuchMethodException modern) { getter = value.getClass().getMethod("id"); }
+            if (getter.getReturnType() != UUID.class) throw new AssertionError("Native profile UUID getter has a foreign descriptor");
+            return (UUID) getter.invoke(value);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("Native profile requires its exact UUID getter", failure);
+        }
+    }
+
+    static AutoCloseable nativeOwnedBody(byte[] bytes, UUID profile, PreviewRenderer.PreviewAppearance appearance) throws Exception {
+        Image image = Image.loadFrom(new java.io.ByteArrayInputStream(bytes));
+        Object nativeTexture = new Object();
+        var preparedSource = CapeProjection.skinSource(profile);
+        if (preparedSource == null || !preparedSource.active()
+                || !preparedSource.location().equals(appearance.skin().location()) || preparedSource.model() != appearance.model()
+                || !java.util.Arrays.equals(preparedSource.pixels(), image.getData()))
+            CapeProjection.skinTextureReady(appearance.skin().location(), image.getData(), nativeTexture);
+        var source = CapeProjection.effectiveSkin(profile, world.getUUID(), appearance.skin().location(), appearance.model(), true);
+        drain();
+        var player = loader.loadPlayer(profile, ModelDefinitionLoader.PLAYER_UNIQUE);
+        check(((CpmPlayerAccess) player).nclskins$source() == source, "own Gallery native binding uses its published producer source");
+        var definition = player.getDefinitionFuture().get(5, TimeUnit.SECONDS);
+        check(definition != null, "owned carrier supplies a definition");
+        System.out.println("ownedPreResolve state=" + definition.getResolveState() + " sourceActive=" + source.active()
+                + " subjectMatch=" + source.subject().equals(world.getUUID()) + " playerSource=" + (CpmIntegration.source(player) == source)
+                + " definitionSource=" + (definition instanceof OwnedCpmDefinition owned && owned.source() == source)
+                + " pixelsEqual=" + java.util.Arrays.equals(source.pixels(), image.getData())
+                + " currentRole=" + player.isClientPlayer() + " currentSubject=" + player.getUUID().equals(world.getUUID())
+                + " preview=" + source.preview() + " renderEnabled=" + Player.isEnableRendering());
+        if (definition.getError() != null) {
+            System.out.println("ownedDefinitionErrorClass=" + definition.getError().getClass().getName());
+            for (var frame : definition.getError().getStackTrace()) {
+                if (frame.getClassName().startsWith("com.tom.") || frame.getClassName().startsWith("com.naocraftlab."))
+                    System.out.println("ownedDefinitionFrame=" + frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber());
+            }
+        }
+        check(definition.getError() == null, "owned managed decode succeeds before resolution");
+        definition.startResolve();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (definition.getResolveState() == ModelDefinition.ModelLoadingState.RESOLVING && System.nanoTime() < deadline) {
+            check(!Thread.currentThread().isInterrupted(), "owned native resolution wait remains active");
+            java.util.concurrent.locks.LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+        }
+        player.getModelDefinition();
+        System.out.println("ownedOperands sourcePresent=" + (source != null) + " sourceActive=" + source.active()
+                + " sameDefinition=" + (player.getModelDefinition0() == definition) + " renderEnabled=" + Player.isEnableRendering()
+                + " doRender=" + definition.doRender() + " owned=" + (definition instanceof OwnedCpmDefinition)
+                + " currentRole=" + player.isClientPlayer() + " currentSubject=" + player.getUUID().equals(world.getUUID()));
+        check(definition instanceof OwnedCpmDefinition && definition.doRender()
+                && java.util.Arrays.equals(source.pixels(), image.getData()), "own selected Gallery pixels decode and resolve through pinned CPM");
+        Object primary = new Object();
+        var manager = new com.tom.cpm.shared.model.render.ModelRenderManager<Object, Object, Object, Object>() {{
+            var holder = new RedirectHolder<Object, Object, Object, Object>(this, primary) {
+                protected void swapIn0() {}
+                protected void swapOut0() {}
+            };
+            holder.redirectRenderers.add(proxy(RedirectRenderer.class, (name, values) ->
+                    name.equals("getPart") ? com.tom.cpm.shared.model.PlayerModelParts.BODY : null));
+            holders.put(primary, holder);
+        }};
+        CpmExtractionBodyProbe.submissionBoundaries(submitted -> {
+            check(submitted != null && submitted.skin().equals(appearance.skin()) && submitted.model() == appearance.model(),
+                    "own native geometry receives the actual submitted appearance with its prepared skin/model");
+            manager.bindModel(primary,null,null,definition,player,new AnimationState());
+        }, () -> {});
+        return () -> {
+            try {
+                definition.cleanup();
+                if (CapeProjection.skinSource(profile) == source) CapeProjection.retireSkin(profile);
+            } finally { java.lang.ref.Reference.reachabilityFence(nativeTexture); }
+        };
     }
 
     static void assertDecodedSource(com.naocraftlab.skins.runtime.EffectiveSkinSource source) throws Exception {
@@ -284,18 +410,20 @@ public final class CpmBehaviorProbe {
             CpmFrame.bound(primaryManager, primary, null, (OwnedCpmDefinition) definition, player,
                     () -> { throw new IllegalStateException("synthetic owned cleanup failure"); });
         };
-        CpmPreviewScopeProbe.bodyProducer(appearance, binding, cleanupFailure);
-        CpmPreviewScopeProbe.submissionBodyProducer(appearance, binding, cleanupFailure);
-        CpmExtractionBodyProbe.bodyProducer(appearance, binding, cleanupFailure);
-        CpmBakedDisplayProbe.bodyProducer(appearance);
-        check(AUXILIARY.get() == auxiliaryBefore && RESOURCE.get() == resourceBefore
-                        && (NET.preview.get() + NET.world.get() + NET.events.get()) == packetsBefore,
-                "native body producers create no resolution, resource or network demand");
         Player.setEnableRendering(false);
         check(display.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "passive body query rechecks rendering policy");
         check(CpmIntegration.preparePreview(id, appearance).status() == PreviewRenderer.BodyStatus.BLOCKED,
                 "readiness cannot bypass global rendering policy");
         Player.setEnableRendering(true);
+        CpmPreviewScopeProbe.bodyProducer(appearance, binding, cleanupFailure, gallery);
+        CpmPreviewScopeProbe.submissionBodyProducer(appearance, binding, cleanupFailure, gallery);
+        CpmExtractionBodyProbe.bodyProducer(appearance, binding, cleanupFailure, gallery);
+        CpmBakedDisplayProbe.bodyProducer(appearance, gallery);
+        check(AUXILIARY.get() == auxiliaryBefore && RESOURCE.get() == resourceBefore
+                        && (NET.preview.get() + NET.world.get() + NET.events.get()) == packetsBefore,
+                "native body producers create no resolution, resource or network demand");
+        var refreshedSource = CapeProjection.effectiveSkin(id, id, appearance.skin().location(), appearance.model(), true);
+        ((CpmPlayerAccess) (Object) player).nclskins$source(refreshedSource);
         var exceptional = new ModelDefinition(new IllegalStateException("synthetic-private-error"), player);
         player.setModelDefinition(CompletableFuture.completedFuture(exceptional), false);
         check(CpmIntegration.preparePreview(id, appearance).status() == PreviewRenderer.BodyStatus.FAILED,
