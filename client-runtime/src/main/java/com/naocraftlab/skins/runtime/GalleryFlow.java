@@ -163,6 +163,13 @@ final class GalleryFlow {
         state.pendingPresetDeleteId = null;
     }
 
+    void acceptPreviewMode(PreviewRenderer.CapeMode mode) {
+        if (state.preview == null || state.preview.capeMode() == mode) return;
+        state.preview = state.preview.withCapeMode(mode);
+        state.draftGeneration++;
+        clearAccessoryObservation();
+    }
+
     long draftGeneration() { return state.draftGeneration; }
     long openingGeneration() { return state.openingGeneration; }
     long uiIntent() { return state.uiIntent; }
@@ -180,6 +187,7 @@ final class GalleryFlow {
                 String section = active.favorite() ? AccountUiPreferences.GALLERY_FAVORITES : AccountUiPreferences.GALLERY_YOUR_APPEARANCES;
                 if (context.uiPreferences().collapsedGallerySections().contains(section)) state.temporarilyRevealedSection = section;
             }
+            if (state.activeReveal && context.snapshot().lifecycle()!=ClientSnapshot.Lifecycle.READY) centerGalleryOnActive();
         }
     }
 
@@ -615,7 +623,7 @@ final class GalleryFlow {
         }
         var scope = context.captureGalleryMetadataScope();
         if (scope.isEmpty()) return;
-        List<String> previousCards = galleryPresenter.cardIds(context.snapshot(), state.galleryQuery);
+        List<String> previousCards = galleryPresenter.cardIds(context.snapshot(), state.galleryQuery, draftInput());
         int removedOrdinal = previousCards.indexOf("gallery.card." + presetId);
         context.submitDelete(scope.orElseThrow(), presetId, (deletion, currentIntent) -> {
                     if (presetId.equals(state.pendingPresetDeleteId)) state.pendingPresetDeleteId = null;
@@ -632,19 +640,19 @@ final class GalleryFlow {
                         selectDraft(context.findPreset(context.activePresetId()));
                     }
                     List<String> remainingCards = galleryPresenter.cardIds(
-                            Optional.of(context.account()),
-                            Optional.ofNullable(context.activePresetId()),
-                            state.galleryQuery);
+                            context.snapshot(),Optional.of(context.account()),Optional.ofNullable(context.activePresetId()),
+                            state.galleryQuery,draftInput());
                     int nextOrdinal = removedOrdinal < 0
                             ? 0
                             : Math.min(removedOrdinal, remainingCards.size() - 1);
                     if (currentIntent && ("gallery.card." + presetId).equals(state.gallerySelectedCardId)) {
-                        state.gallerySelectedCardId = remainingCards.isEmpty()
-                                ? "gallery.add"
+                        String anchor = remainingCards.isEmpty()
+                                ? state.selectedPresetId == null ? null : "gallery.card." + state.selectedPresetId
                                 : remainingCards.get(Math.max(0, nextOrdinal));
+                        state.gallerySelectedCardId = anchor;
                     }
                     if (origin.keyboard() && currentIntent) {
-                        context.requestRuntimeFocus("gallery", state.gallerySelectedCardId);
+                        state.metadataFocusPending = true;
                     }
                     context.showFeedback(deletion.cleanupWarnings().isEmpty()
                             ? UiMessage.success("nclskins.status.deleted")
@@ -719,11 +727,12 @@ final class GalleryFlow {
         state.revealHeight = 0;
         draggingGalleryScrollbar = false;
         double centered = galleryPresenter.initialScrollPosition(
+                context.snapshot(),
                 Optional.ofNullable(context.account()),
                 Optional.ofNullable(context.activePresetId()),
                 state.galleryQuery,
                 context.viewportWidth(),
-                context.viewportHeight());
+                context.viewportHeight(), draftInput());
         state.galleryOffset = (int) Math.round(centered);
         state.galleryScrollPosition = centered;
         state.galleryScrollTarget = centered;
@@ -847,17 +856,24 @@ final class GalleryFlow {
                 clearAccessoryObservation();
                 if (displayedLeft != null) displayedLeft = new GalleryPresenter.LeftProjection(displayedLeft.appearance(),
                         displayedLeft.mask(), displayedLeft.draft(), controlsInput(Optional.empty()), displayedLeft.compatibility());
+                context.galleryPreviewModeChanged(state.preview.capeMode());
                 context.publish();
                 return true;
             }
             case "gallery.favorites", "gallery.your_appearances" -> {
+                if (context.busy() || !context.galleryReady()
+                        || !galleryPresenter.sectionIds(context.snapshot(),state.galleryQuery).contains(widgetId)) return true;
                 updateSections(java.util.Map.of(widgetId, !desiredCollapsed(widgetId)), origin, widgetId);
                 return true;
             }
             case "gallery.sections" -> {
-                boolean desired = !(desiredCollapsed(AccountUiPreferences.GALLERY_FAVORITES) && desiredCollapsed(AccountUiPreferences.GALLERY_YOUR_APPEARANCES));
-                updateSections(java.util.Map.of(AccountUiPreferences.GALLERY_FAVORITES, desired,
-                        AccountUiPreferences.GALLERY_YOUR_APPEARANCES, desired), origin, state.gallerySelectedCardId);
+                if (context.busy() || !context.galleryReady()) return true;
+                var sections = galleryPresenter.sectionIds(context.snapshot(),state.galleryQuery);
+                if (sections.isEmpty()) return true;
+                boolean desired = !sections.stream().allMatch(this::desiredCollapsed);
+                var patch = new java.util.LinkedHashMap<String,Boolean>();
+                sections.forEach(id -> patch.put(id,desired));
+                updateSections(patch, origin, state.gallerySelectedCardId);
                 return true;
             }
             case "gallery.apply" -> {
@@ -1098,6 +1114,7 @@ final class GalleryFlow {
         UUID activePresetId();
         int viewportHeight();
         PreviewRenderer.CapeMode preferredCapeMode();
+        void galleryPreviewModeChanged(PreviewRenderer.CapeMode mode);
         LibraryEditorPort libraryEditorPort();
         ClientSessionView clientSessionView();
         AppearanceSyncStatus syncStatus();

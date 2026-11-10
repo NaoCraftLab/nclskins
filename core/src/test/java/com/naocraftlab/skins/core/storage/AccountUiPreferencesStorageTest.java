@@ -35,6 +35,32 @@ class AccountUiPreferencesStorageTest {
     Path temporaryDirectory;
 
     @Test
+    void capeModeSurvivesCodecAndUnrelatedPreferenceWriters() throws Exception {
+        var storage = storage();
+        UUID id = UUID.randomUUID();
+        storage.setSelectedAddSourceTab(id, AddSourceTab.FILE);
+        Path path = storage.layout().accountUiPreferences(id);
+        var document = com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+        document.addProperty("preferredCapeMode", "ELYTRA");
+        Files.writeString(path, document.toString());
+        var decoded = storage.loadUiPreferences(id).preferences();
+        var codec = new AccountUiPreferencesJson();
+        var encoded = com.google.gson.JsonParser.parseString(
+                new String(codec.encode(decoded), StandardCharsets.UTF_8)).getAsJsonObject();
+        assertTrue(encoded.has("preferredCapeMode"), "codec must retain the known account cape mode");
+        assertEquals("ELYTRA", encoded.get("preferredCapeMode").getAsString());
+        storage.setSelectedProvidersTab(id, com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE);
+        storage.setSelectedEditorTab(id, EditorTab.CAPE);
+        storage.setPreferredSkinVariant(id, SkinVariant.SLIM);
+        storage.setCollectionCollapsed(id, "fixture:collection", true);
+        storage.replaceCollapsedCollectionIds(id, Set.of("fixture:replacement"));
+        storage.setCollapsedCapeCollections(id, Set.of("fixture:capes"));
+        storage.updateGallerySections(id, java.util.Map.of(AccountUiPreferences.GALLERY_FAVORITES, true), () -> true);
+        assertEquals("ELYTRA", com.google.gson.JsonParser.parseString(Files.readString(path))
+                .getAsJsonObject().get("preferredCapeMode").getAsString());
+    }
+
+    @Test
     void gallerySectionsRoundTripWithoutRewritingLegacyOnRead() throws Exception {
         NclSkinsStorage storage = storage();
         UUID id = UUID.randomUUID();

@@ -11,6 +11,16 @@ import java.util.Set;
 import java.util.UUID;
 
 public interface UiPreferencesPort {
+    AccountUiPreferences updatePreferredCapeMode(CapeModeUpdate update) throws Exception;
+
+    record CapeModeUpdate(LibraryEditorPort.GalleryScope scope,
+            com.naocraftlab.skins.core.model.CapePreviewMode mode) {
+        public CapeModeUpdate {
+            java.util.Objects.requireNonNull(scope, "scope");
+            java.util.Objects.requireNonNull(mode, "mode");
+        }
+    }
+
     AccountUiPreferences updateGallerySections(GallerySectionsUpdate update) throws Exception;
 
     record GallerySectionsUpdate(LibraryEditorPort.GalleryScope scope,

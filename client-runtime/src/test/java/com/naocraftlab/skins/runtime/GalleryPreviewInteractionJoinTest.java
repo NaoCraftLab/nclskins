@@ -257,9 +257,16 @@ final class GalleryPreviewInteractionJoinTest {
             f.runtime.observePreviewAccessories(GalleryInspectLayersTest.main(f), () -> capability);
             assertEquals(before.capeMode() == PreviewRenderer.CapeMode.ELYTRA ? PreviewRenderer.CapeMode.CAPE
                     : PreviewRenderer.CapeMode.ELYTRA,GalleryInspectLayersTest.main(f).capeMode());
+            var desired = GalleryInspectLayersTest.main(f).capeMode();
             f.runtime.dispatchWidget("gallery.reset"); f.drain();
             f.runtime.resourcesReloaded();
-            assertEquals(writes,layers.writes); assertEquals(inventory,ScopedEditorSaveTest.inventory(directory));
+            assertEquals(writes,layers.writes);
+            var afterFiles = ScopedEditorSaveTest.inventory(directory);
+            String uiPath = directory.relativize(f.storage.layout().accountUiPreferences(GalleryRuntimeSelectionTest.ACCOUNT)).toString();
+            inventory.remove(uiPath); afterFiles.remove(uiPath);
+            assertEquals(inventory, afterFiles);
+            assertEquals(CapePreviewMode.valueOf(desired.name()), f.storage.loadUiPreferences(
+                    GalleryRuntimeSelectionTest.ACCOUNT).preferences().preferredCapeMode());
             assertTrue(f.view().widget("gallery.done").isPresent());
         } finally { f.runtime.close(); }
     }

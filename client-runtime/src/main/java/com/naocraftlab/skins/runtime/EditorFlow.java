@@ -964,6 +964,10 @@ final class EditorFlow {
         if (state.editor != null) state.editor = state.editor.withPreview(state.editor.preview().withCapeMode(mode));
     }
 
+    void previewPreferenceFailed(UiMessage message) {
+        if (state.editor != null) state.editor = state.editor.withPreviewFailure(message);
+    }
+
     record SaveCompletion(LibraryEditorPort.EditorSave saved, boolean hadOfflineCape) {}
 
     void inspectProviderCape(BuiltinProvider provider) {

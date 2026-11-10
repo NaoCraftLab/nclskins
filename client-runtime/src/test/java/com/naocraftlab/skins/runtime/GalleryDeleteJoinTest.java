@@ -26,6 +26,64 @@ final class GalleryDeleteJoinTest {
         f.runtime.dispatchWidget(confirm.id(), false, origin);
     }
 
+    @Test void deletingLastFavoriteKeepsOtherDraftAndFocusesCollapsedRemainingHeader() throws Exception {
+        var f = fixture();
+        try {
+            UUID removed = new UUID(0,90);
+            f.storage.updateAccount(ACCOUNT,old -> {
+                var presets = new ArrayList<>(old.presets());
+                presets.add(new com.naocraftlab.skins.core.model.AppearancePreset(removed,"Removed",
+                        com.naocraftlab.skins.core.model.SkinReference.accountDefault(),null,
+                        com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),GalleryApplyTest.NOW,GalleryApplyTest.NOW,null,true));
+                return new com.naocraftlab.skins.core.model.AccountState(old.schemaVersion(),ACCOUNT,old.skinAssets(),presets,old.updatedAt());
+            });
+            f.runtime.closeScreen(); f.runtime.reopen(); f.drain();
+            f.selectB();
+            var candidate = f.runtime.galleryPreviewCandidate().orElseThrow();
+            var appearance = f.storage.loadAppearance(ACCOUNT);
+            f.runtime.dispatchWidget("gallery.your_appearances"); f.drain();
+            assertTrue(f.view().widget(f.card(B)).isEmpty());
+            delete(f,removed,InteractionOrigin.KEYBOARD); f.drain();
+            var view = f.view();
+            assertEquals(Optional.of(B),f.runtime.snapshot().selectedPresetId());
+            assertEquals(Optional.of(A),f.runtime.snapshot().activePresetId());
+            assertEquals(appearance,f.storage.loadAppearance(ACCOUNT));
+            assertEquals(candidate,f.runtime.galleryPreviewCandidate().orElseThrow());
+            assertTrue(view.widget("gallery.apply").orElseThrow().enabled());
+            assertTrue(view.navigationNode("gallery.favorites").isEmpty());
+            assertTrue(view.navigationNode(f.card(B)).isEmpty());
+            assertEquals("gallery.your_appearances",view.focusRequest().orElseThrow().widgetId());
+            assertTrue(view.widget("gallery.your_appearances").orElseThrow().enabled());
+            assertEquals(Set.of("gallery.your_appearances"),f.storage.loadUiPreferences(ACCOUNT).preferences().collapsedGallerySections());
+            assertEquals(List.of(A,B),f.storage.loadOrCreateAccount(ACCOUNT).presets().stream().map(p -> p.id()).toList());
+            assertEquals(0,f.reconciliations.get());
+        } finally { f.runtime.close(); }
+    }
+
+    @Test void deletingLastPresetRetainsDisabledBulkSlotWithoutWriteAuthority() throws Exception {
+        var f = new GalleryRuntimeSelectionTest();
+        f.directory=directory; f.initiallyActive=false; f.setup();
+        try {
+            var bounds=f.view().widget("gallery.sections").orElseThrow().bounds();
+            delete(f,B,InteractionOrigin.KEYBOARD); f.drain();
+            delete(f,A,InteractionOrigin.KEYBOARD); f.drain();
+            var view=f.view();
+            assertTrue(f.storage.loadOrCreateAccount(ACCOUNT).presets().isEmpty());
+            assertTrue(view.widget("gallery.add").orElseThrow().enabled());
+            assertEquals(bounds,view.widget("gallery.sections").orElseThrow().bounds());
+            assertFalse(view.widget("gallery.sections").orElseThrow().enabled());
+            assertTrue(view.navigationNode("gallery.favorites").isEmpty());
+            assertTrue(view.navigationNode("gallery.your_appearances").isEmpty());
+            assertEquals(1,f.reconciliations.get(),"Last-preset deletion retains its existing default-intent checkpoint");
+            var before=ScopedEditorSaveTest.inventory(directory);
+            assertFalse(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE,"gallery.sections"));
+            f.runtime.dispatchWidget("gallery.sections",false,InteractionOrigin.POINTER); f.drain();
+            assertEquals(before,ScopedEditorSaveTest.inventory(directory));
+            assertTrue(f.sectionUpdates.isEmpty());
+            assertEquals(1,f.reconciliations.get(),"Disabled section actions add no checkpoint");
+        } finally { f.runtime.close(); }
+    }
+
     @Test void deleteAndFavoriteShareLatestDurableMutationLane() throws Exception {
         var f = fixture();
         try {

@@ -22,6 +22,19 @@ public final class UiPreferencesStorageAdapter implements UiPreferencesPort {
     }
 
     @Override
+    public AccountUiPreferences updatePreferredCapeMode(CapeModeUpdate update) throws IOException {
+        Objects.requireNonNull(update, "update");
+        UUID accountId = update.scope().initiatingAccountId();
+        java.util.function.BooleanSupplier current = () -> {
+            try {
+                return accountId.equals(currentAccount.get()) && update.scope().stillCurrent().getAsBoolean();
+            } catch (IOException unavailable) { return false; }
+        };
+        if (!current.getAsBoolean()) throw new IOException("UI preferences account retired");
+        return storage.updatePreferredCapeMode(accountId, update.mode(), current);
+    }
+
+    @Override
     public AccountUiPreferences updateGallerySections(GallerySectionsUpdate update) throws IOException {
         Objects.requireNonNull(update, "update");
         UUID accountId = update.scope().initiatingAccountId();

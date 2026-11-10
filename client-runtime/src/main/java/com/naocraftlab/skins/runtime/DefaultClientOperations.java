@@ -582,6 +582,11 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
+    public AccountUiPreferences updatePreferredCapeMode(CapeModeUpdate update) throws Exception {
+        return uiPreferences.updatePreferredCapeMode(update);
+    }
+
+    @Override
     public Optional<AccountUiPreferences> loadUiPreferences() throws Exception {
         return uiPreferences.loadUiPreferences();
     }

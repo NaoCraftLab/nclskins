@@ -6,7 +6,6 @@ import com.naocraftlab.skins.client.FilePicker;
 import com.naocraftlab.skins.client.GameSessionTokenSource;
 import com.naocraftlab.skins.client.OuterLayerVisibilityController;
 import com.naocraftlab.skins.client.PersonalSkinCatalog;
-import com.naocraftlab.skins.client.PreviewPreferences;
 import com.naocraftlab.skins.client.PreviewRenderer;
 import com.naocraftlab.skins.client.ScreenDestination;
 import com.naocraftlab.skins.client.ServerAppearanceRefreshNotifier;
@@ -258,6 +257,7 @@ public final class ClientRuntime implements AutoCloseable {
         public UUID activePresetId() { return state.activePresetId; }
         public int viewportHeight() { return viewportHeight; }
         public PreviewRenderer.CapeMode preferredCapeMode() { return preferredCapeMode; }
+        public void galleryPreviewModeChanged(PreviewRenderer.CapeMode mode) { acceptCapePreviewMode(mode); }
         public LibraryEditorPort libraryEditorPort() { return operations; }
         public ClientSessionView clientSessionView() { return operations; }
         public AppearanceSyncStatus syncStatus() { return state.syncStatus; }
@@ -381,7 +381,7 @@ public final class ClientRuntime implements AutoCloseable {
         public void showFeedback(UiMessage message) { state.status = message; }
         public void editorTabSelected(EditorTab tab) { state.uiPreferences = (state.uiPreferences == null ? AccountUiPreferences.defaults(state.account.accountId()) : state.uiPreferences).withSelectedEditorTab(tab); }
         public void capeDisclosureChanged(Set<String> collapsed) { state.uiPreferences = state.uiPreferences.withCollapsedCapeCollections(collapsed); }
-        public void editorPreviewModeChanged(PreviewRenderer.CapeMode mode) { preferredCapeMode = mode; if (mode != PreviewRenderer.CapeMode.OFF) { PreviewPreferences.setCapeMode(mode); providerFlow.acceptPreviewMode(mode); } }
+        public void editorPreviewModeChanged(PreviewRenderer.CapeMode mode) { acceptCapePreviewMode(mode); }
         public void editorSaved(EditorFlow.SaveCompletion completion) { ClientRuntime.this.editorSaved(completion); }
         public void capeRenamed(AccountState account) { state.account = account; }
         public void capeDeleted(LibraryEditorPort.CapeDeletion result) {
@@ -556,7 +556,7 @@ public final class ClientRuntime implements AutoCloseable {
         public UiMessage operationFailure(Throwable failure) { return ClientRuntime.operationFailure(failure); }
         public void showFeedback(UiMessage message) { state.status = message; }
         public void providersTabSelected(AppearanceProviders.Component tab) { state.uiPreferences = state.uiPreferences.withSelectedProvidersTab(tab); sessionActivityBaselineGeneration = -1; }
-        public void providerPreviewModeChanged(PreviewRenderer.CapeMode mode) { preferredCapeMode = mode; PreviewPreferences.setCapeMode(mode); editorFlow.acceptPreviewMode(mode); }
+        public void providerPreviewModeChanged(PreviewRenderer.CapeMode mode) { acceptCapePreviewMode(mode); }
         public void showProviders() { if (!state.providersOpen) galleryFlow.discardDraft(); state.providersOpen = true; }
         public void returnToGallery() { state.providersOpen = false; galleryFlow.prepareDraft(); }
         public void editProvider(ProviderFlow.EditRequest request) { ClientRuntime.this.editProvider(request); }
@@ -622,7 +622,10 @@ public final class ClientRuntime implements AutoCloseable {
     private String runtimeFocusWidgetId;
     private int runtimeFocusTabOrder = -1;
 
-    private PreviewRenderer.CapeMode preferredCapeMode = PreviewPreferences.capeMode();
+    private PreviewRenderer.CapeMode preferredCapeMode = PreviewRenderer.CapeMode.CAPE;
+    private UUID preferredCapeAccount;
+    private boolean explicitCapeChoice;
+    private long capeChoiceSequence;
     private boolean capeCatalogWarmupRunning;
     private boolean capeCatalogReloadPending;
     private CatalogRead.CapacityWatch capeCatalogCapacityNotice;
@@ -2327,10 +2330,15 @@ public final class ClientRuntime implements AutoCloseable {
                             UiMessage.info("nclskins.status.loading"), ViewSpec.Text.Alignment.CENTER)),
                     List.of(), List.of(), Optional.empty());
         }
-        if (state.providersOpen || !state.providers.galleryAvailable()) return presentProvider(width, height);
+        if (state.providersOpen || !state.providers.galleryAvailable()) return withPreferenceFeedback(presentProvider(width, height));
         if (editorFlow.editor() != null) return presentEditor(width, height);
         if (catalogImportFlow.externalImport() != null || catalogImportFlow.addSource() != null) return presentCatalogImport(width, height);
-        return withRuntimeFocus(galleryView(width, height, mouseX, mouseY));
+        return withPreferenceFeedback(withRuntimeFocus(galleryView(width, height, mouseX, mouseY)));
+    }
+
+    private ViewSpec withPreferenceFeedback(ViewSpec view) {
+        return state.status.equals(UiMessage.error("nclskins.error.save"))
+                ? PlayerAppearanceStage.withError(view, state.status, textResolver) : view;
     }
 
     private ViewSpec withRuntimeFocus(ViewSpec view) {
@@ -3443,7 +3451,7 @@ public final class ClientRuntime implements AutoCloseable {
         adoptSharedCapeObservation(data.providers());
         state.intentRevision = data.intentRevision();
         state.syncStatus = data.syncStatus();
-        state.uiPreferences = data.uiPreferences();
+        acceptUiPreferences(data.uiPreferences());
         providerFlow.restoreTab(data.uiPreferences().selectedProvidersTab());
         state.ownedCapes = data.ownedCapes();
         installWarmedCapePreviews(state.account.accountId(), false);
@@ -3558,7 +3566,7 @@ public final class ClientRuntime implements AutoCloseable {
         state.providers = data.providers();
         state.intentRevision = data.intentRevision();
         state.syncStatus = data.syncStatus();
-        state.uiPreferences = data.uiPreferences();
+        acceptUiPreferences(data.uiPreferences());
         providerFlow.restoreTab(data.uiPreferences().selectedProvidersTab());
         state.ownedCapes = data.ownedCapes();
         state.selectedCapeId = data.session().optionalProfile()
@@ -3648,6 +3656,13 @@ public final class ClientRuntime implements AutoCloseable {
         }
         reconcilePreviewAccessories();
         var currentWidget = viewInternal(viewportWidth, viewportHeight, 0, 0).widget(widgetId);
+        boolean capeModeToggle = widgetId.equals("gallery.preview_mode") || widgetId.equals("editor.preview_mode")
+                || widgetId.equals("providers.preview_mode");
+        if (capeModeToggle && (state.busy || !state.readyData || state.lifecycle != ClientSnapshot.Lifecycle.READY
+                || state.account == null || importIdentity == null
+                || !state.account.accountId().equals(importIdentity.profileId())
+                || currentWidget.filter(ViewSpec.Widget::visible).filter(ViewSpec.Widget::enabled)
+                        .filter(ViewSpec.Widget::activationEnabled).isEmpty())) return;
         boolean galleryMetadata = widgetId.equals("gallery.sections") || widgetId.equals("gallery.favorites")
                 || widgetId.equals("gallery.your_appearances")
                 || widgetId.startsWith("gallery.preset.") && widgetId.endsWith(".favorite");
@@ -3723,7 +3738,7 @@ public final class ClientRuntime implements AutoCloseable {
                         closeScreenOnClient();
                         return;
                     }
-                    state.uiPreferences = data.preferences();
+                    acceptUiPreferences(data.preferences());
                     catalogImportFlow.openCatalog(data, fallbackVariant, catalogEnvironment, hideIncompatibleCatalogSkins);
                     galleryFlow.acceptDraftSelection(null);
                     state.status = UiMessage.info("nclskins.external_import.choose_source");
@@ -3910,19 +3925,102 @@ public final class ClientRuntime implements AutoCloseable {
         catalogImportFlow.resetPersonalCatalogInteraction();
     }
 
+    private void acceptUiPreferences(AccountUiPreferences preferences) {
+        if (!preferences.accountId().equals(preferredCapeAccount)) {
+            preferredCapeAccount = preferences.accountId();
+            explicitCapeChoice = false;
+        }
+        if (!explicitCapeChoice) {
+            preferredCapeMode = PreviewRenderer.CapeMode.valueOf(preferences.preferredCapeMode().name());
+            galleryFlow.acceptPreviewMode(preferredCapeMode);
+            editorFlow.acceptPreviewMode(preferredCapeMode);
+            providerFlow.acceptPreviewMode(preferredCapeMode);
+        }
+        state.uiPreferences = preferences.withPreferredCapeMode(
+                com.naocraftlab.skins.core.model.CapePreviewMode.valueOf(preferredCapeMode.name()));
+    }
+
+    private void acceptCapePreviewMode(PreviewRenderer.CapeMode mode) {
+        if (mode == PreviewRenderer.CapeMode.OFF || mode == preferredCapeMode || disposed
+                || state.account == null || state.lifecycle != ClientSnapshot.Lifecycle.READY || !state.readyData) return;
+        observeImportIdentity();
+        var identity = importIdentity;
+        if (identity == null || !state.account.accountId().equals(identity.profileId())) return;
+        long epoch = importAccountEpoch;
+        var retired = new java.util.concurrent.atomic.AtomicBoolean();
+        var scope = new LibraryEditorPort.GalleryScope(identity.profileId(), epoch, () -> {
+            if (retired.get()) return false;
+            boolean current = !disposed && epoch == importAccountEpoch && identity.equals(importIdentity);
+            try { current &= identity.equals(operations.sessionIdentity()); }
+            catch (RuntimeException unavailable) { current = false; }
+            if (!current) retired.set(true);
+            return current;
+        });
+        preferredCapeAccount = identity.profileId();
+        preferredCapeMode = mode;
+        explicitCapeChoice = true;
+        var desired = com.naocraftlab.skins.core.model.CapePreviewMode.valueOf(mode.name());
+        state.uiPreferences = state.uiPreferences.withPreferredCapeMode(desired);
+        galleryFlow.acceptPreviewMode(mode);
+        editorFlow.acceptPreviewMode(mode);
+        providerFlow.acceptPreviewMode(mode);
+        long sequence = ++capeChoiceSequence;
+        long generation = state.generation;
+        long screenGeneration = state.galleryScreenGeneration;
+        String screen = previewPreferenceScreen();
+        UiMessage feedback = state.status;
+        var editorFeedback = editorFlow.editor() == null ? Optional.<UiMessage>empty() : editorFlow.editor().status();
+        persistUiPreference(() -> {
+            operations.updatePreferredCapeMode(new UiPreferencesPort.CapeModeUpdate(scope, desired));
+            return null;
+        }, failure -> {
+            if (!scope.stillCurrent().getAsBoolean() || sequence != capeChoiceSequence
+                    || generation != state.generation || screenGeneration != state.galleryScreenGeneration
+                    || state.lifecycle != ClientSnapshot.Lifecycle.READY || !Objects.equals(feedback, state.status)
+                    || !screen.equals(previewPreferenceScreen())) return;
+            var message = UiMessage.error("nclskins.error.save");
+            if (editorFlow.editor() != null) {
+                if (!editorFeedback.equals(editorFlow.editor().status())) return;
+                editorFlow.previewPreferenceFailed(message);
+            } else state.status = message;
+            publish();
+        });
+    }
+
+    private String previewPreferenceScreen() {
+        if (state.providersOpen || !state.providers.galleryAvailable()) return "providers";
+        return editorFlow.editor() == null ? "gallery" : "preset_editor";
+    }
+
     private CompletableFuture<Void> uiPreferenceWrite = CompletableFuture.completedFuture(null);
 
     private void persistUiPreference(ThrowingSupplier<Void> operation) {
-        uiPreferenceWrite = uiPreferenceWrite.handle((ignored, failure) -> null).thenRunAsync(() -> {
+        persistUiPreference(operation, failure -> {});
+    }
+
+    private void persistUiPreference(ThrowingSupplier<Void> operation, Consumer<Throwable> failed) {
+        var pending = new CompletableFuture<Void>();
+        var predecessor = uiPreferenceWrite;
+        uiPreferenceWrite = pending;
+        predecessor.handle((ignored, failure) -> null).thenRunAsync(() -> {
             try {
                 operation.get();
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, interrupted);
+                onClient(() -> failed.accept(interrupted));
             } catch (Exception failure) {
                 diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, failure);
+                onClient(() -> failed.accept(failure));
+            } finally {
+                pending.complete(null);
             }
-        }, worker);
+        }, worker).whenComplete((ignored, rejection) -> {
+            if (rejection == null) return;
+            pending.complete(null);
+            diagnose(DiagnosticEvent.CLIENT_PREFERENCES_SAVE_FAILED, rejection);
+            onClient(() -> failed.accept(rejection));
+        });
     }
 
     private void selectEditorTab(EditorTab tab) {

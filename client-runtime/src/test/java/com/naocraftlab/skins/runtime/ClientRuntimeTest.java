@@ -1771,6 +1771,8 @@ final class ClientRuntimeTest {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(2);
         operations.activePresetId = Optional.of(operations.account.presets().get(1).id());
+        operations.providers = AppearanceProviders.initial().select(1, null,
+                new ProviderCape("fixture", "c".repeat(64), false), null);
         ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty());
         runtime.initialize();
 
@@ -1784,6 +1786,7 @@ final class ClientRuntimeTest {
         runtime.dispatchWidget("editor.cancel");
 
         runtime.dispatchWidget("gallery.providers");
+        assertTrue(runtime.view(854, 480, 0, 0).widget("providers.preview_mode").orElseThrow().enabled());
         runtime.dispatchWidget("providers.preview_mode");
         runtime.dispatchWidget("providers.tab.CAPE");
         runtime.dispatchWidget("providers.edit.OFFLINE");
@@ -3522,10 +3525,14 @@ final class ClientRuntimeTest {
 
         assertTrue(runtime.dispatchNavigation(
                 ViewSpec.NavigationCommand.TAB_FORWARD, "gallery.search"));
+        assertEquals("gallery.sections",runtime.view(320,240,0,0).focusRequest().orElseThrow().widgetId());
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,"gallery.sections"));
+        assertEquals("gallery.your_appearances",runtime.view(320,240,0,0).focusRequest().orElseThrow().widgetId());
+        assertTrue(runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,"gallery.your_appearances"));
         String visibleAnchor = runtime.view(320, 240, 0, 0).focusRequest()
                 .orElseThrow().widgetId();
         assertTrue(visibleAnchor.startsWith("gallery.card."),
-                "Tab from Search must enter the eligible GRID anchor");
+                "Tab from the section header must enter the eligible GRID anchor");
         assertTrue(runtime.dispatchNavigation(
                 ViewSpec.NavigationCommand.RIGHT, visibleAnchor));
         String presetAnchor = runtime.view(320, 240, 0, 0).focusRequest()
@@ -5126,11 +5133,11 @@ final class ClientRuntimeTest {
         ViewSpec initial = runtime.view(854, 480, 0, 0);
         ViewSpec.ScrollSurface surface = initial.scrollSurface("gallery.cards").orElseThrow();
         assertEquals(ViewSpec.Scrollbar.Orientation.VERTICAL, surface.orientation());
-        runtime.nativeScrollPositionChanged("gallery.cards", 20.25);
+        runtime.nativeScrollPositionChanged("gallery.cards", 38.25);
 
         settleScroll(runtime);
         ViewSpec settled = runtime.view(854, 480, 0, 0);
-        assertEquals(20.25, settled.scrollSurface("gallery.cards").orElseThrow().offsetPixels());
+        assertEquals(38.25, settled.scrollSurface("gallery.cards").orElseThrow().offsetPixels());
         Bounds viewport = settled.scrollSurface("gallery.cards").orElseThrow().viewport();
         assertTrue(settled.panels().stream()
                 .filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_LIST)
@@ -5440,8 +5447,8 @@ final class ClientRuntimeTest {
         ClientSnapshot seeded = runtime.snapshot();
         assertEquals(ClientSnapshot.Lifecycle.INITIALIZING, seeded.lifecycle());
         assertEquals(Optional.of(warmedActive), seeded.activePresetId());
-        assertEquals((int) new GalleryPresenter().initialScrollPosition(Optional.of(operations.account),
-                Optional.of(warmedActive), "", 320, 240), seeded.galleryOffset());
+        assertEquals((int) new GalleryPresenter().initialScrollPosition(seeded,Optional.of(operations.account),
+                Optional.of(warmedActive), "", 320, 240, galleryDraft(seeded)), seeded.galleryOffset());
         ViewSpec seededView = runtime.view(320, 240, 0, 0);
         assertInsideGalleryViewport(seededView, warmedActive);
         assertTrue(seededView.widget("gallery.retry_session").isEmpty());
@@ -5454,14 +5461,20 @@ final class ClientRuntimeTest {
         assertEquals(ClientSnapshot.Lifecycle.READY, ready.lifecycle());
         assertTrue(ready.activePresetId().isEmpty());
         assertEquals(0, ready.galleryOffset());
-        assertEquals(63, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()));
+        assertEquals(81, panelY(runtime.view(320, 240, 0, 0), "gallery.card." + operations.account.presets().get(39).id()));
         publications.stream()
                 .filter(snapshot -> snapshot.account().isPresent())
                 .forEach(snapshot -> assertEquals(
-                        (int) new GalleryPresenter().initialScrollPosition(snapshot.account(),
-                                snapshot.activePresetId(), "", 320, 240),
+                        (int) new GalleryPresenter().initialScrollPosition(snapshot,snapshot.account(),
+                                snapshot.activePresetId(), "", 320, 240,galleryDraft(snapshot)),
                         snapshot.galleryOffset(),
                         "account data and its gallery anchor must share one publication"));
+    }
+
+    private static GalleryPresenter.DraftInput galleryDraft(ClientSnapshot snapshot) {
+        var mask=com.naocraftlab.skins.client.OuterLayerVisibility.allVisible();
+        return new GalleryPresenter.DraftInput(snapshot.activePresetId(),mask,mask,0,Optional.empty(),
+                java.util.Set.of(),Optional.empty(),com.naocraftlab.skins.client.PreviewRenderer.DisplayKind.UNCONFIRMED);
     }
 
     @Test

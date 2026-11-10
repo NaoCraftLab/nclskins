@@ -344,7 +344,7 @@ final class GalleryPresenterTest {
             assertFalse(menu.widget("gallery.card."+p.id()).orElseThrow().activationEnabled());
             assertEquals(Optional.of("down"),menu.widget(prefix+".more").orElseThrow().value());
             assertEquals(new Bounds(b.x(),b.y(),b.width(),16),menu.widget(prefix+".more").orElseThrow().bounds());
-            assertEquals(new Bounds(b.x()+2,b.y()+2,b.width()-4,b.height()-4),menu.panels().stream().filter(v -> v.id().equals(prefix+".namebar")).findFirst().orElseThrow().bounds());
+            assertEquals(new Bounds(b.x(),b.y()+2,b.width(),b.height()-4),menu.panels().stream().filter(v -> v.id().equals(prefix+".namebar")).findFirst().orElseThrow().bounds());
             var name = menu.texts().stream().filter(v -> v.id().equals(prefix+".name")).findFirst().orElseThrow();
             assertEquals(4,name.bounds().x()-b.x());
             assertEquals(5,name.bounds().y()-b.y());
@@ -358,6 +358,140 @@ final class GalleryPresenterTest {
                 assertEquals((b.y()+16+accept.y())/2,prompt.y()+prompt.height()/2);
             } else assertEquals(b.bottom()-2,menu.widget(prefix+".delete").orElseThrow().bounds().bottom());
         }
+    }
+
+    @Test
+    void expandedOverlaysFollowActualGridAcrossResizeAndModeTransitions() {
+        var account = TestFixtures.account(41);
+        var target = account.presets().get(40).id();
+        var snapshot = TestFixtures.ready(account,target,0);
+        String cardId = "gallery.card."+target;
+        String prefix = "gallery.preset."+target;
+        var widths = new java.util.HashSet<Integer>();
+        boolean multipleColumns = false;
+        boolean incompleteRow = false;
+        for (var selected : List.of(target,account.presets().get(39).id())) {
+            var d = draft(Optional.of(selected),PreviewRenderer.DisplayKind.ORDINARY);
+            for (int mode : List.of(0,1,2,1,0)) {
+                for (int width : List.of(120,320,321,854,1600,320)) {
+                    var normal = project(snapshot,width,480,d,Optional.empty(),Optional.empty(),0);
+                    var view = project(snapshot,width,480,d,mode == 0 ? Optional.empty() : Optional.of(target),
+                            mode == 2 ? Optional.of(target) : Optional.empty(),0);
+                    var cards = view.navigationNodes().stream().filter(n -> n.id().startsWith("gallery.card.")).toList();
+                    assertEquals(41,cards.size());
+                    var b = view.widget(cardId).orElseThrow().bounds();
+                    widths.add(b.width());
+                    long columns = cards.stream().filter(n -> n.bounds().y()==b.y()).count();
+                    multipleColumns |= columns>1;
+                    incompleteRow |= columns>1 && cards.size()%columns!=0;
+                    assertEquals(normal.clipRegions(),view.clipRegions());
+                    assertEquals(normal.scrollSurfaces(),view.scrollSurfaces());
+                    assertEquals(normal.scrollbar(),view.scrollbar());
+                    for (var node : cards) assertEquals(normal.navigationNode(node.id()).orElseThrow().bounds(),node.bounds());
+                    for (var widget : normal.widgets()) {
+                        if (widget.id().startsWith(prefix+".")) continue;
+                        var actual = view.widget(widget.id()).orElseThrow();
+                        assertEquals(widget.bounds(),actual.bounds());
+                        if (widget.id().startsWith("gallery.card.")) {
+                            assertEquals(ViewHostPolicy.cardFrameSegments(widget,false),ViewHostPolicy.cardFrameSegments(actual,false));
+                            assertEquals(ViewHostPolicy.cardFrameSegments(widget,true),ViewHostPolicy.cardFrameSegments(actual,true));
+                        }
+                    }
+                    assertEquals(normal.panels().stream().filter(p -> !p.id().equals(prefix+".namebar")).toList(),
+                            view.panels().stream().filter(p -> !p.id().equals(prefix+".namebar")).toList());
+                    var panel = view.panels().stream().filter(p -> p.id().equals(prefix+".namebar")).findFirst().orElseThrow();
+                    assertEquals(mode == 0 ? new Bounds(b.x(),b.bottom()-16,b.width(),16)
+                            : new Bounds(b.x(),b.y()+2,b.width(),b.height()-4),panel.bounds());
+                    assertEquals(0x6D000000,ViewHostPolicy.panelOverlayColor(view.screenId(),panel.style()));
+                    var arrow = view.widget(prefix+".more").orElseThrow();
+                    int barTop = mode == 0 ? b.bottom()-16 : b.y();
+                    assertEquals(new Bounds(b.x(),barTop,b.width(),16),arrow.bounds());
+                    assertEquals(Optional.of(mode == 0 ? "up" : "down"),arrow.value());
+                    assertEquals(barTop+5,ViewHostPolicy.transparentTextY(arrow,9));
+                    var name = text(view,prefix+".name");
+                    int textY = barTop+(mode == 0 ? 4 : 5);
+                    assertEquals(new Bounds(b.x()+4,textY,b.width()-18,10),name.bounds());
+                    assertEquals(b,name.marqueeActivation().orElseThrow().hoverBounds());
+                    assertEquals(Optional.of(new Bounds(b.x(),textY,b.width()-14,10)),name.marqueeActivation().orElseThrow().movingClip());
+                    assertEquals(arrow.id(),ViewHostPolicy.pointerOwnerAt(view,b.x()+1,barTop+1).orElseThrow().id());
+                    if (mode == 0) assertEquals(b,normal.previews().stream().filter(p -> p.id().equals(prefix+".preview")).findFirst().orElseThrow().bounds());
+                    else {
+                        assertTrue(view.previews().stream().noneMatch(p -> p.id().equals(prefix+".preview")));
+                        assertFalse(view.widget(cardId).orElseThrow().activationEnabled());
+                        if (mode == 2) {
+                            assertEquals(new Bounds(b.x()+2,b.bottom()-44,b.width()-4,20),view.widget(prefix+".delete_confirm").orElseThrow().bounds());
+                            assertEquals(new Bounds(b.x()+2,b.bottom()-22,b.width()-4,20),view.widget(prefix+".delete_cancel").orElseThrow().bounds());
+                        } else {
+                            int leftWidth = (b.width()-6)/2;
+                            int rightX = b.x()+4+leftWidth;
+                            assertEquals(new Bounds(b.x()+2,b.bottom()-44,leftWidth,20),view.widget(prefix+".favorite").orElseThrow().bounds());
+                            assertEquals(new Bounds(rightX,b.bottom()-44,b.right()-2-rightX,20),view.widget(prefix+".edit").orElseThrow().bounds());
+                            assertEquals(new Bounds(b.x()+2,b.bottom()-22,leftWidth,20),view.widget(prefix+".duplicate").orElseThrow().bounds());
+                            assertEquals(new Bounds(rightX,b.bottom()-22,b.right()-2-rightX,20),view.widget(prefix+".delete").orElseThrow().bounds());
+                        }
+                    }
+                }
+            }
+        }
+        assertTrue(widths.stream().anyMatch(w -> w%2==0));
+        assertTrue(widths.stream().anyMatch(w -> w%2==1));
+        assertTrue(widths.stream().anyMatch(w -> w>48));
+        assertTrue(multipleColumns);
+        assertTrue(incompleteRow);
+    }
+
+    @Test
+    void expandedOverlaysKeepViewportClipWhenPartiallyOrFullyScrolledOut() {
+        var account = TestFixtures.account(41);
+        var target = account.presets().get(40).id();
+        var snapshot = TestFixtures.ready(account,target,0);
+        var d = draft(snapshot.activePresetId(),PreviewRenderer.DisplayKind.ORDINARY);
+        String cardId = "gallery.card."+target;
+        String prefix = "gallery.preset."+target;
+        boolean partial = false;
+        boolean emptyPanel = false;
+        boolean absentCard = false;
+        for (int width : List.of(120,320,321,854,1600)) for (boolean deleting : List.of(false,true)) {
+            var initial = project(snapshot,width,180,d,Optional.of(target),deleting ? Optional.of(target) : Optional.empty(),0);
+            var viewport = initial.scrollSurface("gallery.cards").orElseThrow().viewport();
+            var initialCard = initial.widget(cardId).orElseThrow().bounds();
+            double edge = initialCard.bottom()-viewport.y();
+            assertTrue(initial.scrollSurface("gallery.cards").orElseThrow().maximumPixels()>=edge);
+            for (double scroll : List.of(0.0,37.5,edge-1,edge)) {
+                var view = project(snapshot,width,180,d,Optional.of(target),deleting ? Optional.of(target) : Optional.empty(),scroll);
+                assertEquals(scroll,view.scrollSurface("gallery.cards").orElseThrow().offsetPixels());
+                assertEquals(viewport,view.scrollSurface("gallery.cards").orElseThrow().viewport());
+                var b = view.navigationNode(cardId).orElseThrow().bounds();
+                assertEquals(initialCard.y()-(int)Math.round(scroll),b.y());
+                var panel = view.panels().stream().filter(p -> p.id().equals(prefix+".namebar")).findFirst();
+                if (scroll==edge) {
+                    assertTrue(view.widget(cardId).isEmpty());
+                    assertTrue(panel.isEmpty());
+                    absentCard = true;
+                    continue;
+                }
+                var overlay = panel.orElseThrow();
+                assertEquals(new Bounds(b.x(),b.y()+2,b.width(),b.height()-4),overlay.bounds());
+                var clip = ViewHostPolicy.paintClip(view,overlay.id()).orElseThrow();
+                assertEquals(viewport,clip);
+                assertEquals(viewport,view.clipFor(cardId).orElseThrow());
+                assertTrue(clip.bottom()<=view.panels().stream().filter(p -> p.id().equals("footer")).findFirst().orElseThrow().bounds().y());
+                if (scroll==edge-1) {
+                    assertFalse(intersects(overlay.bounds(),clip));
+                    assertFalse(ViewHostPolicy.visibleIntersection(view,prefix+".more"));
+                    emptyPanel = true;
+                } else {
+                    assertTrue(intersects(overlay.bounds(),clip));
+                    assertTrue(overlay.bounds().y()<clip.y() || overlay.bounds().bottom()>clip.bottom());
+                    partial = true;
+                }
+                assertFalse(ViewHostPolicy.pointerInsideClip(view,prefix+".more",b.x()+1,clip.y()-1));
+                assertTrue(ViewHostPolicy.pointerOwnerAt(view,b.x()+1,clip.y()-1).filter(w -> w.id().startsWith(prefix)).isEmpty());
+            }
+        }
+        assertTrue(partial);
+        assertTrue(emptyPanel);
+        assertTrue(absentCard);
     }
 
     @Test
@@ -397,7 +531,7 @@ final class GalleryPresenterTest {
         assertTrue(revealed.widget(down.id()).isPresent());
         assertEquals(Optional.of(down.id()),ViewNavigationPolicy.activationAction(revealed,down.id()));
         assertEquals(s.activePresetId(),d.selectedPresetId());
-        assertTrue(ViewNavigationPolicy.target(view,first,ViewSpec.NavigationCommand.UP).isEmpty());
+        assertEquals("gallery.your_appearances",ViewNavigationPolicy.target(view,first,ViewSpec.NavigationCommand.UP).orElseThrow().id());
     }
 
     @Test
@@ -471,7 +605,7 @@ final class GalleryPresenterTest {
     }
 
     @Test
-    void favoritesTopologyPrecedesQueryAndExplicitCollapseIsPureProjection() {
+    void filteredTopologyAndExplicitCollapseArePureProjection() {
         var base = TestFixtures.account(4);
         var presets = new java.util.ArrayList<>(base.presets());
         presets.set(0, presets.get(0).withFavorite(true));
@@ -494,6 +628,76 @@ final class GalleryPresenterTest {
         assertEquals("gallery.favorites",presenter.normalizeSelectedCardId(s,"","gallery.card."+presets.get(0).id(),d));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"0,0", "1,0", "1,1", "4,0", "4,4", "4,2"})
+    void nonemptyGroupsOwnHeadersCardsAndGeometryBeforeCollapse(int count, int favorites) {
+        var base = TestFixtures.account(count);
+        var presets = new java.util.ArrayList<>(base.presets());
+        for (int i = 0; i < favorites; i++) presets.set(i, presets.get(i).withFavorite(true));
+        var account = new AccountState(base.schemaVersion(), base.accountId(), base.skinAssets(), presets, base.updatedAt());
+        var s = TestFixtures.ready(account, count == 0 ? null : presets.get(0).id(), 0);
+        var d = draft(s.activePresetId(), PreviewRenderer.DisplayKind.UNCONFIRMED);
+        var view = project(s,854,480,d,Optional.empty(),Optional.empty(),0);
+        var bulk = view.widget("gallery.sections").orElseThrow();
+        assertEquals(count > 0, bulk.enabled());
+        assertEquals(count > 0, ViewNavigationPolicy.activationAction(view,"gallery.sections").isPresent());
+        var headers = view.navigationNodes().stream().filter(n -> n.id().equals("gallery.favorites")
+                || n.id().equals("gallery.your_appearances")).map(ViewSpec.NavigationNode::id).toList();
+        var expected = new java.util.ArrayList<String>();
+        if (favorites > 0) expected.add("gallery.favorites");
+        if (favorites < count) expected.add("gallery.your_appearances");
+        assertEquals(expected, headers);
+        var cards = view.navigationNodes().stream().filter(n -> n.id().startsWith("gallery.card.")).toList();
+        assertEquals(count, cards.size());
+        assertEquals(count, cards.stream().map(ViewSpec.NavigationNode::id).distinct().count());
+        var expectedCards = new java.util.ArrayList<String>();
+        for (int i=favorites-1;i>=0;i--) expectedCards.add("gallery.card."+presets.get(i).id());
+        for (int i=count-1;i>=favorites;i--) expectedCards.add("gallery.card."+presets.get(i).id());
+        assertEquals(expectedCards,cards.stream().map(ViewSpec.NavigationNode::id).toList());
+        assertEquals(presenter.cardIds(s,"",d), cards.stream().map(ViewSpec.NavigationNode::id).toList());
+        if (count > 0) {
+            assertEquals(63, view.navigationNode(expected.get(0)).orElseThrow().bounds().y());
+            assertEquals(81, cards.get(0).bounds().y());
+            if (expected.size()==2) {
+                assertEquals(179,view.navigationNode("gallery.your_appearances").orElseThrow().bounds().y());
+                assertEquals(197,cards.get(favorites).bounds().y());
+            }
+            var collapsed = new GalleryPresenter.DraftInput(d.selectedPresetId(),d.baselineMask(),d.draftMask(),
+                    d.generation(),d.inspectionIdentity(),java.util.Set.copyOf(expected),Optional.empty(),d.displayedBodyKind());
+            var hidden = project(s,854,480,collapsed,Optional.empty(),Optional.empty(),0);
+            assertTrue(presenter.cardIds(s,"",collapsed).isEmpty());
+            assertEquals(expected, hidden.navigationNodes().stream().filter(n -> expected.contains(n.id()))
+                    .map(ViewSpec.NavigationNode::id).toList());
+            assertEquals(presets.get(0).favorite() ? "gallery.favorites" : "gallery.your_appearances",
+                    presenter.normalizeSelectedCardId(s,"","gallery.card."+presets.get(0).id(),collapsed));
+        }
+    }
+
+    @Test
+    void readyToolbarSlotIsStableAndBulkGlyphUsesOnlyFilteredEffectiveGroups() {
+        var base = TestFixtures.account(2);
+        var account = new AccountState(base.schemaVersion(),base.accountId(),base.skinAssets(),
+                List.of(base.presets().get(0).withFavorite(true),base.presets().get(1)),base.updatedAt());
+        var s = TestFixtures.ready(account,base.presets().get(0).id(),0);
+        var d = new GalleryPresenter.DraftInput(s.activePresetId(),base.presets().get(0).outerLayerVisibility(),
+                base.presets().get(0).outerLayerVisibility(),0,Optional.empty(),java.util.Set.of("gallery.favorites"),
+                Optional.empty(),PreviewRenderer.DisplayKind.UNCONFIRMED);
+        var full = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"",Optional.empty(),0,null,d);
+        for (String query : List.of("", "pReSeT 1", "PRESET 2", "missing")) {
+            var view = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,query,Optional.empty(),0,null,d);
+            assertEquals(full.widget("gallery.search").orElseThrow().bounds(),view.widget("gallery.search").orElseThrow().bounds());
+            var bulk = view.widget("gallery.sections").orElseThrow();
+            assertEquals(full.widget("gallery.sections").orElseThrow().bounds(),bulk.bounds());
+            assertEquals(Optional.of(query.equals("pReSeT 1") ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL),bulk.icon());
+            assertEquals(!query.equals("missing"),bulk.enabled());
+            assertEquals(!query.equals("missing"),ViewNavigationPolicy.activationAction(view,bulk.id()).isPresent());
+        }
+        var reveal = new GalleryPresenter.DraftInput(d.selectedPresetId(),d.baselineMask(),d.draftMask(),0,
+                Optional.empty(),d.collapsedSections(),Optional.of("gallery.favorites"),d.displayedBodyKind());
+        var revealed = presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"Preset 1",Optional.empty(),0,null,reveal);
+        assertEquals(Optional.of(GuiIcon.ACTION_COLLAPSE_ALL),revealed.widget("gallery.sections").orElseThrow().icon());
+    }
+
     @Test
     void compactGridReplacesStripAndAddCard() {
         var account = TestFixtures.account(40);
@@ -512,7 +716,9 @@ final class GalleryPresenterTest {
 
     @Test
     void galleryHideFlagKeepsOnlyMatchingActiveIncompatibleLookAfterAdd() {
-        AccountState account = TestFixtures.account(2);
+        AccountState baseAccount = TestFixtures.account(2);
+        AccountState account = new AccountState(baseAccount.schemaVersion(),baseAccount.accountId(),baseAccount.skinAssets(),
+                List.of(baseAccount.presets().get(0).withFavorite(true),baseAccount.presets().get(1)),baseAccount.updatedAt());
         UUID active = account.presets().get(1).id();
         ClientSnapshot base = TestFixtures.ready(account, active, 0);
         SkinFeatureEvidence conflict = new SkinFeatureEvidence(
@@ -532,6 +738,13 @@ final class GalleryPresenterTest {
                 SkinVariant.CLASSIC, "Preset", Optional.empty());
         String indicatorId = "gallery.preset." + active + ".compatibility";
         ViewSpec.Widget indicator = view.widget(indicatorId).orElseThrow();
+        assertTrue(view.navigationNode("gallery.favorites").isEmpty(), "Compatibility removes the entire favorite group");
+        assertTrue(view.navigationNode("gallery.your_appearances").isPresent());
+        assertEquals(81, view.navigationNode("gallery.card." + active).orElseThrow().bounds().y());
+        var noMatches = presenter.present(hidden,854,480,0,0,PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC,"Preset 1",Optional.empty());
+        assertTrue(noMatches.navigationNode("gallery.favorites").isEmpty());
+        assertTrue(noMatches.navigationNode("gallery.your_appearances").isEmpty());
         assertEquals(ViewSpec.WidgetKind.PASSIVE_INDICATOR, indicator.kind());
         assertEquals(Optional.of(indicator.label()), indicator.hint());
         assertTrue(view.navigationNode(indicatorId).isPresent());
@@ -547,6 +760,27 @@ final class GalleryPresenterTest {
         ClientSnapshot visible = withCompatibility(
                 base, hidden.skinExtensionEnvironment(), hidden.assetEvidence(), false);
         assertEquals(2, presenter.cardIds(visible, "Preset").size());
+    }
+
+    @Test
+    void filteredInitialScrollUsesActiveExceptionAndOnlyEligibleHeader() {
+        var base=TestFixtures.account(80);
+        var presets=new java.util.ArrayList<>(base.presets());
+        for (int i=0;i<79;i++) presets.set(i,presets.get(i).withFavorite(true));
+        var account=new AccountState(base.schemaVersion(),base.accountId(),base.skinAssets(),presets,base.updatedAt());
+        var active=presets.get(79).id();
+        var conflict=new SkinFeatureEvidence(List.of(),List.of(SkinConflictReason.MALFORMED_EXPRESSIVE_DATA));
+        var s=withCompatibility(TestFixtures.ready(account,active,0),
+                new SkinExtensionEnvironment(7,Map.of(SkinConsumer.FRESH_MOVES,SkinConsumerState.ACTIVE)),
+                Map.of(TestFixtures.CLASSIC_ID,conflict,TestFixtures.SLIM_ID,conflict),true);
+        var d=draft(s.activePresetId(),PreviewRenderer.DisplayKind.UNCONFIRMED);
+        assertEquals(0,presenter.initialScrollPosition(s,s.account(),s.activePresetId(),"pReSeT",854,480,d));
+        var view=presenter.present(s,854,480,0,0,PreviewRenderer.CapeMode.CAPE,SkinVariant.CLASSIC,"pReSeT",Optional.empty(),0,null,d);
+        assertEquals(List.of("gallery.card."+active),presenter.cardIds(s,"pReSeT",d));
+        assertTrue(view.navigationNode("gallery.favorites").isEmpty());
+        assertEquals(63,view.widget("gallery.your_appearances").orElseThrow().bounds().y());
+        assertEquals(81,view.widget("gallery.card."+active).orElseThrow().bounds().y());
+        assertEquals(0,view.scrollbar().orElseThrow().maximum());
     }
 
     @Test
@@ -600,7 +834,8 @@ final class GalleryPresenterTest {
                 "",
                 Optional.empty(),
                 presenter.initialScrollPosition(
-                        seeded.account(), seeded.activePresetId(), "", 320, 240));
+                        seeded, seeded.account(), seeded.activePresetId(), "", 320, 240,
+                        draft(seeded.activePresetId(),PreviewRenderer.DisplayKind.UNCONFIRMED)));
 
         Bounds activeBounds = view.panels().stream()
                 .filter(panel -> panel.id().equals("gallery.card." + active))
@@ -645,7 +880,7 @@ final class GalleryPresenterTest {
         assertTrue(healthy.widget("gallery.retry_cape").isEmpty());
         assertEquals(new Bounds(32, 12, 790, 10), text(healthy, "gallery.title").bounds());
         assertEquals(
-                List.of("gallery.add", "gallery.search", "gallery.card." + valid.account().orElseThrow().presets().get(0).id(), "gallery.preset." + valid.account().orElseThrow().presets().get(0).id() + ".more", "gallery.providers", "gallery.done"),
+                List.of("gallery.add", "gallery.search", "gallery.sections", "gallery.your_appearances", "gallery.card." + valid.account().orElseThrow().presets().get(0).id(), "gallery.preset." + valid.account().orElseThrow().presets().get(0).id() + ".more", "gallery.providers", "gallery.done"),
                 tabIds(healthy));
 
         ViewSpec missing = presenter.present(
@@ -655,7 +890,7 @@ final class GalleryPresenterTest {
         assertTrue(missing.widget("gallery.retry_session").isEmpty());
         assertEquals(new Bounds(32, 12, 790, 10), text(missing, "gallery.title").bounds());
         assertEquals(
-                List.of("gallery.add", "gallery.search", "gallery.card." + valid.account().orElseThrow().presets().get(0).id(), "gallery.preset." + valid.account().orElseThrow().presets().get(0).id() + ".more", "gallery.providers", "gallery.done"),
+                List.of("gallery.add", "gallery.search", "gallery.sections", "gallery.your_appearances", "gallery.card." + valid.account().orElseThrow().presets().get(0).id(), "gallery.preset." + valid.account().orElseThrow().presets().get(0).id() + ".more", "gallery.providers", "gallery.done"),
                 tabIds(missing));
 
         SessionValidation invalidSession = new SessionValidation(

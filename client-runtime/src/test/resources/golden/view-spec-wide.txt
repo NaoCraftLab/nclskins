@@ -4,61 +4,63 @@ panels
 0|header|0,0,1600,33|VANILLA_HEADER
 1|footer|0,687,1600,33|VANILLA_FOOTER
 2|gallery.workspace|223,33,1377,654|VANILLA_TAB_CONTENT
-3|gallery.card.00000000-0000-0002-0000-000000000006|231,63,48,96|VANILLA_LIST
-4|gallery.preset.00000000-0000-0002-0000-000000000006.namebar|231,143,48,16|TRANSLUCENT_NAMEBAR
-5|gallery.card.00000000-0000-0002-0000-000000000005|281,63,48,96|VANILLA_LIST
-6|gallery.preset.00000000-0000-0002-0000-000000000005.namebar|281,143,48,16|TRANSLUCENT_NAMEBAR
-7|gallery.card.00000000-0000-0002-0000-000000000004|331,63,48,96|VANILLA_LIST
-8|gallery.preset.00000000-0000-0002-0000-000000000004.namebar|331,143,48,16|TRANSLUCENT_NAMEBAR
-9|gallery.card.00000000-0000-0002-0000-000000000003|381,63,48,96|VANILLA_LIST
-10|gallery.preset.00000000-0000-0002-0000-000000000003.namebar|381,143,48,16|TRANSLUCENT_NAMEBAR
-11|gallery.card.00000000-0000-0002-0000-000000000002|431,63,48,96|VANILLA_LIST
-12|gallery.preset.00000000-0000-0002-0000-000000000002.namebar|431,143,48,16|TRANSLUCENT_NAMEBAR
-13|gallery.card.00000000-0000-0002-0000-000000000001|481,63,48,96|VANILLA_LIST
-14|gallery.preset.00000000-0000-0002-0000-000000000001.namebar|481,143,48,16|TRANSLUCENT_NAMEBAR
+3|gallery.card.00000000-0000-0002-0000-000000000006|231,81,48,96|VANILLA_LIST
+4|gallery.preset.00000000-0000-0002-0000-000000000006.namebar|231,161,48,16|TRANSLUCENT_NAMEBAR
+5|gallery.card.00000000-0000-0002-0000-000000000005|281,81,48,96|VANILLA_LIST
+6|gallery.preset.00000000-0000-0002-0000-000000000005.namebar|281,161,48,16|TRANSLUCENT_NAMEBAR
+7|gallery.card.00000000-0000-0002-0000-000000000004|331,81,48,96|VANILLA_LIST
+8|gallery.preset.00000000-0000-0002-0000-000000000004.namebar|331,161,48,16|TRANSLUCENT_NAMEBAR
+9|gallery.card.00000000-0000-0002-0000-000000000003|381,81,48,96|VANILLA_LIST
+10|gallery.preset.00000000-0000-0002-0000-000000000003.namebar|381,161,48,16|TRANSLUCENT_NAMEBAR
+11|gallery.card.00000000-0000-0002-0000-000000000002|431,81,48,96|VANILLA_LIST
+12|gallery.preset.00000000-0000-0002-0000-000000000002.namebar|431,161,48,16|TRANSLUCENT_NAMEBAR
+13|gallery.card.00000000-0000-0002-0000-000000000001|481,81,48,96|VANILLA_LIST
+14|gallery.preset.00000000-0000-0002-0000-000000000001.namebar|481,161,48,16|TRANSLUCENT_NAMEBAR
 texts
 0|gallery.title|32,12,1536,10|key:nclskins.gallery.title:INFO|CENTER
-1|gallery.preset.00000000-0000-0002-0000-000000000006.name|235,147,30,10|literal:Preset 6:INFO|LEFT
-2|gallery.preset.00000000-0000-0002-0000-000000000005.name|285,147,30,10|literal:Preset 5:INFO|LEFT
-3|gallery.preset.00000000-0000-0002-0000-000000000004.name|335,147,30,10|literal:Preset 4:INFO|LEFT
-4|gallery.preset.00000000-0000-0002-0000-000000000003.name|385,147,30,10|literal:Preset 3:INFO|LEFT
-5|gallery.preset.00000000-0000-0002-0000-000000000002.name|435,147,30,10|literal:Preset 2:INFO|LEFT
-6|gallery.preset.00000000-0000-0002-0000-000000000001.name|485,147,30,10|literal:Preset 1:INFO|LEFT
+1|gallery.preset.00000000-0000-0002-0000-000000000006.name|235,165,30,10|literal:Preset 6:INFO|LEFT
+2|gallery.preset.00000000-0000-0002-0000-000000000005.name|285,165,30,10|literal:Preset 5:INFO|LEFT
+3|gallery.preset.00000000-0000-0002-0000-000000000004.name|335,165,30,10|literal:Preset 4:INFO|LEFT
+4|gallery.preset.00000000-0000-0002-0000-000000000003.name|385,165,30,10|literal:Preset 3:INFO|LEFT
+5|gallery.preset.00000000-0000-0002-0000-000000000002.name|435,165,30,10|literal:Preset 2:INFO|LEFT
+6|gallery.preset.00000000-0000-0002-0000-000000000001.name|485,165,30,10|literal:Preset 1:INFO|LEFT
 widgets
 0|gallery.providers|ICON_BUTTON|1572,6,20,20|key:nclskins.providers.title:INFO|value=action/providers|hint=key:nclskins.providers.title:INFO|enabled=true|visible=true|max=0
 1|gallery.add|ICON_BUTTON|231,37,20,20|key:nclskins.gallery.add_hint:INFO|value=action/add_look|hint=key:nclskins.gallery.add_hint:INFO|enabled=true|visible=true|max=0
-2|gallery.search|TEXT_FIELD|253,37,1339,20|key:nclskins.gallery.search:INFO|value=|hint=key:nclskins.gallery.search_hint:INFO|enabled=true|visible=true|max=128
-3|gallery.done|BUTTON|700,694,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-4|gallery.preview_mode|ICON_ONLY_BUTTON|6,38,20,20|key:item.minecraft.elytra:INFO|value=appearance/back/elytra|hint=key:item.minecraft.elytra:INFO|enabled=true|visible=true|max=0
-5|gallery.card.00000000-0000-0002-0000-000000000006|CATALOG_CARD|231,63,48,96|literal:Preset 6:INFO|value=active|hint=-|enabled=true|visible=true|max=0
-6|gallery.preset.00000000-0000-0002-0000-000000000006.more|TRANSPARENT_BUTTON|231,143,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
-7|gallery.card.00000000-0000-0002-0000-000000000005|CATALOG_CARD|281,63,48,96|literal:Preset 5:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-8|gallery.preset.00000000-0000-0002-0000-000000000005.more|TRANSPARENT_BUTTON|281,143,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
-9|gallery.card.00000000-0000-0002-0000-000000000004|CATALOG_CARD|331,63,48,96|literal:Preset 4:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-10|gallery.preset.00000000-0000-0002-0000-000000000004.more|TRANSPARENT_BUTTON|331,143,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
-11|gallery.card.00000000-0000-0002-0000-000000000003|CATALOG_CARD|381,63,48,96|literal:Preset 3:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-12|gallery.preset.00000000-0000-0002-0000-000000000003.more|TRANSPARENT_BUTTON|381,143,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
-13|gallery.card.00000000-0000-0002-0000-000000000002|CATALOG_CARD|431,63,48,96|literal:Preset 2:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-14|gallery.preset.00000000-0000-0002-0000-000000000002.more|TRANSPARENT_BUTTON|431,143,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
-15|gallery.card.00000000-0000-0002-0000-000000000001|CATALOG_CARD|481,63,48,96|literal:Preset 1:INFO|value=-|hint=-|enabled=true|visible=true|max=0
-16|gallery.preset.00000000-0000-0002-0000-000000000001.more|TRANSPARENT_BUTTON|481,143,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
+2|gallery.search|TEXT_FIELD|253,37,1317,20|key:nclskins.gallery.search:INFO|value=|hint=key:nclskins.gallery.search_hint:INFO|enabled=true|visible=true|max=128
+3|gallery.sections|ICON_BUTTON|1572,37,20,20|key:nclskins.collection.collapse_all:INFO|value=action/collapse_all|hint=key:nclskins.collection.collapse_all:INFO|enabled=true|visible=true|max=0
+4|gallery.done|BUTTON|700,694,200,20|key:gui.done:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+5|gallery.preview_mode|ICON_ONLY_BUTTON|6,38,20,20|key:item.minecraft.elytra:INFO|value=appearance/back/elytra|hint=key:item.minecraft.elytra:INFO|enabled=true|visible=true|max=0
+6|gallery.your_appearances|COLLECTION_HEADER|231,63,1361,16|key:nclskins.capes.collection(▼,key:nclskins.gallery.your_appearances:INFO):INFO|value=-|hint=-|enabled=true|visible=true|max=0
+7|gallery.card.00000000-0000-0002-0000-000000000006|CATALOG_CARD|231,81,48,96|literal:Preset 6:INFO|value=active|hint=-|enabled=true|visible=true|max=0
+8|gallery.preset.00000000-0000-0002-0000-000000000006.more|TRANSPARENT_BUTTON|231,161,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
+9|gallery.card.00000000-0000-0002-0000-000000000005|CATALOG_CARD|281,81,48,96|literal:Preset 5:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+10|gallery.preset.00000000-0000-0002-0000-000000000005.more|TRANSPARENT_BUTTON|281,161,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
+11|gallery.card.00000000-0000-0002-0000-000000000004|CATALOG_CARD|331,81,48,96|literal:Preset 4:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+12|gallery.preset.00000000-0000-0002-0000-000000000004.more|TRANSPARENT_BUTTON|331,161,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
+13|gallery.card.00000000-0000-0002-0000-000000000003|CATALOG_CARD|381,81,48,96|literal:Preset 3:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+14|gallery.preset.00000000-0000-0002-0000-000000000003.more|TRANSPARENT_BUTTON|381,161,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
+15|gallery.card.00000000-0000-0002-0000-000000000002|CATALOG_CARD|431,81,48,96|literal:Preset 2:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+16|gallery.preset.00000000-0000-0002-0000-000000000002.more|TRANSPARENT_BUTTON|431,161,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
+17|gallery.card.00000000-0000-0002-0000-000000000001|CATALOG_CARD|481,81,48,96|literal:Preset 1:INFO|value=-|hint=-|enabled=true|visible=true|max=0
+18|gallery.preset.00000000-0000-0002-0000-000000000001.more|TRANSPARENT_BUTTON|481,161,48,16|key:nclskins.gallery.actions:INFO|value=up|hint=-|enabled=true|visible=true|max=0
 previews
 0|gallery.preview|0,0,1600,720|anchor=32,52,161,322|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-5|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=25.0|pitch=-8.0|scale=1.0|preset=00000000-0000-0002-0000-000000000006
-1|gallery.preset.00000000-0000-0002-0000-000000000006.preview|231,63,48,96|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-5|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000006
-2|gallery.preset.00000000-0000-0002-0000-000000000005.preview|281,63,48,96|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000005
-3|gallery.preset.00000000-0000-0002-0000-000000000004.preview|331,63,48,96|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000004
-4|gallery.preset.00000000-0000-0002-0000-000000000003.preview|381,63,48,96|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000003
-5|gallery.preset.00000000-0000-0002-0000-000000000002.preview|431,63,48,96|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-1|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000002
-6|gallery.preset.00000000-0000-0002-0000-000000000001.preview|481,63,48,96|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000001
+1|gallery.preset.00000000-0000-0002-0000-000000000006.preview|231,81,48,96|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-5|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000006
+2|gallery.preset.00000000-0000-0002-0000-000000000005.preview|281,81,48,96|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000005
+3|gallery.preset.00000000-0000-0002-0000-000000000004.preview|331,81,48,96|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-3|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000004
+4|gallery.preset.00000000-0000-0002-0000-000000000003.preview|381,81,48,96|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000003
+5|gallery.preset.00000000-0000-0002-0000-000000000002.preview|431,81,48,96|skin=ASSET:10000000-0000-0000-0000-000000000002|revision=asset:10000000-0000-0000-0000-000000000002|variant=SLIM|cape=cape-1|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000002
+6|gallery.preset.00000000-0000-0002-0000-000000000001.preview|481,81,48,96|skin=ASSET:10000000-0000-0000-0000-000000000001|revision=asset:10000000-0000-0000-0000-000000000001|variant=CLASSIC|cape=-|mode=OFF|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-25.0|pitch=0.0|scale=0.88|preset=00000000-0000-0002-0000-000000000001
 back_equipment_previews
 icon_decorations
 clip_regions
-0|gallery.preset.00000000-0000-0002-0000-000000000006.preview.clip|231,63,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000006.preview
-1|gallery.preset.00000000-0000-0002-0000-000000000005.preview.clip|281,63,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000005.preview
-2|gallery.preset.00000000-0000-0002-0000-000000000004.preview.clip|331,63,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000004.preview
-3|gallery.preset.00000000-0000-0002-0000-000000000003.preview.clip|381,63,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000003.preview
-4|gallery.preset.00000000-0000-0002-0000-000000000002.preview.clip|431,63,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000002.preview
-5|gallery.preset.00000000-0000-0002-0000-000000000001.preview.clip|481,63,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000001.preview
+0|gallery.preset.00000000-0000-0002-0000-000000000006.preview.clip|231,81,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000006.preview
+1|gallery.preset.00000000-0000-0002-0000-000000000005.preview.clip|281,81,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000005.preview
+2|gallery.preset.00000000-0000-0002-0000-000000000004.preview.clip|331,81,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000004.preview
+3|gallery.preset.00000000-0000-0002-0000-000000000003.preview.clip|381,81,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000003.preview
+4|gallery.preset.00000000-0000-0002-0000-000000000002.preview.clip|431,81,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000002.preview
+5|gallery.preset.00000000-0000-0002-0000-000000000001.preview.clip|481,81,48,96|prefixes=gallery.preset.00000000-0000-0002-0000-000000000001.preview
 6|gallery.cards|231,61,1361,626|prefixes=gallery.card.,gallery.preset.,gallery.favorites,gallery.your_appearances
 7|gallery.stage|4,390,217,297|prefixes=gallery.layers,gallery.outer_layer.,gallery.capes,gallery.inspect.
 scrollbar=1594,61,6,626|1594,61,6,626|offset=0|maximum=0

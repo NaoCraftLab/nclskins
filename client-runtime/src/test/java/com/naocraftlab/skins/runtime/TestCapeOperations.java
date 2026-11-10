@@ -38,6 +38,11 @@ import java.util.UUID;
 
 interface TestCapeOperations extends ClientOperations {
     @Override
+    default AccountUiPreferences updatePreferredCapeMode(CapeModeUpdate update) throws Exception {
+        throw new UnsupportedOperationException("Cape preferences unavailable in this fixture");
+    }
+
+    @Override
     default AccountUiPreferences updateGallerySections(GallerySectionsUpdate update) throws Exception {
         throw new UnsupportedOperationException("Gallery preferences unavailable in this fixture");
     }

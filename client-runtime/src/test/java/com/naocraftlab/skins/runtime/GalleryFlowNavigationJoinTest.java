@@ -45,7 +45,7 @@ final class GalleryFlowNavigationJoinTest {
     void searchTabAfterWheelEntersFirstLogicalGroupWithoutSelectingDraft(String scenario) throws Exception {
         var f = fixture();
         try {
-            int height = scenario.equals("partial") ? 150 : 240;
+            int height = scenario.equals("partial") ? 150 : 292;
             f.storage.updateAccount(ACCOUNT, old -> {
                 var presets = new ArrayList<>(old.presets());
                 for (int i = 10; i < 90; i++) presets.add(new AppearancePreset(new UUID(0, i), "Grid " + i,
@@ -88,16 +88,13 @@ final class GalleryFlowNavigationJoinTest {
             var before = ScopedEditorSaveTest.inventory(directory);
             assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, "gallery.search"));
             var focused = f.runtime.view(427, height, 0, 0);
-            if (scenario.equals("sections")) {
-                assertEquals("gallery.sections", focused.focusRequest().orElseThrow().widgetId());
-                assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,"gallery.sections"));
-                assertEquals("gallery.favorites",f.runtime.view(427,height,0,0).focusRequest().orElseThrow().widgetId());
-                assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,"gallery.favorites"));
-                focused=f.runtime.view(427,height,0,0);
-                expected=focused.navigationNode(f.card(new UUID(0,10))).orElseThrow();
-            } else {
-                expected=focused.navigationNode(f.card(A)).orElseThrow();
-            }
+            assertEquals("gallery.sections", focused.focusRequest().orElseThrow().widgetId());
+            assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,"gallery.sections"));
+            String header = scenario.equals("sections") ? "gallery.favorites" : "gallery.your_appearances";
+            assertEquals(header,f.runtime.view(427,height,0,0).focusRequest().orElseThrow().widgetId());
+            assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,header));
+            focused=f.runtime.view(427,height,0,0);
+            expected=focused.navigationNode(f.card(scenario.equals("sections") ? new UUID(0,10) : A)).orElseThrow();
             assertEquals(expected.id(), focused.focusRequest().orElseThrow().widgetId());
             assertTrue(focused.scrollSurface("gallery.cards").orElseThrow().offsetPixels() < beforeSurface.offsetPixels());
             assertTrue(focused.widget(expected.id()).orElseThrow().enabled());
@@ -158,7 +155,15 @@ final class GalleryFlowNavigationJoinTest {
                 assertEquals(p.skin(),next.skin());assertEquals(p.outerLayerVisibility(),next.outerLayerVisibility());
                 assertEquals(p.yawDegrees(),next.yawDegrees());assertEquals(p.pitchDegrees(),next.pitchDegrees());assertEquals(p.imageRevision(),next.imageRevision());
             }
-            assertEquals(before,ScopedEditorSaveTest.inventory(directory));assertTrue(f.workers.isEmpty());
+            assertEquals(before,ScopedEditorSaveTest.inventory(directory));assertEquals(1,f.workers.size());
+            f.drain();
+            var afterFiles = ScopedEditorSaveTest.inventory(directory);
+            String uiPath = directory.relativize(f.storage.layout().accountUiPreferences(ACCOUNT)).toString();
+            before.remove(uiPath); afterFiles.remove(uiPath);
+            assertEquals(before, afterFiles);
+            assertEquals(com.naocraftlab.skins.core.model.CapePreviewMode.valueOf(
+                    after.previews().stream().filter(p -> p.id().equals("gallery.preview")).findFirst().orElseThrow().capeMode().name()),
+                    f.storage.loadUiPreferences(ACCOUNT).preferences().preferredCapeMode());
         } finally {f.runtime.close();}
     }
 

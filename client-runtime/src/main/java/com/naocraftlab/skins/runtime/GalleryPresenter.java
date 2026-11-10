@@ -157,15 +157,16 @@ public final class GalleryPresenter {
         widgets.add(ViewSpec.Widget.iconButton("gallery.add", new Bounds(g.viewport().x(), 37, 20, 20),
                 query.isBlank() || matchingPresetCount(s,query)>0 ? UiMessage.info("nclskins.gallery.add_hint") :
                         UiMessage.info("nclskins.gallery.create_named",UntrustedDisplayName.sanitize(query,"")), GuiIcon.ACTION_ADD_LOOK, !s.busy() && s.account().isPresent()));
-        boolean sections = hasFavorites(s.account());
+        var sections = sections(s, query);
+        boolean allCollapsed = !sections.isEmpty() && sections.stream().allMatch(section -> collapsed(draft,section.id()));
         int searchX = g.viewport().x() + 22;
         widgets.add(ViewSpec.Widget.textField("gallery.search", new Bounds(searchX, 37,
-                Math.max(1, g.viewport().right() - searchX - (sections ? 22 : 0)), 20),
+                Math.max(1, g.viewport().right() - searchX - 22), 20),
                 UiMessage.info("nclskins.gallery.search"), query, UiMessage.info("nclskins.gallery.search_hint"),
                 !s.busy(), 128, true, Optional.empty()));
-        if (sections) widgets.add(ViewSpec.Widget.iconButton("gallery.sections", new Bounds(g.viewport().right() - 20, 37, 20, 20),
-                UiMessage.info(collapsed(draft,"gallery.favorites") && collapsed(draft,"gallery.your_appearances") ? "nclskins.collection.expand_all" : "nclskins.collection.collapse_all"),
-                collapsed(draft,"gallery.favorites") && collapsed(draft,"gallery.your_appearances") ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL, !s.busy()));
+        widgets.add(ViewSpec.Widget.iconButton("gallery.sections", new Bounds(g.viewport().right() - 20, 37, 20, 20),
+                UiMessage.info(allCollapsed ? "nclskins.collection.expand_all" : "nclskins.collection.collapse_all"),
+                allCollapsed ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL, !s.busy() && !sections.isEmpty()));
         var recovery = addGlobalWidgets(s, w, h, widgets);
         addHeader(s, w, recovery, texts);
         if (draft.selectedPresetId().isPresent() && draft.dirty(s.activePresetId())) {
@@ -251,7 +252,7 @@ public final class GalleryPresenter {
         if (recovery.isPresent()) tab = addControl(nodes, widgets, recovery.orElseThrow().widgetId(), tab);
         tab = addControl(nodes, widgets, "gallery.add", tab);
         tab = addControl(nodes, widgets, "gallery.search", tab);
-        if (sections) tab = addControl(nodes, widgets, "gallery.sections", tab);
+        tab = addControl(nodes, widgets, "gallery.sections", tab);
 
         for (Entry entry : entries) {
             Bounds b = new Bounds(g.viewport().x() + entry.bounds().x(),
@@ -277,7 +278,7 @@ public final class GalleryPresenter {
                                     : s.activePresetId().filter(preset.id()::equals).isPresent() ? Optional.of("active") : menu ? Optional.of("menu") : Optional.empty(), !s.busy() && deleting.isEmpty() && !menu);
                     panels.add(chrome.surface());
                     panels.add(new ViewSpec.Panel("gallery.preset."+preset.id()+".namebar",
-                            menu ? new Bounds(b.x()+2,b.y()+2,b.width()-4,b.height()-4)
+                            menu ? new Bounds(b.x(),b.y()+2,b.width(),b.height()-4)
                                     : new Bounds(b.x(),b.bottom()-16,b.width(),16),ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR));
                     int clipLeft=Math.max(b.x(),g.viewport().x()), clipTop=Math.max(b.y(),g.viewport().y());
                     cardClips.add(AppearanceCollections.clip("gallery.preset."+preset.id()+".preview.clip",
@@ -424,10 +425,6 @@ public final class GalleryPresenter {
         return d.collapsedSections().contains(id) && !d.temporarilyRevealedSection().filter(id::equals).isPresent();
     }
 
-    private static boolean hasFavorites(Optional<AccountState> account) {
-        return account.stream().flatMap(a -> a.presets().stream()).anyMatch(AppearancePreset::favorite);
-    }
-
     private static List<AppearancePreset> ordered(Optional<AccountState> account, String query) {
         String q = Objects.requireNonNull(query,"query").trim().toLowerCase(java.util.Locale.ROOT);
         return PresetGalleryOrder.arrange(account.stream().flatMap(a -> a.presets().stream())
@@ -435,20 +432,17 @@ public final class GalleryPresenter {
     }
 
     private static List<Entry> positioned(ClientSnapshot s, String query, DraftInput draft, Geometry g) {
-        var presets = ordered(s.account(), query).stream().filter(p -> !s.hideIncompatibleGalleryLooks()
-                || s.activePresetId().filter(p.id()::equals).isPresent() || s.compatibilityFor(p).status()!=SkinCompatibilityStatus.INCOMPATIBLE).toList();
+        return positioned(sections(s,query),draft,g);
+    }
+
+    private static List<Entry> positioned(List<Section> sections, DraftInput draft, Geometry g) {
         var entries = new ArrayList<Entry>();
         int y = 2;
-        boolean sections = hasFavorites(s.account());
-        for (boolean favorite : sections ? List.of(true,false) : List.of(false)) {
-            var group = presets.stream().filter(p -> !sections || p.favorite()==favorite).toList();
-            if (sections) {
-                if (group.isEmpty() && !query.isBlank()) continue;
-                String id = favorite ? "gallery.favorites" : "gallery.your_appearances";
-                entries.add(new Entry(id,Optional.empty(),new Bounds(0,y,g.viewport().width(),CollectionGridLayout.COLLECTION_HEADER_HEIGHT)));
-                y += CollectionGridLayout.COLLECTION_HEADER_HEIGHT+2;
-                if (collapsed(draft,id)) continue;
-            }
+        for (var section : sections) {
+            var group = section.presets();
+            entries.add(new Entry(section.id(),Optional.empty(),new Bounds(0,y,g.viewport().width(),CollectionGridLayout.COLLECTION_HEADER_HEIGHT)));
+            y += CollectionGridLayout.COLLECTION_HEADER_HEIGHT+2;
+            if (collapsed(draft,section.id())) continue;
             for (int i=0;i<group.size();i++) {
                 var p = group.get(i);
                 entries.add(new Entry("gallery.card."+p.id(),Optional.of(p),AppearanceCollections.gridCard(i,g.columns(),0,y,g.cardWidth(),CARD_HEIGHT,2)));
@@ -458,10 +452,34 @@ public final class GalleryPresenter {
         return List.copyOf(entries);
     }
 
+    List<String> sectionIds(ClientSnapshot s, String query) {
+        return sections(s,query).stream().map(Section::id).toList();
+    }
+
+    private static List<Section> sections(ClientSnapshot s, String query) {
+        return sections(s,s.account(),s.activePresetId(),query);
+    }
+
+    private static List<Section> sections(ClientSnapshot s, Optional<AccountState> account, Optional<UUID> active, String query) {
+        return groups(ordered(account, query).stream().filter(p -> !s.hideIncompatibleGalleryLooks()
+                || active.filter(p.id()::equals).isPresent()
+                || s.compatibilityFor(p).status()!=SkinCompatibilityStatus.INCOMPATIBLE).toList());
+    }
+
+    private static List<Section> groups(List<AppearancePreset> presets) {
+        var sections = new ArrayList<Section>();
+        for (boolean favorite : List.of(true,false)) {
+            var group = presets.stream().filter(p -> p.favorite()==favorite).toList();
+            if (!group.isEmpty()) sections.add(new Section(favorite ? "gallery.favorites" : "gallery.your_appearances",group));
+        }
+        return List.copyOf(sections);
+    }
+
     private static int contentHeight(List<Entry> entries) { return entries.stream().mapToInt(e -> e.bounds().bottom()).max().orElse(0); }
     private static String normalizeAnchor(List<Entry> entries, String anchor) {
         if (anchor!=null && entries.stream().anyMatch(e -> e.id().equals(anchor))) return anchor;
-        return entries.stream().filter(e -> e.preset().isPresent()).map(Entry::id).findFirst().orElse("gallery.add");
+        return entries.stream().filter(e -> e.preset().isPresent()).map(Entry::id).findFirst()
+                .orElseGet(() -> entries.stream().map(Entry::id).findFirst().orElse("gallery.add"));
     }
     public String normalizeSelectedCardId(ClientSnapshot s,String query,String anchor) {
         return normalizeAnchor(positioned(s,query,defaultDraft(s),geometry(854,480)),
@@ -481,35 +499,29 @@ public final class GalleryPresenter {
     }
 
     public List<String> cardIds(ClientSnapshot s, String query, DraftInput draft) {
-        return positioned(s,query,draft,geometry(854,480)).stream().filter(e->e.preset().isPresent()).map(Entry::id).toList();
+        return cardIds(s,s.account(),s.activePresetId(),query,draft);
+    }
+
+    List<String> cardIds(ClientSnapshot s,Optional<AccountState> account,Optional<UUID> active,String query,DraftInput draft) {
+        return positioned(sections(s,account,active,query),draft,geometry(854,480)).stream()
+                .filter(e->e.preset().isPresent()).map(Entry::id).toList();
     }
 
     public List<String> cardIds(ClientSnapshot s,String query) {
-        return positioned(s,query,defaultDraft(s),geometry(854,480)).stream().filter(e -> e.preset().isPresent()).map(Entry::id).toList();
+        return cardIds(s,query,defaultDraft(s));
     }
-    public List<String> cardIds(Optional<AccountState> account,Optional<UUID> active,String query) {
-        var sorted=ordered(account,query);
-        return sorted.stream().sorted(java.util.Comparator.comparing(AppearancePreset::favorite).reversed())
-                .map(p -> "gallery.card."+p.id()).toList();
-    }
+
     public int matchingPresetCount(ClientSnapshot s,String query) { return ordered(s.account(),query).size(); }
     public int maximumScroll(ClientSnapshot s,int w,int h,String query) { return maximumScroll(s,w,h,query,defaultDraft(s)); }
     public int maximumScroll(ClientSnapshot s,int w,int h,String query,DraftInput draft) {
         Geometry g=geometry(w,h);return Math.max(0,contentHeight(positioned(s,query,draft,g))-g.viewport().height()+2);
     }
-    double initialScrollPosition(Optional<AccountState> account,Optional<UUID> active,String query,int w,int h) {
-        Geometry g=geometry(w,h);var sorted=ordered(account,query);
+    double initialScrollPosition(ClientSnapshot s,Optional<AccountState> account,Optional<UUID> active,String query,int w,int h,DraftInput draft) {
+        Geometry g=geometry(w,h);
         if (active.isEmpty()) return 0;
-        boolean sections=hasFavorites(account);int y=2;
-        for (boolean favorite : sections ? List.of(true,false) : List.of(false)) {
-            var group=sorted.stream().filter(p -> !sections || p.favorite()==favorite).toList();
-            if (sections && group.isEmpty() && !query.isBlank()) continue;
-            if (sections) y+=CollectionGridLayout.COLLECTION_HEADER_HEIGHT+2;
-            for(int i=0;i<group.size();i++) if(active.filter(group.get(i).id()::equals).isPresent())
-                return Math.max(0,y+(i/g.columns())*98+CARD_HEIGHT+2-g.viewport().height());
-            y+=((group.size()+g.columns()-1)/g.columns())*98;
-        }
-        return 0;
+        var entries=positioned(sections(s,account,active,query),draft,g);
+        return entries.stream().filter(e -> e.preset().map(AppearancePreset::id).equals(active))
+                .mapToInt(e -> Math.max(0,e.bounds().bottom()+2-g.viewport().height())).findFirst().orElse(0);
     }
     public int offsetFromScrollbar(ClientSnapshot s,int w,int h,String query,double thumbTop) {
         return (int)Math.round(positionFromScrollbar(s,w,h,query,thumbTop));
@@ -536,6 +548,7 @@ public final class GalleryPresenter {
                 .map(SkinAsset::variant).orElse(fallback);
     }
     private record Geometry(Bounds viewport,int columns,int cardWidth,int leftWidth) {}
+    private record Section(String id,List<AppearancePreset> presets) {}
     private record Entry(String id,Optional<AppearancePreset> preset,Bounds bounds) {}
     private record RecoveryWidget(String widgetId,Bounds bounds) {}
     private static Optional<RecoveryWidget> addGlobalWidgets(

@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.naocraftlab.skins.core.model.AccountUiPreferences;
+import com.naocraftlab.skins.core.model.CapePreviewMode;
 import com.naocraftlab.skins.core.model.AddSourceTab;
 import com.naocraftlab.skins.core.model.EditorTab;
 import com.naocraftlab.skins.core.model.SkinVariant;
@@ -29,6 +30,7 @@ final class AccountUiPreferencesJson {
         root.addProperty("selectedAddSourceTab", preferences.selectedAddSourceTab().name());
         root.addProperty("selectedEditorTab", preferences.selectedEditorTab().name());
         root.addProperty("selectedProvidersTab", preferences.selectedProvidersTab().name());
+        root.addProperty("preferredCapeMode", preferences.preferredCapeMode().name());
         preferences.preferredSkinVariant()
                 .ifPresent(variant -> root.addProperty("preferredSkinVariant", variant.name()));
         JsonArray collapsedCollectionIds = new JsonArray();
@@ -49,7 +51,16 @@ final class AccountUiPreferencesJson {
         try {
             JsonObject root = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8))
                     .getAsJsonObject();
-            int schemaVersion = required(root, "schemaVersion").getAsInt();
+            JsonElement schema = required(root, "schemaVersion");
+            if (!schema.getAsJsonPrimitive().isNumber()) {
+                throw new JsonParseException("UI preferences schema must be a number");
+            }
+            int schemaVersion;
+            try {
+                schemaVersion = schema.getAsBigDecimal().intValueExact();
+            } catch (ArithmeticException invalidSchema) {
+                throw new JsonParseException("UI preferences schema must be an exact integer", invalidSchema);
+            }
             if (schemaVersion != 1 && schemaVersion != AccountUiPreferences.CURRENT_SCHEMA_VERSION) {
                 throw new StorageException(
                         StorageException.Code.UNSUPPORTED_SCHEMA,
@@ -96,7 +107,8 @@ final class AccountUiPreferencesJson {
                     AddSourceTab.valueOf(required(root, "selectedAddSourceTab").getAsString()),
                     optionalEditorTab(root),
                     preferredSkinVariant,
-                    collapsedCollectionIds, capeCollections, optionalProvidersTab(root), gallerySections);
+                    collapsedCollectionIds, capeCollections, optionalProvidersTab(root), gallerySections,
+                    optionalCapeMode(root));
         } catch (StorageException exception) {
             throw exception;
         } catch (JsonParseException | IllegalArgumentException | IllegalStateException
@@ -106,6 +118,18 @@ final class AccountUiPreferencesJson {
                     "UI preferences are malformed",
                     exception);
         }
+    }
+
+    private static CapePreviewMode optionalCapeMode(JsonObject root) {
+        JsonElement value = root.get("preferredCapeMode");
+        if (value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) {
+            try {
+                return CapePreviewMode.valueOf(value.getAsString());
+            } catch (IllegalArgumentException ignored) {
+                return CapePreviewMode.CAPE;
+            }
+        }
+        return CapePreviewMode.CAPE;
     }
 
     private static AppearanceProviders.Component optionalProvidersTab(JsonObject root) {

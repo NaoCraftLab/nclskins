@@ -30,17 +30,82 @@ final class GalleryMetadataTest {
         var f = fixture();
         try {
             var before = ScopedEditorSaveTest.inventory(directory);
-            f.runtime.dispatchWidget("gallery.sections");
             f.runtime.dispatchWidget("gallery.favorites"); f.drain();
             assertEquals(before, ScopedEditorSaveTest.inventory(directory));
             assertTrue(f.sectionUpdates.isEmpty());
             f.operations.setPresetFavorite(new LibraryEditorPort.PresetFavoriteUpdate(scope(), B, true)); reopen(f);
             f.runtime.dispatchText("gallery.search", "a");
-            assertTrue(f.view().widget("gallery.sections").isPresent(), "Topology comes from library before query");
+            assertTrue(f.view().widget("gallery.sections").orElseThrow().enabled());
             assertTrue(f.view().widget("gallery.favorites").isEmpty(), "Filtered empty section is hidden");
             int writes = f.sectionUpdates.size();
             f.runtime.dispatchWidget("gallery.favorites"); f.drain();
             assertEquals(writes, f.sectionUpdates.size());
+            var captured = f.view().widget("gallery.sections").orElseThrow();
+            f.runtime.dispatchText("gallery.search", "missing");
+            var empty = f.view();
+            assertFalse(empty.widget(captured.id()).orElseThrow().enabled());
+            assertTrue(ViewNavigationPolicy.activationAction(empty,captured.id()).isEmpty());
+            assertFalse(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE,captured.id()));
+            var noMatches = ScopedEditorSaveTest.inventory(directory);
+            f.runtime.dispatchWidget(captured.id(),false,InteractionOrigin.KEYBOARD);
+            f.runtime.dispatchWidget(captured.id(),false,InteractionOrigin.POINTER);
+            f.runtime.dispatchWidget("gallery.your_appearances"); f.drain();
+            assertEquals(writes, f.sectionUpdates.size());
+            assertEquals(noMatches, ScopedEditorSaveTest.inventory(directory));
+        } finally { f.runtime.close(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false,true})
+    void singleFilteredBulkPatchesOnlyParticipatingGroupAndPreservesHiddenFlag(boolean favoriteGroup) throws Exception {
+        var f = fixture();
+        try {
+            f.operations.setPresetFavorite(new LibraryEditorPort.PresetFavoriteUpdate(scope(), B, true));
+            String visible = favoriteGroup ? "gallery.favorites" : "gallery.your_appearances";
+            String hidden = favoriteGroup ? "gallery.your_appearances" : "gallery.favorites";
+            f.storage.updateGallerySections(ACCOUNT,java.util.Map.of(hidden,true),()->true);
+            var other = new java.util.UUID(0,99);
+            f.storage.updateGallerySections(other,java.util.Map.of(visible,true),()->true);
+            var otherPreferences = f.storage.loadUiPreferences(other).preferences();
+            reopen(f);
+            f.runtime.dispatchText("gallery.search",favoriteGroup ? "b" : "a");
+            var before = ScopedEditorSaveTest.inventory(directory);
+            f.view();
+            assertEquals(before,ScopedEditorSaveTest.inventory(directory));
+            assertEquals(java.util.Optional.of(GuiIcon.ACTION_COLLAPSE_ALL),f.view().widget("gallery.sections").orElseThrow().icon());
+            f.runtime.dispatchWidget("gallery.sections");
+            assertFalse(f.workers.isEmpty());
+            assertTrue(f.view().widget(f.card(favoriteGroup ? B : A)).isPresent(),"No optimistic collapse");
+            assertFalse(f.runtime.snapshot().busy());
+            f.storage.setSelectedAddSourceTab(ACCOUNT,AddSourceTab.FILE);
+            f.storage.setSelectedEditorTab(ACCOUNT,EditorTab.CAPE);
+            f.storage.setPreferredSkinVariant(ACCOUNT,SkinVariant.SLIM);
+            f.storage.setCollectionCollapsed(ACCOUNT,"unrelated",true);
+            f.storage.setCollapsedCapeCollections(ACCOUNT,java.util.Set.of("unrelated.capes"));
+            f.storage.setSelectedProvidersTab(ACCOUNT,com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE);
+            var latest = f.storage.loadUiPreferences(ACCOUNT).preferences();
+            f.drain();
+            assertEquals(java.util.Map.of(visible,true),f.sectionUpdates.get(0).collapsed());
+            var fresh = com.naocraftlab.skins.core.storage.GalleryStorageFixture.create(directory,GalleryApplyTest.CLOCK,stage -> {});
+            fresh.initialize();
+            assertEquals(latest.withGallerySections(java.util.Map.of(visible,true)),fresh.loadUiPreferences(ACCOUNT).preferences());
+            assertEquals(otherPreferences,fresh.loadUiPreferences(other).preferences());
+            assertEquals(java.util.Set.of(visible,hidden),f.storage.loadUiPreferences(ACCOUNT).preferences().collapsedGallerySections());
+            assertEquals(java.util.Optional.of(GuiIcon.ACTION_EXPAND_ALL),f.view().widget("gallery.sections").orElseThrow().icon());
+            f.runtime.dispatchWidget("gallery.sections"); f.drain();
+            assertEquals(java.util.Map.of(visible,false),f.sectionUpdates.get(1).collapsed());
+            assertEquals(java.util.Set.of(hidden),f.storage.loadUiPreferences(ACCOUNT).preferences().collapsedGallerySections());
+            assertEquals(2,f.sectionUpdates.size());
+            assertEquals(latest.withGallerySections(java.util.Map.of(visible,false)),fresh.loadUiPreferences(ACCOUNT).preferences());
+            var after = ScopedEditorSaveTest.inventory(directory);
+            f.runtime.dispatchText("gallery.search","");
+            assertEquals(after,ScopedEditorSaveTest.inventory(directory));
+            assertTrue(f.view().navigationNode(hidden).isPresent());
+            assertEquals(favoriteGroup,f.view().widget(f.card(favoriteGroup ? A : B)).isPresent(),
+                    "Hidden flag survives; only the original active opening reveal remains expanded");
+            reopen(f);
+            assertTrue(f.storage.loadUiPreferences(ACCOUNT).preferences().collapsedGallerySections().contains(hidden));
+            assertEquals(0,f.reconciliations.get());
         } finally { f.runtime.close(); }
     }
 
@@ -103,10 +168,12 @@ final class GalleryMetadataTest {
         } finally { f.runtime.close(); }
     }
 
-    @Test void openingCollapsedActiveTemporarilyRevealsWithoutWritesAndExplicitCollapseWins() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false,true})
+    void openingCollapsedActiveTemporarilyRevealsWithoutWritesAndExplicitCollapseWins(boolean withFavorites) throws Exception {
         var f = fixture();
         try {
-            f.operations.setPresetFavorite(new LibraryEditorPort.PresetFavoriteUpdate(scope(), B, true));
+            if (withFavorites) f.operations.setPresetFavorite(new LibraryEditorPort.PresetFavoriteUpdate(scope(), B, true));
             f.storage.updateGallerySections(ACCOUNT, java.util.Map.of("gallery.your_appearances", true), () -> true);
             var before = ScopedEditorSaveTest.inventory(directory);
             reopen(f);
@@ -191,6 +258,130 @@ final class GalleryMetadataTest {
             f.drain();
             assertTrue(f.view().widget(f.card(B)).isEmpty());
             assertEquals(A, f.runtime.snapshot().selectedPresetId().orElseThrow());
+        } finally { f.runtime.close(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false,true})
+    void accountSwitchFencesSingleSectionCompletionAndPreservesOtherAccount(boolean committed) throws Exception {
+        var f = fixture();
+        try {
+            var other = new java.util.UUID(0,99);
+            f.storage.updateGallerySections(other,java.util.Map.of("gallery.favorites",true),()->true);
+            var otherPreferences = f.storage.loadUiPreferences(other).preferences();
+            f.runtime.dispatchWidget("gallery.sections");
+            assertFalse(f.workers.isEmpty());
+            if (committed) {
+                f.work();
+                assertEquals(java.util.Set.of("gallery.your_appearances"),f.storage.loadUiPreferences(ACCOUNT).preferences().collapsedGallerySections());
+            }
+            f.identity.set(new com.naocraftlab.skins.client.GameSessionTokenSource.SessionIdentity(other,"Other"));
+            f.runtime.tick(); f.drain();
+            assertEquals(otherPreferences,f.storage.loadUiPreferences(other).preferences());
+            assertEquals(committed ? java.util.Set.of("gallery.your_appearances") : java.util.Set.of(),
+                    f.storage.loadUiPreferences(ACCOUNT).preferences().collapsedGallerySections());
+            f.identity.set(new com.naocraftlab.skins.client.GameSessionTokenSource.SessionIdentity(ACCOUNT,"Fixture"));
+            f.runtime.tick(); reopen(f);
+            assertEquals(java.util.Optional.of(ACCOUNT),f.runtime.snapshot().account().map(AccountState::accountId));
+            assertEquals(committed ? java.util.Set.of("gallery.your_appearances") : java.util.Set.of(),
+                    f.storage.loadUiPreferences(ACCOUNT).preferences().collapsedGallerySections());
+        } finally { f.runtime.close(); }
+    }
+
+    @Test void failedSingleSectionWritePreservesOpeningRevealAndDraftUntilConfirmedRetry() throws Exception {
+        var f = fixture();
+        try {
+            f.storage.updateGallerySections(ACCOUNT,java.util.Map.of("gallery.your_appearances",true),()->true);
+            reopen(f); f.selectB();
+            var candidate = f.runtime.galleryPreviewCandidate().orElseThrow();
+            var preferences = f.storage.loadUiPreferences(ACCOUNT).preferences();
+            var appearance = f.storage.loadAppearance(ACCOUNT);
+            f.beforeOperation = name -> { if (name.equals("updateGallerySections")) throw new java.io.UncheckedIOException(new java.io.IOException("fixture failure")); };
+            f.runtime.dispatchWidget("gallery.sections");
+            assertTrue(f.view().widget(f.card(B)).isPresent());
+            f.drain();
+            assertEquals(preferences,f.storage.loadUiPreferences(ACCOUNT).preferences());
+            assertTrue(f.view().widget(f.card(B)).isPresent(),"Failed explicit collapse must retain opening reveal");
+            assertEquals(UiMessage.Severity.ERROR,f.runtime.snapshot().status().severity());
+            assertEquals(candidate,f.runtime.galleryPreviewCandidate().orElseThrow());
+            assertTrue(f.view().widget("gallery.apply").orElseThrow().enabled());
+            assertEquals(appearance,f.storage.loadAppearance(ACCOUNT));
+            f.beforeOperation = ignored -> {};
+            f.runtime.dispatchWidget("gallery.sections"); f.drain();
+            assertTrue(f.view().widget(f.card(B)).isEmpty());
+            assertEquals(java.util.Map.of("gallery.your_appearances",true),f.sectionUpdates.get(0).collapsed());
+            assertEquals(0,f.reconciliations.get());
+        } finally { f.runtime.close(); }
+    }
+
+    @Test void initialActiveScrollIgnoresCollapsedPrecedingCardsAndKeepsRealHeaderHeight() throws Exception {
+        var f = fixture();
+        try {
+            f.storage.updateAccount(ACCOUNT,old -> {
+                var presets = new java.util.ArrayList<>(old.presets());
+                for (int i=10;i<150;i++) presets.add(new AppearancePreset(new java.util.UUID(0,i),"Extra "+i,
+                        SkinReference.accountDefault(),null,com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                        GalleryApplyTest.NOW,GalleryApplyTest.NOW,null,true));
+                return new AccountState(old.schemaVersion(),ACCOUNT,old.skinAssets(),presets,old.updatedAt());
+            });
+            f.storage.updateGallerySections(ACCOUNT,java.util.Map.of("gallery.favorites",true),()->true);
+            reopen(f);
+            assertEquals(0,f.runtime.snapshot().galleryOffset(),"Initial publication must use effective collapsed topology");
+            var view = f.view();
+            var surface = view.scrollSurface("gallery.cards").orElseThrow();
+            assertEquals(0,surface.maximumPixels());
+            assertEquals(63,view.widget("gallery.favorites").orElseThrow().bounds().y());
+            assertEquals(81,view.widget("gallery.your_appearances").orElseThrow().bounds().y());
+            assertEquals(99,view.widget(f.card(A)).orElseThrow().bounds().y());
+            assertEquals(0,view.scrollbar().orElseThrow().maximum());
+        } finally { f.runtime.close(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"normal","favorite","filtered"})
+    void singleGroupGeometryDrivesRealNavigationAndScrollbarWithoutPhantomGap(String scenario) throws Exception {
+        var f = fixture();
+        try {
+            f.storage.updateAccount(ACCOUNT,old -> {
+                var presets = new java.util.ArrayList<>(old.presets());
+                for (int i=10;i<150;i++) presets.add(new AppearancePreset(new java.util.UUID(0,i),"Extra "+i,
+                        SkinReference.accountDefault(),null,com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                        GalleryApplyTest.NOW,GalleryApplyTest.NOW,null,!scenario.equals("normal")));
+                if (scenario.equals("favorite")) presets.replaceAll(p -> p.withFavorite(true));
+                return new AccountState(old.schemaVersion(),ACCOUNT,old.skinAssets(),presets,old.updatedAt());
+            });
+            reopen(f);
+            if (scenario.equals("filtered")) f.runtime.dispatchText("gallery.search","eXtRa");
+            f.runtime.nativeScrollPositionChanged("gallery.cards",0);
+            var view = f.view();
+            var surface = view.scrollSurface("gallery.cards").orElseThrow();
+            String header = scenario.equals("normal") ? "gallery.your_appearances" : "gallery.favorites";
+            String absent = scenario.equals("normal") ? "gallery.favorites" : "gallery.your_appearances";
+            assertTrue(view.navigationNode(absent).isEmpty());
+            assertEquals(63,view.widget(header).orElseThrow().bounds().y());
+            var cards = view.navigationNodes().stream().filter(n -> n.id().startsWith("gallery.card.")).toList();
+            assertEquals(81,cards.get(0).bounds().y());
+            int columns = Math.max(1,(surface.viewport().width()-2)/50);
+            int rows = (cards.size()+columns-1)/columns;
+            int maximum = Math.max(0,20+(rows-1)*98+96-surface.viewport().height()+2);
+            assertTrue(maximum>0);
+            assertEquals(maximum,surface.maximumPixels());
+            var bar = view.scrollbar().orElseThrow();
+            assertEquals(maximum,bar.maximum());
+            var before = ScopedEditorSaveTest.inventory(directory);
+            f.runtime.pointerPressed(bar.thumb().x()+1,bar.thumb().y()+1,0);
+            double y=bar.track().y()+(bar.track().height()-bar.thumb().height())*0.3+1;
+            f.runtime.pointerDragged(bar.thumb().x()+1,y,0,0,y-bar.thumb().y()); f.runtime.pointerReleased(0);
+            assertEquals(maximum*0.3,f.view().scrollSurface("gallery.cards").orElseThrow().offsetPixels(),1);
+            var from = cards.get(cards.size()-columns-1);
+            assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.DOWN,from.id()));
+            var focused = f.view();
+            var target = focused.navigationNode(focused.focusRequest().orElseThrow().widgetId()).orElseThrow();
+            assertTrue(target.bounds().y()>=surface.viewport().y());
+            assertTrue(target.bounds().bottom()<=surface.viewport().bottom());
+            assertEquals(before,ScopedEditorSaveTest.inventory(directory));
+            assertTrue(f.sectionUpdates.isEmpty());
+            assertEquals(0,f.reconciliations.get());
         } finally { f.runtime.close(); }
     }
 

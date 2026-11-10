@@ -648,6 +648,29 @@ public final class NclSkinsStorage {
     }
 
     @SuppressWarnings("try")
+    public AccountUiPreferences updatePreferredCapeMode(UUID accountId,
+            com.naocraftlab.skins.core.model.CapePreviewMode mode,
+            java.util.function.BooleanSupplier stillCurrent) throws IOException {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(mode, "mode");
+        Objects.requireNonNull(stillCurrent, "stillCurrent");
+        requireCurrent(stillCurrent);
+        ensureInitialized();
+        try (ProcessFileLock ignored = lockManager.acquire(layout.accountLock(accountId))) {
+            requireCurrent(stillCurrent);
+            Path path = layout.accountUiPreferences(accountId);
+            AccountUiPreferences latest = Files.exists(path)
+                    ? uiPreferencesJson.decode(readBoundedState(path)) : AccountUiPreferences.defaults(accountId);
+            if (!accountId.equals(latest.accountId())) {
+                throw new StorageException(StorageException.Code.INVALID_STATE, "UI preferences UUID does not match their directory");
+            }
+            AccountUiPreferences replacement = latest.withPreferredCapeMode(mode);
+            AtomicFileWriter.replace(path, uiPreferencesJson.encode(replacement), stillCurrent);
+            return replacement;
+        }
+    }
+
+    @SuppressWarnings("try")
     public AccountUiPreferences updateGallerySections(UUID accountId, java.util.Map<String, Boolean> collapsed,
             java.util.function.BooleanSupplier stillCurrent) throws IOException {
         Objects.requireNonNull(accountId, "accountId");
