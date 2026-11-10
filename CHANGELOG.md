@@ -1,3 +1,5 @@
+## 1.4.0-beta.2
+
 ## 1.4.0-beta.1
 
 ⚠️ The library and interface settings use an updated data format. Existing data is supported, but older mod versions may not be able to read it after it is saved in this version. If you plan to return to an older version, back up your data before updating!
