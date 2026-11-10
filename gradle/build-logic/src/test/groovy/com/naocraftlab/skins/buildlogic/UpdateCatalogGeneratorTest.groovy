@@ -16,6 +16,28 @@ final class UpdateCatalogGeneratorTest {
     private final Map catalog = CatalogTools.loadCatalog(repository)
 
     @Test
+    void noSiteRecordOrNativeEndpointBeforeExactPublication() {
+        List<Map> before = parse([release('1.0.0-beta.3', ['fabric-26.2'])])
+        Map site = UpdateCatalogSite.files(catalog, before)
+        Map common = new groovy.json.JsonSlurper().parseText(site['updates/v1/catalog.json']) as Map
+        assertFalse(common.targets.containsKey('neoforge-26.2'))
+        assertFalse(site.containsKey('updates/v1/native/neoforge-26.2.json'))
+        List<Map> after = parse([release('1.0.0-beta.3', ['fabric-26.2', 'neoforge-26.2'])])
+        Map published = UpdateCatalogSite.files(catalog, after)
+        Map publishedCommon = new groovy.json.JsonSlurper().parseText(published['updates/v1/catalog.json']) as Map
+        assertEquals(['1.0.0-beta.3'], publishedCommon.targets.'neoforge-26.2'.versions)
+        assertTrue(published.containsKey('updates/v1/native/neoforge-26.2.json'))
+        Map experimental = CatalogTools.materialize(catalog) as Map
+        CatalogTools.selectTarget(experimental, 'neoforge-26.2').releaseEligible = false
+        List<Map> excluded = GithubReleaseInventory.parse(experimental,
+                JsonOutput.toJson([release('1.0.0-beta.3', ['neoforge-26.2'])]).getBytes(StandardCharsets.UTF_8))
+        Map excludedSite = UpdateCatalogSite.files(experimental, excluded)
+        Map excludedCommon = new groovy.json.JsonSlurper().parseText(excludedSite['updates/v1/catalog.json']) as Map
+        assertFalse(excludedCommon.targets.containsKey('neoforge-26.2'))
+        assertFalse(excludedSite.containsKey('updates/v1/native/neoforge-26.2.json'))
+    }
+
+    @Test
     void partialReleaseAssociatesOnlyExactPublishedTargetArtifact() {
         List<Map> inventory = parse([
                 release('1.0.0-beta.3', ['fabric-1.21.1'])
@@ -145,8 +167,7 @@ final class UpdateCatalogGeneratorTest {
                 generated.releases.values()*.channel)
         assertEquals(['1.0.0-alpha.2', '1.0.0-beta.10'],
                 generated.targets.'fabric-1.21.1'.versions)
-        assertTrue((generated.targets as Map).containsKey('neoforge-26.2'))
-        assertEquals([], generated.targets.'neoforge-26.2'.versions)
+        assertFalse((generated.targets as Map).containsKey('neoforge-26.2'))
         assertFalse(forwardJson.contains('generated'))
         assertFalse(forwardJson.contains(repository.absolutePath))
     }
@@ -326,13 +347,7 @@ final class UpdateCatalogGeneratorTest {
         }
         assertEquals([
                 '.nojekyll',
-                'updates/v1/catalog.json',
-                'updates/v1/native/forge-1.20.1.json',
-                'updates/v1/native/neoforge-1.21.1.json',
-                'updates/v1/native/neoforge-1.21.11.json',
-                'updates/v1/native/neoforge-26.1.json',
-                'updates/v1/native/neoforge-26.2.json',
-                'updates/v1/native/neoforge-26.3.json'
+                'updates/v1/catalog.json'
         ], files)
         assertTrue(Files.readString(output.resolve('updates/v1/catalog.json'))
                 .contains('"fabric-1.21.1"'))
@@ -370,12 +385,11 @@ final class UpdateCatalogGeneratorTest {
 
         assertFalse(historicalSite.containsKey(
                 'updates/v1/native/neoforge-26.2.json'))
-        assertTrue(currentSite.containsKey('updates/v1/native/neoforge-26.2.json'))
+        assertFalse(currentSite.containsKey('updates/v1/native/neoforge-26.2.json'))
         Map currentCommon = new groovy.json.JsonSlurper().parseText(
                 currentSite['updates/v1/catalog.json']) as Map
-        assertEquals(['fabric-1.21.1', 'forge-1.20.1', 'neoforge-26.2'],
+        assertEquals(['fabric-1.21.1'],
                 currentCommon.targets.keySet().toList())
-        assertEquals([], currentCommon.targets.'neoforge-26.2'.versions)
         assertEquals(currentSite, UpdateCatalogSite.files(current, movedTagInventory))
     }
 
@@ -395,9 +409,10 @@ final class UpdateCatalogGeneratorTest {
         assertEquals(beforeCommon.releases, afterCommon.releases)
         assertEquals(beforeCommon.targets.'fabric-1.21.1'.versions,
                 afterCommon.targets.'fabric-1.21.1'.versions)
-        assertEquals([], beforeCommon.targets.'neoforge-26.2'.versions)
+        assertFalse(beforeCommon.targets.containsKey('neoforge-26.2'))
+        assertFalse(before.containsKey('updates/v1/native/neoforge-26.2.json'))
         assertEquals(['1.0.0-beta.3'], afterCommon.targets.'neoforge-26.2'.versions)
-        assertEquals([], afterCommon.targets.'forge-1.20.1'.versions)
+        assertFalse(afterCommon.targets.containsKey('forge-1.20.1'))
         Map nativeAfter = new groovy.json.JsonSlurper().parseText(
                 after['updates/v1/native/neoforge-26.2.json']) as Map
         assertEquals('1.0.0-beta.3', nativeAfter.promos.'26.2-latest')

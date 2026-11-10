@@ -7,6 +7,7 @@ import java.util.regex.Pattern
 
 final class ServerPluginChangelog {
     static String validate(File changelog, Map state) {
+        if (state.publish != true) return null
         if (!changelog.isFile()) {
             throw new IllegalArgumentException('PLUGIN_CHANGELOG.md is missing')
         }

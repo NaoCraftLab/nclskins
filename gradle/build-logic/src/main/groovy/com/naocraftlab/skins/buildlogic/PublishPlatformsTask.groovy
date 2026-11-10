@@ -36,6 +36,7 @@ abstract class PublishPlatformsTask extends DefaultTask {
     void publish() {
         File bundle = bundleDirectory.get().asFile
         Map manifest = PublicationSupport.loadManifest(bundle)
+        if (manifest.mode == 'local') throw new IllegalStateException('Local preparation is not admitted for publication')
         String modrinthToken = requireSecret('MODRINTH_TOKEN')
         String curseForgeApiKey = requireSecret('CURSEFORGE_API_KEY')
         String curseForgeUploadToken = preflightOnly.get()
@@ -51,6 +52,7 @@ abstract class PublishPlatformsTask extends DefaultTask {
             String curseForgeApiKey,
             String curseForgeUploadToken) {
 
+        if (manifest.mode == 'local') throw new IllegalStateException('Local preparation is not admitted for publication')
         List<Map> targets = publicationTargets(manifest)
         Map<String, Map<String, List<Map>>> remote = fetchAll(
                 manifest, targets, modrinthToken, curseForgeApiKey)

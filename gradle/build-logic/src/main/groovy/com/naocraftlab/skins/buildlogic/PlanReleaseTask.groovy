@@ -13,28 +13,139 @@ import java.nio.file.Files
 abstract class PlanReleaseTask extends DefaultTask {
     @Internal abstract DirectoryProperty getRepositoryDirectory()
     @Input abstract Property<String> getReleaseTag()
+    @Input abstract Property<Boolean> getLocalPreparation()
     @OutputDirectory abstract DirectoryProperty getOutputDirectory()
 
     PlanReleaseTask() {
+        localPreparation.convention(false)
+        workflowAdmission.convention(project.providers.environmentVariable('GITHUB_ACTIONS').map { it == 'true' }.orElse(false))
+        resumeRun.convention(project.providers.environmentVariable('RESUME_RUN').orElse(''))
         outputs.upToDateWhen { false }
         notCompatibleWithConfigurationCache('Release planning performs live remote discovery')
     }
 
+    @Input abstract Property<Boolean> getWorkflowAdmission()
+    @Input abstract Property<String> getResumeRun()
+    @Internal Closure workflowTransport
+    @Internal Closure workflowEnvironment
+    @Internal String admittedSourceBranch
+
+    String workflowValue(String key) {
+        workflowEnvironment != null ? workflowEnvironment.call(key) : System.getenv(key)
+    }
+
+    Map workflowRead(String path, int limit = 2097152) {
+        String repository = workflowValue('GITHUB_REPOSITORY')
+        if (repository != 'NaoCraftLab/nclskins') throw new IllegalStateException('Wrong release workflow repository')
+        String url = "https://api.github.com/repos/${repository}/${path}".toString()
+        workflowTransport != null ? workflowTransport.call(url, limit) :
+                ReleaseHttp.readGithub(url, workflowValue('GITHUB_TOKEN'), limit)
+    }
+
+    Object workflowJson(String path) {
+        Map response = workflowRead(path)
+        if (response.status != 200 || (response.body as byte[]).length > 2097152) throw new IllegalStateException('Invalid workflow response')
+        new groovy.json.JsonSlurper().parse(response.body as byte[])
+    }
+
     @TaskAction
     void planRelease() {
+        if (!workflowAdmission.getOrElse(false)) { planFresh(); return }
+        if (localPreparation.get()) throw new IllegalStateException('Workflow cannot publish local preparation')
+        File root = repositoryDirectory.get().asFile
+        String requested = releaseTag.get()
+        String resume = resumeRun.getOrElse('')
+        if (resume && !(resume ==~ /[1-9][0-9]*/)) throw new IllegalStateException('Invalid resume run ID')
+        Map admission = ReleaseProcess.admit(root, requested, workflowValue('EVENT_NAME'), workflowValue('EVENT_REF'),
+                workflowValue('GITHUB_SHA'), !resume.isEmpty(), { String branch ->
+                    Map reference = workflowJson("git/ref/heads/${branch}") as Map
+                    if (reference.object?.type != 'commit') throw new IllegalStateException('Invalid workflow branch reference')
+                    reference.object?.sha?.toString()
+                })
+        admittedSourceBranch = admission.branch.toString()
+        Map plan
+        if (resume) {
+            plan = resumeBundle(resume, requested, admission)
+        } else {
+            planFresh()
+            plan = ReleasePlan.load(new File(outputDirectory.get().asFile, 'release-plan.json'))
+            if (plan.sourceCommit != admission.source) throw new IllegalStateException('Source drifted during planning')
+        }
+        String output = workflowValue('GITHUB_OUTPUT')
+        if (!output) throw new IllegalStateException('Missing workflow output destination')
+        ReleaseProcess.writeOutputs(new File(output), ReleaseProcess.ciOutputs(plan, admission.catalog.toString(), !resume.isEmpty()))
+    }
+
+    Map resumeBundle(String resume, String requested, Map admission) {
+        String repository = workflowValue('GITHUB_REPOSITORY')
+        Map run = workflowJson("actions/runs/${resume}") as Map
+        if (run.path != '.github/workflows/release.yml' || run.repository?.full_name != repository ||
+                run.id?.toString() != resume || !(run.event in ['push', 'workflow_dispatch'])) {
+            throw new IllegalStateException('Invalid resume run provenance')
+        }
+        Map listing = workflowJson("actions/runs/${resume}/artifacts?per_page=100&page=1") as Map
+        if (!(listing.artifacts instanceof List) || !(listing.total_count instanceof Number) ||
+                listing.total_count != listing.artifacts.size() || listing.total_count > 100) {
+            throw new IllegalStateException('Truncated resume artifact inventory')
+        }
+        List matches = listing.artifacts.findAll { it.name == "release-bundle-${requested}" }
+        if (matches.size() != 1) throw new IllegalStateException('Missing or duplicate resume bundle')
+        Map artifact = matches.first() as Map
+        if (artifact.expired != false || !(artifact.id?.toString() ==~ /[1-9][0-9]*/) ||
+                !(artifact.digest ==~ /sha256:[0-9a-f]{64}/) ||
+                artifact.workflow_run?.id?.toString() != resume || artifact.workflow_run?.head_sha != run.head_sha ||
+                !(artifact.size_in_bytes instanceof Number) || artifact.size_in_bytes <= 0 || artifact.size_in_bytes > 268435456) {
+            throw new IllegalStateException('Unsafe or unbound resume artifact')
+        }
+        Map download = workflowRead("actions/artifacts/${artifact.id}/zip", 268435456)
+        byte[] bytes = download.body as byte[]
+        if (download.status != 200 || bytes.length != artifact.size_in_bytes ||
+                CatalogTools.sha256(bytes) != artifact.digest.toString().substring(7)) {
+            throw new IllegalStateException('Resume artifact digest or size mismatch')
+        }
+        File destination = new File(repositoryDirectory.get().asFile, 'release-bundle')
+        File temporary = new File(repositoryDirectory.get().asFile, 'build/resume-bundle-staging')
+        GenerateUpdateCatalogTask.validateOutput(repositoryDirectory.get().asFile.toPath(), destination.toPath(), [])
+        GenerateUpdateCatalogTask.validateOutput(repositoryDirectory.get().asFile.toPath(), temporary.toPath(), [])
+        if (java.nio.file.Files.exists(destination.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) ||
+                java.nio.file.Files.exists(temporary.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException('Resume destination already exists')
+        }
+        try {
+            ReleaseDownload.unpackActionsArtifact(bytes, temporary)
+            Map manifest = PublicationSupport.loadManifest(temporary)
+            Map plan = ReleasePlan.load(new File(temporary, 'release-plan.json'))
+            ReleaseProcess.requireResume(run, resume, repository, requested, plan)
+            ReleaseSelection.git(repositoryDirectory.get().asFile,
+                    ['merge-base', '--is-ancestor', plan.sourceCommit.toString(), admission.lane.toString()])
+            if (manifest.releasePlanDigest != plan.digest) throw new IllegalStateException('Resume bundle differs from plan')
+            java.nio.file.Files.move(temporary.toPath(), destination.toPath())
+            return plan
+        } finally {
+            if (temporary.exists()) temporary.deleteDir()
+        }
+    }
+
+    void planFresh() {
         File repository = repositoryDirectory.get().asFile
         Map catalog = CatalogTools.loadCatalog(repository)
-        CatalogTools.validate(repository, catalog)
-        String version = releaseTag.get()
-        Map release = ReleaseMetadata.validate(new File(repository, 'gradle/version.properties'),
-                new File(repository, 'CHANGELOG.md'), version)
+        String requested = releaseTag.get()
+        Map release = ReleaseMetadata.prepare(new File(repository, 'gradle/version.properties'),
+                new File(repository, 'gradle/plugin-version.properties'), new File(repository, 'CHANGELOG.md'),
+                new File(repository, 'PLUGIN_CHANGELOG.md'), requested)
+        String version = release.currentVersion
+        boolean pluginOnly = release.componentKind == 'plugin-only'
+        boolean local = localPreparation.get()
         String commit = ReleaseSelection.git(repository, ['rev-parse', 'HEAD']).trim()
-        String tagCommit = ReleaseSelection.git(repository, ['rev-parse', "refs/tags/${version}^{commit}"]).trim()
-        ReleaseSelection.git(repository, ['merge-base', '--is-ancestor', tagCommit, commit])
+        String branch = admittedSourceBranch ?: ReleaseSelection.git(repository, ['branch', '--show-current']).trim()
+        if (pluginOnly && !local) ReleasePlan.requireSourceBranch(branch, version)
+        String tagCommit = local ? null : ReleaseSelection.git(repository, ['rev-parse', "refs/tags/${version}^{commit}"]).trim()
+        if (!local) ReleaseSelection.git(repository, ['merge-base', '--is-ancestor', tagCommit, commit])
         PublishPlatformsTask platforms = project.tasks.getByName('preflightReleasePlatforms') as PublishPlatformsTask
         PublishGithubReleaseTask github = project.tasks.getByName('preflightGithubRelease') as PublishGithubReleaseTask
-        String githubToken = github.requireEnvironment('GITHUB_TOKEN')
-        String repositoryName = github.requireRepository()
+        String githubToken = local ? null : github.requireEnvironment('GITHUB_TOKEN')
+        String repositoryName = local ? null : github.requireRepository()
+        if (!local) {
         Map tagReference = github.json(github.request('GET',
                 "${github.apiBase()}/repos/${repositoryName}/git/ref/tags/${version}",
                 github.headers(githubToken), null, null, [200] as Set<Integer>, githubToken)) as Map
@@ -43,16 +154,26 @@ abstract class PlanReleaseTask extends DefaultTask {
                     github.headers(githubToken), null, null, [200] as Set<Integer>, githubToken)) as Map
         }
         if (remoteTagCommit != tagCommit) throw new IllegalStateException('Remote tag changed before planning')
-        String modrinthToken = platforms.requireSecret('MODRINTH_TOKEN')
-        String curseKey = platforms.requireSecret('CURSEFORGE_API_KEY')
-        String curseUploadToken = platforms.requireSecret('CURSEFORGE_UPLOAD_TOKEN')
-        Map existing = github.findRelease(github.apiBase(), repositoryName, version, githubToken)
+        if (pluginOnly) {
+            Map sourceReference = github.json(github.request('GET',
+                    "${github.apiBase()}/repos/${repositoryName}/git/ref/heads/${branch}",
+                    github.headers(githubToken), null, null, [200] as Set<Integer>, githubToken)) as Map
+            if (sourceReference.object?.type != 'commit' || sourceReference.object?.sha != commit) {
+                throw new IllegalStateException('Remote source branch changed before planning')
+            }
+        }
+        }
+        String modrinthToken = local ? null : platforms.requireSecret('MODRINTH_TOKEN')
+        String curseKey = local ? null : platforms.requireSecret('CURSEFORGE_API_KEY')
+        String curseUploadToken = local ? null : platforms.requireSecret('CURSEFORGE_UPLOAD_TOKEN')
+        Map existing = local ? null : github.findRelease(github.apiBase(), repositoryName, version, githubToken)
+        if (pluginOnly && !local && existing == null) throw new IllegalStateException('Plugin-only requires an existing GitHub Release')
         File output = outputDirectory.get().asFile
         if (output.exists() && !output.deleteDir()) throw new IllegalStateException('Cannot reset release plan output')
         Files.createDirectories(new File(output, 'assets').toPath())
-        Map state = pluginState(repository, catalog, version)
+        Map state = pluginState(repository, catalog, requested)
         String pluginNotes = pluginReleaseNotes(repository, state)
-        List<Map> components = CatalogTools.releaseTargets(catalog).collect { Map target ->
+        List<Map> components = (pluginOnly ? [] : CatalogTools.releaseTargets(catalog)).collect { Map target ->
             AssembleReleaseTask.publicationTarget(catalog, target, release,
                     ReleasePlan.placeholder(AssembleReleaseTask.artifactName(target, version), 'mod', target.id.toString()),
                     ReleasePlan.placeholder(AssembleReleaseTask.sourceArtifactName(target, version), 'mod-sources', target.id.toString()))
@@ -72,7 +193,9 @@ abstract class PlanReleaseTask extends DefaultTask {
                     sourcesAsset: ReleasePlan.placeholder(pluginFile.replace('.jar', '-sources.jar'), 'server-plugin-sources', null)])
         }
         Map manifest = [platforms: catalog.mod.platforms, releaseNotes: [text: release.notes]]
-        Map inventories = platforms.fetchAll(manifest, components, modrinthToken, curseKey)
+        Map inventories = local ? [modrinth: components.collectEntries { [(it.id): []] },
+                curseforge: components.collectEntries { [(it.id): []] }] :
+                platforms.fetchAll(manifest, components, modrinthToken, curseKey)
         List<Map> githubAssets = existing == null ? [] : existing.assets as List<Map>
         Map replacement = previousPluginAsset(components.find { it.id == 'server-plugin' }, githubAssets)
         if (replacement != null) {
@@ -85,11 +208,18 @@ abstract class PlanReleaseTask extends DefaultTask {
         Set<String> matchedGithubNames = githubByComponent.values().findAll { it != null }
                 .collect { it.name.toString() } as Set<String>
         if (replacement != null) matchedGithubNames.add(replacement.file.toString())
-        if (matchedGithubNames.size() != githubAssets.size() ||
+        if ((pluginOnly ? githubAssets.findAll { it.name.toString().startsWith('nclskins-plugin-') }.size() : githubAssets.size()) != matchedGithubNames.size() ||
                 githubAssets.collect { it.name }.toSet().size() != githubAssets.size()) {
             throw new IllegalStateException('Unknown or duplicate existing GitHub asset')
         }
         List<Map> preservedGithub = []
+        if (pluginOnly) {
+            githubAssets.findAll { !it.name.toString().startsWith('nclskins-plugin-') }.each { Map asset ->
+                Set<String> allowed = CatalogTools.releaseTargets(catalog).collect { AssembleReleaseTask.artifactName(it, version) } as Set<String>
+                if (!allowed.contains(asset.name.toString())) throw new IllegalStateException('Unknown historical mod asset')
+                preservedGithub.add([file: asset.name, id: asset.id, sha256: github.remoteSha256(github.apiBase(), repositoryName, asset, githubToken)])
+            }
+        }
         components.each { Map component ->
             Map remote = [modrinth: inventories.modrinth[component.id], curseforge: inventories.curseforge[component.id]]
             Map githubAsset = githubByComponent[component.id]
@@ -112,9 +242,10 @@ abstract class PlanReleaseTask extends DefaultTask {
                                      sha256: digest, id: githubAsset.id])
             }
         }
-        verifyAvailability(platforms, components.findAll { !it.preserve }, modrinthToken, curseUploadToken)
-        Map plan = ReleasePlan.seal([schemaVersion: 1, version: version,
-                mode: existing == null ? 'tag' : 'backfill', sourceCommit: commit, tagCommit: tagCommit,
+        if (!local) verifyAvailability(platforms, components.findAll { !it.preserve }, modrinthToken, curseUploadToken)
+        Map plan = ReleasePlan.seal([schemaVersion: 2, version: version, requestedVersion: requested, componentKind: release.componentKind,
+                mode: local ? 'local' : existing == null ? 'tag' : 'backfill', sourceCommit: commit, tagCommit: tagCommit,
+                sourceBranch: branch,
                 catalogCommit: commit, release: release, serverState: state, pluginNotes: pluginNotes,
                 platforms: catalog.mod.platforms, existingRelease: existing == null ? null :
                     [id: existing.id, body: existing.body, name: existing.name, prerelease: existing.prerelease],
@@ -193,7 +324,8 @@ abstract class PlanReleaseTask extends DefaultTask {
                 if (previousParts.base == desiredParts.base) previousBuilds.add(previousParts.build as BigInteger)
             }
         }
-        BigInteger expected = previousBuilds.isEmpty() ? BigInteger.ONE : previousBuilds.max() + BigInteger.ONE
+        boolean hasPublished = ['modrinth', 'curseforge'].any { remote[it] }
+        BigInteger expected = previousBuilds.isEmpty() ? (hasPublished ? BigInteger.ONE : desiredParts.build) : previousBuilds.max() + BigInteger.ONE
         if (desiredParts.build != expected) {
             throw new IllegalStateException("Next plugin build must be ${expected} in ${desiredParts.base}")
         }

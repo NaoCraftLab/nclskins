@@ -28,9 +28,14 @@ final class MetadataRenderer {
         ])
     }
 
-    static String effectiveRequiredServerPluginVersion(String modVersion, String requested) {
+    static String configuredRequiredServerPluginVersion(File repository, String requested) {
+        effectiveRequiredServerPluginVersion(
+                ServerPluginVersion.parts(ServerPluginVersion.load(repository)).base.toString(), requested)
+    }
+
+    static String effectiveRequiredServerPluginVersion(String functionalVersion, String requested) {
         requested = requested?.trim()
-        if (requested == null || requested.isBlank()) return modVersion
+        if (requested == null || requested.isBlank()) return functionalVersion
         if (!CatalogTools.VERSION_PATTERN.matcher(requested).matches()) {
             throw new IllegalArgumentException(
                     'NCLSKINS_SERVER_PLUGIN_BASELINE must be an exact no-v SemVer')

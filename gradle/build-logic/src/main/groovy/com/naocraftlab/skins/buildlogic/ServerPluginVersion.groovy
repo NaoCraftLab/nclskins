@@ -32,8 +32,40 @@ final class ServerPluginVersion {
     static Map parts(String version) {
         def matcher = version =~ /^(\d+\.\d+\.\d+)(?:\.([1-9][0-9]*))?(-(alpha|beta)\.\d+)?$/
         if (!matcher.matches()) throw new IllegalArgumentException("Invalid plugin version ${version}")
-        [base: matcher.group(1) + (matcher.group(3) ?: ''),
+        String base = matcher.group(1) + (matcher.group(3) ?: '')
+        if (!CatalogTools.VERSION_PATTERN.matcher(base).matches()) {
+            throw new IllegalArgumentException("Invalid plugin version ${version}")
+        }
+        [base: base,
          build: new BigInteger(matcher.group(2) ?: '1')]
+    }
+
+    static Map select(String requestedVersion, String modVersion, String pluginVersion) {
+        if (!CatalogTools.VERSION_PATTERN.matcher(modVersion).matches()) {
+            throw new IllegalArgumentException("Invalid mod version ${modVersion}")
+        }
+        Map plugin = parts(pluginVersion)
+        Map requested = parts(requestedVersion)
+        boolean full = requestedVersion ==~ /\d+\.\d+\.\d+\.[1-9][0-9]*(?:-(?:alpha|beta)\.[1-9][0-9]*)?/
+        String kind
+        if (full) {
+            if (requested.build <= 1 || requestedVersion != pluginVersion) {
+                throw new IllegalArgumentException('Plugin-only release requires exact configured full version with build > 1')
+            }
+            kind = 'plugin-only'
+        } else {
+            if (requestedVersion != modVersion) {
+                throw new IllegalArgumentException('Requested mod version must match modVersion')
+            }
+            int order = ServerPluginReleaseState.compareVersions(plugin.base.toString(), modVersion)
+            if (order > 0 || (order == 0 && plugin.build != 1)) {
+                throw new IllegalArgumentException('Joint release requires matching plugin functional version and build 1')
+            }
+            kind = order == 0 ? 'joint' : 'mod-only'
+        }
+        [requestedVersion: requestedVersion, currentVersion: requested.base,
+         modVersion: modVersion, pluginVersion: pluginVersion,
+         functionalVersion: plugin.base, componentKind: kind]
     }
 
     static int compare(String left, String right) {

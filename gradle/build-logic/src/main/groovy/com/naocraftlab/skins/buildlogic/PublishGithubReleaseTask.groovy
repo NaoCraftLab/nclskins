@@ -37,6 +37,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
     void publish() {
         File bundle = bundleDirectory.get().asFile
         Map manifest = PublicationSupport.loadManifest(bundle)
+        if (manifest.mode == 'local') throw new IllegalStateException('Local preparation is not admitted for publication')
         String token = requireEnvironment('GITHUB_TOKEN')
         String repository = requireRepository()
         String api = apiBase()
@@ -52,6 +53,26 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
             throw new IllegalStateException(
                     "Remote tag commit ${remoteTagCommit} differs from verified release tag " +
                             manifest.tagCommit)
+        }
+        if (manifest.componentKind == 'plugin-only') {
+            ReleasePlan.requireSourceBranch(manifest.sourceBranch?.toString(), manifest.version.toString())
+            Map sourceReference = json(request('GET',
+                    "${api}/repos/${repository}/git/ref/heads/${encodePath(manifest.sourceBranch.toString())}",
+                    headers(token), null, null, [200] as Set<Integer>, token)) as Map
+            String tip = sourceReference.object?.sha?.toString()
+            if (sourceReference.ref != "refs/heads/${manifest.sourceBranch}".toString() ||
+                    sourceReference.object?.type != 'commit' || !(tip ==~ /[0-9a-f]{40}/)) {
+                throw new IllegalStateException('Remote source branch reference is malformed')
+            }
+            if (tip != manifest.sourceCommit) {
+                Map comparison = json(request('GET',
+                        "${api}/repos/${repository}/compare/${manifest.sourceCommit}...${tip}",
+                        headers(token), null, null, [200] as Set<Integer>, token)) as Map
+                if (comparison.status != 'ahead' || comparison.base_commit?.sha != manifest.sourceCommit ||
+                        comparison.merge_base_commit?.sha != manifest.sourceCommit) {
+                    throw new IllegalStateException('Remote source branch does not contain pinned plugin source')
+                }
+            }
         }
         Map release = findRelease(api, repository, manifest.version.toString(), token)
         if (manifest.mode in ['moved-tag', 'backfill', 'reconcile-tag'] && release == null) {
@@ -145,6 +166,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
     static String releaseBody(Map manifest) {
         if (manifest.existingRelease != null) {
             String existing = (manifest.existingRelease.body ?: '').toString()
+            if (manifest.componentKind == 'plugin-only') return existing
             boolean existingPlugin = manifest.pluginReplacement != null ||
                     (manifest.preservedGithub ?: []).any { it.file.toString().startsWith('nclskins-plugin-') }
             if (existingPlugin || manifest.serverPlugin?.publish != true) return existing
@@ -245,23 +267,33 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         if (contentType != null) builder.header('Content-Type', contentType)
         HttpRequest.BodyPublisher publisher = body == null
                 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body)
-        HttpResponse<byte[]> response
+        int status
+        byte[] responseBytes
         try {
-            response = ReleaseHttp.send(httpClient(),
-                    builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofByteArray())
+            HttpRequest built = builder.method(method, publisher).build()
+            if (method == 'GET' && URI.create(url).path.contains('/compare/')) {
+                def response = ReleaseHttp.send(httpClient(), built, HttpResponse.BodyHandlers.ofInputStream())
+                status = response.statusCode()
+                response.body().withCloseable { input -> responseBytes = input.readNBytes(2097153) }
+                if (responseBytes.length > 2097152) throw new IllegalStateException('GitHub comparison exceeds byte limit')
+            } else {
+                def response = ReleaseHttp.send(httpClient(), built, HttpResponse.BodyHandlers.ofByteArray())
+                status = response.statusCode()
+                responseBytes = response.body()
+            }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt()
             throw new IllegalStateException("${method} ${url} was interrupted", error)
         } catch (IOException error) {
             throw new IllegalStateException("${method} ${url} failed: ${error.message}", error)
         }
-        if (!expectedStatuses.contains(response.statusCode())) {
-            String responseBody = new String(response.body(), StandardCharsets.UTF_8)
+        if (!expectedStatuses.contains(status)) {
+            String responseBody = new String(responseBytes, StandardCharsets.UTF_8)
             if (secret != null && secret.size() >= 8) responseBody = responseBody.replace(secret, '[redacted]')
-            throw new IllegalStateException("${method} ${url} returned HTTP ${response.statusCode()}" +
+            throw new IllegalStateException("${method} ${url} returned HTTP ${status}" +
                     (responseBody.trim() ? ": ${responseBody.take(4096)}" : ''))
         }
-        new HttpResult(response.statusCode(), response.body())
+        new HttpResult(status, responseBytes)
     }
 
     Object json(HttpResult response) {

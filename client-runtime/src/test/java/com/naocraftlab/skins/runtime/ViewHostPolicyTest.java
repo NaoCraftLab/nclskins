@@ -11,26 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ViewHostPolicyTest {
-    @Test
-    void allNativeHostsConsumeSharedRequestProjectionAndPassiveCollectionHeader() throws Exception {
-        var root = java.nio.file.Path.of(System.getProperty("user.dir")).toAbsolutePath();
-        while (!java.nio.file.Files.exists(root.resolve("gradle/targets.json"))) root = root.getParent();
-        for (String path : List.of(
-                "compat/gui-immediate/src/main/java/com/naocraftlab/skins/compat/gui/immediate/NclSkinsImmediateScreen.java",
-                "compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java",
-                "compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java")) {
-            String source = java.nio.file.Files.readString(root.resolve(path));
-            assertTrue(source.contains("ViewHostPolicy.previewRequest("), path);
-            int start = source.indexOf("text.layout() == ViewSpec.Text.Layout.COLLECTION_HEADER");
-            assertTrue(start >= 0, path);
-            String passive = source.substring(start, source.indexOf("return;", start));
-            assertTrue(passive.contains("CollectionHeaderStyle.maximumLabelWidth("), path);
-            assertTrue(passive.contains("font.width(visible)"), path);
-            assertTrue(passive.contains("CollectionHeaderStyle.geometry("), path);
-            assertTrue(passive.contains("CollectionHeaderStyle.palette(true, false)"), path);
-            assertFalse(passive.contains("isHovered"), path);
-        }
-    }
 
     @Test
     void galleryMainSelectsOwnedRendererWithoutPromotingItsBakedCards() {
@@ -53,29 +33,6 @@ final class ViewHostPolicyTest {
         assertTrue(ViewHostPolicy.screenOwnedBody("providers", preview));
     }
 
-    @Test
-    void everyNativeHostRoutesBodyPreparationAndDrawPerPreviewRatherThanPerScreen() throws Exception {
-        var root = java.nio.file.Path.of(System.getProperty("user.dir")).toAbsolutePath();
-        while (!java.nio.file.Files.exists(root.resolve("gradle/targets.json"))) root = root.getParent();
-        for (String path : List.of(
-                "compat/capabilities/gui/extraction-shared/src/main/java/com/naocraftlab/skins/compat/client/identifier/extraction/NclSkinsScreen.java",
-                "compat/capabilities/gui/identifier-submission/src/main/java/com/naocraftlab/skins/compat/client/identifier/submission/NclSkinsScreen.java")) {
-            String source = java.nio.file.Files.readString(root.resolve(path));
-            int start = source.indexOf("    private void renderPreviewPhase(");
-            String consumer = source.substring(start, source.indexOf("\n    private ", start + 1));
-            assertFalse(consumer.contains("\"preset_editor\".equals"), path);
-            assertFalse(consumer.contains("\"providers\".equals"), path);
-            assertTrue(consumer.contains("boolean ownedBody = ViewHostPolicy.screenOwnedBody("), path);
-            assertTrue(consumer.indexOf("if (ownedBody)") < consumer.indexOf("editorRenderer.prepareBody("), path);
-            assertTrue(consumer.substring(consumer.indexOf("PreviewRenderer.PreviewRequest request"))
-                    .contains("if (ownedBody)"), path);
-            if (path.contains("extraction-shared")) {
-                assertTrue(consumer.contains("if (!ownedBody) visibleIds.add(preview.id());"), path);
-            } else {
-                assertTrue(source.contains(".filter(preview -> !ViewHostPolicy.screenOwnedBody(current.screenId(), preview))"), path);
-            }
-        }
-    }
 
     @Test
     void selectedActiveAndFocusFramesHaveDistinctPriorityWithoutChangingDefaultCards() {

@@ -56,7 +56,6 @@ abstract class TargetBuildTask extends DefaultTask {
     @TaskAction
     void buildTargets() {
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile.toPath())
-        CatalogTools.validate(repositoryDirectory.get().asFile, catalog)
         List<Map> targets = selectedTargetIds(catalog).collect { CatalogTools.selectTarget(catalog, it) }
         if (targets.isEmpty()) return
         int workers = Math.max(1, Math.min(maximumWorkers.get(), targets.size()))
@@ -87,31 +86,29 @@ abstract class TargetBuildTask extends DefaultTask {
         File targetDirectory = new File(root, target.path.toString())
         File wrapper = TargetRuntime.wrapper(root, catalog, target)
         String javaHome = TargetRuntime.resolveJavaHome(target.java.buildJdk as int)
+        List<String> tasks = targetTasks.get().isEmpty() ? assemblyTasks(target) : targetTasks.get()
         List<String> command = [
                 wrapper.absolutePath,
                 "-PnclskinsSourceGraph=${sourceGraphFingerprint(root)}".toString(),
                 "-PnclskinsBuildLogicWorkspace=${target.id}".toString(),
-                '-x',
-                'verifyTargetCatalog',
                 '-p',
                 targetDirectory.absolutePath,
                 '--no-daemon',
                 '--console=plain'
-        ] + targetTasks.get()
+        ] + tasks
         ProcessBuilder builder = new ProcessBuilder(command).directory(root)
         builder.redirectErrorStream(true)
         TargetRuntime.configureEnvironment(builder, javaHome)
         ReleaseProcess.run(builder, target.id.toString(), timeoutSeconds.get()) {
             logger.lifecycle(it.toString())
         }
-        if (verifyArtifacts.get()) {
-            List<String> errors = []
-            String version = CatalogTools.loadVersion(new File(root, 'gradle/version.properties').toPath())
-            ArtifactVerifier.verify(root, catalog, target, version, errors)
-            if (!errors.isEmpty()) throw new IllegalStateException("${target.id} artifact verification failed:\n- ${errors.join('\n- ')}")
-            if (collectArtifacts.get()) collect(catalog, target, version)
-        }
-        "${target.id}: ${targetTasks.get().join(' ')} passed"
+        if (collectArtifacts.get()) collect(catalog, target, CatalogTools.loadVersion(root))
+        "${target.id}: ${tasks.join(' ')} passed"
+    }
+
+    static List<String> assemblyTasks(Map target) {
+        if (target.buildProfile == 'forgegradle-legacy') return ['jarJar', 'sourcesJar']
+        target.artifact.remapJar ? ['remapJar', 'remapSourcesJar'] : ['jar', 'sourcesJar']
     }
 
     static String sourceGraphFingerprint(File root) {

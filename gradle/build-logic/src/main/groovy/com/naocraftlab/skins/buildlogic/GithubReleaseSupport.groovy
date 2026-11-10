@@ -9,7 +9,8 @@ final class GithubReleaseSupport {
             [(asset.assetFile?.toString() ?: asset.file.toString()): asset]
         }
         if (preserved.any { String file, Map entry ->
-            !canonical.containsKey(file) || entry.sha256 != canonical[file].sha256
+            (manifest.componentKind != 'plugin-only' && !canonical.containsKey(file)) ||
+                    (canonical.containsKey(file) && entry.sha256 != canonical[file].sha256)
         }) {
             throw new IllegalStateException('Preserved GitHub assets differ from release assets')
         }
@@ -45,9 +46,21 @@ final class GithubReleaseSupport {
                         remoteSha256.call(old) == replacement.sha256
                 actions.add([action: exact ? 'delete-previous-plugin' : 'conflict', file: name,
                              remoteId: requiredId(old), reason: exact ? 'superseded plugin build' : 'previous plugin changed'])
+            } else if (manifest.componentKind == 'plugin-only' && preserved.containsKey(name) && !canonical.containsKey(name)) {
+                Map old = entries.first()
+                Map expected = preserved[name]
+                actions.add([action: requiredId(old) == expected.id.toString() && remoteSha256.call(old) == expected.sha256 ? 'keep' : 'conflict',
+                        file: name, remoteId: requiredId(old), reason: 'historical mod asset'])
             } else if (!desired.containsKey(name)) {
                 actions.add([action: 'conflict', file: name, remoteId: requiredId(entries.first()),
                              reason: 'unknown existing release asset'])
+            }
+        }
+        if (manifest.componentKind == 'plugin-only') {
+            preserved.each { String name, Map entry ->
+                if (!canonical.containsKey(name) && !remoteByName.containsKey(name)) {
+                    actions.add([action: 'conflict', file: name, reason: 'preserved historical mod asset disappeared'])
+                }
             }
         }
         desired.each { String name, Map expectation ->

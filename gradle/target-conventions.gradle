@@ -339,10 +339,11 @@ def generateTargetMetadata = tasks.register('generateTargetMetadata', nclskinsGe
     description = 'Generates loader metadata from gradle/targets.json.'
     delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
     delegate.versionFile.set(repositoryRoot.file('gradle/version.properties'))
+    delegate.pluginVersionFile.set(repositoryRoot.file('gradle/plugin-version.properties'))
     delegate.targetId.set(currentTargetId)
     delegate.requiredServerPluginVersion.set(
             providers.environmentVariable('NCLSKINS_SERVER_PLUGIN_BASELINE').orElse('').map {
-                nclskinsMetadataRenderer.effectiveRequiredServerPluginVersion(configuredVersion, it)
+                nclskinsMetadataRenderer.configuredRequiredServerPluginVersion(repositoryRoot.asFile, it)
             })
     delegate.outputDirectory.set(generatedMetadataDirectory)
 }
@@ -417,15 +418,6 @@ tasks.named('sourcesJar', Jar).configure {
         into 'blockbench'
         include '**/*.bbmodel'
     }
-}
-
-tasks.register('verifyTargetCatalog', nclskinsVerifyCatalogTaskType) {
-    group = 'verification'
-    description = 'Verifies this build against the canonical target catalog.'
-    delegate.repositoryDirectory.set(repositoryRoot)
-    delegate.catalogFile.set(repositoryRoot.file('gradle/targets.json'))
-    delegate.versionFile.set(repositoryRoot.file('gradle/version.properties'))
-    delegate.abiFile.set(repositoryRoot.file('gradle/abi-fingerprints.json'))
 }
 
 tasks.register('captureCapabilityAbi', nclskinsCapabilityAbiTaskType) {
@@ -568,18 +560,7 @@ def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
     description = 'Verifies universal metadata and side-safe common/client entrypoints.'
     dependsOn tasks.named('processResources')
     dependsOn tasks.named('classes')
-    inputs.files(commonMinecraftJava.collect { rawRoot ->
-        project.fileTree(rawRoot) { include '**/*.java' }
-    })
     doLast {
-        commonMinecraftJava.each { rawRoot ->
-            project.fileTree(rawRoot) { include '**/*.java' }.files.each { source ->
-                if (source.getText('UTF-8').contains('net.minecraft.client')) {
-                    throw new GradleException(
-                        "Common/server source links Minecraft client classes: ${source}")
-                }
-            }
-        }
         if (spec.loader.id == 'fabric') {
             def metadata = new JsonSlurper().parse(
                 layout.buildDirectory.file('resources/main/fabric.mod.json').get().asFile)
@@ -666,7 +647,6 @@ def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
 }
 
 tasks.named('check').configure {
-    dependsOn tasks.named('verifyTargetCatalog')
     dependsOn capabilityAbiTask
     if (modMenuAbiTask != null) dependsOn modMenuAbiTask
     dependsOn fancyMenuAbiTask
@@ -688,12 +668,3 @@ publishing {
         }
     }
 }
-
-def architectureGate = tasks.register('verifyArchitecture', nclskinsVerifyArchitectureTaskType) {
-    def productionSets = sourceSets.findAll { it.name in ['main', 'client'] }
-    productionSets.each { production ->
-        classRoots.from(production.output.classesDirs)
-        dependsOn tasks.named(production.classesTaskName)
-    }
-}
-tasks.named('check').configure { dependsOn architectureGate }

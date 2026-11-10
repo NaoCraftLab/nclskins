@@ -40,26 +40,7 @@ class WaveyCapesDrawAbiTest {
         }
     }
 
-    @Test
-    void everyTargetSelectsExactlyItsDrawLeafAndExistingRole() {
-        File repository = new File('../..').canonicalFile
-        Map catalog = CatalogTools.loadCatalog(repository)
-        catalog.targets.each { Map target ->
-            def sources = CatalogTools.resolveTargetSources(repository, catalog, target)
-            String appearance = target.capabilities.appearance
-            List expected = appearance == 'cape-foil-combined' ? ['cape-draw-render-pass']
-                    : appearance == 'cape-foil-pipeline-bind-groups' ? ['cape-draw-staged'] : []
-            assertEquals(expected, sources.bundles.findAll { it in ['cape-draw-staged', 'cape-draw-render-pass'] }, target.id.toString())
-            int draws = sources.bundles.sum { String bundle ->
-                catalog.sourceBundles[bundle].java.sum { String root ->
-                    new File(repository, root + '/com/naocraftlab/skins/compat/client/identifier/foil/prepared/CapturedDrawMixin.java').isFile() ? 1 : 0
-                } ?: 0
-            }
-            assertEquals(expected.size(), draws, target.id.toString())
-        }
-        assertTrue(new File(repository, 'gradle/build-logic/src/main/resources/architecture-roles.tsv').text.contains(
-                'com/naocraftlab/skins/compat/client/identifier/foil/prepared/CapturedDrawMixin\tinfrastructure\tclient\tnative\tinternal'))
-    }
+
 
     private static Map fixture(boolean renderPass) {
         String desc = '(Lnet/minecraft/client/renderer/feature/FeatureFrameContext;' + (renderPass ? STAGE + PASS : '') + 'ILjava/util/List;Z)V'

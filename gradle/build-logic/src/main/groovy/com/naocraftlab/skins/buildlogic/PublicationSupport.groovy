@@ -13,14 +13,13 @@ final class PublicationSupport {
             throw new IllegalStateException('release-manifest.json is missing or unsafe')
         }
         Object parsed = new JsonSlurper().parse(manifestFile)
-        if (!(parsed instanceof Map) || parsed.schemaVersion != 4 ||
-                !(parsed.mode in ['tag', 'moved-tag', 'backfill', 'reconcile-tag']) ||
+        if (!(parsed instanceof Map) || !(parsed.schemaVersion in [4, 5]) ||
+                !(parsed.mode in ['tag', 'moved-tag', 'backfill', 'reconcile-tag', 'local']) ||
                 !(parsed.version instanceof String) ||
                 !CatalogTools.VERSION_PATTERN.matcher(parsed.version as String).matches() ||
                 !(parsed.sourceCommit instanceof String) ||
                 !(parsed.sourceCommit ==~ /[0-9a-f]{40}/) ||
-                !(parsed.tagCommit instanceof String) ||
-                !(parsed.tagCommit ==~ /[0-9a-f]{40}/) ||
+                (parsed.mode == 'local' ? parsed.tagCommit != null : !(parsed.tagCommit ==~ /[0-9a-f]{40}/)) ||
                 !(parsed.channel in ['release', 'beta', 'alpha']) ||
                 !(parsed.prerelease instanceof Boolean) ||
                 !(parsed.targets instanceof List) || !(parsed.assets instanceof List) ||
@@ -29,6 +28,12 @@ final class PublicationSupport {
             throw new IllegalStateException('unsupported release manifest')
         }
         Map manifest = CatalogTools.materialize(parsed) as Map
+        if (manifest.schemaVersion == 5 && !(manifest.releasePlanDigest ==~ /[0-9a-f]{64}/)) {
+            throw new IllegalStateException('Current release manifest requires a pinned release plan')
+        }
+        if (manifest.schemaVersion == 4 && manifest.mode == 'local') {
+            throw new IllegalStateException('Legacy manifest cannot represent local preparation')
+        }
         if (manifest.pluginReplacement != null && manifest.releasePlanDigest == null) {
             throw new IllegalStateException('Plugin replacement requires a pinned release plan')
         }
@@ -107,7 +112,9 @@ final class PublicationSupport {
         if (manifest.releasePlanDigest != null) {
             Map plan = ReleasePlan.load(new File(bundleDirectory, 'release-plan.json'))
             if (plan.digest != manifest.releasePlanDigest || plan.sourceCommit != manifest.sourceCommit ||
-                    plan.tagCommit != manifest.tagCommit || plan.version != manifest.version ||
+                    plan.tagCommit != manifest.tagCommit || plan.version != manifest.version || plan.mode != manifest.mode ||
+                    plan.sourceBranch != manifest.sourceBranch ||
+                    plan.requestedVersion != manifest.requestedVersion || plan.componentKind != manifest.componentKind ||
                     plan.components.collect { it.id }.toSet() !=
                     PublishPlatformsTask.publicationTargets(manifest).collect { it.id }.toSet() ||
                     manifest.preservedTargetIds != plan.components.findAll { it.preserve }.collect { it.id } ||
@@ -138,7 +145,7 @@ final class PublicationSupport {
                     }
                 }
             }
-            if (manifest.releaseNotes.text != plan.release.notes || manifest.platforms != plan.platforms ||
+            if (manifest.releaseNotes.text != (plan.release.notes ?: '') || manifest.platforms != plan.platforms ||
                     manifest.channel != plan.release.channel || manifest.prerelease != plan.release.prerelease) {
                 throw new IllegalStateException('Release metadata differs from pinned plan')
             }
@@ -156,11 +163,13 @@ final class PublicationSupport {
 
     static void validateServerPlugin(Map manifest, Map<String, Map> assets) {
         Map server = manifest.serverPlugin as Map
+        boolean declarative = manifest.schemaVersion == 5
         if (!(server.publish instanceof Boolean) ||
-                !(server.reason in ['initial', 'server-change', 'stable-promotion', 'unchanged']) ||
+                (declarative ? !(server.reason in ['mod-only', 'joint', 'plugin-only']) :
+                !(server.reason in ['initial', 'server-change', 'stable-promotion', 'unchanged'])) ||
                 !(server.activeVersion instanceof String) ||
-                !(server.currentFingerprint ==~ /[0-9a-f]{64}/) ||
-                !(server.activeFingerprint ==~ /[0-9a-f]{64}/) ||
+                (!declarative && (!(server.currentFingerprint ==~ /[0-9a-f]{64}/) ||
+                !(server.activeFingerprint ==~ /[0-9a-f]{64}/))) ||
                 !(server.protocolIds instanceof List) || !(server.matrixId instanceof String) ||
                 !(server.publications instanceof Map)) {
             throw new IllegalStateException('invalid server plugin release state')

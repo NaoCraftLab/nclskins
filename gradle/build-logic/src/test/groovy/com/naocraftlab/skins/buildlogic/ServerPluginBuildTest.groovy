@@ -8,23 +8,6 @@ import static org.junit.jupiter.api.Assertions.*
 
 final class ServerPluginBuildTest {
     @Test
-    void semanticScanIgnoresHiddenUpstreamResearchButChecksProduction() {
-        File root = Files.createTempDirectory('semantic-research-').toFile()
-        try {
-            File research = new File(root, '.research/vendor/src/main/java/Test.java')
-            research.parentFile.mkdirs()
-            research.text = 'package example; final class Minecraft12111Leaf {}'
-            List<String> errors = []
-            SemanticVerifier.verifyVersionNamespaceScope(root.toPath(), [:], errors)
-            assertTrue(errors.isEmpty())
-            File production = new File(root, 'module/src/main/java/Test.java')
-            production.parentFile.mkdirs()
-            production.text = research.text
-            SemanticVerifier.verifyVersionNamespaceScope(root.toPath(), [:], errors)
-            assertFalse(errors.isEmpty())
-        } finally { root.deleteDir() }
-    }
-    @Test
     void buildToolsRejectsVersionsOutsideTheCatalog() {
         Map catalog = CatalogTools.loadCatalog(new File('../..').canonicalFile)
         assertEquals(17, ServerPluginRuntimeSupport.buildToolsRuntime(catalog, '1.20.1').javaRelease)

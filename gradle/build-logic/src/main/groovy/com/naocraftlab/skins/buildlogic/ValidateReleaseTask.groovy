@@ -17,10 +17,10 @@ abstract class ValidateReleaseTask extends DefaultTask {
     @InputFile
     abstract RegularFileProperty getVersionFile()
 
-    @InputFile
+    @Internal
     abstract RegularFileProperty getChangelogFile()
 
-    @InputFile
+    @Internal
     abstract RegularFileProperty getPluginChangelogFile()
 
     @InputFile
@@ -32,18 +32,33 @@ abstract class ValidateReleaseTask extends DefaultTask {
     @OutputDirectory
     abstract DirectoryProperty getReleaseRoot()
 
+    @InputFile
+    File getPluginVersionInput() {
+        new File(repositoryDirectory.get().asFile, 'gradle/plugin-version.properties')
+    }
+
+    @InputFiles
+    List<File> getSelectedChangelogInputs() {
+        Map selected = ServerPluginVersion.select(releaseTag.get(),
+                CatalogTools.loadVersion(versionFile.get().asFile.toPath()),
+                ServerPluginVersion.parse(pluginVersionInput.text))
+        List<File> files = []
+        if (selected.componentKind != 'plugin-only') files.add(changelogFile.get().asFile)
+        if (selected.componentKind != 'mod-only') files.add(pluginChangelogFile.get().asFile)
+        files
+    }
+
     @TaskAction
     void validateRelease() {
-        Map metadata = ReleaseMetadata.validate(
-                versionFile.get().asFile,
-                changelogFile.get().asFile,
-                releaseTag.get())
+        Map metadata = ReleaseMetadata.prepare(versionFile.get().asFile,
+                new File(repositoryDirectory.get().asFile, 'gradle/plugin-version.properties'),
+                changelogFile.get().asFile, pluginChangelogFile.get().asFile, releaseTag.get())
         Map state = new JsonSlurper().parse(serverPluginStateFile.get().asFile) as Map
-        if (state.sealed != true || state.currentVersion != metadata.version) {
+        if (state != ServerPluginReleaseState.compute(repositoryDirectory.get().asFile,
+                CatalogTools.loadJson(catalogFile.get().asFile), releaseTag.get())) {
             throw new IllegalArgumentException('Server plugin release state is not sealed for this release')
         }
         Map catalog = CatalogTools.loadJson(catalogFile.get().asFile)
-        CatalogTools.validate(repositoryDirectory.get().asFile, catalog)
         if (state.publish == true) {
             ['modrinth', 'curseforge'].each { String platform ->
                 if (catalog.serverPlugin.platforms[platform].projectId == null) {

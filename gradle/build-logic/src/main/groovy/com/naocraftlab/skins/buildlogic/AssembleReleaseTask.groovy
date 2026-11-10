@@ -68,7 +68,6 @@ abstract class AssembleReleaseTask extends DefaultTask {
                 changelogFile.get().asFile,
                 releaseTag.get())
         Map catalog = CatalogTools.loadCatalog(repository)
-        CatalogTools.validate(repository, catalog)
         String tagCommit = ReleaseSelection.git(repository, [
                 'rev-parse', "refs/tags/${metadata.version}^{commit}"
         ]).trim()

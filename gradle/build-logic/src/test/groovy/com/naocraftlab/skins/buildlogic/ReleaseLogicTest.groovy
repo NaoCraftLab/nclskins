@@ -12,124 +12,70 @@ import java.util.zip.ZipFile
 import static org.junit.jupiter.api.Assertions.*
 
 final class ReleaseLogicTest {
-    private final File repository = new File('../..').canonicalFile
+    private final File repository = new File(System.getProperty('repositoryRoot', '../..')).canonicalFile
 
     @Test
-    void candidateAdmitsMatchingPrereleaseBranch() {
-        withBranchFixture { File work, String source ->
-            String script = workflowScript('release-candidate.yml', 'Require trusted branch and release version')
-            Map result = runShell(work, script, [VERSION: '1.4.0-beta.1',
-                    GITHUB_REF: 'refs/heads/release/1.4.0', GITHUB_SHA: source])
-            assertEquals(0, result.exit, result.output)
+    void publisherAdmitsExactStableAndMatchingPrereleaseSnapshots() {
+        withBranchFixture { File work, String source, String main ->
+            def remote = { String branch -> branch == 'main' ? main : source }
+            assertEquals(source, ReleaseProcess.admit(work, '1.4.0-beta.1', 'workflow_dispatch',
+                    'refs/heads/release/1.4.0', source, false, remote).source)
+            ReleaseSelection.git(work, ['tag', '1.4.0-beta.1'])
+            assertEquals(main, ReleaseProcess.admit(work, '1.4.0-beta.1', 'push',
+                    'refs/tags/1.4.0-beta.1', source, false, remote).catalog)
+            ReleaseSelection.git(work, ['checkout', '--detach', main])
+            ReleaseSelection.git(work, ['tag', '1.4.0'])
+            assertEquals(main, ReleaseProcess.admit(work, '1.4.0', 'push',
+                    'refs/tags/1.4.0', main, false, remote).source)
+            assertEquals(main, ReleaseProcess.admit(work, '1.4.0', 'workflow_dispatch',
+                    'refs/heads/main', main, false, remote).source)
         }
     }
 
     @Test
-    void publisherAdmitsMatchingPrereleaseTag() {
-        withBranchFixture { File work, String source ->
-            String script = workflowScript('release.yml', 'Resolve pinned plan or verified resume bundle')
-            script = script.substring(0, script.indexOf('if [[ -n "$RESUME_RUN" ]]'))
-            Map result = runShell(work, script, [VERSION: '1.4.0-beta.1', EVENT_NAME: 'push',
-                    EVENT_REF: 'refs/tags/1.4.0-beta.1', GITHUB_OUTPUT: new File(work, 'output').path])
-            assertEquals(0, result.exit, result.output)
-        }
-    }
-
-    @Test
-    void branchAdmissionRejectsMismatchesAndDrift() {
-        withBranchFixture { File work, String source ->
-            String candidate = workflowScript('release-candidate.yml', 'Require trusted branch and release version')
-            String publisher = workflowScript('release.yml', 'Resolve pinned plan or verified resume bundle')
-            String prefix = publisher.substring(0, publisher.indexOf('if [[ -n "$RESUME_RUN" ]]'))
-            String main = runShell(work, 'git rev-parse origin/main').output.trim()
-            def checkCandidate = { String version, String ref, String sha, boolean allowed ->
-                Map result = runShell(work, candidate, [VERSION: version, GITHUB_REF: ref, GITHUB_SHA: sha])
-                assertEquals(allowed, result.exit == 0, "candidate ${version} ${ref}: ${result.output}")
+    void branchAdmissionRejectsMismatchesDriftAndUnrelatedResumeSources() {
+        withBranchFixture { File work, String source, String main ->
+            def remote = { String branch -> branch == 'main' ? main : source }
+            ['1.4.0', '1.4.1-beta.1'].each { version ->
+                assertThrows(IllegalStateException) {
+                    ReleaseProcess.admit(work, version, 'workflow_dispatch', 'refs/heads/release/1.4.0', source, false, remote)
+                }
             }
-            def checkPublisher = { String version, String event, String ref, boolean allowed ->
-                Map result = runShell(work, prefix, [VERSION: version, EVENT_NAME: event,
-                        EVENT_REF: ref, GITHUB_OUTPUT: new File(work, 'output').path])
-                assertEquals(allowed, result.exit == 0, "publisher ${version} ${ref}: ${result.output}")
+            assertThrows(IllegalArgumentException) {
+                ReleaseProcess.admit(work, '1.4.0-beta.x', 'workflow_dispatch', 'refs/heads/release/1.4.0', source, false, remote)
             }
-            checkCandidate('1.4.0-alpha.1', 'refs/heads/release/1.4.0', source, true)
-            checkCandidate('1.4.0', 'refs/heads/release/1.4.0', source, false)
-            checkCandidate('1.4.1-beta.1', 'refs/heads/release/1.4.0', source, false)
-            checkCandidate('1.4.0-beta.x', 'refs/heads/release/1.4.0', source, false)
-            checkCandidate('1.4.0-beta.1', 'refs/heads/other', source, false)
-            checkCandidate('1.4.0-beta.1', 'refs/heads/release/1.4.0', main, false)
-            checkPublisher('1.4.0-alpha.1', 'workflow_dispatch', 'refs/heads/release/1.4.0', true)
-            checkPublisher('1.4.0', 'push', 'refs/tags/1.4.0', false)
-            checkPublisher('1.4.1-beta.1', 'push', 'refs/tags/1.4.1-beta.1', false)
-            checkPublisher('1.4.0-beta.1', 'workflow_dispatch', 'refs/heads/other', false)
-            checkPublisher('1.4.0-beta.1', 'workflow_dispatch', 'refs/heads/main', false)
-            String ancestry = publisher.readLines().find { it.contains('git merge-base --is-ancestor "$source"') }
-            assertNotNull(ancestry)
-            Map resumed = runShell(work, prefix + "\nsource='${main}'\n" + ancestry,
-                    [VERSION: '1.4.0-beta.1', EVENT_NAME: 'push', EVENT_REF: 'refs/tags/1.4.0-beta.1',
-                     GITHUB_OUTPUT: new File(work, 'output').path])
-            assertEquals(0, resumed.exit, resumed.output)
-            assertEquals(0, runShell(work, 'git checkout --orphan unrelated >/dev/null; git commit --allow-empty -m unrelated >/dev/null').exit)
-            String unrelated = runShell(work, 'git rev-parse HEAD').output.trim()
-            checkPublisher('1.4.0-beta.1', 'push', 'refs/tags/1.4.0-beta.1', false)
-            assertEquals(0, runShell(work, "git checkout --detach ${source} >/dev/null").exit)
-            resumed = runShell(work, prefix + "\nsource='${unrelated}'\n" + ancestry,
-                    [VERSION: '1.4.0-beta.1', EVENT_NAME: 'push', EVENT_REF: 'refs/tags/1.4.0-beta.1',
-                     GITHUB_OUTPUT: new File(work, 'output').path])
-            assertNotEquals(0, resumed.exit, resumed.output)
-            assertEquals(0, runShell(work, "git checkout --detach ${main} >/dev/null").exit)
-            checkCandidate('1.4.0', 'refs/heads/main', main, true)
-            checkCandidate('1.4.0-beta.1', 'refs/heads/main', main, true)
-            checkPublisher('1.4.0', 'workflow_dispatch', 'refs/heads/main', true)
-            checkPublisher('1.4.0-beta.1', 'push', 'refs/tags/1.4.0-beta.1', true)
-            assertEquals(0, runShell(work, "git checkout release/1.4.0 >/dev/null; git commit --allow-empty -m drift >/dev/null; git push origin release/1.4.0 >/dev/null; git checkout --detach ${source} >/dev/null").exit)
-            checkCandidate('1.4.0-beta.1', 'refs/heads/release/1.4.0', source, false)
+            ['refs/heads/other', 'refs/heads/main', 'refs/tags/1.4.0-beta.1'].each { ref ->
+                assertThrows(IllegalStateException) {
+                    ReleaseProcess.admit(work, '1.4.0-beta.1', 'workflow_dispatch', ref, source, false, remote)
+                }
+            }
+            assertThrows(IllegalStateException) {
+                ReleaseProcess.admit(work, '1.4.0-beta.1', 'workflow_dispatch', 'refs/heads/release/1.4.0', main, false, remote)
+            }
+            assertThrows(IllegalStateException) {
+                ReleaseProcess.admit(work, '1.4.0-beta.1', 'workflow_dispatch', 'refs/heads/release/1.4.0', source, false, { 'f' * 40 })
+            }
+            ReleaseSelection.git(work, ['merge-base', '--is-ancestor', main, source])
+            ReleaseSelection.git(work, ['checkout', '--orphan', 'unrelated'])
+            ReleaseSelection.git(work, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'unrelated'])
+            String unrelated = ReleaseSelection.git(work, ['rev-parse', 'HEAD']).trim()
+            assertThrows(IllegalStateException) { ReleaseSelection.git(work, ['merge-base', '--is-ancestor', unrelated, source]) }
         }
-    }
-
-    private String workflowScript(String file, String step) {
-        String workflow = new File(repository, ".github/workflows/${file}").text
-        int start = workflow.indexOf('        run: |', workflow.indexOf("      - name: ${step}"))
-        assertTrue(start >= 0)
-        int end = workflow.indexOf('\n      - ', start)
-        String block = end < 0 ? workflow.substring(start) : workflow.substring(start, end)
-        block.readLines().drop(1).collect { it.startsWith('          ') ? it.substring(10) : it }.join('\n') + '\n'
-    }
-
-    private static Map runShell(File dir, String script, Map env = [:]) {
-        ProcessBuilder builder = new ProcessBuilder('bash', '-c', script).directory(dir).redirectErrorStream(true)
-        builder.environment().putAll(env.collectEntries { k, v -> [(k.toString()): v.toString()] })
-        Process process = builder.start()
-        String output = process.inputStream.text
-        [exit: process.waitFor(), output: output]
     }
 
     private static void withBranchFixture(Closure body) {
-        File root = Files.createTempDirectory('release-branch-').toFile()
+        File work = Files.createTempDirectory('release-branch-').toFile()
         try {
-            File origin = new File(root, 'origin.git')
-            File work = new File(root, 'work')
-            work.mkdirs()
-            assertEquals(0, runShell(work, '[[ ${BASH_VERSINFO[0]} -ge 4 ]] || exit 70').exit,
-                    'Workflow fixtures require Bash 4 or later')
-            Map setup = runShell(work, '''set -eu
-git init --bare "$1" >/dev/null
-git init -b main >/dev/null
-git config user.email fixture@example.invalid
-git config user.name fixture
-git remote add origin "$1"
-git commit --allow-empty -m main >/dev/null
-git push origin main >/dev/null
-git checkout -b release/1.4.0 >/dev/null
-git commit --allow-empty -m release >/dev/null
-git push origin release/1.4.0 >/dev/null
-git rev-parse HEAD
-'''.replace('$1', "'${origin.path}'"))
-            assertEquals(0, setup.exit, setup.output)
-            String source = setup.output.readLines().last().trim()
-            body(work, source)
-        } finally {
-            root.deleteDir()
-        }
+            ReleaseSelection.git(work, ['init', '-q', '-b', 'main'])
+            ReleaseSelection.git(work, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'main'])
+            String main = ReleaseSelection.git(work, ['rev-parse', 'HEAD']).trim()
+            ReleaseSelection.git(work, ['checkout', '-qb', 'release/1.4.0'])
+            ReleaseSelection.git(work, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'release'])
+            body(work, ReleaseSelection.git(work, ['rev-parse', 'HEAD']).trim(), main)
+        } finally { work.deleteDir() }
     }
 
     @Test
@@ -175,6 +121,18 @@ git rev-parse HEAD
     }
 
     @Test
+    void releaseVersionOrderingAcceptsUnboundedCanonicalNumbersAndRejectsMalformedTokens() {
+        assertTrue(ServerPluginReleaseState.compareVersions('2147483648.0.0', '2147483647.999.999') > 0)
+        assertTrue(ServerPluginReleaseState.compareVersions('1.0.0-beta.2147483648', '1.0.0-beta.2147483647') > 0)
+        assertTrue(ServerPluginReleaseState.compareVersions('1.2147483648.0', '1.2147483647.999') > 0)
+        ['01.0.0', '1.00.0', '1.0.00', '1.0.0-beta.01', '1.0.0-beta.1x'].each { invalid ->
+            assertThrows(IllegalArgumentException) {
+                ServerPluginReleaseState.compareVersions(invalid, '1.0.0')
+            }
+        }
+    }
+
+    @Test
     void pluginChangelogAcceptsBuildSuffixBeforePrereleaseQualifier() {
         withPluginChangelogFixture(
                 '## 1.0.0.2-beta.3\n\nPlugin release notes\n\n## 1.0.0.1-beta.2\n\nOlder notes\n') {
@@ -194,7 +152,11 @@ git rev-parse HEAD
             catalog.serverPlugin.platforms.curseforge.projectId = 1234567
             File catalogFile = fixture.resolve('targets.json').toFile()
             catalogFile.text = JsonOutput.toJson(catalog)
-            Map state = ServerPluginReleaseState.compute(repository, catalog, '1.0.0-beta.3')
+            File gradleDirectory = fixture.resolve('gradle').toFile()
+            gradleDirectory.mkdirs()
+            new File(gradleDirectory, 'version.properties').text = 'modVersion=1.0.0-beta.3\n'
+            new File(gradleDirectory, 'plugin-version.properties').text = 'pluginVersion=1.0.0-beta.3\npluginBuild=1\n'
+            Map state = ServerPluginReleaseState.compute(fixture.toFile(), catalog, '1.0.0-beta.3')
             File stateFile = ServerPluginReleaseState.write(
                     fixture.resolve('server-state.json').toFile(), state)
             File versionFile = fixture.resolve('version.properties').toFile()
@@ -202,11 +164,11 @@ git rev-parse HEAD
             File changelogFile = fixture.resolve('CHANGELOG.md').toFile()
             changelogFile.text = '## 1.0.0-beta.3\n\nMod release notes\n'
             File pluginChangelogFile = fixture.resolve('PLUGIN_CHANGELOG.md').toFile()
-            pluginChangelogFile.text = '## 1.0.0-beta.3\n\nPlugin release notes\n'
+            pluginChangelogFile.text = '## 1.0.0.1-beta.3\n\nPlugin release notes\n'
 
             ValidateReleaseTask task = ProjectBuilder.builder().build().tasks.create(
                     'validateFixtureRelease', ValidateReleaseTask)
-            task.repositoryDirectory.set(repository)
+            task.repositoryDirectory.set(fixture.toFile())
             task.catalogFile.set(catalogFile)
             task.versionFile.set(versionFile)
             task.changelogFile.set(changelogFile)
@@ -219,9 +181,10 @@ git rev-parse HEAD
 
             Map metadata = new JsonSlurper().parse(
                     fixture.resolve('release/1.0.0-beta.3/release-metadata.json').toFile()) as Map
-            assertEquals('server-change', metadata.serverPlugin.reason)
+            assertEquals('joint', metadata.serverPlugin.reason)
             assertTrue(metadata.serverPlugin.publish)
-            assertEquals('1.0.0-beta.2', metadata.serverPlugin.previousActiveVersion)
+            assertEquals('1.0.0-beta.3', metadata.serverPlugin.activeVersion)
+            assertFalse(metadata.serverPlugin.containsKey('sourceCommit'))
         } finally {
             fixture.toFile().deleteDir()
         }
@@ -239,9 +202,7 @@ git rev-parse HEAD
         assertTrue(workflow.contains('retention-days: 90'))
         assertTrue(workflow.contains('resume_run:'))
         assertFalse(workflow.contains('fullCheck'))
-        assertTrue(workflow.contains('NCLSKINS_JAVA25: ${{ steps.checks-java.outputs.path }}'))
-        String checks = workflow.substring(workflow.indexOf('  checks:'), workflow.indexOf('  components:'))
-        assertTrue(checks.contains('NCLSKINS_SERVER_PLUGIN_BASELINE: ${{ needs.plan.outputs.baseline }}'))
+        assertFalse(workflow.contains('  checks:'))
         String components = workflow.substring(workflow.indexOf('  components:'), workflow.indexOf('  bundle:'))
         assertTrue(components.contains('NCLSKINS_SERVER_PLUGIN_BASELINE: ${{ needs.plan.outputs.baseline }}'))
         assertFalse(workflow.contains('historical_ref'))
@@ -252,62 +213,28 @@ git rev-parse HEAD
     }
 
     @Test
-    void releaseCandidateChecksRunBeforeTagWithoutPublicationAccess() {
-        String workflow = new File(repository, '.github/workflows/release-candidate.yml').text
-
-        assertTrue(workflow.contains('workflow_dispatch:'))
-        assertTrue(workflow.contains('[[ "$GITHUB_REF" != refs/heads/main ]]'))
-        assertTrue(workflow.contains('ref: ${{ github.sha }}'))
-        assertTrue(workflow.contains('persist-credentials: false'))
-        assertTrue(workflow.contains('contents: read'))
-        assertFalse(workflow.contains('contents: write'))
-        assertFalse(workflow.contains('secrets.'))
-        assertFalse(workflow.contains('gh release'))
-        assertFalse(workflow.contains('git push'))
-        assertFalse(workflow.contains('publishRelease'))
-        assertFalse(workflow.contains('openspec/'))
-        assertFalse(workflow.contains('.agents/'))
-
-        int validation = workflow.indexOf('run: ./gradlew validateRelease')
-        int alignment = workflow.indexOf('name: Align provisional server plugin baseline')
-        int shared = workflow.indexOf('run: ./gradlew checkRelease')
-        int allTargets = workflow.indexOf('run: ./gradlew fullCheck')
-        assertTrue(validation > 0 && validation < alignment && alignment < shared && shared < allTargets)
-        String alignmentStep = workflow.substring(alignment, workflow.indexOf('name: Run shared release checks'))
-        assertTrue(alignmentStep.contains('VERSION: ${{ inputs.version }}'))
-        assertTrue(alignmentStep.contains('GITHUB_ENV'))
-        assertTrue(alignmentStep.contains('GITHUB_STEP_SUMMARY'))
-        assertFalse(workflow.contains('planRelease'))
-        assertTrue(workflow.contains('fetch-depth: 0'))
-        assertTrue(workflow.contains('-PreleaseTag="$VERSION"'))
-        assertTrue(workflow.contains('checkRelease --no-daemon --console=plain --no-build-cache --rerun-tasks'))
-        assertTrue(workflow.contains('NCLSKINS_JAVA17: ${{ steps.java17.outputs.path }}'))
-        assertTrue(workflow.contains('NCLSKINS_JAVA21: ${{ steps.java21.outputs.path }}'))
-        assertTrue(workflow.contains('NCLSKINS_JAVA25: ${{ steps.java25.outputs.path }}'))
-        workflow.readLines().findAll { it.trim().startsWith('uses:') }.each { String line ->
-            assertTrue(line ==~ /.*@[0-9a-f]{40}(?:\s+#.*)?/, line)
+    void releaseDoesNotCreateAReplacementCandidateQualityJob() {
+        assertFalse(new File(repository, '.github/workflows/release-candidate.yml').exists())
+        String workflow = new File(repository, '.github/workflows/release.yml').text
+        assertFalse(workflow.contains('  checks:'))
+        ['checkRelease', 'fullCheck', 'testAll', 'jq ', 'gh api', 'git fetch', '.agents/', 'openspec/'].each {
+            assertFalse(workflow.contains(it), it)
         }
+        assertTrue(workflow.contains('needs: [plan, components]'))
+        assertTrue(workflow.contains('run: ./gradlew planRelease -PreleaseTag="$VERSION"'))
     }
 
     @Test
-    void releaseSharedChecksInstallAndExportEveryCatalogBuildJdk() {
+    void componentBuildsInstallAndExportEveryCatalogBuildJdkWithoutSecrets() {
         String workflow = new File(repository, '.github/workflows/release.yml').text
-        String checks = workflow.substring(workflow.indexOf('  checks:'), workflow.indexOf('  components:'))
-        Map<Integer, String> setupIds = [17: 'checks-java17', 21: 'checks-java21', 25: 'checks-java']
-        Set<Integer> required = ([17] + CatalogTools.loadCatalog(repository).targets.collect {
-            it.java.buildJdk as int
-        }).toSet()
-        assertEquals(required, setupIds.keySet())
-        setupIds.each { Integer version, String id ->
-            String marker = '- id: ' + id + '\n'
-            int start = checks.indexOf(marker)
-            assertTrue(start > 0, "JDK ${version} setup")
-            int end = checks.indexOf('\n      - ', start)
-            String step = checks.substring(start, end < 0 ? checks.length() : end)
-            assertTrue(step.contains("java-version: '${version}'"), "JDK ${version} version")
-            assertTrue(checks.contains('NCLSKINS_JAVA' + version + ': ${{ steps.' + id + '.outputs.path }}'),
-                    "JDK ${version} shared-check environment")
+        String components = workflow.substring(workflow.indexOf('  components:'), workflow.indexOf('  bundle:'))
+        Set<Integer> required = ([17] + CatalogTools.loadCatalog(repository).targets.collect { it.java.buildJdk as int }).toSet()
+        required.each { version ->
+            assertTrue(components.contains("java-version: '${version}'"))
+            assertTrue(components.contains('NCLSKINS_JAVA' + version + ': ${{ steps.java' + version + '.outputs.path }}'))
         }
+        assertFalse(components.contains('secrets.'))
+        assertFalse(components.contains('contents: write'))
     }
 
     @Test
@@ -336,20 +263,13 @@ git rev-parse HEAD
     }
 
     @Test
-    void releaseCandidateFailuresPreserveBuildLogicTestReports() {
-        String workflow = new File(repository, '.github/workflows/release-candidate.yml').text
-        int start = workflow.indexOf('      - name: Upload failed build-logic test reports')
-        assertTrue(start > workflow.indexOf('run: ./gradlew fullCheck'))
-        String upload = workflow.substring(start)
-        assertTrue(upload.contains('if: failure()'))
-        assertTrue(upload.contains('uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'))
-        assertTrue(upload.contains('name: rc-test-reports-${{ github.sha }}-${{ github.run_attempt }}'))
-        assertTrue(upload.contains('gradle/build-logic/build/test-results/test/*.xml'))
-        assertTrue(upload.contains('gradle/build-logic/build/reports/tests/test/'))
-        assertTrue(upload.contains('retention-days: 7'))
-        assertTrue(upload.contains('if-no-files-found: ignore'))
-        assertFalse(upload.contains('secrets.'))
-        assertFalse(upload.contains('**/*'))
+    void releaseActionsRemainPinnedAndCheckoutNeverPersistsCredentials() {
+        String workflow = new File(repository, '.github/workflows/release.yml').text
+        workflow.readLines().findAll { it.trim().startsWith('uses:') && !it.contains('./.github/') }.each {
+            assertTrue(it ==~ /.*@[0-9a-f]{40}(?:\s+#.*)?/, it)
+        }
+        assertEquals(workflow.count('uses: actions/checkout@'), workflow.count('persist-credentials: false'))
+        assertTrue(workflow.contains('contents: read'))
     }
 
     @Test
@@ -367,7 +287,7 @@ git rev-parse HEAD
         assertTrue(pages.contains('contents: read'))
         assertTrue(pages.contains('pages: write'))
         assertTrue(pages.contains('id-token: write'))
-        assertTrue(pages.contains('releases?per_page=100&page=1'))
+        assertTrue(pages.contains("NCLSKINS_CATALOG_WORKFLOW: 'true'"))
         assertTrue(pages.contains('generateUpdateCatalog'))
         assertTrue(pages.contains('build/update-catalog/site'))
         assertTrue(pages.contains(
@@ -403,8 +323,7 @@ git rev-parse HEAD
         assertFalse(releaseWorkflow.contains('secrets: inherit'))
 
         assertTrue(pagesWorkflow.contains('workflow_dispatch:'))
-        assertTrue(pagesWorkflow.contains(
-                '"repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=1"'))
+        assertTrue(pagesWorkflow.contains("NCLSKINS_CATALOG_WORKFLOW: 'true'"))
         assertFalse(pagesWorkflow.contains('RELEASE_MODE'))
         assertFalse(pagesWorkflow.contains('selectedTargetIds'))
         assertFalse(pagesWorkflow.contains('release-manifest.json'))
@@ -544,65 +463,6 @@ Plugin changes
         }
     }
 
-    @Test
-    void serverPluginPublicationDecisionIsAutomaticAndStablePromotionOnly() {
-        String fingerprint = 'a' * 64
-        String changed = 'b' * 64
-
-        assertEquals([publish: true, reason: 'initial'],
-                ServerPluginReleaseState.decide('1.0.0-alpha.1', fingerprint, null))
-        assertEquals([publish: false, reason: 'unchanged'],
-                ServerPluginReleaseState.decide(
-                        '1.0.0-beta.1', fingerprint,
-                        [version: '1.0.0-alpha.1', fingerprint: fingerprint]))
-        assertEquals([publish: true, reason: 'stable-promotion'],
-                ServerPluginReleaseState.decide(
-                        '1.0.0', fingerprint,
-                        [version: '1.0.0-beta.1', fingerprint: fingerprint]))
-        assertEquals([publish: false, reason: 'unchanged'],
-                ServerPluginReleaseState.decide(
-                        '1.0.1', fingerprint,
-                        [version: '1.0.0', fingerprint: fingerprint]))
-        assertEquals([publish: true, reason: 'server-change'],
-                ServerPluginReleaseState.decide(
-                        '1.0.1', changed,
-                        [version: '1.0.0', fingerprint: fingerprint]))
-    }
-
-    @Test
-    void serverFingerprintIgnoresEmbeddedVersionAndMarketplaceIdsButTracksBehavior() {
-        Path fixture = Files.createTempDirectory('nclskins-server-fingerprint-')
-        try {
-            write(fixture, 'server-plugin/src/main/resources/plugin.yml',
-                    "name: NCLSkinsPlugin\nversion: '1.0.0-alpha.1'\n")
-            write(fixture, 'server-plugin/src/main/java/example/Server.java',
-                    'final class Server { static final int VALUE = 1; }')
-            write(fixture, 'server-plugin/build.gradle', 'plugins { id \'java\' }\n')
-            write(fixture, 'LICENSE', 'license')
-            Map catalog = [serverPlugin: [
-                    protocols: ['command-v1'], compatibility: ['1.20.1': ['paper']],
-                    matrixId: 'fixture-v1', javaRelease: 17,
-                    packaging: [gson: '2.10'], excluded: [],
-                    artifact: 'nclskins-plugin-{pluginVersion}.jar',
-                    sourcesArtifact: 'nclskins-plugin-{pluginVersion}-sources.jar',
-                    name: 'NCL Skins Plugin', slug: 'nclskins-plugin',
-                    platforms: [modrinth: [projectId: null], curseforge: [projectId: null]],
-                    productionInputs: [server: ['server-plugin/src/main'], shared: ['LICENSE']]
-            ]]
-
-            String baseline = ServerPluginFingerprint.current(fixture.toFile(), catalog)
-            write(fixture, 'server-plugin/src/main/resources/plugin.yml',
-                    "name: NCLSkinsPlugin\nversion: '9.9.9'\n")
-            catalog.serverPlugin.platforms.modrinth.projectId = 'abcdefgh'
-            assertEquals(baseline, ServerPluginFingerprint.current(fixture.toFile(), catalog))
-
-            write(fixture, 'server-plugin/src/main/java/example/Server.java',
-                    'final class Server { static final int VALUE = 2; }')
-            assertNotEquals(baseline, ServerPluginFingerprint.current(fixture.toFile(), catalog))
-        } finally {
-            fixture.toFile().deleteDir()
-        }
-    }
 
     @Test
     void invalidTagsAreRejectedWithEnglishGuidance() {
@@ -704,16 +564,15 @@ Plugin changes
     }
 
     @Test
-    void unchangedPluginRequiresVersionFirstHistoryWithoutCurrentSection() {
+    void unselectedPluginDoesNotReadOrValidateUnselectedNotes() {
         Map state = [currentVersion: '1.0.1', publish: false, reason: 'unchanged']
         withPluginChangelogFixture('## 1.0.0\n\nPrevious notes\n') { File pluginChangelog ->
             assertNull(ServerPluginChangelog.validate(pluginChangelog, state))
         }
-        withPluginChangelogFixture('## 1.0.1\n\nUnexpected notes\n') { File pluginChangelog ->
-            IllegalArgumentException failure = assertThrows(IllegalArgumentException) {
-                ServerPluginChangelog.validate(pluginChangelog, state)
-            }
-            assertTrue(failure.message.contains('must not contain'))
+        withPluginChangelogFixture('## 1.0.1\n\nUnselected notes\n') { File pluginChangelog ->
+            assertNull(ServerPluginChangelog.validate(pluginChangelog, state))
+            pluginChangelog.delete()
+            assertNull(ServerPluginChangelog.validate(pluginChangelog, state))
         }
     }
 

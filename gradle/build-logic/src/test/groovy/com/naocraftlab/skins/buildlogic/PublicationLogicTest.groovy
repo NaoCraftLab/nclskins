@@ -193,8 +193,16 @@ final class PublicationLogicTest {
 
     @Test
     void currentReleaseTagsHaveStableNearestAncestor() {
-        assertEquals('1.0.0-alpha.1',
-                ReleaseSelection.nearestPreviousTag(repository, '1.0.0-alpha.2'))
+        File fixture = Files.createTempDirectory('publication-tag-history-').toFile()
+        try {
+            ReleaseSelection.git(fixture, ['init', '-q', '-b', 'main'])
+            ['1.0.0-alpha.1', '1.0.0-alpha.2'].each { version ->
+                ReleaseSelection.git(fixture, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', version])
+                ReleaseSelection.git(fixture, ['tag', version])
+            }
+            assertEquals('1.0.0-alpha.1', ReleaseSelection.nearestPreviousTag(fixture, '1.0.0-alpha.2'))
+        } finally { fixture.deleteDir() }
     }
 
     @Test
@@ -1012,7 +1020,7 @@ final class PublicationLogicTest {
                     serverPlugin: [packaging: [buildJdk: 25]]
             ])
 
-            assertEquals('verifyTargetCatalog\n', marker.text)
+            assertFalse(marker.exists(), 'Historical source admission must not invoke the removed catalog quality scanner')
         } finally {
             fixture.deleteDir()
         }

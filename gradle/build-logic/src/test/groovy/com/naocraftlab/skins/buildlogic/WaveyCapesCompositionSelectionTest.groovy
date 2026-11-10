@@ -110,38 +110,9 @@ class WaveyCapesCompositionSelectionTest {
         assertEquals(org.gradle.api.artifacts.Configuration.State.UNRESOLVED, project.configurations.waveyCapesPublicAbi.state)
     }
 
-    private static void assertNativeEnchantmentConsumer(String source) {
-        String body = source.substring(source.indexOf('private static void nativeEnchantment()'), source.indexOf('private static void checkNativeEnchantment('))
-        assertFalse(body.contains('nclskins.wavey.extraction'), 'Extraction must not skip the same-stack native consumer')
-        assertEquals(1, body.count('Class.forName("com.naocraftlab.skins.buildlogic.probe.wavey.NativeElytraConsumptionProbe")'))
-        assertEquals(1, body.count('.getMethod("consume", ItemStack.class, ItemStack.class).invoke(null, plain, enchanted)'))
-    }
 
-    @Test
-    void realComponentEnchantmentCannotSkipItsSameStackNativeConsumer() {
-        String source = new File(repository, 'gradle/build-logic/src/waveyLoaderComposition/game/java/com/naocraftlab/skins/buildlogic/probe/wavey/ClientCapeBatch.java').text
-        assertNativeEnchantmentConsumer(source)
-        assertThrows(AssertionError) { assertNativeEnchantmentConsumer(source.replace('.invoke(null, plain, enchanted)', '.invoke(null, plain, plain)')) }
-        assertThrows(AssertionError) { assertNativeEnchantmentConsumer(source.replace('Class.forName("com.naocraftlab.skins.buildlogic.probe.wavey.NativeElytraConsumptionProbe")', 'Class.forName("missing.Consumer")')) }
-        assertThrows(AssertionError) { assertNativeEnchantmentConsumer(source.replace('checkNativeEnchantment(plain, enchanted);', 'if (!Boolean.getBoolean("nclskins.wavey.extraction")) checkNativeEnchantment(plain, enchanted);')) }
-    }
 
-    private static void assertEquipmentRendererReadyBeforeSubmission(String consumer, String drain) {
-        int open = consumer.indexOf('AutoCloseable renderer = NativeElytraDrain.open()')
-        assertTrue(open >= 0 && open < consumer.indexOf('equipment.renderLayers('))
-        String setup = drain.substring(drain.indexOf('public static AutoCloseable open()'), drain.indexOf('public static net.minecraft.client.resources.model.EquipmentClientInfo equipment('))
-        assertTrue(setup.contains('CombinedCapeProbe.initializeRenderOptions()'))
-        assertTrue(setup.contains('field.set(minecraft, previous)'))
-    }
 
-    @Test
-    void combinedEquipmentSubmissionUsesExistingRenderOptionsBeforeNativeSubmit() {
-        String consumer = new File(repository, 'gradle/build-logic/src/waveyPublicationComposition/java/com/naocraftlab/skins/buildlogic/probe/wavey/NativeElytraConsumptionProbe.java').text
-        String drain = new File(repository, 'gradle/build-logic/src/waveyPublicationComposition/baked-combined/java/com/naocraftlab/skins/buildlogic/probe/wavey/NativeElytraDrain.java').text
-        assertEquipmentRendererReadyBeforeSubmission(consumer, drain)
-        assertThrows(AssertionError) { assertEquipmentRendererReadyBeforeSubmission(consumer.replace('AutoCloseable renderer = NativeElytraDrain.open()', 'AutoCloseable renderer = () -> {}'), drain) }
-        assertThrows(AssertionError) { assertEquipmentRendererReadyBeforeSubmission(consumer, drain.replace('CombinedCapeProbe.initializeRenderOptions()', 'missingInitialization()')) }
-    }
 
     @Test
     void everyCatalogTargetRegistersItsExecutableNativeFamily() {

@@ -6,6 +6,7 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import java.nio.file.Files
@@ -17,6 +18,20 @@ abstract class GenerateMetadataTask extends DefaultTask {
 
     @InputFile
     abstract RegularFileProperty getVersionFile()
+
+    @Internal
+    abstract RegularFileProperty getPluginVersionFile()
+
+    @Input
+    String getConfiguredPluginBaseline() {
+        ServerPluginVersion.parts(ServerPluginVersion.parse(pluginVersionFile.get().asFile.text)).base.toString()
+    }
+
+    GenerateMetadataTask() {
+        pluginVersionFile.convention(project.layout.file(versionFile.map {
+            new File(it.asFile.parentFile, 'plugin-version.properties')
+        }))
+    }
 
     @Input
     abstract Property<String> getTargetId()
@@ -33,7 +48,8 @@ abstract class GenerateMetadataTask extends DefaultTask {
         String version = CatalogTools.loadVersion(versionFile.get().asFile.toPath())
         Map target = CatalogTools.selectTarget(catalog, targetId.get())
         String baseline = MetadataRenderer.effectiveRequiredServerPluginVersion(
-                version, requiredServerPluginVersion.get())
+                configuredPluginBaseline,
+                requiredServerPluginVersion.get())
         Map<String, String> resources = MetadataRenderer.render(catalog, target, version, baseline)
         File output = outputDirectory.get().asFile
         if (output.exists()) {

@@ -38,37 +38,83 @@ class ReleaseReadinessTest {
         }
     }
 
+
     @Test
-    void cpmPublicationDeclarationsMustRemainOptionalAndLoaderSpecific() {
-        Map catalog = CatalogTools.loadCatalog(repository)
-        List<String> validErrors = []
-        CatalogTools.validatePublicationDependencies(catalog, validErrors)
-        assertEquals([], validErrors)
-        ['cpm_fabric', 'cpm_forge'].each { String id ->
-            assertTrue(catalog.publicationDependencies.containsKey(id), id)
-            ['missing', 'required', 'wrong-loader'].each { String mutation ->
-                Map changed = CatalogTools.materialize(catalog) as Map
-                if (mutation == 'missing') changed.publicationDependencies.remove(id)
-                else if (mutation == 'required') changed.publicationDependencies[id].type = 'required'
-                else changed.publicationDependencies[id].loaders = ['fabric', 'forge', 'neoforge']
-                List<String> errors = []
-                CatalogTools.validatePublicationDependencies(changed, errors)
-                assertFalse(errors.isEmpty(), id + ': ' + mutation)
-            }
+    void compiledTargetClassesInvalidateTheActualBuildLogicInputDeclaration() {
+        File root = new File(workspace, 'compiled-input-fixture')
+        File catalog = new File(root, 'gradle/targets.json')
+        catalog.parentFile.mkdirs()
+        catalog.text = JsonOutput.toJson([targets: [[id: 'fixture-a', path: 'targets/a']]])
+        File buildLogic = new File(root, 'gradle/build-logic')
+        buildLogic.mkdirs()
+        new File(buildLogic, 'settings.gradle').text = "rootProject.name = 'compiled-input-fixture'\n"
+        String source = new File(repository, 'gradle/build-logic/build.gradle').text
+        int start = source.indexOf('tasks.withType(Test).configureEach {')
+        int end = source.indexOf('\n}\n', start)
+        assertTrue(start >= 0 && end > start)
+        String declaration = source.substring(start, end + 3)
+        new File(buildLogic, 'build.gradle').text = "plugins { id 'java' }\n" + declaration + '''
+tasks.named('test', Test) {
+    classpath = files()
+    testClassesDirs = files()
+}
+tasks.register('releaseInputProbe') {
+    inputs.files(tasks.named('test').map { it.inputs.files })
+    outputs.file(layout.buildDirectory.file('probe.txt'))
+    doLast { outputs.files.singleFile.text = 'verified' }
+}
+'''
+        Closure result = {
+            GradleRunner.create().withProjectDir(buildLogic)
+                    .withTestKitDir(new File(workspace, 'compiled-test-kit'))
+                    .withArguments('releaseInputProbe', '--console=plain').build()
+                    .task(':releaseInputProbe').outcome
         }
+        assertEquals(TaskOutcome.SUCCESS, result())
+        assertEquals(TaskOutcome.UP_TO_DATE, result())
+        File firstClasses = new File(root, 'targets/a/build/classes/java/main')
+        firstClasses.mkdirs()
+        File original = new File(firstClasses, 'Fixture.class')
+        original.bytes = [0x01] as byte[]
+        assertEquals(TaskOutcome.SUCCESS, result(), 'new catalog target class output')
+        assertEquals(TaskOutcome.UP_TO_DATE, result(), 'unchanged catalog target class output')
+        original.bytes = [0x02] as byte[]
+        assertEquals(TaskOutcome.SUCCESS, result(), 'changed class bytes')
+        original.delete()
+        assertEquals(TaskOutcome.SUCCESS, result(), 'removed class output')
+        File clientClass = new File(root, 'targets/a/build/classes/java/client/ClientFixture.class')
+        clientClass.parentFile.mkdirs()
+        clientClass.bytes = [0x04] as byte[]
+        assertEquals(TaskOutcome.SUCCESS, result(), 'split client source-set class output')
+        assertEquals(TaskOutcome.UP_TO_DATE, result(), 'unchanged split client class output')
+        clientClass.bytes = [0x05] as byte[]
+        assertEquals(TaskOutcome.SUCCESS, result(), 'changed split client class bytes')
+        clientClass.delete()
+        assertEquals(TaskOutcome.SUCCESS, result(), 'removed split client class output')
+        catalog.text = JsonOutput.toJson([targets: [
+                [id: 'fixture-a', path: 'targets/a'], [id: 'fixture-b', path: 'targets/b']]])
+        File secondClasses = new File(root, 'targets/b/build/classes/java/main')
+        secondClasses.mkdirs()
+        new File(secondClasses, 'Another.class').bytes = [0x03] as byte[]
+        assertEquals(TaskOutcome.SUCCESS, result(), 'additional catalog target class output')
+        assertEquals(TaskOutcome.UP_TO_DATE, result(), 'unchanged expanded target roster')
+        new File(root, 'targets/b/build/cache-marker').text = 'not a class input'
+        assertEquals(TaskOutcome.UP_TO_DATE, result(), 'non-class build output')
     }
 
     @Test
     void releaseFilesInvalidateTheActualBuildLogicInputDeclaration() {
         List<String> required = ['gradle/version.properties', 'gradle/plugin-version.properties',
                 'gradle/targets.json', 'build.gradle', 'CHANGELOG.md', 'PLUGIN_CHANGELOG.md',
-                '.github/workflows/release.yml', '.github/workflows/release-candidate.yml',
+                '.github/workflows/release.yml',
                 '.github/workflows/publish-update-catalog.yml']
         File root = new File(workspace, 'input-fixture')
         required.each { String relative ->
             File file = new File(root, relative)
             file.parentFile.mkdirs()
-            file.text = 'initial\n'
+            file.text = relative == 'gradle/targets.json'
+                    ? JsonOutput.toJson([targets: [[id: 'fixture-target', path: 'targets/fixture']]])
+                    : 'initial\n'
         }
         File buildLogic = new File(root, 'gradle/build-logic')
         buildLogic.mkdirs()
@@ -98,7 +144,13 @@ tasks.register('releaseInputProbe') {
         assertEquals(TaskOutcome.SUCCESS, result())
         assertEquals(TaskOutcome.UP_TO_DATE, result())
         required.each { String relative ->
-            new File(root, relative).append('changed\n')
+            File changed = new File(root, relative)
+            if (relative == 'gradle/targets.json') {
+                changed.text = JsonOutput.toJson([targets: [[id: 'fixture-target', path: 'targets/fixture'],
+                                                            [id: 'fixture-target-2', path: 'targets/fixture-2']]])
+            } else {
+                changed.append('changed\n')
+            }
             assertEquals(TaskOutcome.SUCCESS, result(), relative)
             assertEquals(TaskOutcome.UP_TO_DATE, result(), relative)
         }
@@ -114,35 +166,20 @@ tasks.register('releaseInputProbe') {
     }
 
     private Map snapshotReleases(int firstCount, int secondCount) {
-        File root = new File(workspace, 'pages-' + firstCount + '-' + secondCount)
-        File bin = new File(root, 'bin')
-        bin.mkdirs()
-        File gh = new File(bin, 'gh')
-        gh.text = '''#!/bin/bash
-set -euo pipefail
-case "${!#}" in
-  *'&page=1') printf '%s' "$FIRST_PAGE" ;;
-  *'&page=2') printf '%s' "$SECOND_PAGE" ;;
-  *) exit 71 ;;
-esac
-'''
-        assertTrue(gh.setExecutable(true))
-        String workflow = new File(repository, '.github/workflows/publish-update-catalog.yml').text
-        int section = workflow.indexOf('      - name: Snapshot final published GitHub Releases')
-        int start = workflow.indexOf('        run: |\n', section) + '        run: |\n'.length()
-        int end = workflow.indexOf('\n      - name:', start)
-        assertTrue(section >= 0 && end > start)
-        String script = workflow.substring(start, end).readLines()
-                .collect { it.startsWith('          ') ? it.substring(10) : it }.join('\n')
-        ProcessBuilder builder = new ProcessBuilder('bash', '-c', script)
-                .directory(root).redirectErrorStream(true)
-        builder.environment().putAll([
-                PATH: bin.absolutePath + File.pathSeparator + System.getenv('PATH'),
-                RUNNER_TEMP: root.absolutePath, GITHUB_REPOSITORY: 'fixture/repository',
-                FIRST_PAGE: JsonOutput.toJson((0..<firstCount).collect { [id: it] }),
-                SECOND_PAGE: JsonOutput.toJson((0..<secondCount).collect { [id: 100 + it] })])
-        Process process = builder.start()
-        String output = process.inputStream.getText('UTF-8')
-        [exit: process.waitFor(), output: output]
+        List<Integer> pages = []
+        try {
+            List<Map> inventory = GithubReleaseInventory.snapshot { int page ->
+                pages.add(page)
+                int count = page == 1 ? firstCount : secondCount
+                [status: 200, headers: [:], body: JsonOutput.toJson(
+                        (0..<count).collect { [id: (page - 1) * 100 + it] }).getBytes('UTF-8')]
+            }
+            assertEquals(firstCount, inventory.size())
+            assertEquals(firstCount == 100 ? [1, 2] : [1], pages)
+            [exit: 0, output: '']
+        } catch (IllegalArgumentException rejected) {
+            assertEquals([1, 2], pages)
+            [exit: 1, output: rejected.message]
+        }
     }
 }

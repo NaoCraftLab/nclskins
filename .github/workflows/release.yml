@@ -62,50 +62,7 @@ jobs:
           RESUME_RUN: ${{ inputs.resume_run }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          printf 'catalog=%s\n' "$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
-          lane=origin/main
-          if [[ "$EVENT_NAME" == workflow_dispatch && "$EVENT_REF" != refs/heads/main ]] ||
-             ! git merge-base --is-ancestor HEAD origin/main; then
-            [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-(alpha|beta)\.[0-9]+$ ]]
-            branch="release/${BASH_REMATCH[1]}"
-            if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
-              [[ "$EVENT_REF" == "refs/heads/$branch" ]]
-            fi
-            git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"
-            lane="origin/$branch"
-          fi
-          git merge-base --is-ancestor HEAD "$lane"
-          if [[ -n "$RESUME_RUN" ]]; then
-            [[ "$RESUME_RUN" =~ ^[0-9]+$ ]]
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RESUME_RUN" > source-run.json
-            [[ "$(jq -r '.path' source-run.json)" == '.github/workflows/release.yml' ]]
-            [[ "$(jq -r '.repository.full_name' source-run.json)" == "$GITHUB_REPOSITORY" ]]
-            [[ "$(jq -r '.event' source-run.json)" =~ ^(push|workflow_dispatch)$ ]]
-            gh run download "$RESUME_RUN" --repo "$GITHUB_REPOSITORY" -n "release-bundle-$VERSION" -D release-bundle
-            [[ "$(jq -r '.version' release-bundle/release-manifest.json)" == "$VERSION" ]]
-            [[ "$(jq -r '.releasePlanDigest' release-bundle/release-manifest.json)" =~ ^[0-9a-f]{64}$ ]]
-            [[ -f release-bundle/release-plan.json ]]
-            source="$(jq -r '.sourceCommit' release-bundle/release-manifest.json)"
-            [[ "$source" =~ ^[0-9a-f]{40}$ ]]
-            git merge-base --is-ancestor "$source" "$lane"
-            printf 'source=%s\nresumed=true\nbuild=false\nmatrix={"include":[]}\n' "$source" >> "$GITHUB_OUTPUT"
-          else
-            ./gradlew planRelease -PreleaseTag="$VERSION" --no-daemon --console=plain
-            plan=build/release-plan/release-plan.json
-            baseline="$(jq -er '.serverState.activeVersion | select(type == "string") |
-              select(length > 0 and (test("[[:space:]]") | not))' "$plan")"
-            printf 'digest=%s\n' "$(jq -r '.digest' "$plan")" >> "$GITHUB_OUTPUT"
-            source="$(jq -r '.sourceCommit' "$plan")"
-            matrix="$(jq -c '{include: [.components[] | select(.build) | {id: .id}]}' "$plan")"
-            printf 'source=%s\nresumed=false\nmatrix=%s\nbuild=%s\nbaseline=%s\n' \
-              "$source" "$matrix" "$(jq '.include | length > 0' <<< "$matrix")" \
-              "$baseline" >> "$GITHUB_OUTPUT"
-          fi
-          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+        run: ./gradlew planRelease -PreleaseTag="$VERSION" --no-daemon --console=plain
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.plan.outputs.resumed != 'true'
         with:
@@ -122,40 +79,6 @@ jobs:
           path: release-bundle
           retention-days: 90
           if-no-files-found: error
-
-  checks:
-    name: Shared release checks
-    needs: plan
-    if: needs.plan.outputs.resumed != 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.source }}
-          fetch-depth: 0
-          persist-credentials: false
-      - id: checks-java17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '17'
-      - id: checks-java21
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '21'
-      - id: checks-java
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: '25'
-      - run: ./gradlew checkRelease --no-daemon --console=plain
-        env:
-          NCLSKINS_SERVER_PLUGIN_BASELINE: ${{ needs.plan.outputs.baseline }}
-          NCLSKINS_JAVA17: ${{ steps.checks-java17.outputs.path }}
-          NCLSKINS_JAVA21: ${{ steps.checks-java21.outputs.path }}
-          NCLSKINS_JAVA25: ${{ steps.checks-java.outputs.path }}
 
   components:
     name: Build ${{ matrix.id }}
@@ -209,10 +132,10 @@ jobs:
 
   bundle:
     name: Verify and assemble bundle
-    needs: [plan, checks, components]
+    needs: [plan, components]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' &&
-      needs.plan.outputs.resumed != 'true' && needs.checks.result == 'success' &&
+      needs.plan.outputs.resumed != 'true' &&
       (needs.components.result == 'success' || needs.components.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

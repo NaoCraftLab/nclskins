@@ -19,6 +19,12 @@ abstract class ComputeServerPluginReleaseStateTask extends DefaultTask {
     @OutputFile
     abstract RegularFileProperty getStateFile()
 
+    @InputFile
+    File getModVersionInput() { new File(repositoryDirectory.get().asFile, 'gradle/version.properties') }
+
+    @InputFile
+    File getPluginVersionInput() { new File(repositoryDirectory.get().asFile, 'gradle/plugin-version.properties') }
+
     @TaskAction
     void compute() {
         File repository = repositoryDirectory.get().asFile

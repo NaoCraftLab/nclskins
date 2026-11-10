@@ -10,6 +10,28 @@ final class GithubReleaseInventory {
     static final int MAX_ASSETS = 256
     static final int MAX_STRING = 1024
 
+    static List<Map> snapshot(Closure<Map> fetchPage) {
+        List<Map> first = page(fetchPage.call(1))
+        if (first.size() == MAX_RELEASES && !page(fetchPage.call(2)).isEmpty()) {
+            throw invalid('release inventory exceeds 100; refusing truncation')
+        }
+        first
+    }
+
+    private static List<Map> page(Map response) {
+        byte[] bytes = response.body as byte[]
+        if (response.status != 200 || bytes == null || bytes.length > MAX_BYTES) throw invalid('inventory response failed or exceeds byte limit')
+        Object parsed
+        try { parsed = new JsonSlurper().parse(bytes, 'UTF-8') }
+        catch (RuntimeException ignored) { throw invalid('inventory is not valid JSON') }
+        if (!(parsed instanceof List) || parsed.size() > MAX_RELEASES || parsed.any { !(it instanceof Map) }) {
+            throw invalid('inventory must be a bounded array')
+        }
+        String link = (response.headers ?: [:]).find { key, value -> key.toString().equalsIgnoreCase('link') }?.value?.toString()
+        if (link?.contains('rel="next"') && parsed.size() < MAX_RELEASES) throw invalid('truncated inventory page')
+        parsed as List<Map>
+    }
+
     static List<Map> parse(Map catalog, byte[] bytes) {
         if (bytes == null || bytes.length > MAX_BYTES) {
             throw invalid('inventory exceeds byte limit')

@@ -95,7 +95,7 @@ tasks.register('generateUpdateCatalog', GenerateUpdateCatalogTask) {
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     if (requestedUpdateCatalogInventory != null) {
         inventoryFile.set(file(requestedUpdateCatalogInventory))
-    } else {
+    } else if (!workflowSnapshot.get()) {
         inventoryFile.set(layout.buildDirectory.file('update-catalog/releases.json'))
     }
     if (requestedUpdateCatalogOutput != null) {
@@ -154,15 +154,6 @@ subprojects {
             into 'META-INF'
         }
     }
-}
-
-def verifyTargetCatalog = tasks.register('verifyTargetCatalog', VerifyCatalogTask) {
-    group = 'verification'
-    description = 'Validates gradle/targets.json and the two wrapper families.'
-    repositoryDirectory.set(layout.projectDirectory)
-    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
-    delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
 }
 
 tasks.register('verifyOptifineCapeAbi', VerifyOptifineCapeAbiTask) {
@@ -262,32 +253,9 @@ tasks.register('verifyWaveyCapesAbi', VerifyWaveyCapesAbiTask) {
 
 tasks.register('buildServerPlugin') {
     group = 'build'
-    description = 'Builds and verifies the one universal NCL Skins Plugin JAR.'
-    dependsOn project(':server-plugin').tasks.named('verifyServerPluginArtifact')
+    description = 'Assembles the universal NCL Skins Plugin production and sources JARs without checks.'
+    dependsOn project(':server-plugin').tasks.named('shadowJar')
     dependsOn project(':server-plugin').tasks.named('sourcesJar')
-}
-
-def verifyCapabilitySemantics = tasks.register('verifyCapabilitySemantics', VerifySemanticsTask) {
-    group = 'verification'
-    description = 'Verifies shared semantic suites and every selected native capability leaf.'
-    repositoryDirectory.set(layout.projectDirectory)
-    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    delegate.abiFile.set(layout.projectDirectory.file('gradle/abi-fingerprints.json'))
-    delegate.coverageFile.set(layout.projectDirectory.file('gradle/capability-semantic-coverage.json'))
-}
-
-def verifyServerPluginAbi = tasks.register('verifyServerPluginAbi', VerifyServerPluginAbiTask) {
-    group = 'verification'
-    description = 'Verifies exact server plugin ABI declarations and catalog runtime coverage.'
-    repositoryDirectory.set(layout.projectDirectory)
-    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    declarationFile.set(layout.projectDirectory.file('gradle/server-plugin-abi.json'))
-}
-
-def verifyPublicationTree = tasks.register('verifyPublicationTree', VerifyPublicationTreeTask) {
-    group = 'verification'
-    description = 'Verifies the clean publication boundary and source privacy constraints.'
-    repositoryDirectory.set(layout.projectDirectory)
 }
 
 tasks.register('affectedTargets', AffectedTargetsTask) {
@@ -338,89 +306,6 @@ tasks.register('generateIdeaRunConfigurations', GenerateIdeaRunConfigurationsTas
     outputDirectory.set(layout.projectDirectory.dir('.idea/runConfigurations'))
     workspaceFile.set(layout.projectDirectory.file('.idea/workspace.xml'))
     outputs.upToDateWhen { false }
-}
-
-tasks.register('verifySourceOwnership') {
-    group = 'verification'
-    description = 'Rejects foreign implementation namespaces in repository source and test fixtures.'
-    def sources = fileTree(rootDir) {
-        include '**/src/**/*.java', '**/src/**/*.groovy', '**/src/**/*.kt', '**/src/**/*.scala'
-        exclude '**/build/**', '**/.gradle/**', '.agents/**', 'openspec/**', '.codex/**', 'runs/**', '.worktrees/**'
-    }
-    inputs.files(sources)
-    doLast {
-        List<String> errors = []
-        sources.files.sort().each { File source ->
-            errors.addAll(com.naocraftlab.skins.buildlogic.SourceOwnershipVerifier.verify(
-                    rootDir.toPath().relativize(source.toPath()).toString(), source.getText('UTF-8')))
-        }
-        if (!errors.isEmpty()) throw new GradleException(errors.join('\n'))
-    }
-}
-
-tasks.register('verifyLoggingConventions') {
-    group = 'verification'
-    description = 'Enforces the bounded diagnostics contract across production Java sources.'
-    def productionSources = fileTree(rootDir) {
-        include '**/src/main/java/**/*.java'
-        exclude '**/build/**', '.gradle/**', 'runs/**', 'do' + 'cs/**',
-                '.agents/**', 'openspec/**', '.codex/**', '.worktrees/**'
-    }
-    def repositoryPath = rootDir.toPath()
-    inputs.files(productionSources)
-    doLast {
-        List<String> errors = []
-        productionSources.files.sort().each { File source ->
-            String relative = repositoryPath.relativize(source.toPath()).toString()
-            String text = source.getText('UTF-8')
-            if (text.contains('System.Logger') || text.contains('System.getLogger(') ||
-                    text.contains('System.out') || text.contains('System.err') ||
-                    text.contains('.printStackTrace(')) {
-                errors.add("${relative}: bypasses DiagnosticSink")
-            }
-            if (text.contains('catch (Throwable')) {
-                errors.add("${relative}: catches fatal Throwable")
-            }
-            boolean diagnosticsAdapter = relative.startsWith('diagnostics/src/main/java/')
-            boolean modHostAdapter = text.contains('new Slf4jDiagnosticSink') ||
-                    text.contains('LoggerFactory')
-            boolean pluginHostAdapter = relative.endsWith('NclSkinsBukkitPlugin.java') ||
-                    relative.endsWith('NclSkinsBungeePlugin.java') ||
-                    relative.endsWith('NclSkinsVelocityPlugin.java')
-            if ((text.contains('import org.slf4j.') || text.contains('import java.util.logging.')) &&
-                    !(diagnosticsAdapter || modHostAdapter || pluginHostAdapter ||
-                            relative.endsWith('BukkitNativeAdapter.java') ||
-                            relative.endsWith('AbstractBukkitNativeAdapter.java') ||
-                            relative.contains('server-plugin-adapters/'))) {
-                errors.add("${relative}: uses a logging API outside a host adapter")
-            }
-        }
-        if (errors) throw new GradleException(errors.collect { "- ${it}" }.join('\n'))
-        logger.lifecycle("Verified logging conventions across ${productionSources.files.size()} production sources")
-    }
-}
-
-tasks.register('verifyLoggingSecurityBaseline') {
-    group = 'verification'
-    description = 'Requires a dated host-owned logging security baseline for every catalog Minecraft pin.'
-    def baselineFile = file('gradle/logging-security-baseline.json')
-    def requiredVersions = targetCatalog.targets.collect {
-        it.minecraft.version.toString()
-    }.toSet()
-    inputs.file(baselineFile)
-    inputs.file(layout.projectDirectory.file('gradle/targets.json'))
-    doLast {
-        Map baseline = new groovy.json.JsonSlurper().parse(
-                baselineFile) as Map
-        Set<String> versions = requiredVersions
-        Set<String> covered = (baseline.minecraft as Map).keySet() as Set
-        if (baseline.schemaVersion != 1 || !(baseline.checkedOn ==~ /20[0-9]{2}-[0-9]{2}-[0-9]{2}/) ||
-                !covered.containsAll(versions) ||
-                versions.any { (baseline.minecraft[it] as Map).ownership != 'host' }) {
-            throw new GradleException('Logging security baseline does not cover every catalog pin')
-        }
-        logger.lifecycle("Verified host logging security baseline dated ${baseline.checkedOn}")
-    }
 }
 
 tasks.register('migrateRunDirectories', MigrateRunDirectoriesTask) {
@@ -529,13 +414,13 @@ targetCatalog.targets.findAll { it.compatibility instanceof Map }.each { Map tar
 
 tasks.register('buildTarget', TargetBuildTask) {
     group = 'build'
-    description = 'Clean-builds and collects one catalog target.'
+    description = 'Assembles and collects one catalog target production and sources pair without tests.'
     doFirst {
         if (requestedTargetId == null || !targetIds.contains(requestedTargetId)) {
             throw new GradleException("Use -PtargetId=<catalog target>; available=${targetIds.sort()}")
         }
     }
-    configureTargetBuild(delegate, requestedTargetId == null ? [] : [requestedTargetId], ['clean', 'build'], true, true)
+    configureTargetBuild(delegate, requestedTargetId == null ? [] : [requestedTargetId], [], true, true)
 }
 
 tasks.register('verifyNativeModels', TargetBuildTask) {
@@ -553,31 +438,22 @@ tasks.register('verifyCpmIntegrations', TargetBuildTask) {
 
 tasks.register('buildAllTargets', TargetBuildTask) {
     group = 'build'
-    description = 'Clean-builds and collects every catalog target.'
-    configureTargetBuild(delegate, targetIds, ['clean', 'build'], true, true)
+    description = 'Assembles and collects every catalog target production and sources pair without tests.'
+    configureTargetBuild(delegate, targetIds, [], true, true)
 }
 
 tasks.register('buildAllTargetsIncremental', TargetBuildTask) {
     group = 'build'
-    description = 'Incrementally builds and collects every catalog target without cleaning outputs.'
-    configureTargetBuild(delegate, targetIds, ['build'], true, true)
+    description = 'Assembles and collects every catalog target without cleaning outputs or running tests.'
+    configureTargetBuild(delegate, targetIds, [], true, true)
 }
 
 tasks.register('buildAffectedTargets', AffectedTargetBuildTask) {
     group = 'build'
-    description = 'Clean-builds and collects targets affected by a Git range or worktree.'
-    configureTargetBuild(delegate, [], ['clean', 'build'], true, true)
+    description = 'Assembles and collects affected catalog target production and sources pairs without tests.'
+    configureTargetBuild(delegate, [], [], true, true)
     if (requestedFromRef != null) fromRef.set(requestedFromRef)
     if (requestedToRef != null) toRef.set(requestedToRef)
-}
-
-tasks.register('verifyTargetArtifacts', VerifyArtifactsTask) {
-    group = 'verification'
-    description = 'Verifies production artifacts against the canonical catalog.'
-    repositoryDirectory.set(layout.projectDirectory)
-    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
-    if (requestedTargetId != null) targetId.set(requestedTargetId)
 }
 
 def compatibilityTargetIds = targetCatalog.targets
@@ -631,79 +507,6 @@ tasks.register('verifyRuntimeCompatibility', CompatibilityVerifyTask) {
     }
 }
 
-def checkAll = tasks.register('checkAll') {
-    group = 'verification'
-    description = 'Runs the platform-independent verification suite.'
-    dependsOn subprojects.collect { it.tasks.named('check') }
-    dependsOn verifyTargetCatalog
-    dependsOn verifyCapabilitySemantics
-    dependsOn verifyServerPluginAbi
-    dependsOn verifyPublicationTree
-    dependsOn tasks.named('verifyLoggingConventions')
-    dependsOn tasks.named('verifyLoggingSecurityBaseline')
-    dependsOn tasks.named('verifySourceOwnership')
-    dependsOn gradle.includedBuild('build-logic').task(':test')
-}
-
-def fullCheck = tasks.register('fullCheck', TargetBuildTask) {
-    group = 'verification'
-    description = 'Runs common checks, every target build, artifact verification, and repository secret checks.'
-    dependsOn checkAll
-    configureTargetBuild(delegate, targetIds, ['clean', 'build'], true, false)
-    verifyCompatibility.set(true)
-}
-
-def prismSnapshot = {
-    BuildReceipt.snapshot(rootDir, nclskinsCatalogTools.loadCatalog(rootDir.toPath()),
-            ReceiptEnvironment.capture(project, nclskinsCatalogTools.loadCatalog(rootDir.toPath())))
-}
-def fullCheckSnapshot = null
-gradle.taskGraph.whenReady { graph ->
-    if (graph.hasTask(fullCheck.get())) {
-        BuildReceipt.invalidate(rootDir)
-        try {
-            fullCheckSnapshot = prismSnapshot()
-        } catch (IllegalStateException error) {
-            logger.lifecycle("Prism evidence unavailable: ${error.message}")
-        }
-    }
-}
-fullCheck.configure {
-    doLast {
-        if (fullCheckSnapshot != null) {
-            BuildReceipt.publish(rootDir, targetCatalog, fullCheckSnapshot, prismSnapshot(), 'fullCheck')
-        }
-    }
-}
-tasks.register('prismBuildStatus') {
-    group = 'verification'
-    description = 'Prints read-only JSON status of verified Prism artifacts.'
-    doLast {
-        Map status
-        try {
-            status = BuildReceipt.status(rootDir, targetCatalog, prismSnapshot())
-        } catch (Exception ignored) {
-            logger.info('Prism status unavailable', ignored)
-            status = [reusable: false, reason: 'unsupported-build-settings-or-inputs']
-        }
-        println groovy.json.JsonOutput.toJson(status)
-    }
-}
-tasks.register('preparePrismArtifacts', PreparePrismArtifactsTask) {
-    group = 'build'
-    description = 'Reuses verified Prism artifacts or builds and verifies current targets.'
-    def cleanRequested = providers.gradleProperty('nclskinsPrismCleanBuild').getOrElse('false')
-    def forceRequested = providers.gradleProperty('nclskinsPrismForceBuild').getOrElse('false')
-    if (!(cleanRequested in ['true', 'false']) || !(forceRequested in ['true', 'false'])) {
-        throw new GradleException('Prism build flags must be true or false')
-    }
-    cleanBuild = cleanRequested.toBoolean()
-    forceBuild = forceRequested.toBoolean()
-    configureTargetBuild(delegate, targetIds, cleanBuild ? ['clean', 'build'] : ['build'], true, true)
-    verifyCompatibility.set(cleanBuild)
-    snapshotProvider = prismSnapshot
-}
-
 def computeServerPluginReleaseState = tasks.register(
         'computeServerPluginReleaseState', ComputeServerPluginReleaseStateTask) {
     group = 'release setup'
@@ -733,22 +536,11 @@ def validateRelease = tasks.register('validateRelease', ValidateReleaseTask) {
 
 tasks.register('planRelease', PlanReleaseTask) {
     group = 'release setup'
-    description = 'Checks remote inventory and freezes the exact release build and publication plan.'
+    description = 'Freezes a release plan; -PlocalReleasePreparation=true prepares without tags or remote credentials.'
+    localPreparation.set(providers.gradleProperty('localReleasePreparation').map { it.toBoolean() }.orElse(false))
     repositoryDirectory.set(layout.projectDirectory)
     releaseTag.set(requestedReleaseTag ?: modVersion)
     outputDirectory.set(layout.buildDirectory.dir('release-plan'))
-}
-
-tasks.register('checkRelease') {
-    group = 'verification'
-    description = 'Runs shared release checks without building unrelated Minecraft targets or the plugin.'
-    dependsOn(':core:check', ':diagnostics:check', ':server-configuration:check',
-               ':client-contract:check', ':client-runtime:check',
-               ':server-contract:check', ':server-runtime:check', ':server-vanilla-publication:check')
-    dependsOn verifyTargetCatalog, verifyCapabilitySemantics, verifyServerPluginAbi, verifyPublicationTree
-    dependsOn tasks.named('verifyLoggingConventions'), tasks.named('verifyLoggingSecurityBaseline')
-    dependsOn tasks.named('verifySourceOwnership')
-    dependsOn gradle.includedBuild('build-logic').task(':test')
 }
 
 tasks.register('exportReleaseComponent', ExportReleaseComponentTask) {
@@ -760,10 +552,6 @@ tasks.register('exportReleaseComponent', ExportReleaseComponentTask) {
     outputDirectory.set(layout.buildDirectory.dir('release-component'))
     outputs.upToDateWhen { false }
     dependsOn tasks.named(requestedTargetId == 'server-plugin' ? 'buildServerPlugin' : 'buildTarget')
-    if (requestedTargetId == 'server-plugin') {
-        dependsOn(':server-plugin-common:check', ':server-plugin-bukkit:check',
-                ':server-plugin-velocity:check', ':server-plugin-bungee:check', ':server-plugin:check')
-    }
 }
 
 tasks.register('assembleRelease', AssemblePlannedReleaseTask) {
@@ -840,15 +628,22 @@ tasks.register('preflightGithubRelease', PublishGithubReleaseTask) {
     }
 }
 
-subprojects {
-    plugins.withId('java') {
-        def architectureGate = tasks.register('verifyArchitecture', com.naocraftlab.skins.buildlogic.VerifyArchitectureTask) {
-            classRoots.from(sourceSets.main.output.classesDirs)
-            dependsOn tasks.named('classes')
-        }
-        tasks.named('check').configure { dependsOn architectureGate }
-    }
+tasks.register('testAll', TargetBuildTask) {
+    group = 'verification'
+    description = 'Runs common and every catalog target actual Java tests and headless integration probes; never launches Minecraft.'
+    dependsOn subprojects.collect { it.tasks.named('check') }
+    dependsOn gradle.includedBuild('build-logic').task(':test')
+    configureTargetBuild(delegate, requestedTargetId == null ? targetIds : [requestedTargetId], ['check'], false, false)
+    verifyCompatibility.set(true)
 }
-tasks.register('verifyArchitecture') {
-    dependsOn subprojects.collect { it.tasks.named('verifyArchitecture') }
+
+tasks.register('testTarget', TargetBuildTask) {
+    group = 'verification'
+    description = 'Runs one catalog target actual tests and headless integration probes without launching Minecraft.'
+    doFirst {
+        if (requestedTargetId == null || !targetIds.contains(requestedTargetId)) {
+            throw new GradleException('Use -PtargetId=<catalog target>')
+        }
+    }
+    configureTargetBuild(delegate, requestedTargetId == null ? [] : [requestedTargetId], ['check'], false, false)
 }

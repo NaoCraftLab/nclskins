@@ -18,8 +18,53 @@ abstract class GenerateUpdateCatalogTask extends DefaultTask {
     abstract RegularFileProperty getCatalogFile()
 
     @InputFile
+    @Optional
     @PathSensitive(PathSensitivity.RELATIVE)
     abstract RegularFileProperty getInventoryFile()
+
+    @Input abstract org.gradle.api.provider.Property<Boolean> getWorkflowSnapshot()
+    @Input @Optional abstract org.gradle.api.provider.Property<String> getSourceCommit()
+    @Input @Optional abstract org.gradle.api.provider.Property<String> getCallerCatalogCommit()
+    @Input @Optional abstract org.gradle.api.provider.Property<String> getEventName()
+    @Input @Optional abstract org.gradle.api.provider.Property<String> getEventRef()
+    @Internal abstract DirectoryProperty getRepositoryDirectory()
+    @Internal Closure inventoryTransport
+    @Internal Closure branchTransport
+
+    GenerateUpdateCatalogTask() {
+        workflowSnapshot.convention(project.providers.environmentVariable('NCLSKINS_CATALOG_WORKFLOW').map { it == 'true' }.orElse(false))
+        outputs.doNotCacheIf('Live GitHub inventory snapshot') { workflowSnapshot.get() }
+        repositoryDirectory.convention(project.layout.projectDirectory)
+        sourceCommit.convention(project.providers.environmentVariable('SOURCE_COMMIT'))
+        callerCatalogCommit.convention(project.providers.environmentVariable('CALLER_CATALOG_COMMIT').orElse(''))
+        eventName.convention(project.providers.environmentVariable('EVENT_NAME'))
+        eventRef.convention(project.providers.environmentVariable('EVENT_REF'))
+        outputs.upToDateWhen { !workflowSnapshot.get() }
+    }
+
+    void admitSource() {
+        File root = repositoryDirectory.get().asFile
+        String source = sourceCommit.getOrElse('')
+        String caller = callerCatalogCommit.getOrElse('')
+        if (!(source ==~ /[0-9a-f]{40}/) ||
+                (!caller && (eventName.getOrElse('') != 'workflow_dispatch' || eventRef.getOrElse('') != 'refs/heads/main')) ||
+                (caller && caller != source) || ReleaseSelection.git(root, ['rev-parse', 'HEAD']).trim() != source) {
+            throw new IllegalStateException('Invalid pinned current-main catalog source')
+        }
+        String main = branchTransport != null ? branchTransport.call('main') :
+                new groovy.json.JsonSlurper().parse(ReleaseHttp.readGithub(
+                        'https://api.github.com/repos/' + repositoryName() + '/git/ref/heads/main',
+                        System.getenv('GITHUB_TOKEN')).body as byte[]).object?.sha
+        if (!(main ==~ /[0-9a-f]{40}/)) throw new IllegalStateException('Invalid current-main snapshot')
+        if (!caller && source != main) throw new IllegalStateException('Manual current-main source drifted')
+        if (caller && source != main) ReleaseSelection.git(root, ['merge-base', '--is-ancestor', source, main])
+    }
+
+    String repositoryName() {
+        String repository = System.getenv('GITHUB_REPOSITORY')
+        if (repository != 'NaoCraftLab/nclskins') throw new IllegalStateException('Wrong update catalog repository')
+        repository
+    }
 
     @OutputDirectory
     abstract DirectoryProperty getOutputDirectory()
@@ -30,13 +75,20 @@ abstract class GenerateUpdateCatalogTask extends DefaultTask {
     @TaskAction
     void generate() {
         Path catalogPath = validateInput(catalogFile.get().asFile.toPath(), 'catalog')
-        Path inventoryPath = validateInput(inventoryFile.get().asFile.toPath(), 'inventory')
+        if (workflowSnapshot.get()) admitSource()
+        Path inventoryPath = inventoryFile.present ? validateInput(inventoryFile.get().asFile.toPath(), 'inventory') : null
+        if (!workflowSnapshot.get() && inventoryPath == null) throw new IllegalArgumentException('Missing release inventory')
         Path allowedRoot = allowedOutputRoot.get().asFile.toPath().toAbsolutePath().normalize()
         Path output = outputDirectory.get().asFile.toPath().toAbsolutePath().normalize()
-        validateOutput(allowedRoot, output, [catalogPath, inventoryPath])
+        validateOutput(allowedRoot, output, [catalogPath, inventoryPath].findAll { it != null })
 
         Map catalog = CatalogTools.loadJson(catalogPath)
-        List<Map> inventory = GithubReleaseInventory.parse(catalog, Files.readAllBytes(inventoryPath))
+        byte[] inventoryBytes = workflowSnapshot.get() ? groovy.json.JsonOutput.toJson(
+                GithubReleaseInventory.snapshot(inventoryTransport ?: { int page ->
+                    ReleaseHttp.readGithub('https://api.github.com/repos/' + repositoryName() +
+                            "/releases?per_page=100&page=${page}", System.getenv('GITHUB_TOKEN'))
+                })).getBytes('UTF-8') : Files.readAllBytes(inventoryPath)
+        List<Map> inventory = GithubReleaseInventory.parse(catalog, inventoryBytes)
         Path temporary = output.resolveSibling("${output.fileName}.tmp")
         deleteTree(temporary)
         UpdateCatalogSite.files(catalog, inventory).each { String relative, String content ->

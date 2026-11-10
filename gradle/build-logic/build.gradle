@@ -39,6 +39,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    systemProperty 'java.io.tmpdir', System.getenv('TMPDIR') ?: System.getProperty('java.io.tmpdir')
     systemProperty 'junit.platform.stacktrace.pruning.enabled', 'false'
     testLogging {
         exceptionFormat = 'full'
@@ -55,9 +56,15 @@ tasks.withType(Test).configureEach {
             file('../../CHANGELOG.md'),
             file('../../PLUGIN_CHANGELOG.md'),
             file('../../.github/workflows/release.yml'),
-            file('../../.github/workflows/release-candidate.yml'),
             file('../../.github/workflows/publish-update-catalog.yml'))
             .withPropertyName('rootReleaseFiles')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(project.providers.provider {
+        Map catalog = new groovy.json.JsonSlurper().parse(file('../../gradle/targets.json')) as Map
+        (catalog.targets as List<Map>).collect { Map target ->
+            fileTree(file("../../${target.path}/build/classes/java")) { include '**/*.class' }
+        }
+    }).withPropertyName('rootCompiledTargetClasses')
             .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

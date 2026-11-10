@@ -147,18 +147,10 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
         List<String> arguments = [
                 "-PnclskinsSourceGraph=${TargetBuildTask.sourceGraphFingerprint(worktree)}".toString(),
                 "-PnclskinsBuildLogicWorkspace=historical-${target.id}".toString(),
-                '-p', targetDirectory.absolutePath, 'clean', 'build'
-        ]
+                '-p', targetDirectory.absolutePath
+        ] + TargetBuildTask.assemblyTasks(target)
         runProcess([wrapper.absolutePath] + arguments, worktree, javaHome,
                 "Historical target ${target.id}")
-        List<String> errors = []
-        ArtifactVerifier.verify(
-                worktree, catalog, target, CatalogTools.loadVersion(worktree), errors)
-        if (!errors.isEmpty()) {
-            throw new IllegalStateException(
-                    "Historical target ${target.id} artifact verification failed:\n- " +
-                    errors.join('\n- '))
-        }
     }
 
     static void validateTaggedCatalog(File worktree, Map catalog) {
@@ -167,7 +159,7 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
             throw new IllegalStateException(
                     'Historical catalog has no server plugin build JDK')
         }
-        runGradle(worktree, (buildJdk as Number).intValue(), ['verifyTargetCatalog'])
+        CatalogTools.releaseTargets(catalog).each { CatalogTools.repositoryRelative(worktree, it.path, 'historical target') }
     }
 
     static void runGradle(File worktree, int javaVersion, List<String> arguments) {

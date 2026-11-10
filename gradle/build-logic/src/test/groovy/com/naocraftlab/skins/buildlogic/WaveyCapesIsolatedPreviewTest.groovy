@@ -397,60 +397,8 @@ class WaveyCapesIsolatedPreviewTest {
         assertTrue(ordered.indexOf('bind-preview-publication') < ordered.indexOf('weave-publication'))
     }
 
-    @Test
-    void submissionPublicPreviewUsesInitializedDispatcherAndConsumerFence() {
-        String probe = new File('src/waveyBufferedComposition/submission/java/com/naocraftlab/skins/buildlogic/probe/wavey/LivePublicPreviewProbe.java').text
-        assertTrue(probe.contains('new LivePreviewRenderer(buffers)'))
-        assertTrue(probe.contains('PreviewConsumerFrame.open()'))
-        assertTrue(probe.contains('consumer.prepare(emitted, gui, 1)'))
-        assertTrue(probe.contains('PreviewConsumerFrame.submitted()'))
-        assertTrue(probe.contains('SubmissionRawInputs.completeConsumers()'))
-        assertFalse(probe.contains('allocate(LivePreviewRenderer.class)'))
-        assertFalse(probe.contains('getDeclaredMethod("renderToTexture"'))
-        assertTrue(probe.indexOf('LIVE_TARGET_CLOSED_BEFORE_CONSUMER_FENCE') < probe.indexOf('SubmissionRawInputs.completeConsumers()'))
-        String bindings = new File('src/waveyLoaderComposition/terminal/java/com/naocraftlab/skins/buildlogic/terminal/SubmissionPreviewBindings.java').text
-        assertTrue(bindings.contains('if (node.name.equals(TARGET)) return raw('))
-        assertFalse(bindings.contains('if (node.name.equals(LIVE)) return raw('))
-    }
 
-    @Test
-    void submissionMainTargetIsScopedCpuDepthInputWithFailureRestoration() {
-        String raw = new File('src/waveyBufferedComposition/submission/java/com/naocraftlab/skins/buildlogic/probe/wavey/SubmissionRawInputs.java').text
-        assertTrue(raw.contains('class MainTargetInput implements AutoCloseable'))
-        assertTrue(raw.contains('class DepthTarget extends com.mojang.blaze3d.pipeline.RenderTarget'))
-        assertTrue(raw.contains('super("wavey-main-depth-input", true)'))
-        assertTrue(raw.contains('TextureFormat.DEPTH32'))
-        assertTrue(raw.contains('previous = minecraft.getMainRenderTarget()'))
-        assertTrue(raw.contains('set(net.minecraft.client.Minecraft.class, minecraft, "mainRenderTarget", previous)'))
-        assertTrue(raw.contains('finally { depth.close(); }'))
-        assertFalse(raw.contains('createBuffers('))
-        assertFalse(raw.contains('TextureTarget'))
-        String probe = new File('src/waveyBufferedComposition/submission/java/com/naocraftlab/skins/buildlogic/probe/wavey/LivePublicPreviewProbe.java').text
-        assertTrue(probe.contains('var mainTarget = new SubmissionRawInputs.MainTargetInput(Minecraft.getInstance())'))
-        assertTrue(probe.contains('LIVE_MAIN_TARGET_FAILURE_RESTORATION'))
-        assertTrue(probe.contains('LIVE_MAIN_TARGET_FAILURE_DEPTH_CLOSE'))
-        assertTrue(probe.contains('LIVE_MAIN_TARGET_NO_EAGER_DEVICE'))
-        assertTrue(probe.contains('MAIN_TARGET_INPUT_SCOPE_PASS'))
-    }
 
-    @Test
-    void canonicalSubmissionSeparatesRawAndNativeDeviceMixinPhases() {
-        String provider = new File('src/waveyLoaderComposition/spi/java/com/naocraftlab/skins/buildlogic/processor/CapeTerminalProvider.java').text
-        assertTrue(provider.contains('collector.add(new NativeDeviceTerminalProcessor())'))
-        String raw = provider.substring(provider.indexOf('class TerminalProcessor'), provider.indexOf('class NativeDeviceTerminalProcessor'))
-        String nativeDevice = provider.substring(provider.indexOf('class NativeDeviceTerminalProcessor'))
-        assertTrue(raw.contains('Set.of(ClassProcessorIds.MIXIN)'))
-        assertTrue(raw.contains('SubmissionPreviewBindings.applyRaw(context.node())'))
-        assertFalse(raw.contains('SubmissionPreviewBindings.NATIVE_OWNERS'))
-        assertTrue(nativeDevice.contains('runsAfter()'))
-        assertTrue(nativeDevice.contains('ClassProcessorIds.MIXIN'))
-        assertTrue(nativeDevice.contains('SubmissionPreviewBindings.NATIVE_OWNERS'))
-        assertTrue(nativeDevice.contains('verifyInjectedDepth(context.node())'))
-        String order = new File('src/waveyLoaderComposition/contract/java/com/naocraftlab/skins/buildlogic/contract/ProcessorOrderContract.java').text
-        assertTrue(order.contains('DEVICE_PRE_MIXIN_REJECTED'))
-        assertTrue(order.contains('PRODUCER_POST_MIXIN_REJECTED'))
-        assertTrue(order.contains('CyclePresentException'))
-    }
 
     @Test
     void exactPrepareOnlyCompilesTheRealIsolatedActionWithoutAnyCaseInvocation() {

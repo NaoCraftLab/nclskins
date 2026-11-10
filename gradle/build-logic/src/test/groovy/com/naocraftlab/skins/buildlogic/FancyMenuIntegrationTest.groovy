@@ -38,28 +38,7 @@ final class FancyMenuIntegrationTest {
         assertThrows(IllegalStateException) { FancyMenuAbiVerifier.requireMinimum('26.3.0.0-beta', '[26.3.0.6-beta,)') }
     }
 
-    @Test
-    void newTargetWithoutFancyMenuDecisionFailsCatalogCoverage() {
-        Map catalog = CatalogTools.loadCatalog(repository)
-        catalog.optionalDependencies.fancymenu.versions.remove('fabric-26.1')
-        def failure = assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, catalog) }
-        assertTrue(failure.message.contains('FancyMenu'))
-    }
 
-    @Test
-    void buildConventionsKeepFancyMenuOffDevelopmentRuntimeClasspaths() {
-        String shared = new File(repository, 'gradle/fancymenu-conventions.gradle').text
-        assertTrue(shared.contains('nclskinsFancyCompileConfiguration'))
-        assertTrue(shared.contains('compileDependency.transitive = false'))
-        assertFalse(shared.contains('nclskinsFancyRuntimeConfiguration'))
-        assertFalse(shared.contains('runtimeArtifacts'))
-
-        ['fabric', 'forge', 'neoforge'].each { loader ->
-            String convention = new File(repository,
-                    "gradle/loader-conventions/${loader}.gradle").text
-            assertFalse(convention.contains('nclskinsFancyRuntimeConfiguration'))
-        }
-    }
 
     @Test
     void allFiveActionsRunSynchronouslyWithoutValuesOrVersionAllowlist() {

@@ -6,7 +6,31 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
 final class ReleaseMetadata {
+    static Map prepare(File versionFile, File pluginVersionFile, File changelogFile,
+                       File pluginChangelogFile, String requestedVersion, String baselineOverride = '') {
+        Map selection = ServerPluginVersion.select(requestedVersion,
+                CatalogTools.loadVersion(versionFile.toPath()), ServerPluginVersion.parse(pluginVersionFile.text))
+        String baseline = MetadataRenderer.effectiveRequiredServerPluginVersion(
+                selection.functionalVersion.toString(), baselineOverride)
+        if (baseline != selection.functionalVersion) {
+            throw new IllegalArgumentException('Release baseline override must match configured plugin functional version')
+        }
+        Map metadata = selection.componentKind == 'plugin-only'
+                ? [version: requestedVersion, channel: requestedVersion.contains('-alpha.') ? 'alpha' :
+                    requestedVersion.contains('-beta.') ? 'beta' : 'release',
+                   prerelease: requestedVersion.contains('-'), notes: null]
+                : validate(versionFile, changelogFile, requestedVersion)
+        Map server = selection + [publish: selection.componentKind != 'mod-only',
+                reason: selection.componentKind, activeVersion: baseline]
+        server.notes = ServerPluginChangelog.validate(pluginChangelogFile, server)
+        metadata + selection + [serverPlugin: server]
+    }
+
     static Map validate(File versionFile, File changelogFile, String releaseTag) {
+        if (releaseTag != null && releaseTag ==~ /\d+\.\d+\.\d+\.[1-9][0-9]*(?:-(?:alpha|beta)\.[1-9][0-9]*)?/) {
+            return prepare(versionFile, new File(versionFile.parentFile, 'plugin-version.properties'),
+                    changelogFile, new File(changelogFile.parentFile, 'PLUGIN_CHANGELOG.md'), releaseTag)
+        }
         if (releaseTag == null || releaseTag.isBlank()) {
             throw new IllegalArgumentException(
                     'Release tag is required. Use -PreleaseTag=<major.minor.patch[-alpha.N|-beta.N]>')
@@ -76,16 +100,18 @@ final class ReleaseMetadata {
     static File write(File releaseRoot, Map metadata) {
         File versionDirectory = new File(releaseRoot, metadata.version.toString())
         Files.createDirectories(versionDirectory.toPath())
-        Files.writeString(
-                new File(versionDirectory, 'release-notes.md').toPath(),
-                metadata.notes.toString(),
-                StandardCharsets.UTF_8)
+        File modNotes = new File(versionDirectory, 'release-notes.md')
+        if (metadata.notes != null) {
+            Files.writeString(modNotes.toPath(), metadata.notes.toString(), StandardCharsets.UTF_8)
+        } else {
+            Files.deleteIfExists(modNotes.toPath())
+        }
         Map publicMetadata = [
                 schemaVersion: 3,
                 version      : metadata.version,
                 channel      : metadata.channel,
                 prerelease   : metadata.prerelease,
-                releaseNotes : 'release-notes.md'
+                releaseNotes : metadata.notes == null ? null : 'release-notes.md'
         ]
         if (metadata.serverPlugin instanceof Map) {
             Map server = new LinkedHashMap(metadata.serverPlugin as Map)

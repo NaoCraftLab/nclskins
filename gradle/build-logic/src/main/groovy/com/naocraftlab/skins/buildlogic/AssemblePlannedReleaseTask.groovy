@@ -19,7 +19,7 @@ abstract class AssemblePlannedReleaseTask extends DefaultTask {
         File repository = repositoryDirectory.get().asFile
         Map plan = ReleasePlan.load(planFile.get().asFile)
         ReleasePlan.requireCheckout(repository, plan)
-        File output = new File(releaseRoot.get().asFile, plan.version.toString())
+        File output = new File(releaseRoot.get().asFile, plan.requestedVersion.toString())
         File assetsDirectory = new File(output, 'assets')
         if (assetsDirectory.exists() && !assetsDirectory.deleteDir()) throw new IllegalStateException('Cannot reset bundle assets')
         Files.createDirectories(assetsDirectory.toPath())
@@ -66,12 +66,13 @@ abstract class AssemblePlannedReleaseTask extends DefaultTask {
         }
         List<Map> targets = components.findAll { it.id != 'server-plugin' }
         AssembleReleaseTask.requireUniqueArtifactContents(targets)
-        String notes = plan.release.notes.toString()
+        String notes = plan.release.notes == null ? '' : plan.release.notes.toString()
         File notesFile = new File(output, 'release-notes.md')
         Files.writeString(notesFile.toPath(), notes)
-        Map manifest = [schemaVersion: 4, mode: plan.mode, version: plan.version,
+        Map manifest = [schemaVersion: 5, mode: plan.mode, version: plan.version,
+                requestedVersion: plan.requestedVersion, componentKind: plan.componentKind,
                 channel: plan.release.channel, prerelease: plan.release.prerelease,
-                sourceCommit: plan.sourceCommit, tagCommit: plan.tagCommit, baseTag: null,
+                sourceCommit: plan.sourceCommit, tagCommit: plan.tagCommit, sourceBranch: plan.sourceBranch, baseTag: null,
                 targetCount: targets.size(), selectedTargetIds: targets.collect { it.id },
                 selection: [paths: [], reasons: [:]], platforms: catalog.mod.platforms,
                 releaseNotes: [file: notesFile.name, sha256: ReleaseBundle.sha256(notesFile), text: notes],

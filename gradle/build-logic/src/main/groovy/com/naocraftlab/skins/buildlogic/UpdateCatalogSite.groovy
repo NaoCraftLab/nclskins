@@ -31,6 +31,7 @@ final class UpdateCatalogSite {
             List<String> versions = associatedReleases.findAll { Map release ->
                 (release.targetIds as Collection).contains(targetId)
             }.collect { it.version.toString() }
+            if (versions.isEmpty()) return
             Map<String, Object> metadata = new TreeMap<>()
             metadata.loader = (target.loader as Map).id.toString()
             metadata.minecraftVersion = target.minecraft.version.toString()
@@ -58,7 +59,7 @@ final class UpdateCatalogSite {
         }
         Map common = UpdateCatalogSite.catalog(catalog, inventory)
         Map targetCatalog = (common.targets as Map)[targetId] as Map
-        List<String> versions = targetCatalog.versions as List<String>
+        List<String> versions = targetCatalog == null ? [] : targetCatalog.versions as List<String>
         List<String> runtimeVersions = nativeRuntimeVersions(target)
         Map<String, Object> versionMap = new LinkedHashMap<>()
         versions.each { String version ->
@@ -134,9 +135,11 @@ final class UpdateCatalogSite {
     static Map<String, String> files(Map catalog, List<Map> inventory) {
         Map<String, String> files = new TreeMap<>()
         files['.nojekyll'] = ''
-        files['updates/v1/catalog.json'] = catalogJson(catalog, inventory)
+        Map common = UpdateCatalogSite.catalog(catalog, inventory)
+        files['updates/v1/catalog.json'] = CatalogTools.json(common)
         CatalogTools.releaseTargets(catalog).findAll { Map target ->
-            ['forge', 'neoforge'].contains((target.loader as Map).id.toString())
+            ['forge', 'neoforge'].contains((target.loader as Map).id.toString()) &&
+                    (common.targets as Map).containsKey(target.id.toString())
         }.sort { Map left, Map right -> left.id.toString() <=> right.id.toString() }
                 .each { Map target ->
                     String targetId = target.id.toString()

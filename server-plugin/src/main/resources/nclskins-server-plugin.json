@@ -1,6 +1,5 @@
 {
   "serverImplementationVersion": "${pluginVersion}",
   "protocolIds": ["appearance-refresh-v1", "proxy-refresh-v1"],
-  "matrixId": "${pluginMatrixId}",
-  "serverFingerprint": "${serverFingerprint}"
+  "matrixId": "${pluginMatrixId}"
 }

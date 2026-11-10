@@ -7,6 +7,42 @@ import java.nio.file.Files
 import java.time.Duration
 
 final class ReleaseDownload {
+    static void unpackActionsArtifact(byte[] archive, File destination) {
+        if (archive.length > 268435456 || destination.exists()) throw new IllegalStateException('Unsafe or oversized resume archive destination')
+        Set<String> names = [] as Set
+        long total = 0
+        int entries = 0
+        java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(new ByteArrayInputStream(archive))
+        try {
+            zip.withCloseable { stream ->
+                java.util.zip.ZipEntry entry
+                while ((entry = stream.nextEntry) != null) {
+                    String name = entry.name
+                    if (++entries > 1024 || !name || name.contains('\\') || name.startsWith('/') ||
+                            name.split('/').any { it in ['.', '..', ''] } || !names.add(name) ||
+                            !(name ==~ /[A-Za-z0-9._+\/-]+/)) throw new IllegalStateException('Unsafe resume archive path')
+                    def path = destination.toPath().resolve(name).normalize()
+                    if (!path.startsWith(destination.toPath())) throw new IllegalStateException('Resume archive escapes destination')
+                    if (entry.directory) { Files.createDirectories(path); continue }
+                    Files.createDirectories(path.parent)
+                    Files.newOutputStream(path, java.nio.file.StandardOpenOption.CREATE_NEW).withCloseable { output ->
+                        byte[] buffer = new byte[65536]
+                        int count
+                        while ((count = stream.read(buffer)) != -1) {
+                            total += count
+                            if (total > 536870912) throw new IllegalStateException('Resume archive exceeds expanded byte limit')
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+            }
+            if (entries == 0) throw new IllegalStateException('Empty resume archive')
+        } catch (Exception error) {
+            destination.deleteDir()
+            throw error
+        }
+    }
+
     static File fetch(String url, File destination, Map hashes) {
         URI uri = URI.create(url)
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20))

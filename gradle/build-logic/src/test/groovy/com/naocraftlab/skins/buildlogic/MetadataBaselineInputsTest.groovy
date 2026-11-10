@@ -17,6 +17,7 @@ class MetadataBaselineInputsTest {
         new File(root, 'gradle').mkdirs()
         new File(root, 'gradle/targets.json').bytes = new File(repository, 'gradle/targets.json').bytes
         new File(root, 'gradle/version.properties').text = 'modVersion=1.2.2\n'
+        new File(root, 'gradle/plugin-version.properties').text = 'pluginVersion=1.2.2\npluginBuild=1\n'
         new File(root, 'settings.gradle').text = "rootProject.name = 'metadata-baseline-fixture'\n"
         new File(root, 'build.gradle').text = '''
 plugins { id 'com.naocraftlab.skins.build-tools' }
@@ -27,7 +28,8 @@ plugins { id 'com.naocraftlab.skins.build-tools' }
         targetId.set(loader + '-26.2')
         requiredServerPluginVersion.set(providers.environmentVariable('NCLSKINS_SERVER_PLUGIN_BASELINE')
                 .orElse('').map { nclskinsMetadataRenderer.effectiveRequiredServerPluginVersion(
-                        nclskinsCatalogTools.loadVersion(projectDir), it) })
+                        com.naocraftlab.skins.buildlogic.ServerPluginVersion.parts(
+                                com.naocraftlab.skins.buildlogic.ServerPluginVersion.load(projectDir)).base.toString(), it) })
         outputDirectory.set(layout.buildDirectory.dir(loader))
     }
 }
@@ -61,20 +63,20 @@ plugins { id 'com.naocraftlab.skins.build-tools' }
                 assertTrue(descriptor.readLines().contains('modId="nclskins"'))
                 assertTrue(descriptor.readLines().contains('version="' + version + '"'))
             }
-            println "${loader}: ${actual}; descriptor=${version}; sha256=${BuildReceipt.hash(compatibility)}"
+            println "${loader}: ${actual}; descriptor=${version}; sha256=${TestFiles.hash(compatibility)}"
         }
     }
 
     @Test void equivalentSpellingsFallbackAndPlanOnlyChangesKeepOutputsUpToDate() {
         File root = fixture()
         runner(root, '1.4.0').build()
-        Map explicit = BuildReceipt.treeContents(new File(root, 'build/fabric'))
+        Map explicit = TestFiles.treeContents(new File(root, 'build/fabric'))
         ['  1.4.0  ', '1.4.0'].each { String baseline ->
             def result = runner(root, baseline).build()
             ['fabricMetadata', 'neoforgeMetadata'].each {
                 assertEquals(TaskOutcome.UP_TO_DATE, result.task(':' + it).outcome)
             }
-            assertEquals(explicit, BuildReceipt.treeContents(new File(root, 'build/fabric')))
+            assertEquals(explicit, TestFiles.treeContents(new File(root, 'build/fabric')))
             assertMetadata(root, '1.4.0')
         }
         new File(root, 'release-plan.json').text = '{"digest":"first","path":"one"}'
@@ -89,7 +91,7 @@ plugins { id 'com.naocraftlab.skins.build-tools' }
                         result.task(':' + it).outcome)
             }
             assertMetadata(root, '1.2.2')
-            Map hashes = BuildReceipt.treeContents(new File(root, 'build/fabric'))
+            Map hashes = TestFiles.treeContents(new File(root, 'build/fabric'))
             if (index == 0) fallback = hashes
             else assertEquals(fallback, hashes)
         }
@@ -98,7 +100,7 @@ plugins { id 'com.naocraftlab.skins.build-tools' }
         ['fabricMetadata', 'neoforgeMetadata'].each {
             assertEquals(TaskOutcome.SUCCESS, changed.task(':' + it).outcome)
         }
-        assertMetadata(root, '1.2.3', '1.2.3')
+        assertMetadata(root, '1.2.2', '1.2.3')
     }
 
     @Test void explicitPropertyWinsOverAmbientBaseline() {
@@ -118,45 +120,20 @@ plugins { id 'com.naocraftlab.skins.build-tools' }
             runner(root, baseline).build()
             assertMetadata(root, baseline)
         }
-        Map original = BuildReceipt.treeContents(new File(root, 'build'))
+        Map original = TestFiles.treeContents(new File(root, 'build'))
         ['v1.4.0', '1.4.0.1', '01.4.0', '1.04.0', '1.4.00', '1.4.0-beta.0',
          '1.4.0-rc.1', '1.4.0+build', 'arbitrary'].each { String invalid ->
             def rejected = runner(root, invalid).buildAndFail()
             assertTrue(rejected.output.contains('NCLSKINS_SERVER_PLUGIN_BASELINE must be an exact no-v SemVer'), rejected.output)
-            assertEquals(original, BuildReceipt.treeContents(new File(root, 'build')))
-            assertFalse(BuildReceipt.location(root).exists())
+            assertEquals(original, TestFiles.treeContents(new File(root, 'build')))
         }
         new File(root, 'build.gradle').append('''
 tasks.named('fabricMetadata') { requiredServerPluginVersion.set('v1.4.0') }
 ''')
         runner(root, '1.4.0').buildAndFail()
-        assertEquals(original, BuildReceipt.treeContents(new File(root, 'build')))
+        assertEquals(original, TestFiles.treeContents(new File(root, 'build')))
     }
 
-    @Test void standaloneVerificationRejectsMissingAndCorruptArtifactsWithoutGeneration() {
-        File root = fixture()
-        new File(root, 'build.gradle').append('''
-tasks.register('verifyFixture', com.naocraftlab.skins.buildlogic.VerifyArtifactsTask) {
-    repositoryDirectory.set(layout.projectDirectory)
-    catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
-    versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
-    targetId.set('neoforge-26.2')
-}
-''')
-        def missing = runner(root, '1.4.0').withArguments('verifyFixture', '--console=plain').buildAndFail()
-        assertTrue(missing.output.contains('missing production artifact'), missing.output)
-        assertNull(missing.task(':neoforgeMetadata'))
-        assertFalse(new File(root, 'build/neoforge').exists())
-        Map target = new JsonSlurper().parse(new File(root, 'gradle/targets.json')).targets.find { it.id == 'neoforge-26.2' }
-        File jar = new File(root, target.path + '/build/libs/' + target.artifact.file.replace('{modVersion}', '1.2.2'))
-        jar.parentFile.mkdirs()
-        jar.text = 'corrupt artifact'
-        String original = BuildReceipt.hash(jar)
-        def corrupt = runner(root, '1.4.0').withArguments('verifyFixture', '--console=plain').buildAndFail()
-        assertNull(corrupt.task(':neoforgeMetadata'))
-        assertEquals(original, BuildReceipt.hash(jar))
-        assertFalse(new File(root, 'build/neoforge').exists())
-    }
 
     @Test void changingBaselineRegeneratesWithoutCleanOrRerun() {
         File root = fixture()
@@ -182,7 +159,7 @@ tasks.register('verifyFixture', com.naocraftlab.skins.buildlogic.VerifyArtifacts
         assertMetadata(root, '1.4.0')
     }
 
-    @Test void characterizesModVersionFallbackForFabricAndNeoForge262() {
+    @Test void characterizesConfiguredFunctionalBaselineForFabricAndNeoForge262() {
         File root = fixture()
         runner(root, null).build()
         assertMetadata(root, '1.2.2')

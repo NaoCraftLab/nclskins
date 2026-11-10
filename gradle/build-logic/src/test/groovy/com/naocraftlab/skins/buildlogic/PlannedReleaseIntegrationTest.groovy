@@ -46,12 +46,27 @@ final class PlannedReleaseIntegrationTest {
 
     @Test
     void planNewPluginBuildPreservesModsAndReplacesOnlyOldPlugin() {
-        verifyPlan(true)
+        new PluginOnlyReleaseTest().replacesPreviousPluginOnlyAfterVerifiedUploadAndResumes()
     }
 
     @Test
     void freshBetaPlansExportsAndAssemblesEveryEligibleComponent() {
         verifyPlan(false, true)
+    }
+
+    @Test
+    void freshBetaLocalPreparationAssemblesWithoutCurrentTagOrRemotePublication() {
+        verifyPlan(false, true, false, null, false, true)
+    }
+
+    @Test
+    void assemblerRejectsFunctionalPluginBaselineDriftAfterFreezeBeforeWritingBundle() {
+        verifyPlan(false, true, false, null, false, false, true)
+    }
+
+    @Test
+    void productionPlanningStillRejectsMissingCurrentTag() {
+        verifyPlan(false, true, false, null, false, false, false, true)
     }
 
     @Test
@@ -66,24 +81,26 @@ final class PlannedReleaseIntegrationTest {
             Map catalog = CatalogTools.loadCatalog(source)
             catalog.serverPlugin.matrixId = 'fixture-compatibility-update'
             Map state = ServerPluginReleaseState.compute(source, catalog, '1.1.0-beta.1')
-            assertTrue(state.publish)
+            assertFalse(state.publish)
             assertEquals('1.0.0.2', state.pluginVersion)
             assertEquals('1.0.0', state.activeVersion)
             catalog.serverPlugin.protocols = ['fixture-new-protocol']
             Map protocolUpdate = ServerPluginReleaseState.compute(source, catalog, '1.1.0-beta.1')
-            assertTrue(protocolUpdate.publish)
+            assertFalse(protocolUpdate.publish)
             assertEquals('1.0.0.2', protocolUpdate.pluginVersion)
             assertEquals('1.0.0', protocolUpdate.activeVersion)
         } finally { fixture.deleteDir() }
     }
 
     private void verifyPlan(boolean replacePlugin, boolean fresh = false, boolean ancestor = false,
-                            String wrong = null, boolean recoveredOld = false) {
+                            String wrong = null, boolean recoveredOld = false, boolean localNoTag = false,
+                            boolean driftAfterFreeze = false, boolean productionNoTag = false) {
         File fixture = Files.createTempDirectory(
                 new File(System.getenv('TMPDIR') ?: System.getProperty('java.io.tmpdir')).toPath(),
                 'planned-release-integration-').toFile()
         try {
-            File source = fixtureRepository(new File(fixture, 'source'), fresh, replacePlugin)
+            File source = fixtureRepository(new File(fixture, 'source'), fresh, replacePlugin,
+                    localNoTag || productionNoTag)
             String unrelatedCommit = null
             if (ancestor) {
                 new File(source, 'fixture-history.txt').text = 'U\n'
@@ -103,31 +120,58 @@ final class PlannedReleaseIntegrationTest {
             if (fresh) {
                 File pluginVersion = new File(source, 'gradle/plugin-version.properties')
                 String originalVersion = pluginVersion.text
-                pluginVersion.text = 'pluginVersion=1.0.0\npluginBuild=2\n'
-                assertTrue(assertThrows(IllegalStateException) {
+                pluginVersion.text = 'pluginVersion=1.1.0-beta.1\npluginBuild=2\n'
+                assertTrue(assertThrows(IllegalArgumentException) {
                     ServerPluginReleaseState.compute(source, CatalogTools.loadCatalog(source), platform.version)
-                }.message.contains('Plugin functional version must match release'))
+                }.message.contains('Joint release requires'))
                 pluginVersion.text = originalVersion
             }
             platform.baseline = ServerPluginReleaseState.compute(source, CatalogTools.loadCatalog(source), platform.version).activeVersion
             platform.recoveredBaseline = recoveredOld ? '0.9.0' : platform.baseline
             FixtureGithub github = project.tasks.create('preflightGithubRelease', FixtureGithub)
             github.platform = platform
-            github.commit = ReleaseSelection.git(source, ['rev-parse', "refs/tags/${platform.version}^{commit}"]).trim()
+            github.commit = localNoTag || productionNoTag ? null : ReleaseSelection.git(source, ['rev-parse', "refs/tags/${platform.version}^{commit}"]).trim()
             FixturePlanner planner = project.tasks.create('planFixture', FixturePlanner)
             planner.replacePlugin = replacePlugin
             planner.fresh = fresh
+            planner.localPreparation.set(localNoTag)
             planner.filesDirectory = platform.filesDirectory
             planner.repositoryDirectory.set(source)
             planner.releaseTag.set(platform.version)
             File planDirectory = new File(fixture, 'plan')
             planner.outputDirectory.set(planDirectory)
+            if (fresh && !localNoTag && !productionNoTag) {
+                String head = ReleaseSelection.git(source, ['rev-parse', 'HEAD']).trim()
+                planner.workflowAdmission.set(true)
+                planner.workflowEnvironment = { String key -> [GITHUB_REPOSITORY: 'NaoCraftLab/nclskins',
+                        EVENT_NAME: 'workflow_dispatch', EVENT_REF: 'refs/heads/main', GITHUB_SHA: head,
+                        GITHUB_OUTPUT: new File(fixture, 'workflow-output').path][key] }
+                planner.workflowTransport = { String url, int limit ->
+                    assertTrue(url.endsWith('/git/ref/heads/main'))
+                    [status: 200, body: CatalogTools.json([object: [type: 'commit', sha: head]]).bytes]
+                }
+            }
+            if (localNoTag) {
+                assertTrue(ReleaseSelection.git(source, ['tag', '--list', platform.version]).trim().isEmpty())
+                assertTrue(planner.localPreparation.get())
+                assertFalse(planner.workflowAdmission.get())
+            }
+            if (productionNoTag) {
+                assertTrue(ReleaseSelection.git(source, ['tag', '--list', platform.version]).trim().isEmpty())
+                assertFalse(planner.localPreparation.get())
+                assertFalse(planner.workflowAdmission.get())
+                assertThrows(IllegalStateException) { planner.planRelease() }
+                assertFalse(new File(planDirectory, 'release-plan.json').exists())
+                assertTrue(platform.requests.isEmpty())
+                return
+            }
             planner.planRelease()
             Map plan = ReleasePlan.load(new File(planDirectory, 'release-plan.json'))
             ReleasePlan.requireCheckout(source, plan)
+            if (localNoTag) assertNull(plan.tagCommit)
             if (ancestor) {
                 assertNotEquals(plan.tagCommit, plan.sourceCommit)
-                assertEquals(plan.tagCommit, plan.serverState.sourceCommit)
+                assertFalse(plan.serverState.containsKey('sourceCommit'))
                 assertEquals('1.0.0', plan.serverState.activeVersion)
                 assertNotEquals(unrelatedCommit, plan.tagCommit)
                 assertNotEquals(unrelatedCommit, plan.sourceCommit)
@@ -166,7 +210,7 @@ final class PlannedReleaseIntegrationTest {
                 assertEquals("${platform.version}.${replacePlugin ? 2 : 1}".toString(), plugin.versionNumber)
                 assertEquals("${platform.version}.${replacePlugin ? 2 : 1}+universal".toString(), plugin.name)
                 Map preservedPlugin = (plan.preservedGithub as List<Map>).find {
-                    it.assetFile == "nclskins-plugin-${platform.version}.jar"
+                    it.assetFile == "nclskins-plugin-${platform.version}.1.jar"
                 }
                 if (replacePlugin) {
                     assertNull(preservedPlugin)
@@ -198,11 +242,21 @@ final class PlannedReleaseIntegrationTest {
                     receiptFile.text = CatalogTools.json(receipt)
                 }
             }
+            if (driftAfterFreeze) {
+                new File(source, 'gradle/plugin-version.properties').text = 'pluginVersion=1.0.0\npluginBuild=1\n'
+                assertFalse(new File(fixture, "release/${platform.version}").exists())
+            }
             AssemblePlannedReleaseTask assembly = project.tasks.create('assembleFixture', AssemblePlannedReleaseTask)
             assembly.repositoryDirectory.set(source)
             assembly.planFile.set(new File(planDirectory, 'release-plan.json'))
             assembly.componentDirectory.set(new File(planDirectory, 'assets'))
             assembly.releaseRoot.set(new File(fixture, 'release'))
+            if (driftAfterFreeze) {
+                assertEquals('Release plan belongs to another source commit or version',
+                        assertThrows(IllegalStateException) { assembly.assemble() }.message)
+                assertFalse(new File(fixture, "release/${platform.version}").exists())
+                return
+            }
             if (wrong != null) {
                 String message = assertThrows(IllegalStateException) { assembly.assemble() }.message
                 if (wrong == 'planDigest') assertEquals('Component receipt belongs to another plan or commit', message)
@@ -214,9 +268,9 @@ final class PlannedReleaseIntegrationTest {
             }
             assembly.assemble()
             File bundle = new File(fixture, "release/${platform.version}")
-            Map bundleBytes = BuildReceipt.treeContents(bundle)
+            Map bundleBytes = TestFiles.treeContents(bundle)
             Map manifest = PublicationSupport.loadManifest(bundle)
-            assertEquals(bundleBytes, BuildReceipt.treeContents(bundle))
+            assertEquals(bundleBytes, TestFiles.treeContents(bundle))
             if (recoveredOld) {
                 Map preserved = manifest.targets.find { it.preserve }
                 assertNotNull(preserved)
@@ -228,6 +282,18 @@ final class PlannedReleaseIntegrationTest {
             }
             assertEquals(fresh ? 0 : replacePlugin ? 11 : 12, manifest.preservedTargetIds.size())
             assertEquals(12, manifest.targets.size())
+            if (localNoTag) {
+                assertEquals(0, manifest.preservedTargetIds.size())
+                assertTrue(manifest.assets.every { asset ->
+                    asset.sha256 == ReleaseBundle.sha256(new File(bundle, 'assets/' + asset.file))
+                })
+                assertTrue(ReleaseSelection.git(source, ['tag', '--list', platform.version]).trim().isEmpty())
+                assertTrue(platform.requests.isEmpty())
+                assertEquals(0, platform.fetchAllCalls)
+                assertEquals(0, platform.secretCalls)
+                assertTrue(github.calls.isEmpty())
+                return
+            }
             Map inventory = platform.fetchAll(manifest, PublishPlatformsTask.publicationTargets(manifest), 'fixture', 'fixture')
             Map states = platform.classifyPerTarget(PublishPlatformsTask.publicationTargets(manifest), inventory)
             PublishPlatformsTask.requirePreserved(manifest, states)
@@ -279,9 +345,9 @@ final class PlannedReleaseIntegrationTest {
                                       '-c', 'commit.gpgsign=false', 'commit', '-qm', message])
     }
 
-    private File fixtureRepository(File source, boolean fresh, boolean replacePlugin) {
+    private File fixtureRepository(File source, boolean fresh, boolean replacePlugin, boolean omitCurrentTag = false) {
         source.mkdirs()
-        ReleaseSelection.git(repository, ['ls-files', '--cached', '--others', '--exclude-standard']).readLines().unique().each { String path ->
+        ['gradle/targets.json', 'gradle/version.properties', 'gradle/plugin-version.properties'].each { String path ->
             File original = new File(repository, path)
             if (original.isFile()) {
                 File destination = new File(source, path)
@@ -295,11 +361,11 @@ final class PlannedReleaseIntegrationTest {
         new File(source, 'gradle/plugin-version.properties').text = "pluginVersion=${version}\npluginBuild=${replacePlugin ? 2 : 1}\n"
         new File(source, 'CHANGELOG.md').text = "## ${version}\n\nFixture mod notes\n"
         new File(source, 'PLUGIN_CHANGELOG.md').text = "## ${pluginVersion}\n\nFixture plugin notes\n"
-        ReleaseSelection.git(source, ['init', '-q'])
+        ReleaseSelection.git(source, ['init', '-q', '-b', 'main'])
         ReleaseSelection.git(source, ['add', '.'])
         ReleaseSelection.git(source, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                                       '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Release fixture'])
-        ReleaseSelection.git(source, ['tag', version])
+        if (!omitCurrentTag) ReleaseSelection.git(source, ['tag', version])
         source
     }
 
@@ -309,7 +375,6 @@ final class PlannedReleaseIntegrationTest {
         boolean fresh
         @Override Map pluginState(File repository, Map catalog, String version) {
             Map state = super.pluginState(repository, catalog, version)
-            if (!fresh) state.pluginVersion = replacePlugin ? "${version}.2".toString() : version
             state
         }
         @Override String pluginReleaseNotes(File repository, Map state) {
@@ -332,12 +397,15 @@ final class PlannedReleaseIntegrationTest {
         String recoveredBaseline
         boolean fresh
         File repository
+        int fetchAllCalls
+        int secretCalls
         List<Map> components = []
         List<String> requests = []
 
-        @Override String requireSecret(String name) { 'fixture-secret' }
+        @Override String requireSecret(String name) { secretCalls++; 'fixture-secret' }
 
         @Override Map<String, Map<String, List<Map>>> fetchAll(Map manifest, List<Map> targets, String token, String key) {
+            fetchAllCalls++
             components = targets
             Map result = [modrinth: [:], curseforge: [:]]
             targets.eachWithIndex { Map original, int index ->
@@ -413,9 +481,11 @@ final class PlannedReleaseIntegrationTest {
         String body = 'Original release notes'
         List<String> mutations = []
         boolean initialized
-        @Override String requireEnvironment(String name) { 'fixture-token' }
-        @Override String requireRepository() { 'fixture/repository' }
+        List<String> calls = []
+        @Override String requireEnvironment(String name) { calls.add('requireEnvironment'); 'fixture-token' }
+        @Override String requireRepository() { calls.add('requireRepository'); 'fixture/repository' }
         @Override Map findRelease(String api, String repo, String tag, String token) {
+            calls.add('findRelease')
             if (platform.fresh) return null
             if (initialized) return release()
             initialized = true
@@ -424,21 +494,21 @@ final class PlannedReleaseIntegrationTest {
                 FixturePlatforms.writeJar(new File(platform.filesDirectory, AssembleReleaseTask.artifactName(target, platform.version)),
                         AssembleReleaseTask.artifactName(target, platform.version), platform.recoveredBaseline)
             }
-            String plugin = "nclskins-plugin-${platform.version}.jar"
+            String plugin = "nclskins-plugin-${platform.version}.1.jar"
             FixturePlatforms.writeJar(new File(platform.filesDirectory, plugin), plugin, platform.recoveredBaseline)
             release()
         }
         Map release() {
             [id: 1, body: body, name: 'Existing release', prerelease: false,
              assets: platform.filesDirectory.listFiles().findAll { !it.name.endsWith('-sources.jar') }.collect {
-                 String name = it.name == "nclskins-plugin-${platform.version}.jar"
-                         ? "nclskins-plugin-${platform.version}.1.jar" : it.name
+                 String name = it.name
                  [id: name, name: name, sha256: ReleaseBundle.sha256(it)]
              }]
         }
         @Override String remoteSha256(String api, String repo, Map asset, String token) { asset.sha256 }
         @Override HttpResult request(String method, String url, Map<String, String> headers, byte[] body,
                 String contentType, Set<Integer> statuses, String secret, boolean acceptJson = true) {
+            calls.add("request:${method}")
             if (method == 'GET') return new HttpResult(200, CatalogTools.json([object: [type: 'commit', sha: commit]]).getBytes('UTF-8'))
             mutations.add(method)
             if (method == 'PATCH') {

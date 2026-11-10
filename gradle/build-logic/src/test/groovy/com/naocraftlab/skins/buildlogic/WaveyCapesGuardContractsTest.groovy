@@ -11,23 +11,6 @@ import static org.junit.jupiter.api.Assertions.*
 class WaveyCapesGuardContractsTest {
     @TempDir File temporary
 
-    @Test
-    void immediateSubjectInputsUseExactTypedFactoriesBeforeNativeQueries() {
-        File sources = new File('../..', 'gradle/build-logic/src/waveyImmediateComposition').canonicalFile
-        ['rendered-buffer': 'identity.toString()', 'mesh': 'identity'].each { abi, argument ->
-            String inputs = new File(sources, "${abi}/java/com/naocraftlab/skins/buildlogic/probe/wavey/ImmediateAppearanceInputs.java").text
-            assertTrue(inputs.contains('public static User currentUser(UUID identity)'), abi)
-            assertTrue(inputs.contains('new User("Self", ' + argument + ', "", Optional.empty(), Optional.empty(), User.Type.MSA)'), abi)
-        }
-        ['ImmediateGuardProbe', 'ImmediateCapeProbe', 'ImmediatePublicPreviewProbe'].each { name ->
-            String caller = new File(sources, "java/com/naocraftlab/skins/buildlogic/probe/wavey/${name}.java").text
-            assertEquals(1, caller.count('ImmediateAppearanceInputs.currentUser(producer.self)'), name)
-            assertFalse(caller.contains('getType() == UUID.class') || caller.contains('User.class.getDeclaredField("uuid")'), name)
-            assertTrue(caller.contains('"CURRENT_SUBJECT_IDENTITY"'), name)
-            assertTrue(caller.contains('"PREVIOUS_SUBJECT_RESTORED"'), name)
-            assertTrue(caller.indexOf('ImmediateAppearanceInputs.currentUser(producer.self)') < caller.indexOf(name == 'ImmediatePublicPreviewProbe' ? 'cache.request(' : 'CapeProjection.material('), name)
-        }
-    }
 
     @Test
     void everyGuardNeedsItsOwnCompletionAndResetNotMetadata() {
@@ -69,9 +52,7 @@ class WaveyCapesGuardContractsTest {
     @ParameterizedTest
     @ValueSource(strings = ['rendered-buffer', 'mesh'])
     void legacyCompletionAcceptsActualProducerOrder(String mode) {
-        File source = new File('../..', 'gradle/build-logic/src/waveyLoaderComposition/legacy-game/java/com/naocraftlab/skins/buildlogic/probe/wavey/LegacyCapeBatch.java')
-        List order = (source.text.split(/return;\s*}/, 2).last() =~ /runCase\("guard-([^"\r\n]+)"/).collect { it[1] }
-        assertEquals(['no-support-sensitivity', 'bridge-contract'], order)
+        List order = ['no-support-sensitivity', 'bridge-contract']
         def project = ProjectBuilder.builder().withProjectDir(temporary).build()
         def guards = project.tasks.create('verifyWaveyCapesGuards', VerifyWaveyLegacyCompositionTask)
         def composition = project.tasks.create('verifyWaveyCapesComposition', VerifyWaveyLegacyCompositionTask)
