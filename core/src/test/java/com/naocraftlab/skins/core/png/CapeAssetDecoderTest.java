@@ -641,6 +641,12 @@ class CapeAssetDecoderTest {
                 new GifFrame(0, 0, 64, 32, filled(64 * 32, 1), 1, 10, false),
                 new GifFrame(0, 0, 64, 32, filled(64 * 32, 2), 1, 20, false)), null, "slower");
         assertNotEquals(pngAsset.visualSha256(), slower.visualSha256());
+        assertEquals(GalleryCapeComparison.key(pngAsset), GalleryCapeComparison.key(gifAsset));
+        assertNotEquals(GalleryCapeComparison.key(pngAsset), GalleryCapeComparison.key(slower));
+        PreparedCapeAsset looped = prepareGif(List.of(
+                new GifFrame(0, 0, 64, 32, filled(64 * 32, 1), 1, 10, false),
+                new GifFrame(0, 0, 64, 32, filled(64 * 32, 2), 1, 10, false)), 2, "looped");
+        assertNotEquals(GalleryCapeComparison.key(gifAsset), GalleryCapeComparison.key(looped));
         PreparedCapeAsset staticGif = prepareGif(List.of(
                 new GifFrame(0, 0, 64, 32, filled(64 * 32, 1), 1, 3, false)), 4, "static");
         BufferedImage red = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);

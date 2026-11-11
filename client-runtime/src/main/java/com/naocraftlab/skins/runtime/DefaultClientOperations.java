@@ -2153,6 +2153,137 @@ public final class DefaultClientOperations implements ClientOperations {
     }
 
     @Override
+    public Optional<PreviewAssets.CapeResult> loadCapePreviewResult(String capeId) throws IOException {
+        Objects.requireNonNull(capeId, "capeId");
+        if (capeId.startsWith("provider:cape:")) {
+            String key = capeId.substring("provider:cape:".length());
+            Optional<UUID> personal = personalCapeAccount(key);
+            if (personal.isPresent()) {
+                UUID accountId = personal.orElseThrow();
+                Optional<PreparedCapeAsset> prepared = textures.readLocalPreparedCape(accountId, key);
+                if (prepared.isPresent()) return Optional.of(preparedCapeResult(prepared.orElseThrow()));
+                try { return textures.readLocalCape(accountId, key).map(this::staticCapeResult); }
+                catch (PngValidationException invalid) { throw new IOException("Invalid cape preview", invalid); }
+            }
+            if (!CapePreparationQueue.reconcileObservedCache(textures)) return Optional.empty();
+            Optional<PreparedCapeAsset> prepared = textures.readObservedPreparedCape(key);
+            if (prepared.isPresent()) return Optional.of(preparedCapeResult(prepared.orElseThrow()));
+            return textures.readIfCached(key).map(this::staticCapeResult);
+        }
+        OperationContext context = pinCurrentSession();
+        SessionValidation validation = sessions.cachedStatus(context.identity());
+        if (validation.valid() && validation.profile() != null) {
+            Optional<RemoteCape> cape = validation.profile().capes().stream()
+                    .filter(candidate -> candidate.id().equals(capeId)).findFirst();
+            if (cape.isPresent()) return Optional.of(staticCapeResult(textures.load(cape.orElseThrow().textureUri())));
+        }
+        UUID accountId = resolveAccountId(context.identity());
+        return storage.loadOwnedCapes(accountId).find(capeId)
+                .flatMap(OwnedCapeEntry::optionalTextureCacheKey).flatMap(key -> {
+                    try {
+                        Optional<PreparedCapeAsset> prepared = textures.readLocalPreparedCape(accountId, key);
+                        if (prepared.isPresent()) return Optional.of(preparedCapeResult(prepared.orElseThrow()));
+                        return textures.readIfCached(key).map(this::staticCapeResult);
+                    } catch (IOException invalidCacheEntry) {
+                        return Optional.empty();
+                    }
+                });
+    }
+
+    @Override
+    public java.util.concurrent.CompletableFuture<Optional<PreviewAssets.CapeResult>> loadCapePreviewResult(
+            String capeId, java.util.concurrent.Executor worker) {
+        var result = new java.util.concurrent.CompletableFuture<Optional<PreviewAssets.CapeResult>>();
+        class Preparation implements Runnable {
+            private CatalogRead.PreparedCapeLease owner;
+            private PreparedCapeAsset.BackingLease backing;
+            private com.naocraftlab.skins.core.png.GalleryCapeComparison.Scan scan;
+            private byte[] poster;
+            private boolean running;
+            private boolean again;
+
+            private synchronized void cancelled(Throwable failure) {
+                try { release(); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+            }
+
+            private void release() throws IOException {
+                IOException failure = null;
+                if (backing != null) {
+                    try { backing.close(); } catch (IOException error) { failure = error; }
+                    backing = null;
+                }
+                if (owner != null) {
+                    try { owner.close(); } catch (IOException error) {
+                        if (failure == null) failure = error; else failure.addSuppressed(error);
+                    }
+                    owner = null;
+                }
+                if (failure != null) throw failure;
+            }
+
+            @Override public synchronized void run() {
+                if (running) { again = true; return; }
+                running = true;
+                try {
+                    do {
+                        again = false;
+                        if (result.isDone()) { release(); return; }
+                        if (owner == null) {
+                            owner = acquirePreparedCapePreview(capeId).orElse(null);
+                            if (owner == null) {
+                                result.complete(loadCapePreviewResult(capeId));
+                                return;
+                            }
+                            backing = owner.asset().openBackingLease();
+                            poster = backing.framePng(0);
+                            scan = new com.naocraftlab.skins.core.png.GalleryCapeComparison.Scan(owner.asset());
+                        }
+                        if (scan.advance(backing, 8)) {
+                            var ready = new PreviewAssets.CapeResult(poster, Optional.of(owner.asset().visualSha256()),
+                                    new PreviewAssets.CapeComparison(Optional.of(scan.key())));
+                            release();
+                            result.complete(Optional.of(ready));
+                            return;
+                        }
+                        worker.execute(this);
+                    } while (again);
+                } catch (Exception failure) {
+                    if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+                    try { release(); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+                    result.completeExceptionally(failure);
+                } catch (Error failure) {
+                    try { release(); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+                    result.completeExceptionally(failure);
+                    throw failure;
+                } finally { running = false; }
+            }
+        }
+        var preparation = new Preparation();
+        result.whenComplete((ignored, failure) -> {
+            if (result.isCancelled()) preparation.cancelled(failure);
+        });
+        try { worker.execute(preparation); }
+        catch (RuntimeException rejected) { result.completeExceptionally(rejected); }
+        return result;
+    }
+
+    private PreviewAssets.CapeResult preparedCapeResult(PreparedCapeAsset asset) throws IOException {
+        String identity = asset.visualSha256();
+        return new PreviewAssets.CapeResult(asset.framePng(0), Optional.of(identity),
+                new PreviewAssets.CapeComparison(Optional.of(com.naocraftlab.skins.core.png.GalleryCapeComparison.key(asset))));
+    }
+
+    private PreviewAssets.CapeResult staticCapeResult(byte[] bytes) {
+        try {
+            return new PreviewAssets.CapeResult(bytes,
+                    Optional.of(new PngValidator().projectCanonicalCape(bytes).renderSha256()),
+                    new PreviewAssets.CapeComparison(Optional.of(com.naocraftlab.skins.core.png.GalleryCapeComparison.key(bytes))));
+        } catch (PngValidationException invalid) {
+            return new PreviewAssets.CapeResult(bytes, Optional.empty());
+        }
+    }
+
+    @Override
     public Optional<CatalogRead.PreparedCapeLease> acquirePreparedCapePreview(String capeId)
             throws IOException {
         return acquirePreparedCapePreview(capeId, false);

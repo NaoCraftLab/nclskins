@@ -32,6 +32,50 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 final class PreviewAssetCacheTest {
     private static final DiagnosticSink DIAGNOSTICS = DiagnosticSinks.discarding();
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"replace", "retain", "close", "integrity"})
+    void fullIdentityLookupRequiresCurrentOwnedPreparedSource(String transition) {
+        var cache = new PreviewAssetCache<String>(new FakeRegistry(), TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
+        var frame = new CompletableFuture<Optional<CapePreviewSource.Frame>>();
+        var closes = new AtomicInteger();
+        var source = new CapePreviewSource() {
+            public Optional<String> comparisonKey() { return Optional.of("full-timeline"); }
+            public CompletableFuture<Optional<Frame>> nextFrame(int index) { return frame; }
+            public void installed(int index) {}
+            public void close() { closes.incrementAndGet(); }
+        };
+        try {
+            cache.requestCape("card", "asset", () -> CompletableFuture.completedFuture(Optional.of(source)),
+                    () -> { throw new AssertionError("static fallback"); }, false, () -> {});
+            assertEquals(Optional.of("full-timeline"), cache.capeVisualIdentity("card", "asset"));
+            assertTrue(cache.handle("card").isEmpty(), "Metadata is independent of frame readiness");
+            assertTrue(cache.capeVisualIdentity("card", "other").isEmpty());
+            assertTrue(cache.capeVisualIdentity("absent", "asset").isEmpty());
+            switch (transition) {
+                case "replace" -> cache.requestCape("card", "other", CompletableFuture::new,
+                        CompletableFuture::new, false, () -> {});
+                case "retain" -> cache.retain(Set.of());
+                case "close" -> cache.close();
+                case "integrity" -> frame.completeExceptionally(
+                        new com.naocraftlab.skins.core.png.CapeIntegrityException("fixture"));
+            }
+            assertTrue(cache.capeVisualIdentity("card", "asset").isEmpty());
+            assertTrue(cache.capeVisualIdentity("card", "other").isEmpty());
+            assertEquals(1, closes.get());
+        } finally { cache.close(); }
+    }
+
+    @Test
+    void installedFrameHashDoesNotBecomeFullIdentity() {
+        try (var cache = new PreviewAssetCache<String>(new FakeRegistry(), TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS)) {
+            cache.requestCape("card", "asset", () -> CompletableFuture.completedFuture(
+                    Optional.of(frameSource("a".repeat(64), new AtomicInteger()))),
+                    () -> { throw new AssertionError("fallback"); }, false, () -> {});
+            assertTrue(cache.handle("card").isPresent());
+            for (int i = 0; i < 5; i++) assertTrue(cache.capeVisualIdentity("card", "asset").isEmpty());
+        }
+    }
+
     @Test
     void exactCapeOutcomeNeverReturnsFallbackFlagsOrValidityForAnotherSource() {
         var registry = new FakeRegistry();

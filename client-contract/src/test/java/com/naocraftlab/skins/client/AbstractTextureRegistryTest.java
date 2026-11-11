@@ -30,6 +30,23 @@ class AbstractTextureRegistryTest implements TextureRegistryTck {
     }
 
     @Test
+    void reentrantCloseDuringInlineLoadCannotPublishANewEntry() throws IOException {
+        AtomicInteger unloaded = new AtomicInteger();
+        AbstractTextureRegistry<String> registry = new AbstractTextureRegistry<>() {
+            @Override protected LoadedTexture<String> load(TextureKind kind, String hash, byte[] bytes) {
+                close();
+                return new LoadedTexture<>(new TextureHandle("synthetic:inline-close", 1, 1), "owned");
+            }
+            @Override protected void unload(String resource) { unloaded.incrementAndGet(); }
+            @Override protected void checkClientThread() { }
+        };
+        assertThrows(IllegalStateException.class, () -> registry.register(TextureKind.IMAGE,
+                CONTENT_HASH, TextureRegistryTck.imagePng(1, 1)));
+        registry.close();
+        assertEquals(1, unloaded.get());
+    }
+
+    @Test
     void byteArrayRegistrationDoesNotExposeTheCallersArrayToTheAdapter() throws IOException {
         FakeHarness harness = new FakeHarness();
         try (harness) {

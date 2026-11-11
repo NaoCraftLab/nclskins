@@ -97,6 +97,13 @@ public final class CapeAssetDecoder {
             this.lock = lock;
         }
 
+        @Override public synchronized void readRow(int frame, int row, byte[] rgba) throws IOException {
+            if (frame < 0 || frame >= metadata.frameCount() || row < 0 || row >= height
+                    || rgba.length != width * 4) throw new IllegalArgumentException("Invalid cape row");
+            verifyAll();
+            readExact(channel, ByteBuffer.wrap(rgba), (long) frame * metadata.frameBytes() + (long) row * rgba.length);
+        }
+
         public synchronized byte[] readFrame(int index) throws IOException {
             if (!channel.isOpen()) throw new java.nio.channels.ClosedChannelException();
             if (index < 0 || index >= metadata.frameCount()) throw new IndexOutOfBoundsException(index);

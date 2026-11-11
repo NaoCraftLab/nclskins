@@ -2594,6 +2594,69 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
+    void sharedWorkerPublishesOwnMaterialBeforeFullGalleryComparisonCompletes() throws Exception {
+        var operations = TestClientGraph.operations(tokens(), new StubProfileApi(), storage(),
+                (collection, id, model) -> skinPng(0xff224488), fixedClock());
+        operations.initialize();
+        var image = new BufferedImage(1024, 1024, BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(4, 6, 0xff335577);
+        image.setRGB(4, 518, 0xff775533);
+        var path = temporaryDirectory.resolve("comparison-queue.png");
+        ImageIO.write(image, "png", path.toFile());
+        String capeId = "provider:cape:" + operations.importCape(TestFixtures.ACCOUNT_ID, path, "Synthetic").texture().sha256();
+        var jobs = new java.util.ArrayDeque<Runnable>();
+        var client = new ClientExecutor() {
+            public boolean isClientThread() { return true; }
+            public void execute(Runnable action) { action.run(); }
+        };
+        var comparison = operations.loadCapePreviewResult(capeId, jobs::add);
+        jobs.remove().run();
+        assertFalse(comparison.isDone(), "Full timeline comparison must yield the single worker before completion");
+        var opened = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try { return operations.openPreparedCapePreview(TestFixtures.ACCOUNT_ID, Optional.empty(), capeId,
+                    jobs::add, client, true).orElseThrow(); }
+            catch (Exception failure) { throw new java.util.concurrent.CompletionException(failure); }
+        }, jobs::add);
+        var live = new java.util.HashSet<com.naocraftlab.skins.client.TextureRegistry.TextureHandle>();
+        var registry = new com.naocraftlab.skins.client.TextureRegistry() {
+            public TextureHandle register(TextureKind kind, String hash, Path file) { throw new AssertionError("PNG fallback"); }
+            public TextureHandle register(TextureKind kind, String hash, byte[] bytes) { throw new AssertionError("PNG fallback"); }
+            public TextureHandle registerRgba(TextureKind kind, String hash, int width, int height, byte[] rgba, CpuLease lease) {
+                assertEquals(512 * 256 * 4, rgba.length);
+                var handle = new TextureHandle(hash, width, height);
+                live.add(handle);
+                lease.close();
+                return handle;
+            }
+            public com.naocraftlab.skins.client.TextureUseValidity capture(TextureHandle handle) {
+                return () -> live.contains(handle);
+            }
+            public void release(TextureHandle handle) { live.remove(handle); }
+            public void close() { live.clear(); }
+        };
+        try (var cache = new PreviewAssetCache<String>(registry,
+                com.naocraftlab.skins.client.TextureRegistry.TextureKind.IMAGE,
+                com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+            cache.requestCape("own", capeId, () -> opened.thenApply(Optional::of),
+                    () -> { throw new AssertionError("Static fallback"); }, false, true, true,
+                    () -> { throw new AssertionError("Upload failure"); });
+            while (cache.handle("own").isEmpty()) jobs.remove().run();
+            var own = cache.capeState("own", capeId);
+            assertEquals(PreviewAssetCache.CapeStatus.READY, own.status());
+            assertTrue(own.validity().isValid());
+            assertTrue(cache.capeHasElytra("own"));
+            assertTrue(cache.capeGlint("own"));
+            assertFalse(comparison.isDone(), "Own uploaded material, not a ViewSpec node, must precede full comparison");
+        }
+        assertTrue(live.isEmpty());
+        while (!jobs.isEmpty()) jobs.remove().run();
+        var result = comparison.join().orElseThrow();
+        try (var lease = operations.acquirePreparedCapePreview(capeId).orElseThrow()) {
+            assertEquals(Optional.of(com.naocraftlab.skins.core.png.GalleryCapeComparison.key(lease.asset())), result.comparison().key());
+        }
+    }
+
+    @Test
     void importedPreparedCapeIsAvailableToOfflineCardAndPlayerPreview() throws Exception {
         NclSkinsStorage storage = storage();
         DefaultClientOperations operations = TestClientGraph.operations(
@@ -2643,6 +2706,11 @@ final class DefaultClientOperationsTest {
             }
             assertTrue(operations.loadCapePreview(capeId).isPresent(),
                     "editor and player preview must load the selected personal cape offline");
+            try (var lease = operations.acquirePreparedCapePreview(capeId).orElseThrow()) {
+                var rich = operations.loadCapePreviewResult(capeId).orElseThrow();
+                assertEquals(Optional.of(lease.asset().visualSha256()), rich.visualSha256());
+                assertArrayEquals(operations.loadCapePreview(capeId).orElseThrow(), rich.bytes());
+            }
             if (path.equals(hdPath)) {
                 assertEquals(1024, ImageIO.read(new java.io.ByteArrayInputStream(
                         operations.loadCapePreview(capeId).orElseThrow())).getWidth(),
@@ -2654,6 +2722,9 @@ final class DefaultClientOperationsTest {
             };
             try (var preview = operations.openPreparedCapePreview(TestFixtures.ACCOUNT_ID,
                     Optional.empty(), capeId, Runnable::run, client).orElseThrow()) {
+                try (var lease = operations.acquirePreparedCapePreview(capeId).orElseThrow()) {
+                    assertEquals(Optional.of(lease.asset().visualSha256()), preview.visualSha256());
+                }
                 try (var frame = preview.nextFrame(-1).join().orElseThrow()) {
                     assertEquals(0, frame.index());
                 }
@@ -2756,6 +2827,36 @@ final class DefaultClientOperationsTest {
     }
 
     @Test
+    void sameFirstFrameDifferentAnimationUsesFullPreparedIdentity() throws Exception {
+        NclSkinsStorage storage = storage();
+        DefaultClientOperations operations = TestClientGraph.operations(tokens(), new StubProfileApi(), storage,
+                (collection, id, model) -> skinPng(0xff224488), fixedClock());
+        operations.initialize();
+        List<PreviewAssets.CapeResult> results = new java.util.ArrayList<>();
+        for (int color : new int[]{0xff668822, 0xff884422}) {
+            Path path = temporaryDirectory.resolve("animation-" + color + ".gif");
+            try (var output = new javax.imageio.stream.MemoryCacheImageOutputStream(Files.newOutputStream(path))) {
+                var writer = ImageIO.getImageWritersByFormatName("gif").next();
+                try {
+                    writer.setOutput(output);
+                    writer.prepareWriteSequence(null);
+                    for (int frameColor : new int[]{0xff224466, color}) {
+                        BufferedImage frame = new BufferedImage(64, 32, BufferedImage.TYPE_INT_ARGB);
+                        frame.setRGB(3, 5, frameColor);
+                        writer.writeToSequence(new javax.imageio.IIOImage(frame, null, null), null);
+                    }
+                    writer.endWriteSequence();
+                } finally { writer.dispose(); }
+            }
+            var imported = operations.importCape(TestFixtures.ACCOUNT_ID, path, "Animation");
+            results.add(operations.loadCapePreviewResult("provider:cape:" + imported.texture().sha256()).orElseThrow());
+        }
+        assertArrayEquals(results.get(0).bytes(), results.get(1).bytes());
+        assertTrue(results.get(0).visualSha256().isPresent());
+        assertNotEquals(results.get(0).visualSha256(), results.get(1).visualSha256());
+    }
+
+    @Test
     void savedLegacyStaticCapeUsesBoundedProviderPosterWithoutChangingPlayerBytes() throws Exception {
         NclSkinsStorage storage = storage();
         DefaultClientOperations operations = TestClientGraph.operations(
@@ -2770,6 +2871,9 @@ final class DefaultClientOperationsTest {
             assertEquals(64 * 32 * 4, poster.rgba8().length);
         }
         assertArrayEquals(full, operations.loadCapePreview("provider:cape:" + cape.sha256()).orElseThrow());
+        var result = operations.loadCapePreviewResult("provider:cape:" + cape.sha256()).orElseThrow();
+        assertArrayEquals(full, result.bytes());
+        assertEquals(Optional.of(new PngValidator().projectCanonicalCape(full).renderSha256()), result.visualSha256());
     }
 
     @Test

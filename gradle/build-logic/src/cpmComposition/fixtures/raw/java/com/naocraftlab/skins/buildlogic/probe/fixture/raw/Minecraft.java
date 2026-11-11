@@ -5,4 +5,5 @@ public final class Minecraft {
  public static Minecraft getInstance(){return INSTANCE;}
  public com.naocraftlab.skins.buildlogic.probe.fixture.raw.TextureManager getTextureManager(){return textures;}
  public boolean isSameThread(){return true;}
+ public void execute(Runnable task){task.run();}
 }

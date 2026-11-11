@@ -83,13 +83,22 @@ public final class GalleryPresenter {
                         PreviewInteractionModel.gallery().withCapeMode(mode), Optional.empty(), List.of(), 0, Optional.empty()));
     }
 
-    public record CapeChoice(String id, UiMessage label, Optional<String> texture, boolean hasElytra, Content content) {
+    public record CapeChoice(String id, UiMessage label, Optional<String> texture, boolean hasElytra, Content content,
+            Optional<String> comparisonKey, boolean comparisonPending) {
+        public CapeChoice(String id, UiMessage label, Optional<String> texture, boolean hasElytra, Content content,
+                Optional<String> comparisonKey) {
+            this(id, label, texture, hasElytra, content, comparisonKey, false);
+        }
         public enum Content { TEXTURE, NATIVE, NONE }
+        public CapeChoice(String id, UiMessage label, Optional<String> texture, boolean hasElytra, Content content) {
+            this(id, label, texture, hasElytra, content, Optional.empty());
+        }
         public CapeChoice(String id, UiMessage label, Optional<String> texture, boolean hasElytra) {
             this(id,label,texture,hasElytra,texture.isPresent()?Content.TEXTURE:Content.NONE);
         }
         public CapeChoice {
             Objects.requireNonNull(id); Objects.requireNonNull(label); Objects.requireNonNull(texture); Objects.requireNonNull(content);
+            Objects.requireNonNull(comparisonKey);
             if ((content==Content.TEXTURE)!=texture.isPresent()) throw new IllegalArgumentException("Cape content/texture mismatch");
         }
     }
@@ -97,6 +106,37 @@ public final class GalleryPresenter {
     public record LeftProjection(PlayerAppearanceStage.Appearance appearance,
             com.naocraftlab.skins.client.OuterLayerVisibility mask, DraftInput draft, ControlsInput controls,
             Optional<com.naocraftlab.skins.core.compatibility.SkinCompatibility> compatibility) {}
+
+    record CapeGroup(CapeChoice representative, List<CapeChoice> members) {
+        CapeGroup { members = List.copyOf(members); }
+        boolean contains(String id) { return members.stream().anyMatch(member -> member.id().equals(id)); }
+        UiMessage label() {
+            var label = members.get(members.size() - 1).label();
+            for (int i = members.size() - 2; i >= 0; i--)
+                label = UiMessage.info("nclskins.gallery.cape_sources", members.get(i).label(), label);
+            return label;
+        }
+    }
+
+    static List<CapeGroup> capeGroups(List<CapeChoice> candidates) {
+        var groups = new ArrayList<CapeGroup>();
+        var positions = new java.util.HashMap<String, Integer>();
+        for (var candidate : candidates) {
+            if (candidate.comparisonPending()) continue;
+            var hash = candidate.content() == CapeChoice.Content.TEXTURE ? candidate.comparisonKey() : Optional.<String>empty();
+            Integer position = hash.map(positions::get).orElse(null);
+            if (position == null) {
+                hash.ifPresent(value -> positions.put(value, groups.size()));
+                groups.add(new CapeGroup(candidate, List.of(candidate)));
+            } else {
+                var group = groups.get(position);
+                var members = new ArrayList<>(group.members());
+                members.add(candidate);
+                groups.set(position, new CapeGroup(group.representative(), members));
+            }
+        }
+        return List.copyOf(groups);
+    }
 
     public record ControlsInput(boolean controllerAvailable, com.naocraftlab.skins.client.OuterLayerVisibility liveOptions,
             PreviewInteractionModel transform, Optional<UUID> actionPresetId, List<CapeChoice> capes,
@@ -230,16 +270,19 @@ public final class GalleryPresenter {
             var markedCape=leftDraft.inspectionIdentity().or(() -> nativeAccessories ? Optional.of("CPM")
                     : leftControls.capes().stream().filter(c -> c.texture().isPresent()).map(CapeChoice::id).findFirst()
                             .or(() -> leftControls.capes().stream().filter(c -> c.id().equals("none")).map(CapeChoice::id).findFirst()));
-            for(int i=0;i<leftControls.capes().size();i++) {
-                int rowCount=Math.min(capeColumns,leftControls.capes().size()-(i/capeColumns)*capeColumns);
+            var groups = capeGroups(leftControls.capes());
+            for(int i=0;i<groups.size();i++) {
+                int rowCount=Math.min(capeColumns,groups.size()-(i/capeColumns)*capeColumns);
                 int rowWidth=rowCount*(capeSize+2)-2;
-                var c=leftControls.capes().get(i);Bounds b=new Bounds(contentX+(contentWidth-rowWidth)/2+(i%capeColumns)*(capeSize+2),leftY+(i/capeColumns)*(capeSize+2),capeSize,capeSize);
-                var card=new ViewSpec.Widget("gallery.inspect."+c.id(),ViewSpec.WidgetKind.CAPE_CARD,b,c.label(),markedCape.filter(c.id()::equals).filter(id -> leftControls.capes().size()>1 || c.content()!=CapeChoice.Content.NONE).map(id -> "active"),Optional.of(c.label()),!s.busy(),true,0);
+                var group=groups.get(i);
+                var c=group.representative();Bounds b=new Bounds(contentX+(contentWidth-rowWidth)/2+(i%capeColumns)*(capeSize+2),leftY+(i/capeColumns)*(capeSize+2),capeSize,capeSize);
+                var label=group.label();
+                var card=new ViewSpec.Widget("gallery.inspect."+c.id(),ViewSpec.WidgetKind.CAPE_CARD,b,label,markedCape.filter(group::contains).filter(id -> groups.size()>1 || c.content()!=CapeChoice.Content.NONE).map(id -> "active"),Optional.of(label),!s.busy(),true,0);
                 widgets.add(c.content()==CapeChoice.Content.NATIVE ? card.withActivation(!s.busy()&&leftControls.accessories().canInspect(),null) : card);
                 if(c.texture().isEmpty()) decorations.add(new ViewSpec.IconDecoration("gallery.inspect."+c.id()+(c.content()==CapeChoice.Content.NATIVE ? ".icon" : ".none"),b,c.content()==CapeChoice.Content.NATIVE ? GuiIcon.SOURCE_CPM : GuiIcon.APPEARANCE_CAPE_NONE,"gallery.inspect."+c.id(),0.8F,1.0F));
                 if(c.texture().isPresent()) equipment.add(new AppearanceCard.Cape(c.texture().orElseThrow(),com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.CAPE,c.hasElytra()).present("gallery.inspect."+c.id()+".preview",b).asProviderThumbnail());
             }
-            leftY+=((leftControls.capes().size()+capeColumns-1)/capeColumns)*(capeSize+2);
+            leftY+=((groups.size()+capeColumns-1)/capeColumns)*(capeSize+2);
         }
         if (controls.retained().isPresent()) widgets.replaceAll(widget -> widget.id().startsWith("gallery.outer_layer.")
                 || widget.id().startsWith("gallery.inspect.") || widget.id().equals("gallery.preview_mode")

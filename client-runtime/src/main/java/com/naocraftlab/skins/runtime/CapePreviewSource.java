@@ -8,6 +8,8 @@ import java.util.concurrent.CompletableFuture;
 public interface CapePreviewSource extends AutoCloseable {
     CompletableFuture<Optional<Frame>> nextFrame(int installedIndex);
     default boolean thumbnail() { return false; }
+    default Optional<String> visualSha256() { return Optional.empty(); }
+    default Optional<String> comparisonKey() { return Optional.empty(); }
     default void playing(boolean playing) {}
     void installed(int index);
     @Override void close() throws IOException;

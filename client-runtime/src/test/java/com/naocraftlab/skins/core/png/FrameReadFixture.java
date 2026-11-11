@@ -9,6 +9,7 @@ import java.util.function.BooleanSupplier;
 public final class FrameReadFixture {
     public final AtomicInteger failures = new AtomicInteger();
     public final AtomicInteger reads = new AtomicInteger();
+    public final AtomicInteger rowReads = new AtomicInteger();
     public final AtomicInteger opens = new AtomicInteger();
     public final AtomicInteger transientOpenFailures = new AtomicInteger();
     public final AtomicInteger integrityOpenFailures = new AtomicInteger();
@@ -41,6 +42,10 @@ public final class FrameReadFixture {
 
     private PreparedCapeAsset.BackingLease wrap(PreparedCapeAsset.BackingLease delegate) {
         return new PreparedCapeAsset.BackingLease() {
+            public void readRow(int frame, int row, byte[] rgba) throws IOException {
+                rowReads.incrementAndGet();
+                delegate.readRow(frame, row, rgba);
+            }
             public byte[] readFrame(int index) throws IOException {
                 reads.incrementAndGet();
                 if (closeNextRead.getAndSet(false)) delegate.close();

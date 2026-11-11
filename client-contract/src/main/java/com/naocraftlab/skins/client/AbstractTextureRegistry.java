@@ -320,6 +320,17 @@ public abstract class AbstractTextureRegistry<R> implements TextureRegistry {
             releaseRawGpu(gpuBytes);
             throw failure;
         }
+        if (closed) {
+            IllegalStateException failure = new IllegalStateException("Texture registry is closed");
+            try {
+                unload(loaded.resource());
+            } catch (RuntimeException unloadFailure) {
+                failure.addSuppressed(unloadFailure);
+            } finally {
+                releaseRawGpu(gpuBytes);
+            }
+            throw failure;
+        }
         TextureKey collision = handles.get(loaded.handle());
         if (collision != null) {
             IllegalStateException failure = new IllegalStateException(

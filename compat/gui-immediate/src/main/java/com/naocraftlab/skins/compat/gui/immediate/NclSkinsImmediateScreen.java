@@ -435,6 +435,7 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         if (runtime.closed()) {
             return false;
         }
+        runtime.pointerFocusChanged();
         nativeDispatchDepth++;
         try {
         ViewSpec clickView = currentView();
@@ -1849,6 +1850,8 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                     () -> runtime.loadCapePreview(backEquipment.capeId()),
                     ViewHostPolicy.capeCardHovered(view, backEquipment, lastMouseX, lastMouseY),
                     () -> {});
+            runtime.reconcileCapePreviewIdentity(backEquipment.capeId(),
+                    capeTextures.capeVisualIdentity(key, backEquipment.capeId()));
         }
         previewSlots.entrySet().removeIf(entry -> {
             if (requested.contains(entry.getKey())) return false;

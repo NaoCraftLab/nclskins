@@ -446,6 +446,13 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
                         .orElse(com.naocraftlab.skins.client.TextureUseValidity.INVALID);
     }
 
+    public synchronized Optional<String> capeVisualIdentity(K key, Object assetIdentity) {
+        Entry entry = entries.get(Objects.requireNonNull(key, "key"));
+        if (closed || entry == null || entry.invalidPrepared
+                || !Objects.equals(entry.assetIdentity, assetIdentity) || entry.prepared == null) return Optional.empty();
+        return entry.prepared.comparisonKey();
+    }
+
     public synchronized boolean capeGlint(K key) {
         Entry entry = entries.get(Objects.requireNonNull(key, "key"));
         return entry != null && (entry.handle != null ? entry.installedGlint

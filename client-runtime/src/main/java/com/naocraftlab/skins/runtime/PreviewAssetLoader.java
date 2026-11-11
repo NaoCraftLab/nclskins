@@ -16,8 +16,11 @@ final class PreviewAssetLoader implements PreviewAssets {
     private final ClientExecutor clientExecutor;
     private final Executor worker;
     private final DiagnosticSink diagnostics;
-    private final Map<String, byte[]> previewBytes = new ConcurrentHashMap<>();
-    private final Map<String, CompletableFuture<Optional<byte[]>>> previewInFlight = new ConcurrentHashMap<>();
+    private final Map<String, CachedPreview> previewBytes = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<Optional<CapeResult>>> previewInFlight = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<Optional<CapeResult>>> capeInFlight = new ConcurrentHashMap<>();
+    private final java.util.Set<String> capeMetadataResolved = ConcurrentHashMap.newKeySet();
+    private final Map<String, CapeComparison> capeComparisons = new LinkedHashMap<>(32, .75f, true);
     private final Map<String, ProviderCapePoster> providerPosters = new LinkedHashMap<>(16, .75f, true);
     private final Map<String, CompletableFuture<Optional<ProviderCapePoster>>> providerInFlight = new ConcurrentHashMap<>();
     private static final long MAX_POSTER_BYTES = 16L * 1024 * 1024;
@@ -29,6 +32,11 @@ final class PreviewAssetLoader implements PreviewAssets {
     private int activeSneaky;
     private final Map<String, SneakyResult> sneakyCache = new LinkedHashMap<>(32, .75f, true);
     private long sneakyCacheBytes;
+
+    private record CachedPreview(byte[] bytes, Optional<String> visualSha256) {
+        CachedPreview { bytes = bytes.clone(); }
+        @Override public byte[] bytes() { return bytes.clone(); }
+    }
 
     PreviewAssetLoader(ClientExecutor clientExecutor, Executor worker, DiagnosticSink diagnostics) {
         this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
@@ -87,9 +95,13 @@ final class PreviewAssetLoader implements PreviewAssets {
                     SneakyResult ready;
                     try {
                         new com.naocraftlab.skins.core.png.PngValidator().projectStoredRender(demand.input);
-                        ready = new com.naocraftlab.skins.core.png.SneakyCapeDecoder().decode(demand.input)
-                                .map(cape -> new SneakyResult(SneakyStatus.VALUE, cape.bytes(),
-                                        cape.renderSha256(), cape.hasElytra())).orElseGet(SneakyResult::absence);
+                        var decoded = new com.naocraftlab.skins.core.png.SneakyCapeDecoder().decode(demand.input);
+                        if (decoded.isEmpty()) ready = SneakyResult.absence();
+                        else {
+                            var cape = decoded.orElseThrow();
+                            ready = new SneakyResult(SneakyStatus.VALUE, cape.bytes(), cape.renderSha256(), cape.hasElytra(),
+                                    Optional.of(com.naocraftlab.skins.core.png.GalleryCapeComparison.key(cape.bytes())));
+                        }
                     } catch (Exception failure) {
                         diagnose(failure);
                         ready = SneakyResult.failure();
@@ -159,10 +171,23 @@ final class PreviewAssetLoader implements PreviewAssets {
         }
     }
 
-    public void installWarmed(Map<String, byte[]> warmed, boolean replaceResources) {
+    public synchronized void installWarmed(Map<String, byte[]> warmed, boolean replaceResources) {
         if (disposed) return;
         if (replaceResources) previewBytes.keySet().removeIf(key -> key.startsWith("resource:cape:"));
-        warmed.forEach((key, bytes) -> previewBytes.put(key, bytes.clone()));
+        var retired = new java.util.ArrayList<CompletableFuture<Optional<CapeResult>>>();
+        for (var requests : java.util.List.of(previewInFlight, capeInFlight)) {
+            requests.forEach((key, future) -> {
+                if ((replaceResources && key.startsWith("resource:cape:")) || warmed.containsKey(key)) {
+                    if (requests.remove(key, future)) retired.add(future);
+                }
+            });
+        }
+        capeMetadataResolved.removeIf(key -> warmed.containsKey(key)
+                || replaceResources && key.startsWith("resource:cape:"));
+        capeComparisons.keySet().removeIf(key -> warmed.containsKey(key)
+                || replaceResources && key.startsWith("resource:cape:"));
+        warmed.forEach((key, bytes) -> previewBytes.put(key, new CachedPreview(bytes, Optional.empty())));
+        retired.forEach(future -> future.complete(Optional.empty()));
     }
 
     @Override
@@ -257,9 +282,14 @@ final class PreviewAssetLoader implements PreviewAssets {
     public synchronized void close() {
         disposed = true;
         invalidateSneaky();
-        previewInFlight.values().forEach(future -> future.complete(Optional.empty()));
+        var retired = new java.util.ArrayList<>(previewInFlight.values());
+        retired.addAll(capeInFlight.values());
         previewInFlight.clear();
+        capeInFlight.clear();
         previewBytes.clear();
+        capeMetadataResolved.clear();
+        capeComparisons.clear();
+        retired.forEach(future -> future.complete(Optional.empty()));
         invalidateProviderPosters();
         providerInFlight.values().forEach(future -> future.complete(Optional.empty()));
         providerInFlight.clear();
@@ -275,62 +305,123 @@ final class PreviewAssetLoader implements PreviewAssets {
                 () -> DiagnosticDetails.failure(failure));
     }
 
-    public CompletableFuture<Optional<byte[]>> requestPreview(
-            String key, Source source) {
+    public synchronized CompletableFuture<Optional<byte[]>> requestPreview(String key, Source source) {
         if (disposed) throw new IllegalStateException("Preview loader is closed");
-        byte[] cached = previewBytes.get(key);
-        if (cached != null) {
-            return publishPreview(Optional.of(cached.clone()));
+        CachedPreview cached = previewBytes.get(key);
+        if (cached != null) return publishPreview(Optional.of(cached.bytes()));
+        var pending = previewInFlight.get(key);
+        if (pending == null) {
+            pending = new CompletableFuture<>();
+            previewInFlight.put(key, pending);
+            loadPreview(key, () -> source.get().map(bytes -> new CapeResult(bytes, Optional.empty())),
+                    previewInFlight, pending, false);
         }
+        return pending.thenApply(value -> value.map(CapeResult::bytes));
+    }
 
-        CompletableFuture<Optional<byte[]>> publication;
-        boolean start;
-        synchronized (previewInFlight) {
-            publication = previewInFlight.get(key);
-            start = publication == null;
-            if (start) {
-                publication = new CompletableFuture<>();
-                previewInFlight.put(key, publication);
+    @Override
+    public synchronized CompletableFuture<Optional<CapeResult>> requestCapePreview(String key, CapeSource source) {
+        if (disposed) throw new IllegalStateException("Preview loader is closed");
+        CachedPreview cached = previewBytes.get(key);
+        CapeComparison comparison = capeComparisons.get(key);
+        if (cached != null && capeMetadataResolved.contains(key) && comparison != null) {
+            CompletableFuture<Optional<CapeResult>> publication = new CompletableFuture<>();
+            CapeResult ready = new CapeResult(cached.bytes(), cached.visualSha256(), comparison);
+            onClient(() -> publication.complete(Optional.of(ready)));
+            return publication;
+        }
+        var existing = capeInFlight.get(key);
+        if (existing != null) return existing;
+        CompletableFuture<Optional<CapeResult>> publication = new CompletableFuture<>();
+        capeInFlight.put(key, publication);
+        var raw = previewInFlight.get(key);
+        if (raw == null) loadPreview(key, source, capeInFlight, publication, true);
+        else raw.whenComplete((ignored, failure) -> {
+            synchronized (PreviewAssetLoader.this) {
+                if (!disposed && capeInFlight.get(key) == publication)
+                    loadPreview(key, source, capeInFlight, publication, true);
             }
-        }
-        CompletableFuture<Optional<byte[]>> shared = publication;
-        if (!start) {
-            return shared.thenApply(bytes -> bytes.map(byte[]::clone));
-        }
+        });
+        return publication;
+    }
 
-                CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return Objects.requireNonNull(source.get(), "preview source result")
-                                .map(byte[]::clone);
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        diagnose(interrupted);
-                        return Optional.<byte[]>empty();
-                    } catch (Exception failure) {
-                        diagnose(failure);
-                        return Optional.<byte[]>empty();
-                    }
-                }, worker)
-                .whenComplete((bytes, failure) -> onClient(() -> {
-                    previewInFlight.remove(key, shared);
-                    if (disposed) {
+    @Override
+    public synchronized Optional<String> cachedCapeVisualIdentity(String key) {
+        if (disposed || !capeMetadataResolved.contains(key)) return Optional.empty();
+        CachedPreview cached = previewBytes.get(key);
+        return cached == null ? Optional.empty() : cached.visualSha256();
+    }
+
+    @Override public synchronized Optional<CapeComparison> cachedCapeComparison(String key) {
+        return disposed ? Optional.empty() : Optional.ofNullable(capeComparisons.get(key));
+    }
+
+    @Override public synchronized void rememberCapeComparison(String key, CapeComparison comparison) {
+        if (!disposed && !staleCatalogPreview(key)) cacheComparison(key, comparison);
+    }
+
+    private void cacheComparison(String key, CapeComparison comparison) {
+        capeComparisons.put(key, comparison);
+        while (capeComparisons.size() > 128) capeComparisons.remove(capeComparisons.keySet().iterator().next());
+    }
+
+    private void loadPreview(String key, CapeSource source,
+            Map<String, CompletableFuture<Optional<CapeResult>>> requests,
+            CompletableFuture<Optional<CapeResult>> shared, boolean metadata) {
+        try {
+            CompletableFuture.supplyAsync(() -> {
+                synchronized (PreviewAssetLoader.this) {
+                    if (disposed || requests.get(key) != shared) return CompletableFuture.completedFuture(Optional.<CapeResult>empty());
+                }
+                try {
+                    var preparation = Objects.requireNonNull(source.getAsync(worker), "preview source result");
+                    shared.whenComplete((ignored, failure) -> {
+                        if (!preparation.isDone()) preparation.cancel(false);
+                    });
+                    return preparation;
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    diagnose(interrupted);
+                    return CompletableFuture.completedFuture(Optional.<CapeResult>empty());
+                } catch (Exception failure) {
+                    diagnose(failure);
+                    return CompletableFuture.completedFuture(Optional.<CapeResult>empty());
+                }
+            }, worker).thenCompose(future -> future).whenComplete((value, failure) -> onClient(() -> {
+                synchronized (PreviewAssetLoader.this) {
+                    boolean current = requests.remove(key, shared);
+                    if (disposed || !current) {
                         shared.complete(Optional.empty());
                         return;
                     }
-                    Optional<byte[]> result = failure == null && bytes != null
-                            ? bytes.map(byte[]::clone)
-                            : Optional.empty();
-                    if (!staleCatalogPreview(key)) {
-                        result.ifPresent(value -> previewBytes.put(key, value.clone()));
+                    Optional<CapeResult> result = failure == null && value != null ? value : Optional.empty();
+                    if (metadata && !staleCatalogPreview(key)) cacheComparison(key,
+                            result.map(CapeResult::comparison).orElseGet(() -> new CapeComparison(Optional.empty())));
+                    if (!staleCatalogPreview(key)) result.ifPresent(entry -> {
+                        if (metadata || !capeMetadataResolved.contains(key))
+                            previewBytes.put(key, new CachedPreview(entry.bytes(), entry.visualSha256()));
+                        if (metadata) capeMetadataResolved.add(key);
+                    });
+                    if (metadata && result.isEmpty()) {
+                        CachedPreview cached = previewBytes.get(key);
+                        if (cached != null) result = Optional.of(new CapeResult(cached.bytes(), cached.visualSha256()));
                     }
-                    shared.complete(result.map(byte[]::clone));
-                }));
-        return shared.thenApply(bytes -> bytes.map(byte[]::clone));
+                    shared.complete(result);
+                }
+            }));
+        } catch (RuntimeException rejected) {
+            requests.remove(key, shared);
+            if (metadata && !disposed && !staleCatalogPreview(key)) cacheComparison(key, new CapeComparison(Optional.empty()));
+            diagnose(rejected);
+            shared.complete(Optional.empty());
+        }
     }
 
-    public void invalidateCatalogPreviews() {
+    public synchronized void invalidateCatalogPreviews() {
         catalogPreviewEpoch++;
         previewBytes.keySet().removeIf(key -> key.startsWith("catalog:"));
+        capeMetadataResolved.removeIf(key -> key.startsWith("catalog:"));
+        capeComparisons.keySet().removeIf(key -> key.startsWith("catalog:"));
         invalidateProviderPosters();
     }
 

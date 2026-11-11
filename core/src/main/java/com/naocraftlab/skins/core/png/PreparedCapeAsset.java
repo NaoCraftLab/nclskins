@@ -51,6 +51,7 @@ public final class PreparedCapeAsset {
         BackingLease openThumbnail(Metadata metadata) throws IOException;
     }
     public interface BackingLease extends AutoCloseable {
+        void readRow(int frame, int row, byte[] rgba) throws IOException;
         byte[] readFrame(int index) throws IOException;
         Thumbnail readThumbnail(int index) throws IOException;
         void verifyAll() throws IOException;

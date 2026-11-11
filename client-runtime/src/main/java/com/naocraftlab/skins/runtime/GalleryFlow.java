@@ -43,6 +43,10 @@ final class GalleryFlow {
     private long sneakyTicket;
     private SneakyPreparation sneaky;
     private SneakyPreparation displayedSneaky;
+    private final java.util.Map<String, CapeIdentity> capeIdentities = new java.util.HashMap<>();
+    private final java.util.Map<String, String> pendingCapeComparisons = new java.util.HashMap<>();
+
+    private record CapeIdentity(String scope, Optional<String> comparisonKey) {}
 
     private static final class SneakyPreparation {
         final ViewSpec.BodySource source;
@@ -131,6 +135,8 @@ final class GalleryFlow {
 
     private void selectDraft(AppearancePreset preset) {
         skinSelectionGeneration++;
+        capeIdentities.clear();
+        pendingCapeComparisons.clear();
         state.inspectionIdentity = null;
         clearAccessories();
         state.selectedPresetId = preset == null ? null : preset.id();
@@ -142,6 +148,8 @@ final class GalleryFlow {
 
     void discardDraft() {
         state.openingGeneration++;
+        capeIdentities.clear();
+        pendingCapeComparisons.clear();
         state.inspectionIdentity = null;
         clearBody();
         clearAccessories();
@@ -232,6 +240,10 @@ final class GalleryFlow {
     }
 
     private List<GalleryPresenter.CapeChoice> capeChoices(boolean includeNative) {
+        return capeChoices(includeNative, true);
+    }
+
+    private List<GalleryPresenter.CapeChoice> capeChoices(boolean includeNative, boolean withIdentity) {
         var result = new java.util.ArrayList<GalleryPresenter.CapeChoice>();
         AppearancePreset selected = context.findPreset(state.selectedPresetId);
         var channel = context.snapshot().providers().cape();
@@ -287,8 +299,67 @@ final class GalleryFlow {
         }
         if (applicable > 0 && allAbsent) result.add(new GalleryPresenter.CapeChoice("none",
                 UiMessage.info("nclskins.editor.no_cape"), Optional.empty(), false));
-        return List.copyOf(result);
+        if (!withIdentity) return List.copyOf(result);
+        String scope = capeIdentityScope();
+        return result.stream().map(candidate -> {
+            Optional<String> hash = Optional.empty();
+            boolean pending = false;
+            if (candidate.id().equals("SNEAKY") && sneakyCurrent(sneaky)
+                    && sneaky.result != null && sneaky.result.status() == PreviewAssets.SneakyStatus.VALUE)
+                hash = sneaky.result.comparisonKey();
+            else if (candidate.texture().isPresent()) {
+                String capeId = candidate.texture().orElseThrow();
+                var ready = context.prepareCapeComparison(capeId);
+                ready.ifPresent(value -> {
+                    var known = capeIdentities.get(capeId);
+                    if (value.key().isPresent() || known == null || !known.scope().equals(scope))
+                        capeIdentities.put(capeId, new CapeIdentity(scope, value.key()));
+                });
+                var identity = capeIdentities.get(capeId);
+                if (identity != null && identity.scope().equals(scope)) hash = identity.comparisonKey();
+                else pending = true;
+            }
+            return new GalleryPresenter.CapeChoice(candidate.id(), candidate.label(), candidate.texture(),
+                    candidate.hasElytra(), candidate.content(), hash, pending);
+        }).toList();
     }
+
+    private String capeIdentityScope() {
+        var preset = context.findPreset(state.selectedPresetId);
+        return context.previewSource(preset == null ? "current-player" : preset.skin().optionalAssetId()
+                        .map(id -> "asset:" + id).orElse("provider:default"),
+                context.currentPlayerVariant(), Optional.ofNullable(state.selectedPresetId), skinSelectionGeneration)
+                + ":" + state.openingGeneration;
+    }
+
+    Optional<String> captureCapeIdentityScope(String capeId) {
+        if (!state.draftInitialized || !context.galleryReady()) return Optional.empty();
+        return capeChoices(false, false).stream().anyMatch(c -> c.texture().filter(capeId::equals).isPresent())
+                ? Optional.of(capeIdentityScope()) : Optional.empty();
+    }
+
+    boolean beginCapeComparison(String capeId, String scope) {
+        pendingCapeComparisons.values().removeIf(value -> !value.equals(scope));
+        return pendingCapeComparisons.putIfAbsent(capeId, scope) == null;
+    }
+
+    boolean acceptCapeIdentity(String capeId, String scope, Optional<String> comparisonKey) {
+        if (!captureCapeIdentityScope(capeId).filter(scope::equals).isPresent()) return false;
+        pendingCapeComparisons.remove(capeId, scope);
+        capeIdentities.values().removeIf(identity -> !identity.scope().equals(scope));
+        var identity = new CapeIdentity(scope, comparisonKey);
+        return !identity.equals(capeIdentities.put(capeId, identity));
+    }
+
+    String capeFocusScope() { return capeIdentityScope(); }
+
+    Optional<String> capeFocusTarget(String widgetId) {
+        if (widgetId == null || !widgetId.startsWith("gallery.inspect.")) return Optional.empty();
+        String id = widgetId.substring("gallery.inspect.".length());
+        return GalleryPresenter.capeGroups(capeChoices()).stream().filter(group -> group.contains(id))
+                .map(group -> "gallery.inspect." + group.representative().id()).findFirst();
+    }
+
 
     private Optional<ViewSpec.BodySource> sneakySource() {
         var preset = context.findPreset(state.selectedPresetId);
@@ -367,11 +438,9 @@ final class GalleryFlow {
     }
 
     private String inspectionScope() {
-        var preset = context.findPreset(state.selectedPresetId);
-        return context.previewSource(preset == null ? "current-player" : preset.skin().optionalAssetId()
-                        .map(id -> "asset:" + id).orElse("provider:default"),
-                context.currentPlayerVariant(), Optional.ofNullable(state.selectedPresetId), skinSelectionGeneration)
-                + ":" + previewMask() + ":" + capeChoices(false)
+        return capeIdentityScope() + ":" + previewMask() + ":" + capeChoices(false, false).stream()
+                        .filter(c -> c.id().equals(state.inspectionIdentity))
+                        .map(c -> java.util.List.of(c.id(), c.texture(), c.hasElytra(), c.content())).toList()
                 + ":" + context.snapshot().providers().cape().configurationRevision();
     }
 
@@ -828,7 +897,7 @@ final class GalleryFlow {
                     || bodyPreview != null && !previewStillCurrent(bodyPreview)) return true;
             var capes = capeChoices();
             String id = widgetId.substring("gallery.inspect.".length());
-            if (capes.stream().noneMatch(c -> c.id().equals(id))) return true;
+            if (GalleryPresenter.capeGroups(capes).stream().noneMatch(group -> group.representative().id().equals(id))) return true;
             if (id.equals("CPM") && (accessoryPreview==null || !accessoryStillCurrent(accessoryPreview) || !accessories.canInspect())) return true;
             state.inspectionIdentity = !capes.isEmpty() && capes.get(0).id().equals(id)
                     && state.inspectionIdentity != null ? null : id;
@@ -1097,6 +1166,7 @@ final class GalleryFlow {
         PreviewRenderer.DisplayKind currentDisplayKind();
         Optional<ViewSpec.BodySource> previewSource(String revision, SkinVariant variant, Optional<UUID> presetId, long draftGeneration);
         boolean galleryReady();
+        Optional<PreviewAssets.CapeComparison> prepareCapeComparison(String capeId);
         AccountUiPreferences uiPreferences();
         void submitSections(UiPreferencesPort.GallerySectionsUpdate update, InteractionOrigin origin);
         Optional<LibraryEditorPort.GalleryScope> captureGalleryMetadataScope();

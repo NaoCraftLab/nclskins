@@ -115,7 +115,10 @@ public final class ResourceLocationTextureRegistry
             resource.registration().retire();
             NativeTextureUploadTracker.forget(resource.texture());
         }
-        Minecraft.getInstance().getTextureManager().release(resource.location());
+        var manager = Minecraft.getInstance().getTextureManager();
+        if (manager.getTexture(resource.location(), null) == resource.texture()) {
+            manager.release(resource.location());
+        }
         resource.closeStagedFile();
     }
 
@@ -141,6 +144,7 @@ public final class ResourceLocationTextureRegistry
                 () -> { });
         NativeTextureUploadTracker.track(texture, registration);
         try {
+            ((RegisteredSkinTexture) texture).nclskins$skinRegistration(registration);
             ((RegisteredSkinTexture) texture).nclskins$registeredSkinLocation(location);
             Minecraft.getInstance().getTextureManager().register(location, texture);
         } catch (RuntimeException failure) {

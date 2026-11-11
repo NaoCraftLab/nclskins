@@ -278,6 +278,7 @@ final class GalleryPreviewInteractionJoinTest {
                     old.presets().stream().map(p -> p.id().equals(GalleryRuntimeSelectionTest.B)
                             ? p.withOfflineCape(new LocalCapeReference(null, "c".repeat(64), true)) : p).toList(), old.updatedAt()));
             f.runtime.dispatchWidget("gallery.reset"); f.drain(); f.selectB();
+            f.drain();
             var original = f.storage.loadOrCreateAccount(GalleryRuntimeSelectionTest.ACCOUNT).presets().stream()
                     .filter(p -> p.id().equals(GalleryRuntimeSelectionTest.B)).findFirst().orElseThrow();
             GalleryInspectLayersTest.ordinary(f);

@@ -1150,6 +1150,8 @@ public final class CpmOwnedPreviewDispatchProbe {
             siblingInnerFocusConsumers(type,screen,owner);
             if(owner.contains("submission")) {
                 fixture.offlineCapeCapability(true);
+                fixture.runtime.view(854,480,0,0);
+                fixture.drainWorkers();
                 for(String branch:List.of(".more","gallery.inspect.")) {
                     var current=fixture.runtime.view(854,480,0,0);
                     var target=current.widgets().stream().filter(w->branch.equals(".more")?w.id().endsWith(branch):w.id().startsWith(branch)).filter(w->w.enabled()&&w.visible()).findFirst().orElseThrow();

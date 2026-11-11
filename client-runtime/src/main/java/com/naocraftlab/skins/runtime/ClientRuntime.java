@@ -201,6 +201,9 @@ public final class ClientRuntime implements AutoCloseable {
 
     private final GalleryFlow galleryFlow = new GalleryFlow(new GalleryFlow.Context() {
         public PreviewAssets previewAssets() { return previewAssets; }
+        public Optional<PreviewAssets.CapeComparison> prepareCapeComparison(String capeId) {
+            return ClientRuntime.this.prepareGalleryCapeComparison(capeId);
+        }
         public CompletableFuture<Optional<byte[]>> loadSkinPreview(SkinReference skin) { return ClientRuntime.this.loadSkinPreview(skin); }
         public void onClient(Runnable action) { ClientRuntime.this.onClient(action); }
         public Optional<OuterLayerVisibilityController> outerLayerVisibilityController() { return outerLayerVisibilityController; }
@@ -621,6 +624,8 @@ public final class ClientRuntime implements AutoCloseable {
     private String runtimeFocusScreenId;
     private String runtimeFocusWidgetId;
     private int runtimeFocusTabOrder = -1;
+    private String acknowledgedGalleryCapeFocus;
+    private String galleryCapeFocusScope;
 
     private PreviewRenderer.CapeMode preferredCapeMode = PreviewRenderer.CapeMode.CAPE;
     private UUID preferredCapeAccount;
@@ -2342,6 +2347,23 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private ViewSpec withRuntimeFocus(ViewSpec view) {
+        if ("gallery".equals(view.screenId()) && Objects.equals(galleryCapeFocusScope, galleryFlow.capeFocusScope())) {
+            String previous = "gallery".equals(runtimeFocusScreenId) ? runtimeFocusWidgetId : acknowledgedGalleryCapeFocus;
+            if (previous != null && view.navigationNode(previous).isEmpty()) {
+                var replacement = galleryFlow.capeFocusTarget(previous).filter(id -> !id.equals(previous))
+                        .flatMap(view::navigationNode).filter(ViewSpec.NavigationNode::enabled);
+                if (replacement.isPresent()) {
+                    var node = replacement.orElseThrow();
+                    requestRuntimeFocus("gallery", node.id());
+                    runtimeFocusTabOrder = node.tabOrder();
+                    var offset = ViewNavigationPolicy.ensureVisibleOffset(view, node);
+                    if (offset.isPresent()) {
+                        applyNavigationScroll(node, offset.orElseThrow());
+                        return viewInternal(view.width(), view.height(), 0, 0);
+                    }
+                }
+            }
+        }
         if ("gallery".equals(view.screenId()) && view.screenId().equals(runtimeFocusScreenId)
                 && runtimeFocusWidgetId != null && runtimeFocusTabOrder >= 0
                 && view.navigationNode(runtimeFocusWidgetId).filter(ViewSpec.NavigationNode::enabled).isEmpty()) {
@@ -2396,6 +2418,8 @@ public final class ClientRuntime implements AutoCloseable {
                 && screenId.equals(runtimeFocusScreenId)
                 && appliedRequest.token() == runtimeFocusToken
                 && appliedRequest.widgetId().equals(runtimeFocusWidgetId)) {
+            acknowledgedGalleryCapeFocus = screenId.equals("gallery") && appliedRequest.widgetId().startsWith("gallery.inspect.")
+                    ? appliedRequest.widgetId() : null;
             runtimeFocusScreenId = null;
             runtimeFocusWidgetId = null;
         }
@@ -2559,6 +2583,9 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void requestRuntimeFocus(String screenId, String widgetId) {
+        acknowledgedGalleryCapeFocus = null;
+        galleryCapeFocusScope = "gallery".equals(screenId) && widgetId.startsWith("gallery.inspect.")
+                ? galleryFlow.capeFocusScope() : null;
         if ("add_source".equals(screenId) && catalogImportFlow.rememberChooserFocus(widgetId)) {
             clearRuntimeFocus(screenId);
             return;
@@ -2570,6 +2597,10 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void clearRuntimeFocus(String screenId) {
+        if (screenId.equals("gallery")) {
+            acknowledgedGalleryCapeFocus = null;
+            galleryCapeFocusScope = null;
+        }
         if (Objects.equals(runtimeFocusScreenId, screenId)) {
             runtimeFocusScreenId = null;
             runtimeFocusWidgetId = null;
@@ -2661,8 +2692,15 @@ public final class ClientRuntime implements AutoCloseable {
         });
     }
 
+    public void pointerFocusChanged() {
+        onClient(() -> {
+            if (!disposed) clearRuntimeFocus("gallery");
+        });
+    }
+
     public void pointerPressed(double mouseX, double mouseY, int button) {
         onClient(() -> {
+            clearRuntimeFocus("gallery");
             clearFileImportError();
             if (editorFlow.editor() != null && editorFlow.editor().capeCatalog() != null && editorFlow.editor().capeCatalog().importError() != null) {
                 editorFlow.clearCapeImportError();
@@ -3059,6 +3097,8 @@ public final class ClientRuntime implements AutoCloseable {
                     .findFirst();
         }
         Optional<CatalogRead.ResourceCapeSelection> selectedResource = resource;
+        if (galleryComparisonSessionCurrent() && galleryFlow.captureCapeIdentityScope(capeId).isPresent())
+            requestGalleryCapeMetadata(capeId);
         try {
             worker.execute(() -> {
                 CapePreviewSource preview = null;
@@ -3093,13 +3133,66 @@ public final class ClientRuntime implements AutoCloseable {
         catch (IOException failure) { diagnose(DiagnosticEvent.UNEXPECTED_CLEANUP_FAILED, failure); }
     }
 
+    private boolean galleryComparisonSessionCurrent() {
+        if (disposed || !galleryMainOpen() || state.account == null || importIdentity == null
+                || !state.account.accountId().equals(importIdentity.profileId())) return false;
+        try { return importIdentity.equals(operations.sessionIdentity()); }
+        catch (RuntimeException unavailable) { return false; }
+    }
+
+    private Optional<PreviewAssets.CapeComparison> prepareGalleryCapeComparison(String capeId) {
+        if (!galleryComparisonSessionCurrent()) return Optional.empty();
+        String key = capeId.startsWith("provider:cape:") ? capeId : "cape:" + capeId;
+        var cached = previewAssets.cachedCapeComparison(key);
+        if (cached.isPresent()) return cached;
+        var scope = galleryFlow.captureCapeIdentityScope(capeId);
+        if (scope.isEmpty()) return Optional.empty();
+        if (!galleryFlow.beginCapeComparison(capeId, scope.orElseThrow())) return Optional.empty();
+        requestGalleryCapeMetadata(capeId);
+        return previewAssets.cachedCapeComparison(key);
+    }
+
+    private void requestGalleryCapeMetadata(String capeId) {
+        var scope = galleryFlow.captureCapeIdentityScope(capeId);
+        if (scope.isEmpty() || !galleryComparisonSessionCurrent()) return;
+        String key = capeId.startsWith("provider:cape:") ? capeId : "cape:" + capeId;
+        var loaded = previewAssets.requestCapePreview(key, new PreviewAssets.CapeSource() {
+            public Optional<PreviewAssets.CapeResult> get() throws Exception {
+                return operations.loadCapePreviewResult(capeId);
+            }
+            public CompletableFuture<Optional<PreviewAssets.CapeResult>> getAsync(Executor executor) {
+                return operations.loadCapePreviewResult(capeId, executor);
+            }
+        });
+        loaded.whenComplete((result, failure) -> onClient(() -> {
+            if (!galleryComparisonSessionCurrent()) return;
+            Optional<String> comparison = result == null ? Optional.empty()
+                    : result.flatMap(value -> value.comparison().key());
+            if (galleryFlow.acceptCapeIdentity(capeId, scope.orElseThrow(), comparison)) publish();
+        }));
+    }
+
+    public void reconcileCapePreviewIdentity(String capeId, Optional<String> preparedIdentity) {
+        Objects.requireNonNull(capeId, "capeId");
+        Objects.requireNonNull(preparedIdentity, "preparedIdentity");
+        if (disposed || !galleryMainOpen() || state.account == null || importIdentity == null
+                || !state.account.accountId().equals(importIdentity.profileId())) return;
+        try { if (!importIdentity.equals(operations.sessionIdentity())) return; }
+        catch (RuntimeException unavailable) { return; }
+        galleryFlow.captureCapeIdentityScope(capeId).ifPresent(scope -> {
+            String key = capeId.startsWith("provider:cape:") ? capeId : "cape:" + capeId;
+            Optional<String> identity = preparedIdentity.or(() -> previewAssets.cachedCapeComparison(key).flatMap(PreviewAssets.CapeComparison::key));
+            if (identity.isEmpty()) return;
+            previewAssets.rememberCapeComparison(key, new PreviewAssets.CapeComparison(identity));
+            if (galleryFlow.acceptCapeIdentity(capeId, scope, identity)) publish();
+        });
+    }
+
     public CompletableFuture<Optional<byte[]>> loadCapePreview(String capeId) {
         Objects.requireNonNull(capeId, "capeId");
         if (capeId.startsWith("sneaky:preview:")) return previewAssets.publishPreview(
                 capeId.startsWith("sneaky:preview:gallery:") ? galleryFlow.sneakyPreview(capeId) : editorFlow.sneakyPreview(capeId));
-        if (capeId.startsWith("provider:cape:")) {
-            return loadProviderTexture(new ViewSpec.ProviderTexture(capeId.substring(14), false, false));
-        }
+
         if (capeId.startsWith("resource:cape:") && editorFlow.editor() != null
                 && editorFlow.editor().capeCatalog() != null && state.account != null) {
             Optional<CatalogRead.ResourceCapeSelection> selection =
@@ -3115,7 +3208,9 @@ public final class ClientRuntime implements AutoCloseable {
             }
             return previewAssets.publishPreview(Optional.empty());
         }
-        return previewAssets.requestPreview("cape:" + capeId, () -> operations.loadCapePreview(capeId));
+        String previewKey = capeId.startsWith("provider:cape:") ? capeId : "cape:" + capeId;
+        requestGalleryCapeMetadata(capeId);
+        return previewAssets.requestPreview(previewKey, () -> operations.loadCapePreview(capeId));
     }
 
     public CompletableFuture<Optional<byte[]>> loadCapePreview(ViewSpec.Preview preview) {
@@ -3649,6 +3744,7 @@ public final class ClientRuntime implements AutoCloseable {
     private void dispatchWidgetOnClient(
             String widgetId, boolean reverse, InteractionOrigin origin) {
         ensureNotDisposed();
+        if (origin == InteractionOrigin.POINTER) clearRuntimeFocus("gallery");
         observeImportIdentity();
         clearFileImportError();
         if (state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) {

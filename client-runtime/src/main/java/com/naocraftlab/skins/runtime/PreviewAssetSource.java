@@ -16,6 +16,21 @@ public interface PreviewAssetSource {
 
     Optional<byte[]> loadCapePreview(String capeId) throws Exception;
 
+    default Optional<PreviewAssets.CapeResult> loadCapePreviewResult(String capeId) throws Exception {
+        return loadCapePreview(capeId).map(bytes -> new PreviewAssets.CapeResult(bytes, Optional.empty()));
+    }
+
+    default java.util.concurrent.CompletableFuture<Optional<PreviewAssets.CapeResult>> loadCapePreviewResult(
+            String capeId, Executor worker) {
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try { return loadCapePreviewResult(capeId); }
+            catch (Exception failure) {
+                if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CompletionException(failure);
+            }
+        }, worker);
+    }
+
     default Optional<CatalogRead.PreparedCapeLease> acquirePreparedCapePreview(String capeId)
             throws Exception {
         return Optional.empty();

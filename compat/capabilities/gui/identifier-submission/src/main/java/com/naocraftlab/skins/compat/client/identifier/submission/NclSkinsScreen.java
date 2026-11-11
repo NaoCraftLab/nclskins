@@ -1225,6 +1225,8 @@ public final class NclSkinsScreen extends Screen {
                     surfaceKey, preview.capeId(), () -> runtime.openPreparedCapePreview(preview.capeId(), true),
                     () -> runtime.loadCapePreview(preview.capeId()),
                     ViewHostPolicy.capeCardHovered(current, preview, mouseX, mouseY), () -> {});
+            runtime.reconcileCapePreviewIdentity(preview.capeId(),
+                    capeTextures.capeVisualIdentity(surfaceKey, preview.capeId()));
         }
         skinTextures.retain(skins);
         for (ViewSpec.IconDecoration decoration : current.iconDecorations()) {
@@ -1301,6 +1303,7 @@ public final class NclSkinsScreen extends Screen {
         if (runtime.closed()) {
             return false;
         }
+        runtime.pointerFocusChanged();
         nativeDispatchDepth++;
         try {
         ViewSpec current = runtime.view(
